@@ -257,6 +257,53 @@ pub fn assets(
     for mesh in &mut model.meshes {
         mesh.material = remap[&(mesh.material as usize)];
     }
+    // Importers may declare source units once; runtime models use metres.
+    let units = source
+        .document
+        .as_json()
+        .asset
+        .extras
+        .as_ref()
+        .map(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).map_err(|e| e.to_string()))
+        .transpose()?
+        .and_then(|v| v.get("metersPerUnit").cloned());
+    if let Some(units) = units {
+        let scale = units
+            .as_f64()
+            .ok_or("metersPerUnit must be a positive number")? as f32;
+        if !scale.is_finite() || scale <= 0. {
+            return Err("metersPerUnit must be a positive finite number".into());
+        }
+        for mesh in &mut model.meshes {
+            for value in &mut mesh.positions {
+                *value *= scale;
+            }
+            for value in &mut mesh.bounds {
+                *value *= scale;
+            }
+        }
+        for node in &mut model.nodes {
+            for value in &mut node.transform[12..15] {
+                *value *= scale;
+            }
+        }
+        for skin in &mut model.skins {
+            for matrix in skin.inverse_binds.chunks_exact_mut(16) {
+                for value in &mut matrix[12..15] {
+                    *value *= scale;
+                }
+            }
+        }
+        for clip in &mut model.clips {
+            for track in &mut clip.tracks {
+                if matches!(track.path, TrackPath::Translation) {
+                    for value in &mut track.values {
+                        *value *= scale;
+                    }
+                }
+            }
+        }
+    }
     let offsets = model.offsets()?;
     let (mut lo, mut hi) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
     for (node, offset) in model.nodes.iter().zip(offsets) {

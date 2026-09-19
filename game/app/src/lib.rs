@@ -16,17 +16,61 @@ pub fn bake(platform: &str, app_dir: &str) {
     bake_declared(platform, app_dir, None);
 }
 
-/// The game bake reflects the same surface declaration used by every host.
-pub fn bake_game<G: exact_game::Game>(platform: &str, app_dir: &str) {
-    bake_declared(platform, app_dir, Some(&game_arguments::<G>));
+/// Emit the game interface during the GPU build. Unchanged declarations retain
+/// their timestamp, so a gameplay edit cannot invalidate a host's bake.
+pub fn emit_declaration<G: exact_game::Game>(app_dir: &str) {
+    let app = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join(app_dir);
+    write_declaration::<G>(&app.join(".shells/surfaces.json"));
 }
-fn game_arguments<G: exact_game::Game>(name: &str) -> Option<Vec<String>> {
-    (name == G::NAME).then(|| {
-        <G::Args as exact_game::Args>::FIELDS
-            .iter()
-            .map(|(name, _)| (*name).to_owned())
-            .collect()
-    })
+fn declaration<G: exact_game::Game>() -> serde_json::Value {
+    use exact_game::Args;
+    let defaults = G::Args::default().values();
+    let arguments: Vec<_> = G::Args::FIELDS
+        .iter()
+        .zip(defaults)
+        .map(|((name, _), value)| {
+            let value = match value {
+                Value::Number(n) => serde_json::json!(n),
+                Value::Bool(b) => serde_json::json!(b),
+                Value::Str(s) => serde_json::json!(s.as_ref()),
+                _ => panic!("unsupported surface argument default: {name}"),
+            };
+            serde_json::json!({"name": name, "default": value})
+        })
+        .collect();
+    serde_json::json!({G::NAME: arguments})
+}
+fn write_declaration<G: exact_game::Game>(path: &std::path::Path) {
+    let text = serde_json::to_string_pretty(&declaration::<G>()).unwrap() + "\n";
+    if fs::read_to_string(path).ok().as_deref() != Some(&text) {
+        let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
+        fs::write(&temporary, text).expect("write game surface declaration");
+        fs::rename(temporary, path).expect("publish complete game surface declaration");
+    }
+}
+/// Bake a host from the declaration produced by its GPU build, without linking gameplay.
+pub fn bake_declaration(platform: &str, app_dir: &str) {
+    let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join(app_dir)
+        .join(".shells/surfaces.json");
+    println!("cargo:rerun-if-changed={}", path.display());
+    let declaration: serde_json::Value = serde_json::from_slice(
+        &fs::read(&path).expect("build the game's GPU shell before its host"),
+    )
+    .expect("game surface declaration");
+    bake_declared(
+        platform,
+        app_dir,
+        Some(&|name| declaration_arguments(&declaration, name)),
+    );
+}
+fn declaration_arguments(declaration: &serde_json::Value, name: &str) -> Option<Vec<String>> {
+    declaration
+        .get(name)?
+        .as_array()?
+        .iter()
+        .map(|argument| argument.get("name")?.as_str().map(str::to_owned))
+        .collect()
 }
 
 /// Bake against every surface exported by a module, using its own argument names.
@@ -195,6 +239,91 @@ mod tests {
         fn tick(_: &mut exact_game::World, _: &exact_game::Input, _: &Options) {}
     }
     #[test]
+    fn empty_v5_call_binds_every_surface_default() {
+        #[derive(Default)]
+        struct Defaults;
+        impl exact_gpu::Surface for Defaults {
+            fn arguments(&self) -> Vec<(&'static str, Value)> {
+                vec![
+                    ("seed", Value::Number(7.)),
+                    ("paused", Value::Bool(true)),
+                    ("label", Value::str("default")),
+                ]
+            }
+            fn bind(
+                &mut self,
+                values: &[Value],
+                _: Option<f64>,
+            ) -> Result<(), exact_gpu::SurfaceError> {
+                assert_eq!(
+                    values,
+                    self.arguments()
+                        .into_iter()
+                        .map(|(_, v)| v)
+                        .collect::<Vec<_>>()
+                );
+                Ok(())
+            }
+            fn render(
+                &mut self,
+                _: &exact_gpu::Frame,
+                _: &exact_gpu::wgpu::Device,
+                _: &exact_gpu::wgpu::Queue,
+                _: &exact_gpu::wgpu::TextureView,
+                _: exact_gpu::wgpu::TextureFormat,
+            ) -> bool {
+                false
+            }
+        }
+        let plan =
+            contract::compile("component App\n  view\n    canvas surface=arena()\n").unwrap();
+        let bytes = plan.encode();
+        assert_eq!(&bytes[4..8], &5u32.to_le_bytes());
+        let plan = exact_plan::Plan::decode(&bytes).unwrap();
+        assert_eq!(plan.surfaces[0].mode, exact_plan::SurfaceArgsMode::Named);
+        let mut runner = exact_runner::Runner::boot(
+            plan,
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let update = runner.take_surface_updates().remove(0);
+        static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+            surfaces: &[("arena", 0, || Box::<Defaults>::default())],
+            shaders: &[],
+        };
+        let mut module = exact_gpu::Module::new(&REGISTRY);
+        let id = module.create_headless("arena").unwrap();
+        assert!(module.bind_json(id, &update.arguments_json(), None));
+    }
+
+    #[test]
+    fn d6_declaration_defaults_and_timestamp_are_stable() {
+        let path = std::env::temp_dir().join(format!("d6-declaration-{}.json", std::process::id()));
+        write_declaration::<TestGame>(&path);
+        let before = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1234);
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(before))
+            .unwrap();
+        write_declaration::<TestGame>(&path);
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), before);
+        let value: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(
+            value["arena"][0],
+            serde_json::json!({"name":"seed","default":0.0})
+        );
+        assert_eq!(value["arena"][1]["default"], false);
+        assert_eq!(value["arena"][3]["default"], "");
+        assert!(declaration_arguments(&value, "world").is_none());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn game_bake_checks_declared_names_and_arity_in_unmounted_branches() {
         for (call, valid) in [
             ("arena()", true),
@@ -213,7 +342,7 @@ mod tests {
                 "component App\n  state visible = false\n  view\n    column\n      when visible\n        canvas surface={call}\n      else\n        text \"Menu\"\n"
             )).unwrap();
             let result = contract::bake_with_surface_arguments(plan, NoData, |name| {
-                game_arguments::<TestGame>(name)
+                declaration_arguments(&declaration::<TestGame>(), name)
             });
             assert_eq!(result.is_ok(), valid, "{call}: {:?}", result.as_ref().err());
         }

@@ -55,7 +55,7 @@ pub struct Presenter<D: DataSource> {
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
-    dirty: bool,
+    pub(crate) dirty: bool,
     /// A failed painter's blank fallback cannot bless an update generation.
     last_frame_succeeded: bool,
     /// Which painter was asked for (`Auto` may change its mind after a
@@ -278,8 +278,7 @@ impl<D: DataSource> Presenter<D> {
                 return Err(HostError::Layout(error));
             }
         }
-        // Initial selected layout, assets and intrinsic sizes accepted.
-        // Only now may the app's queued requests reach its executor.
+        // Deliver queued requests after accepting layout, assets and intrinsic sizes.
         let executor = crate::executor::Executor::start(&host.grants());
         if let Some(note) = executor.note() {
             host.log(note.to_string());
@@ -630,8 +629,7 @@ impl<D: DataSource> Presenter<D> {
     ) -> Result<Option<String>, HostError> {
         let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        // Fonts are candidate state too. Keep the running plan's catalog and
-        // caches untouched until its runner has booted successfully.
+        // Preserve live font state until the candidate runner boots successfully.
         let candidate_text = TextEngine::shared_for_assets(&decoded, &self.assets);
         if let Some(reason) = self.assets.take_refusal() {
             return Err(HostError::Asset(reason));
@@ -736,9 +734,7 @@ impl<D: DataSource> Presenter<D> {
     pub(crate) fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
         self.cancel_removed_controls();
-        // What the commit asked the host to run goes to the executor (LLP
-        // 1016 D2); the reply comes back through `pump`. Its commands wait
-        // for the loop (`run_commands`).
+        // LLP 1016 D2: execute requests; pump replies and run commands in the loop.
         for r in self.host.take_requests() {
             let work = r
                 .request
@@ -928,8 +924,7 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // The page's environment (LLP 1012 §1): no safe area and no
-        // software keyboard on this host — every value is zero.
+        // LLP 1012 §1: this host has no safe area or software keyboard.
         let _ = write!(
             s,
             "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0}},\"nodes\":[",
@@ -1055,9 +1050,7 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    /// A press at a point, the path a click takes: hit, then up to a
-    /// `press` handler; focus follows the click (an input takes it, anything
-    /// else drops it). Returns the node pressed, if any.
+    /// Pointer activation releases button focus after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
         if let Some(control) = self.control_target(hit) {
@@ -1094,11 +1087,19 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = e {
             eprintln!("exact: {e}");
         }
+        if self.focus == Some(target)
+            && self
+                .host
+                .kernel()
+                .node(target)
+                .is_some_and(|node| node.props.str(PropId::AccessibilityRole) == Some("button"))
+        {
+            self.focus = None;
+            self.dirty = true;
+        }
         Some(target)
     }
-
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
+    /// Agent tap follows the pointer path.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
         self.boxes();
         if self.host.route_visibility(id).1 || self.placement_hidden(id) {
@@ -1280,7 +1281,7 @@ impl<D: DataSource> Presenter<D> {
         Ok(s)
     }
 
-    /// Agent keyboard input uses the same focus and activation path as evdev.
+    /// Agent keyboard input follows the focused activation path.
     pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
         self.restore_controls();
         let contact = if key == "Space" {

@@ -48,7 +48,7 @@ impl Abi {
             for name in [
                 "gpu_load_headless",
                 "gpu_recover",
-                "gpu_child",
+                "gpu_child_view",
                 "gpu_children_count",
                 "gpu_children_mode",
                 "gpu_placement",
@@ -390,7 +390,13 @@ impl Surfaces {
             for _ in 0..16 {
                 let names = abi
                     .read(b"gpu_assets", c.id)
-                    .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+                    .and_then(|b| {
+                        serde_json::from_slice::<serde_json::Value>(&b)
+                            .ok()
+                            .and_then(|v| {
+                                serde_json::from_value::<Vec<String>>(v["requests"].clone()).ok()
+                            })
+                    })
                     .unwrap_or_default();
                 if names.is_empty() {
                     break;
@@ -498,10 +504,13 @@ impl Surfaces {
                     continue;
                 };
                 let f = child.frame;
+                let name = child.props.str(exact_kernel::PropId::TestId).unwrap_or("");
                 unsafe {
                     abi.symbol::<unsafe extern "C" fn(
                         u32,
                         u32,
+                        *const u8,
+                        usize,
                         f32,
                         f32,
                         f32,
@@ -510,9 +519,11 @@ impl Surfaces {
                         u32,
                         *const u8,
                         usize,
-                    ) -> u32>(b"gpu_child")(
+                    ) -> u32>(b"gpu_child_view")(
                         canvas.id,
                         i as u32,
+                        name.as_ptr(),
+                        name.len(),
                         f.x - node.frame.x,
                         f.y - node.frame.y,
                         f.width,
@@ -613,28 +624,16 @@ impl<D: DataSource> Presenter<D> {
         self.surfaces.error = Some("surface publication did not settle".into());
     }
     pub(crate) fn surface_input(&mut self, id: u32, event: Value) -> bool {
-        let mut cursor = Some(id);
-        while let Some(view) = cursor {
-            if self.surfaces.wants_input(view) {
-                return self.surfaces.input(view, event);
-            }
-            cursor = self.host.kernel().node(view).and_then(|n| n.parent);
-        }
-        false
+        self.input_surface(id)
+            .is_some_and(|view| self.surfaces.input(view, event))
     }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
-        let mut cursor = Some(id);
-        while let Some(view) = cursor {
-            if self.surfaces.wants_input(view) {
-                let (ox, oy, _, _) = self.rect_of(view)?;
-                for (phase, buttons) in [("down", 1), ("up", 0)] {
-                    self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}));
-                }
-                return Some(view);
-            }
-            cursor = self.host.kernel().node(view).and_then(|n| n.parent);
+        let view = self.input_surface(id)?;
+        let (ox, oy, _, _) = self.rect_of(view)?;
+        for (phase, buttons) in [("down", 1), ("up", 0)] {
+            self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}));
         }
-        None
+        Some(view)
     }
     pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
         let rect = self.rect_of(view);
@@ -838,7 +837,7 @@ mod tests {
 #include <string.h>
 void gpu_load_headless(void) {}
 uint32_t gpu_recover(void) { return 0; }
-uint32_t gpu_child(void) { return 0; }
+uint32_t gpu_child_view(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }
 uint32_t gpu_children_mode(void) { return 3; }
 uint32_t gpu_placement(uint32_t id, uint32_t index, float *h, size_t len) {
@@ -913,6 +912,27 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         }
         assert!(Abi::open_path(&path, &Value::Null).is_err());
         drop(Abi::open_path(&path, &compat).unwrap());
+        // A digest-authenticated old child ABI must refuse before any call.
+        let source = path.with_file_name("probe.c");
+        let old = std::fs::read_to_string(&source)
+            .unwrap()
+            .replace("gpu_child_view", "gpu_child");
+        std::fs::write(&source, old).unwrap();
+        assert!(std::process::Command::new("cc")
+            .args(["-shared", "-fPIC"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        let mut old_compat = compat.clone();
+        old_compat["embedded"]["gpu"]["sha256"] =
+            format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap())).into();
+        let error = Abi::open_path(&path, &old_compat)
+            .err()
+            .expect("old ABI refused");
+        assert!(error.contains("gpu_child_view"), "{error}");
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
     }
     #[test]

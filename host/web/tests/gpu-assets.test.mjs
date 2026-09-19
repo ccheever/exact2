@@ -7,7 +7,7 @@ test('asset fetches have at most eight simultaneous requests', async () => {
   const release = [];
   const entry = {id: 1, view: 1};
   let names = Array.from({length: 32}, (_, i) => `${i}.model`);
-  const gpu = {gpu_assets: () => JSON.stringify(names.splice(0)), gpu_asset: () => true};
+  const gpu = {gpu_assets: () => JSON.stringify({requests:names.splice(0),retired:[]}), gpu_asset: () => true};
   const fetch = () => { peak = Math.max(peak, ++active); return new Promise(resolve => release.push(() => {
     active--; resolve(new Response(new Uint8Array(1)));
   })); };
@@ -33,7 +33,7 @@ test('a failed cosmetic never gets a first-frame stamp or repeated state seriali
 function harness({names, fetch, exact = {}}) {
   const entry = {id: 1, view: 1}, delivered = [], failed = [];
   let retired = [];
-  const gpu = {gpu_assets: () => JSON.stringify(names.splice(0)), gpu_retired: () => JSON.stringify(retired.splice(0)),
+  const gpu = {gpu_assets: () => JSON.stringify({requests:names.splice(0),retired:retired.splice(0)}),
     gpu_asset: (_, name, bytes) => { delivered.push([name,bytes]); return true; },
     gpu_asset_failed: (_, name, reason) => { failed.push([name,reason]); return true; }};
   const api = assetDelivery({getModule:()=>gpu, live:()=>entry, fetch, devAssets:()=>exact.devAssets, baseURI:()=> 'http://fixture/'});
@@ -79,7 +79,7 @@ test('deferred open retains its carrier and a late refusal journals once', async
     const entry = {id:1,view:1,name:'world'}, exact = {worldCarry:new Uint8Array([1])}, journal = [];
     let names = ['crate.model'], restored = false;
     const gpu = {gpu_carry:()=>undefined, gpu_agent:()=>JSON.stringify({world:{restored}}), gpu_restore:()=>true,
-      gpu_assets:()=>JSON.stringify(names.splice(0)), gpu_retired:()=>"[]", gpu_error:()=>"invalid save",
+      gpu_assets:()=>JSON.stringify({requests:names.splice(0),retired:[]}), gpu_error:()=>"invalid save",
       gpu_asset:()=>{ restored = !refused; return !refused; }};
     const restoreBody = source.slice(source.indexOf('function reportRestore('), source.indexOf('async function settled('))
       + source.slice(source.indexOf('function restorePending('), source.indexOf('function ensure('));

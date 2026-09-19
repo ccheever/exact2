@@ -107,7 +107,7 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     );
     let view = texture.create_view(&Default::default());
     for i in 0..4 {
-        stack.child(i, Some(&view), [0.0, 90.0 * i as f32, 380.0, 90.0]);
+        stack.child(i, "", Some(&view), [0.0, 90.0 * i as f32, 380.0, 90.0]);
     }
 
     // The first frame: cards start on the closed deck and want to move.
@@ -188,9 +188,9 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
         cx.abs() < 8.0 && cy < 40.0,
         "the deck closed: card a back at the top ({cx}, {cy})"
     );
-    stack.child(1, None, [0.; 4]);
-    stack.child(2, None, [0.; 4]);
-    stack.child(3, None, [0.; 4]);
+    stack.child(1, "", None, [0.; 4]);
+    stack.child(2, "", None, [0.; 4]);
+    stack.child(3, "", None, [0.; 4]);
     fixture::render(&gpu, &mut stack, &frame(64_001.0)).unwrap();
     assert!(stack.placement(1).is_none());
     assert!(stack.placement(2).is_none());

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { checkSteadyResidency } from '../../proof.mjs';
+import { checkSteadyResidency } from '../../render/tests/residency.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {

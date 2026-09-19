@@ -158,10 +158,10 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs']) {
+    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
-    const { resolveApp: localResolveApp } = await import(resolve(root,'scripts/app.mjs'));
+    const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
@@ -174,7 +174,7 @@ async function fixture(body) {
     const dir = game('foo'); process.env.EXACT_APP_DIR = dir;
     prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true});
     rmSync(resolve(dir,'.shells'),{recursive:true});
-    body({root, dir, write, run, pkg, game, update:()=>prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true}), app:(name='foo')=>localResolveApp(name)});
+    body({root, dir, write, run, pkg, game, flags, update:()=>prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true}), app:(name='foo')=>localResolveApp(name)});
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     rmSync(root,{recursive:true,force:true});
@@ -193,7 +193,8 @@ test('art adds its baker on demand and retains it until generated outputs are pr
     update();
     const gpu = app().cargoPackage('gpu');
     const dependency = gpu.dependencies.some(d=>d.name==='exact-game-bake');
-    assert.equal(gpu.targets.some(t=>t.kind.includes('custom-build')), dependency);
+    assert.ok(gpu.targets.some(t=>t.kind.includes('custom-build')));
+    assert.equal(readFileSync(resolve(dirname(gpu.manifest_path),'build.rs'),'utf8').includes('exact_game_bake::bake_art'), dependency);
     return dependency;
   };
   assert.equal(baked(), false);
@@ -482,7 +483,7 @@ test('R13 capture refuses tracked files under inferred game output roots',()=>fi
     assert.throws(()=>snapshotOf(resolved,{dirty:true},root),error=>error.message.includes(path)&&/tracked/.test(error.message));
     run('git',['rm','--cached',path]);rmSync(resolve(root,path));
   }
-}));
+}),30000); // five captures, each spawning cargo and git: more than the default five seconds on a loaded Mac
 
 
 test('R13 stale shell lock without a captured lock refuses and is removed',()=>fixture(({app,dir})=>{
@@ -550,11 +551,28 @@ test('R14 external game capture refuses tracked output roots',()=>fixture(({app,
   }
 }), 60000);
 
-test('R14 reproducibility flags belong only to the generated game workspace', async () => {
+test('R15 reproducibility flags follow workspace locks and always lock game shells', async () => {
   const {cargoReproducibilityFlags} = await import('./app.mjs');
-  const ordinary = {workspace:'/tmp/plain',manifest:{}};
-  assert.deepEqual(cargoReproducibilityFlags(ordinary),[]);
-  const game = {workspace:'/tmp/game/.shells',manifest:{game:{}}};
-  assert.deepEqual(cargoReproducibilityFlags(game),['--locked','--offline']);
-  assert.deepEqual(cargoReproducibilityFlags(game,'/tmp/exact2'),[]);
+  const dir = mkdtempSync(resolve(tmpdir(), 'r15-locks-'));
+  try {
+    const ordinary = {workspace:dir,manifest:{}};
+    assert.deepEqual(cargoReproducibilityFlags(ordinary),[]);
+    writeFileSync(resolve(dir,'Cargo.lock'), '# lock');
+    assert.deepEqual(cargoReproducibilityFlags(ordinary),['--locked','--offline']);
+    const game = {workspace:resolve(dir,'.shells'),manifest:{game:{}}};
+    assert.deepEqual(cargoReproducibilityFlags(game),['--locked','--offline']);
+    assert.deepEqual(cargoReproducibilityFlags(game,dir),['--locked','--offline']);
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('R15 the root Caltrain workspace refuses a missing lock and accepts its restored lock',()=>fixture(({app,root,pkg,write,run,flags})=>{
+  pkg('apps/caltrain/web','caltrain-web');
+  write('Cargo.toml','[workspace]\nmembers=["apps/caltrain/web"]\nresolver="2"\n');
+  write('apps/caltrain/app.contract','component App\n  view\n');
+  write('apps/caltrain/app.json',JSON.stringify({name:'Caltrain',app:{id:'com.exact.caltrain',name:'Caltrain'}}));
+  process.env.EXACT_APP_DIR=resolve(root,'apps/caltrain');
+  const metadata=()=>spawnSync('cargo',['metadata',...flags(app('caltrain')),'--format-version','1'],{cwd:root,encoding:'utf8'});
+  assert.match(metadata().stderr,/locked|lock file/);
+  run('cargo',['generate-lockfile','--offline']);
+  assert.equal(metadata().status,0);
+}));

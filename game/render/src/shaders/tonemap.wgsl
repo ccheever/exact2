@@ -7,11 +7,8 @@ override ENCODE_SRGB: bool = true;
     return vec4(p * 2.0 - 1.0, 0.0, 1.0);
 }
 fn tonemap(hdr_color: vec3<f32>) -> vec4<f32> {
-    let exposed = finite_hdr(finite_hdr(hdr_color) * frame.ground_exposure.w);
-    // A soft HDR shoulder stays below display white even at full bloom.
-    // Values <= 2 retain the existing diffuse/exposure response.
-    let excess = max(exposed - 2.0, vec3(0.0));
-    let x = min(exposed, vec3(2.0)) + excess / (1.0 + excess * 0.5);
+    // Glow's optional shoulder is applied to its emissive input, never other materials.
+    let x = finite_hdr(finite_hdr(hdr_color) * frame.ground_exposure.w);
     var color = clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), vec3(0.0), vec3(1.0));
     if ENCODE_SRGB {
         color = select(1.055 * pow(color, vec3(1.0 / 2.4)) - 0.055,

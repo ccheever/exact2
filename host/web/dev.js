@@ -187,11 +187,6 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
 if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
 if (es) {
   globalThis.exact.devError = show;
-  // Host affordance, outside the app tree and absent from static/production pages.
-  const opening = document.body.appendChild(document.createElement('a'));
-  opening.href = '/__dev/open' + location.search + location.hash;
-  opening.textContent = 'Open in native…';
-  opening.style = 'position:fixed;right:10px;bottom:10px;padding:8px 12px;background:#fff;color:#164bc4;border:1px solid #ccd3df;border-radius:8px;font:13px system-ui;z-index:2147483646';
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
   let retry = null;

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
-import {checkSteadyResidency} from '../../proof.mjs';
+import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import { residencyProbe, checkResidency } from '../../proof.mjs';
+import {residencyProbe, checkResidency} from '../../render/tests/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -36,7 +36,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
     const reply = await probe.fetch(request); if(reply) return reply;
     const path = probe.assetPath(new URL(request.url).pathname);
-    const file = Bun.file(resolve(import.meta.dir,'dist',path==='/'?'index.html':path.slice(1)));
+    const file = Bun.file(resolve(process.env.EXACT_WEB_DIST ?? resolve(import.meta.dir,'dist'),path==='/'?'index.html':path.slice(1)));
     const textureReply = await probe.textureResponse(path,file); if(textureReply) return textureReply;
     if(path==='/gpu-glue.js') return new Response(await file.text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
     return new Response(file);

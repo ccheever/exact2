@@ -71,10 +71,8 @@ fn overrange_emissive_cannot_poison_bloom_or_tonemap() {
     let bright = render(&gpu, &mut r, &texture, &f);
     bright.save("overrange-emissive");
     assert!(
-        bright.at(320, 180)[..3]
-            .iter()
-            .all(|&c| (245..255).contains(&c)),
-        "HDR shoulder retains highlight headroom: {:?}",
+        bright.at(320, 180)[..3].iter().all(|&c| c == 255),
+        "Manual emissive retains its uncompressed response: {:?}",
         bright.at(320, 180)
     );
     for (a, b) in bright.at(0, 0)[..3].iter().zip(&baseline.at(0, 0)[..3]) {

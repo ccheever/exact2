@@ -3,7 +3,7 @@ import {assetDelivery, assetName} from '../../../../host/web/gpu-assets.js';
 const root = new URL('../../../../', import.meta.url).pathname;
 function harness(fetch, requested=['a.tex']) {
   const delivered=[], failed=[], names=[...requested], entry={id:1,view:1};
-  const module={gpu_assets:()=>JSON.stringify(names.splice(0)),
+  const module={gpu_assets:()=>JSON.stringify({requests:names.splice(0),retired:[]}),
     gpu_asset:(...args)=>{delivered.push(args);return true},
     gpu_asset_failed:(...args)=>{failed.push(args);return true}};
   const api=assetDelivery({fetch, getModule:()=>module, live:()=>entry,
@@ -37,7 +37,7 @@ test('web and Swift enumerate the Rust name grammar cases', async()=>{
  if(process.platform==='darwin') {
    const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs');
    const {spawnSync}=await import('node:child_process');
-   const temp=mkdtempSync('/tmp/s3ab-swift-names-');
+   const temp=mkdtempSync(`${process.env.TMPDIR}/s3ab-swift-names-`);
    try {
      const encoded=Buffer.from(JSON.stringify({good,bad})).toString('base64');
      writeFileSync(temp+'/main.swift',`import Foundation\nlet cases = try! JSONSerialization.jsonObject(with: Data(base64Encoded:"${encoded}")!) as! [String:[String]]\nfor n in cases["good"]! { precondition(AssetResolver.validAssetName(n), n) }\nfor n in cases["bad"]! { precondition(!AssetResolver.validAssetName(n), n) }\n`);

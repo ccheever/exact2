@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Orchestrate the game's existing proof; every drive still uses the eight operations.
 import {spawn, spawnSync} from 'node:child_process';
-import {existsSync, mkdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, resolve} from 'node:path';
 import {equal, agreePins, webUnavailable, paranoidRuns} from './proof.mjs';
 
@@ -31,16 +31,17 @@ if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['
   throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
 }
 if (firstPins && (!hosts.includes('linux') || !hosts.includes('web'))) throw new Error('first baseline requires linux and web');
-const root = resolve(app, 'artifacts/prove');
-mkdirSync(root, {recursive:true});
-const run = async (host, index, build = false, mode = '0') => {
-  const out = resolve(root, `${host}-${mode}-${build ? 'build' : index}`);
-  rmSync(out, {recursive:true, force:true});
+const artifacts = resolve(app, 'artifacts/prove');
+mkdirSync(artifacts, {recursive:true});
+const root = mkdtempSync(resolve(artifacts, 'run-'));
+console.log(`ARTIFACTS ${root}`);
+const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
+  const out = resolve(root, `${host}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
   mkdirSync(out, {recursive:true});
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
   const child = spawn(process.execPath, ['./proof.mjs', host, ...(build ? ['--build-only'] : [])], {
     cwd:app,
-    env:{...process.env, EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode},
+    env:{...process.env, EXACT_WEB_DIST:resolve(root,'dist'), EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode, EXACT_GAME_PROOF_PROFILE:profile},
     stdio:['ignore','pipe','pipe'],
   });
   let log = '';
@@ -52,7 +53,7 @@ const run = async (host, index, build = false, mode = '0') => {
   const code = await new Promise((ok, reject) => {child.on('exit', ok); child.on('error', reject);});
   writeFileSync(resolve(out, 'run.log'), log);
   const summaryPath = resolve(out, 'summary.json');
-  const summary = existsSync(summaryPath) ? {...JSON.parse(readFileSync(summaryPath, 'utf8')), repeat:index} : null;
+  const summary = existsSync(summaryPath) ? {...JSON.parse(readFileSync(summaryPath, 'utf8')), repeat:index, profile} : null;
   if (args.includes('--report') && (!build || code !== 0) && summary) for (const hint of summary.facilities ?? []) console.log(`REPORT ${host} ${mode}: ${hint}`);
   if (code !== 0) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});
   return summary;
@@ -78,8 +79,9 @@ if (repin) {
     }, host);
     if (!unavailable) exercised.push(host);
   }
+  try { rows.push(await run('linux', 1, false, '0', 'release')); } catch (error) { errors.push(error); }
   for (const error of errors) console.error(error.message);
-  if (errors.length) throw new Error('repin refused: mode/host proof failed; pins.json unchanged; inspect artifacts/prove/*/run.log and rerun the named proof with --paranoid');
+  if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   const candidate = agreePins(rows, before, hosts);
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], {cwd:app, encoding:'utf8'});
   if (revision.status !== 0 && !firstPins) throw new Error('repin refused: cannot identify commit; pins.json unchanged');

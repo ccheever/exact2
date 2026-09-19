@@ -261,20 +261,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
         self.bind_arguments(values, at_ms)
     }
-    fn assets(&mut self) -> Vec<String> {
-        if ASSETS {
-            self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets)
-        } else {
+    fn assets(&mut self) -> exact_gpu::AssetChanges {
+        if !ASSETS {
             if self.error.is_none() {
                 self.error = self.check_primitive_assets().err();
             }
-            Vec::new()
+            return exact_gpu::AssetChanges::default();
         }
-    }
-    fn retired_assets(&mut self) -> Vec<String> {
-        if !ASSETS {
-            return Vec::new();
-        }
+        let requests = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
         let retired = self
             .sim
             .as_mut()
@@ -284,6 +278,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             // not device residency. A later arrival must still compare its digest.
             for name in &retired {
                 self.model_digests.remove(name);
+                self.placed.attachments.model_digests.remove(name);
             }
             if let Some((renderer, _feed)) = &mut self.render {
                 for name in &retired {
@@ -297,7 +292,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.assets_dirty = true;
             self.dirty = true;
         }
-        retired
+        exact_gpu::AssetChanges { requests, retired }
     }
     fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
         if ASSETS {
@@ -308,8 +303,12 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                             if let Some((_, model)) =
                                 sim.presentation_models().find(|(n, _)| *n == name)
                             {
-                                self.model_digests
-                                    .insert(name.into(), crate::models::model_digest(model));
+                                let digest = crate::models::model_digest(model);
+                                self.model_digests.insert(name.into(), digest);
+                                self.placed
+                                    .attachments
+                                    .model_digests
+                                    .insert(name.into(), digest);
                             }
                         }
                     }
@@ -369,6 +368,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                     .model_digests
                     .entry(name.to_owned())
                     .or_insert_with(|| crate::models::model_digest(model));
+                self.placed
+                    .attachments
+                    .model_digests
+                    .insert(name.to_owned(), digest);
                 (
                     name.to_owned(),
                     renderer
@@ -664,8 +667,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             exact_gpu::ChildrenMode::Overlay
         }
     }
-    fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
-        self.placed.child(index, texture, frame);
+    fn child(
+        &mut self,
+        index: usize,
+        name: &str,
+        texture: Option<&wgpu::TextureView>,
+        frame: [f32; 4],
+    ) {
+        self.placed.child(index, name, texture, frame);
         self.dirty = true;
     }
     fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
@@ -810,18 +819,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             P::inspect,
         );
         if self.render.is_none() {
-            let _ = if ASSETS {
+            if let Err(error) = if ASSETS {
                 self.placed.feed(sim.world())
             } else {
                 self.placed.feed_primitive(sim.world())
-            };
+            } {
+                self.error = Some(SurfaceError(error.to_string()));
+            }
             #[derive(Default, exact_game::Data)]
             struct Size {
                 width: f32,
                 height: f32,
             }
             if let Ok(size) = exact_game::json::from_str::<Size>(request) {
-                if size.width > 0. && size.height > 0. {
+                if self.error.is_none() && size.width > 0. && size.height > 0. {
                     self.placed
                         .headless(exact_game::Vec2::new(size.width, size.height), sim.alpha());
                 }
@@ -1038,7 +1049,9 @@ mod residency_tests {
     #[test]
     #[ignore = "requires two real GPU devices; run explicitly on a GPU host"]
     fn surface_lifecycle_rebuilds_textured_draws_after_prepared_retry_loss() {
-        let gpu = exact_gpu::fixture::device().expect("GPU lifecycle proof requires a device");
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -1057,8 +1070,10 @@ mod residency_tests {
         s.assets();
         s.asset(&model.textures[0], Ok(tex));
         s.device_lost(); // another failed retry must preserve delivered bytes too
-        let replacement = exact_gpu::fixture::device()
-            .expect("GPU lifecycle proof requires a replacement device");
+        let Some(replacement) = crate::test_device::device_or_skip(exact_gpu::fixture::device())
+        else {
+            return;
+        };
         s.device_ready();
         s.prepare_assets(
             &replacement.device,
@@ -1066,8 +1081,9 @@ mod residency_tests {
             wgpu::TextureFormat::Rgba8Unorm,
         );
         s.device_lost(); // A failed retry consumed CPU texture bytes into its renderer.
-        assert!(s.retired_assets().contains(&model.textures[0]));
-        assert!(s.assets().contains(&model.textures[0]));
+        let changes = s.assets();
+        assert!(changes.retired.contains(&model.textures[0]));
+        assert!(changes.requests.contains(&model.textures[0]));
         s.asset(&model.textures[0], Ok(tex));
         s.device_ready();
         s.prepare_assets(
@@ -1086,7 +1102,9 @@ mod residency_tests {
     #[test]
     #[ignore = "requires a real GPU device; run cargo test -p exact-game-render retired_model_stays_hidden -- --ignored"]
     fn retired_model_stays_hidden_until_changed_dependency_closure_is_prepared() {
-        let gpu = exact_gpu::fixture::device().expect("a real GPU device is required");
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -1104,7 +1122,6 @@ mod residency_tests {
             .get_mut::<exact_game::Mesh>("hero")
             .unwrap() = exact_game::Mesh::asset("away.model");
         s.assets();
-        s.retired_assets();
         *s.sim
             .as_ref()
             .unwrap()
@@ -1112,7 +1129,6 @@ mod residency_tests {
             .get_mut::<exact_game::Mesh>("hero")
             .unwrap() = exact_game::Mesh::asset("hero.model");
         s.assets();
-        s.retired_assets();
         exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         assert!(
             s.render.as_ref().unwrap().0.models.records.is_empty(),
@@ -1140,7 +1156,9 @@ mod residency_tests {
 
     #[test]
     fn identical_redelivery_survives_entry_and_post_acceptance_budget_compaction() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -1166,7 +1184,6 @@ mod residency_tests {
                 .get_mut::<exact_game::Mesh>("hero")
                 .unwrap() = exact_game::Mesh::asset(name);
             s.assets();
-            s.retired_assets();
         }
         let retired = exact_game::asset::TextureData {
             width: 1024,
@@ -1243,7 +1260,7 @@ mod residency_tests {
 
     #[test]
     fn twenty_unique_models_bound_retirement_and_hash_only_at_delivery() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
@@ -1270,7 +1287,6 @@ mod residency_tests {
                 .get_mut::<exact_game::Mesh>("hero")
                 .unwrap() = exact_game::Mesh::asset(&name);
             s.assets();
-            s.retired_assets();
             s.asset(&name, Ok(&exact_game::bin::to_vec(&model)));
             s.asset(&model.textures[0], Ok(&bytes));
             s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
@@ -1328,7 +1344,7 @@ mod residency_tests {
     }
     #[test]
     fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut surface = WorldSurface::<Fox, crate::ModelPresentation, true>::default();

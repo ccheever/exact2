@@ -445,17 +445,14 @@ impl World {
         if let Some(e) = self.named(target) {
             return Some(e);
         }
-        if let Some((name, index)) = target.rsplit_once('#') {
-            let index: u32 = index.parse().ok()?;
-            let s = self.state.slots.get(index as usize)?;
-            let e = Entity {
-                index,
-                generation: s.generation,
-            };
-            (s.alive && (name.is_empty() || s.name.as_deref() == Some(name))).then_some(e)
-        } else {
-            self.named(target)
-        }
+        let (name, index) = target.rsplit_once('#')?;
+        let index: u32 = index.parse().ok()?;
+        let s = self.state.slots.get(index as usize)?;
+        let e = Entity {
+            index,
+            generation: s.generation,
+        };
+        (s.alive && (name.is_empty() || s.name.as_deref() == Some(name))).then_some(e)
     }
     /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
@@ -530,15 +527,31 @@ impl World {
         }
         self.storage::<C>()?.get_mut(e.index as usize)
     }
-    /// Require a named component, reporting both the entity and component on failure.
-    pub fn require<C: Component>(&self, name: &str) -> Ref<'_, C> {
-        self.get::<C>(name)
-            .unwrap_or_else(|| panic!("entity `{name}` requires component `{}`", C::NAME))
+    /// Require a component, reporting both the target and component on failure.
+    pub fn require<C: Component>(&self, target: impl Target) -> Ref<'_, C> {
+        target
+            .entity(self)
+            .and_then(|e| self.get::<C>(e))
+            .unwrap_or_else(|| {
+                panic!(
+                    "entity `{}` requires component `{}`",
+                    target.label(),
+                    C::NAME
+                )
+            })
     }
-    /// Mutably require a named component; the guard locks its component column.
-    pub fn require_mut<C: Component>(&self, name: &str) -> RefMut<'_, C> {
-        self.get_mut::<C>(name)
-            .unwrap_or_else(|| panic!("entity `{name}` requires component `{}`", C::NAME))
+    /// Mutably require a component; the guard locks its component column.
+    pub fn require_mut<C: Component>(&self, target: impl Target) -> RefMut<'_, C> {
+        target
+            .entity(self)
+            .and_then(|e| self.get_mut::<C>(e))
+            .unwrap_or_else(|| {
+                panic!(
+                    "entity `{}` requires component `{}`",
+                    target.label(),
+                    C::NAME
+                )
+            })
     }
     /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
@@ -993,7 +1006,7 @@ impl World {
                         let (&key, reg) =
                             self.registry.get_key_value(name.as_str()).ok_or_else(|| {
                                 DataError::new(format!(
-                                    "unregistered {} `{name}`; call world.{}::<{name}>() in setup",
+                                    "unregistered {} `{name}`; call world.{}::<{name}>() in Game::register",
                                     if field == "resources" {
                                         "resource"
                                     } else {
@@ -1015,7 +1028,7 @@ impl World {
                         };
                         let make = make.ok_or_else(|| {
                             DataError::new(format!(
-                                "`{name}` is registered as a {}; call world.{}::<{name}>() in setup to load {}",
+                                "`{name}` is registered as a {}; call world.{}::<{name}>() in Game::register to load {}",
                                 if resource { "component" } else { "resource" },
                                 if resource { "register_resource" } else { "register" },
                                 if resource { "resources" } else { "components" }
@@ -1115,6 +1128,25 @@ mod nearest_xz_mut_tests {
 #[cfg(test)]
 mod required_tests {
     use super::*;
+    #[test]
+    fn required_components_accept_nearest_entities_and_reject_stale_handles() {
+        let mut w = World::new(60, 0);
+        w.spawn_named("player", crate::Transform::default());
+        let fox = w.spawn(crate::Transform::at(1., 0., 0.));
+        let nearest = w
+            .nearest_xz_where::<crate::Transform>("player", 2., |t| t.position.x > 0.)
+            .unwrap();
+        assert_eq!(nearest, fox);
+        w.require_mut::<crate::Transform>(nearest).position.x = 2.;
+        assert_eq!(w.require::<crate::Transform>(nearest).position.x, 2.);
+        w.despawn(fox);
+        let replacement = w.spawn(crate::Transform::default());
+        assert_eq!(replacement.index(), fox.index());
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.require::<crate::Transform>(fox);
+        }))
+        .is_err());
+    }
     #[test]
     fn required_components_name_both_failures() {
         let mut w = World::new(60, 0);

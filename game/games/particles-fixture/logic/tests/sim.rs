@@ -1,3 +1,5 @@
+#[path = "../../../../render/tests/fixture/device.rs"]
+mod gpu_test;
 use exact_game::*;
 use particles_fixture_logic::SmallGame;
 
@@ -91,7 +93,9 @@ fn primitive_particles_render_and_do_not_pick() {
         exact_gpu::{fixture, Frame, Surface},
         WorldSurface,
     };
-    let gpu = fixture::device().unwrap();
+    let Some(gpu) = gpu_test::device_or_skip(exact_game_render::exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut s = WorldSurface::<SmallGame>::default();
     s.bind(&[], None).unwrap();
     let mut frame = Frame {

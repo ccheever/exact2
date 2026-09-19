@@ -541,6 +541,7 @@ dependencies = [
  "exact-game",
  "exact-gpu",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]
@@ -1991,13 +1992,13 @@ dependencies = [
  "exact-apple",
  "exact-game-app",
  "exact-runner",
- "small-game-logic",
 ]
 
 [[package]]
 name = "small-game-gpu"
 version = "0.1.0"
 dependencies = [
+ "exact-game-app",
  "exact-game-render",
  "small-game-logic",
  "wasm-bindgen",
@@ -2012,7 +2013,6 @@ dependencies = [
  "exact-game-app",
  "exact-linux",
  "exact-runner",
- "small-game-logic",
 ]
 
 [[package]]
@@ -2029,7 +2029,6 @@ dependencies = [
  "exact-game-app",
  "exact-runner",
  "exact-web",
- "small-game-logic",
 ]
 
 [[package]]

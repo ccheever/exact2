@@ -444,7 +444,7 @@
   ],
   "_enums": "Wire ordinal is the 0-based index. An unknown ordinal is a typed decode rejection.",
   "enums": {
-    "SurfaceArgsMode": ["empty", "positional", "named"],
+    "SurfaceArgsMode": ["named", "positional"],
     "TypeKind": [
       "number",
       "bool",

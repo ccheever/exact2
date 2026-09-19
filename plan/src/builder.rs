@@ -456,12 +456,11 @@ impl PlanBuilder {
             len: args.len() as u32,
         };
         let name = self.str(name);
-        let mode = if args.len == 0 {
-            SurfaceArgsMode::Empty
-        } else if self
-            .plan
-            .str(self.plan.surface_args[args.start as usize].name)
-            .is_empty()
+        let mode = if args.len != 0
+            && self
+                .plan
+                .str(self.plan.surface_args[args.start as usize].name)
+                .is_empty()
         {
             SurfaceArgsMode::Positional
         } else {

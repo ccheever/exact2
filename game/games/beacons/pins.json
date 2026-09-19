@@ -4,7 +4,7 @@
     "90": "0x164306fd0014d2eb"
   },
   "saves": {
-    "continuation": "75d5d8a6bab81218f2d55b07bb98bc42a05dfde1fa0e7a5db75ffebb4af421d1"
+    "continuation": "aea7ea7adfb75e155a9ff161fcb6537a4d20a9aea632d48ec5598abde1a2774b"
   },
   "hosts": [
     "linux",
@@ -12,6 +12,6 @@
   ],
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "8db5e42e8f05122e7f4ca265ba0bd480c6ab7621",
-  "reason": "E10: replace the saved Beacon Tween/material copy loop with renderer-sampled Glow(Tween); count and automatic Follow preserve tick ordering."
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "R15/D6: the continuation save's bytes moved (restore registers before load and installs a fully decoded world; the bake's generated surfaces declaration) \u2014 tick hashes unchanged; Linux, web, paranoid modes and release agreed."
 }

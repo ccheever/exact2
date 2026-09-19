@@ -1,3 +1,5 @@
+#[path = "../../../../render/tests/fixture/device.rs"]
+mod gpu_test;
 use exact_game::*;
 use sprites_fixture_logic::SmallGame;
 
@@ -87,12 +89,14 @@ fn rendered_atlas_and_mid_fall_restore() {
         exact_gpu::{fixture, wgpu, Frame, Restore, Surface},
         WorldSurface,
     };
-    let gpu = fixture::device().unwrap();
+    let Some(gpu) = gpu_test::device_or_skip(exact_game_render::exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
     s.device_ready();
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
-        for n in s.assets() {
+        for n in s.assets().requests {
             s.asset(&n, Ok(&atlas()));
         }
         s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
@@ -148,4 +152,26 @@ fn rendered_atlas_and_mid_fall_restore() {
         );
     }
     assert!(s.take_error().is_none());
+}
+
+#[test]
+fn parallax_component_survives_restore() {
+    let mut s = sim();
+    let before: Vec<_> = (0..3)
+        .map(|i| s.world().named(&format!("parallax-{i}")).unwrap())
+        .collect();
+    s.hold("KeyD", 1000.);
+    let player = s.world().global_position("player").unwrap().x;
+    for (i, &e) in before.iter().enumerate() {
+        assert_eq!(
+            s.world().require::<Transform>(e).position.x,
+            player * (0.15 + i as f32 * 0.2)
+        );
+    }
+    let bytes = s.save().unwrap();
+    let mut restored = sim();
+    restored.restore(&bytes).unwrap();
+    s.hold("KeyD", 500.);
+    restored.hold("KeyD", 500.);
+    assert_eq!(s.save().unwrap(), restored.save().unwrap());
 }

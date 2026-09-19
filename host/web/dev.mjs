@@ -60,7 +60,7 @@ let changed = new Set(), timer=null, building=false, buildPending=false, rustPen
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
-if (!builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
+if (!await builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
@@ -333,7 +333,7 @@ function startCompiler() {
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
-  const metadata = spawnSync('cargo', ['metadata','--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
+  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
   if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
   const hasDev = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
   dev = spawn('cargo', ['run', '-q', '--release', '-p', hasDev ? app.crate('web') : 'exact-web', '--bin', hasDev ? 'dev' : 'exact-dev', '--', source, plan], { cwd: hasDev ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
@@ -1031,6 +1031,7 @@ server.listen(port, host, () => {
     if (lanAddresses.length === 0) console.log('no LAN interface found; serving loopback only in effect');
   }
   console.log(urls.join('\n'));
+  console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${loopback ? 'loopback only' : 'LAN bind — --loopback to keep it local; macOS may ask to allow node'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);

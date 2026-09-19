@@ -437,12 +437,12 @@ export function listPublicFiles(dist) {
 
 /** Digest cards for the complete public web build. The private completion
  * marker records these after every generated/optional artifact exists. */
-export function publicFileCards(dist) {
-  return listPublicFiles(dist).map((name) => {
-    const found = readStaticFile(dist, `/${name}`);
+export async function publicFileCards(dist) {
+  return Promise.all(listPublicFiles(dist).map(async (name) => {
+    const found = await readStaticFileAsync(dist, `/${name}`);
     if (!found) throw new Error(`public web file changed while inventorying: ${resolve(dist, name)}`);
     return { name, sha256: createHash('sha256').update(found.body).digest('hex'), bytes: found.body.length };
-  });
+  }));
 }
 
 /** The manifest input identity a completed build records. Binding the whole
@@ -462,22 +462,22 @@ function planAppId(bytes) {
 /** Whether the complete build at `dist` belongs to `app`. The completion
  * marker, public envelope, and named plan must all agree with the requested
  * manifest identity before dev starts that app's resident compiler. */
-export function builtAppMatches(dist, app) {
+export async function builtAppMatches(dist, app) {
   try {
     if (!app?.id || !app?.displayName) return false;
     const root = realpathSync(dist);
     const markerPath = resolve(root, '.exact-build.json');
     if (realpathSync(markerPath) !== markerPath || !statSync(markerPath).isFile()) return false;
     const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
-    const files = publicFileCards(root);
+    const files = await publicFileCards(root);
     const names = new Set(files.map((file) => file.name));
     if (REQUIRED_BUILD_FILES.some((name) => !names.has(name))) return false;
     if (!Array.isArray(marker.files) || marker.files.length !== files.length
       || files.some((file, i) => marker.files[i]?.name !== file.name
         || marker.files[i]?.sha256 !== file.sha256 || marker.files[i]?.bytes !== file.bytes
         || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
-    const found = readStaticFile(dist, '/exact.json');
-    const plan = readStaticFile(dist, '/app.plan');
+    const found = await readStaticFileAsync(dist, '/exact.json');
+    const plan = await readStaticFileAsync(dist, '/app.plan');
     if (!found || !plan) return false;
     const envelope = JSON.parse(found.body.toString('utf8'));
     const digest = createHash('sha256').update(plan.body).digest('hex');

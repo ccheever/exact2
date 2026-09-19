@@ -62,7 +62,8 @@ slot (negative spacing). Uploads stay twelve floats per instance and there is no
 extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
 bench explicitly disables fog/bloom to retain its effects-off fast path.
 
-Eleven primitive/effect variants compile when the renderer is constructed. The
+Sixteen primitive/effect variants compile at renderer startup: eight forward, two
+shadow, one sky, two tone and three bloom. This is startup work, not per-frame work. The
 model family is lazy: two shared shader modules and three shared pipeline layouts,
 with only the material/winding variants needed by arrived models. All four
 shadow/fog combinations for each used forward variant are prepared during asset
@@ -131,8 +132,8 @@ The environment's hemisphere approximation supplies ambient metallic reflection;
 this is not image-based lighting.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
-wins. Point-light selection is feed-only, at most sixteen lights, with a 10%
-incumbent distance margin and entity-order ties. Engine illuminance is lux:
+wins. Point-light selection is feed-only: the nearest sixteen in current state, with
+entity-order ties. It selects the same lights after restoration. Engine illuminance is lux:
 10,000 lux maps to renderer radiance 3. Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
@@ -142,7 +143,15 @@ no perf clock calls; samples do not enter hashes. The allocation-free claim cove
 only the `steady_sim_feed_and_frame_inputs_allocate_nothing` moving-cube/camera/light
 fixture (including trace recording), after warmup,
 without input edges, structural churn, audio or physics. wgpu owns its command and
-staging allocations; the claim does not include those.
+staging allocations; the claim does not include those. Animation output, owner-chain
+construction or hierarchy growth, physics event vectors, audio voice sorting and
+particle derivation/sorting are also outside this claim. Owner chains reuse capacity
+on steady feeds. Attachments share their owner history and delivered model identity;
+model parts share one entity pose history. Attachment matrices use one dense upload
+per frame, including removal of stale overrides, through the highest attached slot.
+Compaction remains delivery-frame work with a separate latency and transient-memory
+cost. The first emitter also prepares pipelines during its feed; that work belongs
+in the frame budget even though it is outside drawing.
 
 Capacity errors precede history swaps and propagate through the surface ABI;
 failed draws are not presented. Invalid viewports skip drawing and preserve the

@@ -30,8 +30,8 @@ function cancelAssets(entry, names) {
 function assets(entry) {
   const module = getModule(), id = entry.id;
   if (!id || !module) return;
-  const names = JSON.parse(module.gpu_assets(id));
-  cancelAssets(entry, new Set(JSON.parse(module.gpu_retired?.(id) ?? "[]")));
+  const {requests: names, retired} = JSON.parse(module.gpu_assets(id));
+  cancelAssets(entry, new Set(retired));
   for (const name of names) {
     if ([...assetFlights].some(f => f.entry === entry && f.name === name && !f.cancelled)) continue;
     if (assetFlights.size >= 256) {

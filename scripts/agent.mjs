@@ -119,9 +119,9 @@ export class Cdp {
 
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
-export function assertWebDistApp(dist, app) {
+export async function assertWebDistApp(dist, app) {
   const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
+  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
 async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
@@ -131,7 +131,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
   }
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
-  if (!pageURL) assertWebDistApp(dist, selected);
+  if (!pageURL) await assertWebDistApp(dist, selected);
   let gpuMs = null;
   const server = createServer((req, res) => {
     if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }

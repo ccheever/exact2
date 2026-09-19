@@ -202,7 +202,7 @@ final class Canvases {
         let t0 = CACurrentMediaTime()
         for (i, child) in children.enumerated() {
             if child.frame.width <= 0 || child.frame.height <= 0 || (child.style["display"] as? String) == "none" {
-                let r = m.child(e.id, UInt32(i), 0, 0, 0, 0, 0, 0, nil, 0)
+                let r = m.child(e.id, UInt32(i), child.props["testId"] ?? "", 0, 0, 0, 0, 0, 0, nil, 0)
                 if r != 0 { return false }
                 continue
             }
@@ -212,7 +212,7 @@ final class Canvases {
             guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
             guard live(e.view.id) === e else { return false }
             let f = child.frame
-            let r = m.child(e.id, UInt32(i), Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)
+            let r = m.child(e.id, UInt32(i), child.props["testId"] ?? "", Float(f.origin.x), Float(f.origin.y), Float(f.width), Float(f.height), UInt32(rep.pixelsWide), UInt32(rep.pixelsHigh), UnsafePointer(data), rep.pixelsHigh * rep.bytesPerRow)
             if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return false }
             uploaded += 1
         }

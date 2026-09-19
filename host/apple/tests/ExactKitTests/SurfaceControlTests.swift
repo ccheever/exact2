@@ -24,7 +24,7 @@ final class SurfaceControlTests: XCTestCase {
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
             childrenMode: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
-            child: { _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 }, childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
             wantsInput: { _ in 1 }, input: { _, p, n in
                 controlEvents.append((try? JSONSerialization.jsonObject(with: Data(bytes:p!, count:n))) as? [String: Any] ?? [:]); return 0
@@ -39,6 +39,30 @@ final class SurfaceControlTests: XCTestCase {
         s.canvases.entries[100]=e; canvas.canvasInput=CanvasInput(view:canvas)
         return (s, canvas, button)
     }
+    #if os(macOS)
+    func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
+        let (s, canvas, button) = fixture(); defer { s.destroy() }
+        button.props.removeValue(forKey:"action"); button.handlers.insert("press")
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        let key=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
+        XCTAssertTrue(window.makeFirstResponder(button))
+        button.pressed=true
+        let point=button.convert(NSPoint(x:10,y:10),to:nil)
+        let up=NSEvent.mouseEvent(with:.leftMouseUp,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
+        button.mouseUp(with:up)
+        XCTAssertFalse(window.firstResponder === button)
+        controlEvents.removeAll()
+        (window.firstResponder as? NodeView)?.keyDown(with:key)
+        XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "Space" && $0["down"] as? Bool == true })
+        canvas.nextKeyView=button; window.selectNextKeyView(canvas)
+        XCTAssertTrue(window.firstResponder === button)
+        controlEvents.removeAll(); button.keyDown(with:key)
+        XCTAssertTrue(window.firstResponder === button)
+        XCTAssertFalse(controlEvents.contains { $0["code"] as? String == "Space" })
+        withExtendedLifetime((window,canvas)) {}
+    }
+    #endif
     func testR13NamedAndEmptyArgumentsSurviveBatchBinding() {
         let (s,_,_)=fixture();defer {s.destroy()}
         for values: [String:Any] in [["restart":false,"seed":7,"paused":true], [:]] {

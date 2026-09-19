@@ -16,6 +16,16 @@ struct SurfaceControl {
 }
 
 extension NodeView {
+    /// Pointer-completed HUD presses return the keyboard to the enclosing world.
+    func finishPointerPress() {
+        guard kind == "button" else { return }
+        #if os(macOS)
+        if window?.firstResponder === self { _ = window?.makeFirstResponder(nil); _ = inputCanvas?.focusCanvas() }
+        #else
+        if isFirstResponder { _ = resignFirstResponder(); _ = inputCanvas?.becomeFirstResponder() }
+        #endif
+    }
+
     var inputCanvas: NodeView? {
         #if os(macOS)
         var ancestor: NSView? = self
@@ -296,7 +306,7 @@ extension Canvases {
         if live(e.view.id) === e, let m = module, let take = m.assets, let deliver = m.asset {
             var delivered = false
             for _ in 0..<16 {
-                guard let data = m.output(take(e.id)), let names = try? JSONSerialization.jsonObject(with: data) as? [String], !names.isEmpty else { break }
+                guard let data = m.output(take(e.id)), let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
                 delivered = true
                 for name in names {
                     let delivery = Result { try session?.app.resolver.delivery("assets/" + name) }

@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {resolveApp} from '../../../scripts/app.mjs';
 let unavailable;
 try {
-  assertWebDistApp(resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname),resolveApp('caltrain'));
+  await assertWebDistApp(resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname),resolveApp('caltrain'));
 } catch(error) {
   if (!error.message.startsWith('web dist is not a complete build')) throw error;
   unavailable=error.message;

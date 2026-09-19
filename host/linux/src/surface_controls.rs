@@ -87,9 +87,17 @@ impl<D: DataSource> Presenter<D> {
         if !accepted && phase == "down" {
             self.control_bindings.remove(&key);
         }
+        // The reserved keyboard contacts keep focus; completed pointers release it.
+        if matches!(phase, "up" | "cancel")
+            && contact < u32::MAX - 2
+            && owner.view.is_some_and(|view| self.focus == Some(view))
+        {
+            self.focus = None;
+            self.dirty = true;
+        }
         accepted
     }
-    fn input_surface(&self, id: u32) -> Option<u32> {
+    pub(super) fn input_surface(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
         while let Some(view) = cursor {
             if self.surfaces.wants_input(view) {
@@ -342,10 +350,10 @@ impl<D: DataSource> Presenter<D> {
             return Some(json!({"error":"a contact is already down"}));
         }
         let phases = match phase {
-            None => vec!["down", "up"],
-            Some("hold") if x == sx && y == sy => vec![],
-            Some("hold") => vec!["move"],
-            Some(p @ ("down" | "move" | "up" | "cancel")) => vec![p],
+            None => &["down", "up"][..],
+            Some("hold") if x == sx && y == sy => &[],
+            Some("hold") => &["move"],
+            Some("down" | "move" | "up" | "cancel") => phase.as_slice(),
             _ => return Some(json!({"error":"unknown control phase"})),
         };
         for step in phases {

@@ -121,7 +121,13 @@ impl Manifest {
                 None => String::new(),
             }
         };
-        let path = app_dir.join("app.json");
+        // Game bakes resolve authored defaults once; the compiler reads that same dialect.
+        let resolved = app_dir.join(".shells/app.json");
+        let path = if resolved.is_file() {
+            resolved
+        } else {
+            app_dir.join("app.json")
+        };
         if !path.exists() {
             return Ok(Manifest {
                 json: serde_json::json!({}),
@@ -138,21 +144,11 @@ impl Manifest {
         let id = app
             .and_then(|a| a.get("id"))
             .and_then(|v| v.as_str())
-            .or_else(|| {
-                json.get("game")
-                    .and_then(|_| json.get("id"))
-                    .and_then(|v| v.as_str())
-            })
             .ok_or_else(|| format!("{}: `app.id` is required", path.display()))?
             .to_string();
         let name = app
             .and_then(|a| a.get("name"))
             .and_then(|v| v.as_str())
-            .or_else(|| {
-                json.get("game")
-                    .and_then(|_| json.get("name"))
-                    .and_then(|v| v.as_str())
-            })
             .ok_or_else(|| format!("{}: `app.name` is required", path.display()))?
             .to_string();
         Ok(Manifest {
@@ -808,6 +804,38 @@ fn canonical(v: &serde_json::Value, out: &mut String) {
 mod tests {
     use super::{compatibility_with_trust, Manifest};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn resolved_manifest_is_the_only_reader_dialect() {
+        let dir = app("resolved-only");
+        for game in [
+            serde_json::json!({"crate":"beacons-logic","type":"Beacons"}),
+            serde_json::Value::Null,
+        ] {
+            std::fs::write(
+                dir.join("app.json"),
+                serde_json::json!({"id":"com.exact.beacons","name":"Beacons","game":game})
+                    .to_string(),
+            )
+            .unwrap();
+            assert!(Manifest::read(&dir).is_err());
+        }
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{"app":{"id":"com.exact.beacons","name":"Beacons"}}"#,
+        )
+        .unwrap();
+        assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.beacons");
+        std::fs::create_dir_all(dir.join(".shells")).unwrap();
+        std::fs::write(
+            dir.join(".shells/app.json"),
+            r#"{"app":{"id":"com.exact.resolved","name":"Resolved"}}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("app.json"), "{}").unwrap();
+        assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn mixed_source_ownership_is_hashed_even_when_the_host_ceiling_is_unchanged() {

@@ -42,6 +42,7 @@ pub(crate) struct Skinning {
     joint_capacity: usize,
     layout: Option<wgpu::BindGroupLayout>,
     bind: Option<wgpu::BindGroup>,
+    bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 5])>,
 }
 impl Skinning {
     pub fn new(device: &wgpu::Device) -> Self {
@@ -64,6 +65,7 @@ impl Skinning {
             joint_capacity: 0,
             layout: None,
             bind: None,
+            bind_buffers: None,
         }
     }
     pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, model: &Model) -> Vec<u32> {
@@ -231,14 +233,15 @@ impl Skinning {
         self.jobs_words.clear();
         let mut palette = 0usize;
         let mut pose = 0usize;
-        for (i, record) in records.iter().enumerate() {
+        for record in records {
             if let Some(skin) = record.skin {
                 let t = self
                     .templates
                     .get(skin as usize)
                     .ok_or_else(|| RenderError::scene("unknown skin template".into()))?;
                 self.offsets.push(palette as u32);
-                self.records.push((i, skin as usize));
+                self.records
+                    .push((record.transform as usize, skin as usize));
                 self.jobs_words
                     .extend([t.meta, pose as u32, palette as u32, 0]);
                 pose += t.rest.len() * 2;
@@ -266,6 +269,20 @@ impl Skinning {
         ));
         self.jobs.write(queue, 0, bytes(&self.jobs_words));
         if let Some(layout) = &self.layout {
+            let buffers = (
+                layout.clone(),
+                [
+                    self.meta.raw.clone(),
+                    self.poses.raw.clone(),
+                    self.jobs.raw.clone(),
+                    self.palette.raw.clone(),
+                    uniform.clone(),
+                ],
+            );
+            if self.bind_buffers.as_ref() == Some(&buffers) {
+                return Ok(());
+            }
+            self.bind_buffers = Some(buffers);
             self.bind = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("game skin compute"),
                 layout,
@@ -300,7 +317,9 @@ impl Skinning {
         for &(record, template) in &self.records {
             let t = &self.templates[template];
             let len = t.rest.len();
-            let e = entities[record];
+            let e = entities[entities
+                .binary_search_by_key(&(record as u32), |e| e.index())
+                .expect("skin entity belongs to model batches")];
             let p = w.get::<Pose>(e);
             let (prev, curr) = p
                 .as_ref()
@@ -345,14 +364,14 @@ impl Skinning {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use exact_game::{
         asset::{Node, Skin},
         Mesh, Transform,
     };
     use glam::{Mat4, Quat, Vec3};
-    pub(super) fn read(gpu: &exact_gpu::Gpu, source: &wgpu::Buffer, size: u64) -> Vec<u8> {
+    pub(crate) fn read(gpu: &exact_gpu::Gpu, source: &wgpu::Buffer, size: u64) -> Vec<u8> {
         let read = gpu.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size,
@@ -373,30 +392,38 @@ mod tests {
         read.unmap();
         bytes
     }
-    fn device_or_skip<T>(result: Result<T, String>) -> Option<T> {
-        match result {
-            Ok(gpu) => Some(gpu),
-            Err(reason) if reason.starts_with("no adapter:") => {
-                eprintln!("SKIP skinning redelivery: {reason}");
-                None
-            }
-            Err(reason) => panic!("GPU device request failed: {reason}"),
-        }
-    }
     #[test]
-    fn only_classified_no_adapter_may_skip() {
-        assert_eq!(device_or_skip(Ok(7)), Some(7));
-        assert_eq!(
-            device_or_skip::<()>(Err("no adapter: unavailable".into())),
-            None
-        );
-        for reason in ["device lost", "request device: unsupported limits"] {
-            assert!(std::panic::catch_unwind(|| device_or_skip::<()>(Err(reason.into()))).is_err());
-        }
+    fn unchanged_skin_buffers_keep_the_compute_binding() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut skin = Skinning::new(&gpu.device);
+        let model = crate::test_model::skinned_model();
+        let template = skin.add(&gpu.device, &gpu.queue, &model)[0];
+        let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 80,
+            usage: wgpu::BufferUsages::UNIFORM,
+            mapped_at_creation: false,
+        });
+        let records = [DrawInstance {
+            transform: 1,
+            geometry: crate::MeshId(0),
+            material: crate::MaterialId(0),
+            local: Mat4::IDENTITY,
+            skin: Some(template),
+        }];
+        skin.set(&gpu.device, &gpu.queue, &uniform, &records)
+            .unwrap();
+        let binding = skin.bind.clone();
+        skin.set(&gpu.device, &gpu.queue, &uniform, &records)
+            .unwrap();
+        assert_eq!(skin.bind, binding);
     }
+
     #[test]
     fn same_name_redelivery_rebuilds_gpu_rig_and_all_instance_batches() {
-        let Some(gpu) = device_or_skip(exact_gpu::fixture::device()) else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut model = crate::test_model::skinned_model();
@@ -459,7 +486,9 @@ mod tests {
 
     #[test]
     fn displayed_affine_matches_gpu_with_animated_translation_scale_and_rotated_child() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         for mirrored in ["none", "owner", "joint", "offset"] {
             let model = Model {
                 nodes: vec![
@@ -565,7 +594,7 @@ mod tests {
                 &gpu.queue,
                 &uniform,
                 &[DrawInstance {
-                    transform: 0,
+                    transform: e.index(),
                     geometry: crate::MeshId(0),
                     material: crate::MaterialId(0),
                     local: Mat4::IDENTITY,
@@ -628,7 +657,7 @@ mod tests {
 
     #[test]
     fn interpolate_locals_before_composing_and_inverse_bind() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let model = Model {
@@ -693,7 +722,7 @@ mod tests {
             &gpu.queue,
             &uniform,
             &[DrawInstance {
-                transform: 0,
+                transform: e.index(),
                 geometry: crate::MeshId(0),
                 material: crate::MaterialId(0),
                 local: Mat4::IDENTITY,
@@ -809,7 +838,7 @@ mod tests {
     #[test]
     #[ignore = "100 Fox palette GPU timestamp diagnostic"]
     fn hundred_fox_palettes() {
-        let Ok(mut gpu) = exact_gpu::fixture::device() else {
+        let Some(mut gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let (device, queue) =
@@ -893,7 +922,9 @@ mod normal_tests {
     use glam::{Mat4, Quat, Vec3};
     #[test]
     fn skinned_normal_is_inverse_transpose_under_scaled_rotated_joints() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         // Execute the actual vertex skinning function through a compute entry point.
         let skin = include_str!("shaders/model.wgsl")
             .split("struct BakedMaterial")

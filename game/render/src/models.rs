@@ -31,7 +31,7 @@ pub(crate) struct Material {
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
-    digest: u64,
+    pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
@@ -62,6 +62,9 @@ pub(crate) struct Models {
     pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[exact_game::Transform; 2]>,
+    pub pose_indices: Vec<usize>,
+    pose_entities: Vec<exact_game::Entity>,
+    bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     pose_history: BTreeMap<exact_game::Entity, (u64, u64, [exact_game::Transform; 2])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
@@ -136,12 +139,32 @@ impl Models {
         }
         let instances = self.instances.as_mut().expect("prepared model instances");
         self.reallocations += u64::from(instances.grow(device, queue, (words.len() * 4) as u64));
-        self.bind = Some(instance_bind(device, layout, instances, skinning));
+        let buffers = (
+            layout.clone(),
+            [
+                instances.raw.clone(),
+                skinning.weights.raw.clone(),
+                skinning.palette.raw.clone(),
+            ],
+        );
+        if self.bind_buffers.as_ref() != Some(&buffers) {
+            self.bind = Some(instance_bind(device, layout, instances, skinning));
+            self.bind_buffers = Some(buffers);
+        }
         instances.write(queue, 0, bytes(words));
         self.records.clear();
         self.records.extend_from_slice(records);
+        let entities: std::collections::BTreeSet<_> = records.iter().map(|r| r.transform).collect();
+        let indices: BTreeMap<_, _> = entities
+            .into_iter()
+            .enumerate()
+            .map(|(i, e)| (e, i))
+            .collect();
+        self.pose_indices.clear();
+        self.pose_indices
+            .extend(records.iter().map(|r| indices[&r.transform]));
         self.poses
-            .resize(records.len(), [exact_game::Transform::default(); 2]);
+            .resize(indices.len(), [exact_game::Transform::default(); 2]);
         Ok(())
     }
 }
@@ -565,14 +588,16 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
         }
-        self.models.pose_history.retain(|e, _| entities.contains(e));
-        for ((_, history), &entity) in self
-            .models
-            .records
-            .iter()
-            .zip(&mut self.models.poses)
-            .zip(entities)
-        {
+        if self.models.pose_entities != entities {
+            self.models.pose_history.retain(|e, _| {
+                entities
+                    .binary_search_by_key(&e.index(), |v| v.index())
+                    .is_ok_and(|i| entities[i] == *e)
+            });
+            self.models.pose_entities.clear();
+            self.models.pose_entities.extend_from_slice(entities);
+        }
+        for (history, &entity) in self.models.poses.iter_mut().zip(entities) {
             let digest = world
                 .get::<exact_game::Mesh>(entity)
                 .and_then(|m| match &*m {
@@ -792,7 +817,7 @@ mod arrival_tests {
     use super::*;
     #[test]
     fn content_digest_reuses_equal_bytes_and_replaces_changed_names() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut renderer =
@@ -852,7 +877,7 @@ mod arrival_tests {
     }
     #[test]
     fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut renderer =
@@ -884,7 +909,7 @@ mod arrival_tests {
     }
     #[test]
     fn material_waits_for_all_textures_before_rebinding() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
         let mut renderer =
@@ -931,8 +956,43 @@ mod arrival_tests {
 mod retirement_regressions {
     use super::*;
     #[test]
+    fn multipart_models_share_entity_history_and_keep_unchanged_bindings() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let mut model = crate::test_model::skinned_model();
+        let part = model
+            .nodes
+            .iter()
+            .find(|n| n.mesh.is_some())
+            .unwrap()
+            .clone();
+        model.nodes.push(part);
+        renderer.prepare_model("parts.model", &model).unwrap();
+        let mut w = exact_game::World::new(60, 0);
+        w.spawn((
+            exact_game::Transform::default(),
+            exact_game::Mesh::asset("parts.model"),
+        ));
+        w.propagate();
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut renderer).unwrap();
+        assert!(renderer.models.records.len() >= 2);
+        assert_eq!(renderer.models.poses.len(), 1);
+        assert!(renderer.models.pose_indices.iter().all(|&i| i == 0));
+        let bind = renderer.models.bind.clone();
+        let records = renderer.models.records.clone();
+        renderer.set_draw_instances(&records).unwrap();
+        assert_eq!(renderer.models.bind, bind);
+    }
+
+    #[test]
     fn pending_names_count_retired_bytes_and_compaction_keeps_hero_handles() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         let mut r = crate::renderer::RendererWithAssets::<true>::new(
             &gpu.device,
             &gpu.queue,

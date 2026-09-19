@@ -145,7 +145,7 @@ pub struct SurfaceUpdate {
 }
 
 impl SurfaceUpdate {
-    /// Positional JSON array or named/empty JSON object consumed by the surface module.
+    /// Positional JSON array or named JSON object consumed by the surface module.
     /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
         fn value_json(value: &Value, out: &mut String) {
@@ -170,7 +170,7 @@ impl SurfaceUpdate {
                 }
             }
         }
-        let named = self.mode != exact_plan::SurfaceArgsMode::Positional;
+        let named = self.mode == exact_plan::SurfaceArgsMode::Named;
         let mut out = String::from(if named { "{" } else { "[" });
         for (i, value) in self.values.iter().enumerate() {
             if i != 0 {

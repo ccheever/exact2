@@ -30,9 +30,9 @@ import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
 
-/** Reproducible resolution is a generated game-shell policy, shared by bake and deploy. */
+/** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
-  app.manifest.game && resolve(workspace) === resolve(app.workspace) ? ['--locked', '--offline'] : [];
+  (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || existsSync(resolve(workspace, 'Cargo.lock'))) ? ['--locked', '--offline'] : [];
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -70,7 +70,7 @@ export function resolveApp(nameOrCrate) {
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags({manifest, workspace}), '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }
@@ -107,7 +107,6 @@ export function readManifest(dir, name) {
   if (!existsSync(path) && !game) return fallback;
   let parsed;
   try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
-  if (game) delete parsed._generated;
   const problems = validate(parsed, schema(), '', schema());
   if (!problems.length) problems.push(...installProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
@@ -368,9 +367,11 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const add = (path, optional = false) => {
     path = resolve(path); if (replaced.has(path)) return;
     if (!existsSync(path)) { if (optional) { absent.set(nameOf(path), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
+    const name = nameOf(path);
+    if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
-    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(nameOf(path), {path,names}); for (const name of names) add(resolve(path,name)); }
-    else if (info.isFile()) inputs.set(nameOf(path), {name:nameOf(path),path,sha256:buildHash(readFileSync(path))});
+    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
+    else if (info.isFile()) inputs.set(name, {name,path,sha256:buildHash(readFileSync(path))});
     else throw new Error(`unsupported compiler input ${path}`);
   };
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];

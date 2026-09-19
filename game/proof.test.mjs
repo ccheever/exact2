@@ -1,13 +1,15 @@
+import {createHash} from 'node:crypto';
+import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {captureCommand, worldObservations, checkSteadyResidency} from './proof.mjs';
+import {captureCommand, worldObservations} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
 
-test('external app sources and assets invalidate receipts while docs and outputs stay excluded', () => {
+test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
   const root = resolve(directory, 'engine'), app = resolve(directory, 'my-game');
   try {
@@ -23,7 +25,7 @@ test('external app sources and assets invalidate receipts while docs and outputs
     const files = proofInputFiles(root, app);
     expect(files).toEqual(['../my-game/Cargo.lock', '../my-game/Cargo.toml',
       '../my-game/app.contract', '../my-game/art/model.glb', '../my-game/assets/texture.png',
-      '../my-game/deck/image.bin', '../my-game/logic/src/lib.rs', 'game/engine/src/lib.rs']);
+      '../my-game/deck/image.bin', '../my-game/logic/src/lib.rs', '../my-game/proof.mjs', 'game/README.md', 'game/engine/README.md', 'game/engine/src/lib.rs']);
     const digest = () => {
       const hash = buildInputHash('linux', 'target');
       for (const file of proofInputFiles(root, app)) hash.update(file).update(readFileSync(resolve(root, file)));
@@ -36,7 +38,7 @@ test('external app sources and assets invalidate receipts while docs and outputs
     writeFileSync(resolve(app, 'artifacts/replies.json'), 'new proof output');
     expect(digest()).toBe(after);
     writeFileSync(resolve(root, 'game/README.md'), 'changed game guide');
-    expect(digest()).toBe(after);
+    expect(digest()).not.toBe(after);
   } finally { rmSync(directory, {recursive:true, force:true}); }
 });
 
@@ -362,7 +364,7 @@ test('explicit focus in a commit precedes autofocus and its authored side effect
 });
 
 test('KeyP forbids texture uploads and pipeline creation as well as requiring new geometry', async () => {
-  const {checkResidency}=await import('./proof.mjs');
+  const {checkResidency}=await import('./render/tests/residency.mjs');
   const state=(textureUploads=0,meshUploads=0,pipelineCreations=0)=>({ready:true,gpu:{afterReady:{textureUploads,meshUploads,pipelineCreations,modelSkinBufferReallocations:0}}});
   for (const error of ['none','texture','pipeline']) {
     const checks=[], responses=[{before:state(),after:state()}, {before:state(),after:state(1)}, {before:state(1),after:state(1)},
@@ -385,9 +387,9 @@ test('local and global position helpers preserve parent-space distinction', asyn
 
 const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
-const candidates = (hosts = ['linux','web']) => hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
+const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-})));
+}))), {name:'fixture',host:'linux',mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
   expect(agreePins(rows, old, ['linux','web'])).toEqual({...old,hosts:['linux','web']});
@@ -476,9 +478,9 @@ test('facility use must succeed and answer the relevant refusal', () => {
 });
 
 
-test('stale-build repair command names the rejected web dist', () => {
+test('stale-build repair command names the rejected web dist', async () => {
   const dist=mkdtempSync(resolve(tmpdir(),'r8b-dist-'));
-  try { expect(()=>assertWebDistApp(dist,{id:'com.test',dir:'/app',crate:()=> 'test-web'})).toThrow(`EXACT_WEB_DIST='${dist}'`); }
+  try { await expect(assertWebDistApp(dist,{id:'com.test',dir:'/app',crate:()=> 'test-web'})).rejects.toThrow(`EXACT_WEB_DIST='${dist}'`); }
   finally { rmSync(dist,{recursive:true,force:true}); }
 });
 test('repin refuses manifest normalization before writing authored files', async () => {
@@ -506,7 +508,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 });
 
 for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
-  const name=`r8b-tooling-${process.pid}`;
+  const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
   // A sibling checkout is external without Bun's expensive /tmp ancestor search.
   const directory = scenario.startsWith('external-report-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
@@ -524,6 +526,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web' && process.env.R8B_PASS_WEB!=='1');
       const status=failed?'FAIL':process.env.R8B_UNVERIFIED==='1'||process.env.R8B_UNVERIFIED_HOST===host||process.env.EXACT_PROOF_REPIN==='1'?'UNVERIFIED':'PASS';
       const row={name:${JSON.stringify(name)},host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
+      if(process.env.R15_DRIFT==='1' && process.env.EXACT_GAME_PROOF_PROFILE==='release') row.pins.ticks[1]='0x'+'d'.repeat(16);
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
       process.exit(failed?1:0);
@@ -534,7 +537,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       const p=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),current ? '.' : directory ? app : name,...args],{cwd:current ? app : undefined,env:{...process.env,...extra},stdout:'pipe',stderr:'pipe'});
       const [code,stdout,stderr]=await Promise.all([p.exited,new Response(p.stdout).text(),new Response(p.stderr).text()]);
       const calls=readFileSync(resolve(app,'calls.jsonl'),'utf8').trim().split('\n').filter(Boolean).map(line=>JSON.parse(line));
-      return {code,text:stdout+stderr,calls};
+      return {code,text:stdout+stderr,calls,root:stdout.match(/^ARTIFACTS (.+)$/m)?.[1]};
     };
     if (scenario === 'report' || directory) {
     const selected = command => !directory || scenario === `external-report-${command}`;
@@ -543,7 +546,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     expect(ordinary.code).toBe(0);
     expect(ordinary.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
     expect(ordinary.text).toContain('REPORT linux 0: no recorded stalls or refusals');
-    expect(JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
+    expect(JSON.parse(readFileSync(resolve(ordinary.root,'summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
     }
     if (selected('repeat')) {
     const repeated=await run(['--repeat','2']);
@@ -561,7 +564,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     // A fake external proof needs neither Cargo metadata nor Bun's external entrypoint search.
     if (directory) expect(performance.now() - started).toBeLessThan(1000);
     expect(failed.code).toBe(1); expect(failed.text).toContain('REPORT linux 0: state unused');
-    const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
+    const summary=JSON.parse(readFileSync(resolve(failed.root,'summary.json'),'utf8'));
     expect(summary.rows.length).toBe(1); expect(summary.rows[0].failures).toEqual(['refusal']);
     expect(summary.status).toBe('FAIL');
     }
@@ -570,7 +573,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       expect(completed.code).toBe(status === 'PASS' ? 0 : 1);
       expect(completed.text).toContain(`| identical | ${status} |`);
       expect(completed.text).toContain(`PROOF ${status} ${name}`);
-      expect(JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8')).status).toBe(status);
+      expect(JSON.parse(readFileSync(resolve(completed.root,'summary.json'),'utf8')).status).toBe(status);
       if (status === 'UNVERIFIED') expect(completed.text).toContain('No complete tick/save baseline was checked. Generate it with bun game/prove.mjs');
       expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     }
@@ -588,7 +591,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
       expect(mixed.calls.slice(2).every(call=>!call.build)).toBe(true);
       expect(mixed.code).toBe(1);
-      const summary=JSON.parse(readFileSync(resolve(app,'artifacts/prove/summary.json'),'utf8'));
+      const summary=JSON.parse(readFileSync(resolve(mixed.root,'summary.json'),'utf8'));
       expect(summary.rows.map(row=>row.status)).toEqual(['PASS','UNVERIFIED']);
       expect(summary.status).toBe('UNVERIFIED');
       expect(mixed.text).toContain(`PROOF UNVERIFIED ${name}`);
@@ -596,7 +599,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
+    expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -613,13 +616,14 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
       ...['linux','web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
+      {host:'linux',mode:'0',build:false},
     ]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual(['linux','web']);
     }
@@ -647,7 +651,7 @@ function pinLiterals(path, text) {
   const samples = new Set(['b510eca2e2ef33f62f9ed57d6e7ce2d10'+'ebb2bdebc4a8e59d347719ba81abdf4', 'a1e3b04de97b11de564ce6e53b95f02954'+'a297f0008183ac63a4f5974f6b32d8', 'd97044e701822bac5a62696459b27d7b3'+'75aada5de8574ed4362edbba94771f7']);
   const constants=new Set(['9e3779b1'+'85ebca87','c2b2ae3d'+'27d4eb4f'].map(v=>'0x'+v));
   return [...text.matchAll(/0x[0-9a-fA-F]{16}|(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])/g)].map(m=>m[0])
-    .filter(value=>!(path==='game/render/src/world/upload.rs' && constants.has(value)) && !(path==='game/bake/tests/samples.rs' && samples.has(value)));
+    .filter(value=>!(path==='game/render/src/world/upload.rs' && constants.has(value)) && !(path==='game/bake/tests/samples.rs' && samples.has(value)) && !(path==='game/engine/src/data/text.rs' && value==='0'.repeat(64)));
 }
 test('pin scan includes authored benchmark tests and ordinary digest strings', () => {
   const digest='abcdef01'.repeat(8), hash='0x'+'12345678'.repeat(2);
@@ -655,6 +659,9 @@ test('pin scan includes authored benchmark tests and ordinary digest strings', (
   for(const quote of ['"',"'",'`','']) expect(pinLiterals('game/engine/tests/foo.rs',quote+digest+quote).length).toBe(1);
   expect(pinLiterals('game/bench/results/receipt.md',digest)).toEqual([]);
   expect(pinLiterals('Cargo.lock',digest)).toEqual([]);
+  expect(pinLiterals('game/engine/src/data/text.rs','0'.repeat(64))).toEqual([]); // Decimal padding, not a world pin.
+  expect(pinLiterals('game/engine/src/data/text.rs',digest)).toEqual([digest]);
+  expect(pinLiterals('game/engine/tests/foo.rs','0'.repeat(64))).toEqual(['0'.repeat(64)]);
 });
 test('game pin literals stay in fixture pins across the tracked tree', () => {
   const root=resolve(import.meta.dir,'..');
@@ -817,7 +824,7 @@ test('paranoid traversal restores the ordinary artifact only on web', async () =
 });
 
 test('shared residency probe takes the authored replacement model name', async () => {
-  const {residencyProbe} = await import('./proof.mjs');
+  const {residencyProbe} = await import('./render/tests/residency.mjs');
   expect(residencyProbe('sample.model', 'texture.tex', 'reload.model').source).toContain("encode('reload.model')");
   expect(() => residencyProbe('sample.model', 'texture.tex', 'longer.model-name')).toThrow('same byte length');
 });
@@ -848,7 +855,7 @@ test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () =
   }
 });
 
-test('R14 engine test source changes the proof input hash', () => {
+test('engine test sources are not bake inputs: editing one leaves the proof input hash alone', () => {
   const root = mkdtempSync(resolve(tmpdir(), 'r14-inputs-'));
   const app = resolve(root, 'game/games/fixture');
   const file = resolve(root, 'game/engine/tests/regression.rs');
@@ -860,7 +867,8 @@ test('R14 engine test source changes the proof input hash', () => {
       for (const path of proofInputFiles(root, app)) h.update(path).update(readFileSync(resolve(root,path)));
       return h.digest('hex');
     };
-    const before = hash(); writeFileSync(file, 'after'); expect(hash()).not.toBe(before);
+    // Integration tests are never compiled into a bake; hashing them would rebake every game for a test edit.
+    const before = hash(); writeFileSync(file, 'after'); expect(hash()).toBe(before);
   } finally { rmSync(root, {recursive:true,force:true}); }
 });
 
@@ -895,7 +903,7 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
   const profile=mkdtempSync(resolve(tmpdir(),'e10-button-browser-'));
   const server=Bun.serve({port:0,fetch(request) {
     const path=new URL(request.url).pathname;
-    if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<div id="exact-root"></div>','<div id="exact-root"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div>'),{headers:{'content-type':'text/html'}});
+    if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<script type="module" src="./glue.js"></script>','').replace('<div id="exact-root"></div>','<div id="exact-root"><div id="canvas" data-gpu-input tabindex="-1"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div></div>'),{headers:{'content-type':'text/html'}});
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
@@ -913,8 +921,21 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
     await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
     expect(await evaluate('getComputedStyle(document.getElementById("pause")).outlineStyle')).toBe('auto');
+    const clickHandler=readFileSync(resolve(root,'glue.js'),'utf8').split('\n').find(line=>line.includes('on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch'));
+    await evaluate(`globalThis.presses=0; globalThis.worldKeys=0; const el=document.getElementById('pause'); new Function('on','el','send','wasm','id','now',${JSON.stringify(clickHandler)})((name,fn)=>el.addEventListener(name,fn),el,()=>{presses++;globalThis.pressFocus?.focus();},{exact_dispatch:()=>0},1,()=>0); document.getElementById('canvas').addEventListener('keydown',event=>{if(event.target.id==='canvas'){worldKeys++;event.preventDefault();}})`);
+    for(const type of ['keyDown','keyUp']) await call('Input.dispatchKeyEvent',{type,key:' ',code:'Space',windowsVirtualKeyCode:32,text:type==='keyDown'?' ':undefined});
+    expect(await evaluate('({presses,focus:document.activeElement.id})')).toEqual({presses:1,focus:'pause'});
+    for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
+    expect(await evaluate('presses === 2 && document.activeElement.id === "canvas"')).toBe(true);
+    for(const type of ['keyDown','keyUp']) await call('Input.dispatchKeyEvent',{type,key:' ',code:'Space',windowsVirtualKeyCode:32,text:type==='keyDown'?' ':undefined});
+    expect(await evaluate('presses === 2 && worldKeys === 1')).toBe(true);
     await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:15,y:15});
-    expect(await evaluate('getComputedStyle(document.getElementById("pause")).filter')).not.toBe('none');
+    expect(await evaluate('getComputedStyle(document.getElementById("pause")).filter')).toBe('none');
+    expect(await evaluate('getComputedStyle(document.getElementById("pause")).outlineStyle')).toBe('solid');
+    expect(await evaluate('const outside=document.createElement("button");document.body.append(outside);outside.focus();getComputedStyle(outside).outlineStyle')).toBe('none');
+    await evaluate('globalThis.pressFocus=outside');
+    for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
+    expect(await evaluate('document.activeElement === outside')).toBe(true);
   } finally {clearTimeout(deadline);child.kill('SIGKILL');await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});}
 },60000);
 
@@ -947,3 +968,107 @@ test('E10 PNG command is runnable for named and external games', () => {
   expect(captureCommand('game/games/beacons/proof.mjs')).toBe('bun game/games/beacons/proof.mjs web');
   expect(captureCommand('/tmp/my game/proof.mjs')).toBe("bun '/tmp/my game/proof.mjs' web");
 });
+
+test('R15 macOS receipt includes modulemaps and extensionless compile inputs',async()=>{
+  const dir=mkdtempSync(resolve(tmpdir(),'r15-modulemap-'));
+  try {
+    const file=resolve(dir,'host/apple/Sources/CExact/module.modulemap');mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'module CExact {}');
+    mkdirSync(resolve(dir,'game/games/test'),{recursive:true});
+    const receipt=resolve(dir,'artifacts/receipt.json');mkdirSync(dirname(receipt),{recursive:true});let builds=0;
+    const inputs=()=>{const h=buildInputHash('macos','aarch64-apple-darwin');for(const p of proofInputFiles(dir,resolve(dir,'game/games/test')))h.update(p).update(readFileSync(resolve(dir,p)));return h.digest('hex');};
+    const before=inputs();writeFileSync(file,'module CExact { header "exact.h" }');expect(inputs()).not.toBe(before);
+    for(const name of ['embedded.test.mjs','proof.mjs','pins.json','Header']) { const before=inputs();writeFileSync(resolve(dirname(file),name),'tracked compile input');expect(inputs()).not.toBe(before); }
+    // Outside `game/` every tracked file counts; under the add-on, tests, examples, proofs and pins describe proofs.
+    for(const path of ['examples/source.inc']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'tracked compile input');expect(inputs()).not.toBe(before); }
+    for(const path of ['game/games/test/tests/data','game/games/test/proof.mjs','game/engine/tests/a.rs']) { const before=inputs();const file=resolve(dir,path);mkdirSync(dirname(file),{recursive:true});writeFileSync(file,'not a bake input');expect(inputs()).toBe(before); }
+    await ensureBuildReceipt({receipt,inputs:before,artifact:()=> 'binary',build:async()=>{builds++;}});
+    await ensureBuildReceipt({receipt,inputs:inputs(),artifact:()=> 'binary',build:async()=>{builds++;}});
+    expect(builds).toBe(2);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+test('R15 game and generated shell profiles disable contraction and dev semantic drift',async()=>{
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const config=Bun.TOML.parse(readFileSync(resolve(import.meta.dir,'.cargo/config.toml'),'utf8'));
+  expect(config.build.rustflags).toEqual(['-C','llvm-args=-fp-contract=off']);
+  const cargo=Bun.TOML.parse(readFileSync(resolve(import.meta.dir,'Cargo.toml'),'utf8'));
+  expect(cargo.profile['gpu-dev']['debug-assertions']).toBe(false);
+  expect(cargo.profile['gpu-dev']['overflow-checks']).toBe(false);
+  const app=resolve(import.meta.dir,'games/beacons');gameShells(app,gameDefaults(app).game,import.meta.dir);
+  expect(Bun.TOML.parse(readFileSync(resolve(app,'.shells/.cargo/config.toml'),'utf8')).build.rustflags).toEqual(config.build.rustflags);
+});
+
+test('R15 even linux-only repin refuses missing or divergent release observations',()=>{
+  const rows=candidates(['linux']), old=rows[0].pins;
+  expect(()=>agreePins(rows.slice(0,-1),old,['linux'])).toThrow('release');
+  rows.at(-1).pins.ticks[60]=repeatedHash('d');
+  expect(()=>agreePins(rows,old,['linux'])).toThrow('release');
+});
+
+test('R15 semantic drift fixture is rejected by the release gate',async()=>{
+  const dir=mkdtempSync(resolve(tmpdir(),'r15-profile-drift-'));
+  try {
+    const src=resolve(dir,'profile.rs');
+    writeFileSync(src,'#[no_mangle] pub extern "C" fn mode()->u32{cfg!(debug_assertions) as u32} #[no_mangle] pub extern "C" fn increment(a:u32)->u32{a+1}');
+    const outcomes=[];
+    for(const drift of [true,false]) {
+      const binary=resolve(dir,drift?'drift.wasm':'release.wasm');
+      const compile=Bun.spawn(['rustc',src,'--crate-type','cdylib','--target','wasm32-unknown-unknown','-C','panic=abort','-o',binary,'-C',`debug-assertions=${drift?'yes':'no'}`,'-C',`overflow-checks=${drift?'yes':'no'}`,'-C','llvm-args=-fp-contract=off'],{stdout:'pipe',stderr:'pipe'});
+      expect(await compile.exited).toBe(0);
+      const {instance}=await WebAssembly.instantiate(readFileSync(binary),{});
+      let wrapped=false;try { wrapped=instance.exports.increment(4294967295)===0; } catch(error) {expect(error).toBeInstanceOf(WebAssembly.RuntimeError);}
+      outcomes.push(`${instance.exports.mode()===1}:${wrapped}\n`);
+    }
+    expect(outcomes).toEqual(['true:false\n','false:true\n']);
+    const rows=candidates(['linux']);
+    rows.at(-1).pins.ticks[60]='0x'+createHash('sha256').update(outcomes[1]).digest('hex').slice(0,16);
+    for(const row of rows.slice(0,-1)) row.pins.ticks[60]='0x'+createHash('sha256').update(outcomes[0]).digest('hex').slice(0,16);
+    expect(()=>agreePins(rows,rows[0].pins,['linux'])).toThrow('release');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+},60000);
+
+
+test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];
+  mkdirSync(app);
+  try {
+    writeFileSync(resolve(app,'pins.json'),JSON.stringify({ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}}));
+    writeFileSync(resolve(app,'proof.mjs'),`
+      import {existsSync,mkdirSync,readFileSync,writeFileSync} from 'node:fs';
+      const owner=process.env.PROOF_TEST_OWNER, out=process.env.EXACT_PROOF_OUT, dist=process.env.EXACT_WEB_DIST;
+      mkdirSync(out,{recursive:true});writeFileSync(out+'/owner',owner);
+      if(dist) {mkdirSync(dist,{recursive:true});writeFileSync(dist+'/owner',owner);}
+      writeFileSync('./ready-'+owner,'');
+      const deadline=Date.now()+5000;
+      while(!existsSync('./ready-'+(owner==='a'?'b':'a'))) {
+        if(Date.now()>deadline) throw new Error('peer proof never arrived');
+        await Bun.sleep(10);
+      }
+      if(readFileSync(out+'/owner','utf8')!==owner) throw new Error('another proof replaced my saved files');
+      if(dist && readFileSync(dist+'/owner','utf8')!==owner) throw new Error('another proof replaced my web build');
+      writeFileSync(out+'/summary.json',JSON.stringify({host:'web',status:'PASS',mode:'0',seconds:0,
+        worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'save',sha256:owner}],owner,out,dist}));
+    `);
+    const run=owner=>{
+      const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'prove.mjs'),app,'--hosts','web'],
+        {env:{...process.env,PROOF_TEST_OWNER:owner},stdout:'pipe',stderr:'pipe'});
+      const owned={child,done:false};children.push(owned);
+      return Promise.all([child.exited.then(code=>{owned.done=true;return code;}),new Response(child.stdout).text(),new Response(child.stderr).text()])
+        .then(([code,stdout,stderr])=>({code,text:stdout+stderr,root:stdout.match(/^ARTIFACTS (.+)$/m)?.[1]}));
+    };
+    const results=await Promise.all(['a','b'].map(run));
+    for(const result of results) expect(result.code,result.text).toBe(0);
+    expect(results[0].root).not.toBe(results[1].root);
+    for(const [i,result] of results.entries()) {
+      const row=JSON.parse(readFileSync(resolve(result.root,'summary.json'),'utf8')).rows[0], owner=['a','b'][i];
+      expect(row.owner).toBe(owner);
+      expect(readFileSync(resolve(row.out,'owner'),'utf8')).toBe(owner);
+      expect(readFileSync(resolve(row.dist,'owner'),'utf8')).toBe(owner);
+      expect(row.out.startsWith(result.root+'/')).toBe(true);
+      expect(row.dist.startsWith(result.root+'/')).toBe(true);
+    }
+  } finally {
+    for(const {child,done} of children) if(!done) child.kill();
+    await Promise.all(children.map(({child})=>child.exited));
+    rmSync(dir,{recursive:true,force:true});
+  }
+},15000);

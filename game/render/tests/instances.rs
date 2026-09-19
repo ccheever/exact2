@@ -1,4 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
+#[path = "fixture/device.rs"]
+mod test_device;
 use exact_game::{asset::*, *};
 use exact_game_render::{Feed, Renderer};
 use exact_gpu::{fixture, wgpu};
@@ -54,7 +56,7 @@ fn image_with_pose(
     sun: Option<exact_game_render::Sun>,
     pose: Transform,
 ) -> Option<fixture::Pixels> {
-    let gpu = fixture::device().ok()?;
+    let gpu = crate::test_device::device_or_skip(exact_gpu::fixture::device())?;
     let mut sim = Sim::<Test>::new(()).unwrap();
     sim.asset("panels.model", Some(&bin::to_vec(model)))
         .unwrap();
@@ -252,7 +254,9 @@ fn mirrored_single_sided_nodes_keep_their_front_face() {
 
 #[test]
 fn models_and_materials_share_named_textures_defaults_and_samplers() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
     assert_eq!(renderer.asset_work(), (0, 0));
     let m = Model {

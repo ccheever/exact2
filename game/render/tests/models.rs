@@ -1,4 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
+#[path = "fixture/device.rs"]
+mod test_device;
 use exact_game::{asset::Model, *};
 use exact_game_render::WorldSurface;
 use exact_gpu::{fixture, Frame, Surface};
@@ -54,14 +56,14 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
         WorldSurface::<ModelGame, exact_game_render::ModelPresentation, true>::default();
     surface.device_ready();
     surface.bind(&[], None).unwrap();
-    assert_eq!(surface.assets(), ["sample.model"]);
+    assert_eq!(surface.assets().requests, ["sample.model"]);
     surface.asset("sample.model", Ok(&bin::to_vec(model)));
     surface.prepare_assets(
         &gpu.device,
         &gpu.queue,
         exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
     );
-    for texture in surface.assets() {
+    for texture in surface.assets().requests {
         let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
             .join("Library/Caches/exact2-game/gltf-samples")
             .join(&texture);
@@ -94,7 +96,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
 }
 #[test]
 fn textured_samples_and_normal_emissive_differences() {
-    let Ok(gpu) = fixture::device() else {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         eprintln!("SKIP models: no GPU adapter");
         return;
     };

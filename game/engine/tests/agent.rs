@@ -173,3 +173,50 @@ fn cycle_refusal_contains_the_entities_and_parent_ids() {
         assert!(!reply.contains("show Parent components"));
     }
 }
+
+#[test]
+fn screen_bounds_clip_near_without_changing_saved_state() {
+    struct Clipped;
+    impl Game for Clipped {
+        const ID: &'static str = "clipped-bounds";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named(
+                "camera",
+                (
+                    Transform::default(),
+                    Camera {
+                        near: 1.,
+                        far: 100.,
+                        fov_y_degrees: 90.,
+                        ..Camera::default()
+                    },
+                ),
+            );
+            w.spawn_named("box", (Transform::at(0., 0., -1.), Mesh::cube(2.)));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut s = Sim::<Clipped>::new(()).unwrap();
+    s.viewport(200., 200.);
+    let saved = s.save().unwrap();
+    let rect = s.layout("box").unwrap().screen;
+    for (a, b) in [rect.x, rect.y, rect.w, rect.h]
+        .into_iter()
+        .zip([0., 0., 200., 200.])
+    {
+        assert!((a - b).abs() < 0.0001, "{rect:?}");
+    }
+    assert_eq!(
+        s.save().unwrap(),
+        saved,
+        "projection cannot change the complete save"
+    );
+    let entity = s.world().named("box").unwrap();
+    s.world_mut().teleport(entity, Transform::at(0., 0., 2.));
+    assert!(s.layout("box").is_none());
+    // Exactly on the near plane, the rear face still supplies finite bounds.
+    s.world_mut().teleport(entity, Transform::at(0., 0., 0.));
+    let rect = s.layout("box").unwrap().screen;
+    assert!((rect.w - 200.).abs() < 0.0001 && (rect.h - 200.).abs() < 0.0001);
+}

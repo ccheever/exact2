@@ -2,8 +2,6 @@ use exact_game::*;
 
 #[derive(Default, Args)]
 pub struct Options {
-    #[live]
-    pub pulls: u32,
     pub plates: u32,
 }
 #[derive(Default, Data)]
@@ -19,6 +17,9 @@ impl Game for SmallGame {
     const ID: &'static str = "placement-fixture";
     const HZ: u32 = 60;
     type Args = Options;
+    fn actions() -> Actions {
+        Actions::new().button("pull", &[])
+    }
     fn setup(w: &mut World, args: &Options) {
         w.insert_resource(Environment {
             background: Some([0.04, 0.08, 0.12]),
@@ -60,7 +61,7 @@ impl Game for SmallGame {
             "sign",
             (
                 Transform::at(-1.8, 1.4, 0.),
-                Placed::child(1).width(1.8).facing(Facing::Fixed),
+                Placed::child("sign").width(1.8).facing(Facing::Fixed),
             ),
         );
         w.spawn_named(
@@ -76,12 +77,15 @@ impl Game for SmallGame {
             (
                 Transform::at(0., 1.2, 0.),
                 Parent(w.named("cube").unwrap()),
-                Placed::child(2).width(1.2),
+                Placed::child("name").width(1.2),
             ),
         );
         w.spawn_named(
             "pull",
-            (Transform::at(1.8, 1.2, 0.), Placed::child(3).width(1.2)),
+            (
+                Transform::at(1.8, 1.2, 0.),
+                Placed::child("pull").width(1.2),
+            ),
         );
         w.spawn_named(
             "lamp",
@@ -100,7 +104,7 @@ impl Game for SmallGame {
         );
         w.publish_record(&Hud::default());
     }
-    fn tick(w: &mut World, _: &Input, args: &Options) {
+    fn tick(w: &mut World, input: &Input, args: &Options) {
         if args.plates > 0 {
             return;
         }
@@ -109,7 +113,7 @@ impl Game for SmallGame {
         *w.require_mut::<Transform>("camera") =
             Transform::at(sin * 8., 3., cos * 8.).looking_at(Vec3::new(0., 1., 0.), Vec3::Y);
         w.require_mut::<Transform>("cube").position.x = math::sin(t) * 0.6;
-        let lit = w.resource::<Lamp>().lit || args.pulls > 0;
+        let lit = w.resource::<Lamp>().lit || input.pressed("pull");
         w.resource_mut::<Lamp>().lit = lit;
         w.require_mut::<Material>("lamp").emissive = if lit { [4., 2., 0.3] } else { [0.; 3] };
         w.publish_record(&Hud { lit });

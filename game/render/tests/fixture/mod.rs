@@ -8,8 +8,6 @@ pub struct Options {
     #[restart]
     pub restart: bool,
 }
-#[derive(Default, Component)]
-struct Glow(Spring);
 pub struct Fixture;
 impl Game for Fixture {
     const ID: &'static str = "renderer-fixture";
@@ -53,7 +51,10 @@ impl Game for Fixture {
             (
                 Transform::at(1.5, 0.75, -6.5),
                 Mesh::sphere(0.5),
-                Material::rgb(0.03, 0.12, 0.16),
+                Material {
+                    emissive: [3.; 3],
+                    ..Material::rgb(0.03, 0.12, 0.16)
+                },
                 Glow::default(),
             ),
         );
@@ -69,12 +70,8 @@ impl Game for Fixture {
         }
         let now = w.tick_end();
         if input.pressed("act") {
-            w.require_mut::<Glow>("beacon-1").0.set_target(now, 1.);
+            w.require_mut::<Glow>("beacon-1").0.to(now, 1., 0.5);
             w.publish("beacons", 1u32);
-        }
-        let glow = w.require::<Glow>("beacon-1").0.value(now) * 3.;
-        if w.require::<Material>("beacon-1").emissive != [glow; 3] {
-            w.require_mut::<Material>("beacon-1").emissive = [glow; 3];
         }
     }
 }

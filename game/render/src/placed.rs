@@ -2,7 +2,7 @@
 use crate::{quads, world::scene, FrameInput, RenderError};
 #[cfg(test)]
 use exact_game::Transform;
-use exact_game::{Camera, Parent, Placed, World};
+use exact_game::{Camera, CanvasChild, Parent, Placed, World};
 use exact_gpu::{wgpu, Placement};
 #[cfg(not(target_arch = "wasm32"))]
 use glam::Vec3;
@@ -10,6 +10,7 @@ use glam::{Mat4, Vec2};
 
 #[derive(Default)]
 pub(crate) struct Child {
+    pub name: String,
     pub frame: [f32; 4],
     pub texture: Option<wgpu::TextureView>,
     pub plane: Option<Plane>,
@@ -34,26 +35,33 @@ pub(crate) struct Placements {
     stamp: Option<(u64, u64, u64, u64)>,
 }
 impl Placements {
-    pub fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
-        if texture.is_none() && frame == [0.; 4] {
+    pub fn child(
+        &mut self,
+        index: usize,
+        name: &str,
+        texture: Option<&wgpu::TextureView>,
+        frame: [f32; 4],
+    ) {
+        if name.is_empty() && texture.is_none() && frame == [0.; 4] {
             if let Some(child) = self.children.get_mut(index) {
                 *child = Child::default();
             }
             while self
                 .children
                 .last()
-                .is_some_and(|c| c.texture.is_none() && c.frame == [0.; 4])
+                .is_some_and(|c| c.name.is_empty() && c.texture.is_none() && c.frame == [0.; 4])
             {
                 self.children.pop();
             }
             return;
         }
-        if index > self.children.len() {
-            return;
+        // The module validates sequential delivery. An unnamed zero-size child
+        // can trim our tail, so a later arrival may need to restore those holes.
+        if index >= self.children.len() {
+            self.children.resize_with(index + 1, Child::default);
         }
-        if index == self.children.len() {
-            self.children.push(Child::default());
-        }
+        self.children[index].name.clear();
+        self.children[index].name.push_str(name);
         self.children[index].frame = frame;
         self.children[index].texture = texture.cloned();
     }
@@ -108,15 +116,28 @@ impl Placements {
         );
         self.stamp = Some(next);
         self.claims.clear();
-        for (_, value) in w.query::<&Placed>().iter() {
+        let mut items = self.items.iter_mut().peekable();
+        for (entity, value) in w.query::<&Placed>().iter() {
             value.validate().map_err(RenderError::scene)?;
-            if self.claims.contains(&value.child) {
-                return Err(RenderError::scene(format!(
-                    "Placed child {} has multiple owners",
-                    value.child
-                )));
+            let index = resolve(&self.children, &value.child)?;
+            if let Some(index) = index {
+                if self.claims.contains(&index) {
+                    return Err(RenderError::scene(format!(
+                        "Placed child {index} has multiple owners"
+                    )));
+                }
+                self.claims.push(index);
             }
-            self.claims.push(value.child);
+            // Compile the renderer's copy only. The world retains the name, so a
+            // child reorder is resolved even when the component hasn't changed.
+            if items.peek().is_some_and(|item| item.entity == entity) {
+                let item = items.next().unwrap();
+                if let Some(index) = index {
+                    item.value.child = CanvasChild::Index(index);
+                } else {
+                    item.value.child.clone_from(&value.child);
+                }
+            }
         }
         Ok(())
     }
@@ -145,11 +166,14 @@ impl Placements {
             }
         }
         for item in &self.items {
-            let Some(child) = self.children.get_mut(usize::from(item.value.child)) else {
+            let CanvasChild::Index(index) = item.value.child else {
+                continue;
+            };
+            let Some(child) = self.children.get_mut(usize::from(index)) else {
                 continue;
             };
             child.plane = Some(project_affine(
-                item.value,
+                &item.value,
                 input.displayed_matrix(item.entity, scene::interpolate(item.poses, input.alpha)),
                 child.frame,
                 input.view,
@@ -204,15 +228,38 @@ impl Placements {
         let Some(value) = w.get::<Placed>(e) else {
             return;
         };
-        let p = self.placement(usize::from(value.child));
+        let index = resolve(&self.children, &value.child).ok().flatten();
+        let p = index.and_then(|index| self.placement(usize::from(index)));
         reply.truncate(reply.len() - 2);
         reply.push_str(&format!(
             ",\"placed\":{{\"child\":{},\"hidden\":{},\"depth\":{}}}}}}}",
-            value.child,
+            index.map_or_else(|| "null".into(), |i| i.to_string()),
             p.is_none_or(|p| p.hidden),
             exact_game::data::text::Float(p.map_or(0., |p| p.depth))
         ));
     }
+}
+
+fn resolve(children: &[Child], selector: &CanvasChild) -> Result<Option<u16>, RenderError> {
+    let name = match selector {
+        CanvasChild::Index(index) => return Ok(Some(*index)),
+        CanvasChild::Name(name) => name,
+    };
+    let mut matches = children
+        .iter()
+        .enumerate()
+        .filter(|(_, child)| child.name == *name);
+    let Some((index, _)) = matches.next() else {
+        return Ok(None);
+    };
+    if matches.next().is_some() {
+        return Err(RenderError::scene(format!(
+            "Placed child {name:?} is ambiguous: duplicate testId"
+        )));
+    }
+    u16::try_from(index)
+        .map(Some)
+        .map_err(|_| RenderError::scene(format!("Placed child {name:?}: index exceeds u16")))
 }
 
 // Geometry stays host-independent in the engine; only the ABI conversion lives here.
@@ -226,7 +273,7 @@ pub(crate) fn project(
     size: Vec2,
 ) -> Plane {
     project_affine(
-        value,
+        &value,
         Mat4::from_scale_rotation_translation(pose.scale, pose.rotation, pose.position),
         frame,
         view,
@@ -235,7 +282,7 @@ pub(crate) fn project(
     )
 }
 fn project_affine(
-    value: Placed,
+    value: &Placed,
     pose: Mat4,
     frame: [f32; 4],
     view: Mat4,

@@ -62,7 +62,6 @@ impl History {
 struct Light {
     history: History,
     light: PointLight,
-    selected: bool,
 }
 #[derive(Default)]
 pub(super) struct Scene {
@@ -165,7 +164,6 @@ impl Scene {
                         Light {
                             history: History::new(e, t),
                             light: *light,
-                            selected: false,
                         },
                     );
                 }
@@ -189,13 +187,8 @@ impl Scene {
                 )
                 .position
                 .distance_squared(camera);
-                // Selected lights keep membership until a challenger is >10% nearer.
-                // Entity order breaks exact ties; this scan happens only at feed time.
-                let score = if light.selected {
-                    distance / 1.21
-                } else {
-                    distance
-                };
+                // Selection depends only on current state; entity order breaks ties.
+                let score = distance;
                 let at = distances.partition_point(|d| *d <= score);
                 if at < 16 {
                     distances.copy_within(at..15, at + 1);
@@ -204,19 +197,6 @@ impl Scene {
                     self.selected[at] = i;
                     self.count = (self.count + 1).min(16);
                 }
-                light.selected = false;
-            }
-            self.selected[..self.count].sort_unstable_by(|a, b| {
-                let distance = |i: usize| {
-                    let h = self.lights[i].history;
-                    displayed(&self.attachments.output, h.entity, h.curr)
-                        .position
-                        .distance_squared(camera)
-                };
-                distance(*a).total_cmp(&distance(*b)).then(a.cmp(b))
-            });
-            for &i in &self.selected[..self.count] {
-                self.lights[i].selected = true;
             }
         }
         self.versions = Some(versions);
@@ -330,7 +310,6 @@ pub struct DisplayedAttachment {
 }
 // Owner transforms must be interpolated locally before hierarchy composition:
 // decomposing a global matrix loses shear under non-uniform ancestors.
-#[derive(Clone)]
 struct Owner {
     entity: Entity,
     chain: Vec<History>,
@@ -345,20 +324,23 @@ impl Owner {
         owner
     }
     fn update(&mut self, w: &World, next_tick: bool, parent_changed: bool) {
-        let mut chain = Vec::new();
+        // Keep leaf-to-root history in place; ancestor edits snap the changed chain.
         let mut at = self.entity;
+        let mut length = 0;
         for _ in 0..=w.len() {
             let curr = w
                 .get::<Transform>(at)
                 .as_deref()
                 .copied()
                 .unwrap_or_default();
-            let mut h = self
-                .chain
-                .iter()
-                .find(|h| h.entity == at)
-                .copied()
-                .unwrap_or_else(|| History::new(at, curr));
+            if self.chain.get(length).is_none_or(|h| h.entity != at) {
+                if let Some(found) = self.chain[length..].iter().position(|h| h.entity == at) {
+                    self.chain.swap(length, length + found);
+                } else {
+                    self.chain.insert(length, History::new(at, curr));
+                }
+            }
+            let h = &mut self.chain[length];
             if next_tick {
                 h.prev = h.curr;
             }
@@ -366,14 +348,13 @@ impl Owner {
             if snap(w, at, parent_changed) {
                 h.prev = curr;
             }
-            chain.push(h);
+            length += 1;
             let Some(parent) = w.get::<Parent>(at).map(|p| p.0).filter(|e| w.contains(*e)) else {
                 break;
             };
             at = parent;
         }
-        chain.reverse();
-        self.chain = chain;
+        self.chain.truncate(length);
     }
 }
 #[derive(Default)]
@@ -407,7 +388,7 @@ impl DiagnosticRegistry {
 pub(crate) type AttachmentDiagnostics = std::rc::Rc<std::cell::RefCell<DiagnosticRegistry>>;
 struct Attachment {
     history: History,
-    owner: Owner,
+    owner: Entity,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
     model_digest: u64,
@@ -418,6 +399,7 @@ pub(crate) struct Attachments {
     items: Vec<Attachment>,
     pub(crate) diagnostics: AttachmentDiagnostics,
     pub output: Vec<DisplayedAttachment>,
+    pub(crate) model_digests: std::collections::BTreeMap<String, u64>,
 }
 impl Attachments {
     pub fn reset(&mut self) {
@@ -514,7 +496,7 @@ impl Attachments {
                 || !self
                     .items
                     .get(at)
-                    .is_some_and(|v| v.history.entity == e && v.owner.entity == target);
+                    .is_some_and(|v| v.history.entity == e && v.owner == target);
             if fresh {
                 if self.items.get(at).is_some_and(|v| v.history.entity == e) {
                     self.items.remove(at);
@@ -523,22 +505,28 @@ impl Attachments {
                     at,
                     Attachment {
                         history: History::new(e, home),
-                        owner: Owner::new(w, target),
+                        owner: target,
                         chain: vec![],
                         offset: follow.offset,
-                        model_digest: exact_game::hash::of(model),
+                        model_digest: self
+                            .model_digests
+                            .get(name)
+                            .copied()
+                            .unwrap_or(w.model_revision()),
                     },
                 );
             }
             let item = &mut self.items[at];
             item.history.update(w, next_tick, parent_changed);
-            item.owner = self
-                .owners
+            self.owners
                 .entry(target)
-                .or_insert_with(|| Owner::new(w, target))
-                .clone();
+                .or_insert_with(|| Owner::new(w, target));
             let model_changed = if models_changed {
-                let digest = exact_game::hash::of(model);
+                let digest = self
+                    .model_digests
+                    .get(name)
+                    .copied()
+                    .unwrap_or(w.model_revision());
                 let changed = item.model_digest != digest;
                 item.model_digest = digest;
                 changed
@@ -585,13 +573,13 @@ impl Attachments {
         if remaining == 0 {
             return matrix(item.history.at(alpha));
         }
-        let owner = self.owner_matrix(&item.owner, alpha, remaining);
+        let owner = self.owner_matrix(&self.owners[&item.owner], alpha, remaining);
         item.chain.iter().fold(owner, |m, pair| {
             m * crate::skinning::interpolated_local(*pair, alpha)
         }) * matrix(item.offset)
     }
     fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
-        owner.chain.iter().fold(Mat4::IDENTITY, |m, h| {
+        owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
             self.items
                 .iter()
                 .position(|v| v.history.entity == h.entity)
@@ -619,7 +607,7 @@ impl Attachments {
         // The skinned owner must use the same affine chain as its charm; otherwise
         // the owner mesh would still flatten ancestor shear in its TRS arena.
         for item in &self.items {
-            let owner = self.owners.get(&item.owner.entity).unwrap_or(&item.owner);
+            let owner = &self.owners[&item.owner];
             if owner.chain.len() < 2 || self.output.iter().any(|a| a.entity == owner.entity) {
                 continue;
             }
@@ -665,6 +653,68 @@ pub(crate) fn displayed_matrix(
 #[cfg(test)]
 mod diagnostic_tests {
     use super::*;
+    #[test]
+    fn attachments_share_one_owner_and_the_delivered_model_identity() {
+        struct Rig;
+        impl exact_game::Game for Rig {
+            const ID: &'static str = "attachment-owner";
+            const ASSETS: &'static [&'static str] = &["rig.model"];
+            type Args = ();
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &exact_game::Input, _: &()) {}
+        }
+        let model = crate::test_model::skinned_model();
+        let before = crate::models::model_hash_count();
+        let digest = crate::models::model_digest(&model);
+        let mut sim = exact_game::Sim::<Rig>::new(()).unwrap();
+        sim.deliver_asset("rig.model", Ok(exact_game::asset::Content::Model(model)))
+            .unwrap();
+        let w = sim.world_mut();
+        let owner = w.spawn_named(
+            "rig",
+            (Transform::default(), exact_game::Mesh::asset("rig.model")),
+        );
+        for _ in 0..3 {
+            w.spawn((
+                Transform::default(),
+                exact_game::SocketFollow::new("rig", "joint"),
+            ));
+        }
+        w.propagate();
+        let mut a = Attachments::default();
+        a.model_digests.insert("rig.model".into(), digest);
+        a.feed(w, true, true, true, true);
+        assert_eq!(a.owners.len(), 1);
+        assert_eq!(a.items.len(), 3);
+        assert!(a
+            .items
+            .iter()
+            .all(|v| v.owner == owner && v.model_digest == digest));
+        // A residency identity is supplied, never rediscovered from model bytes.
+        a.model_digests.insert("rig.model".into(), digest ^ 1);
+        a.feed(w, false, true, false, true);
+        assert!(a.items.iter().all(|v| v.model_digest == digest ^ 1));
+        assert_eq!(crate::models::model_hash_count(), before + 1);
+    }
+
+    #[test]
+    fn owner_updates_reuse_one_chain_allocation() {
+        let mut w = World::new(60, 0);
+        let parent = w.spawn(Transform::at(2., 0., 0.));
+        let child = w.spawn((Transform::at(1., 0., 0.), Parent(parent)));
+        let mut owner = Owner::new(&w, child);
+        let allocation = owner.chain.as_ptr();
+        for _ in 0..100 {
+            owner.update(&w, true, false);
+            assert_eq!(owner.chain.as_ptr(), allocation);
+            assert_eq!(owner.chain.len(), 2);
+        }
+        w.remove::<Parent>(child);
+        owner.update(&w, true, true);
+        assert_eq!(owner.chain.len(), 1);
+        assert_eq!(owner.chain.as_ptr(), allocation);
+    }
+
     #[test]
     fn distinct_diagnostic_identities_do_not_replace_each_other() {
         let mut w = World::new(60, 0);

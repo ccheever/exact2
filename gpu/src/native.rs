@@ -23,7 +23,7 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
 
 /// Drain requested asset paths as JSON.
 pub fn assets(id: u32) -> String {
-    with(|m| json::strings(&m.take_assets(id))).unwrap_or_else(|| "[]".into())
+    with(|m| m.take_assets(id).json()).unwrap_or_else(|| crate::AssetChanges::default().json())
 }
 /// Deliver named bytes, including a missing file, without requiring a device.
 pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
@@ -279,8 +279,15 @@ pub fn children_mode(id: u32) -> u32 {
 
 /// The `index`th direct child of a canvas as pixels with its frame (LLP
 /// 1014 D5). 0 on success.
-pub fn child(id: u32, index: u32, frame: [f32; 4], width: u32, height: u32, bytes: &[u8]) -> u32 {
-    match with(|m| m.child(id, index as usize, frame, width, height, bytes)) {
+pub fn child(
+    id: u32,
+    index: u32,
+    name: &str,
+    frame: [f32; 4],
+    size: [u32; 2],
+    bytes: &[u8],
+) -> u32 {
+    match with(|m| m.child(id, index as usize, name, frame, size, bytes)) {
         Some(true) => 0,
         _ => 1,
     }
@@ -570,11 +577,13 @@ macro_rules! module {
         /// 0 on success.
         ///
         /// # Safety
-        /// `bytes` is `len` readable bytes.
+        /// `name` and `bytes` are readable for their corresponding byte lengths.
         #[no_mangle]
-        pub unsafe extern "C" fn gpu_child(id: u32, index: u32, x: f32, y: f32, w: f32, h: f32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
-            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_child", bytes, len) }) else { return 1 };
-            $crate::native::child(id, index, [x, y, w, h], width, height, bytes)
+        pub unsafe extern "C" fn gpu_child_view(id: u32, index: u32, name: *const u8, name_len: usize, x: f32, y: f32, w: f32, h: f32, width: u32, height: u32, bytes: *const u8, len: usize) -> u32 {
+            let Some(name) = (unsafe { $crate::native::bytes("gpu_child_view", name, name_len) }) else { return 1 };
+            let Ok(name) = ::std::str::from_utf8(name) else { $crate::native::refuse("gpu_child_view: invalid UTF-8"); return 1 };
+            let Some(bytes) = (unsafe { $crate::native::bytes("gpu_child_view", bytes, len) }) else { return 1 };
+            $crate::native::child(id, index, name, [x, y, w, h], [width, height], bytes)
         }
 
         /// How many direct children a canvas has now (LLP 1014 D5). 0 on success.
@@ -807,6 +816,7 @@ mod placement_abi_tests {
         retired: bool,
         formats: Vec<wgpu::TextureFormat>,
         lose_on_prepare: bool,
+        child_name: String,
     }
     impl Surface for Sign {
         fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
@@ -849,11 +859,12 @@ mod placement_abi_tests {
                 self.lose_on_prepare = true;
             }
             Some(format!(
-                "{{\"preparations\":{},\"formats\":\"{:?}\"}}",
-                self.preparations, self.formats
+                "{{\"preparations\":{},\"formats\":\"{:?}\",\"child\":{:?}}}",
+                self.preparations, self.formats, self.child_name
             ))
         }
-        fn child(&mut self, _: usize, _: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+        fn child(&mut self, _: usize, name: &str, _: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+            self.child_name = name.into();
             self.frame = frame;
         }
         fn placement(&self, index: usize) -> Option<Placement> {
@@ -877,17 +888,17 @@ mod placement_abi_tests {
         assert_eq!(bind(id, "[]"), 0);
         for _ in 0..3 {
             with(|m| m.agent(id, "active"));
-            assert_eq!(child(id, 0, [0., 0., 20., 20.], 1, 1, &[255; 4]), 0);
+            assert_eq!(child(id, 0, "", [0., 0., 20., 20.], [1, 1], &[255; 4]), 0);
             assert_eq!(
                 with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
                 Some(1)
             );
-            assert_eq!(child(id, 0, [0.; 4], 0, 0, &[]), 0);
+            assert_eq!(child(id, 0, "", [0.; 4], [0, 0], &[]), 0);
             assert_eq!(
                 with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
                 Some(0)
             );
-            assert_eq!(child(id, 0, [0., 0., 20., 20.], 1, 1, &[255; 4]), 0);
+            assert_eq!(child(id, 0, "", [0., 0., 20., 20.], [1, 1], &[255; 4]), 0);
             with(|m| m.agent(id, "retire"));
             assert_eq!(gpu_children_mode(id), 0);
             assert_eq!(with(|m| m.instances[&id].each.len()), Some(0));
@@ -990,7 +1001,7 @@ mod placement_abi_tests {
         let id = create_headless("sign");
         assert_ne!(id, 0);
         assert_eq!(bind(id, "[]"), 0);
-        assert_eq!(child(id, 0, [10., 20., 100., 50.], 0, 0, &[]), 0);
+        assert_eq!(child(id, 0, "", [10., 20., 100., 50.], [0, 0], &[]), 0);
         with(|m| {
             m.instances
                 .get_mut(&id)
@@ -1029,8 +1040,61 @@ mod placement_abi_tests {
             assert_ne!(id, 0);
             assert_eq!(gpu_children_mode(id), 3);
             assert_eq!(
-                gpu_child(id, 0, 10., 20., 100., 50., 0, 0, std::ptr::null(), 0),
+                gpu_child_view(
+                    id,
+                    0,
+                    b"sign".as_ptr(),
+                    4,
+                    10.,
+                    20.,
+                    100.,
+                    50.,
+                    0,
+                    0,
+                    std::ptr::null(),
+                    0
+                ),
                 0
+            );
+            let name = "標識 🏮";
+            assert_eq!(
+                gpu_child_view(
+                    id,
+                    0,
+                    name.as_ptr(),
+                    name.len(),
+                    10.,
+                    20.,
+                    100.,
+                    50.,
+                    0,
+                    0,
+                    std::ptr::null(),
+                    0
+                ),
+                0
+            );
+            assert!(with(|m| m.agent(id, "").unwrap()).unwrap().contains(name));
+            assert_eq!(
+                gpu_child_view(
+                    id,
+                    0,
+                    [0xff].as_ptr(),
+                    1,
+                    10.,
+                    20.,
+                    100.,
+                    50.,
+                    0,
+                    0,
+                    std::ptr::null(),
+                    0
+                ),
+                1
+            );
+            assert!(
+                with(|m| m.agent(id, "").unwrap()).unwrap().contains(name),
+                "refusal leaves previous metadata intact"
             );
             let mut out = [77.; 10];
             assert_eq!(gpu_placement(id, 0, out.as_mut_ptr(), out.len()), 0);
@@ -1082,7 +1146,7 @@ mod device_loss_tests {
             // Model the asynchronous callback, without calling lose_device first.
             m.device_lost.store(true, Ordering::Release);
             match operation {
-                0 => assert!(!m.child(id, 0, [0., 0., 1., 1.], 1, 1, &[0; 4])),
+                0 => assert!(!m.child(id, 0, "", [0., 0., 1., 1.], [1, 1], &[0; 4])),
                 1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
                 2 => assert!(m
                     .readback(

@@ -96,3 +96,103 @@ fn restore_refuses_a_one_tick_ahead_clock() {
         .contains("world and clock disagree"));
     assert_eq!(s.save().unwrap(), good);
 }
+
+#[test]
+fn restore_preflights_input_and_offsets_without_setup() {
+    thread_local! { static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; static REGISTERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    struct Counter;
+    impl Game for Counter {
+        const ID: &'static str = "restore-preflight";
+        type Args = ();
+        fn register(_: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+            REGISTERS.with(|n| n.set(n.get() + 1));
+        }
+        fn setup(_: &mut World, _: &()) {
+            SETUPS.with(|n| n.set(n.get() + 1));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut sim = Sim::<Counter>::new(()).unwrap().paranoid(Paranoid::Off);
+    sim.run(17.);
+    let good = sim.save().unwrap();
+    SETUPS.with(|n| n.set(0));
+    REGISTERS.with(|n| n.set(0));
+    for case in 0..3 {
+        let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
+        let invalid = InputEvent::Control {
+            name: "unknown".into(),
+            id: 7,
+            phase: crate::PointerPhase::Down,
+            x: 0.,
+            y: 0.,
+            at_ms: 0.,
+        };
+        match case {
+            0 => {
+                saved.input = crate::json::from_str(
+                    r#"{"contacts":[{"id":7,"action":"unknown","origin":[0,0],"position":[0,0]}]}"#,
+                )
+                .unwrap()
+            }
+            1 => saved.queue.push(Queued {
+                event: invalid,
+                ..Default::default()
+            }),
+            _ => saved.queue.push(Queued {
+                event: InputEvent::Blur { at_ms: 0. },
+                world_us: Some(i64::MAX),
+                ..Default::default()
+            }),
+        }
+        let mut bad = b"EXSIM\0\x05".to_vec();
+        bad.extend(bin::to_vec(&saved));
+        assert!(sim.restore(&bad).is_err(), "case {case}");
+        assert_eq!(SETUPS.with(|n| n.get()), 0, "case {case}");
+        assert_eq!(REGISTERS.with(|n| n.get()), 0, "case {case}");
+        assert_eq!(sim.save().unwrap(), good);
+    }
+}
+
+#[test]
+fn proof_profiles_disable_floating_point_contraction() {
+    assert!(include_str!("../../.cargo/config.toml").contains("llvm-args=-fp-contract=off"));
+}
+#[test]
+fn restore_validates_arguments_before_registration() {
+    thread_local! { static REGISTERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default, crate::Args)]
+    struct Options {
+        invalid: bool,
+    }
+    struct Checked;
+    impl Game for Checked {
+        const ID: &'static str = "validate-before-register";
+        type Args = Options;
+        fn validate(args: &Options) -> Result<(), String> {
+            if args.invalid {
+                Err("invalid options".into())
+            } else {
+                Ok(())
+            }
+        }
+        fn register(_: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+            REGISTERS.with(|n| n.set(n.get() + 1));
+        }
+        fn setup(_: &mut World, _: &Options) {}
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    let mut sim = Sim::<Checked>::new(Options::default()).unwrap();
+    let good = sim.save().unwrap();
+    let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
+    saved.args = r#"{"invalid":true}"#.into();
+    let mut bad = b"EXSIM\0\x05".to_vec();
+    bad.extend(bin::to_vec(&saved));
+    REGISTERS.with(|n| n.set(0));
+    assert!(sim
+        .restore(&bad)
+        .unwrap_err()
+        .to_string()
+        .contains("invalid options"));
+    assert_eq!(REGISTERS.with(|n| n.get()), 0);
+    assert_eq!(sim.save().unwrap(), good);
+}

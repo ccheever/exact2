@@ -37,13 +37,11 @@ Declaration order is positional order, `#[live]` avoids rebuilding, and decoding
 refuses before mutation. Named canvas bindings resolve to this same typed path.
 Setup cannot fail. Setup, paused and tick receive typed arguments. Sim keeps one
 validated argument JSON representation for saves, bound restore and agent state.
-Creation and restore share one constructor;
-restore supplies retained assets up front and calls setup once before loading.
-It reuses the decoded input queue without reserving a second, unused queue.
-World format and size checks precede setup. Typed world data is then decoded once,
-using the registrations established by the chosen setup arguments, before replacing
-the receiver. Restoring saved arguments does not require the receiver's current
-setup to have registered the same components.
+Restore retains assets and the decoded input queue, validates the typed world once,
+and replaces the receiver only after validation. It does not call setup.
+Register types first spawned mid-game or selected by setup arguments in
+`Game::register`. That hook receives named setup/restart arguments; live fields
+cannot shape the saved schema.
 
 Seekable advances observe the final tick's components, RNG and non-ambient
 resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
@@ -145,3 +143,9 @@ physics `CapsuleController` handle so both component types coexist.
 
 Measurements and artifact sizes belong in the [bench README](../bench/README.md);
 working commands and the module/executor boundary are in the [game map](../README.md).
+
+Emitters form local clouds: displayed particles follow the emitter's current
+transform, so moving an emitter moves particles already born. They are not
+world-space trails. A future trail extension would save a birth transform for
+each emission and use that transform when deriving its particles; neither line
+of that extension is implemented. Random stride and consumption stay fixed.

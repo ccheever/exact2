@@ -1,3 +1,5 @@
+#[path = "fixture/device.rs"]
+mod test_device;
 use exact_game::{asset::Model, bin, Game, Input, Mesh, Sim, Transform, World};
 use exact_game_render::WorldSurface;
 use exact_gpu::{fixture, Frame, Surface};
@@ -44,7 +46,9 @@ fn pending_restore_never_escapes_as_a_current_save() {
 }
 #[test]
 fn terminal_declaration_requests_no_more_frames() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut surface = fresh();
     surface.asset("crate.model", Err(exact_gpu::AssetError::Missing));
     let (_, wants) = fixture::render(
@@ -67,7 +71,9 @@ fn terminal_declaration_requests_no_more_frames() {
 
 #[test]
 fn mirrored_entity_model_is_accepted_for_attachment_owners() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut renderer = exact_game_render::Renderer::new(
         &gpu.device,
         &gpu.queue,
@@ -99,7 +105,9 @@ fn primitive_module_refuses_model_by_name_at_bind() {
 
 #[test]
 fn loaded_content_reprepares_after_device_loss() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut surface = fresh();
     surface.device_ready();
     let path =
@@ -119,7 +127,7 @@ fn loaded_content_reprepares_after_device_loss() {
     assert!(!surface.sim().unwrap().is_loading());
     assert_eq!(surface.sim().unwrap().world().hash(), hash);
     assert_eq!(
-        surface.assets(),
+        surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()
     );
     surface.device_ready();
@@ -138,10 +146,10 @@ fn loaded_content_reprepares_after_device_loss() {
 fn loss_during_loading_reissues_unanswered_names() {
     let mut surface = fresh();
     surface.device_ready();
-    assert_eq!(surface.assets(), ["crate.model"]);
+    assert_eq!(surface.assets().requests, ["crate.model"]);
     surface.device_lost();
     surface.device_ready();
-    assert_eq!(surface.assets(), ["crate.model"]);
+    assert_eq!(surface.assets().requests, ["crate.model"]);
 }
 
 #[test]
@@ -156,14 +164,16 @@ fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
     }
     surface.device_ready();
     assert_eq!(
-        surface.assets(),
+        surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()
     );
 }
 
 #[test]
 fn deferred_restore_preserves_the_last_texture_until_upload() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
@@ -206,7 +216,9 @@ impl Game for VisibleArt {
 }
 #[test]
 fn replacement_device_draws_identical_pixels() {
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let mut surface =
         WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
     surface.device_ready();
@@ -230,10 +242,12 @@ fn replacement_device_draws_identical_pixels() {
     };
     let (before, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     surface.device_lost();
-    let replacement = fixture::device().unwrap();
+    let Some(replacement) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     surface.device_ready();
     assert_eq!(
-        surface.assets(),
+        surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()
     );
     for (name, texture) in &textures {
@@ -274,7 +288,9 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         })],
         shaders: &[],
     };
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (mut model, _) = exact_game_bake::assets(&path).unwrap();
@@ -288,7 +304,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     module.set_seekable(true);
     let id = module.create_headless("world").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id), ["a.model", "b.model"]);
+    assert_eq!(module.take_assets(id).requests, ["a.model", "b.model"]);
     for name in ["a.model", "b.model"] {
         assert!(module.asset(id, name, Ok(&bytes)));
     }
@@ -312,17 +328,21 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         r#"{"t":"key","code":"KeyR","key":"r","down":true,"repeat":false,"at":1}"#
     ));
     module.agent(id, r#"{"op":"clock","now":17}"#);
+    let changes = module.take_assets(id);
     assert!(
-        module.take_assets(id).is_empty(),
+        changes.requests.is_empty(),
         "textureless model needs no delivery to prepare"
     );
-    assert_eq!(module.take_retired_assets(id), ["a.model"]);
+    assert_eq!(changes.retired, ["a.model"]);
     frame.now_ms = 17.;
     let (retired, _) = module.readback(id, &frame).unwrap();
     assert_eq!(before.data, retired.data, "retire A while B remains");
     module.lose_device();
-    module.set_gpu(fixture::device().unwrap());
-    assert!(module.take_assets(id).is_empty());
+    let Some(replacement) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    module.set_gpu(replacement);
+    assert!(module.take_assets(id).requests.is_empty());
     let (recovered, _) = module.readback(id, &frame).unwrap();
     assert_eq!(before.data, recovered.data, "textureless module recovery");
 }

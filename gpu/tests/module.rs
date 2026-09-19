@@ -17,7 +17,7 @@ fn a_byte_count_that_overflows_is_refused_by_name() {
     let mut m = Module::new(&EMPTY);
     // `u32::MAX × u32::MAX × 4` does not fit a usize: refused as a count,
     // never computed wrapped.
-    assert!(!m.child(1, 0, [0.0; 4], u32::MAX, u32::MAX, &[]));
+    assert!(!m.child(1, 0, "", [0.0; 4], [u32::MAX, u32::MAX], &[]));
     assert!(m.take_error().starts_with("child 0:"));
     assert!(!m.texture(1, u32::MAX, u32::MAX, &[]));
     assert!(m.take_error().starts_with("children:"));
@@ -595,8 +595,11 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
             ];
             Ok(())
         }
-        fn assets(&mut self) -> Vec<String> {
-            std::mem::take(&mut self.wanted)
+        fn assets(&mut self) -> exact_gpu::AssetChanges {
+            exact_gpu::AssetChanges {
+                requests: std::mem::take(&mut self.wanted),
+                retired: vec![],
+            }
         }
         fn asset(&mut self, name: &str, bytes: Result<&[u8], exact_gpu::AssetError>) {
             self.delivered.push(format!("{name}:{bytes:?}"));
@@ -626,14 +629,17 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     let mut m = Module::new(&ASSETS);
     let id = m.create_headless("lookup").unwrap();
     assert!(m.bind(id, &[], None));
-    assert_eq!(m.take_assets(id), ["tables/lookup.bin", "missing.bin"]);
+    assert_eq!(
+        m.take_assets(id).requests,
+        ["tables/lookup.bin", "missing.bin"]
+    );
     assert!(m.take_error().contains("asset `雪`"));
-    assert!(m.take_assets(id).is_empty());
+    assert!(m.take_assets(id).requests.is_empty());
     assert!(!m.asset(id, "../escape", Ok(&[1])));
     assert!(!m.asset(id, "unrequested", Ok(&[1])));
     assert!(m.asset(id, "tables/lookup.bin", Ok(&[1, 2, 3])));
-    assert_eq!(m.take_assets(id), ["next.bin"]);
-    assert!(m.take_assets(id).is_empty());
+    assert_eq!(m.take_assets(id).requests, ["next.bin"]);
+    assert!(m.take_assets(id).requests.is_empty());
     assert!(m.asset(id, "missing.bin", Err(exact_gpu::AssetError::Missing)));
     assert!(m.asset(id, "next.bin", Ok(&[])));
     assert_eq!(
@@ -746,14 +752,14 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
             self.retire = matches!(values.first(), Some(Value::Bool(true)));
             Ok(())
         }
-        fn assets(&mut self) -> Vec<String> {
-            (0..257).map(|i| format!("{i}.model")).collect()
-        }
-        fn retired_assets(&mut self) -> Vec<String> {
-            if std::mem::take(&mut self.retire) {
-                vec!["0.model".into()]
-            } else {
-                vec![]
+        fn assets(&mut self) -> exact_gpu::AssetChanges {
+            exact_gpu::AssetChanges {
+                requests: (0..257).map(|i| format!("{i}.model")).collect(),
+                retired: if std::mem::take(&mut self.retire) {
+                    vec!["0.model".into()]
+                } else {
+                    vec![]
+                },
             }
         }
         fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
@@ -782,15 +788,15 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("bounded").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).len(), 256);
+    assert_eq!(module.take_assets(id).requests.len(), 256);
     assert_eq!(module.agent(id, "").as_deref(), Some("256.model"));
     assert!(module.asset(id, "0.model", Ok(&[])));
-    assert!(module.take_assets(id).is_empty());
+    assert!(module.take_assets(id).requests.is_empty());
     assert!(module.bind(id, &[Value::Bool(true)], None));
-    assert_eq!(module.take_assets(id), ["0.model"]);
+    assert_eq!(module.take_assets(id).requests, ["0.model"]);
     assert!(module.asset(id, "0.model", Ok(&[])));
     module.lose_device();
-    assert_eq!(module.take_assets(id).len(), 256);
+    assert_eq!(module.take_assets(id).requests.len(), 256);
 }
 
 #[test]
@@ -805,20 +811,21 @@ fn retirement_reissues_live_dependencies_in_the_same_drain() {
         fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
             Ok(())
         }
-        fn assets(&mut self) -> Vec<String> {
+        fn assets(&mut self) -> exact_gpu::AssetChanges {
             self.phase += 1;
-            if self.phase == 1 || self.phase == 4 {
-                vec!["live.tex".into()]
-            } else {
-                vec![]
-            }
-        }
-        fn retired_assets(&mut self) -> Vec<String> {
-            if self.phase == 3 && !self.retire {
+            let retired = if self.phase == 3 && !self.retire {
                 self.retire = true;
                 vec!["gone.model".into(), "live.tex".into()]
             } else {
                 vec![]
+            };
+            exact_gpu::AssetChanges {
+                requests: if self.phase == 1 || !retired.is_empty() {
+                    vec!["live.tex".into()]
+                } else {
+                    vec![]
+                },
+                retired,
             }
         }
         fn render(
@@ -839,12 +846,13 @@ fn retirement_reissues_live_dependencies_in_the_same_drain() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("retiring").unwrap();
     module.bind(id, &[], None);
-    assert_eq!(module.take_assets(id), ["live.tex"]);
+    assert_eq!(module.take_assets(id).requests, ["live.tex"]);
     assert!(module.asset(id, "live.tex", Ok(&[])));
-    assert!(module.take_assets(id).is_empty());
-    assert_eq!(module.take_assets(id), ["live.tex"]);
-    assert_eq!(module.take_retired_assets(id), ["gone.model", "live.tex"]);
-    assert!(module.take_retired_assets(id).is_empty());
+    assert!(module.take_assets(id).requests.is_empty());
+    let changes = module.take_assets(id);
+    assert_eq!(changes.requests, ["live.tex"]);
+    assert_eq!(changes.retired, ["gone.model", "live.tex"]);
+    assert_eq!(module.take_assets(id), exact_gpu::AssetChanges::default());
 }
 
 #[test]
@@ -944,6 +952,7 @@ fn child_count_shrink_retires_each_index_exactly_once() {
         fn child(
             &mut self,
             index: usize,
+            _name: &str,
             texture: Option<&exact_gpu::wgpu::TextureView>,
             frame: [f32; 4],
         ) {
@@ -972,7 +981,7 @@ fn child_count_shrink_retires_each_index_exactly_once() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("children").unwrap();
     for index in 0..4 {
-        assert!(module.child(id, index, [0., 0., 10., 10.], 0, 0, &[]));
+        assert!(module.child(id, index, "", [0., 0., 10., 10.], [0, 0], &[]));
     }
     assert!(module.children_count(id, 1));
     assert_eq!(module.agent(id, ""), Some("[1, 2, 3]".into()));

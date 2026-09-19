@@ -70,12 +70,21 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
     }
   }
   const mid=await w.snapshot(),save=resolve(out,'placed.world');await w.save(save);
+  const beforeReorder=await box('sign');
+  await s.tap('reorder');await s.clock('+0');
+  const reorderedSign=await box('sign');
+  check('named sign resolves new child order',(await s.state('world:sign')).entity.placed.child===2);
+  check('named label resolves new child order',(await s.state('world:name')).entity.placed.child===1);
+  check('reorder preserves projected sign box',['x','y','w','h'].every(k=>Math.abs(beforeReorder[k]-reorderedSign[k])<=0.5),{beforeReorder,reorderedSign});
+  check('Contract reorder leaves every saved world byte unchanged',equal(await w.snapshot(),mid));
+  const reorderedSave=resolve(out,'reordered.world');await w.save(reorderedSave);
+  check('complete save is independent of child order',readFileSync(save).equals(readFileSync(reorderedSave)));
   await w.run(4500);
   const pinnedSave=resolve(out,"continuation.world"); await w.save(pinnedSave); pinSave("continuation",pinnedSave);
   {
     check('fixed sign explicitly hidden from behind',(await s.state('world:sign')).entity.placed.hidden===true);
-    const backLayout=await s.op({op:'layout',id:first.id});
-    const backBox=backLayout.nodes.find(n=>n.id===first.id) ?? backLayout.node?.space?.viewport;
+    const backLayout=await s.op({op:'layout',id:reorderedSign.id});
+    const backBox=backLayout.nodes.find(n=>n.id===reorderedSign.id) ?? backLayout.node?.space?.viewport;
     check('back-face hidden child also reports a zero box',!!backBox && ['x','y','w','h'].every(k=>backBox[k]===0),backBox);
     if(host==='linux') check('hidden sign leaves the tree', !node(await s.tree(),'sign'));
     else check('layout reports hidden sign',(await s.layout('sign')).node.visible.hidden===true);
@@ -88,8 +97,14 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   await s.close();
   const r=await start(save),rw=r.world('world');
   check('restore carries every component, no outcomes',equal(await rw.snapshot(),mid));
+  check('restored name resolves original Contract order',(await r.state('world:sign')).entity.placed.child===1);
+  await r.tap('reorder');await r.clock('+0');
+  check('restored name resolves reordered Contract',(await r.state('world:sign')).entity.placed.child===2);
   await rw.run(4500);check('restored orbit keeps same hash',equal(await rw.snapshot(),end));
   await r.close();
+  const hit=await start(save);await hit.tap('hud');await hit.tap('reorder');await hit.clock('+0');
+  const reorderedTap=await hit.tap('pull');check('reordered Pull still receives hit',!reorderedTap.error,reorderedTap);
+  await hit.close();
 });
 
 // Compare the captured hosts directly; separate oracle checks cannot prove parity.

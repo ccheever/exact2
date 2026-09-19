@@ -1,4 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
+#[path = "fixture/device.rs"]
+mod test_device;
 #[path = "fixture/mod.rs"]
 mod test_game;
 use crate::test_game::Fixture;
@@ -10,16 +12,7 @@ use exact_gpu::{
 };
 
 fn gpu() -> Option<Gpu> {
-    match fixture::device() {
-        Ok(gpu) => {
-            eprintln!("WorldSurface GPU: {:?}", gpu.adapter.get_info());
-            Some(gpu)
-        }
-        Err(reason) => {
-            eprintln!("SKIP WorldSurface GPU proof: {reason}");
-            None
-        }
-    }
+    crate::test_device::device_or_skip(exact_gpu::fixture::device())
 }
 fn frame(now_ms: f64) -> Frame {
     Frame {

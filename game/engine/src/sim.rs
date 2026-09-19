@@ -35,8 +35,8 @@ pub trait Game: 'static {
         Ok(())
     }
     /// Register types that vary with setup arguments, without gameplay side effects.
-    /// Called before setup and on a scratch registry before restore validation.
-    fn register(_world: &mut World, _args: &Self::Args) {}
+    /// Receives only named setup/restart arguments; live values cannot shape the schema.
+    fn register(_world: &mut World, _args: &std::collections::BTreeMap<&str, Value>) {}
     /// Construct the world after argument decoding succeeds.
     fn setup(world: &mut World, args: &Self::Args);
     /// Stop world time while continuing to serve reads.
@@ -207,6 +207,15 @@ impl<G: Game> Sim<G> {
         }
     }
 
+    fn register(world: &mut World, args: &G::Args) {
+        let fields = G::Args::FIELDS
+            .iter()
+            .zip(args.values())
+            .filter(|((_, kind), _)| *kind != ArgumentKind::Live)
+            .map(|((name, _), value)| (*name, value))
+            .collect();
+        G::register(world, &fields);
+    }
     fn build(args: &G::Args, assets: crate::asset::AssetStore) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
@@ -224,7 +233,7 @@ impl<G: Game> Sim<G> {
         if !world.assets.ready() {
             return world;
         }
-        G::register(&mut world, args);
+        Self::register(&mut world, args);
         G::setup(&mut world, args);
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
@@ -483,12 +492,13 @@ impl<G: Game> Sim<G> {
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
-        Self::with_store(args, Default::default(), QUEUE_LIMIT)
+        Self::with_store(args, Default::default(), QUEUE_LIMIT, None)
     }
     fn with_store(
         args: G::Args,
         assets: crate::asset::AssetStore,
         queue_capacity: usize,
+        restored_world: Option<World>,
     ) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
@@ -510,7 +520,7 @@ impl<G: Game> Sim<G> {
         }
         args.check_scalars()?;
         G::validate(&args)?;
-        let world = Self::build(&args, assets);
+        let world = restored_world.unwrap_or_else(|| Self::build(&args, assets));
         Ok(Self {
             setup_pending: !world.assets.ready(),
             world,
@@ -1041,7 +1051,7 @@ impl<G: Game> Sim<G> {
                 .collect::<Vec<_>>();
             assets.models = Default::default();
             // Drop all old component/resource values (including skipped fields
-            // and physics executors) before invoking setup for the replacement.
+            // and physics executors) before decoding the replacement.
             let generation = self.world.presentation_generation;
             self.world = self.world.registered_scratch();
             self.world.presentation_generation = generation;
@@ -1365,7 +1375,7 @@ impl<G: Game> Sim<G> {
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
-        let s: Saved = bin::from_slice(payload)?;
+        let mut s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(
                 "restore refused: EXSIM v5 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
@@ -1385,47 +1395,36 @@ impl<G: Game> Sim<G> {
             &s.args
         };
         let bound: G::Args = crate::json::from_str(args)?;
+        bound.check_scalars().map_err(DataError::new)?;
+        G::validate(&bound).map_err(DataError::new)?;
+        let mut input = Input::new(G::actions());
+        input.validate_saved(&s.input).map_err(DataError::new)?;
+        for event in &mut s.queue {
+            input.validate(&event.event).map_err(DataError::new)?;
+            if let Some(us) = &mut event.world_us {
+                *us = us.checked_add(s.world_us).ok_or_else(|| DataError::new(
+                    "restore refused: EXSIM v5 saved input stamp overflow; inspect state and create a fresh save"))?;
+            }
+        }
         let mut registry = self.world.registered_scratch();
-        G::register(&mut registry, &bound);
+        Self::register(&mut registry, &bound);
         let validated = registry.validate_saved(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if validated.hz() != G::HZ || validated.tick() as u128 != due {
             return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
-        drop(validated);
-        let mut next =
-            Self::with_store(bound, self.world.assets.clone(), 0).map_err(DataError::new)?;
+        input.restore_dynamic(s.input);
+        let mut next = Self::with_store(bound, self.world.assets.clone(), 0, Some(validated))
+            .map_err(DataError::new)?;
+        next.world.assets = self.world.assets.clone();
         next.defer_assets = self.defer_assets;
-        if next.setup_pending {
-            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
-        }
-        next.world.load(&s.world)?;
-        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
-        if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
-            return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
-        }
         crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
-        next.input
-            .validate_saved(&s.input)
-            .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
-        for event in &s.queue {
-            next.input
-                .validate(&event.event)
-                .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
-        }
-        next.input.restore_dynamic(s.input);
+        next.input = input;
         next.queue = s.queue.into();
-        for e in &mut next.queue {
-            if let Some(us) = &mut e.world_us {
-                *us = us
-                    .checked_add(s.world_us)
-                    .ok_or_else(|| DataError::new("restore refused: EXSIM v5 saved input stamp overflow; no clock migration; inspect `state` and create a fresh save"))?;
-            }
-        }
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);

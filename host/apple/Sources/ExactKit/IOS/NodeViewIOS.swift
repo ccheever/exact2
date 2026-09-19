@@ -1219,7 +1219,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
         guard !disabled else { pressed = false; return }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
@@ -1228,7 +1228,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // loses it, as a click on a button blurs a page's input.
         let inside = touches.first.map { bounds.contains(local($0.location(in: nil))) } ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
-        if inside, presenter?.views[id] === self { presenter?.press(id) }
+        if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }

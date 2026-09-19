@@ -663,13 +663,16 @@ pub(crate) fn feed<T: exact_game::Component + Clone>(
 ) {
     let revision = w.revision::<T>();
     // Compact once, then append arrivals. Never shift the tail for each removal.
-    items.retain(|i| {
-        w.get::<T>(i.entity).is_some()
-            && !w.get::<Visible>(i.entity).is_some_and(|v| !v.0)
-            && crate::world::scene::pose(w, i.entity).is_some()
-    });
-    for i in items.iter_mut() {
-        let pose = crate::world::scene::pose(w, i.entity).unwrap();
+    items.retain_mut(|i| {
+        let Some(value) = w.get::<T>(i.entity) else {
+            return false;
+        };
+        if w.get::<Visible>(i.entity).is_some_and(|v| !v.0) {
+            return false;
+        }
+        let Some(pose) = crate::world::scene::pose(w, i.entity) else {
+            return false;
+        };
         if next_tick {
             i.poses[0] = i.poses[1];
         }
@@ -678,17 +681,20 @@ pub(crate) fn feed<T: exact_game::Component + Clone>(
             i.poses[0] = pose;
         }
         if initial || i.revision != revision {
-            i.value.clone_from(&*w.get::<T>(i.entity).unwrap());
+            i.value.clone_from(&*value);
             i.revision = revision;
         }
-    }
+        true
+    });
     let existing = items.len();
+    let mut retained = 0;
     for (entity, value) in w.query::<&T>().iter() {
-        if items[..existing]
-            .binary_search_by_key(&entity.index(), |i| i.entity.index())
-            .is_ok()
-            || w.get::<Visible>(entity).is_some_and(|v| !v.0)
-        {
+        // Both walks use entity order; retained rows need no lookup.
+        if retained < existing && items[retained].entity == entity {
+            retained += 1;
+            continue;
+        }
+        if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
             continue;
         }
         if let Some(pose) = crate::world::scene::pose(w, entity) {
@@ -803,7 +809,9 @@ mod retained_tests {
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
     fn r14_native_children_reserve_order_before_frame() {
-        let gpu = exact_gpu::fixture::device().unwrap();
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
         let mut renderer =
             crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         let q = &mut renderer.quads;

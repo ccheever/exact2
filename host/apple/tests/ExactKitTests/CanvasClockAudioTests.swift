@@ -73,7 +73,7 @@ final class CanvasClockAudioTests: XCTestCase {
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
             texture: { _, _, _, _, _ in 0 }, textureMetal: nil, sync: nil,
             childrenMode: { _ in 0 }, readback: { _, _, _, _, _, _, _ in 0 },
-            child: { _, _, _, _, _, _, _, _, _, _ in 0 },
+            child: { _, _, _, _, _, _, _, _, _, _, _, _ in 0 },
             childrenCount: { _, _ in 0 }, placement: { _, _, _, _ in 0 },
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 },
             errorPtr: { nil }, wantsInput: nil, input: nil, messages: nil,

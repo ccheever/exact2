@@ -69,7 +69,7 @@ final class GpuModule {
     typealias SyncFn = @convention(c) () -> UInt32
     typealias WantsFn = @convention(c) (UInt32) -> UInt32
     typealias ReadbackFn = @convention(c) (UInt32, Float, Float, Float, Double, UnsafeMutablePointer<UInt8>?, Int) -> UInt32
-    typealias ChildFn = @convention(c) (UInt32, UInt32, Float, Float, Float, Float, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias ChildFn = @convention(c) (UInt32, UInt32, UnsafePointer<UInt8>?, Int, Float, Float, Float, Float, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
     typealias CountFn = @convention(c) (UInt32, UInt32) -> UInt32
     typealias PlacementFn = @convention(c) (UInt32, UInt32, UnsafeMutablePointer<Float>?, Int) -> UInt32
     typealias ErrorFn = @convention(c) () -> UInt32
@@ -187,7 +187,14 @@ final class GpuModule {
     /// Each child as its own texture, and where the surface put it (LLP 1014 D5).
     func wantsChildren(_ id: UInt32) -> UInt32 { (1...2).contains(childrenMode(id)) ? 1 : 0 }
     func wantsChildrenEach(_ id: UInt32) -> UInt32 { childrenMode(id) == 3 ? 1 : 0 }
-    let child: ChildFn
+    private let childView: ChildFn
+    func child(_ id: UInt32, _ index: UInt32, _ name: String, _ x: Float, _ y: Float, _ w: Float, _ h: Float, _ width: UInt32, _ height: UInt32, _ pixels: UnsafePointer<UInt8>?, _ count: Int) -> UInt32 {
+        name.utf8CString.withUnsafeBufferPointer { bytes in
+            bytes.baseAddress!.withMemoryRebound(to: UInt8.self, capacity: bytes.count) {
+                childView(id, index, $0, bytes.count - 1, x, y, w, h, width, height, pixels, count)
+            }
+        }
+    }
     let childrenCount: CountFn
     let placement: PlacementFn
     /// A shader's text by name (LLP 1030 D8): validated, its interface
@@ -213,7 +220,7 @@ final class GpuModule {
               let render = sym("gpu_render", RenderFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
               let texture = sym("gpu_texture", TextureFn.self), let childrenMode = sym("gpu_children_mode", WantsFn.self),
               let readback = sym("gpu_readback", ReadbackFn.self),
-              let child = sym("gpu_child", ChildFn.self),
+              let child = sym("gpu_child_view", ChildFn.self),
               let childrenCount = sym("gpu_children_count", CountFn.self), let placement = sym("gpu_placement", PlacementFn.self),
               let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
@@ -237,7 +244,7 @@ final class GpuModule {
     init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, childrenMode: @escaping WantsFn, readback: @escaping ReadbackFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
         self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.published = published; self.agent = agent; self.outPtr = outPtr
         self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.childrenMode = childrenMode; self.readback = readback
-        self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
+        self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
     /// A loaded module validates candidate shaders without changing its registry.

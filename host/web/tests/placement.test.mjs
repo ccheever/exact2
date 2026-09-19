@@ -10,7 +10,7 @@ test('host-composited children use local homographies, depth order, explicit hid
   let hidden=false, none=false;
   Object.assign(f.gpu,{
     gpu_children_mode:()=>3,
-    gpu_child:(id,i,...frame)=>frames.push([i,...frame]), gpu_children_count:(id,n)=>frames.push(['count',n]),
+    gpu_child_view:(id,i,name,...frame)=>frames.push([i,...frame]), gpu_children_count:(id,n)=>frames.push(['count',n]),
     gpu_dirty:()=>true,
     gpu_placement:(id,i,out)=>{ if(i===0 || none)return 0; if(i===1&&hidden)return 2;out.set([2,0,100,0,2,200,0.001,0,1,i===1?-2:-5]);return 1; },
   });
@@ -32,14 +32,14 @@ for (const fail of [false,true]) test(`placement frames survive module replaceme
   const frames=[];
   const f=await fixture({nextGpu:{
     gpu_children_mode:()=>fail ? 0 : 3,
-    gpu_child:(id,i,...frame)=>frames.push([i,...frame]), gpu_children_count:()=>{},
+    gpu_child_view:(id,i,name,...frame)=>frames.push([i,...frame]), gpu_children_count:()=>{},
     gpu_placement:(id,i,out)=>{out.set([1,0,200,0,1,100,0,0,1,-1]);return 1;},
     gpu_render:()=>fail?2:0,
   }});
   const host=f.create(1), child=Object.assign(new f.Element('child'),{hasAttribute:()=>false,offsetLeft:10,offsetTop:20,offsetWidth:100,offsetHeight:50,inert:false});
   host.children=[child];
   Object.assign(f.gpu,{
-    gpu_children_mode:()=>3,gpu_child:()=>{},gpu_children_count:()=>{},gpu_dirty:()=>true,
+    gpu_children_mode:()=>3,gpu_child_view:()=>{},gpu_children_count:()=>{},gpu_dirty:()=>true,
     gpu_placement:(id,i,out)=>{out.set([1,0,100,0,1,100,0,0,1,-1]);return 1;},
   });
   f.exact.gpu.layout();f.frame();
@@ -53,7 +53,7 @@ test('paused placement survives authored style updates and restores latest style
   const child=Object.assign(new f.Element('child'),{hasAttribute:()=>false,offsetLeft:10,offsetTop:20,offsetWidth:100,offsetHeight:50,inert:false});
   host.children=[child];let each=true, none=false;const counts=[];
   Object.assign(f.gpu,{
-    gpu_children_mode:()=>each ? 3 : 0,gpu_child:()=>{},gpu_children_count:(_,n)=>counts.push(n),gpu_dirty:()=>true,
+    gpu_children_mode:()=>each ? 3 : 0,gpu_child_view:()=>{},gpu_children_count:(_,n)=>counts.push(n),gpu_dirty:()=>true,
     gpu_placement:(_,i,out)=>{out.set([1,0,200,0,1,100,0,0,1,-1]);return none?0:1;},
   });
   f.exact.gpu.layout();f.frame();
@@ -88,9 +88,29 @@ test('replacement without Placed restores the current authored style',async()=>{
   const f=await fixture({nextGpu:{gpu_children_mode:()=>0,gpu_children_count:()=>{}}}),host=f.create(1);
   const child=Object.assign(new f.Element('child'),{hasAttribute:()=>false,offsetLeft:0,offsetTop:0,offsetWidth:100,offsetHeight:50,inert:false});
   child.style.transform='rotate(3deg)';host.children=[child];
-  Object.assign(f.gpu,{gpu_children_mode:()=>3,gpu_child:()=>{},gpu_children_count:()=>{},gpu_dirty:()=>true,
+  Object.assign(f.gpu,{gpu_children_mode:()=>3,gpu_child_view:()=>{},gpu_children_count:()=>{},gpu_dirty:()=>true,
     gpu_placement:(_,i,out)=>{out.set([1,0,200,0,1,100,0,0,1,-1]);return 1;}});
   f.exact.gpu.layout();f.frame();assert.ok(child.style.transform.startsWith('matrix3d'));
   await f.exact.gpu.swap(1);
   assert.equal(child.style.transform,'rotate(3deg)');
+});
+
+test('Contract names follow reorder, rename, removal and module replacement', async()=>{
+  const delivered=[], staged=[];
+  const f=await fixture({nextGpu:{gpu_children_mode:()=>3,gpu_child_view:(_,i,name,...frame)=>staged.push([i,name,...frame]),gpu_children_count:()=>{},gpu_placement:()=>0}});
+  const host=f.create(1);
+  const child=name=>Object.assign(new f.Element('child'),{name,hasAttribute:()=>false,getAttribute(key){return key==='data-testid'?this.name:null;},offsetLeft:0,offsetTop:0,offsetWidth:100,offsetHeight:50});
+  const a=child('標識 🏮'),b=child('pull');host.children=[a,b];
+  Object.assign(f.gpu,{gpu_children_mode:()=>3,gpu_child_view:(_,i,name,...frame)=>delivered.push([i,name,...frame]),gpu_children_count:()=>{},gpu_placement:()=>0});
+  f.exact.gpu.layout();
+  assert.deepEqual(delivered,[[0,'標識 🏮',0,0,100,50],[1,'pull',0,0,100,50]]);
+  delivered.length=0;host.children=[b,a];f.exact.gpu.layout();
+  assert.deepEqual(delivered.map(r=>r.slice(0,2)),[[0,'pull'],[1,'標識 🏮']]);
+  delivered.length=0;a.name='sign';f.exact.gpu.layout();
+  assert.deepEqual(delivered,[[1,'sign',0,0,100,50]],'rename with identical frame must be delivered');
+  delivered.length=0;f.exact.gpu.layout();assert.deepEqual(delivered,[],'unchanged metadata stays quiet');
+  await f.exact.gpu.swap(1);
+  assert.deepEqual(staged.map(r=>r.slice(0,2)),[[0,'pull'],[1,'sign']]);
+  host.children=[a];f.exact.gpu.layout();
+  assert.deepEqual(staged.at(-1).slice(0,2),[0,'sign']);
 });

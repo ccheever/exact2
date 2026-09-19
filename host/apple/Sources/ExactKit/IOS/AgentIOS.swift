@@ -476,7 +476,7 @@ extension Agent {
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress() }
         return ["tapped": Int(v.id), "at": at]
     }
 
