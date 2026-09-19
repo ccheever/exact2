@@ -5699,3 +5699,41 @@ and no invented candidate release. The75-file archive is under
 `target/apple-region-metadata-pair-corrected-execution-v1/`. This second attempt
 is also failed/incomplete. No third run, added wait, relaxed layout admission or
 performance claim follows; the next action is source diagnosis of the flag.
+
+### 8.96 Visible-browser discriminator completes the workload but caps its trace, 2026-09-18
+
+One headed Chrome cell uses the exact00272ea/3f6a00d7 product from8.94. The only
+executable change removes `--headless=new`; the fresh profile, target focus,
+fixed2s phases, full10,000/actual32 workload, deadlines and observation caps stay
+unchanged. All72 offers and24 echoes pass. Silent revisions advance0→8, loaded
+8→16, and recovery stays16, with no application/observer errors or drops.
+
+The overall execution nevertheless exits1: trace draining reaches the unchanged
+16,777,216-byte limit on read65. The original partial JSON is retained. Reported
+no-loss completion and successful stream closure do not make it complete.
+Whole-task and script/style/layout/paint attribution are unavailable; the trace
+analyzer is not run and the partial stream is not repaired. No retry or larger
+capture follows. The generic supervisor failure label does not override the
+separate functional PASS and trace FAILED results.
+
+Independent reconstruction of the complete page-observer log counts107/106/105
+scored frame-callback intervals in idle/load/recovery. Their medians are16.7ms
+and maxima35.1/33.4/33.5ms. Echo maxima are1.4/1.5/1.3ms; input-to-next-callback
+maxima are2.9/22/29ms. Loaded exports comprise eight dispatches, eight advances,
+eight resizes and32 feedback calls, with maxima0.9/4.5/0.2/0.4ms. Export interval
+unions27.600/47.000/13.600ms exclude other browser work and are not whole-task or
+CPU totals. An unscored13.3ms dispatch remains separate. Missing EST1 packets and
+wheel-causal evidence remain unavailable.
+
+The historical headless gaps up to250ms are absent from these scored page
+observations. This is not a fresh matched comparison: the headed idle port
+height changes547→532, and no independent OS-front/occlusion or physical scanout
+receipt is captured. No application optimization occurred. The result narrows
+the relevance of the test carrier without identifying a throttle or proving
+that threading will improve it. Callback spacing near16.7ms on the known60Hz
+machine does not establish physical120Hz or a robust latency bound.
+
+The15-file failed-trace archive is under
+`target/web-current-messages-00272ea/cell-headed-v1/`. All three recorded PIDs,
+the owned group and its private listener retire before the next native lane.
+Source/product identities and the original headless archive remain unchanged.
