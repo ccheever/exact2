@@ -6204,3 +6204,45 @@ scans remain. These checks establish avoided paints in the tested cases, not
 native timing, a completed Messages baseline or120Hz. Linux-only display code
 was not exercised by the Mac tests, and the stopped native attempt sequence
 remains stopped.
+
+### 8.109 Admit an independent flex-height region shell, 2026-09-18
+
+The complete Messages transcript cannot use a fixed height without changing
+its composer allocation. Region eligibility now also permits a narrowly
+qualified auto-height owner: a direct child of an explicitly sized, unwrapped
+root column, with zero flex basis, grow/shrink1, explicit minimum height,
+content-independent size limits, definite width and hidden overflow. Baseline
+dependencies, nonzero padding/borders, aspect transfer and unsupported parents
+remain refused. Both outer offers must be finite, nonnegative and definite
+before shell work or request/catalog changes. Existing explicit-size behavior
+and the64-offer budget are unchanged.
+
+An actual Messages Contract fixture preserves the entire List block, all four
+paragraph kinds per row, Reply controls and the composer. It uses the full
+10,000-row/batch32 source with a test-only region envelope. Its admission test
+fails on old production and passes after the eligibility change. Eight
+width/draft/Reply combinations preserve ordinary owner and complete composer
+geometry; the negative content-sized control still changes when its children
+are cut. Six new kernel cases cover unsupported styles, intrinsic outer offers,
+lost eligibility, explicit limits and complete A retained while a newer request
+and composer change proceed. The latest small B matches ordinary geometry;
+stale malformed delivery is refused before validation and reset retires it.
+
+All34 kernel content-region tests and24 Messages reuse tests pass. Strict
+all-target Clippy for both affected packages and scoped formatting also pass.
+Earlier
+fixture failures are retained: ScrollView was corrected to the actual List,
+and the cut owner's deliberately empty shell content extent was distinguished
+from exact descendant extents. Production was unchanged by those corrections.
+The35-file freeze is in `exact2-messages-region-consumer/target/messages-region-consumer-prep/eligibility-freeze-v1/`,
+manifest594be7ca, patchdd19c303; MAIN's exact-source verification is in
+`target/messages-flex-region-integration/`.
+
+This only removes the independent-size admission obstacle. A cold ordinary
+Monospace layout plus final paint needs108 exact offers at980px and90 at896px
+after a real32-body step, across six/five mounted rows. Those are ordinary
+inventories, not measured native or complete region replay counts. The actual
+full Messages candidate still refuses at64 with no partial publication. Native
+source/artifact capacity, coherent collection/decorations/actions and full
+worker publication remain unfinished; no app activation, native timing gain
+or120Hz result follows from this kernel increment.

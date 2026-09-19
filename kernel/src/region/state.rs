@@ -146,6 +146,19 @@ impl RegionState {
         if root != self.binding.owner.index && !arena.is_ancestor(root, self.binding.owner.index) {
             return Err(LayoutError::ContentRegion("region belongs to another root"));
         }
+        // The zero percentage flex basis and root percentages must resolve
+        // before the cut. In particular, Auto height bypasses the older
+        // percentage-only check below. Refuse before changing shell/catalog,
+        // request identity or selected publication, even for point-sized roots.
+        if arena.style(self.binding.owner.index).height == Dimension::Auto
+            && ![outer.width, outer.height].into_iter().all(
+                |axis| matches!(axis, crate::AxisOffer::Definite(n) if n.is_finite() && n >= 0.),
+            )
+        {
+            return Err(LayoutError::ContentRegion(
+                "flex region requires definite outer axes",
+            ));
+        }
         for (dimension, axis) in [
             (arena.style(self.binding.owner.index).width, outer.width),
             (arena.style(self.binding.owner.index).height, outer.height),
@@ -519,10 +532,10 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     let sized = |v: Dimension| {
         matches!(v,Dimension::Points(x) if x>=0.) || matches!(v,Dimension::Percent(x) if x>=0.)
     };
-    // First trial deliberately requires authored sizes on both axes. Flexible
-    // outer sizing/intrinsic containment needs a separate eligibility proof.
+    // Keep the explicit-size path unchanged. Auto height has only the narrow
+    // direct-root column certificate below, never generic intrinsic sizing.
     if !sized(s.width)
-        || !sized(s.height)
+        || !(sized(s.height) || flex_height_independent(arena, b.owner.index))
         || s.overflow_x != Overflow::Hidden
         || s.overflow_y != Overflow::Hidden
     {
@@ -572,6 +585,50 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     members(arena, b.content)?;
     members(arena, b.pending)?;
     Ok(())
+}
+
+/// Only a clipped, zero-basis flex item in a definite, unwrapped root column.
+/// Its own contribution to main-axis sizing is numeric, not a descendant's
+/// min-content size; explicit cross-axis width cannot request intrinsic width.
+/// The ordinary baseline, branch, visibility and zero border/padding checks
+/// remain in validate. No new derived tree or retained measurement is needed.
+fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
+    let Some(parent) = arena.parent(owner) else {
+        return false;
+    };
+    if !arena.is_root(parent) {
+        return false;
+    }
+    let root = arena.style(parent);
+    let s = arena.style(owner);
+    let definite = |d| {
+        matches!(d, Dimension::Points(n) | Dimension::Percent(n)
+        if n.is_finite() && n >= 0.)
+    };
+    let zero = |d| matches!(d, Dimension::Points(n) | Dimension::Percent(n) if n == 0.);
+    let limit = |d| d == Dimension::Auto || definite(d);
+    root.display == Display::Flex
+        && root.flex_direction == crate::FlexDirection::Column
+        && root.flex_wrap == crate::FlexWrap::Nowrap
+        && definite(root.width)
+        && definite(root.height)
+        && s.height == Dimension::Auto
+        && definite(s.width)
+        && s.position_type == crate::PositionType::Relative
+        && s.flex_grow == 1.
+        && s.flex_shrink == 1.
+        && zero(s.flex_basis)
+        && definite(s.min_height)
+        && limit(s.max_height)
+        // With clipping and a definite cross size, Auto here is zero, not an
+        // automatic main-axis content minimum. Aspect transfer is not admitted.
+        && limit(s.min_width)
+        && limit(s.max_width)
+        && s.aspect_ratio == 0.
+        && [s.margin_top, s.margin_right, s.margin_bottom, s.margin_left]
+            .into_iter().all(zero)
+        && [s.top, s.right, s.bottom, s.left]
+            .into_iter().all(|d| d == Dimension::Auto || zero(d))
 }
 fn publish(
     arena: &mut NodeArena,
