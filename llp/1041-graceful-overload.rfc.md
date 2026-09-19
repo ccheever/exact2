@@ -5982,3 +5982,36 @@ completes all36 input offers and the full10k/batch32 workload, with tracking mod
 unestablished. Sampling overhead is uncalibrated and the display remains60Hz.
 No timing gain or120Hz result follows. The184-file archive is under
 `target/messages-current-early-sample-execution-v1/`.
+
+### 8.104 Reuse exact strut extents within one text layout, 2026-09-18
+
+Text layout already computes its paragraph minimum line box from the strut.
+Intersecting authored runs with identical size, weight, family, italic and
+explicit line height now reuse those two extents. Floating fields must be finite
+and bit-identical; mismatches, signed-zero differences and nonfinite values keep
+the original calculation. Width-specific shaping, authored-range intersections,
+each extent contribution, normal/fallback font metrics, clamping and rounding
+remain unchanged. This adds no cache, retained owner, callback or worker.
+
+The exact d85a2a1 baseline and candidate compile against the same test body.
+A test-only counter at the actual extent computation records five calculations
+for four uniform lines before the change and one afterward. The baseline has
+one intended assertion failure among41 methods/7,422 assertions; the candidate
+passes all7,422. The ordinary, uninstrumented candidate passes41 methods/7,063
+assertions, and the complete70-source Mac module typechecks. This is the existing
+assertion shim, with four Session/View-dependent methods excluded, not full
+XCTest or UIKit SDK execution. Compiled reference/counter injections reverse to
+the exact production sources; neither is present in production.
+
+Controls retain exact geometry, source ranges, point hits and viewport pixels
+against the original layout, including mixed fonts, coalesced spans, fractional
+heights, emoji fallback and hidden clamped suffixes. Nonfinite-height layouts
+are compared without rasterizing them; nonfinite font sizes are not executed.
+The original reference shares the engine/font infrastructure. The285-file
+freeze is preserved under `target/apple-strut-extents-validation/freeze-v1/`.
+
+This proves fewer repeated calculations in that fixture. It does not price the
+new comparisons or establish fewer allocations, faster callbacks or native
+frames. A fresh current-source native comparison remains unrun; the older
+86ef control lacks the already-landed stored-length cleanup and cannot isolate
+this change. No120Hz claim follows.

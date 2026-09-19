@@ -470,6 +470,16 @@ final class TextEngine {
             return (f.ascender + half, -f.descender + f.leading + half)
         }
         let minimum = strut.map(extents) ?? (0, 0)
+        func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
+            // Reuse only this layout's exact strut metrics. Font keys preserve
+            // signed zero; nonfinite inputs keep their original computation.
+            guard let strut, let height = run.lineHeight, let strutHeight = strut.lineHeight,
+                  run.size.isFinite, strut.size.isFinite, height.isFinite, strutHeight.isFinite,
+                  Double(run.size).bitPattern == Double(strut.size).bitPattern,
+                  run.weight == strut.weight, run.family == strut.family, run.italic == strut.italic,
+                  Double(height).bitPattern == Double(strutHeight).bitPattern else { return extents(run) }
+            return minimum
+        }
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -538,7 +548,7 @@ final class TextEngine {
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
-                        let (a, b) = extents(authored)
+                        let (a, b) = authoredExtents(authored)
                         include(a, b, explicit: true)
                     } else {
                         includesNormal = true

@@ -307,6 +307,144 @@ final class TextGeometryTests: XCTestCase {
 
 // Viewport culling must be indistinguishable from painting every shaped line.
 extension TextGeometryTests {
+    private func checkedStrutParagraph(_ input: Spec, width: CGFloat) -> (Paragraph, Int) {
+        let e = TextEngine(resolve: { _ in nil })
+        #if STRUT_EXTENTS_SENTINEL
+        strutExtentComputations = 0
+        #endif
+        let p = e.paragraph(input, width: width)
+        var calls = 0
+        #if STRUT_EXTENTS_SENTINEL
+        calls = strutExtentComputations
+        // The standalone fixture copies the unchanged original layout body;
+        // no counter or reference entry is present in the production module.
+        let original = e.originalStrutParagraph(input, width: width)
+        func equal(_ a: CGFloat, _ b: CGFloat) {
+            if a.isNaN { XCTAssertTrue(b.isNaN) }
+            else { XCTAssertEqual(Double(a).bitPattern, Double(b).bitPattern) }
+        }
+        equal(p.width, original.width); equal(p.height, original.height)
+        XCTAssertEqual(p.baselines.count, original.baselines.count)
+        for (a, b) in zip(p.baselines, original.baselines) { equal(a, b) }
+        XCTAssertEqual(p.lineBottoms.count, original.lineBottoms.count)
+        for (a, b) in zip(p.lineBottoms, original.lineBottoms) { equal(a, b) }
+        XCTAssertEqual(p.lines.count, original.lines.count)
+        for (a, b) in zip(p.lines, original.lines) {
+            let x = CTLineGetStringRange(a), y = CTLineGetStringRange(b)
+            XCTAssertEqual(x.location, y.location); XCTAssertEqual(x.length, y.length)
+            XCTAssertEqual(CTLineGetGlyphCount(a), CTLineGetGlyphCount(b))
+            for offset: CGFloat in [0, 8.25, 60, 180] {
+                XCTAssertEqual(CTLineGetStringIndexForPosition(a, CGPoint(x: offset, y: 0)),
+                               CTLineGetStringIndexForPosition(b, CGPoint(x: offset, y: 0)))
+            }
+        }
+        if p.height.isFinite && p.baselines.allSatisfy({ $0.isFinite }) {
+            let box = CGRect(x: 12, y: 9, width: width, height: p.height)
+            let clip = CGRect(x: 0, y: 0, width: 360, height: 180)
+            XCTAssertEqual(inkBitmap(p, spec: input, bounds: box, clip: clip, exhaustive: false),
+                           inkBitmap(original, spec: input, bounds: box, clip: clip, exhaustive: true))
+        }
+        #endif
+        return (p, calls)
+    }
+
+    func testExplicitStrutExtentsAreComputedOnceAcrossLinesAndPaintRuns() {
+        let input = spec("alpha\nbeta\ngamma\ndelta")
+        let (p, calls) = checkedStrutParagraph(input, width: 220)
+        XCTAssertEqual(p.lines.count, 4)
+        XCTAssertTrue(p.lines.allSatisfy { (CTLineGetGlyphRuns($0) as! [CTRun]).count == 1 })
+        XCTAssertEqual(p.height, 4 * 18.125)
+        XCTAssertEqual(p.lineBottoms, [18.125, 36.25, 54.375, 72.5])
+        #if STRUT_EXTENTS_SENTINEL
+        print("uniform extents computations \(calls), baseline expected 5, candidate expected 1")
+        XCTAssertEqual(calls, 1, "four lines must reuse the already computed matching strut extents")
+        #endif
+        var styled = input
+        var a = input.runs[0]; a.text = "Café e\u{301} "
+        var b = a; b.text = "אבג 👩🏽‍💻"; b.letterSpacing = 0.25
+        b.color = [200, 30, 80, 255]; b.decoration = "underline"; b.href = "second"
+        styled.runs = [a, b]; styled.strut = input.runs[0]
+        for width: CGFloat in [75.25, 220] {
+            let (painted, _) = checkedStrutParagraph(styled, width: width)
+            XCTAssertGreaterThan(painted.lines.count, 0)
+            XCTAssertEqual(painted.height, CGFloat(painted.lines.count) * 18.125)
+            assertInkMatches(painted, spec: styled,
+                             bounds: CGRect(x: 12, y: 9, width: width, height: painted.height),
+                             clip: CGRect(x: 0, y: 0, width: 360, height: 180))
+        }
+    }
+
+    func testExplicitStrutReuseRequiresEveryFontAndHeightField() {
+        let base = spec("plain").runs[0]
+        for field in 0..<5 {
+            var child = base
+            switch field {
+            case 0: child.size += 2
+            case 1: child.weight = 700
+            case 2: child.family = 5
+            case 3: child.italic = true
+            default: child.lineHeight! += 5.25
+            }
+            var input = spec(""); input.runs = [child]; input.strut = base
+            let (p, calls) = checkedStrutParagraph(input, width: 220)
+            XCTAssertEqual(p.lines.count, 1)
+            XCTAssertGreaterThanOrEqual(p.height, base.lineHeight!)
+            #if STRUT_EXTENTS_SENTINEL
+            XCTAssertEqual(calls, 2, "mismatched field \(field) must evaluate the authored extents")
+            #endif
+        }
+        for height: CGFloat in [0, -0.0, .infinity, -.infinity, .nan] {
+            var child = base; child.lineHeight = height
+            var strut = child
+            if height == 0 { strut.lineHeight = Double(height).sign == .minus ? 0 : -0.0 }
+            var input = spec(""); input.runs = [child]; input.strut = strut
+            let (p, calls) = checkedStrutParagraph(input, width: 220)
+            XCTAssertEqual(p.lines.count, 1)
+            XCTAssertEqual(CTLineGetStringRange(p.lines[0]).length, child.text.utf16.count)
+            #if STRUT_EXTENTS_SENTINEL
+            XCTAssertEqual(calls, 2, "signed-zero mismatch/nonfinite height must not reuse minimum")
+            #endif
+        }
+        var zero = base; zero.size = 0
+        var negativeZero = zero; negativeZero.size = -0.0
+        var input = spec(""); input.runs = [negativeZero]; input.strut = zero
+        let (p, calls) = checkedStrutParagraph(input, width: 220)
+        XCTAssertEqual(p.lines.count, 1)
+        #if STRUT_EXTENTS_SENTINEL
+        XCTAssertEqual(calls, 2, "font key signed zero must remain distinct")
+        #endif
+    }
+
+    func testStrutReusePreservesNormalFallbackCoalescingAndClampedSuffix() {
+        var input = spec("👩🏽‍💻 café\nאבג\nthird")
+        input.runs[0].lineHeight = nil
+        let (normal, _) = checkedStrutParagraph(input, width: 95)
+        XCTAssertGreaterThan(normal.height, 0)
+        input.strut = input.runs[0]
+        input.runs[0].lineHeight = 60.25
+        let (explicit, _) = checkedStrutParagraph(input, width: 95)
+        XCTAssertEqual(explicit.height, CGFloat(explicit.lines.count) * 60.25)
+        input = spec("before ")
+        var second = input.runs[0]; second.text = "after"; second.lineHeight = 60.25
+        input.runs.append(second)
+        let (coalesced, _) = checkedStrutParagraph(input, width: 220)
+        XCTAssertEqual((CTLineGetGlyphRuns(coalesced.lines[0]) as! [CTRun]).count, 1)
+        XCTAssertEqual(coalesced.height, 60.25)
+        input = spec("First\nSecond\nHidden")
+        input.lineClamp = 1
+        var hidden = input.runs[0]; hidden.text = " suffix"; hidden.lineHeight = 100
+        input.runs.append(hidden)
+        let (clamped, _) = checkedStrutParagraph(input, width: 100)
+        XCTAssertEqual(clamped.lines.count, 1)
+        XCTAssertEqual(clamped.height, 18.125)
+        let (empty, calls) = checkedStrutParagraph(spec(""), width: 100)
+        XCTAssertTrue(empty.lines.isEmpty)
+        XCTAssertEqual(empty.height, 18.125)
+        #if STRUT_EXTENTS_SENTINEL
+        XCTAssertEqual(calls, 1)
+        #endif
+    }
+
     func testObsoleteUnpinnedWidthsRetireBeforeTheNextWidth() {
         let engine = TextEngine(resolve: { _ in nil })
         let value = spec(String(repeating: "Café e\u{301} 🦀 東京 paragraph. ", count: 120))
