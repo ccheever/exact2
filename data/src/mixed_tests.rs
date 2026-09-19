@@ -665,6 +665,7 @@ fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them(
         _ => panic!("a yield"),
     };
     assert_eq!(request.storage.as_deref(), Some(&b"payload"[..]));
+    assert_eq!(placed.staged_keys(), 1);
     let t = token(
         placed
             .parse(&mut store, "yield", &[], Outcome::Storage(b"done".to_vec()))
@@ -673,6 +674,7 @@ fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them(
     let outcome = run(placed.dispatch(t, &store));
     let v = value_of(placed.parse(&mut store, "yield", &[], outcome));
     assert_eq!(v.as_str(), Some("done"));
+    assert_eq!(placed.staged_keys(), 0);
     assert_eq!(store.get("rust"), Some("resumed:done"));
 
     // An error keeps its kind; a dropped owner reports `Aborted` as data.
@@ -737,4 +739,169 @@ fn a_built_worker_keeps_its_template_here_and_builds_its_instance_on_the_owner()
         placed.answer(&mut store, "now", &[]).unwrap(),
         Answer::Now(_)
     ));
+}
+
+#[test]
+fn placed_terminal_turns_release_argument_keys_and_keep_identical_calls() {
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut store = Store::new("secret.keep rust\nsecret.keep shared", []);
+    // Changing editor contents produces distinct, potentially large argument keys.
+    for revision in 0..32 {
+        let args = [Value::str(&format!(
+            "{revision}:{}",
+            "document".repeat(512)
+        ))];
+        for source in ["now", "fail", "discard", "malformed"] {
+            let t = token(placed.answer(&mut store, source, &args).unwrap());
+            assert_eq!(placed.staged_keys(), 1);
+            if source == "discard" {
+                placed.discard(t);
+                assert!(matches!(placed.dispatch(t, &store), Dispatch::Missing));
+            } else {
+                let outcome = run(placed.dispatch(t, &store));
+                let outcome = if source == "malformed" {
+                    failed()
+                } else {
+                    outcome
+                };
+                let result = placed.parse(&mut store, source, &args, outcome);
+                assert_eq!(result.is_ok(), source == "now");
+            }
+            assert_eq!(placed.staged_keys(), 0, "retained {source} argument key");
+        }
+    }
+    let args = [Value::str("same")];
+    let first = token(placed.answer(&mut store, "now", &args).unwrap());
+    let second = token(placed.answer(&mut store, "now", &args).unwrap());
+    let dropped = token(placed.answer(&mut store, "now", &args).unwrap());
+    placed.discard(dropped);
+    assert_eq!(placed.staged_keys(), 1);
+    let outcome = run(placed.dispatch(first, &store));
+    assert_eq!(
+        value_of(placed.parse(&mut store, "now", &args, outcome)).as_str(),
+        Some("+same")
+    );
+    assert_eq!(placed.staged_keys(), 1);
+    let outcome = run(placed.dispatch(second, &store));
+    assert_eq!(
+        value_of(placed.parse(&mut store, "now", &args, outcome)).as_str(),
+        Some("+same")
+    );
+    assert_eq!(placed.staged_keys(), 0);
+}
+
+#[test]
+fn mixed_terminal_turns_release_argument_keys_and_keep_identical_calls() {
+    let mut mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Source::new("rust"),
+        &["js", "unknownOwned", "malformed", "discard"],
+        &["rust"],
+    )
+    .unwrap();
+    let mut store = Store::new("secret.keep js\nsecret.keep rust\nsecret.keep shared", []);
+    for revision in 0..32 {
+        let args = [Value::str(&format!(
+            "{revision}:{}",
+            "document".repeat(512)
+        ))];
+        for source in ["js", "rust", "unknownOwned", "discard", "malformed"] {
+            let t = token(mixed.answer(&mut store, source, &args).unwrap());
+            assert_eq!(mixed.staged_keys(), 1);
+            if source == "discard" {
+                mixed.discard(t);
+                assert!(matches!(mixed.dispatch(t, &store), Dispatch::Missing));
+            } else {
+                let outcome = run(mixed.dispatch(t, &store));
+                let outcome = if source == "malformed" {
+                    failed()
+                } else {
+                    outcome
+                };
+                let result = mixed.parse(&mut store, source, &args, outcome);
+                assert_eq!(result.is_ok(), matches!(source, "js" | "rust"));
+            }
+            assert_eq!(mixed.staged_keys(), 0, "retained {source} argument key");
+        }
+    }
+    let args = [Value::str("same")];
+    let first = token(mixed.answer(&mut store, "js", &args).unwrap());
+    let second = token(mixed.answer(&mut store, "js", &args).unwrap());
+    let dropped = token(mixed.answer(&mut store, "js", &args).unwrap());
+    mixed.discard(dropped);
+    assert_eq!(mixed.staged_keys(), 1);
+    let outcome = run(mixed.dispatch(first, &store));
+    assert!(matches!(mixed.dispatch(second, &store), Dispatch::Held));
+    assert_eq!(
+        value_of(mixed.parse(&mut store, "js", &args, outcome)),
+        Value::Number(1.0)
+    );
+    assert_eq!(mixed.staged_keys(), 1);
+    let (released, dispatch) = mixed.release(&store).pop().expect("second call survives");
+    assert_eq!(released, second);
+    let outcome = run(dispatch);
+    assert_eq!(
+        value_of(mixed.parse(&mut store, "js", &args, outcome)),
+        Value::Number(1.0)
+    );
+    assert_eq!(mixed.staged_keys(), 0);
+}
+
+#[test]
+fn discarded_resumes_release_yielded_argument_keys() {
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut store = Store::new("secret.keep rust\nsecret.keep shared", []);
+    let args = [Value::str("yielded document")];
+    let t = token(placed.answer(&mut store, "yield", &args).unwrap());
+    let outcome = run(placed.dispatch(t, &store));
+    assert!(matches!(
+        placed.parse(&mut store, "yield", &args, outcome).unwrap(),
+        Answer::Later(_)
+    ));
+    assert_eq!(placed.staged_keys(), 1);
+    let resume = token(
+        placed
+            .parse(&mut store, "yield", &args, Outcome::Storage(Vec::new()))
+            .unwrap(),
+    );
+    placed.discard(resume);
+    assert_eq!(placed.staged_keys(), 0);
+    assert!(matches!(placed.dispatch(resume, &store), Dispatch::Missing));
+
+    let mut mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Source::new("rust"),
+        &["js"],
+        &["rustrequest"],
+    )
+    .unwrap();
+    let t = token(mixed.answer(&mut store, "rustrequest", &args).unwrap());
+    let outcome = run(mixed.dispatch(t, &store));
+    assert!(matches!(
+        mixed
+            .parse(&mut store, "rustrequest", &args, outcome)
+            .unwrap(),
+        Answer::Later(_)
+    ));
+    assert_eq!(mixed.staged_keys(), 1);
+    let resume = token(
+        mixed
+            .parse(&mut store, "rustrequest", &args, failed())
+            .unwrap(),
+    );
+    mixed.discard(resume);
+    assert_eq!(mixed.staged_keys(), 0);
+    assert!(matches!(mixed.dispatch(resume, &store), Dispatch::Missing));
 }

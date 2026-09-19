@@ -85,6 +85,11 @@ fn kept_names(grants: &str) -> BTreeSet<String> {
 }
 
 impl<J: DataSource, R: DataSource> Mixed<J, R> {
+    #[cfg(test)]
+    pub(crate) fn staged_keys(&self) -> usize {
+        self.stages.len()
+    }
+
     /// Require a complete JavaScript/Rust pair for every replacement.
     pub fn new(
         javascript: J,
@@ -421,7 +426,11 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         let grants = self.child_grants(rust);
         if let Some(set) = self.set_of[rust as usize] {
             let k = key(rust, source, args);
-            return match self.stages.get_mut(&k).and_then(VecDeque::pop_front) {
+            let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+            if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+                self.stages.remove(&k);
+            }
+            return match stage {
                 Some(Stage::Turn) => {
                     // The reserved turn ended, however it ended.
                     self.sets[set].busy = false;
@@ -533,8 +542,12 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
                     rust, source, args, ..
                 },
             )) => {
-                if let Some(stages) = self.stages.get_mut(&key(rust, &source, &args)) {
+                let k = key(rust, &source, &args);
+                if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
+                    if stages.is_empty() {
+                        self.stages.remove(&k);
+                    }
                 }
             }
             None => {

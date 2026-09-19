@@ -149,6 +149,11 @@ impl<D: DataSource + 'static> Placed<D> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn staged_keys(&self) -> usize {
+        self.stages.len()
+    }
+
     /// The placement this was given (what `placement()` reports outside
     /// validation).
     pub fn given_placement(&self) -> Placement {
@@ -376,7 +381,11 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             return self.here()?.parse(store, source, args, outcome);
         }
         let k = key(source, args);
-        match self.stages.get_mut(&k).and_then(VecDeque::pop_front) {
+        let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+        if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+            self.stages.remove(&k);
+        }
+        match stage {
             Some(Stage::Turn) => {
                 let mut logs = Vec::new();
                 let answer = envelope::apply(outcome, store, &mut logs);
@@ -451,8 +460,12 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
     fn discard(&mut self, token: u64) {
         match self.recorded.remove(&token) {
             Some(Recorded::Answer { source, args } | Recorded::Resume { source, args, .. }) => {
-                if let Some(stages) = self.stages.get_mut(&key(&source, &args)) {
+                let k = key(&source, &args);
+                if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
+                    if stages.is_empty() {
+                        self.stages.remove(&k);
+                    }
                 }
             }
             None => {
