@@ -10,6 +10,7 @@ pub mod animation;
 #[doc(hidden)]
 pub mod args;
 mod assets_load;
+mod capture;
 pub mod character;
 pub mod data;
 pub mod emitter;
@@ -35,6 +36,7 @@ mod world;
 pub use animation::{Animation, Animator, Blend, Cmp, Condition, Ik, Play, SocketFollow, State};
 pub use args::{Args, ArgumentKind};
 pub use asset::pose::Pose;
+pub use capture::{Capture, CaptureLimits};
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{Bloom, Environment, Fog};

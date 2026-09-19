@@ -502,6 +502,14 @@ impl RawStorage {
     ) -> Result<(), DataError> {
         self.reset_observation();
         r.begin_seq()?;
+        if let Some(count) = r.sequence_len() {
+            r.check_allocation(
+                count
+                    .div_ceil(PAGE)
+                    .checked_mul(self.page_layout.size())
+                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
+            )?;
+        }
         let mut last = None;
         r.claim(self.desc.layout.size())?;
         let mut value = Value {
@@ -521,6 +529,10 @@ impl RawStorage {
             }
             if !r.item()? {
                 return Err(DataError::new("missing component"));
+            }
+            let page = e.index() as usize / PAGE;
+            if self.pages.get(page).is_none_or(Option::is_none) {
+                r.check_allocation(self.page_layout.size())?;
             }
             // SAFETY: correctly aligned scratch, initialized only on success.
             unsafe { (self.desc.read_new)(value.bytes.get(), r) }

@@ -1,6 +1,6 @@
 //! Tagged little-endian values, unsigned/zigzag varints, and an incremental
 //! name table. Unknown fields must still be walked to intern their names.
-use super::limits::{Budget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
+use super::limits::{Budget, LoadBudget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
 use super::BulkKind;
 use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,6 +16,16 @@ pub fn from_slice<T: Data>(bytes: &[u8]) -> Result<T, DataError> {
     let mut v = T::default();
     read_into(bytes, &mut v)?;
     Ok(v)
+}
+/// Read a value using a shared allocation allowance when supplied.
+pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Result<T, DataError> {
+    let mut value = T::default();
+    let mut r = Decoder::for_load(bytes, budget);
+    value
+        .read(&mut r)
+        .and_then(|()| r.finish())
+        .map_err(|e| e.at(super::type_name::<T>()))?;
+    Ok(value)
 }
 /// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> {
@@ -136,6 +146,8 @@ pub struct Decoder<'a> {
     names: Vec<&'a str>,
     frames: Vec<Frame<'a>>,
     budget: Budget,
+    preflight_collections: bool,
+    patching: bool,
 }
 enum Frame<'a> {
     Seq(u64),
@@ -152,7 +164,26 @@ impl<'a> Decoder<'a> {
             names: vec![],
             frames: vec![],
             budget: Budget::default(),
+            preflight_collections: false,
+            patching: false,
         }
+    }
+    /// An importing subsystem can tighten allocations without changing world saves.
+    pub(crate) fn with_budget(bytes: &'a [u8], allocation_bytes: usize) -> Self {
+        Self {
+            budget: Budget::new(allocation_bytes),
+            preflight_collections: true,
+            ..Self::new(bytes)
+        }
+    }
+    /// Read using a shared allocation allowance, with collection preflight.
+    pub fn for_load(bytes: &'a [u8], budget: Option<&LoadBudget>) -> Self {
+        let mut r = Self::new(bytes);
+        if let Some(budget) = budget {
+            r.budget = Budget::shared(budget);
+            r.preflight_collections = true;
+        }
+        r
     }
     /// Check that the caller consumed the entire stream.
     pub fn finish(&self) -> Result<(), DataError> {
@@ -236,6 +267,16 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn patching(&self) -> bool {
+        self.patching
+    }
+    fn check_allocation(&self, bytes: usize) -> Result<(), DataError> {
+        if self.preflight_collections {
+            self.budget.check(bytes)
+        } else {
+            Ok(())
+        }
+    }
     fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError> {
         let tag = self.byte()?;
         if tag != 12 + kind as u8 {

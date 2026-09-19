@@ -6,6 +6,7 @@ pub mod bin;
 pub mod hash;
 mod impls;
 pub(crate) mod limits;
+pub use limits::LoadBudget;
 pub use limits::{MAX_LOAD_BYTES, MAX_LOAD_ENTITIES, MAX_LOAD_STRING};
 pub mod json;
 pub mod text;
@@ -174,6 +175,15 @@ impl BulkKind {
 
 /// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
+    /// An entity reference; ordinary codecs retain its historical record encoding.
+    fn entity(&mut self, index: u32, generation: u32) {
+        self.begin_struct();
+        self.field("index");
+        self.number(Number::Unsigned(index.into()));
+        self.field("generation");
+        self.number(Number::Unsigned(generation.into()));
+        self.end_struct();
+    }
     /// Unit has the existing empty-sequence save/hash representation. Value sinks
     /// may override it to preserve the distinction from an empty list.
     fn unit(&mut self) {
@@ -216,6 +226,15 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Reload patches retain skipped fields and existing container elements.
+    fn patching(&self) -> bool {
+        false
+    }
+    /// Check a declared collection's minimum storage before reading any elements.
+    /// Reservations still claim their actual capacity through `claim`.
+    fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {
+        Ok(())
+    }
     /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())
@@ -273,6 +292,18 @@ pub trait Reader {
     fn option(&mut self) -> Result<bool, DataError>;
     /// Consume the option end.
     fn end_option(&mut self) -> Result<(), DataError>;
+    /// Whether authoring requires exact fields and tuple/array lengths.
+    fn strict(&self) -> bool {
+        false
+    }
+    /// An unknown record field or tuple element; saves skip it, authoring refuses it.
+    fn unknown(&mut self) -> Result<(), DataError> {
+        if self.strict() {
+            Err(DataError::new("unknown field or excess element"))
+        } else {
+            self.skip()
+        }
+    }
     /// Discard one complete value, including names interned within it.
     fn skip(&mut self) -> Result<(), DataError>;
 }

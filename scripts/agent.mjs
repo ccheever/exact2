@@ -788,6 +788,8 @@ export function worldView(session, name) {
       return session.clock('+0').then(() => session.clock(`+${ms}`));
     },
     settle: async () => (await session.clock('settle')).settled === true,
+    ticks: count => exactTicks(session, name, count),
+    capture: (command, options = {}) => session.state(name, { ...options, world:true, capture: command }),
     tap: code => session.type(name, {key:code}),
     key_down: code => session.type(name, {key:code, phase:'down'}),
     key_up: code => session.type(name, {key:code, phase:'up'}),
@@ -809,6 +811,25 @@ export function worldView(session, name) {
     },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
+}
+
+/** Advance an exact fixed-step count through the existing host clock, including restored epochs. */
+export async function exactTicks(session, name, count) {
+  if (!Number.isSafeInteger(count) || count < 0 || count > 216000) throw new Error('ticks: expected an integer from 0 to 216000');
+  if (session.controlled === false) throw new Error('ticks: controlled clock required; explicitly hand off before stepping');
+  const before = await session.state(name, {world:true, clockState:true}), world = before.world;
+  if (!world || !Number.isSafeInteger(world.tick) || !Number.isSafeInteger(world.hz) || world.hz < 1 || world.hz > 1000)
+    throw new Error(`ticks ${name}: fixed-step world clock is unavailable or unsupported`);
+  if (world.paused && count) throw new Error(`ticks ${name}: world paused at tick ${world.tick}; resume its live binding first`);
+  const us = world.clockState?.worldMicros, hostUs = world.clockState?.hostMicros;
+  if (!Number.isSafeInteger(us) || !Number.isSafeInteger(hostUs)) throw new Error(`ticks ${name}: clock epoch unavailable; establish it with clock first`);
+  const start = world.tick, target = start + count;
+  const to = Math.ceil((hostUs + Math.max(0, Math.ceil(target * 1000000 / world.hz) - us)) / 1000);
+  const reply = count ? await session.clock(to) : null;
+  const after = await session.state(name, {world:true, clockState:true}), actual = after.world?.tick;
+  const result = {world:name, requested:count, startTick:start, requestedTick:target, actualTick:actual, clock:reply?.clock ?? before.clock, hash:after.world?.hash};
+  if (actual !== target) throw Object.assign(new Error(`ticks ${name}: requested ${start} → ${target}, observed ${actual}; no retry or extra frame performed`), {result});
+  return result;
 }
 
 /** Explain a refused placed-child tap using the world's own visibility. */
@@ -878,7 +899,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** Simulation conveniences use this receiver so proof proxies record every operation. */
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under && typeof under === 'object' ? under : under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });

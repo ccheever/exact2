@@ -1,7 +1,8 @@
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
@@ -14,7 +15,7 @@ export function parseInventoryLine(line) {
   return m && !m[3].startsWith('Z') ? {pid:Number(m[1]), parent:Number(m[2]), stamp:m[4], command:m[5]} : null;
 }
 
-export function artifactDigest(host, dist, artifacts) {
+export function artifactInventory(host, dist, artifacts) {
   try {
     const manifest = [];
     const walk = (dir, prefix) => {
@@ -39,7 +40,7 @@ export function artifactDigest(host, dist, artifacts) {
         walk(artifacts.products ?? resolve(artifacts.binary, '..'), 'product');
       }
     }
-    return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
+    return {digest:createHash('sha256').update(JSON.stringify(manifest)).digest('hex'), files:manifest};
   } catch { return null; }
 }
 // Shared by the proof and its artifact lifecycle regression: mode is baked only on web.
@@ -58,6 +59,61 @@ export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
   writeFileSync(receipt, stamp());
   return true;
 }
+export function artifactDigest(host, dist, artifacts) {
+  return artifactInventory(host, dist, artifacts)?.digest ?? null;
+}
+
+/** Existing proof entry point: world-only data captures; no embedded source is executed. */
+export function captureTools({open, identity, host}) {
+  const current = () => {
+    const receipt = identity();
+    if (!receipt?.digest || !Array.isArray(receipt.files) || !receipt.files.length) throw new Error('capture: loaded artifact identity unavailable; use a local authenticated proof build');
+    return receipt;
+  };
+  return {
+    async capture(session, target = 'world', {script = '', failure = '', external = false, limits} = {}) {
+      if (external) throw new Error('capture refused: unsupported external dependency');
+      const receipt = current();
+      if (!session.loadedArtifact || session.loadedArtifact !== receipt.digest) throw new Error('capture: loaded versus current artifact differs; start a new isolated proof session');
+      await session.world(target).capture('start', {build:receipt.digest, ...(limits ? {limits} : {})});
+      return {
+        async finish(path) {
+          if (current().digest !== receipt.digest) throw new Error('capture: artifacts changed during recording; exact capture refused');
+          const reply = await session.world(target).capture('stop');
+          const state = await session.state(target, {world:true}), logs = await session.logs();
+          const bundle = {format:'exact-game-capture-1', scope:'world-only', reproduction:'simulation', target,
+            artifacts:receipt, metadata:{host, input:session.input?.delivery('key') ?? 'unavailable', clock:session.controlled ? 'controlled' : 'live', uiState:'omitted', externalResults:'unsupported', scene:state.world?.resources?.SceneIdentity?.digest ?? 'unavailable'},
+            script:String(script).slice(0,16384), operations:session.captureOperations?.() ?? {unavailable:true}, observedFailure:String(failure).slice(0,16384),
+            capture:reply.capture, data:reply.data, expected:{tick:reply.capture?.lastReliableTick, hash:reply.capture?.hash},
+            logs:JSON.stringify(logs).slice(0,16384), inventory:['world checkpoint','normalized input and live bindings','artifact digests and relative artifact names','bounded logs','author supplied script description and failure; never executed']};
+          if (typeof bundle.data !== 'string' || bundle.data.length > 17 * 1024 * 1024) throw new Error('capture payload missing or over limit');
+          writeFileSync(resolve(path), JSON.stringify(bundle, null, 2) + '\n');
+          return {path:resolve(path), ...reply.capture};
+        },
+      };
+    },
+    async replay(path, {through} = {}) {
+      if (statSync(path).size > 20 * 1024 * 1024) throw new Error('capture file exceeds 20 MiB');
+      const bundle = JSON.parse(readFileSync(path, 'utf8')), receipt = current();
+      if (bundle.format !== 'exact-game-capture-1' || bundle.scope !== 'world-only' || bundle.reproduction !== 'simulation') throw new Error('unsupported capture bundle');
+      if (bundle.artifacts?.digest !== receipt.digest || !equal(bundle.artifacts.files, receipt.files)) throw new Error('capture build differs from actual local artifact inventory; exact replay refused');
+      if (bundle.capture?.complete !== true || bundle.capture?.incomplete) throw new Error('capture incomplete; replay refused');
+      if (typeof bundle.data !== 'string' || !/^[0-9a-f]+$/.test(bundle.data) || bundle.data.length > 17 * 1024 * 1024) throw new Error('invalid capture payload');
+      if (typeof bundle.target !== 'string' || bundle.target.length > 128) throw new Error('invalid capture world target');
+      if (through !== undefined && (!Number.isSafeInteger(through) || through < 0 || through > bundle.capture.records)) throw new Error('invalid seek record boundary');
+      const scratch = mkdtempSync(resolve(tmpdir(), 'exact-game-replay-'));
+      let session;
+      try {
+        session = await open({env:{EXACT_SURFACE_STORE:scratch, XDG_DATA_HOME:scratch, XDG_CACHE_HOME:scratch}});
+        if (session.loadedArtifact !== receipt.digest || current().digest !== receipt.digest) throw new Error('replay artifacts changed while opening isolated session');
+        const reply = await session.world(bundle.target).capture('replay', {build:receipt.digest, data:bundle.data, ...(through !== undefined ? {through} : {})});
+        if (through === undefined && (reply.replay?.world?.hash !== bundle.expected?.hash || reply.replay?.world?.tick !== bundle.expected?.tick)) throw new Error('replay final observation differs from capture');
+        return {...reply, storage:'isolated scratch', metadata:bundle.metadata};
+      } finally { try { await session?.close(); } finally { rmSync(scratch, {recursive:true, force:true}); } }
+    },
+  };
+}
+
 export async function closeSessions(monitor, record, sessions, check) {
   clearInterval(monitor);
   try { try { record(); } catch { /* Inventory is best-effort. */ } }
@@ -267,8 +323,10 @@ export async function proof(meta, script) {
     }).finally(() => { inventoryPending = null; });
   };
   const monitor = setInterval(sample, 100);
+  let loadedIdentity = () => null;
   let reusableWeb, reusableOptions;
   const open = async (options = {}) => {
+    const launchReceipt = options.url ? null : loadedIdentity();
     const signature = JSON.stringify(options);
     if ((options.fresh || options.world || options.plan || signature !== reusableOptions) && reusableWeb) { await reusableWeb.close(); reusableWeb = null; }
     const reuse = host === 'web' && !options.world && !options.plan ? reusableWeb : null;
@@ -277,6 +335,8 @@ export async function proof(meta, script) {
     const raw = await openSession({host, app:name, size:[1280,720], webDist:dist, onProcess, reuse, ...options,
       env:{EXACT_GAME_PARANOID:process.env.EXACT_GAME_PARANOID ?? '0', ...options.env}});
     sample();
+    if (launchReceipt && loadedIdentity()?.digest !== launchReceipt.digest) { await raw.close(); throw new Error('artifacts changed during proof session launch'); }
+    raw.loadedArtifact = launchReceipt?.digest ?? null;
     let closed = false;
     const close = async () => { if (!closed) {
       try {
@@ -303,6 +363,11 @@ export async function proof(meta, script) {
     } };
     sessions.add({close});
     const id = sessions.size;
+    raw.captureOperations = () => {
+      const steps = replies.filter(r => r.session === id && ['tap','type','clock'].includes(r.method)).slice(-1024);
+      const json = JSON.stringify(steps);
+      return json.length <= 65536 ? steps : {unavailable:'script transcript exceeds 64 KiB; normalized engine records remain authoritative'};
+    };
     return new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
@@ -332,6 +397,9 @@ export async function proof(meta, script) {
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     const built = await ensureBuildReceipt({receipt, inputs:digest,
       artifact:() => artifactDigest(host, dist, artifacts), build:async () => {
+      const disk = spawnSync('df', ['-Pk', root], {encoding:'utf8'});
+      const availableKiB = Number(disk.stdout.trim().split('\n').at(-1).trim().split(/\s+/)[3]);
+      if (disk.status !== 0 || !Number.isFinite(availableKiB) || availableKiB < 25 * 1024 * 1024) throw new Error('build refused: less than 25 GiB available');
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -345,8 +413,9 @@ export async function proof(meta, script) {
       }
     }});
     if (!built) say(`BUILD cached ${name} ${host}`);
+    loadedIdentity = () => artifactInventory(host, dist, artifacts);
     if (!process.argv.includes('--build-only')) {
-      await script({open, check, equal, out, host, say, pin, pinSave});
+      await script({open, check, equal, out, host, say, pin, pinSave, ...captureTools({open, identity:loadedIdentity, host})});
       if (!process.argv.some(arg => ['--screenshot-only','--capture40'].includes(arg)))
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);

@@ -935,12 +935,19 @@ impl World {
     /// Atomically replace simulation state. Registered types survive the replacement;
     /// caches, publications and events do not. The entity table precedes storages.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
+        self.load_in(bytes, None)
+    }
+    pub(crate) fn load_in(
+        &mut self,
+        bytes: &[u8],
+        budget: Option<&crate::data::limits::LoadBudget>,
+    ) -> Result<(), DataError> {
         let payload = Self::saved_payload(bytes)?;
         let mut next = Self::new(self.hz(), 0);
         next.registry = self.registry.clone();
         next.attachments = self.attachments;
         next.detach = self.detach;
-        let mut r = bin::Decoder::new(payload);
+        let mut r = bin::Decoder::for_load(payload, budget);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_hierarchy(&mut r)?;

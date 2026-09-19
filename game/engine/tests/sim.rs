@@ -1093,3 +1093,6 @@ fn r13_empty_and_short_calls_take_all_remaining_rust_defaults() {
     .unwrap()
     .contains("got 4"));
 }
+
+#[path = "sim/clock.rs"]
+mod clock;

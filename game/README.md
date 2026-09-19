@@ -102,7 +102,8 @@ and global positions, including parent chains (XZ ignores height). A missing ori
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
   `bind(values, Some(at_ms))` validates first, seeks under the old arguments, then
   swaps. `Game::validate` runs before construction, binding, seeking for a bind, or restore; a refusal changes nothing. Hosts construct with `Sim::from_values`. Saves encode argument fields by name: reordering is safe, additions default, removals are ignored. Saves carry the game's `ID`, world time and dynamic input; the first restored host clock
-  establishes a new epoch.
+  establishes a new epoch under live scheduling. Controlled restore anchors at the
+  destination's current host stamp, so the first seek advances its full duration.
 - **Time is an input.** Under the seekable clock, `tick = floor(clock_ms × hz / 1000)`; a step is `1/hz`
   exactly; there is no `delta`. Rendering interpolates between the last two ticks,
   so motion is smooth at any refresh rate and the simulation never knows.
@@ -160,6 +161,32 @@ from the games linked above; equivalent spellings preserve their existing pins.
 `Material::glow` creates an opaque emissive mesh that writes depth; bloom supplies
 its visible glow. It is not an unlit alpha halo. The starter uses a regular material
 with tick-authored emissive color and the default environment's fog and bloom.
+
+`Game::CAPTURE_SUPPORTED = true` opts into replay whose dependencies are fully
+represented by world state, arguments, input, time and loaded artifacts.
+`sim.start_capture(build, CaptureLimits)` / `stop_capture()` produce an EXCAP v2
+window. `Capture::{to_bytes,from_bytes}` and
+`Sim::replay_capture(capture, loaded_build, through)` validate artifact identity,
+checksum and every boundary before reporting a replay. For baked assets, use
+`live.replay_capture_using(...)`; it shares the destination's delivered immutable
+assets without changing that destination. Imported script descriptions are never
+executed. Bounds are 8 MiB, 16,384 records and 216,000 ticks, with an explicit
+incomplete prefix on exhaustion and a shared decode-allocation budget.
+
+`Sim::input` retains delivered-event pacing; `device_input` states that origin
+explicitly. `scheduled_input` keeps a future stamp under live pacing. EXCAP saves
+fractional scheduling and queued delivery metadata separately from EXSIM.
+`handoff(agent)` releases keys and named controls; `Game::release_input` can also
+clear physical-input argument bindings. `rebase(now_ms, release_input)` changes
+the host anchor without advancing a tick. Ordinary state omits host timing;
+`sim.agent(r#"{"op":"state","clockState":true}"#)` requests those diagnostics.
+Layout's remembered inspection viewport is separate from saved input dimensions.
+
+The proof callback supplies `capture(session, target, options)` and
+`replay(path, options)` through its capture tools. The driver's
+`session.world(name).ticks(count)` verifies the exact resulting tick, refusing a
+mismatch without retry. `bun game/prove.mjs <game> --hosts linux --paranoid`
+runs the existing three-mode comparison through the same recorder.
 
 ## Proof pins
 

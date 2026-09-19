@@ -745,7 +745,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             self.refusal = Some(SurfaceError(error));
             return;
         }
-        sim.input(e);
+        if self.seekable {
+            sim.input(e);
+        } else {
+            sim.device_input(e);
+        }
     }
     fn published(&mut self) -> Option<String> {
         self.sim.as_mut().and_then(Sim::take_published)

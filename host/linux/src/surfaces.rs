@@ -435,9 +435,9 @@ impl Surfaces {
                     }
                 }
             }
-            if delivered {
+            if delivered || c.restore_input {
                 // Headless has no first frame to establish the ready world's
-                // epoch. Do it after delivery, at the unchanged host clock.
+                // epoch. Do it after delivery/restore, at the unchanged host clock.
                 abi.agent(c.id, &json!({"op":"clock","now":host.now()}));
             }
             if c.restore_input {
@@ -530,9 +530,9 @@ impl Surfaces {
                     children.len() as u32,
                 );
             }
-            // The no-device executor computes the same placements at the committed
-            // viewport/clock, without trying to render a GPU frame.
-            abi.agent(canvas.id,&json!({"op":"state","now":host.now(),"width":node.frame.width,"height":node.frame.height}));
+            // This is the no-device frame boundary, including the first sample
+            // after restore. Inspection itself must not set an epoch or viewport.
+            abi.agent(canvas.id,&json!({"op":"clock","now":host.now(),"width":node.frame.width,"height":node.frame.height}));
             for (i, id) in children.iter().enumerate() {
                 let mut h = [0.; 16];
                 let code = unsafe {

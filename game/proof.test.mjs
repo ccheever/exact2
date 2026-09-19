@@ -846,3 +846,46 @@ test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () =
     expect(result.ok).toBe(true);expect(result.crop).toEqual([90*scale,20*scale,120*scale,40*scale]);
   }
 });
+
+test('exact tick helper uses restored epochs and never silently retries a mismatch', async () => {
+  const {exactTicks} = await import('../scripts/agent.mjs');
+  let tick=301, host=81234, us=5016670, calls=0;
+  const session={controlled:true, state:async(target,options)=>{expect(target).toBe('world');expect(options).toEqual({world:true,clockState:true});return {clock:host,world:{tick,hz:60,paused:false,clockState:{hostMicros:host*1000,worldMicros:us}}};},
+    clock:async to=>{calls++;us+=(to-host)*1000;host=to;tick=Math.floor(us*60/1000000);return {clock:to};}};
+  for(let i=0;i<120;i++) expect((await exactTicks(session,'world',1)).actualTick).toBe(302+i);
+  expect(calls).toBe(120);
+  session.clock=async()=>{calls++;return {clock:host};};
+  await expect(exactTicks(session,'world',1)).rejects.toThrow('no retry');
+  expect(calls).toBe(121);
+  session.state=async()=>({world:{tick,hz:60,paused:true}});
+  await expect(exactTicks(session,'world',1)).rejects.toThrow('paused');
+  expect(calls).toBe(121);
+});
+
+test('capture replay validates actual artifacts and never executes imported script text', async () => {
+  const {captureTools}=await import('./proof.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'capture-proof-')), file=resolve(dir,'capture.json');
+  const identity={digest:'sha256:actual',files:[['game.wasm','code'],['app.plan','plan']]};
+  let opened=0,closed=0;
+  const requests=[];
+  const fake={loadedArtifact:identity.digest,controlled:true,input:{delivery:()=> 'platform'},
+    world(name){return worldView(this,name);},
+    state:async(target,options)=>{requests.push({op:'state',target,...options});expect(target).toBe('world');expect(options.world).toBe(true);
+      if(options.capture==='replay')return {isolated:true,replay:{world:{hash:'hash',tick:4}}};
+      if(options.capture)return {capture:{complete:true,records:2,lastReliableTick:4,hash:'hash'},data:'aabb'};
+      return {world:{hash:'hash',tick:4,resources:{SceneIdentity:{digest:'loaded-scene'}}}};},
+    logs:async()=>({lines:[]}),close:async()=>closed++};
+  const kit=captureTools({identity:()=>identity,host:'web',open:async()=>{opened++;return fake;}});
+  try {
+    const capture=await kit.capture(fake,'world',{script:'throw new Error("must never execute")',failure:'crate stuck'});
+    await capture.finish(file);
+    expect(JSON.parse(readFileSync(file,'utf8')).metadata.scene).toBe('loaded-scene');
+    expect((await kit.replay(file)).isolated).toBe(true);
+    expect(requests.map(request=>request.capture??'inspect')).toEqual(['start','stop','inspect','replay']);
+    expect(opened).toBe(1);expect(closed).toBe(1);
+    const bundle=JSON.parse(readFileSync(file,'utf8'));bundle.artifacts.digest='other';writeFileSync(file,JSON.stringify(bundle));
+    await expect(kit.replay(file)).rejects.toThrow('actual local artifact');
+    expect(opened).toBe(1);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+

@@ -30,6 +30,7 @@ const hosts = option('--hosts', repin || args.includes('--compare-saves') ? 'lin
 if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
   throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
 }
+if (args.includes('--paranoid') && hosts.some(h => !['linux','web'].includes(h))) throw new Error('--paranoid supports web and linux');
 if (firstPins && (!hosts.includes('linux') || !hosts.includes('web'))) throw new Error('first baseline requires linux and web');
 const root = resolve(app, 'artifacts/prove');
 mkdirSync(root, {recursive:true});
@@ -38,7 +39,7 @@ const run = async (host, index, build = false, mode = '0') => {
   rmSync(out, {recursive:true, force:true});
   mkdirSync(out, {recursive:true});
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
-  const child = spawn(process.execPath, ['./proof.mjs', host, ...(build ? ['--build-only'] : [])], {
+  const child = spawn(process.execPath, ['./proof.mjs', host, ...(build ? ['--build-only'] : !repin && args.includes('--paranoid') ? ['--paranoid'] : [])], {
     cwd:app,
     env:{...process.env, EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode},
     stdio:['ignore','pipe','pipe'],

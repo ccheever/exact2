@@ -46,7 +46,7 @@ has not yet been certified.
 2. Incremental observation: carried with engine storage and hierarchy semantics.
 3. Typed kinds and hot joins: carried with engine Target and removal semantics.
 4. Static physics split and fixes: adapted to CapsuleHandle and decoded snapshot clones.
-5. Ownership, restore clock anchor, EXCAP v2: pending.
+5. Ownership, restore clock anchor, EXCAP v2: adapted and headless-verified.
 6. Three-way authored merge and EXSIM v7: pending. Full typed scratch decode must
    precede setup/authored merge; restore tick/time agreement must be exact.
 7. Geometric layout and movement diagnostics: pending.
@@ -134,3 +134,42 @@ median 4617.675/p95 4933.463 versus ordinary outside-scenery movement
 of the merged code, not speedup claims; the canonical-fallback tail remains.
 
 Physics full gate: game and eight app clippy/fmt pass; 28 Linux normal/paranoid executions retain all world and save pins; Bun 115 pass/1 skip, caps and boot pass. Workspace/consumer test failures remain only the recorded GPU adapter refusals.
+
+Capture integration decisions: retain EXSIM5 in this increment. Queued delivery
+metadata lives in EXCAP's scheduler record, while EXSIM5 restoration preserves
+its existing delivered-event interpretation. input() keeps G's live pacing;
+new scheduled_input() spells future scheduling explicitly. Incoming scheduling
+tests use that spelling and retain all assertions. New named-control capture
+coverage includes a held checkpoint, release, invalid-name refusal before
+recording, and handoff cancellation. A rejected-input journal diagnostic is
+outside the accepted-input suffix; the byte-equality checkpoint starts after it.
+
+G's default-state equality contract excludes host scheduling. clockState:true
+requests host/world microseconds explicitly; exactTicks uses that request.
+Remembered layout dimensions live in an inspection-only field, preserving G's
+subsequent layout behavior without changing saved input or capture records.
+Capture replay can reuse baked assets with replay_capture_using; no embedded GLB
+API is introduced. Restore now constructs one candidate, keeps current bound
+arguments, checks exact tick/time agreement and retains queued textures. Shared
+Data decode budgets and strict-field hooks landed as decoder prerequisites.
+
+The driver's capture artifact inventory and eight-operation helpers retain G's
+carrier reuse, PID callbacks, complete pin inventory and paranoid journal
+comparison. Incoming duplicate repin and T6 upload exemptions are not carried.
+prove now forwards --paranoid to the existing three-mode proof entrypoint.
+Native acknowledged detach and host reload transactions remain the DX increment.
+
+Capture gate: 404 engine tests pass (six ignored diagnostics); complete game
+workspace 641 pass / 14 fail / 22 ignored, with all 14 failures refusing the absent
+GPU adapter. App workspaces: 29 pass / three no-adapter failures / one ignored.
+Game and all eight app clippy/fmt pass; all 28 Linux normal/paranoid proofs pass,
+Bun 117 pass / one skip, caps and boot pass. Every pin is unchanged.
+
+The first complete gate exposed Beacons losing its first 750 ms after a fresh
+restore: Linux had relied on a state read to set its epoch. Explicit clock samples
+now occur after headless restore/delivery and at the headless placement frame.
+Repair round one fixed placement but missed non-Each surfaces; round two added the
+post-restore sample and fixed Beacons and the generated-game proof. Greybox's exact
+state snapshot adds only ownership/capture fields, retaining the pin placeholder.
+The exactTicks mock now requires the explicit clockState request. All prior
+assertions remain; no extra seek or tick was added to the proofs.
