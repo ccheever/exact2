@@ -254,3 +254,57 @@ Kept, again, by both: the proof through the product's agent (Provable 5), byte-i
 continuation (Repeatable), the Contract HUD with real accessibility. The engine's API is judged to
 express the brief "substantially better than earlier builds"; the points went to tooling — the
 starter, the proof's shape, the pins — not to the engine's ideas.
+
+## Sixth score (2026-09-19, 08:00) — Beacons rebuilt a sixth time, after the fifth score's asks and three review rounds
+
+Same brief, same two judges (sol and grok, blind to each other, reading only a detached checkout of
+8db5e42e with Beacons r5 removed), a fresh builder with no memory of the earlier builds:
+`game/diaries/001-beacons-exact-r6.md`. Six minutes and twenty seconds from the builder's first clock
+receipt to a verified cross-host PASS, 135 lines of logic and 41 of Contract (13 generated
+scaffolding lines), one pixel inspection after the pass, no engine change, **zero gameplay
+correction rounds** — the one friction was proof reporting (`world.snapshot()` supplies pins but not
+the summary's `worlds` list; the builder used `state().world[0]` as the grey box does). The r6 source
+stays with its diary as the record (`~/Library/Caches/exact2-game/r6-beacons/`, and the judges' checkout);
+the lane's Beacons keeps r5 as E10 rewrote it to the new idioms, since a seventh build deletes it again.
+
+| | Godot 4.7 | three.js r186 | **exact2 r6** |
+|---|---|---|---|
+| sol | 25 | 32 | **30** |
+| grok | 26 | 31 | **29** |
+
+Per row (sol / grok): Small 4/4, Direct 4/4, Provable 5/5, Repeatable 5/5, Loop 4/3, Feel 4/4, UI 4/4.
+Against the fifth score (28/29) exact2 gained two and one; Repeatable is now the row the engine wins
+outright on both cards ("the only entry that actually demonstrates cross-host equality"; "the
+determinism contract, not a same-process JSON round-trip"). Warm proofs: 0.300 s Linux, 4.07 s web.
+
+What still costs the points, in the judges' words, and where it points:
+
+1. **The edit loop after a Rust change is 36 seconds** (both; grok's Loop 3). The 0.3 s host-less
+   proof is the default and the fresh builder took it, but a changed `lib.rs` pays a release relink
+   (thin LTO, codegen-units 1) before the assertions can speak: first Linux bake 60 s, changed-source
+   35.9 s, first web 72.8 s, cold Sim tests 25.6 s — against Godot's whole proof in 10 s. Both judges:
+   a proof profile for the logic crate (no fat LTO, reuse the host binary; grok's target < 3 s save →
+   PASS, < 1 s warm), and the measured edit number in the diary before Loop moves.
+2. **The picture is the worst of the three** (both; UI 4). The builder replaced the template's
+   `Material::grid` with a flat colour and never found `Fog::new` or `Material::glow`; bloom clips the
+   lit beacon to white; the HUD is opaque chips; no pads; Contract buttons still have no hover or
+   focus-visible. Grok: a builder who only edits beacon positions should still ship a grid, height
+   fog, a pad and a bloom glow — the starter's look must be the look a fresh builder ships, and the
+   web's UA hover/focus defaults must reach every host (QUEUE.md has the cost).
+3. **Direct's missing point** (both): the tick probes the beacons twice (`nearest_xz_mut` to light,
+   `nearest_xz_where` for the prompt), copies a `Tween` into `Material.emissive` in a query loop, and
+   calls `scene::follow(w)` itself; grok sketches one probe that is the HUD (`near = b.name()` from the
+   same handle, `w.count::<Beacon>(|b| b.lit)`, a `Tween` on a `Material::glow` mesh sampled by the
+   renderer, `Follow` as a component the scene steps). Sol: the `Hud` publication seam and the boolean
+   restart edge are still machinery.
+4. **What the app owns** (both; Small 4): the generated `app.json` mirrors its resolved defaults in 90
+   lines beside a 10-line manifest, pins and a 3,157-line captured lock; sol's after-sketch is a
+   ten-key `app.json` with everything derived into `.shells/`, the lock kept as declared package
+   state with its own refresh command.
+5. Copy from the twins: a closed-form W expectation beside the hash pins (three.js); Space must not
+   activate a focused Pause while playing (Godot consumes gameplay keys); beacon pads; the one
+   command that also captures the PNG printed after the Linux default.
+
+Feel stays a provisional 4 on both cards from sitting #2's numbers (zero raw hitches, landmark CV
+0.264 against three.js 0.520 and interpolated Godot 0.142; 120 Hz p95 7.8 ms) — no sitting has run on
+this r6 binary, and the README still withdraws a perceptual winner until a quiet sitting.

@@ -43,6 +43,9 @@ pub trait Game: 'static {
     fn validate(_args: &Self::Args) -> Result<(), String> {
         Ok(())
     }
+    /// Register types that vary with setup arguments, without gameplay side effects.
+    /// Called before setup and on a scratch registry before restore validation.
+    fn register(_world: &mut World, _args: &Self::Args) {}
     /// Construct the world after argument decoding succeeds.
     fn setup(world: &mut World, args: &Self::Args);
     /// Stop world time while continuing to serve reads.
@@ -185,9 +188,21 @@ impl<G: Game> Sim<G> {
         let (game, tick, got) = (G::ID, self.world.tick(), self.world.hash());
         #[derive(Default, crate::Data)]
         struct Pins {
+            game: String,
             ticks: std::collections::BTreeMap<String, String>,
         }
-        let pins: Pins = crate::json::from_str(pins).expect("pins.json must contain ticks");
+        let pins: Pins = crate::json::from_str(pins).unwrap_or_else(|error| {
+            panic!("pins.json game <invalid>, expected `{game}`: {error}; run bun game/prove.mjs {game}")
+        });
+        assert!(
+            pins.game == game,
+            "pins.json game `{}`, expected `{game}`; run bun game/prove.mjs {game}",
+            if pins.game.is_empty() {
+                "<missing>"
+            } else {
+                &pins.game
+            }
+        );
         let expected = pins
             .ticks
             .get(&tick.to_string())
@@ -231,6 +246,7 @@ impl<G: Game> Sim<G> {
         if !world.assets.ready() {
             return world;
         }
+        G::register(&mut world, args);
         G::setup(&mut world, args);
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
@@ -243,9 +259,13 @@ impl<G: Game> Sim<G> {
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
-        Self::with_store(args, Default::default())
+        Self::with_store(args, Default::default(), QUEUE_LIMIT)
     }
-    fn with_store(args: G::Args, assets: crate::asset::AssetStore) -> Result<Self, String> {
+    fn with_store(
+        args: G::Args,
+        assets: crate::asset::AssetStore,
+        queue_capacity: usize,
+    ) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
@@ -286,7 +306,7 @@ impl<G: Game> Sim<G> {
             settle_delay: std::cell::Cell::new(100),
             input: Input::new(G::actions()),
             inspection_viewport: None,
-            queue: VecDeque::with_capacity(QUEUE_LIMIT),
+            queue: VecDeque::with_capacity(queue_capacity),
             overflow_logged: false,
             rebase_queue: false,
             restored: false,
@@ -874,6 +894,7 @@ impl<G: Game> Sim<G> {
             self.restored = false;
             self.restored_from = None;
             G::tick(&mut self.world, &self.input, &self.args);
+            crate::scene::follow(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
@@ -947,7 +968,7 @@ impl<G: Game> Sim<G> {
             // Drop all old component/resource values (including skipped fields
             // and physics executors) before invoking setup for the replacement.
             let generation = self.world.presentation_generation;
-            self.world = World::new(G::HZ, 0);
+            self.world = self.world.registered_scratch();
             self.world.presentation_generation = generation;
             for (name, bytes) in models {
                 assets.models.insert(

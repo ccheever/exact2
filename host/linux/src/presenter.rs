@@ -11,7 +11,6 @@
 //! it, then up to the nearest node with a `press` handler, the path a click
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
-
 use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::AssetResolver;
@@ -30,7 +29,6 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
-
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
@@ -80,12 +78,10 @@ pub struct Presenter<D: DataSource> {
     /// error; later refusals are journaled without retitling a live session.
     booting: bool,
 }
-
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
-
 /// Which backend paints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PainterChoice {
@@ -96,7 +92,6 @@ pub enum PainterChoice {
     /// tiny-skia.
     Cpu,
 }
-
 impl PainterChoice {
     /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
     pub fn from_env() -> PainterChoice {
@@ -1293,7 +1288,10 @@ impl<D: DataSource> Presenter<D> {
         } else {
             u32::MAX - 2
         };
-        if !down && matches!(key, "Space" | "Enter") && self.owns_control(id, contact) {
+        if !down
+            && matches!(key, "Space" | "Enter" | "NumpadEnter")
+            && self.owns_control(id, contact)
+        {
             return if self.control_input(id, "up", 0., 0., contact, self.host.now()) {
                 Ok(format!("{{\"typed\":{id}}}"))
             } else {
@@ -1308,7 +1306,9 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is disabled or inert"));
         }
-        if node.props.str(PropId::Action).is_some() && matches!(key, "Space" | "Enter") {
+        if node.props.str(PropId::Action).is_some()
+            && matches!(key, "Space" | "Enter" | "NumpadEnter")
+        {
             if !self.holds_control(id) {
                 self.focus = Some(id);
             }
@@ -1331,7 +1331,7 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         let editable = node.node_type == NodeType::TextInput;
-        let activation = matches!(key, "Space" | "Enter")
+        let activation = matches!(key, "Space" | "Enter" | "NumpadEnter")
             && matches!(
                 node.props.str(PropId::AccessibilityRole),
                 Some("button" | "link")
@@ -1348,7 +1348,7 @@ impl<D: DataSource> Presenter<D> {
         if down {
             let ch = match key {
                 "Space" | " " => Some(' '),
-                "Enter" => Some('\n'),
+                "Enter" | "NumpadEnter" => Some('\n'),
                 s if s.chars().count() == 1 => s.chars().next(),
                 _ => None,
             };

@@ -85,7 +85,7 @@ if (repin) {
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], {cwd:app, encoding:'utf8'});
   if (revision.status !== 0 && !firstPins) throw new Error('repin refused: cannot identify commit; pins.json unchanged');
   const command = `bun game/prove.mjs ${argument}${args.includes('--repin') ? ' --repin' : ''} --hosts ${exercised.join(',')}`;
-  const after = {...candidate, generated:command, at:revision.status === 0 ? revision.stdout.trim() : 'initial external baseline'};
+  const after = {...candidate, game:name, generated:command, at:revision.status === 0 ? revision.stdout.trim() : 'initial external baseline', ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
   if (!exercised.includes('web')) console.log('WEB not exercised; pins record linux only, no web agreement claimed.');

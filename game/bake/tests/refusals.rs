@@ -1,6 +1,6 @@
 use serde_json::json;
 fn source() -> serde_json::Value {
-    serde_json::from_str(include_str!("../../games/asset-fixture/art/crate.gltf")).unwrap()
+    serde_json::from_str(include_str!("fixtures/crate.gltf")).unwrap()
 }
 fn bake(value: serde_json::Value) -> Result<exact_game::asset::Model, String> {
     let dir = std::env::temp_dir().join(format!(

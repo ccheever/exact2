@@ -33,7 +33,7 @@ import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -83,7 +83,60 @@ function readGpuInputs(profile = 'web') {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
     return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
   };
-  appInputs = inputs('web', 'web'); gpuInputs = inputs('gpu', profile);
+  appInputs = gameRuntimeInputs(inputs('web', 'web')); gpuInputs = inputs('gpu', profile);
+}
+function gameRuntimeInputs(inputs) {
+  if (!app.manifest.game || !inputs.size) return inputs;
+  // A generated game's bake reads Game::NAME/Args::FIELDS; its logic is not
+  // linked into the app. Cargo's summary .d includes that build-only closure.
+  const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], {cwd:app.workspace, env:buildEnv, encoding:'utf8', maxBuffer:128*1024*1024});
+  if (result.status !== 0) throw new Error(`cargo metadata failed: ${result.stderr || result.error || result.status}`);
+  const metadata = JSON.parse(result.stdout), packages = new Map(metadata.packages.map(p => [p.id,p]));
+  const nodes = new Map(metadata.resolve.nodes.map(n => [n.id,n]));
+  const root = metadata.packages.find(p => p.name === app.crate('web'));
+  if (!root) return inputs;
+  const runtime = new Set(), pending = [root.id];
+  while (pending.length) {
+    const id = pending.pop(); if (runtime.has(id)) continue; runtime.add(id);
+    // Keep build inputs of runtime dependencies: their generated Rust can be
+    // part of the app. Only the known generated game bake is metadata-only.
+    for (const dep of nodes.get(id)?.deps ?? [])
+      if (dep.dep_kinds.some(k => k.kind === null || (id !== root.id && k.kind === 'build'))) pending.push(dep.pkg);
+  }
+  const sources = new Set([...runtime].flatMap(id => packages.get(id).targets
+    .filter(t => t.kind.some(k => ['lib','rlib','cdylib','proc-macro'].includes(k)) || (id !== root.id && t.kind.includes('custom-build')))
+    .map(t => resolve(t.src_path))));
+  const included = new Set(), found = new Set();
+  for (const profile of [resolve(app.target,'web'), resolve(app.target,'wasm32-unknown-unknown/web')]) {
+    const build = resolve(profile,'build');
+    const directories = [resolve(profile,'deps'), ...(existsSync(build) ? readdirSync(build,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>resolve(build,e.name)) : [])];
+    for (const directory of directories) if (existsSync(directory)) {
+      const output=resolve(directory,'output');
+      if (existsSync(output)) for (const id of runtime) {
+        const pkg=packages.get(id), name=directory.slice(directory.lastIndexOf('/')+1);
+        if (id===root.id || name.replace(/-[a-f0-9]+$/,'')!==pkg.name) continue;
+        for (const line of readFileSync(output,'utf8').split('\n')) {
+          const changed=/^cargo::?rerun-if-changed=(.+)$/.exec(line); if (!changed) continue;
+          const watched=resolve(pkg.manifest_path,'..',changed[1]);
+          for (const path of inputs) if (path===watched || path.startsWith(watched+'/')) included.add(path);
+        }
+      }
+      for (const file of readdirSync(directory)) {
+        if (!file.endsWith('.d')) continue;
+        const paths = compilerPaths(readFileSync(resolve(directory,file),'utf8'),app.workspace);
+        const roots = paths.filter(path=>sources.has(path));
+        if (roots.length) { for (const path of roots) found.add(path); for (const path of paths) included.add(path); }
+      }
+    }
+  }
+  // Exact rustc unit files retain include! inputs outside their package. If
+  // evidence for a compiled runtime source is missing, keep the full rebuild.
+  if ([...sources].some(path=>inputs.has(path) && !found.has(path))) return inputs;
+  const owners = metadata.packages.map(p=>({id:p.id,dir:resolve(p.manifest_path,'..')})).sort((a,b)=>b.dir.length-a.dir.length);
+  return new Set([...inputs].filter(path=>{
+    const owner = owners.find(p=>path===p.dir || path.startsWith(p.dir+'/'));
+    return !owner || runtime.has(owner.id) || included.has(path);
+  }));
 }
 readGpuInputs();
 const gpuOnly = files => files.length > 0 && appInputs.size > 0
@@ -878,7 +931,7 @@ async function produceGpu(files) {
   building = true;
   const start = Date.now(), revision = gpuRevision, detectedAt = gpuSaved;
   const capturedInputs = gpuReceiptInputs();
-  const profile = /\[profile\.gpu-dev\]/.test(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')) ? 'gpu-dev' : 'web';
+  const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
   if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
   mkdirSync(gpuSideRoot, { recursive: true });
   const stage = mkdtempSync(resolve(gpuSideRoot, 'build-'));
@@ -892,12 +945,12 @@ async function produceGpu(files) {
   });
   try {
     console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
-    await run('cargo', ['build','-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
+    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
     // Rust scene types belong to the behavior build. Pure content saves reuse
     // this refreshed native baker and never enter Cargo themselves.
     if (app.manifest.game && existsSync(resolve(app.dir, 'scene.json'))) {
       const logic = app.manifest.game.crate;
-      await run('cargo', ['build','--offline','-p',logic,'--bin',logic.replace(/-logic$/, '-scene')]);
+      await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',logic,'--bin',logic.replace(/-logic$/, '-scene')]);
     }
     const compiled = Date.now();
     await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);

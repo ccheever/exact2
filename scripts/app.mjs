@@ -31,6 +31,10 @@ import { installProblems } from './install-page.mjs';
 import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
 import { bakeGameScene } from '../game/app/scenes.mjs';
 
+/** Reproducible resolution is a generated game-shell policy, shared by bake and deploy. */
+export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
+  app.manifest.game && resolve(workspace) === resolve(app.workspace) ? ['--locked', '--offline'] : [];
+
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -249,7 +253,7 @@ export function bakeTarget(platform) {
   return host;
 }
 function buildGraph(app, target, kind, env, gpu) {
-  const metadata = JSON.parse(buildCommand('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--filter-platform', target], app, env).stdout);
+  const metadata = JSON.parse(buildCommand('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target], app, env).stdout);
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
@@ -491,7 +495,7 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
-    const args=['build','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json'];
+    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json'];
     const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);

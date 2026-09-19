@@ -477,17 +477,25 @@ fn full_seekable_render_has_no_performance_samples() {
 }
 
 #[test]
-fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
-    #[derive(Default, exact_game::Data)]
-    struct Pins {
-        ticks: std::collections::BTreeMap<String, String>,
-    }
-    let pins: Pins =
-        exact_game::json::from_str(include_str!("../../games/greybox/pins.json")).unwrap();
+fn headless_fixture_ticks_under_the_agent_clock_to_the_native_hash() {
+    let mut reference = exact_game::Sim::<crate::test_game::Fixture>::from_values(&[
+        Value::Number(7.),
+        Value::Bool(false),
+        Value::Bool(false),
+    ])
+    .unwrap();
+    let initial = format!("0x{:016x}", reference.world().hash());
+    reference.input(exact_game::InputEvent::Key {
+        code: "KeyW".into(),
+        down: true,
+        at_ms: 0.,
+    });
+    reference.run(1500.);
+    let moved = format!("0x{:016x}", reference.world().hash());
     use exact_gpu::{Module, Registry};
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 3, || {
-            Box::<WorldSurface<greybox_logic::Greybox>>::default()
+            Box::<WorldSurface<crate::test_game::Fixture>>::default()
         })],
         shaders: &[],
     };
@@ -501,7 +509,7 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     let setup = module
         .agent(id, r#"{"op":"state","now":0,"width":1280,"height":720}"#)
         .unwrap();
-    assert!(setup.contains(&pins.ticks["0"]), "{setup}");
+    assert!(setup.contains(&initial), "{setup}");
     assert!(setup.contains("\"device\":false"));
     assert!(module.input_json(
         id,
@@ -509,14 +517,14 @@ fn headless_greybox_ticks_under_the_agent_clock_to_the_native_hash() {
     ));
     let tick = module.agent(id, r#"{"op":"clock","now":1500}"#).unwrap();
     assert!(tick.contains("\"tick\":90"), "{tick}");
-    assert!(tick.contains(&pins.ticks["90"]), "{tick}");
+    assert!(tick.contains(&moved), "{tick}");
     assert_eq!(module.render(id, &frame(1500.)), None);
     assert_eq!(module.take_error(), "");
     let save = module.carry(id).unwrap().unwrap();
     module.lose_device();
     assert!(module.restore(id, &save, exact_gpu::Restore::Open));
     let state = module.agent(id, r#"{"op":"state","now":1500}"#).unwrap();
-    assert!(state.contains(&pins.ticks["90"]), "{state}");
+    assert!(state.contains(&moved), "{state}");
 }
 
 #[test]
@@ -537,7 +545,7 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<greybox_logic::Greybox, Probe>::default();
+    let mut s = WorldSurface::<crate::test_game::Fixture, Probe>::default();
     s.bind(
         &[Value::Number(7.), Value::Bool(false), Value::Bool(false)],
         None,
@@ -655,8 +663,8 @@ impl Game for Art {
 #[test]
 fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_window_honest() {
     let Some(gpu) = gpu() else { return };
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../games/asset-fixture/art/crate.gltf");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
     let (mut model, textures) = exact_game_bake::assets(&path).unwrap();
     for material in &mut model.materials {
         material.double_sided = false;

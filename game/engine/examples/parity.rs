@@ -1,8 +1,5 @@
-//! Native parity cards for the two browser proofs; no host or GPU needed.
-#[path = "../../games/beacons/logic/src/lib.rs"]
-mod beacons;
-#[path = "../../games/greybox/logic/src/lib.rs"]
-mod greybox;
+//! Engine-owned deterministic state card; no host or GPU needed.
+mod fixture;
 use exact_game::{Game, Sim};
 fn card<G: Game>(args: G::Args) {
     let mut s = Sim::<G>::new(args).unwrap();
@@ -29,13 +26,5 @@ fn card<G: Game>(args: G::Args) {
 }
 fn main() {
     println!("{} {}", std::env::consts::ARCH, std::env::consts::OS);
-    card::<greybox::Greybox>(greybox::GreyboxArgs {
-        seed: 7,
-        paused: false,
-        restart: false,
-    });
-    card::<beacons::Beacons>(beacons::Options {
-        seed: 7,
-        ..Default::default()
-    });
+    card::<fixture::Probe>(());
 }

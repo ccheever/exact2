@@ -31,7 +31,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   try {
     await run('bun', ['game/new.mjs', app]);
     assert.deepEqual(readdirSync(app).sort(), ['.gitignore','Cargo.lock','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
-    rmSync(resolve(app, 'app.json'));
+    const authoredManifest = readFileSync(resolve(app, 'app.json'), 'utf8');
     rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -62,6 +62,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     writeFileSync(source, readFileSync(source, 'utf8') + '\n// External app edits must invalidate the proof build.\n');
     await run('bun', [resolve(app, 'proof.mjs'), 'linux', '--build-only']);
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
+    assert.equal(readFileSync(resolve(app, 'app.json'), 'utf8'), authoredManifest);
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -178,7 +179,7 @@ test('title-only and audio-only overrides retain derived defaults', async () => 
     const before = readFileSync(resolve(root,'app.json'),'utf8');
     gameDefaults(root);
     assert.equal(readFileSync(resolve(root,'app.json'),'utf8'), before);
-    assert.deepEqual(JSON.parse(before)._generated.overrides, {game:{audio:true}}, 'the author owns only authored keys');
+    assert.deepEqual(JSON.parse(before), {game:{audio:true}}, 'the author owns only authored keys');
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
@@ -284,4 +285,26 @@ test('R13 an empty Cargo cache refuses offline resolution with an explicit prefe
     assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/offline/.test(error.message)&&/cargo fetch --locked --manifest-path/.test(error.message));
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),lock);
   } finally {if(previous===undefined) delete process.env.CARGO_HOME;else process.env.CARGO_HOME=previous;rmSync(root,{recursive:true,force:true});}
+});
+
+
+test('E10 compact authored manifest survives two bakes byte for byte', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');
+  try {
+    createGame(app);
+    const path=resolve(app,'app.json');
+    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'SmallGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
+    writeFileSync(path,authored);
+    for(let i=0;i<2;i++) {
+      const manifest=gameDefaults(app);
+      gameShells(app,manifest.game,import.meta.dir);
+      assert.equal(readFileSync(path,'utf8'),authored);
+      const resolved=JSON.parse(readFileSync(resolve(app,'.shells/app.json'),'utf8'));
+      assert.equal(resolved.app.id,'org.example.my-game');
+      assert.equal(resolved.name,'My Game');
+      assert.equal(resolved.host.macos.window.width,960);
+      assert.equal(resolved.host.macos.window.height,720);
+    }
+  } finally {rmSync(parent,{recursive:true,force:true});}
 });

@@ -1291,28 +1291,3 @@ pub(crate) fn status_json(w: &World, e: Entity) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod apply_local_tests {
-    use super::*;
-    #[test]
-    fn apply_local_uses_authored_rotation_and_keeps_markers() {
-        let mut w = World::new(60, 0);
-        let e = w.spawn_named("fox", Transform::default());
-        let motion = Motion(vec![(
-            e,
-            Some("fox".into()),
-            Playback {
-                root_motion: Vec3::X,
-                crossed: vec!["step".into()],
-                ..Default::default()
-            },
-        )]);
-        w.require_mut::<Transform>("fox").rotation = crate::Quat::from_rotation_y(1.);
-        let mut expected = *w.require::<Transform>("fox");
-        expected.translate_local(motion.root_motion("fox"));
-        motion.apply_local(&w, "fox");
-        assert_eq!(w.require::<Transform>("fox").position, expected.position);
-        assert!(motion.crossed("fox", "step"));
-    }
-}

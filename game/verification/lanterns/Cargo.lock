@@ -602,7 +602,6 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-game",
- "exact-game-render",
  "exact-gpu",
  "exact-runner",
 ]
@@ -1458,6 +1457,7 @@ dependencies = [
  "exact-game",
  "exact-game-bake",
  "exact-game-physics",
+ "exact-game-render",
  "exact-game-scene",
  "exact-runner",
  "serde_json",

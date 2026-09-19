@@ -1,7 +1,18 @@
 import {test,expect} from 'bun:test';
-import {open} from '../../../scripts/agent.mjs';
+import {open,assertWebDistApp} from '../../../scripts/agent.mjs';
 
-test('Caltrain web frame-only stack remains a plain column',async()=>{
+import {resolve} from 'node:path';
+import {resolveApp} from '../../../scripts/app.mjs';
+let unavailable;
+try {
+  assertWebDistApp(resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname),resolveApp('caltrain'));
+} catch(error) {
+  if (!error.message.startsWith('web dist is not a complete build')) throw error;
+  unavailable=error.message;
+  console.warn(`SKIP: ${unavailable}`);
+}
+const check = unavailable ? test.skip : test;
+check(`Caltrain web frame-only stack remains a plain column${unavailable ? ` — ${unavailable}` : ''}`,async()=>{
   const s=await open({host:'web'});
   try {
     await s.clock('settle');await s.tap('deck-toggle');await s.clock('settle');

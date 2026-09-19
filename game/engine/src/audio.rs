@@ -427,6 +427,9 @@ impl World {
         self.tick().saturating_add(u64::from(self.in_tick))
     }
     /// Install saved audio types and sound definitions together.
+    /// ```compile_fail
+    /// exact_game::World::new(60, 0).register_audio();
+    /// ```
     pub fn sounds<S: AsRef<str>>(
         &mut self,
         definitions: impl IntoIterator<Item = (S, Synth)>,
@@ -438,7 +441,7 @@ impl World {
         self
     }
     /// Register audio types before loading a save; initialize resources only if absent.
-    pub fn register_audio(&mut self) -> &mut Self {
+    pub(crate) fn register_audio(&mut self) -> &mut Self {
         self.detach = Some(detach);
         self.register::<AudioSource>()
             .register::<AudioListener>()
@@ -580,8 +583,16 @@ pub fn step(world: &mut World) {
             }
         }
     }
-    if world.has_audio() || world.query::<&AudioSource>().iter().next().is_some() {
-        world.register_audio();
+    if !world.has_audio() {
+        if let Some((entity, _)) = world.query::<&AudioSource>().iter().next() {
+            panic!(
+                "AudioSource `{}` requires sounds([..]) in setup",
+                world.name(entity).unwrap_or("<unnamed>")
+            );
+        }
+        return;
+    }
+    if world.has_audio() {
         let mut audio = world.resource_mut::<Audio>();
         audio.master = gain(audio.master);
         let mut reports = Vec::with_capacity(audio.reports.len());

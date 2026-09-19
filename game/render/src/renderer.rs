@@ -487,6 +487,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         size_px: (u32, u32),
         frame: &FrameInput<'_>,
     ) -> Stats {
+        for glow in frame.glows {
+            self.write_materials(glow.slot, &glow.material_at(frame.seconds))
+                .expect("feed validated glow material slot");
+        }
         // Sparse affine overrides preserve joint shear without changing tick TRS arenas.
         let end = frame
             .attachments
@@ -967,5 +971,67 @@ mod packing_tests {
         gpu.device
             .poll(wgpu::PollType::wait_indefinitely())
             .unwrap();
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod e10_tests {
+    use exact_game::*;
+    use exact_gpu::{fixture, Frame, Surface};
+    struct Beacon;
+    impl Game for Beacon {
+        const ID: &'static str = "e10-glow-pixels";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.insert_resource(Environment {
+                background: Some([0.; 3]),
+                fog: None,
+                ..Default::default()
+            });
+            w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
+            let mut glow = Glow::default();
+            glow.0.to(w.now(), 1., 0.5);
+            w.spawn((
+                Transform::default(),
+                Mesh::sphere(0.5),
+                Material::glow([16.; 3]),
+                glow,
+            ));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    #[test]
+    fn full_glow_blooms_without_clipping_the_lit_pixel_to_white() {
+        let gpu = fixture::device().unwrap();
+        let mut surface = crate::WorldSurface::<Beacon>::default();
+        surface.bind(&[], None).unwrap();
+        let mut frame = Frame {
+            width: 64.,
+            height: 64.,
+            scale: 1.,
+            now_ms: 0.,
+            seekable: true,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+        };
+        let dark = fixture::render(&gpu, &mut surface, &frame)
+            .unwrap()
+            .0
+            .at(32, 32);
+        frame.now_ms = 500.;
+        let lit = fixture::render(&gpu, &mut surface, &frame)
+            .unwrap()
+            .0
+            .at(32, 32);
+        assert!(
+            lit[0] > dark[0] + 100,
+            "tween must light the beacon: {dark:?} -> {lit:?}"
+        );
+        assert_ne!(
+            &lit[..3],
+            &[255, 255, 255],
+            "full glow retains highlight headroom"
+        );
     }
 }

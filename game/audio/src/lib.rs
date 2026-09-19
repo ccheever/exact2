@@ -455,15 +455,11 @@ impl<O: Output> Drop for Player<O> {
 
 #[cfg(test)]
 mod named_targets {
-    use exact_game::{
-        audio::{Sounds, Synth},
-        Transform, World,
-    };
+    use exact_game::{audio::Synth, Transform, World};
     #[test]
     fn named_audio_keeps_the_transform_lease_and_names_missing_targets() {
         let mut w = World::new(60, 0);
-        w.register_audio();
-        w.resource_mut::<Sounds>().add("footstep", Synth::default());
+        w.sounds([("footstep", Synth::default())]);
         w.spawn_named("player", Transform::default());
         let mut pose = w.get_mut::<Transform>("player").unwrap();
         w.play("footstep").at("player").pitch(1.).start();

@@ -95,6 +95,9 @@ struct BindingGame;
 impl Game for BindingGame {
     const ID: &'static str = "reload-current-bindings";
     type Args = BindingArgs;
+    fn register(w: &mut World, _: &BindingArgs) {
+        w.register::<ReloadProbe>();
+    }
     fn setup(w: &mut World, args: &BindingArgs) {
         w.spawn_named(
             "probe",
@@ -211,4 +214,67 @@ fn independently_valid_parent_edits_refuse_a_combined_cycle_atomically() {
         target.world().get::<Parent>("b").unwrap().0,
         target.world().resolve("a").unwrap()
     );
+}
+
+#[test]
+fn argument_selected_variant_uses_its_own_typed_decoder_before_setup() {
+    thread_local! { static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default, Args)]
+    struct VariantArgs {
+        variant: bool,
+    }
+    #[derive(Default, Data)]
+    struct A {
+        value: u32,
+    }
+    #[derive(Default, Data)]
+    struct B {
+        value: u32,
+    }
+    impl Component for A {
+        const NAME: &'static str = "VariantValue";
+    }
+    impl Component for B {
+        const NAME: &'static str = "VariantValue";
+    }
+    struct Variant;
+    impl Game for Variant {
+        const ID: &'static str = "argument-selected-decoder";
+        type Args = VariantArgs;
+        fn register(w: &mut World, args: &VariantArgs) {
+            if args.variant {
+                w.register::<B>();
+            } else {
+                w.register::<A>();
+            }
+        }
+        fn setup(w: &mut World, args: &VariantArgs) {
+            SETUPS.with(|n| n.set(n.get() + 1));
+            if args.variant {
+                w.spawn_named("value", B { value: 29 });
+            } else {
+                w.spawn_named("value", A { value: 17 });
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &VariantArgs) {}
+    }
+    let source = Sim::<Variant>::new(VariantArgs { variant: true }).unwrap();
+    let bytes = source.save().unwrap();
+    let mut target = Sim::<Variant>::new(VariantArgs::default()).unwrap();
+    SETUPS.with(|n| n.set(0));
+    target.restore(&bytes).unwrap();
+    assert_eq!(SETUPS.with(|n| n.replace(0)), 1);
+    assert_eq!(target.world().require::<B>("value").value, 29);
+    assert!(target.world().get::<A>("value").is_none());
+    assert_eq!(target.save().unwrap(), bytes);
+    let fresh = Sim::<Variant>::from_save(&bytes).unwrap();
+    assert_eq!(SETUPS.with(|n| n.replace(0)), 1);
+    assert_eq!(fresh.world().require::<B>("value").value, 29);
+    let mut bad = bytes.clone();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    bad[world + 8] = 0xff;
+    assert!(target.restore(&bad).is_err());
+    assert!(Sim::<Variant>::from_save(&bad).is_err());
+    assert_eq!(SETUPS.with(|n| n.get()), 0);
+    assert_eq!(target.save().unwrap(), bytes);
 }

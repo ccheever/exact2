@@ -248,14 +248,39 @@ mod author_tests {
             Sim::<Empty>::with_assets((), |_| Err::<Vec<u8>, _>("unexpected asset")).unwrap();
         sim.run(1000.);
         sim.assert_pin(&format!(
-            "{{\"ticks\":{{\"60\":\"0x{:016x}\"}}}}",
+            "{{\"game\":\"author-edges\",\"ticks\":{{\"60\":\"0x{:016x}\"}}}}",
             sim.world().hash()
         ));
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.assert_pin("{\"ticks\":{}}")
+            sim.assert_pin("{\"game\":\"author-edges\",\"ticks\":{}}")
         }))
         .unwrap_err();
         let message = failure.downcast_ref::<String>().unwrap();
         assert!(message.contains("author-edges") && message.contains("60"));
+    }
+    #[test]
+    fn r14_pin_refuses_foreign_missing_empty_and_malformed_identity() {
+        let sim = Sim::<Empty>::new(()).unwrap();
+        for (text, identity) in [
+            (
+                format!(
+                    r#"{{"game":"foreign","ticks":{{"0":"0x{:016x}"}}}}"#,
+                    sim.world().hash()
+                ),
+                "foreign",
+            ),
+            ("{}".into(), "missing"),
+            ("".into(), "invalid"),
+            ("{".into(), "invalid"),
+        ] {
+            let failure =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| sim.assert_pin(&text)))
+                    .unwrap_err();
+            let message = failure.downcast_ref::<String>().unwrap();
+            assert!(
+                message.contains("author-edges") && message.contains(identity),
+                "{message}"
+            );
+        }
     }
 }

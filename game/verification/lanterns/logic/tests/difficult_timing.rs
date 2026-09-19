@@ -1,4 +1,5 @@
-use super::*;
+use exact_game::*;
+use exact_game_render::{Feed, fixture::Recording};
 use lanterns_evidence_logic::{
     baseline::{Lantern, Lanterns},
     scene_assets, scene_types, simulation, Options,
@@ -21,13 +22,13 @@ fn options() -> Options {
     }
 }
 fn root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../verification/lanterns")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
 }
 fn difficult() -> Sim<Lanterns> {
     let mut sim = simulation::<Lanterns>(options());
     sim.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
     let script: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-        "../../../verification/lanterns/fixtures/difficult-moment.script.json"
+        "../../fixtures/difficult-moment.script.json"
     ))
     .unwrap();
     for op in script {
@@ -76,11 +77,8 @@ fn difficult_moment_cost() {
     sim.restore_bound(&save).unwrap();
     let begin = sim.world().tick();
     let mut feed = Feed::default();
-    let mut writes = Recording {
-        record: false,
-        ..Default::default()
-    };
-    feed.feed_to(sim.world(), &mut writes).unwrap();
+    let mut writes = Recording::default().without_trace();
+    writes.feed(&mut feed, sim.world()).unwrap();
     let mut samples = [Vec::new(), Vec::new()];
     for _ in 0..120 {
         let start = Instant::now();
@@ -88,7 +86,7 @@ fn difficult_moment_cost() {
         assert!(!reply.contains("error"), "{reply}");
         samples[0].push(start.elapsed().as_nanos());
         let start = Instant::now();
-        feed.feed_to(sim.world(), &mut writes).unwrap();
+        writes.feed(&mut feed, sim.world()).unwrap();
         samples[1].push(start.elapsed().as_nanos());
     }
     assert_eq!(sim.world().tick(), begin + 120);
@@ -155,6 +153,9 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
         fn actions() -> exact_game::Actions {
             Lanterns::actions()
         }
+        fn register(w: &mut World, args: &Options) {
+            Lanterns::register(w, args);
+        }
         fn setup(w: &mut World, args: &Options) {
             Lanterns::setup(w, args);
             w.get_mut::<Transform>("ledge").unwrap().position.x += 1.;
@@ -169,13 +170,13 @@ fn carried_initializer_edits_reach_real_feed_on_next_tick() {
     let mut sim = simulation::<Edited>(options());
     let mut feed = Feed::default();
     let mut writes = Recording::default();
-    feed.feed_to(old.world(), &mut writes).unwrap();
+    writes.feed(&mut feed, old.world()).unwrap();
     let ledge = old.world().named("ledge").unwrap();
     assert_eq!(writes.position(ledge, false).x, 10.);
     sim.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
     sim.restore_bound(&bytes).unwrap();
     sim.agent(r#"{"op":"clock","ticks":1}"#);
-    feed.feed_to(sim.world(), &mut writes).unwrap();
+    writes.feed(&mut feed, sim.world()).unwrap();
     assert_eq!(writes.position(ledge, false).x, 11.);
     let bulb = sim.world().named("lantern-12/bulb").unwrap();
     assert_eq!(

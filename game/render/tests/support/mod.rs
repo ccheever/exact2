@@ -60,6 +60,8 @@ pub(super) fn material(color: [f32; 3], emissive: f32) -> [f32; 12] {
 
 pub(super) fn frame() -> FrameInput<'static> {
     FrameInput {
+        glows: &[],
+        seconds: 0.,
         view: view::look_at_mat4(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y),
         proj: directx::orthographic(-4.0, 4.0, -2.5, 2.5, 0.1, 100.0),
         camera_position: Vec3::new(0.0, 0.0, 10.0),

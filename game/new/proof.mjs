@@ -14,7 +14,19 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof } from '../../proof.mjs';
 
+// Constant acceleration, semi-implicit integration: v_k=min(k*a/h,v).
+// Sum the accelerating ticks, then add the constant-speed tail.
+const distance = (n, h, a=12, v=4) => {
+  const m=Math.min(n,Math.floor(v*h/a));
+  return a*m*(m+1)/(2*h*h)+(n-m)*v/h;
+};
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
+  const movement = await open();
+  await movement.tap('play');
+  await movement.world('world').hold('KeyW',1500);
+  const walked = await movement.world('world').local_position('player');
+  check('W for 1.5 s matches the closed-form acceleration series', Math.abs(walked[2]+distance(180,120)) < 0.001, walked);
+  await movement.close();
   const s = await open();
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
@@ -48,6 +60,17 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('movement and light', position[0] > 0.5 && beacon.lit);
   check('publication reaches HUD', node(await s.tree(), 'hud-lit')?.props?.text === 'Lit 1');
   check('lit beacon hides prompt', !node(await s.tree(), 'near-prompt'));
+  await game.run(500);
+  if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
+  await s.tap('pause');
+  check('click focuses Pause', node(await s.tree(),'pause')?.focused === true);
+  await s.type('pause',{key:'Space'});
+  await game.run(100);
+  check('focused Pause takes Space without a world jump', (await game.local_position('player'))[1] === 0.9);
+  await s.type('pause',{key:'Enter'});
+  await s.type('pause',{key:'Enter'});
+  await game.run(100);
+  check('focused Pause takes Enter without a world jump', (await game.local_position('player'))[1] === 0.9);
   await game.hold('KeyD', 1000);
   await game.settle();
   check('second beacon prompt appears', !!node(await s.tree(), 'near-prompt'));
@@ -61,7 +84,6 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const continued = await game.snapshot();
   await game.save(resolve(out, 'continued.world'));
   pinSave('continuation', resolve(out, 'continued.world'));
-  if (host === 'web') await s.screenshot(resolve(out, 'game.png'));
   await s.close();
   const restored = await open({fresh:true, world:resolve(out, 'final.world')});
   await restored.tap('play');

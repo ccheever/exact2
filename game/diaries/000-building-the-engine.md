@@ -383,3 +383,47 @@ stranger too — but attribution did: three of my commit messages describe work 
 by omission. I have not touched its files, its processes are not mine to stop, and the next
 commit messages name what they carry that is not mine. The right fix is one orchestrator per
 worktree, and that is a decision for the owner of the machine.
+
+## 2026-09-19, 01:30–08:30 — three landings, the sixth build, the fifth whole review
+
+The night's arithmetic: R12 (one app-owned workspace and one captured lock per game), then D5,
+E9 and R13 in one landing (the fourth review's deletions, the ten edges, one named-argument
+vocabulary and capture that refuses), each validated on a detached candidate in the review
+worktree before the branch moved — because the other author never pauses. That protocol is now
+the way this lane lands: snapshot at a slice boundary into a private index, `commit-tree`
+without touching the ref, check the candidate out elsewhere, run there whatever failed in the
+shared tree, and only then `update-ref`. It caught two things the shared tree hid: the engine's
+and the renderer's tests `include_bytes!`'d the asset fixture's *ignored* bake products (a fresh
+clone could not compile the suites — the tracked goldens now), and `cargo fmt --all` from
+`game/` recursing into the renderer's dev-dependencies on two games whose manifests name a
+`.shells` workspace only a bake creates. The second is R14's first item; the fifth whole review
+independently listed it.
+
+The sixth Beacons, built by a fresh builder in a worktree of its own so the three writers in the
+lane could not touch it: 176 lines, 6 min 20 s to a verified cross-host PASS, zero gameplay
+correction rounds, one proof-reporting friction (`snapshot()` counts as a pin but not as an
+observation). The judges: **sol 30 / grok 29 of 35** (three.js 32/31, Godot 25/26). Repeatable
+is the row we win outright now. The points still out are the same on both cards and they are
+not the engine's ideas: 36 seconds of release relink after a Rust edit before a 0.3 s proof can
+speak; a starter whose picture a builder discards; the tick probing beacons twice and copying a
+tween into a material; a 90-line generated `app.json`.
+
+The fifth whole review (astra, xhigh, at 8db5e42e) said keep the engine and named the thing I
+had been treating as a profile problem as a graph problem: every generated host shell links the
+game's logic crate only to discover its interface, and the bake constructs a renderer to read
+argument names that `Args::FIELDS` already carries — so a logic edit rebuilds every host and the
+dev watcher's GPU-only path never fires. Its list is the next deletion pass (D6): the build
+graph, `app.json` as overrides only, `SurfaceArgsMode::Empty`, one attachment owner and one
+model identity, renderer regressions without games, GPU unavailability classified one way, the
+residency probe beside its consumers, the greybox macOS capture exemption, and — its words — stop
+appending another "current" account to each document. That last one is mine: the as-built
+explainer's "owed" paragraph still said skeletons were owed. Fixed; the dated sections stay as
+the record and the one paragraph is the current list.
+
+On the second author: the review judged its slices on the same terms as the lane's and said they
+belong (copy-on-write assets, streaming values, shared input declarations, single-construction
+restore reduce duplicated work under the existing model); `contract fmt`/`symbols` belong to
+Contract tooling and were reviewed separately (`llp/reviews/1035.005-*.sol.md`, KEEP WITH FIXES,
+a QUEUE line points its author at them). Its evidence moved to
+`~/projects/.exact-game-verification/<slice>/`; it takes its work from QUEUE.md, which means a
+QUEUE line here is not a note — it is a brief someone will build.

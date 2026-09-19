@@ -55,7 +55,7 @@ import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from
 import { fileURLToPath } from 'node:url';
 import { buildRust, rustBundle, rustPackage } from './rust.mjs';
 import { gameShells } from '../game/app/shells.mjs';
-import { readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
+import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
@@ -299,10 +299,10 @@ function cargoDependencyRoots(app, exactRoot) {
   // closures too, even when the app belongs to a separate enclosing workspace.
   for (const workspace of new Set([canonicalPath(app.workspace ?? app.dir), canonicalPath(exactRoot)])) {
     if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
-    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked', '--offline'], {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app, workspace)], {
       cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
-    if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
+    if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the local source graph: ${result.stderr.trim()}`);
     let metadata;
     try { metadata = JSON.parse(result.stdout); }
     catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
@@ -526,11 +526,11 @@ function sealedSourceEnv(sourceRoot, extra = {}) {
 /** Prove Cargo will consume only the captured tree. Cargo canonicalizes path
  * dependencies in its own graph, so this catches absolute paths and symlink
  * aliases that would otherwise lead a staged build back into a live checkout. */
-function assertMaterializedCargoClosure(workspaces, sourceRoot, target) {
+function assertMaterializedCargoClosure(workspaces, sourceRoot, target, app) {
   const capturedRoot = canonicalPath(sourceRoot);
   for (const workspace of [...new Set(workspaces)]) {
     if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
-    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked', '--offline'], {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app, workspace)], {
       cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
     if (result.status !== 0) refuse(`${workspace}: materialized Cargo graph does not resolve: ${result.stderr.trim()}`);
@@ -586,7 +586,7 @@ export function materializeSnapshot(snapshot, run, app) {
     if (!existsSync(resolve(dir, 'Cargo.lock'))) refuse(`${dir}: bake the game once and capture Cargo.lock before deployment`);
 
   }
-  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
+  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's

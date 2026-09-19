@@ -129,6 +129,7 @@ impl<G: Game> Sim<G> {
             budget,
             carry,
             args.map(|_| (self.base.as_slice(), self.base_args.as_str())),
+            Some(self.world.registered_scratch()),
         )?;
         next.defer_assets = self.defer_assets;
         next.world.presentation_generation = self
@@ -152,16 +153,16 @@ impl<G: Game> Sim<G> {
         *self = next;
         Ok(())
     }
-    /// Construct once from saved arguments, then decode dynamic state atomically.
+    /// Decode through `Game::register` before constructing once from saved arguments.
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
-        Self::restore_candidate(bytes, None, Default::default(), None, false, None)
+        Self::restore_candidate(bytes, None, Default::default(), None, false, None, None)
     }
     pub(crate) fn from_save_in(
         bytes: &[u8],
         assets: crate::asset::AssetStore,
         budget: Option<&LoadBudget>,
     ) -> Result<Self, DataError> {
-        Self::restore_candidate(bytes, None, assets, budget, false, None)
+        Self::restore_candidate(bytes, None, assets, budget, false, None, None)
     }
     pub(super) fn restore_candidate(
         bytes: &[u8],
@@ -170,6 +171,7 @@ impl<G: Game> Sim<G> {
         budget: Option<&LoadBudget>,
         carry: bool,
         authored: Option<(&[u8], &str)>,
+        registry: Option<World>,
     ) -> Result<Self, DataError> {
         let payload = bytes.strip_prefix(b"EXSIM\0\x07").ok_or_else(|| {
             DataError::new(format!(
@@ -192,12 +194,42 @@ impl<G: Game> Sim<G> {
         let bound: G::Args = crate::json::from_str_in(args.unwrap_or(&s.args), budget)?;
         bound.check_scalars().map_err(DataError::new)?;
         G::validate(&bound).map_err(DataError::new)?;
-        let initial = if args.is_none() && !s.base_args.is_empty() {
+        let initial: G::Args = if args.is_none() && !s.base_args.is_empty() {
             crate::json::from_str_in(&s.base_args, budget)?
         } else {
             crate::json::from_str_in(args.unwrap_or(&s.args), budget)?
         };
-        let mut next = Self::with_store(initial, assets).map_err(DataError::new)?;
+        initial.check_scalars().map_err(DataError::new)?;
+        G::validate(&initial).map_err(DataError::new)?;
+        // The entire typed saved world, including hierarchy and clock, must
+        // decode before any setup or authored initializer can run.
+        let mut selected = World::new(G::HZ, 0);
+        G::register(&mut selected, &initial);
+        G::register(&mut selected, &bound);
+        if let Some(live) = registry {
+            selected.inherit_registry(&live);
+        }
+        let validated = selected.validate_saved_in(&s.world, budget)?;
+        let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
+        if validated.hz() != G::HZ || validated.tick() as u128 != due {
+            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
+        }
+        drop(validated);
+        let input = Input::new(G::actions());
+        input
+            .validate_saved(&s.input)
+            .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
+        for event in &s.queue {
+            input
+                .validate(&event.event)
+                .map_err(|e| DataError::new(format!("restore refused: {e}")))?;
+            if let Some(us) = event.world_us {
+                us.checked_add(s.world_us).ok_or_else(|| {
+                    DataError::new("restore refused: EXSIM v7 saved input stamp overflow")
+                })?;
+            }
+        }
+        let mut next = Self::with_store(initial, assets, 0).map_err(DataError::new)?;
         next.args_json = crate::json::to_string(&bound)?;
         next.args = bound;
         if next.setup_pending {
@@ -208,8 +240,7 @@ impl<G: Game> Sim<G> {
         if next.world.hz() != G::HZ || next.world.tick() as u128 != due {
             return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
-        // Never patch a partially decoded world. R14's typed scratch decode
-        // belongs above this seam; both hierarchy and exact tick/time validate first.
+        // Typed scratch decode precedes setup; authored merging follows both.
         if carry {
             if let Some((base, base_args)) = authored {
                 next.base = base.to_vec();

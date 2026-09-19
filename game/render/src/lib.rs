@@ -10,6 +10,7 @@
 
 mod bloom;
 mod buffers;
+pub mod fixture;
 mod frame;
 mod model_pipeline;
 mod models;
@@ -198,8 +199,41 @@ pub struct PointLightInput {
     pub range: f32,
 }
 
+/// Retained emissive tween and material for one entity; only presentation samples it.
+#[derive(Clone)]
+pub struct GlowInput {
+    /// Material slot (entity index).
+    pub slot: u32,
+    pub(crate) material: [f32; 12],
+    pub(crate) tween: exact_game::Tween,
+    pub(crate) hz: u32,
+}
+impl GlowInput {
+    pub(crate) fn material_at(&self, seconds: f64) -> [f32; 12] {
+        let t = &self.tween;
+        let elapsed = (seconds - t.start_tick as f64 / self.hz as f64).max(0.);
+        let progress = if t.duration == 0. {
+            1.
+        } else {
+            (elapsed / t.duration as f64).clamp(0., 1.)
+        };
+        let progress = progress * progress * (3. - 2. * progress);
+        let intensity =
+            (t.start_value as f64 + (t.target as f64 - t.start_value as f64) * progress) as f32;
+        let mut material = self.material;
+        for value in &mut material[6..9] {
+            *value *= intensity;
+        }
+        material
+    }
+}
+
 /// Constant-size displayed-frame input; transforms stay in the tick buffers.
 pub struct FrameInput<'a> {
+    /// Retained emissive curves, sampled without a world query.
+    pub glows: &'a [GlowInput],
+    /// Displayed simulation time in seconds.
+    pub seconds: f64,
     /// World-to-view matrix.
     pub view: Mat4,
     /// View-to-clip matrix, conventional 0–1 depth, not reverse-Z.
@@ -224,6 +258,8 @@ pub struct FrameInput<'a> {
 impl Default for FrameInput<'_> {
     fn default() -> Self {
         Self {
+            glows: &[],
+            seconds: 0.,
             view: Mat4::IDENTITY,
             proj: glam::camera::rh::proj::directx::perspective(
                 60f32.to_radians(),
@@ -332,3 +368,11 @@ impl FrameInput<'_> {
         world::scene::displayed_matrix(self.attachments, entity, fallback)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/fixture/mod.rs"]
+mod test_game;
+
+#[cfg(test)]
+#[path = "../tests/fixture/model.rs"]
+mod test_model;

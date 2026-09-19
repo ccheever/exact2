@@ -599,7 +599,7 @@ function listen(entry) {
       if (!controlKeys.has(event.code)) { controlKeys.set(event.code, binding(button)); sendControl(event, controlKeys.get(event.code), "down", event.code === "Space" ? 4294967294 : 4294967293); }
       return;
     }
-    if (["Space", "Enter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
+    if (["Space", "Enter", "NumpadEnter"].includes(event.code) && target?.closest('button, a[href], [role="button"], [role="link"]')) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space", "PageUp", "PageDown", "Home", "End"].includes(event.code)) event.preventDefault();
     held.add(event.code);
     send(event, { t: "key", code: event.code, key: event.key, down: true, repeat: event.repeat });

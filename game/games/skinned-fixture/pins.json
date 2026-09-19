@@ -1,4 +1,5 @@
 {
+  "game": "skinned-fixture",
   "ticks": {
     "60": "0x4d44c305a176e577",
     "120": "0xd147cd9b2a8c62f7"

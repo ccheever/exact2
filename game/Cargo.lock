@@ -63,13 +63,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
-name = "beacons-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -385,7 +378,6 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-game",
- "exact-game-render",
  "exact-gpu",
  "exact-runner",
 ]
@@ -429,15 +421,11 @@ dependencies = [
 name = "exact-game-render"
 version = "0.1.0"
 dependencies = [
- "beacons-logic",
  "exact-game",
  "exact-game-audio",
  "exact-game-bake",
- "exact-game-scene",
  "exact-gpu",
  "glam 0.33.7",
- "greybox-logic",
- "lanterns-evidence-logic",
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -689,13 +677,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "greybox-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
-
-[[package]]
 name = "grid"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -802,17 +783,6 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "lanterns-evidence-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
- "exact-game-bake",
- "exact-game-physics",
- "exact-game-scene",
- "serde_json",
 ]
 
 [[package]]

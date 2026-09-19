@@ -606,7 +606,6 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-game",
- "exact-game-render",
  "exact-gpu",
  "exact-runner",
 ]

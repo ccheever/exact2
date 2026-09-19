@@ -18,3 +18,4 @@ serde_json = "1"
 serde_json = "1"
 contract = { path = "../../../../contract/cli" }
 exact-runner = { path = "../../../../runner" }
+exact-game-render = { path = "../../../render" }

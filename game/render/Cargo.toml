@@ -14,13 +14,9 @@ glam = { version = "0.33", default-features = false, features = ["std", "scalar-
 web-sys = { version = "0.3", features = ["Window", "Performance", "console"] }
 
 [dev-dependencies]
-lanterns-evidence-logic = { path = "../verification/lanterns/logic" }
-exact-game-scene = { path = "../scene" }
 serde_json = "1"
 exact-game-audio = { path = "../audio" }
 exact-game-bake = { path = "../bake" }
-beacons-logic = { path = "../games/beacons/logic" }
-greybox-logic = { path = "../games/greybox/logic" }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen = "0.2"

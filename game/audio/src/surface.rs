@@ -144,10 +144,7 @@ mod tests {
         test_device::RESUMES.set(0);
         let mut surface = SurfacePlayer::default();
         let mut world = World::new(60, 0);
-        world.register_audio();
-        world
-            .resource_mut::<exact_game::audio::Sounds>()
-            .add("tone", exact_game::audio::Synth::sine(440.));
+        world.sounds([("tone", exact_game::audio::Synth::sine(440.))]);
         world.play("tone").start();
         surface.unlock();
         for generation in 0..10 {

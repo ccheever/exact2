@@ -9,5 +9,4 @@ publish = false
 contract = { path = "../../contract/cli" }
 exact-runner = { path = "../../runner" }
 exact-game = { path = "../engine" }
-exact-game-render = { path = "../render" }
 exact-gpu = { path = "../../gpu" }

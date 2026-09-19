@@ -1283,6 +1283,76 @@ The stripped native probe is 811,968 → 795,456 bytes.
 The integrated shipped module measures **749,559 raw / 321,990 gzip bytes**. A
 concurrent renderer source change occurred between the before and after builds,
 so the 401-byte raw reduction is not attributed solely to this restore change.
-The full workspace and cross-host verification are still running.
+The full workspace passes **548 tests** (12 ignored), build, all-target Clippy,
+formatting, caps, boot and whitespace checks. Beacons passes Linux continuous,
+Save and FreshGame plus web continuous; Asset and Skinned pass all three Linux
+modes. The bad-container zero-setup and valid-restore one-setup assertions remain.
+All 26 saved-file comparisons match (Beacons against the preceding accepted run;
+Asset and Skinned reconstruction modes against their continuous runs). All recorded
+proof PIDs are absent; the complete web descendant inventory timed out.
 
 Evidence: `/Users/ccheever/projects/.exact-game-verification/restore-once-current/`.
+
+
+### Restore reuses its decoded input queue — 2026-09-19
+
+The shared constructor now receives the required queue capacity. Fresh games
+still reserve 1,024 events; restore skips that reservation before installing its
+decoded queue. Validation and clock rebasing are unchanged, with no new public API.
+
+Eight frozen native workloads in five alternating pairs preserve all 40 saves
+exactly. Each restore removes **one allocation and 81,920 requested bytes**;
+Beacons falls from 936 to 935 allocations and 772,010 to 690,090 requested bytes.
+These are cumulative allocator requests, not resident memory. Fresh construction
+has identical allocation counts and bytes. Longer empty-game constructor samples
+range from 1.3% faster to 2.0% slower; overall timings are mixed, so no general
+speedup is claimed. The native probe stays at 812,144 bytes. The shipped module
+changes **749,559 → 749,563 raw / 321,990 → 321,997 gzip bytes**, with only this
+runtime change between builds and no source drift during either build.
+
+The frozen candidate passes 148 focused tests (1 ignored). The integrated workspace
+passes **548 tests** (12 ignored), build, all-target Clippy, formatting, caps, boot
+and whitespace checks. Beacons passes Linux continuous, Save and FreshGame plus
+web continuous; all 12 saved-file comparisons match the preceding accepted run.
+All 146 recorded proof PIDs are absent; the complete web descendant inventory
+was unavailable.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/restore-queue/`.
+
+
+### Bound restore reuses canonical arguments — 2026-09-19
+
+`restore_bound` now selects Sim's existing validated argument JSON inside the
+shared restore path, removing a repeated encoding and temporary buffer. Ordinary
+restore still selects saved arguments; current bindings, validation, setup and
+atomic refusal behavior are unchanged. There is no new cache or public API.
+
+Eleven frozen native workloads ran in five alternating pairs, including unit
+arguments, both float widths, safe 64-bit integer limits, escaped/long text and
+bindings that differ from the save. All **55 paired saves and agent replies**
+match exactly. Beacons bound restore uses **943 → 935 allocations** and requests
+690,355 → 690,090 bytes; the long-text case uses 114 → 96 allocations and requests
+28,578 → 20,229 bytes. Long-text restore measured 16–24% faster; other timings
+were mixed, so no general speedup is claimed. Requested bytes are cumulative
+allocator requests, not resident memory.
+
+The stripped native probe shrinks 1,028,672 → 1,012,208 bytes. The shipped module
+changes **749,563 → 749,415 raw / 321,997 → 322,106 gzip bytes**. Only this runtime
+change separates the builds; source inventories agree during each build.
+The frozen candidate passes 161 focused tests (2 ignored). Before concurrent R14
+edits, the integrated workspace passed **548 tests** (12 ignored), build, all-target
+Clippy, formatting, caps, boot and whitespace checks. Beacons passed Linux continuous,
+Save and FreshGame plus web continuous, with all 12 saves matching the previous
+accepted run. All 140 recorded proof PIDs are absent; the complete web descendant
+inventory was unavailable.
+
+The later combined-tree sweep is **not green**: concurrent app/renderer edits
+refused compilation, so the new module size and four proofs could not complete.
+R14 also reintroduced receiver-registry predecoding: the existing conditional
+setup regression now fails with unregistered `Extra`. A narrow reconciliation
+passed 141 engine tests, then was replaced during the concurrent pass. The final
+argument test target has 5 passes and 1 failure. These results do not supersede the
+isolated allocation comparison above; they prevent claiming current integration
+passes. See `integrated/` and `current-registration.log` in the evidence directory.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/restore-bound-args/`.

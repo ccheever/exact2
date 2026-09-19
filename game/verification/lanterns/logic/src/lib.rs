@@ -67,6 +67,14 @@ impl Game for Evidence {
     fn release_input(args: &mut Options) {
         baseline::Lanterns::release_input(args);
     }
+    fn register(w: &mut World, args: &Options) {
+        match args.variant {
+            2 => physics_edit::Lanterns::register(w, args),
+            3 => clip_edit::Lanterns::register(w, args),
+            4 => appearance_edit::Lanterns::register(w, args),
+            _ => baseline::Lanterns::register(w, args),
+        }
+    }
     fn setup(w: &mut World, args: &Options) {
         match args.variant {
             2 => physics_edit::Lanterns::setup(w, args),

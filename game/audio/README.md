@@ -7,10 +7,9 @@ headless simulation needs no Player. `RecordingOutput` records device commands;
 neither test output opens a device. NullOutput has zero capacity and skips selection, synthesis and caching.
 
 ```rust
-use exact_game::{audio::{self, Audio, Sounds, Synth}, World};
+use exact_game::{audio::{self, Audio, Synth}, World};
 let mut world = World::new(60, 0);
-world.register_audio(); // register before restore too
-world.resource_mut::<Sounds>().add("hum", Synth::sine(220.0).seconds(2.0));
+world.sounds([("hum", Synth::sine(220.0).seconds(2.0))]);
 let voice = world.play("hum").ui().pitch(0.94).gain(0.8).start();
 world.resource_mut::<Audio>().master = 0.5;
 audio::stop(&mut world, voice);
@@ -70,7 +69,7 @@ non-looping `AudioSource` is refused by sound name at presentation; use `World::
 for finite sounds, which records a deterministic activation tick. This avoids adding
 activation state to attached sources or measuring their offset from world tick zero.
 `AudioSource::new("wind").gain(0.3)` starts playing by default. After explicit
-`register_audio()` in setup, `world.play("chime").at(entity)` needs only `&World`,
+`sounds([..])` in setup, `world.play("chime").at(entity)` needs only `&World`,
 so it can run while an unrelated component is borrowed.
 
 Player reserves a **32 MiB PCM budget before synthesis** (`samples × 4`), counting

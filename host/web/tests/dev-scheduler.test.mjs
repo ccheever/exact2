@@ -1,10 +1,51 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync} from 'node:fs';
+import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSync, ftruncateSync, closeSync, rmSync, existsSync, readdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join, resolve} from 'node:path';
 import {open} from '../../../scripts/agent.mjs';
+import {compilerPaths} from '../../../scripts/app.mjs';
 const source = readFileSync(process.env.E2B_DEV_SOURCE || new URL('../dev.mjs', import.meta.url), 'utf8');
+test('GPU edit profile recognizes both authored tables and generated inline TOML', () => {
+  const body=source.slice(source.indexOf('async function produceGpu(files)'));
+  const line=body.split('\n').find(line=>line.trimStart().startsWith('const profile ='));
+  const profile=text=>new Function('readFileSync','resolve','app','Bun',`${line};return profile;`)
+    (()=>text,resolve,{workspace:'.'},Bun);
+  assert.equal(profile('[profile.gpu-dev]\nopt-level=1\n'),'gpu-dev');
+  assert.equal(profile('[profile]\n"gpu-dev" = { inherits="dev", opt-level=1 }\n'),'gpu-dev');
+  assert.equal(profile('[profile.web]\nopt-level="z"\n'),'web');
+});
+test('game edits omit bake-only sources but retain runtime, code generation and cross-package includes', () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-game-dev-'));
+  try {
+    const path=(pkg,file='lib.rs')=>join(dir,pkg,file), target=join(dir,'target');
+    const pkg=(id)=>({id,name:id,manifest_path:path(id,'Cargo.toml'),targets:[{kind:['lib'],src_path:path(id)}]});
+    const dep=(pkg,kind=null)=>({pkg,dep_kinds:[{kind}]});
+    const metadata={packages:['app-web','core','bake','game','codegen'].map(pkg),resolve:{nodes:[
+      {id:'app-web',deps:[dep('core'),dep('bake','build')]},
+      {id:'core',deps:[dep('codegen','build')]},{id:'bake',deps:[dep('game')]},
+      {id:'game',deps:[]},{id:'codegen',deps:[]},
+    ]}};
+    const app={manifest:{game:{}},target,workspace:dir,crate:()=> 'app-web'};
+    const deps=join(target,'wasm32-unknown-unknown/web/deps');mkdirSync(deps,{recursive:true});
+    for (const id of ['app-web','core','codegen']) writeFileSync(join(deps,id+'.d'),
+      `unit: ${path(id)}${id==='app-web' ? ' '+path('game','included.rs') : ''}\n`);
+    const build=join(target,'web/build/core-123abc');mkdirSync(build,{recursive:true});
+    writeFileSync(join(build,'output'),`cargo:rerun-if-changed=../game/schema.rs\n`);
+    const start=source.indexOf('function gameRuntimeInputs('), end=source.indexOf('\nreadGpuInputs();',start);
+    const select=new Function('app','buildEnv','spawnSync','cargoReproducibilityFlags','compilerPaths','resolve','existsSync','readdirSync','readFileSync',
+      source.slice(start,end)+';return gameRuntimeInputs;');
+    const run=spawn=>select(app,{},spawn,()=>[],compilerPaths,resolve,existsSync,readdirSync,readFileSync);
+    const inputs=new Set([path('app-web'),path('core'),path('game'),path('game','included.rs'),path('game','schema.rs'),path('codegen'),path('unknown')]);
+    const selectInputs=run(()=>({status:0,stdout:JSON.stringify(metadata)}));
+    assert.deepEqual(selectInputs(inputs),new Set([...inputs].filter(p=>p!==path('game'))));
+    unlinkSync(join(deps,'core.d'));
+    assert.equal(selectInputs(inputs),inputs,'missing compiler evidence retains the full rebuild');
+    assert.throws(()=>run(()=>({status:1,stderr:'metadata unavailable'}))(inputs),/metadata unavailable/);
+    app.manifest={};
+    assert.equal(run(()=>{throw new Error('non-game metadata must not be queried');})(inputs),inputs);
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
 function scheduler() {
   const legacy = !source.includes('function drainBuilds()');
   const functions = legacy ? source.slice(source.indexOf('function produceRust()'), source.indexOf('  if (!rustChild)')) + 'calls.push(["rust"]);rustActive=true;}'

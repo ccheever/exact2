@@ -5,21 +5,28 @@ shape Hud
 component SmallGame
   state playing = false
   state again = false
+  state paused = false
   resource hud = exactSurface("world") as shape Hud
 
   action play writes playing
     playing = true
 
-  action restart writes again
+  action togglePause writes paused
+    paused = not paused
+
+  action restart writes again, paused
     again = not again
+    paused = false
 
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
-        canvas surface=world(seed=7, paused=false, restart=again) testId="world" width="100%" height="100%" position="relative"
-          text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+        canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative"
+          text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 border-radius=12 background-color="#202731cc"
+          button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") position="absolute" top=24 right=24 padding=12 border-radius=12 background-color="#202731cc"
+            text (paused ? "Resume" : "Pause")
           when hud.near != ""
-            text "Tap Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
+            text "Tap Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
             text "Move" color="#ffffff" text-align="center" padding-top=36
           row position="absolute" right=24 bottom=24 gap=12

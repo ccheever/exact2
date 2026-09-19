@@ -623,7 +623,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.placed
             .frame(&input, exact_game::Vec2::new(frame.width, frame.height));
         #[cfg(not(target_arch = "wasm32"))]
-        renderer.quads.children(&renderer.device, &self.placed);
+        renderer
+            .quads
+            .children(&renderer.device, &renderer.queue, &self.placed);
         self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
         self.ready_work
             .get_or_insert_with(|| renderer.residency_work());

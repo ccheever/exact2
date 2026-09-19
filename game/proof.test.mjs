@@ -5,7 +5,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync}
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
-import {checkSteadyResidency} from './proof.mjs';
+import {captureCommand, worldObservations, checkSteadyResidency} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
 import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, nativeControl, detachNativeTransport, jsonLines} from '../scripts/agent.mjs';
 
@@ -600,10 +600,11 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
     expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web']);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
-    const allowed=await run(['--repin','--hosts','linux']);
+    const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
     const written=JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'));
-    expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
+    expect(written.reason).toBe('Saved glow is a Tween sampled by the renderer');
+    expect(written.game).toBe(name); expect(written.hosts).toEqual(['linux']); expect(written.generated).toEndWith('--hosts linux');
     const empty={ticks:{},saves:{}};
     writeFileSync(resolve(app,'pins.json'),JSON.stringify(empty));
     for (const args of [['--repin'], ['--hosts','linux']]) {
@@ -1125,4 +1126,104 @@ test('namespaced evidence pins preserve numeric tick and complete branch invento
   expect(agreePins(rows,pins,['linux']).ticks).toEqual(pins.ticks);
   delete rows[2].pins.ticks['clip/apex/60'];
   expect(()=>agreePins(rows,pins,['linux'])).toThrow('did not observe ticks clip/apex/60');
+});
+
+test('R14 engine test source changes the proof input hash', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'r14-inputs-'));
+  const app = resolve(root, 'game/games/fixture');
+  const file = resolve(root, 'game/engine/tests/regression.rs');
+  try {
+    mkdirSync(app, {recursive:true}); mkdirSync(dirname(file), {recursive:true});
+    writeFileSync(file, 'before');
+    const hash = () => {
+      const h = buildInputHash('linux', 'target');
+      for (const path of proofInputFiles(root, app)) h.update(path).update(readFileSync(resolve(root,path)));
+      return h.digest('hex');
+    };
+    const before = hash(); writeFileSync(file, 'after'); expect(hash()).not.toBe(before);
+  } finally { rmSync(root, {recursive:true,force:true}); }
+});
+
+
+test('E10 Linux proof profile changes invalidate the build receipt, native paranoid mode does not', () => {
+  expect(buildInputHash('linux', 'target', '0', 'gpu-dev').digest('hex'))
+    .not.toBe(buildInputHash('linux', 'target', '0', 'release').digest('hex'));
+  expect(buildInputHash('linux', 'target', '1', 'gpu-dev').digest('hex'))
+    .toBe(buildInputHash('linux', 'target', '0', 'gpu-dev').digest('hex'));
+});
+
+
+test('E10 snapshot-only proof records the same world observation as state', async () => {
+  const observations=new Map();
+  const record=worldObservations(observations, 1);
+  const session={state:async target => {
+    const reply=target ? {tick:180,hash:'abc',entities:[]} : {world:[{tick:180,hash:'abc'}]};
+    record(reply); return reply;
+  }};
+  await worldView(session,'world').snapshot();
+  const snapshot=[...observations.values()];
+  expect(snapshot).toEqual([{session:1,tick:180,hash:'abc'}]);
+  observations.clear(); await session.state();
+  expect([...observations.values()]).toEqual(snapshot);
+});
+
+
+test('E10 browser buttons retain UA keyboard focus and hover feedback', async () => {
+  const {spawn}=await import('node:child_process');
+  const {Cdp}=await import('../scripts/agent.mjs');
+  const root=resolve(import.meta.dir,'../host/web');
+  const profile=mkdtempSync(resolve(tmpdir(),'e10-button-browser-'));
+  const server=Bun.serve({port:0,fetch(request) {
+    const path=new URL(request.url).pathname;
+    if(path==='/') return new Response(readFileSync(resolve(root,'index.html'),'utf8').replace('<div id="exact-root"></div>','<div id="exact-root"><button id="pause" style="background:#202731;color:white;padding:12px">Pause</button></div>'),{headers:{'content-type':'text/html'}});
+    if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
+    return new Response('',{status:404});
+  }});
+  const child=spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+  const exited=new Promise(resolve=>child.once('exit',resolve));
+  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
+  const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
+  try {
+    const {targetId}=await cdp.send('Target.createTarget',{url:'about:blank'});
+    const {sessionId}=await cdp.send('Target.attachToTarget',{targetId,flatten:true});
+    const call=(method,params={})=>cdp.send(method,params,sessionId);
+    const evaluate=async expression=>(await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true})).result.value;
+    await call('Page.navigate',{url:`http://localhost:${server.port}/`});
+    for(let i=0;i<100 && !await evaluate('document.readyState === "complete" && !!document.getElementById("pause")');i++) await Bun.sleep(20);
+    await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+    await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Tab',code:'Tab',windowsVirtualKeyCode:9});
+    expect(await evaluate('getComputedStyle(document.getElementById("pause")).outlineStyle')).toBe('auto');
+    await call('Input.dispatchMouseEvent',{type:'mouseMoved',x:15,y:15});
+    expect(await evaluate('getComputedStyle(document.getElementById("pause")).filter')).not.toBe('none');
+  } finally {clearTimeout(deadline);child.kill('SIGKILL');await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});}
+},60000);
+
+test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
+  const root=mkdtempSync(resolve(tmpdir(),'e10-profiles-'));
+  try {
+    for(const name of ['beacons','skinned-fixture']) {
+      const rows=[];
+      for(const profile of ['gpu-dev','release']) {
+        const out=resolve(root,`${name}-${profile}`);mkdirSync(out,{recursive:true});
+        const child=Bun.spawn([process.execPath,resolve(import.meta.dir,'games',name,'proof.mjs'),'linux'],{
+          cwd:resolve(import.meta.dir,'..'),
+          env:{...process.env,EXACT_PROOF_OUT:out,EXACT_GAME_PROOF_PROFILE:profile},
+          stdout:Bun.file(resolve(out,'run.log')),stderr:Bun.file(resolve(out,'build.log')),
+        });
+        const code=await child.exited;
+        if(code !== 0) throw new Error(`${name} ${profile}: ${readFileSync(resolve(out,'run.log'),'utf8').slice(-4000)}\n${readFileSync(resolve(out,'build.log'),'utf8').slice(-2000)}`);
+        expect(code).toBe(0);
+        const row=JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8'));
+        expect(row.status).toBe('PASS'); rows.push(row);
+      }
+      expect(rows[0].worlds).toEqual(rows[1].worlds);
+      expect(rows[0].pins).toEqual(rows[1].pins);
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+},600000);
+
+
+test('E10 PNG command is runnable for named and external games', () => {
+  expect(captureCommand('game/games/beacons/proof.mjs')).toBe('bun game/games/beacons/proof.mjs web');
+  expect(captureCommand('/tmp/my game/proof.mjs')).toBe("bun '/tmp/my game/proof.mjs' web");
 });

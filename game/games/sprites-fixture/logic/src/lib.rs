@@ -94,6 +94,5 @@ impl Game for SmallGame {
         }
         sprite::step(w);
         emitter::step(w);
-        scene::follow(w);
     }
 }

@@ -35,13 +35,16 @@ the runtime. `Game::Args` is a struct with `#[derive(Args)]`: a canvas can bind
 `world(seed=7, paused=paused)`, with omitted fields taking Rust defaults.
 Declaration order is positional order, `#[live]` avoids rebuilding, and decoding
 refuses before mutation. Named canvas bindings resolve to this same typed path.
-Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
-bound values for saves and agent state. Creation and restore share one constructor;
-restore supplies retained assets up front and calls setup once before loading.
-World format and size checks precede setup. Typed world data is then decoded once,
-using the registrations established by the chosen setup arguments, before replacing
-the receiver. Restoring saved arguments does not require the receiver's current
-setup to have registered the same components.
+Setup cannot fail. Setup, paused and tick receive typed arguments. Sim keeps one
+validated argument JSON representation for saves, bound restore and agent state.
+Creation and restore share one constructor. Restore fully decodes a typed scratch
+world and validates hierarchy, exact clock and input before calling setup once.
+`Game::register(&mut World, &Self::Args)` extends the registry for the selected
+arguments without gameplay construction. Standalone `from_save` and capture replay
+need every saved type registered there; restoring into a live simulation also
+retains its registrations. The candidate then loads and applies the authored merge,
+using the shared decode budget for both passes. It reuses the decoded input queue
+without reserving a second unused queue. No candidate commits on refusal.
 
 Seekable advances observe the final tick's components, RNG and non-ambient
 resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
@@ -80,8 +83,7 @@ does not change the author API or saved input representation.
 Agent state projects pending input once, using Input's own event handling for
 keys and contacts; inspection does not advance or consume the queue.
 Restore refuses unsorted or duplicate held keys before committing the new state;
-ordinary input updates preserve that order. Agent arguments use the same validated
-JSON representation already maintained for saves, including after bind and restore.
+ordinary input updates preserve that order.
 
 Storage revisions/membership serve derived caches. Every mutable row lease marks
 its page; query iteration marks once per visited page and caches its backing pointer,

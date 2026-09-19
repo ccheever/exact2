@@ -1,3 +1,5 @@
+#[path = "fixture/mod.rs"]
+mod test_game;
 use exact_game::{
     audio::{Sounds, Synth, Voices},
     Game, Input, Sim, World,
@@ -9,8 +11,7 @@ impl Game for Tone {
     const ID: &'static str = "restore-mode";
     type Args = ();
     fn setup(w: &mut World, _: &()) {
-        w.register_audio();
-        w.resource_mut::<Sounds>().add("tone", Synth::sine(880.));
+        w.sounds([("tone", Synth::sine(880.))]);
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
@@ -254,12 +255,12 @@ fn named_bindings_use_args_defaults_and_preserve_atomic_live_restart_and_restore
 }
 
 #[test]
-fn r13_beacons_world_empty_binds_seed_zero_paused_false_restart_false() {
+fn fixture_world_empty_binds_seed_zero_paused_false_restart_false() {
     use exact_game::Args;
     use exact_gpu::{Module, Registry};
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 3, || {
-            Box::<WorldSurface<beacons_logic::Beacons>>::default()
+            Box::<WorldSurface<crate::test_game::Fixture>>::default()
         })],
         shaders: &[],
     };
@@ -268,7 +269,7 @@ fn r13_beacons_world_empty_binds_seed_zero_paused_false_restart_false() {
     let empty = module.create_headless("world").unwrap();
     let full = module.create_headless("world").unwrap();
     assert_eq!(
-        beacons_logic::Options::default().values(),
+        crate::test_game::Options::default().values(),
         vec![
             exact_game::Value::Number(0.),
             exact_game::Value::Bool(false),

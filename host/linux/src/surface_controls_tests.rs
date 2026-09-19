@@ -332,3 +332,20 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         done(p, path);
     }
 }
+
+#[test]
+fn e10_contract_button_consumes_all_activation_keys() {
+    for key in ["Space", "Enter", "NumpadEnter"] {
+        let (mut p, path) = fixture();
+        let button = find(&p, "remove");
+        let child = find(&p, "a-jump");
+        p.type_key(button, key, true).unwrap();
+        p.type_key(button, key, false).unwrap();
+        assert!(
+            p.host.kernel().node(child).is_none(),
+            "{key} activates the focused Contract button"
+        );
+        assert!(p.surfaces.canvases.values().all(|c| c.held.is_empty()));
+        done(p, path);
+    }
+}

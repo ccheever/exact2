@@ -504,3 +504,57 @@ test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixtu
   assert.throws(()=>app().cargoPackage('gpu'),/locked|lock file/);
   update();assert.ok(app().cargoPackage('gpu'));assert.notEqual(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),before);
 }));
+
+test('R14 ordinary no-lock workspace reaches buildBake', () => {
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-')));
+  const write = (name, text) => { mkdirSync(dirname(resolve(dir,name)), {recursive:true}); writeFileSync(resolve(dir,name),text); };
+  try {
+    const target = bakeTarget('linux'), id = 'com.exact.plain';
+    write('Cargo.toml', '[workspace]\nmembers=["linux"]\nresolver="2"\n');
+    write('linux/Cargo.toml', '[package]\nname="plain-linux"\nversion="0.1.0"\nedition="2021"\n');
+    write('linux/src/main.rs', 'fn main() {}');
+    write('app.contract', 'component App\n  view\n');
+    write('linux/build.rs', `fn main() {
+      let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+      std::fs::write(out.join("compat.json"), r#"${JSON.stringify({target,inputs:{platform:'linux',app:id,store:{L:'0'},keys:[]}})}"#).unwrap();
+      std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
+      std::fs::write(out.join("app.plan"), b"fixture").unwrap();
+    }`);
+    const app = {dir, workspace:dir, target:resolve(dir,'target'), name:'plain', id,
+      manifest:{app:{id,name:'Plain'},rust:false}, crate:kind=>`plain-${kind}`};
+    assert.equal(existsSync(resolve(dir,'Cargo.lock')),false);
+    const receipt = buildBake(app,'linux',target,{profile:'dev',output:resolve(dir,'bakes')});
+    assert.ok(receipt.products.some(p=>p.path.endsWith('/plain-linux')));
+    assert.ok(existsSync(resolve(dir,'Cargo.lock')));
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+}, 60000);
+
+test('R14 external game capture refuses tracked output roots',()=>fixture(({app,root,write,run})=>{
+  const external = resolve(root, 'outside/foreign');
+  mkdirSync(external,{recursive:true});
+  for (const path of ['app.json','app.contract','Cargo.lock','logic/Cargo.toml','logic/src/lib.rs']) {
+    write(`outside/foreign/${path}`,readFileSync(resolve(root,'game/games/foo',path)));
+  }
+  // Keep the fixture dependencies pointing at its engine from this different depth.
+  const manifest = resolve(external,'logic/Cargo.toml');
+  writeFileSync(manifest,readFileSync(manifest,'utf8').replaceAll('../../../deps/','../../../game/deps/'));
+  write('outside/foreign/.gitignore','/.shells/\n/target/\n/dist/\n/dist.previous/\n/artifacts/\n');
+  process.env.EXACT_APP_DIR=external;
+  const resolved=app();resolved.cargoPackage('gpu');
+  run('cargo',['generate-lockfile','--offline']);run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  run('git',['init','-q']);run('git',['add','.']);run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
+  for(const output of ['target','.shells','dist','dist.previous','artifacts']) {
+    const path=`outside/foreign/${output}/source.rs`;write(path,'source');run('git',['add','-f',path]);
+    assert.throws(()=>snapshotOf(resolved,{dirty:true},root),error=>error.message.includes(path)&&/tracked/.test(error.message));
+    run('git',['rm','--cached',path]);rmSync(resolve(root,path));
+  }
+}), 60000);
+
+test('R14 reproducibility flags belong only to the generated game workspace', async () => {
+  const {cargoReproducibilityFlags} = await import('./app.mjs');
+  const ordinary = {workspace:'/tmp/plain',manifest:{}};
+  assert.deepEqual(cargoReproducibilityFlags(ordinary),[]);
+  const game = {workspace:'/tmp/game/.shells',manifest:{game:{}}};
+  assert.deepEqual(cargoReproducibilityFlags(game),['--locked','--offline']);
+  assert.deepEqual(cargoReproducibilityFlags(game,'/tmp/exact2'),[]);
+});

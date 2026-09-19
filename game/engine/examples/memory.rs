@@ -1,6 +1,5 @@
-//! Retained grey-box World allocations: cargo run --release -p exact-game --example memory.
-#[path = "../../games/greybox/logic/src/lib.rs"]
-mod greybox;
+//! Retained probe World allocations: cargo run --release -p exact-game --example memory.
+mod fixture;
 use exact_game::{Game, World};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
@@ -26,17 +25,10 @@ unsafe impl GlobalAlloc for Counter {
 fn main() {
     let before = BYTES.load(Relaxed);
     let mut w = World::new(60, 7);
-    greybox::Greybox::setup(
-        &mut w,
-        &greybox::GreyboxArgs {
-            seed: 7,
-            paused: false,
-            restart: false,
-        },
-    );
+    fixture::Probe::setup(&mut w, &());
     let allocated = BYTES.load(Relaxed) - before;
     println!(
-        "GREYBOX_WORLD heap_bytes={allocated} inline_bytes={} total_bytes={} hash={:016x}",
+        "PROBE_WORLD heap_bytes={allocated} inline_bytes={} total_bytes={} hash={:016x}",
         std::mem::size_of::<World>(),
         allocated + std::mem::size_of::<World>(),
         w.hash()

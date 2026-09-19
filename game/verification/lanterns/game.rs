@@ -1,6 +1,6 @@
 // Fixed twelve-lantern consumer, adapted from next/trunk 360921d386f212965cbc28229f21c93d280a753a.
 
-use exact_game::audio::{self, AudioListener, AudioSource, Sounds, Synth};
+use exact_game::audio::{self, AudioListener, AudioSource, Synth};
 use exact_game::{animation, Animation};
 use exact_game::{
     scene, Actions, Bloom, Camera, Component, DirectionalLight, Environment, Fog, Follow, Game, Id,
@@ -118,10 +118,23 @@ impl Game for Lanterns {
             .map(|_| ())
     }
 
+    fn register(world: &mut World, _: &Options) {
+        physics::register(world);
+        scene_types().register(world);
+        world.sounds([]);
+        world.register_resource::<Session>()
+            .register_resource::<Environment>()
+            .register::<Player>()
+            .register::<Camera>()
+            .register::<DirectionalLight>()
+            .register::<AudioListener>()
+            .register::<AudioSource>();
+    }
+
     fn setup(world: &mut World, args: &Options) {
         world.reseed(args.seed);
         physics::register(world);
-        world.register_audio().register_resource::<Session>();
+        world.register_resource::<Session>();
         world.insert_resource(Session {
             phase: u32::from(args.started),
             jump_press: args.jump_press,
@@ -299,18 +312,19 @@ fn bind_scene(world: &World) {
 }
 
 fn define_sounds(world: &mut World) {
-    let mut sounds = world.resource_mut::<Sounds>();
     let foot = Synth::noise().seconds(0.08).attack(0.002).release(0.07);
-    sounds.add("footstep", foot.lowpass_hz(720.0).gain(0.24));
     let jump = Synth::sine(280.0).seconds(0.12).attack(0.005).release(0.1);
-    sounds.add("jump", jump.gain(0.18));
     let chime = Synth::sine(660.0).seconds(0.7).attack(0.005).release(0.6);
     let overtone = Synth::sine(990.0).seconds(0.5).release(0.42).gain(0.14);
-    sounds.add("chime", chime.gain(0.28).layer(overtone));
     let night = Synth::sine(160.0).seconds(1.2).attack(0.04).release(1.0);
-    sounds.add("night", night.gain(0.24));
     let wind = Synth::noise().seconds(2.0).sustain(1.0).lowpass_hz(420.0);
-    sounds.add("wind", wind.gain(0.1).looped());
+    world.sounds([
+        ("footstep", foot.lowpass_hz(720.0).gain(0.24)),
+        ("jump", jump.gain(0.18)),
+        ("chime", chime.gain(0.28).layer(overtone)),
+        ("night", night.gain(0.24)),
+        ("wind", wind.gain(0.1).looped()),
+    ]);
 }
 
 fn spawn_static_box(world: &mut World, name: &str, at: Vec3, size: Vec3, material: Material) {

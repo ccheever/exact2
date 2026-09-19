@@ -258,7 +258,13 @@ impl Quads {
         self.textures.insert(name.into(), (t.digest, bind, t.size));
     }
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn children(&mut self, d: &wgpu::Device, placed: &crate::placed::Placements) {
+    pub fn children(
+        &mut self,
+        d: &wgpu::Device,
+        q: &wgpu::Queue,
+        placed: &crate::placed::Placements,
+    ) {
+        let previous_count = self.children.len();
         self.children.clear();
         self.child_textures.retain(|i, _| {
             placed
@@ -304,6 +310,9 @@ impl Quads {
                 self.child_textures.insert(i, (texture.clone(), bind));
             }
             self.children.push((i, plane));
+        }
+        if self.children.len() != previous_count {
+            self.prepare(d, q);
         }
     }
     pub fn retain_textures(&mut self, mut keep: impl FnMut(&str) -> bool) {
@@ -370,6 +379,8 @@ impl Quads {
     pub fn prepare(&mut self, d: &wgpu::Device, q: &wgpu::Queue) {
         // Membership-sized sprite capacity is reserved in feed preparation, not draw.
         let sprites = self.sprites.len();
+        #[cfg(not(target_arch = "wasm32"))]
+        let sprites = sprites + self.children.len();
         if let Some(arena) = &mut self.sprite_arena {
             arena.reallocations += u64::from(arena.buffer.grow(d, q, (sprites * 80) as u64));
             arena
@@ -544,7 +555,10 @@ impl Quads {
         for o in &self.order {
             let at = match o.kind {
                 Kind::Particle(_) => {
-                    let arena = self.particle_arena.as_mut().unwrap();
+                    let arena = self
+                        .particle_arena
+                        .as_mut()
+                        .expect("particles must prepare before drawing");
                     let at = arena.words.len() / 20;
                     arena.words.extend(self.particle_data[o.index].words);
                     at as u32
@@ -582,7 +596,12 @@ impl Quads {
                 );
                 pass.set_vertex_buffer(
                     0,
-                    self.particle_arena.as_ref().unwrap().buffer.raw.slice(..),
+                    self.particle_arena
+                        .as_ref()
+                        .expect("particles must prepare before drawing")
+                        .buffer
+                        .raw
+                        .slice(..),
                 );
             }
             Kind::Sprite(i) if ASSETS => {
@@ -781,6 +800,31 @@ fn pipeline(
 #[cfg(test)]
 mod retained_tests {
     use super::*;
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn r14_native_children_reserve_order_before_frame() {
+        let gpu = exact_gpu::fixture::device().unwrap();
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let q = &mut renderer.quads;
+        let plane = crate::placed::Plane {
+            placement: exact_gpu::Placement {
+                hidden: false,
+                homography: [0.; 9],
+                depth: 0.,
+                clip_depth: [[0.; 3]; 2],
+            },
+            center: Vec3::ZERO,
+            x: Vec3::X,
+            y: Vec3::Y,
+        };
+        q.children = (0..5000).map(|i| (i, plane)).collect();
+        q.prepare(&gpu.device, &gpu.queue);
+        let capacity = q.order.capacity();
+        q.frame::<false>(&FrameInput::default());
+        assert_eq!(q.order.len(), 5000);
+        assert_eq!(q.order.capacity(), capacity);
+    }
     #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
         let mut kinds = vec![Kind::Particle(false), Kind::Model(0, 0), Kind::Sprite(0)];

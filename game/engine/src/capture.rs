@@ -689,6 +689,9 @@ mod tests {
         const ID: &'static str = "capture-hardening";
         const CAPTURE_SUPPORTED: bool = true;
         type Args = ();
+        fn register(w: &mut crate::World, _: &()) {
+            w.register::<crate::Transform>();
+        }
         fn setup(w: &mut crate::World, _: &()) {
             w.spawn_named("crate", (crate::Transform::default(),));
         }
@@ -1023,9 +1026,10 @@ mod tests {
             const ID: &'static str = "capture-pages";
             const CAPTURE_SUPPORTED: bool = true;
             type Args = ();
-            fn setup(world: &mut crate::World, _: &()) {
+            fn register(world: &mut crate::World, _: &()) {
                 world.register::<Wide>();
             }
+            fn setup(_: &mut crate::World, _: &()) {}
             fn tick(_: &mut crate::World, _: &crate::Input, _: &()) {}
         }
         let mut source = crate::World::new(60, 0);

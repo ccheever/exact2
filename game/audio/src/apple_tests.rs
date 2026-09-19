@@ -448,10 +448,7 @@ fn player_reserves_pcm_before_synthesis_and_walks_past_refused_voices() {
     let (pending, mut mixer) = Pending::new();
     let mut player = Player::new(Device(pending), 48000);
     let mut world = World::new(60, 0);
-    world.register_audio();
-    world
-        .resource_mut::<Sounds>()
-        .add("small", Synth::square(2.).seconds(0.01).looped());
+    world.sounds([("small", Synth::square(2.).seconds(0.01).looped())]);
     world.spawn((
         Transform::default(),
         AudioSource {
@@ -511,7 +508,7 @@ fn player_reserves_pcm_before_synthesis_and_walks_past_refused_voices() {
 fn preferred_source_waits_for_stop_ack_without_restarting_the_loser() {
     use crate::{Listener, Output, Player};
     use exact_game::{
-        audio::{AudioSource, Sounds, Synth},
+        audio::{AudioSource, Synth},
         Transform, World,
     };
     struct Device(Pending);
@@ -546,12 +543,10 @@ fn preferred_source_waits_for_stop_ack_without_restarting_the_loser() {
     let (pending, mut mixer) = Pending::new();
     let mut player = Player::new(Device(pending), 48000);
     let mut world = World::new(60, 0);
-    world.register_audio();
+    let tones = [("A", 100., 0.1), ("B", 200., 0.8), ("C", 300., 0.7)];
+    world.sounds(tones.map(|(name, hz, _)| (name, Synth::square(hz).seconds(60.).looped())));
     let mut entities = Vec::new();
-    for (name, hz, gain) in [("A", 100., 0.1), ("B", 200., 0.8), ("C", 300., 0.7)] {
-        world
-            .resource_mut::<Sounds>()
-            .add(name, Synth::square(hz).seconds(60.).looped());
+    for (name, _, gain) in tones {
         entities.push(world.spawn((Transform::default(), AudioSource::new(name).gain(gain))));
     }
     player.sync(&world, Some(Listener::default()), Default::default());

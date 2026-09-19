@@ -3,113 +3,7 @@ use exact_game::{
     Camera, Clock, DirectionalLight, Entity, Game, Input, PointLight, Quat, Sim, Vec3,
 };
 
-#[derive(Debug, PartialEq)]
-enum Call {
-    Begin,
-    Transform(u32, usize, bool),
-    Material(u32, usize),
-    Previous(u32, usize),
-    Batches,
-}
-struct Recording {
-    calls: Vec<Call>,
-    current: Vec<f32>,
-    previous: Vec<f32>,
-    materials: Vec<f32>,
-    slots: Vec<u32>,
-    batches: Vec<Batch>,
-    meshes: Vec<(Vec<Vertex>, Vec<u32>)>,
-    limit: u32,
-    record: bool,
-}
-impl Default for Recording {
-    fn default() -> Self {
-        Self {
-            calls: Vec::new(),
-            current: Vec::new(),
-            previous: Vec::new(),
-            materials: Vec::new(),
-            slots: Vec::new(),
-            batches: Vec::new(),
-            meshes: Vec::new(),
-            limit: 1_000_000,
-            record: true,
-        }
-    }
-}
-impl Recording {
-    fn call(&mut self, call: Call) {
-        if self.record {
-            self.calls.push(call);
-        }
-    }
-    fn position(&self, e: Entity, previous: bool) -> Vec3 {
-        let v = if previous {
-            &self.previous
-        } else {
-            &self.current
-        };
-        Vec3::from_slice(&v[e.index() as usize * 10..][..3])
-    }
-}
-impl Writes for Recording {
-    fn max_slots(&self) -> u32 {
-        self.limit
-    }
-    fn begin_tick(&mut self) {
-        self.call(Call::Begin);
-        std::mem::swap(&mut self.current, &mut self.previous);
-    }
-    fn transforms(&mut self, first: u32, values: &[f32], both: bool) -> Result<(), RenderError> {
-        self.call(Call::Transform(first, values.len(), both));
-        let start = first as usize * 10;
-        let end = start + values.len();
-        if end > self.current.len() {
-            self.current.resize(end, 0.0);
-        }
-        self.current[start..end].copy_from_slice(values);
-        if both {
-            if end > self.previous.len() {
-                self.previous.resize(end, 0.0);
-            }
-            self.previous[start..end].copy_from_slice(values);
-        }
-        Ok(())
-    }
-    fn previous(&mut self, first: u32, values: &[f32]) -> Result<(), RenderError> {
-        self.call(Call::Previous(first, values.len()));
-        let start = first as usize * 10;
-        let end = start + values.len();
-        if self.previous.len() < end {
-            self.previous.resize(end, 0.);
-        }
-        self.previous[start..end].copy_from_slice(values);
-        Ok(())
-    }
-    fn materials(&mut self, first: u32, values: &[f32]) -> Result<(), RenderError> {
-        self.call(Call::Material(first, values.len()));
-        let start = first as usize * 12;
-        let end = start + values.len();
-        if end > self.materials.len() {
-            self.materials.resize(end, 0.0);
-        }
-        self.materials[start..end].copy_from_slice(values);
-        Ok(())
-    }
-    fn mesh(&mut self, v: &[Vertex], i: &[u32]) -> MeshId {
-        let id = MeshId(self.meshes.len());
-        self.meshes.push((v.to_vec(), i.to_vec()));
-        id
-    }
-    fn batches(&mut self, b: &[Batch], s: &[u32]) -> Result<(), RenderError> {
-        self.call(Call::Batches);
-        self.batches.clear();
-        self.batches.extend_from_slice(b);
-        self.slots.clear();
-        self.slots.extend_from_slice(s);
-        Ok(())
-    }
-}
+use crate::fixture::{Call, Recording};
 struct Moving;
 impl Game for Moving {
     type Args = ();
@@ -640,8 +534,8 @@ fn light_membership_retains_near_ties_then_replaces_clearly_farther_light() {
 }
 
 #[test]
-fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
-    let mut sim = Sim::<greybox_logic::Greybox>::from_values(&[
+fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
+    let mut sim = Sim::<crate::test_game::Fixture>::from_values(&[
         exact_game::Value::Number(7.),
         exact_game::Value::Bool(false),
         exact_game::Value::Bool(false),
@@ -696,8 +590,8 @@ fn greybox_writes_one_or_two_pages_while_moving_and_none_at_rest() {
             assert_eq!(writes(&r), 0);
         }
     }
-    assert!(glowing > 1, "the actual greybox beacon must have glowed");
-    eprintln!("greybox writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
+    assert!(glowing > 1, "the fixture sphere must have glowed");
+    eprintln!("fixture writes: moving=1 transform page/tick; glow <=2 pages/tick; settled=0");
 }
 
 #[test]
@@ -898,5 +792,34 @@ fn aspect_only_feed_preserves_authored_integer_camera_height() {
     assert!((f.frame_pixels(&w, 1., (800., 400.)).proj.y_axis.y - 2. / 200.).abs() < 1e-7);
 }
 
-#[path = "difficult_timing.rs"]
-mod difficult_timing;
+#[test]
+fn e10_glow_samples_frame_time_without_writing_saved_materials() {
+    use exact_game::{Glow, Now, Tween};
+    let mut w = World::new(60, 0);
+    let e = w.spawn((
+        Transform::default(),
+        Mesh::sphere(0.5),
+        Material::glow([3., 2., 1.]),
+        Glow(Tween::new(0.)),
+    ));
+    w.get_mut::<Glow>(e)
+        .unwrap()
+        .0
+        .to(Now { tick: 0, hz: 60 }, 1., 0.5);
+    let saved = w.hash();
+    let mut feed = Feed::default();
+    let mut r = Recording::default();
+    feed.feed_to(&w, &mut r).unwrap();
+    let frame = feed.frame(&w, 1., 1.);
+    assert_eq!(frame.glows.len(), 1);
+    let glow = &frame.glows[0];
+    assert_eq!(&glow.material_at(0.)[6..9], &[0., 0., 0.]);
+    assert_eq!(&glow.material_at(0.25)[6..9], &[1.5, 1., 0.5]);
+    assert_eq!(&glow.material_at(0.5)[6..9], &[3., 2., 1.]);
+    assert_eq!(w.hash(), saved);
+    assert_eq!(w.get::<Material>(e).unwrap().emissive, [3., 2., 1.]);
+    w.remove::<Glow>(e);
+    feed.feed_to(&w, &mut r).unwrap();
+    assert!(feed.frame(&w, 1., 1.).glows.is_empty());
+    assert_eq!(&r.materials[6..9], &[3., 2., 1.]);
+}

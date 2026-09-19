@@ -349,14 +349,12 @@ fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
     surface.bind(&[], None).unwrap();
     surface.asset(
         "fox.model",
-        Ok(include_bytes!(
-            "../../games/skinned-fixture/assets/fox.model"
-        )),
+        Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
     );
     surface.asset(
         "fox/0-srgb-straight.tex",
         Ok(include_bytes!(
-            "../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"
+            "../../bake/tests/fixtures/crate/0-srgb-straight.tex"
         )),
     );
     let mut frame = Frame {
@@ -382,7 +380,7 @@ fn fox_restore_and_paranoid_save_keep_assets_pipelines_and_palette_capacity() {
         assert_eq!(surface.carry().unwrap().unwrap(), saved);
     }
     let mut texture: exact_game::asset::TextureData = exact_game::bin::from_slice(include_bytes!(
-        "../../games/skinned-fixture/assets/fox/0-srgb-straight.tex"
+        "../../bake/tests/fixtures/crate/0-srgb-straight.tex"
     ))
     .unwrap();
     texture.mips[0][0] ^= 127;
@@ -481,9 +479,8 @@ fn restoring_fox_uploads_zero_asset_bytes_after_ready() {
             exact_game::animation::step(world).apply_local(world, "fox");
         }
     }
-    const MODEL: &[u8] = include_bytes!("../../games/skinned-fixture/assets/fox.model");
-    const TEXTURE: &[u8] =
-        include_bytes!("../../games/skinned-fixture/assets/fox/0-srgb-straight.tex");
+    const MODEL: &[u8] = include_bytes!("../tests/fixture/fox/fox.model");
+    const TEXTURE: &[u8] = include_bytes!("../tests/fixture/fox/0-srgb-straight.tex");
     const TEXTURE_NAME: &str = "fox/0-srgb-straight.tex";
     type FoxSurface = WorldSurface<AnimatedFox, crate::ModelPresentation, true>;
     let ready = |surface: &mut FoxSurface| {

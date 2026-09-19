@@ -570,3 +570,14 @@ test('initial authored carry is explicit and ordinary initial saves retain Open'
     assert.ok(f.order.includes(`restore mode ${mode}`));
   }
 });
+
+test('E10 focused Contract buttons consume activation keys before the world', async () => {
+  const f = await fixture({input:true}), canvas=f.create(1), pause=new f.Element('button');
+  for (const code of ['Space','Enter','NumpadEnter']) {
+    canvas.listeners.keydown({target:pause,code,timeStamp:0,preventDefault(){}});
+    canvas.listeners.keyup({target:pause,code,timeStamp:0,preventDefault(){}});
+  }
+  assert.equal(f.events.length,0);
+  canvas.listeners.keydown({target:canvas,code:'KeyW',timeStamp:0});
+  assert.equal(f.events.at(-1).code,'KeyW');
+});
