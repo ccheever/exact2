@@ -28,6 +28,8 @@ struct Witness {
     viewport: (f32, f32),
     #[cfg(any(target_os = "linux", test))]
     scale: u32,
+    #[cfg(any(target_os = "linux", test))]
+    model_scroll: BTreeMap<ViewId, collection::ModelScroll>,
 }
 #[cfg(any(target_os = "linux", test))]
 struct Picture {
@@ -191,6 +193,7 @@ impl<D: DataSource> Presenter<D> {
             document: self.live_document(),
             viewport: self.viewport,
             scale: self.brush.scale.to_bits(),
+            model_scroll: self.painted_collection_scroll(&self.boxes),
         };
         if self.last_frame_succeeded {
             for b in &self.boxes {
@@ -236,11 +239,13 @@ impl<D: DataSource> Presenter<D> {
         // an old native paragraph/picture after this acknowledgement.
         let picture = frame.picture.borrow_mut().take();
         if Rc::ptr_eq(&self.display.origin, &frame.identity.origin) && frame.identity.succeeded {
-            if let Some(picture) = picture {
+            if let Some(mut picture) = picture {
                 let scale = picture.witness.scale;
+                let model_scroll = std::mem::take(&mut picture.witness.model_scroll);
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
                 self.display.acknowledged = Some(picture.witness);
+                self.acknowledge_collection_scroll(model_scroll);
                 // Clamp the newest queued intent using B's numeric bounds, not
                 // live C and not B's older scroll intent. If the clamp changes
                 // an offset, B's pixels need a correction even with no live C.

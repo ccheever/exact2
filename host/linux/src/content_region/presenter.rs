@@ -59,6 +59,7 @@ impl<D: DataSource> Presenter<D> {
         } else {
             BTreeMap::new()
         };
+        let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -66,7 +67,7 @@ impl<D: DataSource> Presenter<D> {
             hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
-            scroll: &self.scroll,
+            scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
             page: self.page,
             images: &self.images.bitmaps,
             focus: self.focus,

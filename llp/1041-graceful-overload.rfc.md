@@ -6438,3 +6438,43 @@ only the fresh composed run qualifies integration. Evidence is in
 Native coordinate/pixel parity, retained-action host eligibility/clock routing,
 full10k Messages capacity and native consumer activation remain open. These are
 publication correctness results, not a responsiveness or120Hz measurement.
+
+### 8.115 Keep collection end intent until its picture is acknowledged, 2026-09-19
+
+A real Linux Presenter fixture now reproduces a lost follow-end correction:
+acknowledge a20-row List at its end, then grow the same List to200 through its
+ordinary action. Runner emits the new tail position, but feedback clamped against
+the still-displayed A bounds can consume that correction and leave the reader at
+the old offset. The headless control reaches the new end. This is an executed
+CPU-path regression, not proof that the earlier full10k native setup failure had
+this cause; that capture lacks the necessary List/correction identities.
+
+The adapter now keeps one pending model position per collection cursor. Feedback
+and the next submitted picture use it; A's input, hits and scroll bounds keep
+using the acknowledged position. A successful matching B acknowledgement adopts
+only a target that B actually painted, with current node generation and input
+sequence. Newer real scrolling, changed geometry and runtime replacement defeat
+old B. A newer model target on the same sequence survives B's acknowledgement.
+The headless path retains its immediate-offset behavior.
+
+Review also found that an identical-size resize advanced the input sequence and
+discarded the future target. The same real test fails against the first candidate
+with ten controls passing. Advancing only for changed dimensions makes all eleven
+pass; Host resize validation/layout and post-commit processing still run. Changed
+dimensions and newer wheel input remain explicit supersession controls.
+
+The original baseline preserves one behavioral failure, two incorrect fixture
+assumptions about absent corrections and three controls. The first candidate
+passes eight cases but fails a reload fixture expecting20 instead of the correctly
+carried200 rows. Its corrected assertion retains the fresh zero scroll position
+and old-receipt refusal checks. These setup failures remain separate from the
+same-size behavioral RED. Final owner checks and fresh MAIN integration each pass
+40 display,14 collection and8 height tests, strict library Clippy and scoped fmt.
+MAIN forces byte-identical kernel/Runner/Linux entry refreshes to avoid stale
+cross-worktree artifacts. Evidence: `target/linux-count-follow-end-integration/`;
+owner source/raw: `exact2-linux-count-follow-end/target/linux-count-follow-end-*`.
+
+The pending picture carries scalar targets; no source/image history is added.
+Painting with a pending target clones the live scroll map once, an explicit
+allocation/traversal cost. No new native/VM run, full10k baseline, timing gain or
+physical120Hz result is established by these tests.

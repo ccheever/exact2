@@ -786,8 +786,11 @@ impl<D: DataSource> Presenter<D> {
         if error.is_some() {
             return error;
         }
+        let geometry_changed = self.viewport != (width, height);
         self.viewport = (width, height);
-        self.collection.advance_all();
+        if geometry_changed {
+            self.collection.advance_all();
+        }
         self.after_commit()
     }
 

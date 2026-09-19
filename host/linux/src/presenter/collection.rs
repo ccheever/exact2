@@ -1,11 +1,19 @@
 //! Bounded native post-layout collection feedback. The kernel owns row layout;
 //! the runner owns membership, estimates and anchors. No recursive frame/layout.
 use super::*;
-use exact_kernel::{Dimension, Kernel};
+use exact_kernel::{Dimension, Kernel, NodeKey};
 use exact_runner::{CollectionFeedback, CollectionSnapshot, RowMeasurement};
 use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
+
+/// One future model position, not the acknowledged picture's input position.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) struct ModelScroll {
+    key: NodeKey,
+    sequence: u64,
+    top: f32,
+}
 
 #[derive(Default)]
 pub(super) struct State {
@@ -15,16 +23,44 @@ pub(super) struct State {
 }
 #[derive(Default)]
 struct Cursor {
+    key: Option<NodeKey>,
     sequence: u64,
     corrected: Option<u64>,
     dimensions: Option<(f64, f64, f64, f64)>,
     sent: Option<CollectionFeedback>,
     queued: bool,
     requested_top: Option<f64>,
+    model_scroll: Option<ModelScroll>,
 }
 impl Cursor {
     fn advance(&mut self) {
         self.sequence = self.sequence.saturating_add(1);
+        self.model_scroll = None;
+    }
+    fn bind(&mut self, key: NodeKey, sequence: u64) {
+        if self.key.is_some_and(|old| old != key) {
+            *self = Self {
+                sequence,
+                ..Self::default()
+            };
+        }
+        self.key = Some(key);
+    }
+    fn model_top(&mut self, key: NodeKey, top: f32, displayed: bool, offset: &mut (f32, f32)) {
+        if displayed {
+            // An exhausted input sequence cannot qualify a future ACK, just
+            // as it cannot qualify a Runner correction below.
+            if self.sequence == u64::MAX {
+                return;
+            }
+            self.model_scroll = Some(ModelScroll {
+                key,
+                sequence: self.sequence,
+                top,
+            });
+        } else {
+            offset.1 = top;
+        }
     }
     fn geometry(&mut self, dimensions: (f64, f64, f64, f64)) {
         if self.dimensions.is_some_and(|old| old != dimensions) {
@@ -169,6 +205,70 @@ fn pin_owner(
 }
 
 impl<D: DataSource> Presenter<D> {
+    fn pending_model_scroll(&self, view: ViewId) -> Option<ModelScroll> {
+        let cursor = self.collection.cursors.get(&view)?;
+        let pending = cursor.model_scroll?;
+        (pending.sequence == cursor.sequence
+            && self
+                .host
+                .kernel()
+                .node(view)
+                .is_some_and(|n| n.key == pending.key)
+            && !self.host.route_visibility(view).0)
+            .then_some(pending)
+    }
+
+    /// Only a future paint/feedback uses this offset. A's wheel, hits and
+    /// clamping continue using self.scroll until the matching B is ACKed.
+    pub(super) fn collection_paint_scroll(&self) -> Option<BTreeMap<ViewId, (f32, f32)>> {
+        let mut next = None;
+        for &view in self.collection.cursors.keys() {
+            if let Some(pending) = self.pending_model_scroll(view) {
+                next.get_or_insert_with(|| self.scroll.clone())
+                    .entry(view)
+                    .or_default()
+                    .1 = pending.top;
+            }
+        }
+        next
+    }
+
+    #[cfg(any(target_os = "linux", test))]
+    pub(super) fn painted_collection_scroll(
+        &self,
+        boxes: &[PaintedBox],
+    ) -> BTreeMap<ViewId, ModelScroll> {
+        boxes
+            .iter()
+            .filter_map(|b| {
+                let pending = self.pending_model_scroll(b.id)?;
+                // A retained-region replay may clamp to older pixels. It cannot
+                // acknowledge a future target that this picture did not paint.
+                (b.scroll?.1 == pending.top).then_some((b.id, pending))
+            })
+            .collect()
+    }
+
+    #[cfg(any(target_os = "linux", test))]
+    pub(super) fn acknowledge_collection_scroll(&mut self, painted: BTreeMap<ViewId, ModelScroll>) {
+        for (view, accepted) in painted {
+            let Some(current) = self.pending_model_scroll(view) else {
+                continue;
+            };
+            if current.key != accepted.key || current.sequence != accepted.sequence {
+                continue;
+            }
+            // A newer model correction on the same input sequence survives B,
+            // but the interaction base becomes precisely B's painted position.
+            self.scroll.entry(view).or_default().1 = accepted.top;
+            if current == accepted {
+                self.collection.cursors.get_mut(&view).unwrap().model_scroll = None;
+            } else {
+                self.dirty = true;
+            }
+        }
+    }
+
     /// A Runner witness is usable only after feedback for the actual native
     /// scroll/layout has landed. Pending feedback never certifies the old port.
     pub(super) fn reorder_facts_current(&self, facts: &exact_runner::ReorderGeometry) -> bool {
@@ -318,7 +418,12 @@ impl<D: DataSource> Presenter<D> {
             let retained_pin = self.arrange_pin();
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             cursor.queued = false;
+            let Some(key) = self.host.kernel().node(view).map(|n| n.key) else {
+                continue;
+            };
+            cursor.bind(key, snapshot.scroll_sequence);
             if self.host.route_visibility(view).0 {
+                cursor.model_scroll = None;
                 continue;
             }
             if self.host.content_region().is_some_and(|region| {
@@ -350,21 +455,37 @@ impl<D: DataSource> Presenter<D> {
                 cursor.requested_top = requested;
                 if let Some(top) = requested {
                     cursor.advance();
-                    self.scroll.entry(view).or_default().1 = top.clamp(0., g.max_top as f64) as f32;
+                    cursor.model_top(
+                        key,
+                        top.clamp(0., g.max_top as f64) as f32,
+                        self.display.attached(),
+                        self.scroll.entry(view).or_default(),
+                    );
                     self.dirty = true;
                 }
             }
             if let Some(top) = cursor.correction(snapshot) {
-                let off = self.scroll.entry(view).or_default();
-                off.1 = ((top + g.padding_top) as f32).clamp(0., g.max_top);
+                cursor.model_top(
+                    key,
+                    ((top + g.padding_top) as f32).clamp(0., g.max_top),
+                    self.display.attached(),
+                    self.scroll.entry(view).or_default(),
+                );
                 self.dirty = true;
             }
+            let feedback_top = if let Some(pending) = cursor.model_scroll.as_mut() {
+                let top = pending.top.clamp(0., g.max_top);
+                self.dirty |= top != pending.top;
+                pending.top = top;
+                top
+            } else {
+                self.scroll.get(&view).map_or(0., |off| off.1)
+            };
             let feedback = CollectionFeedback {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                scroll_top: (self.scroll.get(&view).map_or(0., |off| off.1) as f64 - g.padding_top)
-                    .max(0.),
+                scroll_top: (feedback_top as f64 - g.padding_top).max(0.),
                 port_width: g.width,
                 port_height: g.height,
                 row_width: g.row_width,
