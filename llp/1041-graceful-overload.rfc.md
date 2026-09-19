@@ -6612,3 +6612,40 @@ to the existing clean-state/closed-turn rule. The observer's nonquiet=true label
 remains. This is one virtual-display cell with no measured resize and no physical
 120Hz proof. The ordinary path is still synchronous; full-viewport region capacity,
 retained row actions and native worker-backed Messages activation remain open.
+
+### 8.119 Swift native-publication consumer remains deferred, 2026-09-19
+
+The proposed Swift consumer keeps one selected publication and incoming weak
+view metadata, validates native authority before applying protected operations,
+and qualifies deferred callbacks by publication token and view identity. It is
+not integrated. The final allowed standalone test round still fails four
+nested-pending/reset assertions; source review alone does not establish those
+behaviors.
+
+A real Rust producer exports44 returned batches covering complete A, pending B,
+outside progress, diff refusal/current:false and recovery. The first fixture's
+fixed diff allowance also refused its recovery; a preserved test-only correction
+derives215,556 bytes from the actual small endpoint prices. Small A+B costs215,304
+and large A+B1,579,544, so the public refusal and recovery remain discriminated.
+The corrected producer test and ten existing producer controls pass separately.
+
+After a generated-runner actor-isolation compile failure, the final runner-only
+correction wraps both identical standalone test bodies in a main-thread check
+and MainActor.assumeIsolated. Both arms compile and run eight methods with677
+assertions over the same exported batches. Baseline has14 failures; candidate
+has4. Direct pending/refusal/recovery and malformed/error-envelope methods pass
+228 and222 candidate assertions respectively. Five existing controls pass27.
+The nested/reset method executes200 assertions but fails four, including object
+replacement and deferred-authority checks. Synthetic UInt32 operation IDs versus
+the presenter's Int decoding are a source-traced fixture concern, not a proven
+cause or grounds to ignore the failure.
+
+The target stops at round three: no fourth correction, integration or subsequent
+full-module check. The fixture uses actual AppKit/production source with a nil
+Presenter session and dynamic-lookup linking; it does not execute a real Session
+Runtime, worker-backed text realization or an app entry. No XCTest, full native
+build, input-latency or performance result follows. Final evidence is
+`exact2-apple-native-consumer/target/native-consumer-checks-v3/`, manifest7d430e7e,
+36files/7,782,499B, report208532e3. All eight recorded PIDs/groups are absent;
+earlier fixture and compilation failures remain preserved. Kernel capacity and
+Linux retained-action work continue independently.
