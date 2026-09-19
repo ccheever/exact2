@@ -5951,3 +5951,34 @@ A separate earlier-attachment variant is being prepared, keeping the same
 duration, interval and deadlines. Its possible coverage includes startup and
 setup; it cannot be labeled load-only or full10k-only. The failed first attempt
 is preserved, and no production optimization is selected from absent stacks.
+
+### 8.103 Earlier Mac attachment obtains sparse, inclusive stacks, 2026-09-18
+
+The second profiler attempt attaches once the existing watcher records the fresh
+app identity, keeping the same8d9858c product, native recipe and3s/2ms request.
+Eleven focused pure controls cover the changed trigger, ownership lag and refusal;
+the two old-trigger cases fail as intended. Sampling exits0 and writes a516,615-byte
+report within its10s deadline. Native execution also exits0, and all nine recorded
+PIDs, seven groups and four poster releases close. The failed first attempt stays
+unchanged; no third sample is selected.
+
+The report contains1,305 main-thread samples. Independent reconstruction of its
+1,578 main-thread tree nodes preserves every parent/child count and the total
+leaf weight. Of those samples,1,174 end at `mach_msg2_trap`; two include
+`Presenter.refreshVisibleText`, seventeen include `Presenter.apply`, and
+twenty-three include `TextEngine.measure`. These inclusive families overlap.
+They are neither invocation counts nor CPU time, and absence of an optimized
+function name does not establish absence of its work.
+
+The two visible-text scan branches establish that apply-end refresh and a
+wheel/clip-notification/collection-feedback route execute. They do not establish
+duplicate scans within one batch or a dominant cost, so this evidence does not
+select refresh coalescing. The sampler process lives5.835s including preparation
+and symbol processing, ending before the load poster starts. Its early trigger
+can include setup and the default state; the condensed report has no per-sample
+timestamps for exact phase attribution. It cannot explain the loaded resize
+tails or establish a full10k-only profile. The unchanged native run still
+completes all36 input offers and the full10k/batch32 workload, with tracking mode
+unestablished. Sampling overhead is uncalibrated and the display remains60Hz.
+No timing gain or120Hz result follows. The184-file archive is under
+`target/messages-current-early-sample-execution-v1/`.
