@@ -7578,3 +7578,81 @@ source `55c6e09c`, full patch `506937d2`, production patch `9c29bdef` and
 report `a70b1e67`. This removes a demonstrated copy on an eligible cold path;
 the earlier82-callback observations do not quantify its frequency or cost.
 Native latency, throughput and120Hz benefit remain unmeasured.
+
+### 8.139 Fresh font pair with batched picture hashing, 2026-09-19
+
+The ignored picture recorder now feeds the same RGB byte stream to SHA in
+768-byte chunks using a fixed stack buffer. A1024×768 picture still hashes
+2,359,296 bytes, through3,072 updates instead of786,432. The old implementation
+fails two update-count assertions while five controls pass; all seven pass
+with batching. This establishes byte-stream and call-count preservation, not
+an isolated hashing-time measurement. Both new native products use the same
+recorder; earlier runs with the old recorder are not matched timing controls.
+
+Two optimized Linux captures differ only in the already integrated last-font
+lookup from§8.136. They retain the older matched source basis, without§8.138's
+owned-Spec move or the later trim-sort change. Source materialization first
+stopped on archive permissions before any build: raw Git archive mode0664 did
+not satisfy the0644 source card. A separately preserved preparation uses
+explicit `tar.umask=0022` and passes the original mode check. Both builds then
+exit0 once, followed by one fresh control and one treatment runtime. No runtime
+retry, workload reduction, reader change or additional reference test occurs.
+
+Both runs pass the frozen functional acceptance at1024×768 under VKMS. Full
+nine-field History values match at revisions0 and16, including all10,000 rows,
+UTF-8 body-byte counts and32 changed rows after advancement. All four saved
+RGB pictures match exactly. Each fixed2s interaction phase contains12 handlers:
+36 per arm, including18 actual signed40-pixel wheel movements. Loaded entry
+revision8 advances through16 in eight timers; each arm installs20 in-window
+pictures carrying newer visible History, of which17/18 respectively are also
+current against live state at ACK. Silent windows contain eight0→8 advances
+and no input. Final picture chains204/193 close through journal5141/4531,
+with no later dirty or unflushed work admitted by the fence.
+
+The performance result is mixed and does not repeat the earlier loaded
+callback improvement. The table uses eight complete timer turns per cohort;
+callback values aggregate82 callbacks per timer, not individual-call medians.
+
+| Wall time, ms | Control | Treatment |
+|---|---:|---:|
+| Loaded callback aggregate median |1.403816|1.571504|
+| Loaded callback aggregate sum |11.836748|13.165089|
+| Loaded whole timer-turn median |12.658818|13.281696|
+| Loaded whole timer-turn maximum |15.198141|16.676230|
+| Silent callback aggregate sum |14.325365|15.160808|
+| Silent whole timer-turn median |17.448713|17.387316|
+| Silent whole timer-turn maximum |20.145993|20.441452|
+
+Loaded timer turns exceed8.333ms in6/8 control and8/8 treatment observations;
+all eight silent timer turns exceed it in both arms.
+Whole loaded-phase sums decrease236.191612→215.943862ms, but idle and recovery
+sums increase146.673143→160.978233 and120.504548→137.066480ms. Natural turn
+counts differ99/51,132/58 and50/60; equal inputs and pixels do not make their
+execution cohorts identical. The complete captures contain1,466/901 turns.
+
+The recorder remains substantial: silent picture-observer medians are
+8.989910/8.905972ms, alongside Paint3.958307/4.089120ms and
+Tick3.368325/3.279721ms. These are separate medians, not additive components
+of one synthetic turn. The observer includes sampling, hashing and journal
+work; hashing alone is not timed. Subtracting recorded observer/wait scopes
+does not establish performance of an unobserved executable. No isolated font
+CPU, consistent net speedup, resize result or physical120Hz claim follows.
+
+The original v2 reader qualification remains24 prior passes and a final25/1
+exact-refusal-message assertion result, not26GREEN. Both native processes
+receive intentional post-observation SIGTERM(−15); driver, outer and Mac
+wrappers exit0. The saved release receipts show all12 recorded PIDs/eight
+groups absent and port5941 free, with control cleanup before treatment launch.
+
+Products are `05f810a4`/`d3b3d438`, common recorder `17537a6f`, source-ready
+manifest `1084c094`, and runtime plan `476c1f5e`. Copied raw captures under
+`exact2-linux-messages-ink-pair/target/` are
+`messages-last-font-batched-observer-before-runtime-v1` (23 files/24,895,916B,
+actual manifest `979ccaa1`) and `messages-last-font-batched-observer-after-runtime-v1`
+(23 files/23,680,206B, actual manifest `bcd00bd5`). Lead independent raw,
+cohort and selected-release proofs are `087bc4da`, `29395724`, `ae2c7534` and
+`a6fb2eb2` under `target/observer-batching-integration`. These are new captures;
+all earlier failures and evidence remain unchanged. Final owner archives seal
+52 files/50,337,095B (`da485454`) and64 files/48,004,483B (`49fb9402`), with
+pair report `e3b02a9b`. An initial report-only lookup error is preserved; no
+analyzer or native rerun follows that prose correction.
