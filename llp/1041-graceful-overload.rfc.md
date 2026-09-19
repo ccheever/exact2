@@ -7747,3 +7747,60 @@ raw timings, selected dependency proof and release are under MAIN
 `target/glyph-blit-performance-probe`, including `mac-result-v2`,
 `mac-summary.json`, `source-binding.json` and `mac-release.json`.
 The earlier native captures and merged production remain unchanged.
+
+### 8.142 Merged text-cache bundle: fresh Linux pair, mixed whole-turn result, 2026-09-19
+
+One fresh optimized build evaluates the combined trim-sort, owned-Spec and
+validated warm-Spec changes. The candidate is Git`6be906af`, tree-identical to
+the then-merged`eb516d4`; subsequent`b232ec4` integration is **not measured**.
+The control reuses the immutable§8.139 treatment ELF`d3b3d438`, with a new
+runtime cell. Its old timings are not a control. The new ELF is`f7b8f75b`;
+one build exits0 in41.936s, with all five private Cargo artifacts non-fresh,
+exact source receipts and identical generated Reusable entry, plan, compat,
+fonts and external dependencies. The production differences are text/cache;
+four test-bearing files and the experiment document also differ physically.
+The shaping body and batched observer`17537a6f` remain byte-identical.
+
+Both fresh cells pass once, in control→candidate order, with the unchanged
+Linux VM/VKMS/RFB recipe:1024x768, full10,000 rows/32 updates, windowed=true,
+bounded=false, ordinary Reusable path and no Region worker. No resize is
+measured. Each retains36 in-window input handlers and18 exact±40 wheels.
+Initial/final complete History9 at revisions0/16 match across arms, including
+all10,000 five-field rows and UTF8 body-byte totals. All four2,359,296B RGB
+captures match exactly. Loaded prefixes contain20→19 fresh installed suffix
+pictures above entry revision8;17 in each arm are also current at ACK. Each
+silent2s prefix advances0→8 with no input. Final pictures192/195 close through
+journal sequences5450/5079; later dirty or unacknowledged work is not hidden.
+
+| Strict timer cohort, control→candidate | Loaded | Silent |
+|---|---:|---:|
+| Complete timers / callbacks in each arm |8 /656|8 /656|
+| Callback aggregate median, ms |1.367549→1.224611|1.701345→1.550135|
+| Callback aggregate sum, ms |11.348758→10.198171|12.749358→12.327219|
+| Whole enclosing-turn median, ms |12.000869→13.787021|15.769366→17.145767|
+| Whole enclosing-turn maximum, ms |15.448406→17.763831|18.735713→18.220834|
+| Whole enclosing-turn misses above8.333ms |5/8→7/8|8/8→8/8|
+
+Each callback median is over eight per-timer aggregates of82 calls, not656
+individual measurements. Loaded revisions8→16 match. Recovery has7→8 timer
+calls; idle/loaded/recovery whole-turn populations are212/130/49 versus
+243/55/153. Those different loop populations are not equal-work frame rates.
+The control's three recovery drain events remain outside its fixed prefix.
+All-phase whole-turn maxima are13.578/15.448/13.016 versus
+14.974/17.764/12.174ms. The silent observer median is8.005→8.892ms and paint
+median3.836→3.953ms. Instrumentation remains inside whole-turn costs; its
+subtraction does not establish uninstrumented performance, and medians are
+not additive. This single ordered pair shows lower callback aggregates but
+**no consistent whole-turn gain**, no isolated attribution among the three
+changes, no CPU-only result and no physical120Hz claim.
+
+Both drivers/outer wrappers exit0; native SIGTERM follows completed
+observations. Saved release records show all12 owned PIDs/eight groups absent
+and port5941 free. No retry, new baseline build or acceptance change occurs.
+The source package's v1 archive-header provenance concern is preserved:
+extraction already normalized Git modes; v2 explicitly supplies
+`tar.umask=0022`, without a failed staging run or changed production bytes.
+Frozen build/runtime evidence is in the private ink-pair checkout under
+`target/messages-current-integrated-{build,control-runtime,candidate-runtime}-v1`;
+lead raw reconstruction and equality checks are in MAIN
+`target/integrated-text-cache-evaluation`. The earlier archives remain intact.
