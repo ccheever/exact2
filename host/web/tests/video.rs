@@ -13,7 +13,13 @@ fn media_properties_events_and_rejections() {
       text `${seconds}`
 "#;
     let plan = contract::compile(source).unwrap();
-    let (mut host, first) = Host::boot(&plan.encode(), caltrain_data::Caltrain).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        exact_runner::Viewport::default(),
+        "/",
+    )
+    .unwrap();
     assert!(first.contains("\"tag\":\"video\""), "{first}");
     assert!(
         first.contains("\"interactiveWidget\":\"resizes-content\""),
