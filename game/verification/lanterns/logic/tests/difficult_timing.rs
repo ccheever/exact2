@@ -1,5 +1,5 @@
 use exact_game::*;
-use exact_game_render::{Feed, fixture::Recording};
+use exact_game_render::{fixture::Recording, Feed};
 use lanterns_evidence_logic::{
     baseline::{Lantern, Lanterns},
     scene_assets, scene_types, simulation, Options,
@@ -27,10 +27,8 @@ fn root() -> PathBuf {
 fn difficult() -> Sim<Lanterns> {
     let mut sim = simulation::<Lanterns>(options());
     sim.agent(r#"{"op":"clock","owner":"agent","now":0}"#);
-    let script: Vec<serde_json::Value> = serde_json::from_str(include_str!(
-        "../../fixtures/difficult-moment.script.json"
-    ))
-    .unwrap();
+    let script: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("../../fixtures/difficult-moment.script.json")).unwrap();
     for op in script {
         match op["op"].as_str().unwrap() {
             "clock" => {

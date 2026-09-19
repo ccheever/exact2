@@ -1,7 +1,5 @@
 use super::*;
-use exact_game::{
-    Camera, Clock, DirectionalLight, Game, Input, PointLight, Quat, Sim, Vec3,
-};
+use exact_game::{Camera, Clock, DirectionalLight, Game, Input, PointLight, Quat, Sim, Vec3};
 
 use crate::fixture::{Call, Recording};
 struct Moving;

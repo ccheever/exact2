@@ -148,8 +148,9 @@ impl Game for Lanterns {
     fn register(world: &mut World, _: &Options) {
         physics::register(world);
         scene_types().register(world);
-        world.sounds([]);
-        world.register_resource::<Session>()
+        world.sounds::<&str>([]);
+        world
+            .register_resource::<Session>()
             .register_resource::<Environment>()
             .register::<Player>()
             .register::<Camera>()
