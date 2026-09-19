@@ -167,7 +167,8 @@ export function agreePins(rows, previous, hosts) {
     reference ??= row;
   }
   const release = rows.filter(row => row.host === 'linux' && row.mode === '0' && row.profile === 'release');
-  if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
+  if (release.length !== 1 || release[0].failures?.length || release[0].game !== reference.game
+      || !equal(release[0].pins, reference.pins))
     throw new Error('repin refused: linux release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged');
   return {...reference.pins, game:reference.game, hosts};
 }

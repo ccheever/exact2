@@ -128,7 +128,10 @@ fn fox_leg_ik_and_socket() {
             * animation::joint_matrix(model, &local.local, head);
     assert!(socket.position.distance(expected.w_axis.truncate()) < 1e-4);
     // Displayed charm uses the local chain, not its simulation fallback Transform.
-    let gpu = exact_game_render::exact_gpu::fixture::device().unwrap();
+    let Some(gpu) = gpu_test::device_or_skip(exact_game_render::exact_gpu::fixture::device())
+    else {
+        return;
+    };
     let mut renderer = exact_game_render::Renderer::new(
         &gpu.device,
         &gpu.queue,

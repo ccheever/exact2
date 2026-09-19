@@ -1130,6 +1130,7 @@ test('namespaced evidence pins preserve numeric tick and complete branch invento
   expect(()=>recorder.pin(60,{tick:60,hash:syntheticHash},'__proto__')).toThrow('invalid pin key');
   const pins={ticks:{'placement/apex/60':syntheticHash,'clip/apex/60':repeatedHash('1')},saves:{'clip/apex/60':'a'.repeat(64)}};
   const rows=['0','1','fresh-game'].map(mode=>({host:'linux',game:'lanterns-evidence',mode,pins:structuredClone(pins)}));
+  rows.push({...rows[0],profile:'release',pins:structuredClone(pins)});
   expect(agreePins(rows,pins,['linux']).ticks).toEqual(pins.ticks);
   delete rows[2].pins.ticks['clip/apex/60'];
   expect(()=>agreePins(rows,pins,['linux'])).toThrow('did not observe ticks clip/apex/60');
@@ -1295,6 +1296,10 @@ test('R15 game and generated shell profiles disable contraction and dev semantic
 test('R15 even linux-only repin refuses missing or divergent release observations',()=>{
   const rows=candidates(['linux']), old=rows[0].pins;
   expect(()=>agreePins(rows.slice(0,-1),old,['linux'])).toThrow('release');
+  for(const game of [undefined,'another-game']) {
+    const foreign=structuredClone(rows);foreign.at(-1).game=game;
+    expect(()=>agreePins(foreign,old,['linux'])).toThrow('release');
+  }
   rows.at(-1).pins.ticks[60]=repeatedHash('d');
   expect(()=>agreePins(rows,old,['linux'])).toThrow('release');
 });
