@@ -7413,3 +7413,79 @@ This is scoped Mac-hosted CPU validation; no native timing improvement is
 established, and the font-metric comparison in§8.134 remains failed with its
 candidate runtime unrun. The diagnostic's callback share does not attribute
 time to cache sorting, and no120Hz claim follows from these call counts.
+
+### 8.136 Fresh font-metric pair: functional pass, mixed timing, 2026-09-19
+
+A separate fresh control→candidate pair passes the full10,000-row/32-change
+workload with the qualified wheel reader. Both products and the recorder are
+unchanged from§8.134: only production `shaping.rs` differs between them;
+neither includes§8.135's later trim-sort change. This first successful pair
+establishes no consistent overall performance gain. The original failed
+control and unrun candidate archive remain unchanged.
+
+The reader accepts a newer installed picture only after complete
+CPU/submit/ready/ACK joins, fixed-source target qualification, compatible
+geometry/scroll, ordered input and actual predecessor movement. Raw boxes
+alone do not prove generic List identity. Treatment input1362 exercises this:
+offered173 is replaced by174 after timer5008, then picture175 moves exactly+40.
+The selected reader bytes passed their original24 checks. A later26-check
+run passed25 and failed one exact-message assertion: the changed input was
+refused by an earlier guard. That failure remains recorded; no fourth
+correction or26/26 claim is made.
+
+Independent reconstruction verifies full nine-field Histories at revisions0
+and16, all10,000 five-field rows and UTF-8 body-byte counts. All four saved
+2,359,296-byte RGB buffers match between arms. Each cell delivers36 scheduled
+in-window handlers,18 typing echoes and18 actual signed40-unit wheels.
+Loaded phases install20 pictures carrying newer History revisions9–16 above
+entry8, with changed32 and a visible suffix. Those pictures retain their own
+painted History even when newer live state is dirty:17 control and19 candidate
+ACKs are also live-current. Both silent prefixes contain eight advances0→8
+and zero input commands. Final fences close at frame194/sequence4813 and
+frame189/sequence5249; control's three recovery drain events are excluded.
+
+Strictly enclosed loaded and silent timer cohorts contain eight timers and
+656 text callbacks per arm. Idle has eight timers each; recovery has seven
+versus eight. Times below are instrumented elapsed milliseconds, not isolated
+font lookup or CPU costs:
+
+| Scope | Control | Candidate |
+| --- | ---: | ---: |
+| Loaded callback median / sum | 1.503 / 12.480 | 1.117 / 10.375 |
+| Loaded Tick median / maximum | 2.321 / 3.039 | 1.782 / 3.436 |
+| Silent callback sum | 14.280 | 14.247 |
+| Silent Tick median / maximum | 3.091 / 4.524 | 3.125 / 5.600 |
+| Loaded whole-turn maximum | 17.224 | 18.251 |
+| Silent whole-turn maximum | 19.195 | 20.821 |
+
+All eight silent producer turns exceed8.333ms in both arms. Loaded whole-turn
+counts differ60→267, so their aggregate246.157→211.772ms does not establish
+equal-work savings. Silent totals rise121.207→127.359ms. Loaded Paint medians
+fall2.904→2.458ms, while silent Paint sums remain29.822→29.961ms; observer
+costs and natural scheduling remain in the measurements. This is one run
+order, without a repeated gain, resize or physical120Hz claim.
+
+A separate selected reconstruction of§8.132's existing diagnostic explains
+why its whole-turn tail needs caution: the19.852ms silent turn includes
+9.979ms inside diagnostic picture observation,5.105ms Paint,3.275ms Tick and
+1.097ms native pixel copy. Picture observation hashes786,432 RGB triplets
+through individual SHA updates and also samples geometry/state; hashing alone
+was not timed. Its nested journal write is only a small part of that scope.
+Full History exports occur at two paused checkpoints, not on every silent
+turn. Subtracting observed overhead would not establish a faster executable;
+Tick plus Paint alone already exceeds8.333ms in that selected turn. A future
+batched observer must preserve exact bytes and be identical in both arms of
+any subsequent comparison.
+
+Both native processes receive deliberate post-observation SIGTERM (−15);
+drivers, outer wrappers and Mac launchers exit0 without watchdog actions.
+All12 recorded PIDs/eight groups retire and port5941 is free. The source
+binding is `534aeccb`. Under
+`exact2-linux-messages-ink-pair/target`, control root
+`messages-last-font-metrics-before-runtime-v2` seals52 files/48,913,306B
+(report `3f8354c2`, manifest `a82793eb`); candidate root
+`messages-last-font-metrics-after-runtime-v2` seals60 files/50,705,951B
+(report `35173b26`, manifest `396f8921`, cohort `300dbdb3`). Lead raw and cohort
+checks remain under `target/ink-placement-integration`; cohort `231a62c8`
+records corrected local inspection assumptions without changing the reader,
+raw evidence or either runtime. No further runtime is implied by this closure.
