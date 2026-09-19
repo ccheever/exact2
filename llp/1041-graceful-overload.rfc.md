@@ -7896,3 +7896,74 @@ difference must not be subtracted from earlier app timings. The prospective
 common observer changes pixel hashing and lowercase digest formatting only;
 snapshot hashing, workload, acceptance and quotas remain unchanged. A fresh
 application comparison is still required. No physical120Hz claim follows.
+
+### 8.145 Kernel measurement cache: fewer callbacks, mixed first Linux pair, 2026-09-19
+
+Two fresh optimized products share f72c142, the lighter§8.144 pixel recorder,
+the current Reusable factory and identical generated entry/plan/compat and
+fonts. Only`kernel/src/layout.rs` differs: control removes the already merged
+four-offer measurement cache while retaining current Video and invalidation
+behavior; candidate is current production. Actual2,005 source paths/23 links
+and five private `fresh:false` artifacts are checked for each capture.
+Control ELF`cf532a9b` builds in45.171s; candidate`5276fbf7` in42.736s.
+This experiment changes no production defaults.
+
+The first build stops before compilation because the workspace lock records
+ureq3.4.2 while the unchanged external Ibex manifest requires exactly3.4.0.
+One isolated offline metadata resolution changes only that version/checksum.
+Both fresh build inputs use the same explicit correction and retain
+`--locked --offline`; MAIN's lock and the original failed root stay unchanged.
+
+Each actual Linux cell passes once with full10,000 rows/32 updates at1024x768,
+three fixed2s phases,36 in-window handlers and18 exact ±40 wheel movements.
+Full nine-field History values match between arms at revisions0 and16,
+including all10,000 rows and UTF-8 body-byte totals. Four full RGB captures
+are byte-identical. Loaded prefixes install21/20 fresh pictures at revisions
+9–16; both command-free2s prefixes advance0→8 with eight timers and no input.
+Independent raw stderr/journal joins close all200/205 picture chains and
+the final clean fences at4862/4779. Drain observations receive no phase credit.
+
+| Complete advancing-timer cohort | Control | Current cache |
+|---|---:|---:|
+| Loaded timers / callbacks |8 /656|8 /552|
+| Loaded callback-sum median, ms |1.431738|1.536442|
+| Loaded geometry median, ms |1.530610|1.634882|
+| Loaded whole-turn median / max, ms |9.324122 /10.594503|9.893604 /10.829878|
+| Loaded whole turns above8.333ms |5/8|8/8|
+| Silent timers / callbacks |8 /656|8 /552|
+| Silent callback-sum median, ms |1.611929|1.573923|
+| Silent whole-turn median / max, ms |11.157025 /12.087592|10.918295 /12.125175|
+| Silent whole turns above8.333ms |7/8|8/8|
+
+Each advancing timer makes82→69 callbacks, but fewer calls do not establish
+lower cost. Loaded callback sums total11.430726→11.826135ms; silent sums
+12.472895→12.945632ms. These are per-timer aggregates, not individual callback
+medians. Only6/8 control loaded timer turns paint, versus8/8 candidate turns;
+restricting to those gives whole medians10.037875→9.893604ms, still unequal
+cohorts. All eight silent turns paint in both arms, with whole totals
+86.599525→88.178489ms. Idle has8/7 complete timers and recovery8/8; both have
+zero text callbacks. Their whole-turn maxima remain below8.333ms.
+
+Silent Paint medians are4.282414→4.123496ms and observer medians
+2.290364→2.298344ms. Paint remains a substantial application cost; observer
+wall time still includes work beyond hashing. Neither this one fixed-order
+pair nor comparison with older, differently instrumented products proves a
+consistent speedup, CPU attribution, repeatable gain or physical120Hz.
+
+After the control's successful native run/copy/cleanup, a local finalization
+helper reads an obsolete report path and stops before candidate launch. The
+failure remains frozen. Reading the actual copied path independently passes
+the original digest/acceptance assertions and all raw joins. A two-literal
+local helper correction then permits the candidate's first run,186.033s
+after control termination. Neither native cell is retried, and no runtime
+reader, source, quota or port changes. Both driver/outer exits are0; native−15
+is deliberate post-observation cleanup. All12 runtime PIDs/eight groups are
+absent and5941 is free; auxiliary copy/check children are separately retired.
+
+The private ink-pair checkout retains`messages-kernel-cache-ring-*-build-v2`
+and`-runtime-v2`, control seal`a530df9a`, candidate seal`6ec9a38c`, and
+`kernel-cache-ring-pair-closure-v1` manifest`9dfd7617`. MAIN ignored
+`target/kernel-cache-ring-evaluation` holds independent build, functional,
+timer and painting-cohort reconstructions. Build sources match before/after;
+runtime checks2028 identities before launch, with no post-runtime source
+rehash claimed. Earlier failures, archives and timings remain intact.
