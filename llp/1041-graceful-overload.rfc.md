@@ -6015,3 +6015,52 @@ new comparisons or establish fewer allocations, faster callbacks or native
 frames. A fresh current-source native comparison remains unrun; the older
 86ef control lacks the already-landed stored-length cleanup and cannot isolate
 this change. No120Hz claim follows.
+
+### 8.105 Guarded strut reuse: first native pair is mixed, 2026-09-18
+
+Two fresh optimized d85a2a1 builds and one ordered control→treatment pair complete
+without retries or watchdog actions. Both include the stored-length cleanup,
+default Reusable producer and identical observation code; the258 captured source
+inputs differ only in §8.104's Text.swift change. Generated entry, plan, compatibility
+record, toolchain and build configuration match. Each immutable capture has272
+files; binaries are a455d481 and2eb53927. The old86ef run is not a control.
+
+All six phases retain the full10,000-row History9 response, actual32-row changes,
+18 accepted resize dimensions and12 input handlers/ACKs each. Window, port,
+Quartz points and wheel paths match. Each phase's18 resize chains is wholly
+inside its AppKit edge. Full History values match at equal arguments; loaded
+progress is8→18 versus9→19, so equal geometry does not establish equal timed work.
+Both arms reach revision19 in recovery.
+
+| Strict resize cohort | Control | Treatment |
+|---|---:|---:|
+| Idle whole sum, ms | 167.528 | 157.495 |
+| Load whole sum, ms | 144.985 | 147.692 |
+| Recovery whole sum, ms | 169.453 | 165.334 |
+| All54 whole sum, ms | 481.966 | 470.521 |
+| Whole spans exceeding8.333ms | 33/54 | 33/54 |
+
+The pooled whole span is2.37% lower in this pair, while the loaded phase worsens;
+this does not establish a consistent native gain. Loaded timer medians improve
+7.361→4.212ms, but maxima worsen8.195→8.853ms. Both command-free2s intervals have
+eight complete timer chains and five budget misses; their maxima worsen
+11.519→13.101ms. Loaded typing ACK maximum worsens21.010→26.793ms, loaded wheel
+7.285→10.897ms and recovery wheel2.661→15.056ms. Six inputs per type per phase
+are not a robust tail distribution. Resize maxima still reach13.442ms in the
+treatment. No reverse pair or additional sampler is selected from this result.
+
+Independent raw reconstruction covers all108 resize chains, phase timers,
+silent chains and72 input joins, plus selected full History and geometry checks.
+Primary omissions are zero; tracking mode remains unestablished because its
+separate observations overflow. The core interval includes Runtime work,
+synchronous Swift measurement and decode, not isolated strut or CoreText CPU
+time. Prefit work outside the resize probe is not measured. Prior display
+metadata is60Hz; backing scale is not independently captured. These results
+neither establish physical120Hz nor turn §8.104's calculation count into a
+latency claim.
+
+All14 recorded PIDs, ten groups and eight owned pointer releases close before
+the final report. The370-file runtime archive at
+`target/messages-strut-native-execution-v1/` is sealed by manifest9e9468aa;
+report42e70c2a preserves the full tables, progress differences and negative tails.
+The separate569-file build archive and source preparation remain unchanged.
