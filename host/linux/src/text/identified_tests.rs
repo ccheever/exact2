@@ -512,3 +512,336 @@ fn retained_identified_600_to_632_reuses_giant_shape() {
     assert_eq!(shaping::shape_line_calls(), actual_calls);
     assert!(Rc::ptr_eq(&a.source, &b.source));
 }
+
+// Both arms use existing identified_spec/measure APIs. Counters live at actual
+// Run construction/clone sites; the reference always uses borrowed identity.
+mod owned_spec {
+    use super::*;
+
+    fn engine() -> TextEngine {
+        let mut db = fontdb::Database::new();
+        db.load_font_source(fontdb::Source::Binary(Arc::new(
+            include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
+        )));
+        db.set_sans_serif_family("DejaVu Sans");
+        TextEngine::with_catalog(catalog::Catalog::with_fonts(
+            FontSystem::new_with_locale_and_db("en-US".into(), db),
+        ))
+    }
+    fn run(text: &str) -> Run {
+        Run {
+            text: text.into(),
+            size: 16.,
+            weight: 400,
+            family: 0,
+            italic: false,
+            line_height: None,
+            letter_spacing: 0.,
+        }
+    }
+    fn spec(text: &str) -> Spec {
+        Spec {
+            strut: run(""),
+            runs: vec![run(text)],
+            align: TextAlign::Left,
+            line_clamp: 0,
+            overflow_wrap: exact_kernel::OverflowWrap::Normal,
+        }
+    }
+    fn stamp_tree(text: &str) -> Kernel {
+        let mut k = Kernel::with_monospace();
+        apply(
+            &mut k,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::Text,
+                },
+                prop(2, PropId::Text, text),
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        );
+        k
+    }
+    fn capacities(s: &Spec) -> Vec<usize> {
+        let mut result = vec![s.runs.capacity(), s.strut.text.capacity()];
+        result.extend(s.runs.iter().map(|r| r.text.capacity()));
+        result
+    }
+    fn canonical(s: &Spec) -> bool {
+        s.runs.capacity() == s.runs.len()
+            && std::iter::once(&s.strut)
+                .chain(&s.runs)
+                .all(|r| r.text.capacity() == r.text.len())
+    }
+    fn pixels(e: &mut TextEngine, p: &Paragraph) -> Vec<u8> {
+        let palette: Vec<_> = p
+            .source
+            .spec
+            .runs
+            .iter()
+            .enumerate()
+            .map(|(i, _)| RunPaint {
+                color: if i == 0 {
+                    [20, 80, 150, 255]
+                } else {
+                    [160, 20, 40, 220]
+                },
+                source: i as u32 + 2,
+            })
+            .collect();
+        let mut pix = Pixmap::new(360, 180).unwrap();
+        e.paint(
+            &mut pix,
+            p,
+            &palette,
+            (3.25, 4.5),
+            1.25,
+            Transform::from_scale(1.25, 1.25),
+            None,
+        );
+        pix.data().to_vec()
+    }
+    fn geometry(p: &Paragraph) -> (TextMetrics, Vec<u32>, Vec<String>) {
+        (
+            paragraph_metrics(p),
+            p.baselines.iter().map(|v| v.to_bits()).collect(),
+            p.layout_runs()
+                .flat_map(|r| r.glyphs.iter().map(|g| format!("{g:?}")))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn cold_real_request_copies_unicode_once_with_exact_borrowed_pixels() {
+        let text = "café e\u{301} العربية\nsecond UTF8 line";
+        let k = stamp_tree(text);
+        let n = k.node(2).unwrap();
+        let stamp = n.paragraph_stamp().unwrap();
+        let runs = n.text_runs();
+        let req = TextMeasureRequest {
+            runs: &runs,
+            paragraph: exact_kernel::text::Paragraph::from_style(
+                &n.computed_style(exact_kernel::StyleMask::INHERITED),
+            ),
+            width: AxisOffer::Definite(117.25),
+            height: AxisOffer::MaxContent,
+        };
+        let expected_bytes: usize = runs.iter().map(|r| r.text.len()).sum();
+        let old_spec = Spec::from_request(&req);
+        assert!(canonical(&old_spec));
+        assert_eq!(capacities(&old_spec), capacities(&old_spec.clone()));
+        let mut a = engine();
+        let mut b = engine();
+        reset();
+        let measured = a.measure_identified(&stamp, &req);
+        let actual = work();
+        let reference = b.measure(&old_spec, req.width);
+        assert_eq!(measured, reference);
+        let p = a
+            .paragraph_identified(&stamp, Some(117.25), || panic!("warm spec"))
+            .unwrap();
+        let q = b.paragraph(&old_spec, Some(117.25));
+        assert_eq!(geometry(&p), geometry(&q));
+        assert_eq!(pixels(&mut a, &p), pixels(&mut b, &q));
+        assert_eq!(
+            a.residency().cold_policy_bytes,
+            b.residency().cold_policy_bytes
+        );
+        eprintln!(
+            "identified UTF8 copied={} expected={} hashed={}",
+            actual.copied, expected_bytes, actual.hashed
+        );
+        assert!(actual.hashed >= expected_bytes);
+        assert_eq!(actual.copied, expected_bytes, "second owned source copy");
+    }
+
+    #[test]
+    fn canonical_builder_moves_allocations_and_preserves_exact_key_state() {
+        let k = stamp_tree("styled source");
+        let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+        let mut s = spec("α styled first ");
+        let mut second = run("second 日本語\nline");
+        second.size = 19.25;
+        second.weight = 700;
+        second.italic = true;
+        second.line_height = Some(23.5);
+        second.letter_spacing = 0.25;
+        s.runs = vec![s.runs.remove(0), second];
+        s.align = TextAlign::Center;
+        assert!(canonical(&s));
+        let original = s.clone();
+        assert_eq!(capacities(&s), capacities(&original));
+        let ptrs: Vec<_> = s.runs.iter().map(|r| r.text.as_ptr()).collect();
+        let vector = s.runs.as_ptr();
+        let mut a = engine();
+        let mut b = engine();
+        reset();
+        let (key, stored) = a.identified_spec(&stamp, || s);
+        let copied = work().copied;
+        let old_key = b.paragraphs.identity(&original);
+        b.paragraphs.bind(&stamp, old_key);
+        assert_eq!(key, old_key);
+        assert_eq!(*stored, original);
+        assert_eq!(capacities(&stored), capacities(&original));
+        assert_eq!(
+            a.paragraphs.trim_test_state(),
+            b.paragraphs.trim_test_state()
+        );
+        let p = a.paragraph_for(&stored, Some(120.25), key);
+        let q = b.paragraph(&original, Some(120.25));
+        assert_eq!(geometry(&p), geometry(&q));
+        assert_eq!(pixels(&mut a, &p), pixels(&mut b, &q));
+        assert_eq!(copied, 0, "canonical builder copied owned text");
+        assert_eq!(stored.runs.as_ptr(), vector);
+        assert_eq!(
+            stored
+                .runs
+                .iter()
+                .map(|r| r.text.as_ptr())
+                .collect::<Vec<_>>(),
+            ptrs
+        );
+    }
+
+    #[test]
+    fn spare_capacity_falls_back_and_keeps_original_eviction_accounting() {
+        for spare in 0..3 {
+            let k = stamp_tree("capacity fallback");
+            let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+            let mut s = spec("spare-capacity UTF8 é");
+            match spare {
+                0 => s.runs.reserve(64),
+                1 => s.strut.text.reserve(64),
+                _ => s.runs[0].text.reserve(128),
+            }
+            assert!(!canonical(&s));
+            let expected = s.clone();
+            let bytes: usize = s.runs.iter().map(|r| r.text.len()).sum();
+            let mut a = engine();
+            let mut b = engine();
+            reset();
+            let (key, stored) = a.identified_spec(&stamp, || s);
+            assert_eq!(work().copied, bytes);
+            let old_key = b.paragraphs.identity(&expected);
+            b.paragraphs.bind(&stamp, old_key);
+            assert_eq!(key, old_key);
+            assert_eq!(capacities(&stored), capacities(&expected));
+            assert_eq!(
+                a.paragraphs.trim_test_state(),
+                b.paragraphs.trim_test_state()
+            );
+            drop(stored);
+            let exact = a.residency().cold_policy_bytes;
+            for target in [exact, exact.saturating_sub(1), 0] {
+                a.paragraphs.set_target(target);
+                b.paragraphs.set_target(target);
+                assert_eq!(
+                    a.paragraphs.trim_test_state(),
+                    b.paragraphs.trim_test_state()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn equal_content_new_owner_keeps_canonical_allocation_and_borrowed_path() {
+        let a_tree = stamp_tree("same key");
+        let b_tree = stamp_tree("same key");
+        let sa = a_tree.node(2).unwrap().paragraph_stamp().unwrap();
+        let sb = b_tree.node(2).unwrap().paragraph_stamp().unwrap();
+        assert!(!sa.same_metrics(&sb));
+        let mut e = engine();
+        let original = spec("same canonical text");
+        reset();
+        let key = e.paragraphs.identity(&original);
+        assert_eq!(work().copied, original.runs[0].text.len());
+        let canonical = e.paragraphs.spec(key).unwrap();
+        assert_ne!(
+            canonical.runs[0].text.as_ptr(),
+            original.runs[0].text.as_ptr()
+        );
+        for stamp in [&sa, &sb] {
+            let owned = spec("same canonical text");
+            reset();
+            let (again, stored) = e.identified_spec(stamp, || owned);
+            assert_eq!(again, key);
+            assert!(Arc::ptr_eq(&stored, &canonical));
+            assert_eq!(work().copied, 0);
+        }
+        reset();
+        assert_eq!(e.paragraphs.identity(&original), key);
+        assert_eq!(work().copied, 0);
+    }
+
+    #[test]
+    fn empty_canonical_specs_keep_scalar_and_capacity_semantics() {
+        for no_runs in [false, true] {
+            let k = stamp_tree("");
+            let stamp = k.node(2).unwrap().paragraph_stamp().unwrap();
+            let mut s = spec("");
+            if no_runs {
+                s.runs = Vec::new();
+            }
+            let old = s.clone();
+            assert!(canonical(&s));
+            assert_eq!(capacities(&s), capacities(&old));
+            let mut a = engine();
+            let mut b = engine();
+            let (key, stored) = a.identified_spec(&stamp, || s);
+            let old_key = b.paragraphs.identity(&old);
+            b.paragraphs.bind(&stamp, old_key);
+            assert_eq!(
+                a.measure_for(&stored, AxisOffer::MinContent, key),
+                b.measure_for(&old, AxisOffer::MinContent, old_key)
+            );
+            assert_eq!(
+                a.paragraphs.trim_test_state(),
+                b.paragraphs.trim_test_state()
+            );
+            assert_eq!(a.shape_calls, 0);
+            assert_eq!(b.shape_calls, 0);
+        }
+    }
+
+    #[test]
+    fn moved_source_retains_a_while_b_replaces_then_dies_at_last_owner() {
+        let mut k = stamp_tree("old accepted");
+        let mut e = engine();
+        let sa = k.node(2).unwrap().paragraph_stamp().unwrap();
+        let a = e
+            .paragraph_identified(&sa, Some(120.), || spec("old accepted"))
+            .unwrap();
+        let old_source = Arc::downgrade(&a.source.spec);
+        let old_paragraph = Rc::downgrade(&a);
+        apply(&mut k, &[prop(2, PropId::Text, "new accepted")]);
+        let sb = k.node(2).unwrap().paragraph_stamp().unwrap();
+        assert!(!sa.same_metrics(&sb));
+        let b = e
+            .paragraph_identified(&sb, Some(117.25), || spec("new accepted"))
+            .unwrap();
+        let new_source = Arc::downgrade(&b.source.spec);
+        assert!(!Rc::ptr_eq(&a.source, &b.source));
+        e.paragraphs.clear();
+        assert!(old_source.upgrade().is_some());
+        assert!(new_source.upgrade().is_some());
+        // clear retains pinned identities; remove that owner before last-owner checks.
+        drop(e);
+        assert!(old_source.upgrade().is_some());
+        assert!(new_source.upgrade().is_some());
+        drop(a);
+        assert!(old_paragraph.upgrade().is_none());
+        assert!(old_source.upgrade().is_none());
+        assert!(new_source.upgrade().is_some());
+        drop(b);
+        assert!(new_source.upgrade().is_none());
+    }
+}
