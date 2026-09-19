@@ -177,7 +177,7 @@ fn full_undrained_session_does_not_block_another_sessions_native_workers() {
     assert_eq!(a.views.len(), 2);
     assert!(a.views.values().all(|v| v.request.is_some()));
     assert!(a.bitmaps.is_empty());
-    assert_eq!(a.stats().delivery_cells, 0);
+    assert_eq!(a.stats().ready, 0);
     // No poll may consume A between releasing decode and checking B's progress.
     release.store(true, Ordering::Release);
     until(|| a.stats().delivery_cells == 2 && a.stats().running == 0);

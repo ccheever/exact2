@@ -7,8 +7,8 @@ const ROW: &str = "      each x in rows key=x\n        text `${x}`";
 fn literal_opt_in_and_ordinary_each_compile() {
     for list in [
         "list virtualized=true height=200",
-        "list virtualized=false",
-        "list",
+        "list virtualized=false height=200",
+        "scroll",
         "column",
     ] {
         contract::compile(&source(list, ROW)).unwrap();
