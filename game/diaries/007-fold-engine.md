@@ -80,3 +80,18 @@ The following are the only changed values relative to `8b290b2`:
 Asset, particle, placement, skinned and sprite fixtures preserve all hash/save
 values. Their repins update provenance only. Live/fixed Lanterns remain empty
 until first Linux/web agreement; no manual baseline was published.
+
+## External identity and scene-bake seams
+
+Both Lanterns consumers have directory basename `lanterns`, but fixed I3 declares
+`Game::ID = "lanterns-evidence"`. Publishing the basename would label its first
+baseline incorrectly. State and wildcard snapshots now expose the actual game ID;
+proof summaries retain it, and `agreePins` refuses missing or disagreeing IDs
+across modes/hosts or against an existing baseline. Pin publication uses that
+agreed identity. Five focused proof tests pass, including missing/foreign-ID
+negative controls. This metadata changes no save or world hash. The full
+Greybox state snapshot gains this field without deleting its existing assertions.
+
+Scene baking now reads resolved manifest defaults and shares the generated-shell
+Cargo policy. External proof tests create their fixtures under TMPDIR, preserving
+their external-path assertions without writing sibling lane directories.

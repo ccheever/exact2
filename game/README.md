@@ -270,7 +270,9 @@ runs the existing three-mode comparison through the same recorder.
 
 ## Proof pins
 
-Each game's `pins.json` is the authority for simulation tick and continuation-save goldens. Algorithm constants and synthetic hash-format fixtures are outside this claim. Its proof calls `pin(tick, state)`
+`state.world.game` exposes `Game::ID`; pin publication requires the same observed
+identity in every host/mode, including external games whose directory has another
+name. Each game's `pins.json` is the authority for simulation tick and continuation-save goldens. Algorithm constants and synthetic hash-format fixtures are outside this claim. Its proof calls `pin(tick, state)`
 and `pinSave("continuation", path)`; Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`, deriving identity, tick and hash.
 The tiny Data parser skips metadata; it is smaller than a generated `pins.rs` build step.
 `bun game/prove.mjs beacons --repin` runs continuous, Save and FreshGame on Linux

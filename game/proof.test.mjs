@@ -388,11 +388,11 @@ test('local and global position helpers preserve parent-space distinction', asyn
 const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
-  name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
+  name:'fixture', game:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
 })));
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
-  expect(agreePins(rows, old, ['linux','web'])).toEqual({...old,hosts:['linux','web']});
+  expect(agreePins(rows, old, ['linux','web'])).toEqual({...old,game:'fixture',hosts:['linux','web']});
   for (const section of ['ticks','saves']) {
     const bad=structuredClone(rows), key=Object.keys(bad[4].pins[section])[0];
     bad[4].pins[section][key]=section==='ticks'?repeatedHash('1'):'b'.repeat(64);
@@ -509,8 +509,8 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 
 for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}`;
-  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
-  const directory = scenario.startsWith('external-report-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
+  // Keep external proof fixtures inside the caller-selected scratch directory.
+  const directory = scenario.startsWith('external-report-') ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -525,7 +525,7 @@ for (const scenario of ['report','repin', ...['ordinary','repeat','cwd','failure
       mkdirSync(out,{recursive:true});
       const failed=!process.argv.includes('--build-only') && (process.env.R8B_FAIL==='1' || host==='web' && process.env.R8B_PASS_WEB!=='1');
       const status=failed?'FAIL':process.env.R8B_UNVERIFIED==='1'||process.env.R8B_UNVERIFIED_HOST===host||process.env.EXACT_PROOF_REPIN==='1'?'UNVERIFIED':'PASS';
-      const row={name:${JSON.stringify(name)},host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
+      const row={name:${JSON.stringify(name)},game:${JSON.stringify(name)},host,status,mode:process.env.EXACT_GAME_PARANOID,pins:${JSON.stringify(pins)},failures:failed?['refusal']:[],facilities:failed?['state unused; pending assets']:['no recorded stalls or refusals'],seconds:0,worlds:[{session:1,tick:1,hash:'same'}],saves:[{name:'a',sha256:'same'}]};
       writeFileSync(out+'/summary.json',JSON.stringify(row));
       if(host==='web' && process.env.R8B_PASS_WEB!=='1') console.error('web carrier unavailable: /missing/chrome: ENOENT; set CHROME');
       process.exit(failed?1:0);
@@ -1122,7 +1122,7 @@ test('namespaced evidence pins preserve numeric tick and complete branch invento
   expect(calls.at(-1)[1]).toBe(false);
   expect(()=>recorder.pin(60,{tick:60,hash:syntheticHash},'__proto__')).toThrow('invalid pin key');
   const pins={ticks:{'placement/apex/60':syntheticHash,'clip/apex/60':repeatedHash('1')},saves:{'clip/apex/60':'a'.repeat(64)}};
-  const rows=['0','1','fresh-game'].map(mode=>({host:'linux',mode,pins:structuredClone(pins)}));
+  const rows=['0','1','fresh-game'].map(mode=>({host:'linux',game:'lanterns-evidence',mode,pins:structuredClone(pins)}));
   expect(agreePins(rows,pins,['linux']).ticks).toEqual(pins.ticks);
   delete rows[2].pins.ticks['clip/apex/60'];
   expect(()=>agreePins(rows,pins,['linux'])).toThrow('did not observe ticks clip/apex/60');
@@ -1226,4 +1226,20 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
 test('E10 PNG command is runnable for named and external games', () => {
   expect(captureCommand('game/games/beacons/proof.mjs')).toBe('bun game/games/beacons/proof.mjs web');
   expect(captureCommand('/tmp/my game/proof.mjs')).toBe("bun '/tmp/my game/proof.mjs' web");
+});
+
+
+test('pin publication uses the observed game identity, never the directory name', () => {
+  const rows=candidates(['linux']);
+  for(const row of rows) {row.name='lanterns';row.game='lanterns-evidence';}
+  expect(agreePins(rows,rows[0].pins,['linux']).game).toBe('lanterns-evidence');
+  const missing=structuredClone(rows);delete missing[1].game;
+  expect(()=>agreePins(missing,{},['linux'])).toThrow('no game identity');
+  const foreign=structuredClone(rows);foreign[2].game='lanterns';
+  expect(()=>agreePins(foreign,{},['linux'])).toThrow('game identity disagrees');
+  expect(()=>agreePins(rows,{game:'different'},['linux'])).toThrow('game identity disagrees');
+  const observations=new Map(),identities=new Set();
+  worldObservations(observations,1,identities)({world:{game:'lanterns-evidence',tick:0,hash:syntheticHash}});
+  worldObservations(observations,2,identities)({game:'lanterns-evidence',tick:1,hash:syntheticHash,entities:[]});
+  expect([...identities]).toEqual(['lanterns-evidence']);
 });

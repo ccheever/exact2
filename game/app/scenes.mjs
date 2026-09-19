@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {existsSync, readFileSync, statSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {gameDefaults, prepareGame} from './shells.mjs';
+import {cargoReproducibilityFlags} from '../../scripts/app.mjs';
 
 const sha = bytes => createHash('sha256').update(bytes).digest('hex');
 const appDir = app => typeof app === 'string' ? app : app.dir;
@@ -16,7 +17,7 @@ export function bakeGameScene(app, {development = true, build = true} = {}) {
   if (!existsSync(scene)) return null;
   if (typeof app === 'object' && app.prepare) app.prepare();
   else if (existsSync(resolve(dir, 'logic/src/lib.rs'))) prepareGame(dir, gameDefaults(dir).game);
-  const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+  const manifest = app.manifest ?? gameDefaults(dir) ?? JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
   const crate = manifest.game?.crate;
   if (!crate?.endsWith('-logic')) throw new Error(`${dir}: scene needs game.crate`);
   const binary = crate.slice(0, -6) + '-scene';
@@ -26,7 +27,7 @@ export function bakeGameScene(app, {development = true, build = true} = {}) {
   const compiled = [];
   let executable = resolve(target, 'debug', binary);
   if (build) {
-    const result = spawnSync('cargo', ['build', '--locked', '--offline', '--manifest-path', resolve(workspace, 'Cargo.toml'), '-p', crate, '--bin', binary, '--message-format=json'], {cwd:workspace, env, encoding:'utf8', maxBuffer:32*1024*1024});
+    const result = spawnSync('cargo', ['build', ...cargoReproducibilityFlags({workspace, manifest}), '--manifest-path', resolve(workspace, 'Cargo.toml'), '-p', crate, '--bin', binary, '--message-format=json'], {cwd:workspace, env, encoding:'utf8', maxBuffer:32*1024*1024});
     for (const line of (result.stdout ?? '').split('\n').filter(Boolean)) {
       const event = JSON.parse(line);
       if (event.reason === 'compiler-artifact') {

@@ -148,6 +148,9 @@ export function agreePins(rows, previous, hosts) {
     const matches = rows.filter(row => row.host === host && row.mode === mode);
     if (matches.length !== 1 || matches[0].failures?.length) throw new Error(`repin refused: ${host} ${mode} missing or failed; inspect artifacts/prove and rerun --paranoid`);
     const row = matches[0], pins = row.pins;
+    if (typeof row.game !== 'string' || !row.game.length) throw new Error(`repin refused: ${host} ${mode} has no game identity`);
+    if ((previous.game && row.game !== previous.game) || (reference && row.game !== reference.game))
+      throw new Error(`repin refused: ${host} ${mode} game identity disagrees`);
     if (!pins || !Object.keys(pins.ticks ?? {}).length || !Object.keys(pins.saves ?? {}).length)
       throw new Error(`repin refused: ${host} ${mode} has no tick/save observations`);
     for (const [section, pattern] of [['ticks', /^0x[0-9a-f]{16}$/], ['saves', /^[0-9a-f]{64}$/]]) {
@@ -163,7 +166,7 @@ export function agreePins(rows, previous, hosts) {
     }
     reference ??= row;
   }
-  return {...reference.pins, hosts};
+  return {...reference.pins, game:reference.game, hosts};
 }
 export function pinRecorder(previous, name, check, collecting = false) {
   const pins = {ticks:{}, saves:{}};
@@ -256,11 +259,13 @@ export async function paranoidRuns(run, restore = async () => 0, host = 'web') {
 export function captureCommand(path) {
   return `bun ${/^[a-zA-Z0-9_./-]+$/.test(path) ? path : "'"+path.replaceAll("'", "'\\''")+"'"} web`;
 }
-export function worldObservations(observations, session) {
+export function worldObservations(observations, session, identities = new Set()) {
   return reply => {
     const worlds = Array.isArray(reply?.world) ? reply.world : [reply?.world ?? reply];
-    for (const world of worlds) if (world?.hash && Number.isSafeInteger(world.tick))
+    for (const world of worlds) if (world?.hash && Number.isSafeInteger(world.tick)) {
       observations.set(session, {session, tick:world.tick, hash:world.hash});
+      if (typeof world.game === 'string' && world.game.length) identities.add(world.game);
+    }
   };
 }
 
@@ -291,7 +296,7 @@ export async function proof(meta, script) {
     }, host);
     process.exit(failed ? 1 : 0);
   }
-  const finalWorlds = [], observations = new Map();
+  const finalWorlds = [], observations = new Map(), gameIdentities = new Set();
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
   const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
@@ -406,7 +411,7 @@ export async function proof(meta, script) {
       return async (...args) => {
         try {
           const reply = await target[method](...args);
-          if (method === 'state') worldObservations(observations, id)(reply);
+          if (method === 'state') worldObservations(observations, id, gameIdentities)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           say(`${method} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n${render(method,reply)}`);
           return reply;
@@ -494,7 +499,7 @@ export async function proof(meta, script) {
     const partial = process.argv.some(arg => ['--build-only','--screenshot-only','--capture40'].includes(arg));
     const status = proofStatus({failures, expected:previousPins, pins, collecting, partial});
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, status, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, game:gameIdentities.size === 1 ? [...gameIdentities][0] : null, host, status, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     say(`PROOF ${status} ${name} ${host}: ${failures.length} failures; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${captureCommand(relative(root, fileURLToPath(meta.url)))}`);
