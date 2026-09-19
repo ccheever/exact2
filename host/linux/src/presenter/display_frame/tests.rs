@@ -198,14 +198,14 @@ fn existing_executor_completion_and_timer_commit_while_display_slot_is_occupied(
     p.executor
         .run(
             request,
-            Some(Box::new(move || {
+            Some(exact_runner::Work::Now(Box::new(move || {
                 gate.recv_timeout(Duration::from_secs(5)).unwrap();
                 Outcome::Response(Response {
                     status: 200,
                     headers: vec![],
                     body: vec![],
                 })
-            })),
+            }))),
         )
         .unwrap();
     assert!(p.pending());
