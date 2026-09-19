@@ -399,7 +399,7 @@ function listen(entry) {
   const sendControl = (event, owner, phase, id, x = 0, y = 0) => send(event, {t:"control", name:owner.name, phase, id, x, y});
   const cancelRemoved = () => {
     for (const owners of [controls, controlKeys]) for (const [key, owner] of owners) {
-      if (owner.node && (!owner.node.isConnected || !owner.node.getAttribute("data-action"))) {
+      if (owner.node && (!owner.node.isConnected || !owner.node.getAttribute("data-action") || owner.node.closest("[data-gpu-input]") !== el)) {
         sendControl({timeStamp:performance.now()}, owner, "cancel", owners === controls ? key : key === "Space" ? 4294967294 : 4294967293);
         owners.delete(key);
       }
@@ -447,7 +447,8 @@ function listen(entry) {
     held.clear(); for (const code of world.input?.forwarded ?? []) held.add(code);
     controls.clear(); controlKeys.clear();
     for (const contact of world.input?.controlContacts ?? []) {
-      const node = [...el.querySelectorAll("button[data-action]")].find(node => node.getAttribute("data-action") === contact.action && node.closest("[data-gpu-input]") === el);
+      const candidates = [...el.querySelectorAll("button[data-action]")].filter(node => node.getAttribute("data-action") === contact.action && node.closest("[data-gpu-input]") === el);
+      const node = candidates.length === 1 ? candidates[0] : null;
       const owner = {...(node ? binding(node) : {name:contact.action, left:0, top:0}), origin:contact.origin, position:contact.position};
       if (contact.id === 4294967294) controlKeys.set("Space", owner);
       else if (contact.id === 4294967293) controlKeys.set("Enter", owner);
@@ -457,7 +458,28 @@ function listen(entry) {
   };
   entry.resampleHeld();
   const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-  const blur = event => { held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" }); };
+  const blur = event => {
+    entry.resampleHeld();
+    for (const [id, owner] of controls) sendControl(event, owner, "cancel", id);
+    for (const [code, owner] of controlKeys) sendControl(event, owner, "cancel", code === "Space" ? 4294967294 : 4294967293);
+    held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" });
+  };
+  // A pointer-owned control may coexist with a focused editor outside this canvas.
+  const pressedKey = (event, down) => {
+    if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || !["Space", "Enter", "NumpadEnter"].includes(event.code)) return;
+    cancelRemoved(); entry.resampleHeld();
+    const owner = controlKeys.get(event.code) ?? (down ? controls.values().next().value : null);
+    if (!owner) return;
+    event.preventDefault();
+    if (down && !controlKeys.has(event.code)) {
+      controlKeys.set(event.code, owner); sendControl(event, owner, "down", event.code === "Space" ? 4294967294 : 4294967293);
+    } else if (!down) {
+      controlKeys.delete(event.code); sendControl(event, owner, "up", event.code === "Space" ? 4294967294 : 4294967293);
+    }
+  };
+  const pressedDown = event => pressedKey(event, true), pressedUp = event => pressedKey(event, false);
+  window.addEventListener("keydown", pressedDown, true);
+  window.addEventListener("keyup", pressedUp, true);
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
     if (event.defaultPrevented || event.isComposing || event.code === "Tab" || event.metaKey || event.ctrlKey || editable(target)) return;
@@ -485,10 +507,12 @@ function listen(entry) {
   // Assistive technology activates a button without a pointer/key sequence.
   on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
   on("focusin", event => { if (editable(event.target)) blur(event); });
-  on("focusout", event => { if (!el.contains(event.relatedTarget)) blur(event); });
+  on("focusout", event => { if (!controls.size && !el.contains(event.relatedTarget)) blur(event); });
   entry.unlisten = () => {
     mutations.disconnect();
     window.removeEventListener("blur", inactive);
+    window.removeEventListener("keydown", pressedDown, true);
+    window.removeEventListener("keyup", pressedUp, true);
     for (const [name, fn, options] of listeners) el.removeEventListener(name, fn, options);
     entry.el.style.touchAction = previous.touchAction; delete el.dataset.gpuInput;
     if (previous.tabindex === null) el.removeAttribute("tabindex"); else el.setAttribute("tabindex", previous.tabindex);

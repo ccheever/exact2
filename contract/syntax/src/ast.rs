@@ -23,6 +23,48 @@ pub struct File {
     pub tests: Vec<TestDecl>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
+    /// Comments and blank-line groups, in source order (LLP 1035.005 D1):
+    /// lifted off the token stream by `parse`, attached by position when the
+    /// file is printed, never read by a pass.
+    pub trivia: Vec<Trivia>,
+}
+
+/// A comment or a run of blank lines — kept so the printer can put it back
+/// where it was: a comment before the declaration or node that follows it,
+/// a trailing comment after the line it shares, blank lines by their count.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Trivia {
+    /// A `//` comment on a line of its own; `text` is what follows the `//`.
+    Comment {
+        /// After the `//`, as written.
+        text: String,
+        /// Where the `//` is.
+        span: Span,
+    },
+    /// A `//` comment after code on the same line.
+    Trailing {
+        /// After the `//`, as written.
+        text: String,
+        /// Where the `//` is.
+        span: Span,
+    },
+    /// `count` blank lines, the first at `line`.
+    Blank {
+        /// The first blank line.
+        line: u32,
+        /// How many.
+        count: u32,
+    },
+}
+
+impl Trivia {
+    /// The line it starts on.
+    pub fn line(&self) -> u32 {
+        match self {
+            Trivia::Comment { span, .. } | Trivia::Trailing { span, .. } => span.line,
+            Trivia::Blank { line, .. } => *line,
+        }
+    }
 }
 
 /// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
@@ -60,7 +102,7 @@ pub struct FontDecl {
     pub name: String,
     /// Its static faces.
     pub faces: Vec<FontFaceDecl>,
-    /// Where.
+    /// Where: the `font` keyword.
     pub span: Span,
 }
 
@@ -179,7 +221,7 @@ pub struct FnDecl {
     pub ret: TypeExpr,
     /// The body, one expression.
     pub body: Expr,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -191,7 +233,7 @@ pub struct UseDecl {
     pub name: String,
     /// The file, relative to this one.
     pub path: String,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -203,7 +245,7 @@ pub struct StyleDecl {
     pub name: String,
     /// The rows, as attributes with literal values.
     pub attrs: Vec<Attr>,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -214,7 +256,7 @@ pub struct ShapeDecl {
     pub name: String,
     /// Fields in declaration order.
     pub fields: Vec<Field>,
-    /// Where it was declared.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -276,7 +318,10 @@ pub struct Component {
     pub tasks: Vec<Task>,
     /// The view's top-level nodes.
     pub view: Vec<Node>,
-    /// Where.
+    /// Where each block section (`props`, `inject`, `slot`, `view`,
+    /// `contract`) was written — the printer's order; no pass reads it.
+    pub sections: Vec<(String, Span)>,
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -287,7 +332,7 @@ pub struct Binding {
     pub name: String,
     /// Initializer or body.
     pub expr: Expr,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -298,11 +343,13 @@ pub struct ResourceDecl {
     pub name: String,
     /// The data source's name.
     pub source: String,
+    /// Where the source's name is.
+    pub source_span: Span,
     /// Argument expressions.
     pub args: Vec<Expr>,
     /// The declared shape.
     pub shape: TypeExpr,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -314,7 +361,7 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -340,7 +387,7 @@ pub struct Action {
     pub writes: Vec<(String, Span)>,
     /// Statements.
     pub body: Vec<Stmt>,
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -371,16 +418,18 @@ pub enum Stmt {
         target: String,
         /// The data source.
         source: String,
+        /// Where the source's name is.
+        source_span: Span,
         /// Arguments.
         args: Vec<Expr>,
-        /// Where.
+        /// Where: the mutation's name.
         span: Span,
     },
     /// `refresh target` — re-request a resource with its current arguments.
     Refresh {
         /// The resource.
         target: String,
-        /// Where.
+        /// Where: the resource's name.
         span: Span,
     },
     /// `if cond` … `else` … — a branch of statements (LLP 1017 P2).
@@ -413,9 +462,10 @@ pub enum Stmt {
 pub struct Task {
     /// Name.
     pub name: String,
-    /// `every(interval, action)`, the one v1 body.
+    /// `every(interval, action)`, the one v1 body; the span is the
+    /// action's name.
     pub every: (Expr, String, Span),
-    /// Where.
+    /// Where: the name.
     pub span: Span,
 }
 
@@ -594,6 +644,8 @@ pub enum Expr {
     Member(Box<Expr>, String, Span),
     /// `name(args)`.
     Call(String, Vec<Expr>, Span),
+    /// `name: value` in a surface call; not an expression outside that binding.
+    NamedArg(String, Box<Expr>, Span),
     /// A unary operation.
     Unary(UnOp, Box<Expr>, Span),
     /// A binary operation.
@@ -637,6 +689,7 @@ impl Expr {
             | Expr::Ident(_, s)
             | Expr::Member(_, _, s)
             | Expr::Call(_, _, s)
+            | Expr::NamedArg(_, _, s)
             | Expr::Unary(_, _, s)
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)

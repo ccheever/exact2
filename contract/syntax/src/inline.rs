@@ -469,7 +469,10 @@ fn derive_dependencies(
                 derive_dependencies(arg, indices, bound, out);
             }
         }
-        Expr::Member(object, _, _) | Expr::Some(object, _) | Expr::Unary(_, object, _) => {
+        Expr::Member(object, _, _)
+        | Expr::Some(object, _)
+        | Expr::Unary(_, object, _)
+        | Expr::NamedArg(_, object, _) => {
             derive_dependencies(object, indices, bound, out);
         }
         Expr::Binary(_, left, right, _) => {
@@ -530,6 +533,9 @@ fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
             }
         }
         Expr::Member(o, f, span) => Expr::Member(Box::new(subst_expr(o, subst)), f.clone(), *span),
+        Expr::NamedArg(n, value, span) => {
+            Expr::NamedArg(n.clone(), Box::new(subst_expr(value, subst)), *span)
+        }
         Expr::Some(x, span) => Expr::Some(Box::new(subst_expr(x, subst)), *span),
         Expr::Unary(op, x, span) => Expr::Unary(*op, Box::new(subst_expr(x, subst)), *span),
         Expr::Binary(op, a, b, span) => Expr::Binary(
@@ -720,11 +726,13 @@ fn subst_stmts(
             Stmt::Send {
                 target,
                 source,
+                source_span,
                 args,
                 span,
             } => Stmt::Send {
                 target: target.clone(),
                 source: source.clone(),
+                source_span: *source_span,
                 args: args.iter().map(|a| subst_expr(a, subst)).collect(),
                 span: *span,
             },

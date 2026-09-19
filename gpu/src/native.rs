@@ -244,14 +244,7 @@ pub fn bind(id: u32, values: &str) -> u32 {
 
 /// Bind inputs at an optional host commit clock.
 pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
-    let values = match json::parse_values(values) {
-        Ok(v) => v,
-        Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e);
-            return 1;
-        }
-    };
-    match with(|m| m.bind(id, &values, at_ms)) {
+    match with(|m| m.bind_json(id, values, at_ms)) {
         Some(true) => 0,
         _ => 1,
     }

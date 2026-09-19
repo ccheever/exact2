@@ -452,6 +452,13 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
+        Expr::NamedArg(_, _, span) => {
+            return err(
+                "type-named-argument",
+                "named arguments belong to a canvas surface binding",
+                *span,
+            )
+        }
         Expr::Ident(name, span) => match scope.lookup(name) {
             Some((_, t)) => t,
             None => {
@@ -740,7 +747,10 @@ fn calls_in(e: &Expr, out: &mut Vec<String>) {
                 calls_in(a, out);
             }
         }
-        Expr::Some(x, _) | Expr::Unary(_, x, _) | Expr::Member(x, _, _) => calls_in(x, out),
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _) => calls_in(x, out),
         Expr::Binary(_, a, b, _) => {
             calls_in(a, out);
             calls_in(b, out);
@@ -779,7 +789,11 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         return err(
             "analyze-no-component",
             "a file needs a component",
-            Span { line: 1, col: 1 },
+            Span {
+                line: 1,
+                col: 1,
+                end_col: 1,
+            },
         );
     }
     for s in &file.shapes {

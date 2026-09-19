@@ -506,7 +506,8 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 
 for (const scenario of ['report','repin','external-report']) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}`;
-  const directory = scenario === 'external-report' ? mkdtempSync(resolve(tmpdir(), 'prove external-')) : null;
+  // A sibling checkout is external without Bun's expensive /tmp ancestor search.
+  const directory = scenario === 'external-report' ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
   const pins={ticks:{1:syntheticHash},saves:{continuation:'a'.repeat(64)}};
   mkdirSync(app);
@@ -735,4 +736,21 @@ test('Fox predicate crops reported bounds and requires varied fur at the declare
   expect(foxPixels(image,{x:10,y:10,w:40,h:20},[160,90]).ok).toBe(true);
   expect(foxPixels(image,{x:80,y:10,w:40,h:20},[160,90]).ok).toBe(false);
   expect(foxPixels(image,{x:10,y:10,w:40,h:20},[90,160]).ok).toBe(false);
+});
+
+
+test('R12 proof inputs from game include host code and exclude other games', async () => {
+  const {proofInputFiles}=await import('./proof.mjs');
+  const files=proofInputFiles(import.meta.dir,resolve(import.meta.dir,'games/beacons'));
+  expect(files).toContain('../host/web/gpu-glue.js');
+  expect(files.some(f=>f.startsWith('games/greybox/'))).toBe(false);
+  expect(files.some(f=>f.startsWith('bench/'))).toBe(false);
+});
+
+test('R12 Fox crop accepts approximately 16:9 real screenshot coordinates', async () => {
+  const {foxPixels}=await import('./games/skinned-fixture/proof.mjs');
+  const width=321,height=180,data=new Uint8Array(width*height*4).fill(255);
+  for(let y=40;y<120;y++) for(let x=240;x<300;x++) data.set([160+(x%12)*8,70,25,255],(y*width+x)*4);
+  const image={width,height,data}, screen={x:240,y:40,w:60,h:80};
+  expect(foxPixels(image,screen,[width,height]).ok).toBe(true);
 });

@@ -516,7 +516,7 @@ extension Agent {
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
-            guard v.becomeFirstResponder() else { return ["error":"control cannot take focus"] }
+            guard v.focusSurfacePointer() else { return ["error":"control cannot take focus"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {
                 guard v.controlKey(code, down: step == "down") else { return ["error":"control \(v.props["action"] ?? "") refused input"] }
             }

@@ -5,7 +5,7 @@ use crate::Data;
 #[path = "../../../gpu/src/asset_name.rs"]
 mod names;
 pub use names::asset_name;
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, mem::ManuallyDrop, rc::Rc, sync::Arc};
 
 mod map;
 /// Renderer-neutral pose records and rig geometry.
@@ -408,6 +408,52 @@ pub(crate) struct Assets {
     pub dependencies: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
     pub refusal: Option<(String, String)>,
+}
+
+// The delivery owner is installed by the first asset mutation. Primitive worlds
+// borrow an immutable empty view without linking the model owner's clone/drop.
+#[derive(Default, Clone)]
+pub(crate) struct AssetStore {
+    owner: Option<ManuallyDrop<Rc<Assets>>>,
+    release: Option<fn(ManuallyDrop<Rc<Assets>>)>,
+}
+impl Drop for AssetStore {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.take() {
+            self.release.expect("asset owner release")(owner);
+        }
+    }
+}
+impl std::ops::Deref for AssetStore {
+    type Target = Assets;
+    fn deref(&self) -> &Assets {
+        static EMPTY: Assets = Assets {
+            models: map::AssetMap::EMPTY,
+            states: map::AssetMap::EMPTY,
+            declared: BTreeSet::new(),
+            required: BTreeSet::new(),
+            requested: BTreeSet::new(),
+            prepared: BTreeSet::new(),
+            redelivery: BTreeSet::new(),
+            dependencies: map::AssetMap::EMPTY,
+            retired: Vec::new(),
+            refusal: None,
+        };
+        self.owner.as_ref().map_or(&EMPTY, |owner| owner.as_ref())
+    }
+}
+impl std::ops::DerefMut for AssetStore {
+    fn deref_mut(&mut self) -> &mut Assets {
+        if self.owner.is_none() {
+            // The callback owns destruction; ManuallyDrop keeps that executor
+            // out of primitive worlds. No raw pointers or unsafe drops are used.
+            *self = Self {
+                owner: Some(ManuallyDrop::new(Rc::new(Assets::default()))),
+                release: Some(|owner| drop(ManuallyDrop::into_inner(owner))),
+            };
+        }
+        Rc::make_mut(self.owner.as_mut().unwrap())
+    }
 }
 #[derive(Clone)]
 pub(crate) struct ModelAsset {

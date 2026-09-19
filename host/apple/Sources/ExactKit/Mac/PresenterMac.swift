@@ -312,7 +312,7 @@ final class Presenter {
                     }
                 }
             case "surface":
-                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
+                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] ?? []) }
             case "command":
                 onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
@@ -364,6 +364,7 @@ final class Presenter {
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
         for node in views.values { node.restoreScrollPosition(); node.applyPendingScroll() }
         segments.sync()

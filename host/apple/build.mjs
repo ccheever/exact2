@@ -744,6 +744,7 @@ function main(args) {
  *  caps those at five); run it when the host's own behaviour changes. */
 function test(args) {
   const app = resolveApp(args.find((a) => !a.startsWith('--')));
+  app.prepare?.();
   const crate = app.crate('apple');
   const release = appleBuildLock(app);
   const paths = appleArtifacts(app, { composition: 'embedded' });

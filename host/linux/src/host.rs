@@ -200,6 +200,11 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn apply_test_ops(&mut self, ops: &[exact_kernel::Op]) {
+        self.runner.kernel_mut().apply(0, 0, ops).unwrap();
+    }
+
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()

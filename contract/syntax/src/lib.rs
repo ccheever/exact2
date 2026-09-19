@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 
 pub mod ast;
+pub mod fmt;
 pub mod inline;
 pub mod lexer;
 pub mod parser;
@@ -28,13 +29,26 @@ pub use inline::{expand, inline, Expanded};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, SyntaxError};
 
-/// A source position, 1-based.
+/// A source position, 1-based: the token starts at `line:col` and ends
+/// before `end_col`, so `col..end_col` is the identifier (LLP 1035.005 D2).
+/// Columns count bytes, as `col` always has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub struct Span {
     /// Line.
     pub line: u32,
-    /// Column.
+    /// Column of the first byte.
     pub col: u32,
+    /// Column after the last byte.
+    pub end_col: u32,
+}
+
+/// A second place a diagnostic names — the other side of a mismatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Related {
+    /// Where.
+    pub span: Span,
+    /// What is there.
+    pub note: String,
 }
 
 impl std::fmt::Display for Span {

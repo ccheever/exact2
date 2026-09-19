@@ -21,7 +21,7 @@ component Beacons
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       when playing
-        canvas surface=world(7, paused, again) testId="world" width="100%" height="100%" position="relative"
+        canvas surface=world(seed: 7, paused: paused, restart: again) testId="world" width="100%" height="100%" position="relative"
           text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
           button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
             text (paused ? "Resume" : "Pause") color="#ffffff"

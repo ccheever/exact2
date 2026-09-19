@@ -462,7 +462,7 @@ final class Presenter {
                 let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
                 for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
             case "surface":
-                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
+                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] ?? []) }
             case "command":
                 onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
             case "destroy":
@@ -496,6 +496,7 @@ final class Presenter {
         interactiveWidget = first?.props["interactiveWidget"]
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
         for node in views.values {
             // A modal's live source retains its old geometry until release.

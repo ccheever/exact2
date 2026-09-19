@@ -213,3 +213,69 @@ fn another_canvas_release_or_unmount_keeps_the_active_contact() {
     assert_eq!(p.control_contact, Some((b_button, 0., 0.)));
     done(p, path);
 }
+
+#[test]
+fn r12_pressed_control_routes_space_without_stealing_editor() {
+    let (mut p, path) = fixture();
+    let editor = find(&p, "editor");
+    let button = find(&p, "a-jump");
+    let a = find(&p, "a");
+    p.focus = Some(editor);
+    assert!(p.control_input(button, "down", 0., 0., 7, 0.));
+    p.activation_key("Space", true);
+    assert_eq!(p.focus(), Some(editor));
+    assert_eq!(
+        p.control_bindings
+            .get(&(a, u32::MAX - 1))
+            .map(|b| b.name.as_str()),
+        Some("jump")
+    );
+    p.activation_key("Space", false);
+    assert!(!p.control_bindings.contains_key(&(a, u32::MAX - 1)));
+    p.type_key(button, "Space", true).unwrap();
+    assert_eq!(p.focus(), Some(editor));
+    done(p, path);
+}
+#[test]
+fn r12_duplicate_restored_actions_do_not_guess_an_owner() {
+    let (mut p, path) = fixture();
+    let a = find(&p, "a");
+    let b = find(&p, "b");
+    let first = find(&p, "a-jump");
+    let second = find(&p, "b-jump");
+    p.host.apply_test_ops(&[
+        exact_kernel::Op::SetChildren {
+            id: b,
+            children: vec![],
+        },
+        exact_kernel::Op::SetChildren {
+            id: a,
+            children: vec![first, second],
+        },
+    ]);
+    restore(&mut p, "a", json!([{"id":7,"action":"jump"}]));
+    assert_eq!(p.control_bindings[&(a, 7)].view, None);
+    done(p, path);
+}
+#[test]
+fn r12_reparent_cancels_original_owner() {
+    let (mut p, path) = fixture();
+    let a = find(&p, "a");
+    let b = find(&p, "b");
+    let first = find(&p, "a-jump");
+    let second = find(&p, "b-jump");
+    assert!(p.control_input(first, "down", 0., 0., 7, 0.));
+    p.host.apply_test_ops(&[
+        exact_kernel::Op::SetChildren {
+            id: a,
+            children: vec![],
+        },
+        exact_kernel::Op::SetChildren {
+            id: b,
+            children: vec![first, second],
+        },
+    ]);
+    p.cancel_removed_controls();
+    assert!(p.control_bindings.is_empty());
+    done(p, path);
+}

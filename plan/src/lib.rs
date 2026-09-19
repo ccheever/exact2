@@ -246,6 +246,21 @@ impl Plan {
                 });
             }
         }
+        for (i, surface) in self.surfaces.iter().enumerate() {
+            let mut names = std::collections::BTreeSet::new();
+            let mut positional = false;
+            for id in surface.args.iter() {
+                let name = self.str(self.surface_arg(id).name);
+                positional |= name.is_empty();
+                if (!name.is_empty() && !names.insert(name)) || (positional && !names.is_empty()) {
+                    return Err(PlanError::BadReference {
+                        table: "surfaces",
+                        row: i as u32,
+                        field: "args",
+                    });
+                }
+            }
+        }
         for (i, r) in self.regions.iter().enumerate() {
             let want = match r.kind {
                 RegionKind::When | RegionKind::Match => 2,

@@ -98,6 +98,23 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
     }
     world.load(&saved).unwrap();
     check(&world);
+    let retained =
+        std::sync::Arc::downgrade(&world.assets.models.get("ready.model").unwrap().model);
+    let mut branch = world.assets.clone();
+    branch
+        .states
+        .insert("ready.model".into(), AssetState::Pending);
+    branch.models.remove("ready.model");
+    assert_eq!(
+        world.assets.states.get("ready.model"),
+        Some(&AssetState::Loaded)
+    );
+    assert!(world.model("ready.model").is_some());
+    drop(world);
+    assert!(
+        retained.upgrade().is_none(),
+        "retiring the final owner releases its model"
+    );
 }
 
 #[derive(Default, Component)]

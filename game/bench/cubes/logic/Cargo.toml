@@ -1,8 +1,9 @@
 [package]
+workspace = "../.shells"
 name = "bench-cubes-logic"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
 
 [dependencies]
-exact-game.workspace = true
+exact-game = { path = "../../../engine" }

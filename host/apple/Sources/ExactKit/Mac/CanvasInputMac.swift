@@ -36,6 +36,7 @@ final class CanvasInput {
     func blur() {
         guard let view else { return }
         buttons = 0; modifiers.removeAll(); keys.removeAll()
+        if let c=view.canvases, let e=c.entries[view.id] {c.cancelControls(e)}
         view.canvases?.input(view, ["t": "blur"])
     }
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {

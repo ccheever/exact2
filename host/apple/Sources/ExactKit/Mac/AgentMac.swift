@@ -415,6 +415,20 @@ extension Agent {
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
             }
+            // NSWindow delivery bypasses the local event monitor. Share its
+            // pressed-control route before making any responder change.
+            let phase = req["phase"] as? String
+            if modifiers.intersection([.command,.control]).isEmpty, let code=device?.code,
+               session.canvases.pressedControlKey(code,down:phase != "up") {
+                if phase == nil {_ = session.canvases.pressedControlKey(code,down:false)}
+                if phase == "down", let token=req["releaseKey"] as? String {
+                    keyReleases[token] = { [weak session] in
+                        _ = session?.canvases.pressedControlKey(code,down:false)
+                        return ["phase":"up","delivery":"recognized"]
+                    }
+                }
+                return ["typed":Int(v.id),"key":key,"delivery":"recognized"]
+            }
             // A key down at the target through the window — the field
             // editor's commands, or a focused node's keyDown — by the web's
             // name, as AppKit would deliver the keyboard's.
@@ -429,6 +443,8 @@ extension Agent {
             } else if let f = v.field {
                 let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false
                 if !editing { win.makeFirstResponder(f) }
+            } else if v.isSurfaceControl && v.ownsSurfaceControl {
+                _ = v.focusSurfacePointer()
             } else if v.acceptsFirstResponder {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
             } else { return ["error": "view \(v.id) takes no key"] }
@@ -462,7 +478,6 @@ extension Agent {
             if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            let phase = req["phase"] as? String
             if phase != "up" { win.sendEvent(down) }
             if phase != "down" { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {

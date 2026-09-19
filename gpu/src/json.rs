@@ -21,6 +21,58 @@ pub fn parse_values(text: &str) -> Result<Vec<Value>, String> {
     }
 }
 
+pub(crate) fn parse_bindings(text: &str) -> Result<(Option<Vec<String>>, Vec<Value>), String> {
+    if !text.trim_start().starts_with('{') {
+        return parse_values(text).map(|v| (None, v));
+    }
+    let mut p = Parser {
+        s: text.as_bytes(),
+        i: 0,
+    };
+    p.ws();
+    p.i += 1;
+    p.ws();
+    let mut names = Vec::new();
+    let mut values = Vec::new();
+    if p.s.get(p.i) != Some(&b'}') {
+        loop {
+            let Value::Str(name) = p.value()? else {
+                return Err("expected an argument name".into());
+            };
+            p.ws();
+            if name.is_empty() {
+                return Err("empty surface argument name".into());
+            }
+            if names.iter().any(|n| n == name.as_ref()) {
+                return Err(format!("duplicate surface argument `{name}`"));
+            }
+            if p.s.get(p.i) != Some(&b':') {
+                return Err(format!("{name}: expected :"));
+            }
+            p.i += 1;
+            p.ws();
+            let value = p.value().map_err(|e| format!("{name}: {e}"))?;
+            names.push(name.to_string());
+            values.push(value);
+            p.ws();
+            match p.s.get(p.i) {
+                Some(b',') => {
+                    p.i += 1;
+                    p.ws();
+                }
+                Some(b'}') => break,
+                _ => return Err("expected , or }".into()),
+            }
+        }
+    }
+    p.i += 1;
+    p.ws();
+    if p.i != p.s.len() {
+        return Err("trailing input".into());
+    }
+    Ok((Some(names), values))
+}
+
 struct Parser<'a> {
     s: &'a [u8],
     i: usize,

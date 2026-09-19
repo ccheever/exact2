@@ -13,8 +13,10 @@
 #![deny(missing_docs)]
 
 pub mod compat;
+pub mod diff;
 mod logic;
 mod receipt;
+pub mod symbols;
 mod typescript;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
@@ -25,7 +27,7 @@ pub use logic::rust_entry;
 pub use receipt::write_development_artifacts;
 pub use typescript::typescript;
 
-use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
+use contract_syntax::{Expr, File, Related, Span, Step, TestDecl, UseDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -76,8 +78,50 @@ pub struct CompileError {
     pub id: String,
     /// What went wrong.
     pub message: String,
-    /// Line, column.
-    pub span: (u32, u32),
+    /// The file the span is in when it is not the one compiled — a used
+    /// file's own syntax error; empty otherwise.
+    pub file: String,
+    /// Where: line, column, and the column after the token.
+    pub span: Span,
+    /// The other places it names — the two sides of an
+    /// `analyze-action-arity` mismatch (LLP 1035.005 D2).
+    pub related: Box<[Related]>,
+}
+
+impl CompileError {
+    /// The rejection as one JSON object: `{id, message, file, line, col,
+    /// end_col, related: [{file, line, col, end_col, note}]}`, `file` being
+    /// `input` unless the error names another.
+    pub fn to_json(&self, input: &str) -> String {
+        let file = if self.file.is_empty() {
+            input
+        } else {
+            &self.file
+        };
+        let related: Vec<serde_json::Value> = self
+            .related
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "file": file,
+                    "line": r.span.line,
+                    "col": r.span.col,
+                    "end_col": r.span.end_col,
+                    "note": r.note,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "id": self.id,
+            "message": self.message,
+            "file": file,
+            "line": self.span.line,
+            "col": self.span.col,
+            "end_col": self.span.end_col,
+            "related": related,
+        })
+        .to_string()
+    }
 }
 
 impl std::fmt::Display for CompileError {
@@ -85,8 +129,12 @@ impl std::fmt::Display for CompileError {
         write!(
             f,
             "{}:{} [{}] {}",
-            self.span.0, self.span.1, self.id, self.message
-        )
+            self.span.line, self.span.col, self.id, self.message
+        )?;
+        for r in &self.related {
+            write!(f, "\n  {}:{}: {}", r.span.line, r.span.col, r.note)?;
+        }
+        Ok(())
     }
 }
 
@@ -100,7 +148,9 @@ macro_rules! from_pass {
                     pass: $pass,
                     id: e.id.to_string(),
                     message: e.message,
-                    span: (e.span.line, e.span.col),
+                    file: String::new(),
+                    span: e.span,
+                    related: Box::default(),
                 }
             }
         }
@@ -109,8 +159,31 @@ macro_rules! from_pass {
 
 from_pass!(contract_syntax::SyntaxError, "syntax");
 from_pass!(contract_types::TypeError, "types");
-from_pass!(contract_analyze::AnalyzeError, "analyze");
 from_pass!(contract_lower::LowerError, "lower");
+
+impl From<contract_analyze::AnalyzeError> for CompileError {
+    fn from(e: contract_analyze::AnalyzeError) -> Self {
+        CompileError {
+            pass: "analyze",
+            id: e.id.to_string(),
+            message: e.message,
+            file: String::new(),
+            span: e.span,
+            related: e.related.into_boxed_slice(),
+        }
+    }
+}
+
+fn plain(pass: &'static str, id: &str, message: String, span: Span) -> CompileError {
+    CompileError {
+        pass,
+        id: id.into(),
+        message,
+        file: String::new(),
+        span,
+        related: Box::default(),
+    }
+}
 
 /// Compile one source text to a validated plan. A text has no path, so a
 /// `use … from "./file.contract"` in it cannot be resolved: compile a file
@@ -118,15 +191,15 @@ from_pass!(contract_lower::LowerError, "lower");
 pub fn compile(src: &str) -> Result<Plan, CompileError> {
     let file = contract_syntax::parse(src)?;
     if let Some(u) = file.uses.first() {
-        return Err(CompileError {
-            pass: "use",
-            id: "contract-use-unresolved".into(),
-            message: format!(
+        return Err(plain(
+            "use",
+            "contract-use-unresolved",
+            format!(
                 "`use {} from \"{}\"` needs this file's own path to resolve: compile it with `contract build <file>` (`compile_path`)",
                 u.name, u.path
             ),
-            span: (u.span.line, u.span.col),
-        });
+            u.span,
+        ));
     }
     compile_file(file, None)
 }
@@ -139,11 +212,13 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
 /// exist in the used file; a name declared differently in both is refused;
 /// a cycle is refused.
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
-        pass: "use",
-        id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", path.display()),
-        span: (0, 0),
+    let src = std::fs::read_to_string(path).map_err(|e| {
+        plain(
+            "use",
+            "contract-use-unreadable",
+            format!("{}: {e}", path.display()),
+            Span::default(),
+        )
     })?;
     compile_path_source(path, &src)
 }
@@ -156,11 +231,13 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."));
-    let app_root = source_root.canonicalize().map_err(|e| CompileError {
-        pass: "use",
-        id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", source_root.display()),
-        span: (0, 0),
+    let app_root = source_root.canonicalize().map_err(|e| {
+        plain(
+            "use",
+            "contract-use-unreadable",
+            format!("{}: {e}", source_root.display()),
+            Span::default(),
+        )
     })?;
     let root_key = path.canonicalize().unwrap_or_else(|_| {
         path.file_name()
@@ -171,22 +248,18 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
     let file = load_source(path, src, &app_root, &mut seen)?;
     let mut plan = compile_file(file, Some(&app_root))?;
     if app_root.join("app.json").is_file() {
-        let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
-            pass: "app",
-            id: "app-manifest".into(),
-            message,
-            span: (0, 0),
-        })?;
+        let manifest = Manifest::read(&app_root)
+            .map_err(|message| plain("app", "app-manifest", message, Span::default()))?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(CompileError {
-                pass: "app",
-                id: "app-identity".into(),
-                message: format!(
+            return Err(plain(
+                "app",
+                "app-identity",
+                format!(
                     "the plan names app {}, but app.json names {}",
                     plan.app_id, manifest.id
                 ),
-                span: (0, 0),
-            });
+                Span::default(),
+            ));
         }
         plan.app_id = manifest.id;
     }
@@ -308,12 +381,7 @@ fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileEr
 }
 
 fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
-    CompileError {
-        pass: "use",
-        id: id.into(),
-        message,
-        span: (u.span.line, u.span.col),
-    }
+    plain("use", id, message, u.span)
 }
 
 fn load_source(
@@ -384,7 +452,12 @@ fn load_source(
             )
         })?;
         seen.push(key.clone());
-        let used = load_source(&key, &used_src, app_root, seen)?;
+        let used = load_source(&key, &used_src, app_root, seen).map_err(|mut e| {
+            if e.file.is_empty() && e.pass == "syntax" {
+                e.file = target.display().to_string();
+            }
+            e
+        })?;
         seen.pop();
         let known = used.components.iter().any(|c| c.name == u.name)
             || used.shapes.iter().any(|s| s.name == u.name)

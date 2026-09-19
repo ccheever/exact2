@@ -33,6 +33,16 @@ pub struct Encoder {
     names: BTreeMap<String, u64>,
 }
 impl Encoder {
+    /// Encode after a file header in the same output buffer.
+    pub(crate) fn prefixed(prefix: &[u8]) -> Self {
+        // Even an empty world includes its clock, entity table and RNG.
+        let mut w = Self {
+            bytes: Vec::with_capacity(128),
+            ..Self::default()
+        };
+        w.bytes.extend_from_slice(prefix);
+        w
+    }
     /// Return the completed stream.
     pub fn finish(self) -> Vec<u8> {
         self.bytes

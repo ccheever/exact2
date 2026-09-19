@@ -229,7 +229,7 @@ impl<D: DataSource> Host<D> {
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
         for s in host.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
@@ -713,7 +713,7 @@ impl<D: DataSource> Host<D> {
             self.layout(&mut batch).err()
         };
         for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.

@@ -10,6 +10,7 @@ export async function fixture(options = {}) {
   let next = 0, hud = null, expectedView = null;
   const changed = new Map(), events = [], order = [], restored = new Set();
   let mutations = Promise.resolve(), frame;
+  const window = new EventTarget();
   const document = { createElement: () => ({}), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
   const exact = { mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: () => 0, devAssets: [],
     writeIn: text => text, wasm: { exact_surface_record(text) {
@@ -82,13 +83,13 @@ export async function fixture(options = {}) {
     'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window',
     source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
   )(settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
-    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, { addEventListener() {}, removeEventListener() {} });
+    class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window);
   function create(id, name = 'world') {
     const el = new Element("host"); el.canvas = new Element();
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
+  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
 
@@ -443,4 +444,32 @@ test('a second restore replaces host ownership immediately', async () => {
   options.controlContacts=[]; f.exact.finishRestore(1);
   canvas.listeners.pointerup({target:canvas,pointerId:7,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
   assert.ok(f.events.every(e=>e.t!=='control'));
+});
+
+
+test('R12 reparent cancels the original canvas contact',async()=>{
+  const f=await fixture({input:true}),a=f.create(1),b=f.create(2,'other'),button=restoredButton(f,a);
+  let canvas=a; button.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?button:null;
+  a.listeners.pointerdown({target:button,pointerId:7,clientX:10,clientY:20,timeStamp:0,preventDefault(){}});
+  canvas=b;button.parent=b;f.mutation();
+  assert.deepEqual(f.events.map(e=>e.phase),['down','cancel']);
+});
+test('R12 duplicate restored actions have no guessed node owner',async()=>{
+  const f=await fixture({input:true,controlContacts:[{id:7,action:'jump',position:[1,2]}]});
+  f.exact.worldCarry=new Uint8Array([7]);const canvas=f.create(1),a=restoredButton(f,canvas),b=restoredButton(f,canvas);canvas.buttons=[a,b];
+  f.exact.finishRestore(1);a.isConnected=false;f.mutation();
+  assert.deepEqual(f.events,[]);
+  assert.equal(f.exact.gpu.handle({op:'tap',id:1,contact:7,phase:'cancel'},null,x=>x).delivery,'recognized');
+});
+test('R12 pressed control routes Space from an editor without focusing',async()=>{
+  const f=await fixture({input:true}),canvas=f.create(1),button=restoredButton(f,canvas),editor=f.document.activeElement=new f.Element('input');
+  canvas.listeners.pointerdown({target:button,pointerId:7,clientX:10,clientY:20,timeStamp:0,preventDefault(){}});
+  const event=new Event('keydown',{cancelable:true});Object.defineProperties(event,{target:{value:editor},code:{value:'Space'}});f.window.dispatchEvent(event);
+  assert.deepEqual(f.events.map(e=>[e.phase,e.id]),[['down',7],['down',4294967294]]);
+  assert.equal(f.document.activeElement,editor);assert.equal(event.defaultPrevented,true);
+});
+test('R12 blur cancels restored bindings before the engine blur',async()=>{
+  const f=await fixture({input:true,controlContacts:[{id:7,action:'jump',position:[1,2]}]});f.exact.worldCarry=new Uint8Array([7]);f.create(1);
+  f.window.dispatchEvent(new Event('blur'));
+  assert.deepEqual(f.events.map(e=>e.phase??e.t),['cancel','blur']);
 });

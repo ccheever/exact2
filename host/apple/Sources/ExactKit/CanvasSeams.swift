@@ -57,10 +57,18 @@ extension NodeView {
         let entry: Canvases.Entry?
         if phase == "down" {
             guard let name = props["action"], !disabled, !inert, let canvas = inputCanvas, let e = c.live(canvas.id) else { return false }
+            if e.controls[contact] != nil { return true }
             _ = focusSurfacePointer()
             e.controls[contact] = SurfaceControl(node:id, name:name, offset:convert(.zero, to:canvas), position:point)
             entry = e
-        } else { entry = inputCanvas.flatMap { c.live($0.id) } }
+        } else {
+            // Prefer this node's captured owner, then the addressed canvas. A
+            // cross-view release may use a unique contact, never dictionary order.
+            let owners = c.entries.values.filter { $0.controls[contact] != nil }
+            entry = owners.first { $0.controls[contact]?.node == id }
+                ?? inputCanvas.flatMap { canvas in owners.first { $0.view === canvas } }
+                ?? (owners.count == 1 ? owners[0] : nil)
+        }
         guard let e = entry, var owner = e.controls[contact] else { return false }
         let p = convert(point, to:e.view)
         owner.position = CGPoint(x:p.x-owner.offset.x, y:p.y-owner.offset.y)
@@ -70,6 +78,7 @@ extension NodeView {
     }
     func controlKey(_ code: String, down: Bool, timestamp: Double? = nil) -> Bool {
         guard ["Space", "Enter", "NumpadEnter"].contains(code) else { return false }
+        if presenter?.session?.canvases.pressedControlKey(code, down:down, canvas:inputCanvas?.id, timestamp:timestamp) == true { return true }
         if down {
             #if os(macOS)
             guard window?.firstResponder === self else { return false }
@@ -110,6 +119,44 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    func cancelControls(_ e: Entry) {
+        guard let m = module else { e.controls.removeAll(); return }
+        let owners=e.controls; e.controls.removeAll()
+        for (contact,owner) in owners {
+            _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
+        }
+    }
+    func cancelMovedControls() {
+        guard let m=module else {return}
+        for e in entries.values {
+            for (contact,owner) in e.controls where owner.node != e.view.id {
+                guard session?.presenter.views[owner.node]?.inputCanvas !== e.view else {continue}
+                e.controls.removeValue(forKey:contact)
+                _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
+            }
+        }
+    }
+    @discardableResult
+    func pressedControlKey(_ code: String, down: Bool, canvas: UInt32? = nil, timestamp: Double? = nil) -> Bool {
+        guard ["Space","Enter","NumpadEnter"].contains(code), let m=module else {return false}
+        cancelMovedControls()
+        let contact=code == "Space" ? 4294967294 : 4294967293
+        let candidates=entries.values.filter {canvas == nil || $0.view.id == canvas}.sorted {$0.view.id < $1.view.id}
+        if let e=candidates.first(where: {$0.controls[contact] != nil}), let owner=e.controls[contact] {
+            if down {return true}
+            e.controls.removeValue(forKey:contact)
+            return input(e,m,["t":"control","name":owner.name,"phase":"up","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
+        }
+        guard down else {return false}
+        for e in candidates {
+            if let id=e.controls.keys.filter({$0 < 4294967293}).sorted().first, let owner=e.controls[id] {
+                e.controls[contact]=owner
+                return input(e,m,["t":"control","name":owner.name,"phase":"down","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
+            }
+        }
+        return false
+    }
+
     func releaseContact(_ request: [String: Any]) -> [String: Any]? {
         guard let id = request["contact"] as? Int else { return nil }
         guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase), let m = module,
@@ -182,7 +229,8 @@ extension Canvases {
         e.controls.removeAll()
         for row in input["controlContacts"] as? [[String: Any]] ?? [] {
             guard let id = row["id"] as? Int, let name = row["action"] as? String else { continue }
-            let node = session?.presenter.views.values.first { $0.props["action"] == name && $0.isDescendant(of:e.view) }
+            let matches = session?.presenter.views.values.filter { $0.props["action"] == name && $0.inputCanvas === e.view } ?? []
+            let node = matches.count == 1 ? matches[0] : nil
             let point = row["position"] as? [Double] ?? [0,0]
             e.controls[id] = SurfaceControl(node:node?.id ?? e.view.id, name:name, offset:node?.convert(.zero, to:e.view) ?? .zero, position:CGPoint(x:point[0],y:point[1]))
         }

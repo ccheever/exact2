@@ -291,7 +291,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 - **Plan / runner** (LLP 1005 §8): a deps table and dirty-set sweep; per-instance
   derives or resources inside `each`; asynchronous data settlement.
 - **Contract** (LLP 1006 §8): inlining budget; `contract` blocks as assertions;
-  `cursor`; per-instance state; LSP and formatter; `linear()`.
+  `cursor`; per-instance state; LSP; `linear()`.
 - **Web host** (LLP 1007 §9): a text-measurement bridge (the kernel's layout does not
   run on the web — and nothing today checks the kernel's layout against the
   browser's; a layout parity corpus would be the analog of `parity.mjs`); gradients,
@@ -502,7 +502,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
 - Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 
-- Root test environment (2026-09-18): `exact-apple` / `fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit` fails at its real Keychain fixture write with “User interaction is not allowed.” The repaired root sweep completed with `--no-fail-fast`. Its stale Linux reload-focus assertion was corrected against the real browser oracle; all ten paint tests now pass. The Keychain refusal remains; no green root suite is claimed. Evidence: `/tmp/exact-game-goal-proximity/checks/root-test-repaired.log`.
+- Root test environment (2026-09-19): `exact-apple` / `fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit` still fails at its real Keychain fixture write with “User interaction is not allowed.” Root build, Clippy and formatting pass. Caltrain's three browser assertions also pass, but its smoke fails on Chrome Keychain/encryption errors in this session. No green root test suite or Caltrain smoke is claimed. Evidence: `/Users/ccheever/projects/.exact-game-verification/named-surface-args/` (earlier refusal: `/tmp/exact-game-goal-proximity/checks/root-test-repaired.log`).
 
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
 
@@ -530,7 +530,13 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   module falls 754,607 → 743,249 bytes, still over target.
   Three shared record-decoding candidates saved 9–18 KB but slowed native Mesh
   decoding; all are reverted and that loop is closed. The current control is
-  746,976 bytes; pursue ownership boundaries next.
+  746,976 bytes. Optional copy-on-write asset ownership measures 744,771 bytes
+  and removes populated-restore map copies; further ownership boundaries remain.
+  Compact type directories saved 3.5–8.2 KB but slowed large-type setup by 20–58%;
+  both candidates are removed and that experiment is closed. Shared restore
+  construction measured 744,798 bytes; named surface binding now brings it to
+  749,148 bytes (+4,350 for the authoring seam). Direct Value streaming leaves
+  the module at 749,140 bytes; shared save buffers now measure 749,052 bytes.
   Measurements and the particle-cost decision are
   in `game/bench/README.md`'s D4 table; no unmeasured saving is promised.
 
@@ -544,7 +550,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   HUD allocates six times per call in the native probe. Scalar/string publication
   now skips the temporary Contract value and reuses existing keys. Any further
   simplification must preserve atomic refusal, named fields and change-only delivery.
-  Evidence: `/Users/ccheever/projects/.exact-game-verification/publication/`.
+  Three record-writer candidates are now rejected: borrowed comparison and two
+  forms of top-level reuse saved allocations but added 991–6,184 module bytes
+  and slowed changed/nested cases. That experiment is closed; the original writer
+  remains. Evidence: `/Users/ccheever/projects/.exact-game-verification/publication/`
+  and `/Users/ccheever/projects/.exact-game-verification/record-publication/`.
 
 - Shadow splitting retains std `powf`: sharing portable power increased a cascade
   fit from 0.166 to 0.202 µs in paired native runs, so that candidate was reverted.
@@ -563,12 +573,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   save does not catch up or mutate tick/hash; PX1's 144 Hz live / 60 Hz physics
   regression passes all modes and byte-identical resumed continuation. Keep the
   correction in the sibling capture path (catch up before recording its hash).
-
-- Root verification remains blocked in Weatherlight's native JS bake. D4's
-  `cargo build --workspace` stalled in Bun/Rolldown; the serial retry also timed
-  out. Only D4's recorded PIDs were stopped. Relevant GPU/Caltrain tests, browser
-  host tests and the Apple ExactKit build pass; that is not a full root build.
-  Logs: `/tmp/d4-root-build-2.log`, `/tmp/d4-root-build-final.log`.
 
 - Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus passes Beacons but uses a per-element policy that differs from HTML page autofocus; Apple processes autofocus once and fails that assertion. Express victory focus through an explicit focus/dialog intent across hosts, keeping page autofocus aligned with HTML (https://html.spec.whatwg.org/multipage/interaction.html#the-autofocus-attribute).
 
@@ -605,6 +609,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Apple autofocus reset assertion (R9 validation, 2026-09-18): `AccessibilityTests.testAutofocusNeverTakesExistingFocusOrRetriesAfterReset` fails at `host/apple/Tests/ExactKitTests/AccessibilityTests.swift:35`, expecting a freshly mounted replacement not to receive focus after `Presenter.reset()`. Full Swift suite: 87 pass, 1 fail; the isolated repeat fails too. Reconcile this assertion with I1b's per-mounted autofocus contract. All 12 `CanvasClockAudioTests` pass, including the `childrenMode:` fixture. Evidence: `/tmp/r9-apple-tests.log`, `/tmp/r9-apple-autofocus-isolated.log`.
 
-- E8: named world arguments and inline typed publication need a compiler/plan seam: `Expr::Call` stores `Vec<Expr>` (no names), surface lowering emits positional values, and the runner/GPU ABI binds an ordered value slice. Carry and validate names against game Args metadata through syntax, analyzer, plan/runner and GPU binding before offering `world(seed: 7, paused: paused, restart: again)`. `resource hud = exactSurface("world") as shape Hud` remains the one typed publication declaration; inline canvas publication also needs syntax and scope rules.
+- E8: inline typed publication still needs syntax and scope rules; `resource hud = exactSurface("world") as shape Hud` remains the one typed publication declaration. Named world arguments now bind through current Args metadata and defaults on all four hosts.
 - E8: restore browser button focus-visible/hover defaults across presenters. Web's `all: unset` removes UA affordances; Apple has custom NodeViews (macOS draws a press-handler focus mask), and Linux paints controls from kernel boxes. Linux and iOS lack the input-modality state needed to distinguish keyboard focus from pointer focus. Add that state and verify against a bare browser button before claiming equivalent defaults; a CSS-only ring would leave native hosts inconsistent.
 - E8: external Bun entrypoint startup still exceeds the sub-second budget (starter: 1.655 s whole command versus 0.246 s inside the Linux proof); the external-report fixture still hit its 5 s cumulative timeout after three fix attempts. Investigate startup/module resolution without adding Cargo or machine checks to proof execution; in-repository Beacons/template commands measured 0.512/0.306 s.
+
+
+- Input ownership: `Sim::save` and paused-input projection clone the immutable action declarations inside `Input`, although `#[data(skip)]` excludes them from saves. Measure sharing those declarations while keeping dynamic keys, contacts and action edges independently owned; include empty-control construction, live input, pause and restore.
+
+- Deploy classifier (2026-09-19): `bun scripts/smoke.mjs deploy` is red on this Mac since `snapback4` joined the root workspace (2026-09-12). The classifier captures the whole root closure, which reaches the sibling repo `../snapback-sb4`; its submodules refuse the capture — at 2ac2029f `vendor/ccheever-skills` as an uncaptured submodule, after R12's submodule capture `vendor/llp`'s deliberately broken absolute fixture symlink (`fixtures/broken-ref/llp/current/abs-0000-fixture.explainer.md`). A Beacons or Caltrain bake never compiles `snapback4`: capture only the app's Cargo closure, or let a source repository declare vendored fixtures as non-source. Evidence: `receipt-R12.md` §Deployment limitation; the HEAD run in the review worktree.

@@ -825,3 +825,303 @@ left alone. Evidence: `/Users/ccheever/projects/.exact-game-verification/shared-
 The rebuilt restored artifact matches the baseline byte-for-byte; 34 focused
 data/save tests, caps and boot pass. Restoration explicitly refreshed source
 timestamps after the first check caught Cargo reusing an experimental artifact.
+
+### Asset ownership is optional and shared — 2026-09-19
+
+World holds an optional copy-on-write asset owner. Sim rebuilds share its maps
+until a mutation; existing declarations no longer cause redundant writes. Reads
+stay direct. The first asset write installs destruction, keeping model ownership
+code outside primitive modules without a new public API or build option.
+
+The normal Beacons recipe measures **746,976 → 744,771 raw bytes** and
+**320,274 → 319,432 gzip bytes**. The inline native World shrinks **1,032 → 760
+bytes**; a populated owner uses a separate allocation, so this is not a total
+model-world memory claim. The pre-optimization map loses Assets::clone.
+
+Three alternating native pairs, seven batches of 10,000 restores each, measure
+256-asset Sim restore at **15.47–18.85 → 2.51–2.95 µs** (84–86% faster).
+Eight assets improve 22–27%; 64 improve 55–64%. World hashes agree in every
+pair. Empty restores and model layout/picking are noisy; no gain is claimed
+there, nor in frame rate. The isolated probe changes only four runtime files.
+The web pair also spans the app's concurrent manifest move to its own workspace,
+with the same engine dependency. The 550,000-byte target remains open.
+
+The final isolated engine and asset suites pass 109 tests (one ignored), including
+copy isolation, failed-load preservation, final-owner release, delivery retirement
+and device recovery. The full game workspace passes 534 tests (11 ignored), build,
+all-target Clippy and formatting; caps and boot pass. Beacons, Asset and Skinned
+proofs pass on web and headless Linux with their existing pins and all nine valid
+captured saves equal across hosts. Linux Save-every-tick and FreshGame modes pass
+for all three too; their 18 captured saves equal the continuous run. Recorded
+carrier children exited; browser descendant inventory was unavailable. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/optional-asset-owner/`.
+
+### Restore constructs the game once — 2026-09-19
+
+Creation and restore share one constructor receiving the retained asset owner.
+Restore previously constructed a game with no assets, discarded it, then built it
+again. The regression reproduces two setup calls on a valid restore before the
+change. Afterward it verifies one on ordinary/bound restore, refused world data
+and both reconstruction modes. Existing clock tests moved out of sim.rs.
+
+An isolated native snapshot changes only sim.rs at runtime. Three alternating
+pairs, then three reversed pairs after our builds finished, each use seven timed
+batches with allocation counting disabled during timing:
+
+| Restore | Allocations before → after | Requested bytes before → after | Native time reduction across both passes |
+|---|---:|---:|---:|
+| Beacons | 1,083 → 935 | 1,095,836 → 771,970 | 11–24% |
+| 4,096 named cubes | 168,209 → 151,750 | 12,069,303 → 10,594,485 | 4–15% |
+
+Empty, 16-entity and 256-entity timings are mixed in the first pass on the shared
+Mac. In the reversed pass, their times decrease 5–13%, 10–14% and 7–14%
+respectively; their allocation counts decrease in both passes. Every probe retains
+its world hash and identical save bytes. These are native restore costs, not frame
+rates or full proof latency. The normal Beacons module measures
+**744,771 → 744,798 raw bytes** and **319,432 → 319,384 gzip bytes**: this removes
+work, with essentially unchanged shipped size. The 550,000-byte target remains open.
+
+The full game workspace passes 535 tests (11 ignored), build, all-target Clippy
+and formatting; caps and boot pass. Beacons, Asset and Skinned proofs pass on web
+and Linux, plus Save-every-tick and FreshGame on Linux. All 27 cross-host/mode save
+comparisons are byte-identical, with existing pins and all recorded carrier
+children exited. Beacons' browser descendant audit was unavailable. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/single-setup/`.
+
+### Compact type directories rejected — 2026-09-19
+
+Two sorted-vector replacements for World's tree maps were measured and removed.
+The first replaced registration, component and resource directories; the second
+kept registration in its tree. Their normal Beacons modules measured 736,612 and
+741,288 raw bytes, respectively, against 744,798 (gzip: 316,690 and 318,378 against
+319,384).
+
+Across three alternating-order native pairs, reverse-order setup of 256 types
+became 50–58% slower with all directories replaced and 20–26% slower with only
+storage directories replaced. Both improved large-directory lookups, but the
+all-directory version improved actual Beacons restore time only 1–4% and added
+four allocations. Small-scene restore results were mixed. Both candidates retained
+identical save bytes and hashes in the type-directory probe; the all-directory
+candidate also retained them for Beacons and four scene populations.
+
+The size saving does not justify extra custom collection code and slower type
+installation. This experiment is closed; the original maps remain. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/type-tables/`.
+
+### Named world bindings across Exact2 — 2026-09-19
+
+Beacons and the starter now bind `world(seed: 7, paused: paused, restart: again)`.
+Names may reorder; omitted named fields use Rust Args defaults. The compiler
+rejects duplicate or mixed labels. The GPU module resolves names against the
+current Args metadata before the existing typed bind, preserving atomic refusal,
+pause, restart and saved continuation. Positional calls keep their existing arity.
+Host serialization is shared in the runner, with no new GPU ABI export or work
+on every frame. Formatter/symbol integration from the landed 1035.005 lane remains.
+
+The normal Beacons recipe measures **744,798 → 749,148 raw bytes** and
+**319,384 → 321,433 gzip bytes**: +4,350 raw bytes (0.58%) buys the named authoring
+seam. No binding-speed or frame-time gain is claimed; the 550,000-byte target
+remains open.
+
+The game workspace passes 536 tests (11 ignored), build, all-target Clippy and
+formatting. Focused coverage passes five compiler tests, four render restore tests,
+30 Swift tests and 55 browser surface tests. Beacons passes web, Linux, macOS and
+iOS proofs, plus Linux Save-every-tick and FreshGame. Asset passes web and Linux
+with positional calls. All 24 comparisons of captured saves across hosts, modes
+and the preceding positional implementation are byte-identical; existing game
+pins are unchanged. A generated external starter fills its first pins only after
+all six web/Linux mode collections agree, then passes an ordinary pinned Linux
+proof. Caps and boot pass using a private staged index; the shared index is unchanged.
+
+The full root build, Clippy and formatting pass. Root tests initially fail in
+three targets: a stale Linux control fixture is repaired (all 34 Linux tests pass),
+and the Messages doctest artifact mismatch clears on rebuild. The known real
+Keychain fixture still refuses access. Caltrain builds and passes all three web
+assertions; its smoke fails solely on Chrome's Keychain/encryption errors. A green
+root suite or Caltrain smoke is not claimed. Recorded proof carriers exit; browser
+descendant inventory is unavailable on some runs. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/named-surface-args/`.
+
+### Record-publication candidates rejected — 2026-09-19
+
+Three candidates tried to remove the temporary HUD tree without changing the
+authoring API. Each was compared with the same isolated current-source snapshot,
+in three alternating-order native pairs, seven timed batches of 20,000 calls per
+case with allocation counting disabled during timing.
+
+| Candidate | Unchanged two-field HUD allocations | Beacons raw module bytes |
+|---|---:|---:|
+| Original writer | 6 | 749,148 |
+| Borrow retained tree before constructing a changed record | 0 | 751,844 |
+| Stage changed root fields with borrowed names in each frame | 0 | 755,332 |
+| Keep original nested frames; borrow root names only | 1 | 750,139 |
+
+Borrowed comparison sped unchanged flat and nested records by about 80%, but
+changed nested cases became up to 18% slower and acquired two allocations.
+The other candidates reduced changed-record allocations too, but their timings
+did not justify the added code and bytes: the final candidate's nested record
+update was 4–13% slower in the last two pairs; its first pair was noisier. There
+is no frame-rate claim. The single-frame candidate's smaller preliminary artifact
+preceded the repeated-field fix and was not retained.
+
+Published JSON, world hashes and journal tails agree in all 18 paired runs;
+each run also verifies that publication leaves its world save bytes unchanged.
+The candidates pass nested edits, numeric arrays, signed zero, saved continuation
+and atomic-refusal tests; the final two also pass the repeated-field regression.
+All three implementations and their temporary test additions are removed. The
+original source is restored exactly; this three-candidate experiment is closed.
+The restored native probe and shipped Wasm are byte-identical to their baselines.
+All 58 focused data, simulation and ergonomics tests pass, as do formatting, caps
+and boot. Only these measurements and the queue note remain; the shared index
+was unchanged by validation, which used a private staged copy.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/record-publication/`.
+
+### Dynamic values stream without an owned copy — 2026-09-19
+
+`Value::write` now emits the existing `Stored` variant framing directly. It no
+longer clones strings, options and sequences into another tree before passing
+them to the save, hash or JSON writer. The public API and decoder are unchanged.
+A conformance test compares all Value variants against Stored's derive, including
+unit versus empty containers, nested shared values, signed zero, non-finite
+numbers, error paths and binary round trips.
+
+An isolated source snapshot changes only values.rs at runtime. Three alternating
+native pairs use seven batches of 2,000 calls each, with allocation counting
+disabled during timing. The representative value contains 32 nested records:
+
+| Operation | Allocations before → after | Native time reduction |
+|---|---:|---:|
+| Value hash | 68 → 0 | 15–25% |
+| Value binary encoding | 85 → 17 | 25–38% |
+| Value JSON encoding | 481 → 413 | 9–21% |
+| World save with a dynamic Value component | 106 → 38 | 27–28% |
+| Full simulation save | 141 → 73 | 17–19% |
+
+At 256 nested records, hash allocations fall 516 → 0 and binary allocations
+536 → 20. Scalar JSON measured 0.5–6.3% slower in these pairs; no improvement is
+claimed there or in frame rate. All 27 paired binary, JSON and complete Sim save files
+are byte-identical. The native probe shrinks 679,472 → 679,328 bytes. The normal
+Beacons module is effectively unchanged: **749,148 → 749,140 raw bytes**,
+**321,433 → 321,466 gzip bytes**. The 550,000-byte target remains open.
+
+Beacons passes web and Linux proofs with existing pins, plus Linux Save-every-tick
+and FreshGame. Its 12 comparisons across hosts/modes and the prior accepted
+implementation have identical save bytes. A generated external game with a nested
+Value component agrees across all six web/Linux reconstruction-mode runs, then
+passes pinned proofs on both hosts with identical saves. The full game workspace
+passes 537 tests (11 ignored), build, all-target Clippy and formatting. Recorded
+carrier children exited; Beacons' browser descendant audit was unavailable.
+Evidence:
+`/Users/ccheever/projects/.exact-game-verification/value-streaming/`.
+
+### Shared clock preparation rejected — 2026-09-19
+
+Two candidates extracted the clock preparation from `Sim::advance_with`, keeping
+the post-tick callback inline. Returning an optional target saved 1,460 raw / 945
+gzip bytes; returning the current tick on no work saved 1,580 / 1,041. Both preserved
+clock tests and saved state. Short timing samples were noisy; longer whole-probe
+pairs were still mixed, so the final comparison ran each workload immediately
+before/after, alternating order across five pairs, with seven timed samples per run.
+
+The final candidate slowed the tiny live one-tick plain path in four of five pairs
+(2.4–8.3% in those pairs) and the tiny seekable one-tick plain path in four of five
+(0.5–8.5%). Across-run medians were 27.5 → 28.9 ns and 189.7 → 201.4 ns respectively.
+Beacons timings remained mixed; no frame-rate claim follows. All 132 comparisons
+across the three timing rounds produced identical saves, hashes and tick counts.
+
+The size saving does not justify the extra helper and the ordinary-step cost.
+The original source and normal Beacons artifact are restored byte-for-byte:
+749,140 raw / 321,466 gzip bytes. This experiment is closed. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/clock-preparation/`.
+
+### Encoder name storage rejected — 2026-09-19
+
+Three candidates tested the binary encoder's owned name dictionary. Two stored
+output offsets behind a fingerprint and exact byte comparison, removing most
+name allocations. The first reused the Data hasher; its initial measurements
+slowed repeated short names and large reverse-ordered dictionaries. The second
+used a cheaper fingerprint: three alternating native pairs measured Beacons
+World saves 46–48% faster and Sim saves 43–45% faster, with allocations falling
+107 → 24 and 195 → 81. However, 4,096 and 16,384 reverse-ordered names were
+16–38% slower, and the normal shipped module grew 868 raw / 65 gzip bytes.
+
+The final candidate retained the standard BTreeMap and replaced String keys with
+Box<str>. It added no runtime helper, reduced cumulative requested allocation
+bytes by 1,056 per Beacons World save and 1,496 per Sim save, and left allocation
+counts unchanged. Native timings were mixed; 64 sorted names were 2.5–6.9%
+slower in all three pairs. The module grew 144 raw bytes and shrank 209 gzip bytes.
+These small memory savings do not justify a measured time regression or a new
+lookup implementation. Requested allocation bytes are not peak resident memory.
+
+All 19 serialized cases agreed byte for byte in each pair for the second and
+third candidates, including field counts through 16,384, Unicode names and real
+World/Sim saves. Tests also checked shared field/variant encounter-order IDs and,
+for the offset candidates, collisions across buffer growth. All three candidates
+and their temporary tests are removed; the original encoder is restored exactly.
+The fresh restored build is byte-identical to the baseline: 749,140 raw /
+321,466 gzip bytes. All 138 focused engine, data, save and simulation tests pass
+(1 ignored), as do formatting, caps and boot. The shared index has no staged
+content changes; caps used a private staged copy. This experiment is closed. Evidence:
+`/Users/ccheever/projects/.exact-game-verification/encoder-names/`.
+
+### Save framing uses one buffer — 2026-09-19
+
+World and Sim saves now start their binary encoder with the existing file header.
+They no longer allocate another vector and copy the complete encoded payload just
+to prepend that header. The internal constructor starts with 128 bytes for the
+fixed save metadata. The ordinary binary writer and the public API are unchanged;
+EXGAME v3 and EXSIM v5 bytes remain identical. Sim still owns a temporary encoded
+World and copies its other saved fields; this is not a claim that saving allocates
+nothing or streams directly to a file.
+
+Three candidates were measured. Starting with only the header reduced copies but
+still grew the tiny buffer repeatedly. Shrinking the result at finish preserved
+exact capacity but made the 16 MiB World save 151–157% slower on this allocator;
+that candidate is removed. The retained version reserves fixed metadata space
+and returns the normal growable vector. There is no size-dependent branch or new
+caller setting.
+
+The native probe compares 21 cases, including empty worlds, 64/1,024/16,384 named
+entities, bulk payloads through 16 MiB and Beacons after 90 ticks. Allocation
+counting is disabled during timing. Initial measurements used three alternating
+pairs of seven batches; a second comparison increased calls per batch and used
+five adjacent before/after pairs for ordinary and entity-heavy saves:
+
+| Save | Allocation calls before → after | Longer paired native result |
+|---|---:|---:|
+| Empty World | 18 → 12 | 21–28% faster |
+| Beacons World | 107 → 101 | mixed: 4.8% slower to 3.3% faster |
+| Beacons Sim | 195 → 185 | 0.4–2.5% faster |
+| 1,024-entity World | 52 → 46 | 0.2–1.5% slower |
+| 16,384-entity World | 56 → 50 | 0.2–4.2% slower |
+| 16,384-entity Sim | 4,187 → 4,176 | 6.8–11.2% faster |
+
+These are save measurements, not a frame-rate improvement. In the initial bulk
+pairs, 64 KiB–16 MiB World saves were 39–52% faster; the longer table above is the
+stronger evidence for ordinary and entity-heavy behavior. The direct World timing
+cost is retained in exchange for fewer allocations, faster full simulation saves
+and lower temporary buffer usage, without another encoding path.
+
+The memory trade is explicit. At 16,384 entities, maximum live requested allocation
+bytes visible to the allocator probe fall 7,738,448 → 4,196,417 for World and
+14,668,531 → 11,574,890 for Sim. This excludes allocator internals and is not peak
+resident memory. Returned vectors may retain more capacity: Beacons World rises
+4,398 → 8,192 bytes, and the 16 MiB payload's World save rises approximately
+16 → 32 MiB. A bulk Sim's measured peak is essentially flat. No reduction in
+retained save-buffer memory is claimed.
+
+The normal Beacons module measures **749,140 → 749,052 raw bytes** and
+**321,466 → 321,397 gzip bytes**. The 550,000-byte target remains open. All 63
+initial paired serialized results and all 35 longer paired results are byte-identical;
+the sample worlds and simulations also restore to the same world hash.
+
+The full game workspace passes 537 tests (11 ignored), build, all-target Clippy
+and formatting; caps and boot pass too. Beacons passes web and Linux proofs with
+its existing pins, plus Linux Save-every-tick and FreshGame. Fifteen app-save
+comparisons match the previous implementation and each other byte for byte.
+The normal web proof's module matches the measured artifact. All recorded proof
+processes exited; the browser's full descendant inventory timed out, so a separate
+PID audit confirmed every recorded browser/carrier PID was absent. Validation
+used a private Git index and changed no staged content.
+
+Evidence: `/Users/ccheever/projects/.exact-game-verification/save-framing/`.

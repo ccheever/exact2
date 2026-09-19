@@ -2,7 +2,7 @@ use crate::{
     perf::{Perf, Stamp},
     Feed,
 };
-use exact_game::{Clock, Game, Sim, World};
+use exact_game::{Args, Clock, Game, Sim, World};
 use exact_gpu::{
     wgpu, AssetError, Frame, InputEvent, Lifecycle, Restore, Surface, SurfaceError, Value,
 };
@@ -252,6 +252,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             _ => return,
         }
         self.presentation.suspend(self.hidden || self.interrupted);
+    }
+    fn arguments(&self) -> Vec<(&'static str, Value)> {
+        G::Args::FIELDS
+            .iter()
+            .map(|(name, _)| *name)
+            .zip(G::Args::default().values())
+            .collect()
     }
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
         if at_ms.is_some_and(|at| !at.is_finite()) {
@@ -1076,10 +1083,9 @@ mod residency_tests {
         .unwrap()
     }
     #[test]
+    #[ignore = "requires two real GPU devices; run explicitly on a GPU host"]
     fn surface_lifecycle_rebuilds_textured_draws_after_prepared_retry_loss() {
-        let Ok(gpu) = exact_gpu::fixture::device() else {
-            return;
-        };
+        let gpu = exact_gpu::fixture::device().expect("GPU lifecycle proof requires a device");
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
         s.device_ready();
         s.bind(&[], None).unwrap();
@@ -1098,9 +1104,8 @@ mod residency_tests {
         s.assets();
         s.asset(&model.textures[0], Ok(tex));
         s.device_lost(); // another failed retry must preserve delivered bytes too
-        let Ok(replacement) = exact_gpu::fixture::device() else {
-            return;
-        };
+        let replacement = exact_gpu::fixture::device()
+            .expect("GPU lifecycle proof requires a replacement device");
         s.device_ready();
         s.prepare_assets(
             &replacement.device,

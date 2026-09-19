@@ -323,6 +323,19 @@
       ]
     },
     {
+      "name": "surface_args",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "expr",
+          "codec": "code"
+        }
+      ]
+    },
+    {
       "name": "surfaces",
       "fields": [
         {
@@ -331,7 +344,7 @@
         },
         {
           "name": "args",
-          "codec": "range:args"
+          "codec": "range:surface_args"
         }
       ]
     },

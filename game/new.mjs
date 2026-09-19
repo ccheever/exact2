@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { basename, relative, resolve } from 'node:path';
-import { gameDefaults, gameShells } from './app/shells.mjs';
+import { gameDefaults } from './app/shells.mjs';
 
-export function createGame(destination, directory = import.meta.dir, _run = undefined, options = {}) {
+export function createGame(destination, directory = import.meta.dir, options = {}) {
   const local = destination === '.' || destination?.includes('/');
   const name = local ? basename(resolve(destination)) : destination;
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
@@ -26,17 +26,17 @@ export function createGame(destination, directory = import.meta.dir, _run = unde
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
   const appJson = resolve(destination, 'app.json');
-  const manifest = gameDefaults(destination) ?? {};
+  const manifest = gameDefaults(destination, directory) ?? {};
   if (options.assets === true && manifest.game) {
     manifest.game.assets = true;
     writeFileSync(appJson, JSON.stringify({game:{assets:true}}, null, 2) + "\n");
   }
-  if (manifest.game) gameShells(destination, manifest.game, directory);
+
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const argument = local ? quote(destination) : name;
   const proof = local ? quote(resolve(destination, 'proof.mjs')) : `game/games/${name}/proof.mjs`;
-  return `Game owns its generated workspace, lockfile and hosts under .shells/.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun game/prove.mjs ${argument}
+  return `First bake creates the app workspace in .shells/ and captures Cargo.lock beside app.json.\nCreated ${local ? destination : `game/games/${name}`}\n  bun game/dev.mjs ${argument}\n  bun game/prove.mjs ${argument}
   bun ${proof} web`;
 }
 
-if (import.meta.main) console.log(createGame(process.argv[2], undefined, undefined, {assets:process.argv.includes("--assets")}));
+if (import.meta.main) console.log(createGame(process.argv[2], undefined, {assets:process.argv.includes("--assets")}));

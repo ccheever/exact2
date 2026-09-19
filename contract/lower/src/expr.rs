@@ -26,6 +26,13 @@ pub(crate) fn compile(
         Expr::Bool(b, _) => {
             asm.bool(*b);
         }
+        Expr::NamedArg(_, _, span) => {
+            return err(
+                "lower-named-argument",
+                "named arguments belong to a canvas surface binding",
+                *span,
+            )
+        }
         Expr::None(_) => {
             asm.simple(Opcode::None);
         }

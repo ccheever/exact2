@@ -10,13 +10,17 @@
 //! on each other in a cycle, or a child component carrying state — which v1
 //! does not support (all state lives in the root; children are pure views over
 //! their props). Every rejection carries a stable id and a span.
+//!
+//! An `action` prop's arity is inferred from the component's own invocations
+//! of it and checked at every use site's binding (LLP 1035.005 D2): a
+//! mismatch names both sides.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-use contract_syntax::{Component, Expr, File, Node, Span, Stmt};
+use contract_syntax::{Component, Expr, File, Node, Related, Span, Stmt};
 use contract_types::{Ref, Scope, Ty, Types};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A typed rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,11 +31,18 @@ pub struct AnalyzeError {
     pub message: String,
     /// Where.
     pub span: Span,
+    /// The other places the rejection names — for `analyze-action-arity`,
+    /// the prop's declaration and the caller's binding.
+    pub related: Vec<Related>,
 }
 
 impl std::fmt::Display for AnalyzeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
+        write!(f, "{} [{}] {}", self.span, self.id, self.message)?;
+        for r in &self.related {
+            write!(f, "\n  {}: {}", r.span, r.note)?;
+        }
+        Ok(())
     }
 }
 
@@ -40,6 +51,7 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
         id,
         message: message.into(),
         span,
+        related: Vec::new(),
     })
 }
 
@@ -70,7 +82,11 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         return err(
             "analyze-no-component",
             "a file needs a component",
-            Span { line: 1, col: 1 },
+            Span {
+                line: 1,
+                col: 1,
+                end_col: 1,
+            },
         );
     };
     if !root.props.is_empty() {
@@ -87,6 +103,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         id: e.id,
         message: e.message,
         span: e.span,
+        related: Vec::new(),
     })?;
     check_controls(&expanded.root.view, false)?;
     for (ci, c) in file.components.iter().enumerate() {
@@ -97,7 +114,292 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
+    let arities = infer_arities(file, types)?;
+    check_bindings(file, types, &arities)?;
     Ok(Analysis {})
+}
+
+/// How many arguments a handler's event adds to its action's: `scroll` two
+/// (`scrollLeft`, `scrollTop`), the payload-carrying handlers one.
+fn payload_count(attr: &str) -> usize {
+    if attr == "scroll" {
+        2
+    } else {
+        usize::from(handler_payload(attr).is_some())
+    }
+}
+
+/// Where a component invokes or passes on an action: a handler on one of
+/// its elements, or an argument to a child's prop.
+enum Site<'a> {
+    /// `attr=name` or `attr=name(args)` on an element.
+    Handler {
+        /// The handler attribute.
+        attr: &'a str,
+        /// The action or prop named.
+        name: &'a str,
+        /// Arguments written.
+        given: usize,
+        /// Where.
+        span: Span,
+    },
+    /// `Child(prop=value)`: a binding at a use site.
+    Bound {
+        /// The child, by index in the file.
+        component: usize,
+        /// The prop, by index in the child.
+        prop: usize,
+        /// The bound value.
+        value: &'a Expr,
+        /// Where the binding is.
+        span: Span,
+    },
+}
+
+/// Every site in `nodes`, with the scope it resolves names in.
+fn sites<'a>(nodes: &'a [Node], scope: &Scope, file: &File, out: &mut Vec<(Scope, Site<'a>)>) {
+    for n in nodes {
+        match n {
+            Node::Provide { body, .. } => sites(body, scope, file, out),
+            Node::Children { .. } => {}
+            Node::Element {
+                attrs, children, ..
+            } => {
+                for a in attrs {
+                    // `navigate` takes or ignores its URL (LLP 1038), so
+                    // it fixes no single arity. Lower checks its bound action.
+                    if a.name == "navigate" || !HANDLERS.contains(&a.name.as_str()) {
+                        continue;
+                    }
+                    let (name, given) = match &a.value {
+                        Expr::Ident(n, _) => (n.as_str(), 0),
+                        Expr::Call(n, args, _) => (n.as_str(), args.len()),
+                        _ => continue,
+                    };
+                    out.push((
+                        scope.clone(),
+                        Site::Handler {
+                            attr: &a.name,
+                            name,
+                            given,
+                            span: a.span,
+                        },
+                    ));
+                }
+                sites(children, scope, file, out);
+            }
+            Node::Use {
+                name,
+                args,
+                children,
+                ..
+            } => {
+                sites(children, scope, file, out);
+                let Some(component) = file.components.iter().position(|c| &c.name == name) else {
+                    continue;
+                };
+                for a in args {
+                    if let Some(prop) = file.components[component]
+                        .props
+                        .iter()
+                        .position(|p| p.name == a.name)
+                    {
+                        out.push((
+                            scope.clone(),
+                            Site::Bound {
+                                component,
+                                prop,
+                                value: &a.value,
+                                span: a.span,
+                            },
+                        ));
+                    }
+                }
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                sites(then, scope, file, out);
+                sites(otherwise, scope, file, out);
+            }
+            Node::Each {
+                var, list, body, ..
+            } => {
+                let item = match contract_types::infer(list, scope, &Default::default()).ok() {
+                    Some(Ty::List(item)) => *item,
+                    _ => Ty::Unknown,
+                };
+                let mut inner = scope.clone();
+                inner.push_region(Some((var.clone(), Ref::Item(0), item)));
+                sites(body, &inner, file, out);
+            }
+            Node::Match { some, none, .. } => {
+                let mut inner = scope.clone();
+                inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
+                sites(&some.1, &inner, file, out);
+                let mut none_scope = scope.clone();
+                none_scope.push_region(None);
+                sites(none, &none_scope, file, out);
+            }
+        }
+    }
+}
+
+/// `(component, prop)` → the arity its own invocations fix, and the
+/// invocation that fixed it.
+type Arities = BTreeMap<(usize, usize), (usize, Span)>;
+
+/// A name resolving to one of the component's own `action` props.
+fn own_prop(scope: &Scope, c: &Component, name: &str) -> Option<usize> {
+    match scope.lookup(name) {
+        Some((Ref::Prop(pi), Ty::Action(_))) if (pi as usize) < c.props.len() => Some(pi as usize),
+        _ => None,
+    }
+}
+
+/// The arity of every `action` prop, from the component's own invocations:
+/// a handler's arguments plus its event's payload, or — for a prop passed on
+/// to a child — the child's arity plus the arguments bound. A prop invoked
+/// two ways is `analyze-action-arity` at the second.
+fn infer_arities(file: &File, types: &Types) -> Result<Arities, AnalyzeError> {
+    let mut arities = Arities::new();
+    // A prop passed on takes the child's arity, which may itself be passed
+    // on: repeat until nothing new is learned, at most once per component.
+    for _ in 0..=file.components.len() {
+        let known = arities.len();
+        for (ci, c) in file.components.iter().enumerate() {
+            let scope = types.component_scope(c, &types.components[ci]);
+            let mut found = Vec::new();
+            sites(&c.view, &scope, file, &mut found);
+            for (scope, site) in found {
+                let (pi, arity, span) = match site {
+                    Site::Handler {
+                        attr,
+                        name,
+                        given,
+                        span,
+                    } => match own_prop(&scope, c, name) {
+                        Some(pi) => (pi, given + payload_count(attr), span),
+                        None => continue,
+                    },
+                    Site::Bound {
+                        component,
+                        prop,
+                        value,
+                        span,
+                    } => {
+                        let (name, given) = match value {
+                            Expr::Ident(n, _) => (n.as_str(), 0),
+                            Expr::Call(n, args, _) => (n.as_str(), args.len()),
+                            _ => continue,
+                        };
+                        let (Some(pi), Some((child, _))) =
+                            (own_prop(&scope, c, name), arities.get(&(component, prop)))
+                        else {
+                            continue;
+                        };
+                        (pi, given + child, span)
+                    }
+                };
+                match arities.get(&(ci, pi)) {
+                    Some((first, at)) if *first != arity => {
+                        return Err(AnalyzeError {
+                            id: "analyze-action-arity",
+                            message: format!(
+                                "`{}` is invoked with {arity} argument(s) here and with {first} at {at}",
+                                c.props[pi].name
+                            ),
+                            span,
+                            related: vec![
+                                Related {
+                                    span: c.props[pi].span,
+                                    note: format!("`{}` declared here", c.props[pi].name),
+                                },
+                                Related {
+                                    span: *at,
+                                    note: format!("invoked with {first} here"),
+                                },
+                            ],
+                        });
+                    }
+                    Some(_) => {}
+                    None => {
+                        arities.insert((ci, pi), (arity, span));
+                    }
+                }
+            }
+        }
+        if arities.len() == known {
+            break;
+        }
+    }
+    Ok(arities)
+}
+
+/// Every use site's binding of an `action` prop against the arity the
+/// child's invocations fixed (LLP 1017 P1: no quiet failures).
+fn check_bindings(file: &File, types: &Types, arities: &Arities) -> Result<(), AnalyzeError> {
+    for (ci, c) in file.components.iter().enumerate() {
+        let scope = types.component_scope(c, &types.components[ci]);
+        let mut found = Vec::new();
+        sites(&c.view, &scope, file, &mut found);
+        for (scope, site) in found {
+            let Site::Bound {
+                component,
+                prop,
+                value,
+                span,
+            } = site
+            else {
+                continue;
+            };
+            let Some((wanted, at)) = arities.get(&(component, prop)) else {
+                continue;
+            };
+            let (name, given) = match value {
+                Expr::Ident(n, _) => (n.as_str(), 0),
+                Expr::Call(n, args, _) => (n.as_str(), args.len()),
+                _ => continue,
+            };
+            let takes = match scope.lookup(name) {
+                Some((Ref::Action(_), Ty::Action(params))) => params.len(),
+                Some((Ref::Prop(pi), Ty::Action(_))) => match arities.get(&(ci, pi as usize)) {
+                    Some((n, _)) => *n,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            let bound = takes.saturating_sub(given);
+            if bound == *wanted && given <= takes {
+                continue;
+            }
+            let child = &file.components[component];
+            let how = if given == 0 {
+                format!("`{name}`, which takes {takes}")
+            } else {
+                format!("`{name}` with {given} of its {takes} parameter(s) bound, leaving {bound}")
+            };
+            return Err(AnalyzeError {
+                id: "analyze-action-arity",
+                message: format!(
+                    "`{}` of `{}` is invoked with {wanted} argument(s) here, but `{}` binds it to {how}",
+                    child.props[prop].name, child.name, c.name
+                ),
+                span: *at,
+                related: vec![
+                    Related {
+                        span: child.props[prop].span,
+                        note: format!("`{}` declared here", child.props[prop].name),
+                    },
+                    Related {
+                        span,
+                        note: format!("bound to `{name}` here"),
+                    },
+                ],
+            });
+        }
+    }
+    Ok(())
 }
 
 fn check_actions(c: &Component) -> Result<(), AnalyzeError> {

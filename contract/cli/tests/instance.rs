@@ -94,7 +94,7 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         .unwrap()
         + 1;
     assert_eq!(error.id, "type-condition");
-    assert_eq!(error.span.0 as usize, line);
+    assert_eq!(error.span.line as usize, line);
 }
 
 fn text_of(r: &Runner<Stations>, id: &str) -> String {

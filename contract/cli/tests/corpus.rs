@@ -131,7 +131,7 @@ fn a_file_without_a_component_is_a_typed_refusal() {
     for src in ["", "shape S\n  a: number\n"] {
         let error = contract::compile(src).unwrap_err();
         assert_eq!(error.id, "analyze-no-component");
-        assert_eq!(error.span, (1, 1));
+        assert_eq!((error.span.line, error.span.col), (1, 1));
     }
 }
 

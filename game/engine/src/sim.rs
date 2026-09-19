@@ -165,12 +165,16 @@ impl<G: Game> Sim<G> {
         }
     }
 
-    fn build(args: &G::Args, assets: crate::asset::Assets) -> World {
+    fn build(args: &G::Args, assets: crate::asset::AssetStore) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
         for &name in G::ASSETS {
-            world.assets.declared.insert(name.into());
-            world.assets.required.insert(name.into());
+            if !world.assets.declared.contains(name) {
+                world.assets.declared.insert(name.into());
+            }
+            if !world.assets.required.contains(name) {
+                world.assets.required.insert(name.into());
+            }
             if !world.assets.models.contains_key(name) {
                 world.assets.request(name);
             }
@@ -233,7 +237,7 @@ impl<G: Game> Sim<G> {
             }
             self.asset_mesh_revision = revision;
         }
-        let assets = &mut self.world.assets;
+        let assets = &mut *self.world.assets;
         let names: Vec<_> = assets
             .states
             .iter()
@@ -265,7 +269,7 @@ impl<G: Game> Sim<G> {
     }
     /// Content remains Loaded after loss; only device preparation is invalidated.
     pub fn invalidate_device_assets(&mut self) -> Vec<String> {
-        let assets = &mut self.world.assets;
+        let assets = &mut *self.world.assets;
         assets.prepared.clear();
         let mut retry = Vec::new();
         for (name, state) in &assets.states {
@@ -332,7 +336,7 @@ impl<G: Game> Sim<G> {
     }
     fn finish_assets(&mut self) {
         use crate::asset::AssetState;
-        let assets = &mut self.world.assets;
+        let assets = &mut *self.world.assets;
         for (name, textures) in &assets.dependencies {
             if !assets.states.contains_key(name) {
                 continue;
@@ -430,6 +434,9 @@ impl<G: Game> Sim<G> {
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
+        Self::with_assets(args, Default::default())
+    }
+    fn with_assets(args: G::Args, assets: crate::asset::AssetStore) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
@@ -450,9 +457,10 @@ impl<G: Game> Sim<G> {
         }
         args.check_scalars()?;
         G::validate(&args)?;
+        let world = Self::build(&args, assets);
         Ok(Self {
-            world: Self::build(&args, Default::default()),
-            setup_pending: !G::ASSETS.is_empty(),
+            setup_pending: !world.assets.ready(),
+            world,
             asset_mesh_revision: u64::MAX,
             asset_sprite_names: Vec::new(),
             defer_assets: false,
@@ -1303,9 +1311,9 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut bytes = b"EXSIM\0\x05".to_vec();
-        bytes.extend(bin::to_vec(&saved));
-        Ok(bytes)
+        let mut w = bin::Encoder::prefixed(b"EXSIM\0\x05");
+        saved.write(&mut w);
+        Ok(w.finish())
     }
     /// Atomically restore dynamic state onto this binary's actions and a new epoch.
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
@@ -1335,9 +1343,8 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("restore refused: EXSIM v5 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
         }
         let bound: G::Args = crate::json::from_str(args.unwrap_or(&s.args))?;
-        let mut next = Self::new(bound).map_err(DataError::new)?;
-        next.world = Self::build(&next.args, self.world.assets.clone());
-        next.setup_pending = !next.world.assets.ready();
+        let mut next =
+            Self::with_assets(bound, self.world.assets.clone()).map_err(DataError::new)?;
         next.defer_assets = self.defer_assets;
         if next.setup_pending {
             return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
@@ -1391,104 +1398,5 @@ impl<G: Game> Sim<G> {
 }
 
 #[cfg(test)]
-mod render_time_tests {
-    use super::*;
-    struct Ticker<const HZ: u32>;
-    impl<const HZ: u32> Game for Ticker<HZ> {
-        const ID: &'static str = "alpha-guard";
-        const HZ: u32 = HZ;
-        type Args = ();
-        fn setup(_: &mut World, _: &()) {}
-        fn tick(_: &mut World, _: &Input, _: &()) {}
-    }
-    fn steady<const HZ: u32>() {
-        for frame_hz in [60.0, 59.94, 120.0, 144.0, 240.0] {
-            for epoch in [0.0, 1234.567, 1_000_000.123] {
-                for phase in [0.0, 0.1, 0.25, 0.4] {
-                    let mut s = Sim::<Ticker<HZ>>::new(()).unwrap();
-                    s.frame_period(1000.0 / frame_hz);
-                    s.advance(epoch, Clock::Live);
-                    for frame in 1..=600 {
-                        let now =
-                            epoch + frame as f64 * 1000.0 / frame_hz + phase * 1000.0 / HZ as f64;
-                        let due = s.ticks_due(now, Clock::Live);
-                        assert_eq!(s.advance(now, Clock::Live), due);
-                        if HZ == 120 && frame_hz == 120.0 && phase == 0.0 {
-                            assert_eq!(due, 1, "120/120 frame {frame}");
-                        }
-                        // Inspect the signed numerator BEFORE alpha's guard.
-                        let raw = s.alpha_numerator();
-                        assert!((0..=1_000_000).contains(&raw),
-                            "world {HZ}, display {frame_hz}, epoch {epoch}, phase {phase}, frame {frame}: {raw}");
-                        if s.world.tick() > 0 {
-                            assert_eq!(s.alpha(), raw as f32 / 1_000_000.0);
-                        }
-                    }
-                    // Seekable must never reuse the preceding live lookahead.
-                    s.advance(epoch + 602.0 * 1000.0 / frame_hz, Clock::Seekable);
-                    assert_eq!(s.lookahead_us_hz, 0);
-                    assert!(s.live_time.is_none());
-                }
-            }
-        }
-    }
-    #[test]
-    fn alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates() {
-        steady::<60>();
-        steady::<120>();
-    }
-    #[test]
-    fn integer_phase_survives_the_old_eighteen_hour_precision_limit() {
-        let mut s = Sim::<Ticker<120>>::new(()).unwrap();
-        // Just beyond 2^26 milliseconds, without running eight million ticks.
-        let tick = 8_100_000;
-        for _ in 0..tick {
-            s.world.step_clock();
-        }
-        assert_eq!(s.world.tick(), tick);
-        s.world_us = tick as i64 * 1_000_000 / 120;
-        s.frame_period(1000.0 / 120.0);
-        s.advance(0.0, Clock::Live);
-        for frame in 1..=3600 {
-            let now = frame as f64 * 1000.0 / 120.0;
-            assert_eq!(s.ticks_due(now, Clock::Live), 1);
-            assert_eq!(s.advance(now, Clock::Live), 1);
-            let live = s.live_time.unwrap();
-            assert!(live.remainder.abs() <= 0.5);
-            assert_eq!(live.phase, (tick as i128 + frame as i128) * 1_000_000);
-            assert_eq!(s.alpha(), 1.0);
-        }
-    }
-    #[test]
-    fn live_restore_preserves_a_pending_future_stamp_on_the_epoch_sample() {
-        let mut s = Sim::<Ticker<60>>::new(()).unwrap();
-        s.advance(10.0, Clock::Live);
-        s.queue.push_back(Queued {
-            host_us: 12_000,
-            ..Default::default()
-        });
-        let save = s.save().unwrap();
-        s.restore(&save).unwrap();
-        s.advance(100.0, Clock::Live);
-        assert_eq!(s.queue.len(), 1);
-        assert_eq!(s.queue[0].host_us, 102_000);
-        assert!(s.queue[0].world_us.is_none());
-    }
-    #[test]
-    fn restore_refuses_a_one_tick_ahead_clock() {
-        let mut s = Sim::<Ticker<60>>::new(()).unwrap();
-        s.advance(0.0, Clock::Seekable);
-        s.advance(17.0, Clock::Seekable);
-        let good = s.save().unwrap();
-        let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
-        saved.world_us = 10_000;
-        let mut bad = b"EXSIM\0\x05".to_vec();
-        bad.extend(bin::to_vec(&saved));
-        assert!(s
-            .restore(&bad)
-            .unwrap_err()
-            .to_string()
-            .contains("world and clock disagree"));
-        assert_eq!(s.save().unwrap(), good);
-    }
-}
+#[path = "sim_tests.rs"]
+mod render_time_tests;

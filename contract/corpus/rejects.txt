@@ -272,15 +272,18 @@ component A
       button press=go testId="go"
 ---
 == lower-handler-arity
+# An action reaching a handler through `provide`/`inject` is not a use-site
+# binding, so `analyze-action-arity` (LLP 1035.005 D2) does not see it; the
+# inlined view does, and lowering refuses it there (LLP 1017 P1b).
 component A
   state n = ""
   action pick(id: string) writes n
     n = id
   view
-    column
-      Row(press=pick)
+    provide press = pick
+      Row()
 component Row
-  props
+  inject
     press: action
   view
     button press=press testId="r"
@@ -704,3 +707,35 @@ component A
     main navigationKey="home" navigationBack="back"
       column navigate=follow navigationKey="home"
         text "Home"
+---
+== syntax-continuation-indent
+# LLP 1035.005 D1: an element's attributes continue only on lines deeper
+# than the element's; at its own depth `width=` is neither a child nor a
+# continuation.
+component A
+  view
+    column gap=8
+      text "a"
+    width=40
+---
+== analyze-action-arity
+# LLP 1035.005 D2: `Row` invokes `pick` with one argument, the id, but
+# `App` binds it to `choose`, which takes two — both sides are named.
+shape Item
+  id: string
+component App
+  state chosen = ""
+  action choose(id: string, why: string) writes chosen
+    chosen = id
+  resource items = items() as shape list<Item>
+  view
+    column
+      each item in items key=item.id
+        Row(item=item, pick=choose)
+component Row
+  props
+    item: Item
+    pick: action
+  view
+    button press=pick(item.id)
+      text item.id

@@ -68,6 +68,48 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(e.controls.isEmpty)
         XCTAssertEqual(controlEvents.last?["phase"] as? String, "cancel")
     }
+    func testR12BlurClearsRestoredOwnership() {
+        let (s,canvas,button)=fixture(); defer {s.destroy()}
+        #if os(macOS)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false);window.contentView=s.presenter.viewport
+        #else
+        let window=UIWindow(frame:CGRect(x:0,y:0,width:400,height:200));window.addSubview(s.presenter.viewport)
+        #endif
+        defer {withExtendedLifetime(window) {}}
+        let e=s.canvases.entries[100]!
+        e.controls[7]=SurfaceControl(node:button.id,name:"jump",offset:.zero,position:.zero)
+        controlEvents=[];canvas.canvasInput!.blur()
+        XCTAssertTrue(e.controls.isEmpty)
+        XCTAssertEqual(controlEvents.map {$0["phase"] as? String ?? $0["t"] as? String ?? ""},["cancel","blur"])
+    }
+    func testR12DuplicateActionsDoNotGuessRestoredNode() {
+        let (s,canvas,_)=fixture(); defer {s.destroy()}
+        let second=NodeView(id:102,kind:"button",presenter:s.presenter)
+        second.props["action"]="jump";canvas.addSubview(second);s.presenter.views[102]=second
+        let e=s.canvases.entries[100]!,m=s.canvases.module!
+        let bytes=Array("{\"world\":{\"restored\":true,\"input\":{\"controlContacts\":[{\"id\":7,\"action\":\"jump\"}]}}}".utf8)
+        bytes.withUnsafeBufferPointer {recoveryReply.update(from:$0.baseAddress!,count:$0.count)};recoveryLength=UInt32(bytes.count)
+        e.restorePending=true;s.canvases.finishRestore(m,e)
+        XCTAssertEqual(e.controls[7]?.node,canvas.id)
+        second.forget();XCTAssertNotNil(e.controls[7])
+    }
+    func testR12ReparentAndCrossViewRelease() {
+        let (s,canvas,button)=fixture(); defer {s.destroy()}
+        #if os(macOS)
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false);window.contentView=s.presenter.viewport
+        #else
+        let window=UIWindow(frame:CGRect(x:0,y:0,width:400,height:200));window.addSubview(s.presenter.viewport)
+        #endif
+        let other=NodeView(id:200,kind:"canvas",presenter:s.presenter),second=NodeView(id:201,kind:"button",presenter:s.presenter)
+        s.presenter.root.addSubview(other);other.addSubview(second);second.props["action"]="jump"
+        s.presenter.views[200]=other;s.presenter.views[201]=second;other.canvasInput=CanvasInput(view:other)
+        let e=Canvases.Entry(view:other,name:"other",values:[]);e.id=2;e.wantsInput=true;s.canvases.entries[200]=e
+        XCTAssertTrue(button.control("down",id:7));XCTAssertTrue(second.control("up",id:7));XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
+        XCTAssertTrue(button.control("down",id:8));other.addSubview(button)
+        s.presenter.apply(Batch(ops:[],timers:false,motion:false,clock:nil,error:nil))
+        XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
+        withExtendedLifetime((window,canvas)) {}
+    }
     func testCanvasRecreatedWhileRecoveryIsPendingGetsInitialClock() {
         let (s, canvas, _) = fixture(); defer { s.destroy() }
         let m=s.canvases.module!; m.canvases.add(s.canvases)
@@ -88,7 +130,17 @@ final class SurfaceControlTests: XCTestCase {
         window.contentView=s.presenter.viewport
         let editor=NSTextView(frame:NSRect(x:0,y:100,width:100,height:50)); s.presenter.root.addSubview(editor)
         XCTAssertTrue(window.makeFirstResponder(editor)); XCTAssertTrue(button.control("down",id:7))
-        XCTAssertTrue(window.firstResponder === editor); withExtendedLifetime(window) {}
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertTrue(button.controlKey("Space",down:true))
+        XCTAssertTrue(window.firstResponder === editor)
+        XCTAssertNotNil(s.canvases.entries[100]!.controls[4294967294])
+        XCTAssertTrue(button.controlKey("Space",down:false))
+        controlEvents=[]
+        let reply=s.agentInstance.type(["id":Int(button.id),"key":"Space"])
+        XCTAssertNil(reply["error"])
+        XCTAssertEqual(controlEvents.filter {$0["t"] as? String == "control"}.map {$0["phase"] as? String ?? ""},["down","up"])
+        XCTAssertTrue(window.firstResponder === editor)
+        withExtendedLifetime(window) {}
     }
     func testRawCanvasPointerPreservesTextEditor() {
         let (s, canvas, _) = fixture(); defer { s.destroy() }

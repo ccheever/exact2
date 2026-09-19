@@ -192,7 +192,7 @@ impl<D: DataSource> Host<D> {
         batch.roots(&roots);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
@@ -412,7 +412,7 @@ impl<D: DataSource> Host<D> {
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
         for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {

@@ -277,7 +277,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
-        if ok { inputCanvas?.canvasInput?.blur(); presenter?.selection.clear() }
+        if ok { if !isSurfaceControl { inputCanvas?.canvasInput?.blur() }; presenter?.selection.clear() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }

@@ -37,7 +37,7 @@ final class Canvases {
     final class Entry {
         let view: NodeView
         let name: String
-        var values: [Any]
+        var values: Any
         var id: UInt32 = 0
         var presentable = true
         var wants = false
@@ -67,7 +67,7 @@ final class Canvases {
         /// nothing dirty and the surface wants no frame at a new clock —
         /// so the line map, once drawn, costs the sky's capture nothing.
         var picture: CGImage?
-        init(view: NodeView, name: String, values: [Any]) { self.view = view; self.name = name; self.values = values }
+        init(view: NodeView, name: String, values: Any) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
@@ -115,7 +115,7 @@ final class Canvases {
     }
 
     /// A surface op: new inputs for a canvas node.
-    func surface(view: NodeView, name: String, values: [Any]) {
+    func surface(view: NodeView, name: String, values: Any) {
         if let e = entries[view.id], e.view !== view || e.name != name { destroy(view: view.id) }
         if let e = entries[view.id] {
             e.values = values

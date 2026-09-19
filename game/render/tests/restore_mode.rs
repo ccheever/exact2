@@ -133,3 +133,119 @@ fn primitive_pose_refusal_names_the_same_author_knob() {
     assert_eq!(error, "pose inspection requires game.assets: true");
     assert!(reply.contains(&error), "{reply}");
 }
+
+#[test]
+fn named_bindings_use_args_defaults_and_preserve_atomic_live_restart_and_restore() {
+    use exact_game::{Args, Transform};
+    use exact_gpu::{Module, Registry};
+    #[derive(Args)]
+    struct Options {
+        seed: u64,
+        #[live]
+        paused: bool,
+        #[restart]
+        restart: bool,
+        offset: f32,
+    }
+    impl Default for Options {
+        fn default() -> Self {
+            Self {
+                seed: 7,
+                paused: false,
+                restart: false,
+                offset: 2.0,
+            }
+        }
+    }
+    struct Named;
+    impl Game for Named {
+        const ID: &'static str = "named-binding";
+        type Args = Options;
+        fn setup(w: &mut World, args: &Options) {
+            w.reseed(args.seed);
+            w.spawn_named("player", Transform::at(args.offset, 0., 0.));
+        }
+        fn tick(w: &mut World, _: &Input, _: &Options) {
+            w.get_mut::<Transform>("player").unwrap().position.x += 1.;
+        }
+        fn paused(args: &Options) -> bool {
+            args.paused
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("world", 4, || Box::<WorldSurface<Named>>::default())],
+        shaders: &[],
+    };
+    let mut module = Module::new(&REGISTRY);
+    module.set_seekable(true);
+    let named = module.create_headless("world").unwrap();
+    let positional = module.create_headless("world").unwrap();
+    assert!(module.bind_json(named, r#"{"offset":3,"seed":9}"#, Some(0.)));
+    assert!(module.bind_json(positional, "[9,false,false,3]", Some(0.)));
+    assert_eq!(
+        module.carry(named).unwrap(),
+        module.carry(positional).unwrap()
+    );
+    // Invalid names/JSON/types may not seek to the supplied future clock.
+    let before = module.carry(named).unwrap();
+    for (json, message) in [
+        (r#"{"seed":9,"typo":true}"#, "typo"),
+        (r#"{"seed":9,"seed":10}"#, "duplicate"),
+        (r#"{"":9}"#, "empty"),
+        (r#"{"seed":9,}"#, "number"),
+        (r#"{"seed":9} trailing"#, "trailing"),
+        (r#"{"paused":3}"#, "paused"),
+        (r#"{"offset":1e309}"#, "offset"),
+    ] {
+        assert!(!module.bind_json(named, json, Some(1000.)), "{json}");
+        assert!(module.take_error().contains(message), "{json}");
+        assert_eq!(module.carry(named).unwrap(), before, "{json}");
+    }
+    // Identical binding seeks with old inputs; reordered names use the same path.
+    for (named_json, positional_json, at) in [
+        (
+            r#"{"paused":true,"seed":9,"offset":3}"#,
+            "[9,true,false,3]",
+            100.,
+        ),
+        (
+            r#"{"offset":3,"seed":9,"paused":true}"#,
+            "[9,true,false,3]",
+            200.,
+        ),
+        (r#"{"seed":9,"offset":3}"#, "[9,false,false,3]", 300.),
+        (
+            r#"{"restart":true,"offset":3,"seed":9}"#,
+            "[9,false,true,3]",
+            400.,
+        ),
+        (
+            r#"{"seed":9,"offset":3,"restart":false}"#,
+            "[9,false,false,3]",
+            500.,
+        ),
+        (r#"{}"#, "[7,false,false,2]", 600.),
+    ] {
+        assert!(
+            module.bind_json(named, named_json, Some(at)),
+            "{}",
+            module.take_error()
+        );
+        assert!(
+            module.bind_json(positional, positional_json, Some(at)),
+            "{}",
+            module.take_error()
+        );
+        assert_eq!(
+            module.carry(named).unwrap(),
+            module.carry(positional).unwrap()
+        );
+    }
+    let saved = module.carry(named).unwrap().unwrap();
+    for mode in [Restore::Open, Restore::Carry] {
+        let fresh = module.create_headless("world").unwrap();
+        assert!(module.bind_json(fresh, r#"{"seed":7}"#, None));
+        assert!(module.restore(fresh, &saved, mode));
+        assert_eq!(module.carry(fresh).unwrap(), Some(saved.clone()));
+    }
+}

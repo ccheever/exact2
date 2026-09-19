@@ -295,6 +295,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         return ok
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:true)
+        if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
         if !disabled, handlers.contains("press"), let key = presses.first?.key,
            ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
@@ -302,9 +304,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.key(id, NodeView.keyName(key))
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:false)
+        if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesEnded(presses, with: event) }
     }
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:false)
+        if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
     }
     /// The web's key names for UIKit's.

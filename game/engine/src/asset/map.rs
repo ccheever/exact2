@@ -4,10 +4,11 @@
 pub(crate) struct AssetMap<V>(Vec<(String, V)>, u64);
 impl<V> Default for AssetMap<V> {
     fn default() -> Self {
-        Self(Vec::new(), 0)
+        Self::EMPTY
     }
 }
 impl<V> AssetMap<V> {
+    pub(crate) const EMPTY: Self = Self(Vec::new(), 0);
     pub(crate) fn revision(&self) -> u64 {
         self.1
     }

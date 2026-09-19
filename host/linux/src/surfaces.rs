@@ -181,7 +181,7 @@ fn verify_module(path: &std::path::Path, compat: &Value) -> Result<(), String> {
 }
 #[derive(Clone)]
 pub(crate) struct ControlBinding {
-    view: Option<u32>,
+    pub(crate) view: Option<u32>,
     surface: u32,
     generation: u32,
     name: String,
@@ -331,7 +331,7 @@ impl Surfaces {
                 );
             }
             let c = self.canvases.get_mut(&update.view).unwrap();
-            let values = value_json(&exact_runner::Value::List(update.values.into())).to_string();
+            let values = update.arguments_json();
             let code = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, f64) -> u32>(
                     b"gpu_bind_at",
@@ -645,7 +645,16 @@ impl<D: DataSource> Presenter<D> {
         at: f64,
     ) -> bool {
         self.restore_controls();
-        let Some(surface) = self.input_surface(id) else {
+        let surface = if phase == "down" {
+            self.input_surface(id)
+        } else {
+            self.control_bindings
+                .iter()
+                .find(|((_, c), b)| *c == contact && b.view == Some(id))
+                .map(|((surface, _), _)| *surface)
+                .or_else(|| self.input_surface(id))
+        };
+        let Some(surface) = surface else {
             return false;
         };
         let key = (surface, contact);
@@ -705,6 +714,11 @@ impl<D: DataSource> Presenter<D> {
         }
         None
     }
+    pub(crate) fn holds_control(&self, id: u32) -> bool {
+        self.control_bindings
+            .values()
+            .any(|binding| binding.view == Some(id))
+    }
     pub(crate) fn owns_control(&self, id: u32, contact: u32) -> bool {
         self.input_surface(id)
             .is_some_and(|s| self.control_bindings.contains_key(&(s, contact)))
@@ -733,7 +747,7 @@ impl<D: DataSource> Presenter<D> {
                 else {
                     continue;
                 };
-                let view = self.host.preorder().into_iter().find(|v| {
+                let mut matches = self.host.preorder().into_iter().filter(|v| {
                     let Some(node) = self.host.kernel().node(*v) else {
                         return false;
                     };
@@ -753,6 +767,12 @@ impl<D: DataSource> Presenter<D> {
                     }
                     false
                 });
+                let first = matches.next();
+                let view = if matches.next().is_none() {
+                    first
+                } else {
+                    None
+                };
                 self.control_bindings.insert(
                     (surface, id as u32),
                     ControlBinding {
@@ -776,11 +796,13 @@ impl<D: DataSource> Presenter<D> {
                     .get(&b.surface)
                     .is_none_or(|c| c.id != b.generation)
                     || b.view.is_some_and(|view| {
-                        self.host
-                            .kernel()
-                            .node(view)
-                            .and_then(|n| n.props.str(exact_kernel::PropId::Action))
-                            .is_none()
+                        self.input_surface(view) != Some(b.surface)
+                            || self
+                                .host
+                                .kernel()
+                                .node(view)
+                                .and_then(|n| n.props.str(exact_kernel::PropId::Action))
+                                .is_none()
                     })
             })
             .map(|(key, b)| (*key, b.clone()))
@@ -829,6 +851,31 @@ impl<D: DataSource> Presenter<D> {
                 self.control_input(surface, "up", 0., 0., contact, self.host.now());
             }
             return;
+        }
+        if down && matches!(key, "Space" | "Enter" | "NumpadEnter") {
+            let owner = self
+                .control_bindings
+                .iter()
+                .find(|((_, c), _)| *c == contact)
+                .or_else(|| {
+                    self.control_bindings
+                        .iter()
+                        .find(|((_, c), _)| *c < u32::MAX - 2)
+                })
+                .map(|(_, b)| b.clone());
+            if let Some(owner) = owner {
+                if let Some(view) = owner.view {
+                    self.control_input(
+                        view,
+                        "down",
+                        owner.offset.0,
+                        owner.offset.1,
+                        contact,
+                        self.host.now(),
+                    );
+                    return;
+                }
+            }
         }
         if let Some(id) = self.focus {
             let _ = self.type_key(id, key, down);
@@ -1070,18 +1117,6 @@ impl<D: DataSource> Presenter<D> {
             _ => {}
         }
         r.to_string()
-    }
-}
-
-fn value_json(v: &exact_runner::Value) -> Value {
-    use exact_runner::Value as V;
-    match v {
-        V::Number(n) => json!(n),
-        V::Bool(b) => json!(b),
-        V::Str(s) => json!(s.as_ref()),
-        V::List(items) | V::Record(items) => items.iter().map(value_json).collect(),
-        V::Option(Some(v)) => value_json(v),
-        _ => Value::Null,
     }
 }
 
@@ -1338,11 +1373,15 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         assert_eq!(p.control_bindings[&(canvas, u32::MAX - 1)].name, "jump");
         p.activation_key("Space", false);
         assert!(!p.control_bindings.contains_key(&(canvas, u32::MAX - 1)));
+        // A held pointer owns activation keys even when focus is elsewhere.
+        // Release it before testing the raw canvas fallback.
+        assert!(p.control_input(button, "up", 20., 30., 1, 0.));
         p.focus = None;
         p.activation_key("Space", true);
         assert!(p.surfaces.canvases[&canvas].held.contains("Space"));
         p.activation_key("Space", false);
         assert!(p.surfaces.canvases[&canvas].held.is_empty());
+        assert!(p.control_input(button, "down", 20., 30., 1, 0.));
         p.focus = Some(button);
         p.activation_key("Space", true);
         p.host.dispatch_at(rename, Event::Press, 0.);

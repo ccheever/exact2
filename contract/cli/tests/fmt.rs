@@ -1,0 +1,203 @@
+//! LLP 1035.005 D1's three proofs over every corpus file and every app:
+//! `parse(fmt(src))` equals `parse(src)` up to spans and trivia,
+//! `fmt(fmt(src)) == fmt(src)`, and the compiled plans are byte-identical.
+//! Nothing here formats a checked-in file: the plan proof runs on a copy
+//! of the source, with imports and assets resolved from its original directory.
+
+use contract_syntax::fmt::format;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+/// Every `.contract` in the corpus (including `use/`) and every app's.
+fn sources() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for dir in ["contract/corpus", "contract/corpus/use"] {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(repo().join(dir))
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "contract"))
+            .collect();
+        files.sort();
+        out.extend(files);
+    }
+    let mut apps: Vec<PathBuf> = std::fs::read_dir(repo().join("apps"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("app.contract"))
+        .filter(|p| p.is_file())
+        .collect();
+    apps.sort();
+    out.extend(apps);
+    let mut games: Vec<PathBuf> = std::fs::read_dir(repo().join("game/games"))
+        .unwrap()
+        .map(|e| e.unwrap().path().join("app.contract"))
+        .filter(|p| p.is_file())
+        .collect();
+    games.sort();
+    out.extend(games);
+    out.push(repo().join("game/new/app.contract"));
+    assert!(out.len() >= 24, "{} sources", out.len());
+    out
+}
+
+/// The tree with every span and the trivia removed: `Debug` text with the
+/// `Span { … }` fragments cut out.
+fn shape(src: &str) -> String {
+    let mut file = contract_syntax::parse(src).unwrap();
+    file.trivia.clear();
+    let text = format!("{file:?}");
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(i) = rest.find("Span {") {
+        out.push_str(&rest[..i]);
+        let close = rest[i..].find('}').unwrap();
+        rest = &rest[i + close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+#[test]
+fn every_corpus_file_and_app_round_trips_through_the_printer() {
+    let mut report = Vec::new();
+    for path in sources() {
+        let name = path.strip_prefix(repo()).unwrap().display().to_string();
+        let src = std::fs::read_to_string(&path).unwrap();
+        let formatted = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(shape(&src), shape(&formatted), "{name}: the tree changed");
+        assert_eq!(
+            format(&formatted).unwrap(),
+            formatted,
+            "{name}: not idempotent"
+        );
+        let over = src.lines().filter(|l| l.chars().count() > 100).count();
+        let still_over = formatted
+            .lines()
+            .filter(|l| l.chars().count() > 100)
+            .count();
+        // A used file has no root of its own and does not compile alone;
+        // every other source compiles to the same bytes after formatting.
+        match contract::compile_path(&path) {
+            Ok(plan) => {
+                let after = contract::compile_path_source(&path, &formatted)
+                    .unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert_eq!(plan.encode(), after.encode(), "{name}: the plan changed");
+                report.push(format!(
+                    "{name}: byte-identical plan; {over} line(s) over 100 columns, {} after formatting; {} -> {} lines",
+                    still_over,
+                    src.lines().count(),
+                    formatted.lines().count()
+                ));
+            }
+            Err(e) => {
+                assert!(
+                    e.id == "analyze-root-props" && name.contains("use/"),
+                    "{name}: {e}"
+                );
+                report.push(format!("{name}: a used file, tree and idempotence only"));
+            }
+        }
+    }
+    for line in &report {
+        println!("{line}");
+    }
+    assert!(report.iter().filter(|l| l.contains("apps/")).count() >= 6);
+}
+
+#[test]
+fn fmt_check_diffs_and_exits_non_zero_only_on_a_difference() {
+    let dir = std::env::temp_dir().join(format!("exact-fmt-check-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a.contract");
+    std::fs::write(
+        &file,
+        "component A\n  view\n    text   \"a\"   font-size=12\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--check"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let diff = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        diff.contains("-    text   \"a\"   font-size=12\n"),
+        "{diff}"
+    );
+    assert!(diff.contains("+    text \"a\" font-size=12\n"), "{diff}");
+    // `--stdout` prints without touching the file; a bare `fmt` rewrites it.
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--stdout"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "component A\n  view\n    text \"a\" font-size=12\n"
+    );
+    assert!(std::fs::read_to_string(&file).unwrap().contains("text   "));
+    for flags in [vec!["--chek"], vec!["--check", "--stdout"], vec!["-x"]] {
+        let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .arg("fmt")
+            .args(flags)
+            .arg(&file)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(std::fs::read_to_string(&file).unwrap().contains("text   "));
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .arg("fmt")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "component A\n  view\n    text \"a\" font-size=12\n"
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--check"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    assert!(out.stdout.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn named_world_arguments_keep_order_values_comments_and_plan() {
+    let src = r#"component App
+  state frozen = false
+  state again = false
+  view
+    Scene(paused=frozen, restart=again)
+component Scene
+  props
+    paused: bool
+    restart: bool
+  view
+    // World bindings share the ordinary Contract expression grammar.
+    canvas surface=world( restart:restart, seed: -0, paused: not paused, label: "雪" ) width="100%" height="100%" testId="world" // retain me
+      button autofocus action="jump" testId="jump" padding=12
+        text "Jump"
+"#;
+    let formatted = format(src).unwrap();
+    assert_eq!(shape(src), shape(&formatted));
+    assert_eq!(formatted, format(&formatted).unwrap());
+    assert!(
+        formatted.contains("world(restart: restart, seed: -0, paused: not paused, label: \"雪\")")
+    );
+    assert!(formatted.contains("// retain me"));
+    assert!(formatted.contains("// World bindings"));
+    assert_eq!(
+        contract::compile(src).unwrap().encode(),
+        contract::compile(&formatted).unwrap().encode()
+    );
+}

@@ -1240,7 +1240,11 @@ impl<'a> Lowerer<'a> {
                 };
                 let mut codes = Vec::new();
                 for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
+                    let (name, value) = match arg {
+                        Expr::NamedArg(name, value, _) => (name.as_str(), value.as_ref()),
+                        _ => ("", arg),
+                    };
+                    codes.push((name, self.expr_code(value, scope, locals)?));
                 }
                 *surface = Some(self.b.surface(name, &codes));
             }

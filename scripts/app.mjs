@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
-import { gameDefaults, gameShells } from '../game/app/shells.mjs';
+import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -39,6 +39,7 @@ export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
   let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
+  if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
@@ -50,18 +51,22 @@ export function resolveApp(nameOrCrate) {
     const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
     workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
   }
-  if (dirname(dir) === resolve(workspace, 'games') && manifest.game === undefined) {
+  if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
   if (manifest.game !== undefined) {
-    name = gameShells(dir, manifest.game, resolve(ROOT, 'game'));
+    name = manifest.game.crate.slice(0, -'-logic'.length);
     workspace = resolve(dir, '.shells');
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
   let packages;
+  const prepare = (refresh = false) => {
+    if (manifest.game && (refresh || !packages)) packages = prepareGame(dir, manifest.game, resolve(ROOT, 'game')).packages;
+  };
   const cargoPackage = kind => {
+    prepare();
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', ...(manifest.game ? [] : ['--no-deps']), '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', '--no-deps', '--locked', '--offline', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }
@@ -69,9 +74,9 @@ export function resolveApp(nameOrCrate) {
   };
   return {
     name, dir, workspace, target, crate: (kind) => `${name}-${kind}`,
-    cargoPackage,
+    cargoPackage, prepare,
     get hasGpu() {
-      if (manifest.game !== undefined) return !!cargoPackage('gpu');
+      if (manifest.game !== undefined) return true;
       const gpu = resolve(dir, 'gpu');
       if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
       const pkg = cargoPackage('gpu');
@@ -462,6 +467,7 @@ export const appleCargoClaims = (app, target, units) => [...new Set(units.map(un
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS. */
 export function buildBake(app, platform, target, options = {}) {
+  app.prepare?.(true);
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && existsSync(resolve(app.dir,'art'))) || existsSync(resolve(app.dir,root))).join(',');

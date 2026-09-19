@@ -26,13 +26,18 @@
   readers must account their allocations through `Reader::claim` too.
   The binary decoder borrows internal field/variant names from its input; values
   returned through `Reader` remain owned, with the same allocation accounting.
+  Dynamic `Value` fields stream their existing variant tags directly to save,
+  hash and JSON writers, without constructing a second owned value tree.
 
 The [small example](../README.md#the-programming-model) is this crate's
 runnable doc-test. Only rustdoc includes the guide; editing it does not rebuild
-the runtime. `Game::Args` is a struct with `#[derive(Args)]`: declaration order
-is positional order, `#[live]` avoids rebuilding, decoding refuses before mutation.
+the runtime. `Game::Args` is a struct with `#[derive(Args)]`: a canvas can bind
+`world(seed: 7, paused: paused)`, with omitted fields taking Rust defaults.
+Declaration order is positional order, `#[live]` avoids rebuilding, and decoding
+refuses before mutation. Named canvas bindings resolve to this same typed path.
 Setup cannot fail. Setup, paused and tick receive typed arguments; Sim retains the
-bound values for saves and agent state.
+bound values for saves and agent state. Creation and restore share one constructor;
+restore supplies retained assets up front and calls setup once before loading.
 
 Seekable advances observe the final tick's components, RNG and non-ambient
 resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
@@ -57,6 +62,8 @@ custom readers must preserve this accounting.
 
 World containers are EXGAME v3; Sim containers are EXSIM v5. Older containers are
 refused by name, without migration. Sim's encoded world is one bytes field.
+Save headers and payloads are written into the same buffer; returned vectors may
+retain spare capacity.
 Undelivered `emit` messages remain saved, in order, but are excluded from the
 simulation hash. Host draining never changes that hash. Restore retains Input's
 viewport for headless touch continuation; a later host resize replaces it.
@@ -82,6 +89,11 @@ including translated or rotated parents. Mandatory queries use
 named pending assets or failed declarations; failed cosmetics do not block saving. The game-save
 migration hook is gone: the format and game identity are checked before loading.
 The template uses a `#[restart]` argument to reconstruct setup.
+
+Asset delivery state is owned only when needed. Rebuilt worlds share immutable
+asset maps; the first write detaches them. Reads remain direct, and the final
+owner releases its models. Primitive worlds borrow an empty view without linking
+model cloning or destruction. Save bytes and host delivery APIs are unchanged.
 
 
 Erased component pages own values through typed descriptor operations: `read`/

@@ -93,7 +93,40 @@ impl Stored {
 
 impl Data for Value {
     fn write(&self, w: &mut dyn Writer) {
-        Stored::from(self.clone()).write(w);
+        // Stored's derived variant framing, without an owned conversion tree.
+        let (name, index) = match self {
+            Self::Unit => ("Unit", 0),
+            Self::Number(_) => ("Number", 1),
+            Self::Bool(_) => ("Bool", 2),
+            Self::Str(_) => ("Str", 3),
+            Self::Option(_) => ("Option", 4),
+            Self::List(_) => ("List", 5),
+            Self::Record(_) => ("Record", 6),
+        };
+        w.variant(name, index);
+        if matches!(self, Self::Unit) {
+            w.begin_struct();
+            w.end_struct();
+        } else {
+            w.begin_seq(1);
+            w.item();
+            match self {
+                Self::Unit => {}
+                Self::Number(n) => n.write(w),
+                Self::Bool(b) => b.write(w),
+                Self::Str(s) => w.string(s),
+                Self::Option(value) => {
+                    w.option(value.is_some());
+                    if let Some(value) = value {
+                        value.write(w);
+                    }
+                    w.end_option();
+                }
+                Self::List(values) | Self::Record(values) => values.as_ref().write(w),
+            }
+            w.end_seq();
+        }
+        w.end_variant();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let mut stored = Stored::default();
@@ -103,6 +136,77 @@ impl Data for Value {
             .value()
             .ok_or_else(|| DataError::new("named record requires a Contract shape"))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{bin, hash, json};
+
+    #[test]
+    fn value_stream_matches_stored_derive_in_every_codec() {
+        fn json_stream(value: &impl Data) -> Result<String, DataError> {
+            let mut writer = json::Encoder::default();
+            value.write(&mut writer);
+            writer.finish()
+        }
+        let shared = Rc::new(Value::record(vec![
+            Value::str("quote \" slash \\ line\n héllo 🌕"),
+            Value::Number(-0.0),
+            Value::list(vec![Value::Unit, Value::Bool(true)]),
+        ]));
+        let mut cases = vec![
+            Value::Unit,
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::str(""),
+            Value::str("héllo 🌕"),
+            Value::Option(None),
+            Value::Option(Some(Rc::new(Value::Unit))),
+            Value::Option(Some(shared.clone())),
+            Value::list(vec![]),
+            Value::record(vec![]),
+            shared.as_ref().clone(),
+            Value::list(vec![
+                Value::Option(Some(shared.clone())),
+                shared.as_ref().clone(),
+            ]),
+        ];
+        cases.extend(
+            [
+                0.0,
+                -0.0,
+                1.0,
+                -1.0,
+                f64::MAX,
+                f64::MIN_POSITIVE,
+                f64::from_bits(1),
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::NAN,
+                f64::from_bits(0xfff8_0000_0000_0001),
+            ]
+            .into_iter()
+            .map(Value::Number),
+        );
+        let owners = Rc::strong_count(&shared);
+        for value in &cases {
+            let stored = Stored::from(value.clone());
+            let expected = bin::to_vec(&stored);
+            assert_eq!(bin::to_vec(value), expected, "{value:?}");
+            assert_eq!(hash::of(value), hash::of(&stored), "{value:?}");
+            assert_eq!(json_stream(value), json_stream(&stored), "{value:?}");
+            let decoded: Value = bin::from_slice(&expected).unwrap();
+            assert_eq!(bin::to_vec(&decoded), expected, "round trip {value:?}");
+        }
+        assert_eq!(Rc::strong_count(&shared), owners);
+        // List and Record have equal public JSON shapes but distinct saved tags.
+        assert_ne!(
+            bin::to_vec(&Value::list(vec![])),
+            bin::to_vec(&Value::record(vec![]))
+        );
+        assert_ne!(hash::of(&Value::Number(0.)), hash::of(&Value::Number(-0.)));
     }
 }
 

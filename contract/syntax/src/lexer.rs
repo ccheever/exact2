@@ -2,9 +2,11 @@
 //!
 //! Lines become `Newline`; a deeper indent emits `Indent`, a shallower one
 //! emits as many `Dedent`s as levels closed. Blank lines and `//` comments
-//! are skipped. Inside brackets, newlines and indentation are ignored, so a
-//! call may span lines. Template strings are lexed whole (backtick to
-//! backtick); the parser re-lexes their `${…}` parts.
+//! are trivia — `Blank` and `Comment` tokens that `parse` lifts off the
+//! stream onto the file, so the parser never sees them and the printer keeps
+//! them (LLP 1035.005 D1). Inside brackets, newlines and indentation are
+//! ignored, so a call may span lines. Template strings are lexed whole
+//! (backtick to backtick); the parser re-lexes their `${…}` parts.
 
 use crate::Span;
 
@@ -21,6 +23,16 @@ pub enum TokenKind {
     Template(String),
     /// Punctuation or an operator, as written.
     Punct(&'static str),
+    /// A `//` comment: `text` is everything after the `//`; `trailing` when
+    /// code precedes it on its line. Trivia.
+    Comment {
+        /// After the `//`, as written.
+        text: String,
+        /// After code on the same line, rather than on a line of its own.
+        trailing: bool,
+    },
+    /// A run of blank lines outside brackets. Trivia.
+    Blank(u32),
     /// End of a logical line.
     Newline,
     /// Indentation increased.
@@ -60,28 +72,61 @@ const PUNCT: &[&str] = &[
 pub struct Lexer;
 
 impl Lexer {
-    /// Tokenize `src`, starting line numbers at `first_line`.
-    pub fn tokenize(src: &str, first_line: u32) -> Result<Vec<Token>, LexError> {
+    /// Tokenize `src`, starting line numbers at `first_line`; `first_col`
+    /// is the column of `src`'s first byte in its line (1 for a file; where
+    /// a `${` ends for a template's expression).
+    pub fn tokenize(src: &str, first_line: u32, first_col: u32) -> Result<Vec<Token>, LexError> {
         let mut out = Vec::new();
+        let shift = first_col.saturating_sub(1);
         let mut indents: Vec<usize> = vec![0];
         let mut depth = 0usize; // bracket depth
+        let mut blank: Option<(u32, u32)> = None; // (first line, count)
         for (i, raw) in src.lines().enumerate() {
             let line_no = first_line + i as u32;
             let line = raw.trim_end();
             let trimmed = line.trim_start();
-            if trimmed.is_empty() || trimmed.starts_with("//") {
+            if trimmed.is_empty() {
+                if depth == 0 {
+                    blank = Some(blank.map_or((line_no, 1), |(l, n)| (l, n + 1)));
+                }
                 continue;
             }
+            if let Some((l, n)) = blank.take() {
+                out.push(Token {
+                    kind: TokenKind::Blank(n),
+                    span: Span {
+                        line: l,
+                        col: 1,
+                        end_col: 1,
+                    },
+                });
+            }
             let indent = line.len() - trimmed.len();
+            if let Some(text) = trimmed.strip_prefix("//") {
+                out.push(Token {
+                    kind: TokenKind::Comment {
+                        text: text.to_string(),
+                        trailing: false,
+                    },
+                    span: Span {
+                        line: line_no,
+                        col: indent as u32 + 1 + shift,
+                        end_col: line.len() as u32 + 1 + shift,
+                    },
+                });
+                continue;
+            }
+            let at = |col: usize| Span {
+                line: line_no,
+                col: col as u32 + 1 + shift,
+                end_col: col as u32 + 1 + shift,
+            };
             if depth == 0 {
                 if line[..indent].contains('\t') {
                     return Err(LexError {
                         id: "syntax-tab-indent",
                         message: "indent with spaces, not tabs".into(),
-                        span: Span {
-                            line: line_no,
-                            col: 1,
-                        },
+                        span: at(0),
                     });
                 }
                 let current = *indents.last().unwrap();
@@ -89,39 +134,31 @@ impl Lexer {
                     indents.push(indent);
                     out.push(Token {
                         kind: TokenKind::Indent,
-                        span: Span {
-                            line: line_no,
-                            col: 1,
-                        },
+                        span: at(0),
                     });
                 } else {
                     while indent < *indents.last().unwrap() {
                         indents.pop();
                         out.push(Token {
                             kind: TokenKind::Dedent,
-                            span: Span {
-                                line: line_no,
-                                col: 1,
-                            },
+                            span: at(0),
                         });
                     }
                     if indent != *indents.last().unwrap() {
                         return Err(LexError {
                             id: "syntax-bad-dedent",
                             message: "indentation does not match any enclosing level".into(),
-                            span: Span {
-                                line: line_no,
-                                col: 1,
-                            },
+                            span: at(0),
                         });
                     }
                 }
             }
             let bytes = trimmed.as_bytes();
             let mut pos = 0usize;
-            let col_of = |pos: usize| Span {
+            let span_of = |start: usize, end: usize| Span {
                 line: line_no,
-                col: (indent + pos + 1) as u32,
+                col: (indent + start + 1) as u32 + shift,
+                end_col: (indent + end + 1) as u32 + shift,
             };
             while pos < bytes.len() {
                 let c = bytes[pos] as char;
@@ -129,10 +166,17 @@ impl Lexer {
                     pos += 1;
                     continue;
                 }
-                if trimmed[pos..].starts_with("//") {
+                if let Some(text) = trimmed[pos..].strip_prefix("//") {
+                    out.push(Token {
+                        kind: TokenKind::Comment {
+                            text: text.to_string(),
+                            trailing: true,
+                        },
+                        span: span_of(pos, bytes.len()),
+                    });
                     break;
                 }
-                let span = col_of(pos);
+                let span = span_of(pos, pos);
                 if c.is_ascii_alphabetic() || c == '_' {
                     // An identifier may contain hyphens — `font-size`,
                     // `aria-label` — as CSS's do; so, as in CSS `calc()`,
@@ -151,7 +195,7 @@ impl Lexer {
                     }
                     out.push(Token {
                         kind: TokenKind::Ident(trimmed[start..pos].to_string()),
-                        span,
+                        span: span_of(start, pos),
                     });
                     continue;
                 }
@@ -170,7 +214,7 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
-                        span,
+                        span: span_of(start, pos),
                     });
                     continue;
                 }
@@ -178,7 +222,7 @@ impl Lexer {
                     let (s, end) = Self::string(trimmed, pos, '"', span)?;
                     out.push(Token {
                         kind: TokenKind::Str(s),
-                        span,
+                        span: span_of(pos, end),
                     });
                     pos = end;
                     continue;
@@ -191,7 +235,7 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Template(trimmed[pos + 1..end].to_string()),
-                        span,
+                        span: span_of(pos, end + 1),
                     });
                     pos = end + 1;
                     continue;
@@ -215,21 +259,32 @@ impl Lexer {
                 }
                 out.push(Token {
                     kind: TokenKind::Punct(p),
-                    span,
+                    span: span_of(pos, pos + p.len()),
                 });
                 pos += p.len();
             }
             if depth == 0 {
                 out.push(Token {
                     kind: TokenKind::Newline,
-                    span: col_of(bytes.len()),
+                    span: span_of(bytes.len(), bytes.len()),
                 });
             }
         }
         let end = Span {
             line: first_line + src.lines().count() as u32,
             col: 1,
+            end_col: 1,
         };
+        if let Some((l, n)) = blank.take() {
+            out.push(Token {
+                kind: TokenKind::Blank(n),
+                span: Span {
+                    line: l,
+                    col: 1,
+                    end_col: 1,
+                },
+            });
+        }
         while indents.len() > 1 {
             indents.pop();
             out.push(Token {

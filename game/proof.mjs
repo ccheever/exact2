@@ -176,7 +176,9 @@ export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs)$/.test(file);
 }
 export function proofInputFiles(root, app) {
-  const files = spawnSync('git', ['ls-files','--cached','--others','--exclude-standard'], {cwd:root, encoding:'utf8'});
+  const top = spawnSync('git', ['rev-parse','--show-toplevel'], {cwd:root, encoding:'utf8'});
+  const repository = top.status === 0 ? top.stdout.trim() : root;
+  const files = spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
   const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
     if (['.git','target','node_modules','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name)) return [];
     const path = prefix + entry.name;
@@ -184,11 +186,11 @@ export function proofInputFiles(root, app) {
   });
   // Fleet exports have no Git index; external games are outside exact2's index.
   // Always include the app's own inputs, even when its defaults are gitignored.
-  const sources = files.status === 0 ? files.stdout.trim().split('\n') : walk(root);
-  sources.push(...walk(app).map(file => relative(root, resolve(app, file))));
-  const prefix = relative(root, app) + '/';
+  const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
+  sources.push(...walk(app).map(file => relative(repository, resolve(app, file))));
+  const prefix = relative(repository, app) + '/';
   return [...new Set(sources)].sort().filter(file =>
-    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(root, file)));
+    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file))).sort();
 }
 export async function paranoidRuns(run, restore = async () => 0) {
   let failed = false;

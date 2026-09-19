@@ -153,6 +153,7 @@ async function fixture(body) {
     write(`${dir}/app.contract`, 'component App\n  view\n');
     write(`${dir}/app.json`, JSON.stringify({name, app:{id:`com.exact.${name}`,name}, game:{crate,type:'SmallGame'}}));
     pkg(`${dir}/logic`, crate, 'pub struct SmallGame;');
+    write(`${dir}/logic/Cargo.toml`, readFileSync(resolve(root, dir, 'logic/Cargo.toml'), 'utf8').replace('[package]', '[package]\nworkspace="../.shells"'));
     return resolve(root, dir);
   };
   try {
@@ -160,16 +161,17 @@ async function fixture(body) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp } = await import(resolve(root,'scripts/app.mjs'));
+    const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-apple','exact-linux','wasm-bindgen','wasm-bindgen-futures','web-sys'];
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
-    write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","games/*/logic","ordinary/*"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
+    write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
     write('game/games/.gitignore', '*/.shells/\n');
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
     const dir = game('foo'); process.env.EXACT_APP_DIR = dir;
-    body({root, dir, write, run, pkg, game, app:(name='foo')=>localResolveApp(name)});
+    body({root, dir, write, run, pkg, game, update:()=>prepareGame(dir, JSON.parse(readFileSync(resolve(dir,'app.json'))).game, resolve(root,'game'), {updateLock:true}), app:(name='foo')=>localResolveApp(name)});
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     rmSync(root,{recursive:true,force:true});
@@ -179,12 +181,13 @@ async function fixture(body) {
 test('shell repair replaces half-written members before metadata', () => fixture(({app}) => {
   const before = app(), path = before.cargoPackage('gpu').manifest_path;
   rmSync(resolve(dirname(path),'src'),{recursive:true});
-  assert.ok(app().hasGpu);
+  assert.ok(app().cargoPackage('gpu'));
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
 }));
 
-test('art adds its baker on demand and retains it until generated outputs are pruned', () => fixture(({app, dir, write}) => {
+test('art adds its baker on demand and retains it until generated outputs are pruned', () => fixture(({app, dir, write, update}) => {
   const baked = () => {
+    update();
     const gpu = app().cargoPackage('gpu');
     const dependency = gpu.dependencies.some(d=>d.name==='exact-game-bake');
     assert.equal(gpu.targets.some(t=>t.kind.includes('custom-build')), dependency);
@@ -200,12 +203,13 @@ test('art adds its baker on demand and retains it until generated outputs are pr
   assert.equal(baked(), false);
 }));
 
-test('shell identity survives a renamed logic crate and removes old packages', () => fixture(({app, dir, write, run}) => {
+test('shell identity survives a renamed logic crate and removes old packages', () => fixture(({app, dir, write, run, update}) => {
   const before = app().cargoPackage('gpu').manifest_path;
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
   manifest.game.crate = 'renamed-logic';
   write('game/games/foo/app.json',JSON.stringify(manifest));
-  write('game/games/foo/logic/Cargo.toml','[package]\nname="renamed-logic"\nversion="0.1.0"\nedition="2021"\n');
+  write('game/games/foo/logic/Cargo.toml','[package]\nworkspace="../.shells"\nname="renamed-logic"\nversion="0.1.0"\nedition="2021"\n');
+  update();
   const after = app();
   assert.equal(after.cargoPackage('gpu').manifest_path, before);
   assert.equal(after.name, 'renamed');
@@ -264,7 +268,7 @@ test('build graph refuses a requested GPU surface that Cargo cannot find', () =>
   assert.throws(()=>buildBake(fake,'web','wasm32-unknown-unknown'), /GPU.*ordinary-gpu|ordinary-gpu.*surface/);
 }));
 
-test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run}) => {
+test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run, game}) => {
   const resolved = app();
   resolved.cargoPackage('gpu');
   run('cargo',['generate-lockfile','--offline','--manifest-path','game/games/foo/.shells/Cargo.toml']);
@@ -274,6 +278,8 @@ test('deploy excludes generated shells and regenerates them from captured game s
   run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
   // A generated extra byte must never enter the captured source or dirty it.
   write('game/games/foo/.shells/generated-note','not source');
+  write('game/target/cached-build','not source');
+  write('game/render/target/cached-build','not source');
   const snapshot = snapshotOf(resolved,{},root);
   try {
     assert.equal(snapshot.dirty,false);
@@ -395,3 +401,67 @@ test('rustc unit dep-info accepts its raw output path with spaces', async () => 
     assert.equal(unitDepInfo(message, root), resolve(root, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
+
+
+test('R12 resolution is lazy and does not create a workspace', () => fixture(({app, dir}) => {
+  const started = performance.now();
+  const path=process.env.PATH;
+  let resolved;
+  try { process.env.PATH=resolve(dir,'no-executables'); resolved=app(); }
+  finally { process.env.PATH=path; }
+  assert.equal(resolved.name, 'foo');
+  assert.equal(resolved.hasGpu, true);
+  assert.ok(!existsSync(resolve(dir, '.shells')));
+  assert.ok(performance.now() - started < 200);
+}));
+
+test('R12 the captured source lock replaces a corrupted generated lock', () => fixture(({app, dir}) => {
+  app().cargoPackage('gpu');
+  const lock = resolve(dir, 'Cargo.lock');
+  assert.ok(existsSync(lock), 'source lock must be outside ignored shells');
+  const captured = readFileSync(lock, 'utf8');
+  writeFileSync(resolve(dir, '.shells/Cargo.lock'), 'invalid generated cache');
+  app().cargoPackage('gpu');
+  assert.equal(readFileSync(resolve(dir, '.shells/Cargo.lock'), 'utf8'), captured);
+}));
+
+
+test('R12 authored logic belongs only to its app workspace and locked edits refuse', () => fixture(({app, dir, run, write}) => {
+  const resolved=app();resolved.cargoPackage('gpu');
+  const metadata=JSON.parse(run('cargo',['metadata','--locked','--offline','--format-version','1','--manifest-path',resolve(dir,'.shells/Cargo.toml')]));
+  const logic=metadata.packages.find(p=>p.name==='foo-logic');
+  assert.ok(metadata.workspace_members.includes(logic.id));
+  assert.equal(metadata.workspace_root,resolve(dir,'.shells'));
+  const captured=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
+  write('game/games/foo/logic/Cargo.toml',readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8').replace('version="0.1.0"','version="0.2.0"'));
+  assert.throws(()=>app().cargoPackage('gpu'),/lock|locked/);
+  assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),captured);
+}));
+
+
+test('R12 named in-tree game resolves without EXACT_APP_DIR', () => fixture(({app, dir}) => {
+  delete process.env.EXACT_APP_DIR;
+  assert.equal(app().dir,dir);
+}));
+
+
+test('R12 deploy captures initialized dependency submodules as source', () => fixture(({app,root,write,run})=>{
+  const resolved=app();resolved.cargoPackage('gpu');
+  run('cargo',['generate-lockfile','--offline']);
+  run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  write('vendor/fixture-source/data.txt','captured submodule');
+  run('git',['-C','vendor/fixture-source','init','-q']);
+  run('git',['-C','vendor/fixture-source','add','data.txt']);
+  run('git',['-C','vendor/fixture-source','-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','source']);
+  run('git',['init','-q']);run('git',['add','.']);
+  const submoduleCommit=run('git',['-C','vendor/fixture-source','rev-parse','HEAD']).trim();
+  mkdirSync(resolve(root,'vendor/absent-source'));
+  run('git',['update-index','--add','--cacheinfo',`160000,${submoduleCommit},vendor/absent-source`]);
+  run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
+  const snapshot=snapshotOf(resolved,{},root);
+  try {
+    assert.ok(snapshot.sources.some(source=>source.roles.includes('submodule')));
+    const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
+    assert.equal(readFileSync(resolve(staged.exactRoot,'vendor/fixture-source/data.txt'),'utf8'),'captured submodule');
+  } finally {disposeSnapshot(snapshot);}
+}));

@@ -51,13 +51,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asset-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -71,13 +64,6 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "beacons-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
-
-[[package]]
-name = "bench-cubes-logic"
 version = "0.1.0"
 dependencies = [
  "exact-game",
@@ -1187,25 +1173,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "particles-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
- "exact-game-render",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
-
-[[package]]
-name = "placement-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
-]
 
 [[package]]
 name = "png"
@@ -1497,15 +1468,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "skinned-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
- "exact-game-bake",
- "exact-game-render",
-]
-
-[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1546,15 +1508,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9571ea910ebd84c86af4b3ed27f9dbdc6ad06f17c5f96146b2b671e2976744f"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "sprites-fixture-logic"
-version = "0.1.0"
-dependencies = [
- "exact-game",
- "exact-game-bake",
- "exact-game-render",
 ]
 
 [[package]]

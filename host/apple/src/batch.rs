@@ -139,21 +139,14 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"surface","id":…,"name":…,"values":[…]}` — a canvas's inputs
-    /// (LLP 1009 D2): plan values as JSON — numbers, strings, booleans,
-    /// `null` for unit and `none`, lists, records as positional lists.
-    pub fn surface(&mut self, id: u32, name: &str, values: &[exact_plan::Value]) {
+    /// A canvas binding, preserving positional values or authored argument names.
+    pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{id},\"name\":");
-        quote(name, &mut s);
-        s.push_str(",\"values\":[");
-        for (i, v) in values.iter().enumerate() {
-            if i > 0 {
-                s.push(',');
-            }
-            value_json(v, &mut s);
-        }
-        s.push_str("]}");
+        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);
+        quote(&update.name, &mut s);
+        s.push_str(",\"values\":");
+        s.push_str(&update.arguments_json());
+        s.push('}');
         self.ops.push(s);
     }
 

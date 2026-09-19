@@ -28,7 +28,10 @@ final class CanvasInput {
     private static func hasFocus(_ view: UIView) -> Bool { view.isFirstResponder || view.subviews.contains(where: hasFocus) }
     func blur() {
         touches.removeAll(); keys.removeAll()
-        if let view { view.canvases?.input(view, ["t": "blur"]) }
+        if let view {
+            if let c=view.canvases, let e=c.entries[view.id] {c.cancelControls(e)}
+            view.canvases?.input(view, ["t": "blur"])
+        }
     }
     func touches(_ values: Set<UITouch>, phase: String, source: NodeView) -> Bool {
         guard let view, phase != "down" || (!view.disabled && !view.inert) else { return false }
@@ -158,6 +161,17 @@ extension Agent {
         default: return ["error": "unknown pointer phase \(phase!)"]
         }
         return ["phase": phase!, "at": at, "delivery": "recognized"]
+    }
+}
+#endif
+
+#if os(iOS)
+extension NodeView {
+    func pressedControls(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
+        Set(presses.filter { press in
+            guard let key=press.key, key.modifierFlags.intersection([.command,.control]).isEmpty else {return true}
+            return presenter?.session?.canvases.pressedControlKey(KeyCodes.hid(key.keyCode.rawValue),down:down,timestamp:press.timestamp) != true
+        })
     }
 }
 #endif

@@ -1309,7 +1309,9 @@ impl<D: DataSource> Presenter<D> {
             return Err(format!("view {id} is disabled or inert"));
         }
         if node.props.str(PropId::Action).is_some() && matches!(key, "Space" | "Enter") {
-            self.focus = Some(id);
+            if !self.holds_control(id) {
+                self.focus = Some(id);
+            }
             let (x, y, _, _) = self.rect_of(id).ok_or("control has no box")?;
             return if self.control_input(
                 id,

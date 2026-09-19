@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync, renameSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, readdirSync, realpathSync, rmSync, mkdtempSync, mkdirSync, writeFileSync, statSync, utimesSync, renameSync, lstatSync, readlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createGame } from './new.mjs';
@@ -29,7 +30,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.shells','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
     rmSync(resolve(app, 'app.json'));
     rmSync(resolve(app, 'logic/Cargo.toml'));
     env.EXACT_APP_DIR = app;
@@ -48,7 +49,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     const stamps = shellFiles.map(file => statSync(file).mtimeMs);
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     assert.deepEqual(shellFiles.map(file => statSync(file).mtimeMs), stamps, 'resolving again leaves Cargo inputs untouched');
-    await run('cargo', ['test', '--no-fail-fast', '-p', `${name}-logic`], resolve(app,'.shells'));
+    await run('cargo', ['test', '--locked', '--offline', '--no-fail-fast', '-p', `${name}-logic`], resolve(app,'.shells'));
     // The starter must refuse an empty baseline. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
     await run('bun', [resolve(app, 'proof.mjs')], undefined, 1);
@@ -74,13 +75,15 @@ test('generator owns shells and does not normalize another game or write the sha
     writeFileSync(resolve(dir,'Cargo.lock'),'shared lock sentinel');
     mkdirSync(resolve(dir,'games/existing/logic/src'),{recursive:true});
     writeFileSync(resolve(dir,'games/existing/logic/src/lib.rs'),`impl Game for Existing { const ID: &'static str = "existing"; }`);
+    const before = treeHash(dir, resolve(dir,'games/added'));
     const stamp=statSync(resolve(dir,'Cargo.lock')).mtimeMs;
-    createGame('added',dir,()=>{throw new Error('generation must not invoke Cargo');});
+    createGame('added',dir);
+    assert.equal(treeHash(dir, resolve(dir,'games/added')), before);
     assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),'shared lock sentinel');
     assert.equal(statSync(resolve(dir,'Cargo.lock')).mtimeMs,stamp);
     assert.ok(!existsSync(resolve(dir,'games/existing/app.json')));
     assert.ok(!existsSync(resolve(dir,'.shells')));
-    assert.ok(existsSync(resolve(dir,'games/added/.shells/Cargo.toml')));
+    assert.ok(!existsSync(resolve(dir,'games/added/.shells')));
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -89,6 +92,7 @@ test('changing app identity prunes old adapters without deleting the Cargo cache
   const parent = realpathSync(mkdtempSync(resolve(tmpdir(), 'game-cache-'))), app = resolve(parent, 'my-game');
   try {
     createGame(app);
+    gameShells(app, gameDefaults(app).game, import.meta.dir);
     const root = resolve(app, '.shells');
     const oldAdapters = readdirSync(root).filter(name => /^[a-f0-9]{24}-/.test(name));
     assert.equal(oldAdapters.length, 4);
@@ -178,16 +182,66 @@ test('title-only and audio-only overrides retain derived defaults', async () => 
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-test('generation inside an empty author directory needs no writes outside it', async () => {
+test.skipIf(process.platform !== 'darwin')('generation inside an empty author directory needs no writes outside it', async () => {
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'r11-author-'))), app=resolve(parent,'my-game');
   mkdirSync(app);
   try {
+    const before = treeHash(parent, app);
     const policy=`(version 1)(allow default)(deny file-write* (subpath "/"))(allow file-write* (subpath ${JSON.stringify(app)}) (literal "/dev/null"))`;
     const child=Bun.spawn(['/usr/bin/sandbox-exec','-p',policy,process.execPath,resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,env:process.env,stdout:'pipe',stderr:'pipe'});
     const [status,stderr]=await Promise.all([child.exited,new Response(child.stderr).text()]);
     assert.equal(status,0,stderr);
-    assert.ok(existsSync(resolve(app,'.shells/Cargo.toml')));
+    assert.equal(treeHash(parent, app), before);
+    assert.ok(!existsSync(resolve(app,'.shells')));
     assert.ok(!existsSync(resolve(app,'Cargo.toml')),'workspace scaffolding is generated and ignored');
     assert.ok(!existsSync(resolve(app,'Cargo.lock')));
   } finally { rmSync(parent,{recursive:true,force:true}); }
 },60000);
+
+
+test('R12 copied workspace owns its logic as a member', async () => {
+  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'r12-copy-'));
+  try {
+    cpSync(resolve(import.meta.dir,'new'),resolve(dir,'new'),{recursive:true});
+    cpSync(resolve(import.meta.dir,'Cargo.toml'),resolve(dir,'Cargo.toml'));
+    createGame('added',dir);
+    const app=resolve(dir,'games/added');
+    const logic=Bun.TOML.parse(readFileSync(resolve(app,'logic/Cargo.toml'),'utf8'));
+    assert.equal(resolve(app,'logic',logic.dependencies['exact-game'].path),resolve(dir,'engine'));
+    gameShells(app,gameDefaults(app,dir).game,dir);
+    const workspace=Bun.TOML.parse(readFileSync(resolve(app,'.shells/Cargo.toml'),'utf8'));
+    assert.ok(workspace.workspace.members.includes('../logic'));
+    assert.equal(Bun.TOML.parse(readFileSync(resolve(app,'logic/Cargo.toml'),'utf8')).package.workspace,'../.shells');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+function treeHash(root, excluded) {
+  const hash=createHash('sha256');
+  const walk=dir=>{
+    for(const entry of readdirSync(dir,{withFileTypes:true}).sort((a,b)=>a.name.localeCompare(b.name))) {
+      const path=resolve(dir,entry.name);
+      if(path===excluded) continue;
+      const stat=lstatSync(path);
+      hash.update(path.slice(root.length)).update(String(stat.mode));
+      if(entry.isDirectory()) walk(path);
+      else if(entry.isSymbolicLink()) hash.update(readlinkSync(path));
+      else hash.update(String(stat.mtimeMs)).update(readFileSync(path));
+    }
+  };
+  walk(root); return hash.digest('hex');
+}
+
+
+test('R12 tree hash detects outside bytes and empty directories, excluding only the new game',()=>{
+  const root=mkdtempSync(resolve(tmpdir(),'r12-tree-')),app=resolve(root,'new-game'),file=resolve(root,'outside');
+  try {
+    mkdirSync(app);writeFileSync(file,'before');
+    const before=treeHash(root,app), stamp=statSync(file);
+    writeFileSync(resolve(app,'allowed'),'allowed');assert.equal(treeHash(root,app),before);
+    writeFileSync(file,'after!');utimesSync(file,stamp.atime,stamp.mtime);
+    assert.notEqual(treeHash(root,app),before);
+    const edited=treeHash(root,app);mkdirSync(resolve(root,'outside-directory'));
+    assert.notEqual(treeHash(root,app),edited);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

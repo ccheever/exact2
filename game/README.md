@@ -2,6 +2,8 @@
 
 - To see the game: `bun game/dev.mjs beacons` (commands run from the repository root).
 - To change it: edit `game/games/beacons/logic/src/lib.rs` or `game/games/beacons/app.contract`; the dev page reloads.
+- To format the UI: `cargo run -q -p contract -- fmt game/games/beacons/app.contract` (`--stdout` previews; `--check` prints a diff).
+- To find UI declarations and references: `cargo run -q -p contract -- symbols game/games/beacons/app.contract` (JSON, including values in named world arguments).
 - To verify gameplay and HUD: `bun game/games/beacons/proof.mjs` (GPU-less Linux).
 - To fill a first baseline: `bun game/prove.mjs beacons` (all modes, Linux and web).
 - To compare hosts: `bun game/prove.mjs beacons --hosts linux,web --compare-saves`.
@@ -80,12 +82,16 @@ and global positions, including parent chains (XZ ignores height). A missing ori
 - **All state is in the `World`, and all of it is `Data`**: one derive gives the
   save game, the hash, the agent's JSON, the level file, and what a dev reload
   carries. A `Game` has no fields.
-- **Arguments are a struct; field order is canvas order.** `#[derive(Args)]`
+- **Arguments are a struct, bound by name.** `world(seed: 7, paused: paused, restart: again)`
+  follows the fields of `#[derive(Args)]`; names may be reordered and omitted fields
+  use the struct's Rust defaults. Unknown names and invalid values refuse before
+  changing the world or clock. A call uses either names or positions; positional
+  calls follow declaration order. `#[derive(Args)]`
   supports bool, u32/u64, i32/i64, f32/f64, and String (`()` for none).
   Unmarked fields construct; `#[live]` fields are read each tick.
   `#[restart] pub restart: bool` marks a restart edge: either transition uses the
   same setup reconstruction path. In Contract, `state again = false`,
-  `action restart writes again` / `again = not again`, then `world(7, paused, again)`.
+  `action restart writes again` / `again = not again`, then `world(seed: 7, paused: paused, restart: again)`.
   The explicit boolean replaces a generation counter; `state.world.restarted` counts
   reconstruction in this session, outside the save/hash. No ninth operation.
   Integer bounds are checked before casting; 64-bit fields accept safe f64 integers. A timed
@@ -215,13 +221,21 @@ bun game/bench/size.mjs
 
 Use a path to choose the game's directory: `bun game/new.mjs ./my-game`.
 `bun game/dev.mjs ./my-game` and `bun game/prove.mjs ./my-game` use the same Exact2 hosts and
-driver. A bare name creates `game/games/<name>`. The bake puts the generated
-workspace, lockfile and hosts in that game's `.shells/`, inheriting dependencies
-and profiles from `game/Cargo.toml`; build output uses the game's `target/`.
+driver. A bare name creates `game/games/<name>`. The first bake puts the generated
+workspace and hosts in that game's ignored `.shells/`; its logic is a member of
+that workspace alone. Dependencies and profiles come from `game/Cargo.toml`;
+build output uses the game's `target/`. Resolution and generation run no Cargo
+and create no `.shells` workspace. The first bake captures a source `Cargo.lock`
+beside `app.json`. Keep that lock in version control. Every later bake and deploy
+copies it into `.shells` and resolves with `--locked --offline`; a stale or corrupt
+cache cannot choose versions. After deliberate dependency changes, run
+`bun game/app/shells.mjs <game-directory> --update-lock` and review the source lock.
+An authored logic manifest sets `package.workspace = "../.shells"`; use concrete
+package fields and path dependencies so other crates can read it before a bake.
 From an empty game directory, run `bun /path/to/exact2/game/new.mjs .`.
 Generation only writes inside that game: it never normalizes another game or
-updates `game/Cargo.lock`. `resolveApp` selects `<game>/.shells/Cargo.toml` and
-locates the four adapters through Cargo metadata there. No authored nested
+updates `game/Cargo.lock`. `resolveApp` selects `<game>/.shells/Cargo.toml` in memory;
+the first bake materializes it and locates adapters through Cargo metadata. No authored nested
 workspace is needed. Its first build has a cold cache. Updating existing pins with
 `--repin` requires a Git checkout for provenance; an initial external baseline
 without Git is labeled as such. The cold starter passes Linux and web; Beacons uses this ordinary path on all
@@ -229,7 +243,19 @@ four hosts. See the [R11 receipt](diaries/002-ergonomics.md#r11-review-fixes-and
 
 From `game/`, use `cargo test --workspace --no-fail-fast`,
 `cargo clippy --workspace --all-targets -- -D warnings`,
-`cargo fmt --all -- --check`, and `bun test ./proof.test.mjs`. Local Cargo validation uses
+`cargo fmt --all -- --check`, and `bun test ./proof.test.mjs`.
+Also run `bun app/shells.mjs --test` from `game/`: this prepares and tests every
+app-owned workspace (all seven games and `bench/cubes`) with `--no-fail-fast`,
+including logic tests that are no longer engine-workspace members.
+A fresh checkout needs the existing host dependencies beside it: `../ibex` and
+`../snapback-sb4` source checkouts. For an isolated verification checkout, use
+`ln -s /path/to/ibex ../ibex` and `ln -s /path/to/snapback-sb4 ../snapback-sb4`
+from the verification checkout so the links land in its private parent directory;
+these are source dependencies, not build caches.
+Then run `bun install --frozen-lockfile` at the repository root and
+`bun game/games/beacons/proof.mjs`; the proof performs its own first bake. The device lifecycle test is explicitly opt-in:
+`cargo test -p exact-game-render surface_lifecycle -- --ignored` on a GPU host.
+Local Cargo validation uses
 `DEVELOPER_DIR=/Library/Developer/CommandLineTools`,
 `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk`,
 `EXACT_UPDATE_TRUST=development`, and `EXACT_IDENTITY=-`.

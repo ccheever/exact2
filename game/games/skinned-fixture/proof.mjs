@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 
 export function foxPixels(image, screen, viewport) {
   // This proof's requested viewport is 16:9; native screenshots may scale it.
-  if (!screen || Math.abs(image.width/image.height - 16/9) > .02 || viewport[0]/viewport[1] !== 16/9) return {ok:false,reason:'expected 16:9 viewport'};
+  if (!screen || Math.abs(image.width/image.height - 16/9) > .02 || Math.abs(viewport[0]/viewport[1] - 16/9) > .02) return {ok:false,reason:'expected 16:9 viewport'};
   const sx=image.width/viewport[0], sy=image.height/viewport[1];
   const x0=Math.max(0,Math.floor(screen.x*sx)), y0=Math.max(0,Math.floor(screen.y*sy));
   const x1=Math.min(image.width,Math.ceil((screen.x+screen.w)*sx)), y1=Math.min(image.height,Math.ceil((screen.y+screen.h)*sy));
@@ -61,11 +61,11 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
     const path = resolve(out,`fox-mid-stride-${host}.png`);
     await s.screenshot(path);
     const image = decodePng(readFileSync(path));
-    const pixels=foxPixels(image, layout.entity.screen, [1280,720]);
+    const pixels=foxPixels(image, layout.entity.screen, [image.width,image.height]);
     check('Fox screenshot has textured orange fur',pixels.ok,pixels);
     const white={...image,data:new Uint8Array(image.data).fill(255)};
     for(let i=0;i<image.data.length;i+=80) white.data.set(image.data.subarray(i,i+4),i);
-    check('95 percent white screenshot is rejected',!foxPixels(white,layout.entity.screen,[1280,720]).ok);
+    check('95 percent white screenshot is rejected',!foxPixels(white,layout.entity.screen,[image.width,image.height]).ok);
   }
   await s.world('world').run(1000);
   const at120 = await s.world('world').snapshot();

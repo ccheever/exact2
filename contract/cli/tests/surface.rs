@@ -133,3 +133,87 @@ fn control_action_is_a_canvas_child_property() {
             .contains("analyze-control-parent")
     );
 }
+
+#[test]
+fn named_surface_arguments_survive_plan_roundtrip_and_live_updates() {
+    let source = r#"component Named
+  state paused = false
+  state again = false
+  action pause writes paused
+    paused = not paused
+  view
+    canvas surface=world(restart: again, seed: min(9, 7), paused: paused)
+"#;
+    let compiled = contract::compile(source).unwrap();
+    let plan = exact_plan::Plan::decode(&compiled.encode()).unwrap();
+    assert_eq!(compiled.encode(), plan.encode());
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let first = runner.take_surface_updates().pop().unwrap();
+    assert_eq!(first.names, ["restart", "seed", "paused"]);
+    assert_eq!(
+        first.arguments_json(),
+        r#"{"restart":false,"seed":7,"paused":false}"#
+    );
+    runner.act("pause", vec![]).unwrap();
+    let next = runner.take_surface_updates().pop().unwrap();
+    assert_eq!(next.view, first.view);
+    assert_eq!(
+        next.arguments_json(),
+        r#"{"restart":false,"seed":7,"paused":true}"#
+    );
+    runner.advance(100.).unwrap();
+    assert!(runner.take_surface_updates().is_empty());
+    for (call, diagnostic) in [
+        (
+            "world(seed: 7, seed: 8)",
+            "duplicate surface argument `seed`",
+        ),
+        ("world(7, paused: false)", "either named or positional"),
+        ("world(seed: 7, false)", "either named or positional"),
+        ("world(seed: missing)", "unknown name `missing`"),
+        ("world(seed: min(a: 1, b: 2))", "named arguments belong"),
+    ] {
+        let bad = source.replace(
+            "world(restart: again, seed: min(9, 7), paused: paused)",
+            call,
+        );
+        let error = contract::compile(&bad).unwrap_err().to_string();
+        assert!(error.contains(diagnostic), "{error}");
+    }
+    let child = "component App\n  state seed = 11\n  view\n    Scene(seed=seed)\ncomponent Scene\n  props\n    seed: number\n  view\n    canvas surface=world(seed: seed)\n";
+    let plan = contract::compile(child).unwrap();
+    let mut inlined = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(
+        inlined.take_surface_updates()[0].arguments_json(),
+        r#"{"seed":11}"#
+    );
+    let mut signed = first;
+    signed.values[1] = Value::Number(-0.0);
+    assert!(
+        signed.arguments_json().contains("\"seed\":-0"),
+        "binding transport preserves signed zero"
+    );
+    let mut bad = compiled;
+    let args = bad.surfaces[0].args;
+    let first = args.iter().next().unwrap().0 as usize;
+    bad.surface_args[first + 1].name = bad.surface_args[first].name;
+    assert!(bad.validate().is_err());
+    assert!(
+        exact_plan::Plan::decode(&bad.encode()).is_err(),
+        "decoder also refuses duplicate argument names"
+    );
+}

@@ -29,6 +29,7 @@ use std::sync::{
 pub use exact_plan::Value;
 pub use wgpu;
 
+mod binding;
 mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
@@ -158,6 +159,11 @@ pub trait Surface {
     /// Clock ownership, before first input and whenever it changes. A seekable
     /// chart/video uses explicit time and must not open a live device.
     fn clock(&mut self, _seekable: bool) {}
+    /// Named inputs and their defaults, in bind order. An empty declaration
+    /// accepts positional inputs only. Names are resolved before `bind` runs.
+    fn arguments(&self) -> Vec<(&'static str, Value)> {
+        Vec::new()
+    }
     /// The canvas's inputs from the plan, as typed values; before the
     /// first render and whenever they change. A refusal names the input.
     fn bind(&mut self, inputs: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError>;

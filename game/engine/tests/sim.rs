@@ -909,3 +909,45 @@ fn aligned_live_input_is_drawn_one_frame_before_seekable_interpolation() {
     }
     assert_eq!(first, [4, 5]);
 }
+
+#[test]
+fn restore_constructs_once_and_failed_world_validation_is_atomic() {
+    thread_local! {
+        static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+    struct Once;
+    impl Game for Once {
+        const ID: &'static str = "single-setup";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            SETUPS.with(|calls| calls.set(calls.get() + 1));
+            w.spawn_named("player", Transform::default());
+            w.emit("setup message");
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut s = Sim::<Once>::new(()).unwrap().paranoid(Paranoid::Off);
+    assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
+    let saved = s.save().unwrap();
+    for bound in [false, true] {
+        if bound {
+            s.restore_bound(&saved).unwrap();
+        } else {
+            s.restore(&saved).unwrap();
+        }
+        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
+        assert_eq!(s.save().unwrap(), saved);
+    }
+    // Fail inside World::load, after argument validation and game construction.
+    let mut bad = saved.clone();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    bad[world] = b'!';
+    assert!(s.restore(&bad).is_err());
+    assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1);
+    assert_eq!(s.save().unwrap(), saved);
+    for mode in [Paranoid::Save, Paranoid::FreshGame] {
+        s = s.paranoid(mode);
+        s.run(17.0);
+        assert_eq!(SETUPS.with(|calls| calls.replace(0)), 1, "{mode:?}");
+    }
+}

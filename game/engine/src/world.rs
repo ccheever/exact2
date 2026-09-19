@@ -173,7 +173,7 @@ impl Eq for WorldId {}
 
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
-    pub(crate) assets: crate::asset::Assets,
+    pub(crate) assets: crate::asset::AssetStore,
     id: WorldId,
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
@@ -862,11 +862,9 @@ impl World {
     }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     pub fn save(&self) -> Vec<u8> {
-        let mut w = bin::Encoder::default();
+        let mut w = bin::Encoder::prefixed(MAGIC);
         self.write(&mut w, true);
-        let mut bytes = MAGIC.to_vec();
-        bytes.extend(w.finish());
-        bytes
+        w.finish()
     }
     /// Atomically replace simulation state. Registered types survive the replacement;
     /// caches, publications and events do not. The entity table precedes storages.

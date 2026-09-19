@@ -49,7 +49,7 @@
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -250,6 +250,18 @@ function sourcePathspec(repo, app, exactRoot) {
     resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
     resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
+  // Each game owns generated products. A sibling app's cache is no more
+  // source than the selected app's cache; its captured Cargo.lock is source.
+  outputs.push(resolve(exactRoot, 'game/target'), resolve(exactRoot, 'game/.shells'), resolve(exactRoot, 'game/render/target'));
+  for (const group of ['games', 'bench']) {
+    const parent = resolve(exactRoot, 'game', group);
+    if (!existsSync(parent)) continue;
+    for (const entry of readdirSync(parent, {withFileTypes:true})) {
+      const dir = resolve(parent, entry.name);
+      if (!entry.isDirectory() || !existsSync(resolve(dir, 'app.contract'))) continue;
+      for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(dir, output));
+    }
+  }
   // Keep the lexical path as well as its canonical alias. In particular,
   // `target -> /shared/cache` is still the declared in-repo output root; if
   // we realpath it first, the symlink itself re-enters the source inventory.
@@ -286,7 +298,7 @@ function cargoDependencyRoots(app, exactRoot) {
   // closures too, even when the app belongs to a separate enclosing workspace.
   for (const workspace of new Set([canonicalPath(app.workspace ?? app.dir), canonicalPath(exactRoot)])) {
     if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
-    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked', '--offline'], {
       cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
     if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
@@ -321,7 +333,7 @@ function validateCapturedTree(source, sources, env, tree) {
   const absoluteLinks = [];
   for (const entry of entries.filter((item) => item.type === 'commit')) {
     const nested = canonicalPath(resolve(source.repo, entry.name));
-    if (!sources.some((candidate) => candidate.repo === nested)) {
+    if (!sources.some((candidate) => candidate.repo === nested) && existsSync(nested) && readdirSync(nested).length) {
       refuse(`${source.repo}: ${entry.name} is a Git submodule whose repository is not in the captured Cargo source graph`);
     }
   }
@@ -414,6 +426,7 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
  * dirty source byte the bake can read. Ignored files are source too unless
  * they are under a precise generated-output root. */
 export function snapshotOf(app, opts, exactRoot = ROOT) {
+  app.prepare?.(true);
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
@@ -427,6 +440,18 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
     const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
     if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
     repos.set(repo, { repo, roles: new Set([role]), commit });
+    // Source dependencies can themselves contain initialized submodules.
+    // Capture their bytes and provenance too; never fetch or silently omit them.
+    for (const row of gitText(repo, ['ls-files', '--stage', '-z'], 'could not inventory source submodules').split('\0')) {
+      const match = /^160000 [0-9a-f]+ 0\t([\s\S]+)$/.exec(row);
+      if (!match) continue;
+      const nested = canonicalPath(resolve(repo, match[1]));
+      // An uninitialized, empty submodule has no live bytes. Preserve that
+      // absence in the private capture; building must not initialize it.
+      if (!existsSync(nested) || !readdirSync(nested).length) continue;
+      if (repoTop(nested, 'initialized source submodule') !== nested) refuse(`${repo}: initialize source submodule ${match[1]} before deployment`);
+      sourceRoots.push({role:'submodule', cwd:nested});
+    }
   }
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
@@ -500,7 +525,7 @@ function assertMaterializedCargoClosure(workspaces, sourceRoot, target) {
   const capturedRoot = canonicalPath(sourceRoot);
   for (const workspace of [...new Set(workspaces)]) {
     if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
-    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked', '--offline'], {
       cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
     if (result.status !== 0) refuse(`${workspace}: materialized Cargo graph does not resolve: ${result.stderr.trim()}`);
@@ -553,13 +578,8 @@ export function materializeSnapshot(snapshot, run, app) {
   const manifest = readManifest(dir, app.name);
   if (manifest.game) {
     gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
-    // Shell packages are derived inside this capture. Resolve their private lock
-    // before applying the locked closure check; the authored lock stays untouched.
-    const generated = spawnSync('cargo', ['metadata', '--format-version', '1', '--offline'], {
-      cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }),
-      encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-    });
-    if (generated.status !== 0) refuse(`${workspace}: generated Cargo graph does not resolve: ${generated.stderr.trim()}`);
+    if (!existsSync(resolve(dir, 'Cargo.lock'))) refuse(`${dir}: bake the game once and capture Cargo.lock before deployment`);
+
   }
   assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
   return {

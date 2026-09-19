@@ -2,7 +2,11 @@
 //!
 //! Every rejection carries a stable id (`syntax-…`), a message, and a span.
 //! The parser stops at the first error: a syntax error is a single defect to
-//! show, not a list to guess through.
+//! show, not a list to guess through. Comments and blank lines are lifted
+//! off the token stream before parsing and kept on the file (LLP 1035.005
+//! D1); the `font` and `test` declarations are parsed in `steps.rs`.
+
+mod steps;
 
 use crate::ast::*;
 use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
@@ -40,12 +44,13 @@ impl std::fmt::Display for SyntaxError {
 
 /// Parse one file.
 pub fn parse(src: &str) -> Result<File, SyntaxError> {
-    let tokens = Lexer::tokenize(src, 1)?;
-    let mut p = Parser { tokens, pos: 0 };
-    p.file()
+    let (mut p, trivia) = Parser::new(Lexer::tokenize(src, 1, 1)?);
+    let mut file = p.file()?;
+    file.trivia = trivia;
+    Ok(file)
 }
 
-struct Parser {
+pub(crate) struct Parser {
     tokens: Vec<Token>,
     pos: usize,
 }
@@ -61,11 +66,40 @@ fn duplicate<T>(what: &str, name: &str, span: Span, first: Span) -> R<T> {
 }
 
 impl Parser {
-    fn peek(&self) -> &Token {
+    /// A parser over `tokens` with their trivia lifted off: comments and
+    /// blank-line groups come back in source order, never seen by the
+    /// grammar.
+    fn new(tokens: Vec<Token>) -> (Parser, Vec<Trivia>) {
+        let mut trivia = Vec::new();
+        let tokens = tokens
+            .into_iter()
+            .filter_map(|t| match t.kind {
+                TokenKind::Comment { text, trailing } => {
+                    trivia.push(if trailing {
+                        Trivia::Trailing { text, span: t.span }
+                    } else {
+                        Trivia::Comment { text, span: t.span }
+                    });
+                    None
+                }
+                TokenKind::Blank(count) => {
+                    trivia.push(Trivia::Blank {
+                        line: t.span.line,
+                        count,
+                    });
+                    None
+                }
+                _ => Some(t),
+            })
+            .collect();
+        (Parser { tokens, pos: 0 }, trivia)
+    }
+
+    pub(crate) fn peek(&self) -> &Token {
         &self.tokens[self.pos.min(self.tokens.len() - 1)]
     }
 
-    fn peek_kind(&self) -> &TokenKind {
+    pub(crate) fn peek_kind(&self) -> &TokenKind {
         &self.peek().kind
     }
 
@@ -73,7 +107,7 @@ impl Parser {
         &self.tokens[(self.pos + 1).min(self.tokens.len() - 1)].kind
     }
 
-    fn next(&mut self) -> Token {
+    pub(crate) fn next(&mut self) -> Token {
         let t = self.peek().clone();
         if self.pos < self.tokens.len() - 1 {
             self.pos += 1;
@@ -81,7 +115,7 @@ impl Parser {
         t
     }
 
-    fn at_ident(&self, word: &str) -> bool {
+    pub(crate) fn at_ident(&self, word: &str) -> bool {
         matches!(self.peek_kind(), TokenKind::Ident(w) if w == word)
     }
 
@@ -89,7 +123,7 @@ impl Parser {
         matches!(self.peek_kind(), TokenKind::Punct(q) if *q == p)
     }
 
-    fn eat_punct(&mut self, p: &str) -> bool {
+    pub(crate) fn eat_punct(&mut self, p: &str) -> bool {
         if self.at_punct(p) {
             self.next();
             true
@@ -98,7 +132,7 @@ impl Parser {
         }
     }
 
-    fn err<T>(&self, id: &'static str, message: impl Into<String>) -> R<T> {
+    pub(crate) fn err<T>(&self, id: &'static str, message: impl Into<String>) -> R<T> {
         Err(SyntaxError {
             id,
             message: message.into(),
@@ -106,7 +140,7 @@ impl Parser {
         })
     }
 
-    fn expect_punct(&mut self, p: &'static str) -> R<Span> {
+    pub(crate) fn expect_punct(&mut self, p: &'static str) -> R<Span> {
         if self.at_punct(p) {
             Ok(self.next().span)
         } else {
@@ -117,7 +151,7 @@ impl Parser {
         }
     }
 
-    fn expect_word(&mut self, w: &'static str) -> R<Span> {
+    pub(crate) fn expect_word(&mut self, w: &'static str) -> R<Span> {
         if self.at_ident(w) {
             Ok(self.next().span)
         } else {
@@ -128,7 +162,7 @@ impl Parser {
         }
     }
 
-    fn ident(&mut self) -> R<(String, Span)> {
+    pub(crate) fn ident(&mut self) -> R<(String, Span)> {
         match self.peek_kind().clone() {
             TokenKind::Ident(w) if !is_keyword(&w) => {
                 let t = self.next();
@@ -141,7 +175,7 @@ impl Parser {
         }
     }
 
-    fn newline(&mut self) -> R<()> {
+    pub(crate) fn newline(&mut self) -> R<()> {
         match self.peek_kind() {
             TokenKind::Newline => {
                 self.next();
@@ -156,12 +190,17 @@ impl Parser {
     }
 
     /// Consume `Indent`, run `body` until the matching `Dedent`.
-    fn block<T>(&mut self, mut item: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {
-        let mut out = Vec::new();
+    pub(crate) fn block<T>(&mut self, item: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {
         if !matches!(self.peek_kind(), TokenKind::Indent) {
-            return Ok(out);
+            return Ok(Vec::new());
         }
         self.next();
+        self.block_rest(item)
+    }
+
+    /// The lines of a block whose `Indent` is already consumed, to its `Dedent`.
+    fn block_rest<T>(&mut self, mut item: impl FnMut(&mut Self) -> R<T>) -> R<Vec<T>> {
+        let mut out = Vec::new();
         loop {
             match self.peek_kind() {
                 TokenKind::Dedent => {
@@ -240,74 +279,13 @@ impl Parser {
         }
     }
 
-    /// `font "Name" = "path.ttf"`, or a block of `weight [italic] = path`.
-    fn font_decl(&mut self) -> R<FontDecl> {
-        let span = self.expect_word("font")?;
-        let name = self.str_lit("a declared family name")?;
-        if self.eat_punct("=") {
-            let source = self.str_lit("a TTF or OTF source path")?;
-            self.newline()?;
-            return Ok(FontDecl {
-                name,
-                faces: vec![FontFaceDecl {
-                    weight: 400,
-                    italic: false,
-                    source,
-                    span,
-                }],
-                span,
-            });
-        }
-        self.newline()?;
-        let faces = self.block(|p| {
-            let token = p.next();
-            let TokenKind::Number(n) = token.kind else {
-                return Err(SyntaxError {
-                    id: "syntax-font-weight",
-                    message: "a font face starts with a whole CSS weight from 1 to 1000".into(),
-                    span: token.span,
-                });
-            };
-            if n.fract() != 0.0 || !(1.0..=1000.0).contains(&n) {
-                return Err(SyntaxError {
-                    id: "syntax-font-weight",
-                    message: format!("font face weight `{n}` is not a whole number from 1 to 1000"),
-                    span: token.span,
-                });
-            }
-            let italic = if p.at_ident("italic") {
-                p.next();
-                true
-            } else {
-                false
-            };
-            p.expect_punct("=")?;
-            let source = p.str_lit("a TTF or OTF source path")?;
-            p.newline()?;
-            Ok(FontFaceDecl {
-                weight: n as u16,
-                italic,
-                source,
-                span: token.span,
-            })
-        })?;
-        if faces.is_empty() {
-            return Err(SyntaxError {
-                id: "syntax-font-faces",
-                message: format!("`font \"{name}\"` needs at least one face"),
-                span,
-            });
-        }
-        Ok(FontDecl { name, faces, span })
-    }
-
     /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
     /// file may be used: no TypeScript, no packages, no behaviours — data
     /// comes from the app's Rust data source and formatting from the roster
     /// or a `fn` (LLP 1004 D4).
     fn use_decl(&mut self) -> R<UseDecl> {
-        let span = self.expect_word("use")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("use")?;
+        let (name, span) = self.ident()?;
         self.expect_word("from")?;
         let path = match self.peek_kind().clone() {
             TokenKind::Str(s) => {
@@ -332,7 +310,7 @@ impl Parser {
         Ok(UseDecl { name, path, span })
     }
 
-    fn str_lit(&mut self, what: &str) -> R<String> {
+    pub(crate) fn str_lit(&mut self, what: &str) -> R<String> {
         match self.peek_kind().clone() {
             TokenKind::Str(s) => {
                 self.next();
@@ -345,190 +323,10 @@ impl Parser {
         }
     }
 
-    /// `test "name"` with a block of steps (LLP 1017 P7): the agent API's
-    /// operations by their names, and `expect` lines over their replies.
-    fn test_decl(&mut self) -> R<TestDecl> {
-        let span = self.expect_word("test")?;
-        let name = self.str_lit("the test's name")?;
-        self.newline()?;
-        let steps = self.block(|p| p.step())?;
-        Ok(TestDecl { name, steps, span })
-    }
-
-    fn step(&mut self) -> R<Step> {
-        let (word, span) = match self.peek_kind().clone() {
-            TokenKind::Ident(w) => (w, self.peek().span),
-            other => {
-                return self.err(
-                    "syntax-expected-step",
-                    format!(
-                        "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found {}",
-                        describe(&other)
-                    ),
-                )
-            }
-        };
-        self.next();
-        let step = match word.as_str() {
-            "tap" => {
-                let target = self.str_lit("a testId")?;
-                let hover = if self.at_ident("hover") {
-                    self.next();
-                    true
-                } else {
-                    false
-                };
-                Step::Tap {
-                    target,
-                    hover,
-                    span,
-                }
-            }
-            "type" => {
-                let target = self.str_lit("a testId")?;
-                if self.at_ident("key") {
-                    self.next();
-                    let key = self.str_lit("the key's name")?;
-                    Step::Key { target, key, span }
-                } else {
-                    let text = self.str_lit("the text")?;
-                    Step::Type { target, text, span }
-                }
-            }
-            "clock" => {
-                let arg = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "settle" => {
-                        self.next();
-                        "settle".to_string()
-                    }
-                    TokenKind::Punct("+") => {
-                        self.next();
-                        match self.peek_kind().clone() {
-                            TokenKind::Number(n) => {
-                                self.next();
-                                format!("+{n}")
-                            }
-                            other => {
-                                return self.err(
-                                    "syntax-expected-step",
-                                    format!(
-                                        "expected milliseconds after `+`, found {}",
-                                        describe(&other)
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                    TokenKind::Number(n) => {
-                        self.next();
-                        format!("{n}")
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-expected-step",
-                            format!(
-                                "`clock` takes `settle`, `+ms`, or `ms`, found {}",
-                                describe(&other)
-                            ),
-                        )
-                    }
-                };
-                Step::Clock { arg, span }
-            }
-            "screenshot" => Step::Screenshot {
-                path: self.str_lit("a file name")?,
-                span,
-            },
-            "expect" => {
-                // `state` is a keyword elsewhere; here it names the reply.
-                let what = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) => {
-                        self.next();
-                        w
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-expected-step",
-                            format!(
-                                "`expect` reads `tree`, `text`, or `state`, found {}",
-                                describe(&other)
-                            ),
-                        )
-                    }
-                };
-                match what.as_str() {
-                    "tree" => {
-                        let present = if self.at_ident("has") {
-                            self.next();
-                            true
-                        } else if self.at_ident("missing") {
-                            self.next();
-                            false
-                        } else {
-                            return self.err(
-                                "syntax-expected-step",
-                                "`expect tree` takes `has \"testId\"` or `missing \"testId\"`",
-                            );
-                        };
-                        let target = self.str_lit("a testId")?;
-                        Step::ExpectTree {
-                            target,
-                            present,
-                            span,
-                        }
-                    }
-                    "text" => {
-                        let target = self.str_lit("a testId")?;
-                        self.expect_punct("==")?;
-                        let value = self.str_lit("the text")?;
-                        Step::ExpectText {
-                            target,
-                            value,
-                            span,
-                        }
-                    }
-                    "state" => {
-                        let (name, _) = self.ident()?;
-                        self.expect_punct("==")?;
-                        let value = self.expr()?;
-                        if !matches!(
-                            value,
-                            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_)
-                        ) {
-                            return Err(SyntaxError {
-                                id: "syntax-expected-step",
-                                message: "`expect state name ==` takes a number, a string, a bool, or `none`".into(),
-                                span,
-                            });
-                        }
-                        Step::ExpectState { name, value, span }
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-expected-step",
-                            format!("`expect` reads `tree`, `text`, or `state`, not `{other}`"),
-                        )
-                    }
-                }
-            }
-            other => {
-                return Err(SyntaxError {
-                    id: "syntax-expected-step",
-                    message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found `{other}`"
-                ),
-                    span,
-                })
-            }
-        };
-        self.newline()?;
-        Ok(step)
-    }
-
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
     fn fn_decl(&mut self) -> R<FnDecl> {
-        let span = self.expect_word("fn")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("fn")?;
+        let (name, span) = self.ident()?;
         self.expect_punct("(")?;
         let mut params = Vec::new();
         while !self.at_punct(")") {
@@ -564,8 +362,8 @@ impl Parser {
 
     /// `style Name` then lines of `attr=literal` (LLP 1017 P6).
     fn style(&mut self) -> R<StyleDecl> {
-        let span = self.expect_word("style")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("style")?;
+        let (name, span) = self.ident()?;
         self.newline()?;
         let lines = self.block(|p| {
             let mut attrs = Vec::new();
@@ -611,8 +409,8 @@ impl Parser {
     }
 
     fn shape(&mut self) -> R<ShapeDecl> {
-        let span = self.expect_word("shape")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("shape")?;
+        let (name, span) = self.ident()?;
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.ident()?;
@@ -656,8 +454,8 @@ impl Parser {
     }
 
     fn component(&mut self) -> R<Component> {
-        let span = self.expect_word("component")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("component")?;
+        let (name, span) = self.ident()?;
         self.newline()?;
         let mut c = Component {
             name,
@@ -671,6 +469,7 @@ impl Parser {
             actions: Vec::new(),
             tasks: Vec::new(),
             view: Vec::new(),
+            sections: Vec::new(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -726,16 +525,12 @@ impl Parser {
                             c.slot = true;
                         }
                         "state" | "derive" => {
-                            let t = self.next();
-                            let (name, _) = self.ident()?;
+                            self.next();
+                            let (name, span) = self.ident()?;
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
                             self.newline()?;
-                            let b = Binding {
-                                name,
-                                expr,
-                                span: t.span,
-                            };
+                            let b = Binding { name, expr, span };
                             if w == "state" {
                                 c.states.push(b)
                             } else {
@@ -773,6 +568,7 @@ impl Parser {
                 }
             }
         }
+        c.sections = sections;
         Ok(c)
     }
 
@@ -790,10 +586,10 @@ impl Parser {
     }
 
     fn resource(&mut self) -> R<ResourceDecl> {
-        let span = self.expect_word("resource")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("resource")?;
+        let (name, span) = self.ident()?;
         self.expect_punct("=")?;
-        let (source, _) = self.ident()?;
+        let (source, source_span) = self.ident()?;
         self.expect_punct("(")?;
         let args = self.call_args()?;
         self.expect_word("as")?;
@@ -803,6 +599,7 @@ impl Parser {
         Ok(ResourceDecl {
             name,
             source,
+            source_span,
             args,
             shape,
             span,
@@ -810,8 +607,8 @@ impl Parser {
     }
 
     fn mutation(&mut self) -> R<MutationDecl> {
-        let span = self.expect_word("mutation")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("mutation")?;
+        let (name, span) = self.ident()?;
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
@@ -820,8 +617,8 @@ impl Parser {
     }
 
     fn action(&mut self) -> R<Action> {
-        let span = self.expect_word("action")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("action")?;
+        let (name, span) = self.ident()?;
         let mut params = Vec::new();
         if self.eat_punct("(") {
             while !self.at_punct(")") {
@@ -931,23 +728,24 @@ impl Parser {
             });
         }
         if self.at_ident("send") {
-            let span = self.expect_word("send")?;
-            let (target, _) = self.ident()?;
+            self.expect_word("send")?;
+            let (target, span) = self.ident()?;
             self.expect_punct("=")?;
-            let (source, _) = self.ident()?;
+            let (source, source_span) = self.ident()?;
             self.expect_punct("(")?;
             let args = self.call_args()?;
             self.newline()?;
             return Ok(Stmt::Send {
                 target,
                 source,
+                source_span,
                 args,
                 span,
             });
         }
         if self.at_ident("refresh") {
-            let span = self.expect_word("refresh")?;
-            let (target, _) = self.ident()?;
+            self.expect_word("refresh")?;
+            let (target, span) = self.ident()?;
             self.newline()?;
             return Ok(Stmt::Refresh { target, span });
         }
@@ -973,8 +771,8 @@ impl Parser {
     }
 
     fn task(&mut self) -> R<Task> {
-        let span = self.expect_word("task")?;
-        let (name, _) = self.ident()?;
+        self.expect_word("task")?;
+        let (name, span) = self.ident()?;
         self.expect_word("mount")?;
         self.newline()?;
         let mut every = None;
@@ -989,13 +787,13 @@ impl Parser {
             p.expect_punct("(")?;
             let ms = p.expr()?;
             p.expect_punct(",")?;
-            let (action, _) = p.ident()?;
+            let (action, aspan) = p.ident()?;
             p.expect_punct(")")?;
             p.newline()?;
             if every.is_some() {
                 return duplicate("task entry", "every", fspan, span);
             }
-            every = Some((ms, action, fspan));
+            every = Some((ms, action, aspan));
             Ok(())
         })?;
         let every = every.ok_or(SyntaxError {
@@ -1018,6 +816,14 @@ impl Parser {
                 )
             }
         };
+        if self.at_continuation() {
+            return self.err(
+                "syntax-continuation-indent",
+                format!(
+                    "`{word}=` continues an element's attributes only on a line indented deeper than the element's; a child begins with a tag or component name"
+                ),
+            );
+        }
         match word.as_str() {
             "provide" => {
                 self.next();
@@ -1141,47 +947,19 @@ impl Parser {
                 self.next();
                 let mut positional = Vec::new();
                 let mut attrs = Vec::new();
-                while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
-                    if let (TokenKind::Ident(name), TokenKind::Punct("=")) =
-                        (self.peek_kind().clone(), self.peek2().clone())
-                    {
-                        let aspan = self.next().span;
-                        self.next();
-                        let value = self.expr()?;
-                        if attrs.iter().any(|a: &Attr| a.name == name) {
-                            return Err(SyntaxError {
-                                id: "syntax-duplicate-attr",
-                                message: format!(
-                                    "attribute `{name}` appears twice on the same element"
-                                ),
-                                span: aspan,
-                            });
-                        }
-                        attrs.push(Attr {
-                            name,
-                            value,
-                            span: aspan,
-                        });
-                    } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus")
-                    {
-                        let aspan = self.next().span;
-                        if attrs.iter().any(|a: &Attr| a.name == "autofocus") {
-                            return self.err(
-                                "syntax-duplicate-attr",
-                                "attribute `autofocus` appears twice",
-                            );
-                        }
-                        attrs.push(Attr {
-                            name: "autofocus".into(),
-                            value: Expr::Bool(true, aspan),
-                            span: aspan,
-                        });
-                    } else {
-                        positional.push(self.expr()?);
-                    }
-                }
+                self.attr_line(&mut positional, &mut attrs, false)?;
                 self.newline()?;
-                let mut children = self.block(|p| p.node())?;
+                let mut children = Vec::new();
+                if matches!(self.peek_kind(), TokenKind::Indent) {
+                    self.next();
+                    // The attribute list may continue on deeper lines that
+                    // begin with `name=`; a child never does (LLP 1035.005 D1).
+                    while self.at_continuation() {
+                        self.attr_line(&mut positional, &mut attrs, true)?;
+                        self.newline()?;
+                    }
+                    children = self.block_rest(|p| p.node())?;
+                }
                 // LLP 1017.001's primary button argument is its visible text
                 // child, not a prop on the pressable itself. Keeping it as a
                 // real text node gives every host the same visible and
@@ -1209,6 +987,69 @@ impl Parser {
         }
     }
 
+    /// Whether the line begins `name=`: an element's continued attributes.
+    fn at_continuation(&self) -> bool {
+        matches!(
+            (self.peek_kind(), self.peek2()),
+            (TokenKind::Ident(_), TokenKind::Punct("="))
+        )
+    }
+
+    /// One line of an element: `attr=expr` pairs and, on the element's own
+    /// line, positional expressions.
+    fn attr_line(
+        &mut self,
+        positional: &mut Vec<Expr>,
+        attrs: &mut Vec<Attr>,
+        continuation: bool,
+    ) -> R<()> {
+        while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+            if let (TokenKind::Ident(name), TokenKind::Punct("=")) =
+                (self.peek_kind().clone(), self.peek2().clone())
+            {
+                let aspan = self.next().span;
+                self.next();
+                let value = self.expr()?;
+                if attrs.iter().any(|a: &Attr| a.name == name) {
+                    return Err(SyntaxError {
+                        id: "syntax-duplicate-attr",
+                        message: format!("attribute `{name}` appears twice on the same element"),
+                        span: aspan,
+                    });
+                }
+                attrs.push(Attr {
+                    name,
+                    value,
+                    span: aspan,
+                });
+            } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
+                let aspan = self.next().span;
+                if attrs.iter().any(|a: &Attr| a.name == "autofocus") {
+                    return self.err(
+                        "syntax-duplicate-attr",
+                        "attribute `autofocus` appears twice",
+                    );
+                }
+                attrs.push(Attr {
+                    name: "autofocus".into(),
+                    value: Expr::Bool(true, aspan),
+                    span: aspan,
+                });
+            } else if continuation {
+                return self.err(
+                    "syntax-expected-attr",
+                    format!(
+                        "a continued attribute line holds `name=value` pairs only, found {}",
+                        describe(self.peek_kind())
+                    ),
+                );
+            } else {
+                positional.push(self.expr()?);
+            }
+        }
+        Ok(())
+    }
+
     fn named_args(&mut self) -> R<Vec<Attr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
@@ -1227,7 +1068,16 @@ impl Parser {
     fn call_args(&mut self) -> R<Vec<Expr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
-            out.push(self.expr()?);
+            let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
+                && matches!(self.peek2(), TokenKind::Punct(":"))
+            {
+                let (name, span) = self.ident()?;
+                self.next();
+                Expr::NamedArg(name, Box::new(self.expr()?), span)
+            } else {
+                self.expr()?
+            };
+            out.push(arg);
             if !self.eat_punct(",") {
                 break;
             }
@@ -1238,7 +1088,7 @@ impl Parser {
 
     // ---- expressions ------------------------------------------------------
 
-    fn expr(&mut self) -> R<Expr> {
+    pub(crate) fn expr(&mut self) -> R<Expr> {
         self.ternary()
     }
 
@@ -1400,8 +1250,10 @@ impl Parser {
                 parts.push(TemplatePart::Text(std::mem::take(&mut text)));
             }
             let inner = &after[..end];
-            let tokens = Lexer::tokenize(inner, span.line)?;
-            let mut sub = Parser { tokens, pos: 0 };
+            // The expression's columns are the line's: the backtick, the
+            // text before `${`, and the `${` itself precede it.
+            let col = span.col + 1 + (raw.len() - after.len()) as u32;
+            let (mut sub, _) = Parser::new(Lexer::tokenize(inner, span.line, col)?);
             let e = sub.expr()?;
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");
@@ -1459,13 +1311,15 @@ fn is_keyword(w: &str) -> bool {
     )
 }
 
-fn describe(k: &TokenKind) -> String {
+pub(crate) fn describe(k: &TokenKind) -> String {
     match k {
         TokenKind::Ident(w) => format!("`{w}`"),
         TokenKind::Number(n) => format!("number {n}"),
         TokenKind::Str(_) => "a string".into(),
         TokenKind::Template(_) => "a template string".into(),
         TokenKind::Punct(p) => format!("`{p}`"),
+        TokenKind::Comment { .. } => "a comment".into(),
+        TokenKind::Blank(_) => "a blank line".into(),
         TokenKind::Newline => "end of line".into(),
         TokenKind::Indent => "an indented block".into(),
         TokenKind::Dedent => "the end of a block".into(),
