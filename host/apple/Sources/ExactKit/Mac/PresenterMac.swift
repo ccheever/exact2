@@ -221,7 +221,14 @@ final class Presenter {
         guard !applying else { return }
         let post = Self.signposts.beginInterval("scrolled")
         defer { Self.signposts.endInterval("scrolled", post) }
-        if listsNeedRowsNow() { syncLists() } else { listSyncPending = true }
+        // Most ticks move inside the band the mounted rows already cover: then
+        // there is nothing to report, and nothing here reads or writes the
+        // scroll view again until AppKit next calls in.
+        switch listsNeed() {
+        case .nothing: break
+        case .soon: listSyncPending = true
+        case .now: syncLists()
+        }
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
         if listSyncPending || textPending { startPump() }
@@ -230,6 +237,7 @@ final class Presenter {
     /// After a batch: paint what is visible now, admit the rest over frames.
     private func batchApplied() {
         syncLists()
+        coverLists()
         if refreshVisibleText(limit: Self.textBandsPerSlice) { textPending = true; startPump() }
     }
 
@@ -278,25 +286,47 @@ final class Presenter {
         if !listSyncPending && !textPending { stopPump() }
     }
 
-    /// Whether a windowed list is close to showing past its mounted rows — a
-    /// jump, a scroller drag, a fling faster than the pump. Then it fills now.
-    private func listsNeedRowsNow() -> Bool {
+    private enum ListNeed { case nothing, soon, now }
+
+    /// What the mounted rows of each windowed list cover, from the last batch
+    /// that changed them: `scrolled` compares an offset against four numbers
+    /// instead of walking the rows on every tick.
+    private struct ListCover {
+        var top: CGFloat, bottom: CGFloat, origin: CGFloat
+        var atStart: Bool, atEnd: Bool
+    }
+    private var listCovers: [UInt32: ListCover] = [:]
+
+    private func coverLists() {
+        listCovers.removeAll(keepingCapacity: true)
         for list in listViews.values {
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
-                  let scroll = list.scroll, let content = list.container.subviews.first as? NodeView else { continue }
-            let visible = scroll.contentView.bounds
-            var top = CGFloat.infinity, bottom = -CGFloat.infinity
+                  let content = list.container.subviews.first as? NodeView else { continue }
+            var cover = ListCover(top: .infinity, bottom: -.infinity, origin: content.frame.minY, atStart: false, atEnd: false)
             for case let row as NodeView in content.container.subviews {
-                top = min(top, row.frame.minY); bottom = max(bottom, row.frame.maxY)
+                let index = Int(row.props["accessibilityPosInSet"] ?? "") ?? 0, count = Int(row.props["accessibilitySetSize"] ?? "") ?? -1
+                if row.frame.minY < cover.top { cover.top = row.frame.minY; cover.atStart = index <= 1 }
+                if row.frame.maxY > cover.bottom { cover.bottom = row.frame.maxY; cover.atEnd = index == count }
             }
-            guard top.isFinite else { return true }
-            let origin = content.frame.minY, extent = content.frame.height
-            let margin = visible.height * 0.35
-            let first = top + origin, last = bottom + origin
-            if visible.maxY + margin > last && bottom < extent - 1 { return true }
-            if visible.minY - margin < first && top > 1 { return true }
+            if cover.top.isFinite { listCovers[list.id] = cover }
         }
-        return false
+    }
+
+    /// Whether a windowed list has scrolled to where the runner would mount
+    /// rows (its window is a scrollport either side), and whether it is close
+    /// to showing past the mounted ones — a jump, a scroller drag, a fling
+    /// faster than the pump. Then it fills now.
+    private func listsNeed() -> ListNeed {
+        var need = ListNeed.nothing
+        for list in listViews.values {
+            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil, let scroll = list.scroll else { continue }
+            guard let cover = listCovers[list.id] else { return .now }
+            let visible = scroll.contentView.bounds, port = visible.height
+            let first = cover.top + cover.origin, last = cover.bottom + cover.origin
+            if (!cover.atEnd && visible.maxY + port * 0.35 > last) || (!cover.atStart && visible.minY - port * 0.35 < first) { return .now }
+            if (!cover.atEnd && visible.maxY + port + 1 > last) || (!cover.atStart && visible.minY - port - 1 < first) { need = .soon }
+        }
+        return need
     }
 
     /// Scrolling exposes strips of an existing backing store. Repainting the
@@ -354,6 +384,7 @@ final class Presenter {
         visibleText.removeAll()
         textViewportIndex = nil
         stopPump()
+        listCovers.removeAll()
         listSyncPending = false
         textPending = false
         listGeometry.removeAll()
