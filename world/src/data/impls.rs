@@ -262,7 +262,11 @@ impl<T: Data> Data for Box<T> {
         (**self).read(r)
     }
 }
-impl<K: Data + Ord + AsRef<str> + for<'a> From<&'a str>, T: Data> Data for BTreeMap<K, T> {
+// Only these closed string keys preserve every semantic field through record names.
+trait CanonicalKey: Data + Ord + AsRef<str> + for<'a> From<&'a str> {}
+impl CanonicalKey for String {}
+impl CanonicalKey for std::rc::Rc<str> {}
+impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
     fn default_size() -> usize {
         24
     }

@@ -84,3 +84,20 @@ fn unit_default_enum_charges_its_largest_inline_variant_before_allocation() {
     assert_eq!(loaded.len(), 64);
     assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
 }
+
+#[test]
+fn closed_map_keys_round_trip_unicode_and_distinct_names() {
+    fn check<K: Data + Ord + From<&'static str> + std::fmt::Debug + PartialEq>()
+    where
+        std::collections::BTreeMap<K, u32>: Data,
+    {
+        let value = std::collections::BTreeMap::from([(K::from("x"), 7u32), (K::from("é🌕"), 9)]);
+        let bytes = bin::to_vec(&value).unwrap();
+        let loaded = bin::from_slice(&bytes).unwrap();
+        assert_eq!(value, loaded);
+        assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+        assert_eq!(hash::of(&value), hash::of(&loaded));
+    }
+    check::<String>();
+    check::<std::rc::Rc<str>>();
+}

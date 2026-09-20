@@ -241,7 +241,9 @@ cursors are not saved continuation state.
 `Reader<'data>` borrows field and variant identities from the input. Duplicate
 tracking reuses a field stack and per-name depth marks; nested records restore
 outer marks. Repeated literal name definitions cannot bypass duplicate rejection.
-Owned map keys still claim storage, and decoder accounting stays cumulative.
+Map Data admits only String and Rc<str> keys, whose complete
+meaning survives record-name encoding. Custom key conversions are refused by a
+sealed bound. Owned map keys claim storage; decoder accounting stays cumulative.
 Sequences reserve their admitted known length once.
 
 `Writer::field` and `variant` take static names; dynamic map names use `key`.

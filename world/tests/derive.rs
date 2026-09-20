@@ -145,6 +145,16 @@ impl Default for Tree { fn default() -> Self { Self::End } }"#,
         );
         assert!(error.contains("CHECK_DEFAULT_ACYCLIC"), "{error}");
     }
+    let custom_key = compile(
+        r#"use exact_world::*;
+#[derive(Default, Data, PartialEq, Eq, PartialOrd, Ord)] struct Key(String, u32);
+impl AsRef<str> for Key { fn as_ref(&self) -> &str { &self.0 } }
+impl From<&str> for Key { fn from(s: &str) -> Self { Self(s.into(), 0) } }
+fn save() { bin::to_vec(&std::collections::BTreeMap::from([(Key("x".into(), 7), 1u32)])).unwrap(); }
+"#,
+    );
+    assert!(!custom_key.status.success());
+    assert!(String::from_utf8_lossy(&custom_key.stderr).contains("CanonicalKey"));
     let cases = [
         r###"fn main() {
 use exact_world::{World, Component};
