@@ -8947,3 +8947,60 @@ The composed check releases every owned group and keeps host free space above
 75.617GB; caps and boot pass on the staged integration.
 Independent selected log comparison is`/tmp/exact2-trim-scratch-lead-work-check.json`
 (`11607ef2`). No native timing pair or120Hz result is claimed for this change.
+### 8.163 Current Mac Messages baseline retains substantial apply tails, 2026-09-20
+
+One fresh normal-clock Messages cell at `7594d208` covers the integrated native
+text raster/list pump and sixteen leaf offers missing from §8.161's f8 baseline.
+Later `fc11e17` Contract diagnostic-source changes are excluded. This is a pinned
+baseline, not a matched A/B result or attribution of the difference between runs.
+The same three ignored trace-v5 observer grafts preserve IDs1–24 and scheduling;
+the current lock is clean, without the old private compatibility exception.
+All 27 focused binding/reader controls pass. One optimized build exits0 in112.647s
+and immutable capture in2.240s, retaining the actual ABI8 Bridge dependency
+rule/header, Reusable entry, plan, History9 schema and 1,491 receipt inputs.
+
+Apple M4/Mac16,10, 16GiB, macOS26.2(25C56), JetKVM1920×1080@60Hz. Reusable 10,000
+full rows/batch32, windowed=true, bounded=false, cursor=None and nil clock override
+remain fixed. The 17.038s cell completes all 36 scheduled inputs during real AppKit
+resize edges: 18 typing and 18 actual alternating40-unit wheels. Each phase has 18
+complete resize/decode/apply chains. Combined endpoints are ESTABLISHED; passive
+mode omissions keep mode NOTESTABLISHED. All 1,301 primary records are retained.
+
+| Phase | Resize+decode median/max ms | Apply median/max ms | Combined median/max ms | Combined >8.333ms |
+|---|---:|---:|---:|---:|
+| Idle |2.317/4.366|2.305/3.790|4.659/7.909|0/18|
+| Load |2.839/5.233|2.196/4.252|5.266/9.123|2/18|
+| Recovery |2.559/5.513|2.402/3.362|4.909/8.875|1/18|
+
+Stage medians/maxima are not additive. Typing ACK maxima are12.394/7.673/19.188ms;
+wheel maxima4.647/5.406/9.822ms. Frame-deadline chains39/39/45 include no-op
+advances, with maxima 1.210/10.645/1.299ms; they are not producer-only samples or
+presented frames. One loaded one-shot chain takes11.162ms. Loaded bracketing
+revision 9→19 is aggregate progress, without a per-chain painted-revision witness.
+
+The 2,001.283ms command-free interval is bracketed by revision 0→8. Its before-read
+cohort contains seven one-shots and one frame advance; the latter starts before
+the conservative literal silence window and is excluded from that stricter cohort.
+The seven in-window one-shots have combined median 11.550/max 13.878ms, four above
+8.333ms. Their native+decode/apply sums are34.029/32.683ms; the apply median alone
+is5.634ms and maximum7.586ms. Eight snapshot revisions do not prove eight updated
+pictures within the window. Seven selected full histories at 0/8/9/19 equal the
+retained f8 histories at equal revisions, including all five fields and UTF8 totals.
+
+The next discriminator is the current apply path: existing signposts or a bounded
+stack diagnostic should separate urgent text rasterization, collection work and
+other application of a batch. Source includes synchronous visible-text rendering,
+but this measurement does not yet attribute its cost. Do not remove the Markdown
+worker/pump or reduce the 32-row workload based on these aggregate spans. The
+observer ends at apply, not the full callback or compositor; physical 120 Hz remains
+unmeasured and robust software tails remain open.
+
+`target/mac-messages-7594-execution-v1/REPORT.md` (`3ad9be76`) holds the result;
+binary `d0a450b0` is captured in 297 files/57,959,038B. Independent selected raw
+arithmetic is `exact2-mac7594-lead-selected-raw.json` (`ad3fa29a`). A preserved
+offline assertion was corrected from changed=32 to changed=0 at initial revision 0;
+no native rerun or evidence rewrite followed. Fresh cleanup proves 58 build PIDs/
+15 groups and 8 runtime PIDs/6 groups absent, with four owned mouse-UP releases and
+no cleanup signals. Peak cumulative charge 811,466,752B stays below 2GiB; free disk
+remains above 76.968GB and ends near 77.19GB. One build, one capture, one cell;
+no retry, speedup claim or new physical 120 Hz claim.
