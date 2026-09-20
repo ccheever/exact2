@@ -779,13 +779,13 @@ impl World {
         self.published_cost.set(crate::json::LIMIT - budget);
         Ok(())
     }
-    pub fn emit(&self, text: impl Into<String>) -> Result<(), DataError> {
-        let text = text.into();
+    pub fn emit(&self, text: impl AsRef<str>) -> Result<(), DataError> {
+        let text = text.as_ref();
         let mut messages = self.messages.borrow_mut();
         if text.len() > 4096 || messages.len() >= 1024 {
             return Err(DataError::new("message queue limit (1024 x 4096 bytes)"));
         }
-        messages.push(text);
+        messages.push(text.to_owned());
         self.mutated();
         Ok(())
     }

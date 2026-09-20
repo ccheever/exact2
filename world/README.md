@@ -197,8 +197,8 @@ admits all keys, values and event cursors before changing anything; the adapter
 uses it for complete record updates. A single changed publication validates only
 its old/new values, using the retained aggregate cost; batches visit at most 512
 old/new entries within the shared 65,536-unit publication budget.
-`emit(text) -> Result<(), DataError>` queues up to 1,024 messages of at most
-4,096 bytes each; refusal preserves pending delivery.
+`emit(text: impl AsRef<str>) -> Result<(), DataError>` queues up to 1,024 messages of at most
+4,096 bytes each; size/count admission precedes copying and refusal preserves pending delivery.
 
 ### Ownership and structural consumers
 

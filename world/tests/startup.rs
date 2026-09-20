@@ -745,3 +745,25 @@ fn writer_accounts_for_skipped_default_resets_before_returning_unreadable_bytes(
     }
     assert!(bin::to_vec(&Skipped::default()).is_err());
 }
+
+#[test]
+fn emit_refuses_borrowed_text_before_copying_on_size_or_count() {
+    let huge = "x".repeat(8 << 20);
+    for full in [false, true] {
+        let w = World::new(60, 0);
+        let n = if full { 1024 } else { 1 };
+        for _ in 0..n {
+            w.emit("kept").unwrap();
+        }
+        let before = w.save().unwrap();
+        let (error, counts) = counting::measure(|| w.emit(huge.as_str()).unwrap_err());
+        assert!(error.message.contains("message queue limit"));
+        assert!(counts.1 < 1024, "refused message was copied: {counts:?}");
+        if full {
+            let (_, counts) = counting::measure(|| w.emit("small").unwrap_err());
+            assert!(counts.1 < 1024);
+        }
+        assert_eq!(w.save().unwrap(), before);
+        assert_eq!(w.take_messages(), vec!["kept"; n]);
+    }
+}
