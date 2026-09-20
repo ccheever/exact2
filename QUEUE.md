@@ -671,3 +671,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - smoothstep with equal/reversed edges remains outside its documented distinct/increasing-edge contract (`game/world-motion/src/lib.rs:9`); its test covers NaN input and the valid midpoint only (`game/world-motion/src/tween.rs:174`). It is no longer kernel vocabulary (grok #9/#10).
 
 - K2: complete Tally's 10 cold / 10 warm Chromium navigation medians (FCP, module, bind, first tick, visible publication). The diagnostic hit CDP timeouts after three repair rounds; retain the two-rAF loader delay until FCP parity is measured. See game/world-adapter/README.md.
+
+- Kernel owner: review device-free wasm restore/code-generation weight (`Sim<Tally>::candidate` 35,297 body bytes; exact-world 138,658). K3 attribution and stop decision: `game/diaries/2026-09-20-device-free.md`.

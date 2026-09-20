@@ -1,10 +1,8 @@
 //! The presenter: what a painter holds beyond the kernel — scroll offsets,
 //! images, focus, the pointer — and the operations that touch it: frames,
 //! hit-testing, presses, wheels, typing, the clock, screenshots.
-//!
 //! @ref LLP 1015 §4; LLP 1010 §3 (scroll chaining: the web's
 //! `overscroll-behavior: auto`); LLP 1012 (the five host-side operations)
-//!
 //! Scroll offsets are host state, never plan state (LLP 1010). The window
 //! is a viewport over a document: the page scrolls when the roots' extent
 //! exceeds it. A press is a hit at a point — the deepest painted box under
@@ -13,8 +11,7 @@
 //! the point that can take its dominant axis, else to the page.
 use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
-use crate::image::AssetResolver;
-use crate::image::{Assets, Images};
+use crate::image::{AssetResolver, Assets, Images};
 use crate::paint::{
     content_size, effective_overflow, Backend, Frame, PaintedBox, Painter, Rect4, Scene,
 };
@@ -632,7 +629,6 @@ impl<D: DataSource> Presenter<D> {
     ) -> Result<Option<String>, HostError> {
         let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        crate::surface_startup::record(0, "plan_ready");
         // Preserve live font state until the candidate runner boots successfully.
         let candidate_text = TextEngine::shared_for_assets(&decoded, &self.assets);
         if let Some(reason) = self.assets.take_refusal() {

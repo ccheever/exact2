@@ -40,9 +40,10 @@ if(process.argv.includes('--linux')) {
       if(name==='tally') {
         if(!binding || !row.first_publication)throw Error('missing world spans: '+p.stderr);
         row.bind_work=binding.bind_ms;row.tick_work=binding.first_tick_ms;
-        // bind_start is outside the ABI; the adapter spans exclude stderr output.
-        row.first_tick=row.bind_start+row.bind_work+row.tick_work;
-        row.world_work=row.create-row.load_headless+row.bind_work+row.tick_work;
+        // Binding takes the first tick. Its return is the observed completion,
+        // including ABI parsing and trace writes; inner spans separate game work.
+        row.first_tick=row.bind_done;
+        row.world_work=row.bind_done-row.load_headless;
       }
       rows.push(row);
     }
