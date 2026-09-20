@@ -102,6 +102,48 @@ fn types(args: &[String]) -> ExitCode {
     }
 }
 
+struct CompatOptions<'a> {
+    dir: &'a str,
+    platform: &'a str,
+    target: Option<&'a str>,
+    json: bool,
+}
+
+fn compat_options(args: &[String]) -> Option<CompatOptions<'_>> {
+    let (dir, flags) = args.split_first()?;
+    if dir.is_empty() || dir.starts_with('-') {
+        return None;
+    }
+    let (mut platform, mut target, mut json) = (None, None, false);
+    let mut flags = flags.iter();
+    while let Some(flag) = flags.next() {
+        match flag.as_str() {
+            "--platform" if platform.is_none() => {
+                let value = flags.next()?.as_str();
+                if !matches!(value, "ios" | "macos" | "linux" | "web") {
+                    return None;
+                }
+                platform = Some(value);
+            }
+            "--target" if target.is_none() => {
+                let value = flags.next()?.as_str();
+                if value.is_empty() || value.starts_with('-') {
+                    return None;
+                }
+                target = Some(value);
+            }
+            "--json" if !json => json = true,
+            _ => return None,
+        }
+    }
+    Some(CompatOptions {
+        dir,
+        platform: platform?,
+        target,
+        json,
+    })
+}
+
 /// `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`:
 /// the compatibility id of the app built for that platform — the id alone,
 /// or with `--json` the id and every input it digests. The grants are the
@@ -113,28 +155,25 @@ fn compat(args: &[String]) -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let Some(dir) = args.first().filter(|a| !a.starts_with("--")) else {
+    let Some(CompatOptions {
+        dir,
+        platform,
+        target,
+        json,
+    }) = compat_options(args)
+    else {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let flag = |name: &str| {
-        args.iter()
-            .position(|a| a == name)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-    };
-    let Some(platform) = flag("--platform") else {
-        eprintln!("contract compat: --platform <ios|macos|linux|web> is required");
-        return ExitCode::from(2);
-    };
-    let target = flag("--target")
+    let target = target
+        .map(str::to_owned)
         .unwrap_or_else(|| format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS));
     let app_dir = std::path::Path::new(dir);
     let result = contract::Manifest::read(app_dir)
-        .and_then(|m| contract::compatibility_id(app_dir, &platform, &target, &m, None));
+        .and_then(|m| contract::compatibility_id(app_dir, platform, &target, &m, None));
     match result {
         Ok(c) => {
-            if args.iter().any(|a| a == "--json") {
+            if json {
                 print!("{}", c.to_json());
             } else {
                 println!("{}", c.id);
@@ -156,9 +195,12 @@ fn tests(args: &[String]) -> ExitCode {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let Some(input) = args.first() else {
-        eprintln!("{USAGE}");
-        return ExitCode::from(2);
+    let input = match args {
+        [input] if !input.is_empty() && !input.starts_with('-') => input,
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
     };
     let src = match std::fs::read_to_string(input) {
         Ok(s) => s,
