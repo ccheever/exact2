@@ -231,6 +231,10 @@ struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     fn declarations(&mut self) {
         let names = &self.file.names;
+        for font in &self.file.fonts {
+            self.graph
+                .define("font", &font.name, names.name(font.span), None, None);
+        }
         for shape in &self.file.shapes {
             self.graph
                 .define("shape", &shape.name, names.name(shape.span), None, None);
@@ -408,6 +412,11 @@ impl<'a> Resolver<'a> {
         contract_types::infer(expr, &self.scope, &self.types.shapes).unwrap_or(Ty::Unknown)
     }
     fn file(&mut self, expanded_root: Option<&Component>) {
+        for style in &self.file.styles {
+            for attr in style.attrs.iter().filter(|a| a.name == "font-family") {
+                self.attr(attr);
+            }
+        }
         for shape in &self.file.shapes {
             for field in &shape.fields {
                 self.ty(&field.ty);
@@ -647,6 +656,7 @@ impl<'a> Resolver<'a> {
     fn attr(&mut self, a: &Attr) {
         match (a.name.as_str(), &a.value) {
             ("id" | "testId", Expr::Str(..)) => {}
+            ("font-family", Expr::Str(name, span)) => self.refer("font", name, *span, None, None),
             ("class", Expr::Ident(name, span)) => self.refer("style", name, *span, None, None),
             ("navigationBack" | "contextTarget" | "popovertarget", Expr::Str(id, span)) => {
                 self.graph.id(id, *span)

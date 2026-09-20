@@ -236,6 +236,99 @@ fn duplicate_ids_report_all_authored_targets() {
 }
 
 #[test]
+fn font_families_resolve_literal_element_and_style_uses_with_exact_ranges() {
+    let f = Fixture::new("fonts");
+    let graph = f.query(
+        r#"font "Élan \"Display\"" = "assets/display.otf"
+font "Body Face"
+  400 = "assets/body.otf"
+style Heading
+  font-family="Élan \"Display\""
+component App
+  view
+    column
+      text "Élan \"Display\"" class=Heading
+      text "heading" font-family="Élan \"Display\""
+      text "body" font-family="Body Face"
+      text "generic" font-family="system-ui"
+"#,
+    );
+    let display = definition(&graph, "font", "Élan \"Display\"", None);
+    let body = definition(&graph, "font", "Body Face", None);
+    assert_eq!(spelling(display), r#""Élan \"Display\"""#);
+    assert_eq!(spelling(body), "\"Body Face\"");
+    let font_refs: Vec<_> = refs(&graph)
+        .iter()
+        .filter(|r| r["kind"] == "font")
+        .collect();
+    assert_eq!(font_refs.len(), 3);
+    assert_eq!(
+        font_refs
+            .iter()
+            .map(|r| r["line"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [5, 10, 11]
+    );
+    for reference in font_refs {
+        let declaration = target(&graph, reference);
+        assert_eq!(spelling(reference), spelling(declaration));
+        assert!(declaration == display || declaration == body);
+    }
+    // Navigation reads source only; missing font bytes are a build-time refusal.
+    assert_eq!(std::fs::read_dir(&f.0).unwrap().count(), 1);
+}
+
+#[test]
+fn imported_fonts_keep_their_declaration_and_use_locations() {
+    let f = Fixture::new("font-imports");
+    let font = f
+        .write(
+            "font.contract",
+            "font \"Brand\" = \"assets/brand.otf\"\nstyle Body\n  font-family=\"Brand\"\n",
+        )
+        .canonicalize()
+        .unwrap();
+    let style = f
+        .write(
+            "heading.contract",
+            "use Body from \"./font.contract\"\nstyle Heading\n  font-family=\"Brand\"\n",
+        )
+        .canonicalize()
+        .unwrap();
+    let graph = f.query("use Heading from \"./heading.contract\"\nuse Body from \"./font.contract\"\ncomponent App\n  view\n    text \"Brand\" font-family=\"Brand\"\n");
+    let declaration = definition(&graph, "font", "Brand", None);
+    assert_eq!(declaration["file"], font.to_string_lossy().as_ref());
+    assert_eq!(
+        (declaration["col"].as_u64(), declaration["end_col"].as_u64()),
+        (Some(6), Some(13))
+    );
+    let font_refs: Vec<_> = refs(&graph)
+        .iter()
+        .filter(|r| r["kind"] == "font")
+        .collect();
+    assert_eq!(font_refs.len(), 3); // two styles, one element, no font import form
+    for reference in &font_refs {
+        assert_eq!(target(&graph, reference), declaration);
+        assert_eq!(spelling(reference), "\"Brand\"");
+    }
+    assert_eq!(
+        font_refs
+            .iter()
+            .filter(|r| r["file"] == style.to_string_lossy().as_ref())
+            .count(),
+        1
+    );
+    let only_font = f.write(
+        "only-font.contract",
+        "font \"Brand\" = \"assets/brand.otf\"\n",
+    );
+    let module: Value = serde_json::from_str(&contract::symbols_json(&only_font).unwrap()).unwrap();
+    assert_eq!(defs(&module).len(), 1);
+    assert!(refs(&module).is_empty());
+    assert_eq!(spelling(&defs(&module)[0]), "\"Brand\"");
+}
+
+#[test]
 fn navigation_uses_build_import_refusals_including_cached_name_checks_and_cycles() {
     let f = Fixture::new("refusals");
     f.write("row.contract", "component Row\n  view\n    text \"row\"\n");

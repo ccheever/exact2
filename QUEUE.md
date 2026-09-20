@@ -108,11 +108,9 @@ sits on that list carries the trade it would take.
   Simulator contact backend (1035.003 §3; the backend is Charlie's call — the held-read gate now passes at two placements after common-mode agent scheduling, `/tmp/messages-held-inspection/`), 1035.001
   slice 1 (XCTest units for the navigation/modal rules, journal lines for
   refused intents, a session-scoped blur in the two-session host), 1035.004's
-  six symbol roles, 1035.005's symbols, source-aware diagnostics and development
-  map (2026-09-20: `contract fmt` and continuation recovered with source-preserving
-  formatting; D2/D3 remain on `lane/1035-merge` and `lane/game`, with unresolved
-  review findings. Recover those without dropping newer compiler features or
-  misattributing imported declarations);
+  six symbol roles, 1035.005's remaining Messages responsibility extraction and
+  three-task authoring comparisons (§3). The formatter, symbols, source-aware
+  diagnostics and development maps are integrated (2026-09-20);
   `dynamic` as a `layout <node>` source once a constant binding can be told
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
