@@ -339,11 +339,10 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
         let len = bridge.agent(len);
         String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap()
     };
-    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-    assert!(exact_runner::agent::field_str(&inspect(&mut bridge, false), "plan").is_none());
+    assert!(exact_runner::agent::field_str(&inspect(&mut bridge, false), "planDigest").is_none());
     assert_eq!(
-        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
-        Some(hex(&plan))
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "planDigest"),
+        Some(contract::plan_digest(&plan))
     );
 
     // Establish state in the live Host, then offer bytes that cannot decode.
@@ -362,8 +361,8 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     assert!(!after.contains("not booted"), "{after}");
     assert!(after.contains("\"text\":\"3\""), "{after}");
     assert_eq!(
-        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
-        Some(hex(&plan)),
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "planDigest"),
+        Some(contract::plan_digest(&plan)),
         "state changes and refused candidates keep the accepted plan identity"
     );
 
@@ -373,10 +372,13 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     let len = bridge.input_write(&replacement);
     let len = bridge.boot_plan(len, NoData, 390.0, 844.0, "/");
     let response = String::from_utf8_lossy(bridge.output_bytes(len as usize));
-    assert!(exact_runner::agent::field_str(&response, "error").is_none(), "{response}");
+    assert!(
+        exact_runner::agent::field_str(&response, "error").is_none(),
+        "{response}"
+    );
     assert_eq!(
-        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
-        Some(hex(&replacement)),
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "planDigest"),
+        Some(contract::plan_digest(&replacement)),
         "a replacement may reuse the same node id but must expose its own plan"
     );
 }

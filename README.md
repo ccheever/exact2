@@ -95,8 +95,17 @@ The resident Contract, TypeScript and portable Rust producers emit maps after
 baking. Temporary source captures retain the original app filenames. The dev
 server keeps the matching map at the generation's `app.plan.map.json` URL,
 declared under `dev.sourceMap`; it is never an asset or module payload. Static
-builds and production publication omit it. Runtime identity checks and driver
-display are still pending.
+builds and production publication omit it. `agent.mjs ... "layout <target>"`
+reads the map beside `--plan` or from the development `--url`/`EXACT_DEV_PLAN`
+envelope. It shows the declaration, component callers and winning authored style
+origins only when the same node reply carries the matching plan digest. The
+runner computes that digest lazily once per accepted plan; ordinary inspection
+does no hashing. Missing, invalid or stale maps leave geometry available with a
+source-unavailable explanation. The driver retains four recent map digests for
+sessions that keep an older plan after a refused reload. A fresh driver may lack
+that older map and refuses the join. “Compatible source map” means the compiled
+plan matches: formatting-only edits can change source locations without changing
+the plan, so this is not an original-source revision guarantee.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result

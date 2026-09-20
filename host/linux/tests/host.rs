@@ -156,6 +156,16 @@ fn layout_json_is_the_agent_api_shape() {
         &l[..200]
     );
     assert_eq!(l.matches("\"sx\":").count(), 1, "one scroll container");
+    assert!(!l.contains("planDigest"));
+    let id = p.host().runner().roots()[0];
+    let plain: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id), false)).unwrap();
+    let mapped: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id), true)).unwrap();
+    assert!(plain["node"].get("planDigest").is_none());
+    assert_eq!(
+        mapped["node"]["planDigest"],
+        contract::plan_digest(&p.host().runner().plan().encode())
+    );
+    assert_eq!(plain["node"]["site"], mapped["node"]["site"]);
     assert!(
         l.contains("\"id\":1,\"x\":0,\"y\":0,\"w\":390,"),
         "{}",

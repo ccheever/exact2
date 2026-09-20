@@ -947,6 +947,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-route",
+ "sha2",
 ]
 
 [[package]]

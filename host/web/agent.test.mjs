@@ -1,12 +1,98 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
+
+const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
+  chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
+  bindings: [{row:'color',origin:'class:Bubble'}, {row:'font-size',origin:'own'}]}]});
+const inspected = planDigest => ({id: 1, site: 0, planDigest, props: {testId:'bubble'}, type:'Text', style: {
+  color: {value:'red',source:'dynamic'}, 'font-size': {value:14,source:'inherited',from:2}}});
+
+test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), reader = sourceMapReader(path);
+  try {
+    expect(await reader.refresh()).toBe(false);
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(a)));
+    expect(await reader.refresh()).toBe(true);
+    const node = inspected(a); reader.attach(node);
+    expect(node.sourceMap.status).toBe('compatible');
+    expect(node.sourceMap.line).toBe(12);
+    expect(node.style.color.origin).toBe('class:Bubble');
+    expect(node.style['font-size'].origin).toBeUndefined();
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(b, 22)));
+    await reader.refresh();
+    const refusedReload = inspected(a); reader.attach(refusedReload);
+    expect(refusedReload.sourceMap.line).toBe(12);
+    const accepted = inspected(b); reader.attach(accepted);
+    expect(accepted.sourceMap.line).toBe(22);
+    const stale = inspected('c'.repeat(64)); reader.attach(stale);
+    expect(stale.sourceMap.status).toBe('unavailable');
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(b, 24)));
+    await reader.refresh(); reader.attach(accepted);
+    expect(accepted.sourceMap.line).toBe(24);
+    expect(accepted.sourceMap.status).toBe('compatible');
+    const malformed = mapAt(b); malformed.nodes[0].line = -1;
+    writeFileSync(path + '.map.json', JSON.stringify(malformed));
+    await reader.refresh(); reader.attach(inspected(a));
+    const invalid = inspected(b); reader.attach(invalid);
+    expect(invalid.sourceMap.status).toBe('unavailable');
+    writeFileSync(path + '.map.json', '{bad JSON');
+    expect(await reader.refresh()).toBe(true); // Valid older entries remain useful.
+    const noIdentity = inspected(undefined); reader.attach(noIdentity);
+    expect(noIdentity.sourceMap.status).toBe('unavailable');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('HTTP map discovery validates its card, origin and plan, independently of the node identity', async () => {
+  const digest = 'a'.repeat(64), body = Buffer.from(JSON.stringify(mapAt(digest)));
+  let mapURL = '/map', cardHash = createHash('sha256').update(body).digest('hex'), planHash = digest, mapReads = 0;
+  const server = createServer((req,res) => {
+    if (req.url === '/exact.json') res.end(JSON.stringify({plan:{sha256:planHash},dev:{sourceMap:{url:mapURL,sha256:cardHash,bytes:body.length}}}));
+    else { mapReads++; res.end(body); }
+  });
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+  const url = `http://127.0.0.1:${server.address().port}/nested/app`;
+  try {
+    const reader = sourceMapReader(url);
+    expect(await reader.refresh()).toBe(true);
+    expect(await reader.refresh()).toBe(true);
+    expect(mapReads).toBe(1);
+    const node = inspected(digest); reader.attach(node);
+    expect(node.sourceMap.status).toBe('compatible');
+    const different = inspected('b'.repeat(64)); reader.attach(different);
+    expect(different.sourceMap.status).toBe('unavailable');
+    cardHash = 'b'.repeat(64);
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    cardHash = createHash('sha256').update(body).digest('hex'); planHash = 'b'.repeat(64);
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    planHash = digest; mapURL = 'http://different.invalid/map';
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    expect(mapReads).toBe(3);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test('targeted inspection uses its own node identity and renders declaration, callers and winning styles', async () => {
+  const node = inspected('a'.repeat(64)), reply = {node,nodes:[{id:1,x:0,y:0,w:20,h:10}],viewport:{w:100,h:100},clock:0};
+  identifyInspectedNode(reply,'bubble');
+  expect(reply.nodes[0].testId).toBe('bubble');
+  expect(() => identifyInspectedNode(reply,'replacement')).toThrow('changed during inspection');
+  identifyInspectedNode(reply,1);
+  node.sourceMap = {status:'compatible',...mapAt(node.planDigest).nodes[0]};
+  node.style.color.origin = 'class:Bubble';
+  const output = render('layout',reply);
+  expect(output).toContain('@ /app/ui/bubble.contract:12:3 (Bubble) · compatible source map');
+  expect(output).toContain('called from App @ /app/app.contract:45:5');
+  expect(output).toContain('(dynamic, class:Bubble)');
+  expect(output).not.toContain(node.planDigest);
+});
 
 test('retained development source maps survive later generations and refuse mismatched plans', async () => {
   const cache = mkdtempSync(join(tmpdir(), 'exact-dev-source-map-'));
@@ -89,16 +175,16 @@ test('only an explicit targeted layout carries its same-reply accepted plan', ()
   const c = fixture(), requests = [];
   c.ask = request => {
     requests.push(request);
-    if (request.op === 'node') return {id: request.id, type: 'Text', props: {testId:'current'}, ...(request.plan ? {plan:'0102'} : {})};
+    if (request.op === 'node') return {id: request.id, type: 'Text', props: {testId:'current'}, ...(request.plan ? {planDigest:'a'.repeat(64)} : {})};
     return {epoch:2,incarnation:1,clock:0};
   };
   const initial = c.exact.agent({op:'layout',id:1});
   plain(initial);
   expect(initial.error).toBeUndefined();
-  expect(initial.node.plan).toBeUndefined();
+  expect(initial.node.planDigest).toBeUndefined();
   const result = c.exact.agent({op:'layout',id:1,plan:true});
   plain(result);
-  expect(result.node.plan).toBe('0102');
+  expect(result.node.planDigest).toBe('a'.repeat(64));
   expect(requests.filter(r=>r.op==='node').map(r=>r.plan ?? false)).toEqual([false,true]);
 });
 

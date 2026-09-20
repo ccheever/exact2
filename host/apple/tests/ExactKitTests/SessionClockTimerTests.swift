@@ -16,6 +16,31 @@ private final class ClockTicks: @unchecked Sendable {
 }
 
 final class SessionClockTimerTests: XCTestCase {
+    func testTargetedLayoutDigestStaysWithEachSessionsNode() throws {
+        #if os(macOS)
+        let a = ExactApp.shared.makeSession(), b = ExactApp.shared.makeSession()
+        defer { a.destroy(); b.destroy() }
+        func inspect(_ session: ExactSession, mapped: Bool) throws -> [String: Any] {
+            let bytes = try XCTUnwrap(session.agent("{\"op\":\"tree\"}").data(using: .utf8))
+            let tree = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+            let roots = try XCTUnwrap(tree["roots"] as? [Int])
+            let id = try XCTUnwrap(roots.first)
+            let reply = session.agentInstance.layout(["id": id, "plan": mapped])
+            let node = try XCTUnwrap(reply["node"] as? [String: Any])
+            XCTAssertEqual(node["id"] as? Int, id)
+            return node
+        }
+        XCTAssertNil(try inspect(a, mapped: false)["planDigest"])
+        let first = try inspect(a, mapped: true)
+        let digest = try XCTUnwrap(first["planDigest"] as? String)
+        XCTAssertEqual(digest.count, 64)
+        XCTAssertNil(try inspect(b, mapped: false)["planDigest"])
+        XCTAssertEqual(try inspect(b, mapped: true)["planDigest"] as? String, digest)
+        XCTAssertEqual(try inspect(a, mapped: true)["planDigest"] as? String, digest)
+        XCTAssertNil(first["plan"], "inspection must not carry the plan or its text")
+        #endif
+    }
+
     private func run(_ mode: RunLoop.Mode, seconds: TimeInterval) {
         let end = Date(timeIntervalSinceNow: seconds)
         while Date() < end && RunLoop.main.run(mode: mode, before: end) {}

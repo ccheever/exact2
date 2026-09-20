@@ -34,20 +34,13 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             Some(n) if n >= 0.0 && n == n.trunc() => {
                 let mut reply = node(runner, n as u32);
                 if field_bool(request, "plan") && !reply.starts_with("{\"error\"") {
-                    // The plan and site belong to this exact synchronous read.
-                    // Kernel incarnations can repeat across host replacements;
-                    // a separate query or latest file cannot prove this identity.
-                    // Only an explicit development inspection pays for encoding.
-                    let bytes = runner.plan().encode();
-                    const HEX: &[u8; 16] = b"0123456789abcdef";
+                    // The digest and site belong to this exact synchronous read.
+                    // Kernel incarnations can repeat across host replacements.
+                    // Only an explicit development inspection computes identity.
                     reply.pop();
-                    reply.reserve(bytes.len() * 2 + 11);
-                    reply.push_str(",\"plan\":\"");
-                    for byte in bytes {
-                        reply.push(HEX[(byte >> 4) as usize] as char);
-                        reply.push(HEX[(byte & 15) as usize] as char);
-                    }
-                    reply.push_str("\"}");
+                    reply.push_str(",\"planDigest\":");
+                    quote(runner.inspection_digest(), &mut reply);
+                    reply.push('}');
                 }
                 reply
             }

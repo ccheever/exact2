@@ -82,7 +82,7 @@ final class CollectionMacTests: XCTestCase {
         defer { p.collections.reset() }
         var legacyReports = 0
         var collectionReports = 0
-        p.onList = { _, _, _, _, _, _, _ in legacyReports += 1 }
+        p.onList = { _, _, _, _, _, _, _, _ in legacyReports += 1; return false }
         p.collections.onFeedback = { _ in collectionReports += 1 }
         p.apply(batch([
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 240.0]

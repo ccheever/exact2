@@ -196,6 +196,7 @@ struct Timer {
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
+    inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
     data: D,
     kernel: Kernel,
@@ -461,6 +462,7 @@ impl<D: DataSource> Runner<D> {
         let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
             plan,
+            inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             data,
             kernel,
@@ -669,6 +671,20 @@ impl<D: DataSource> Runner<D> {
     /// The plan.
     pub fn plan(&self) -> &Plan {
         &self.plan
+    }
+
+    /// Same immutable plan as a targeted node read. No work until an inspector
+    /// requests identity; a replacement runner owns a fresh cache.
+    pub(crate) fn inspection_digest(&self) -> &str {
+        self.inspection_digest.get_or_init(|| {
+            use sha2::{Digest, Sha256};
+            use std::fmt::Write;
+            let mut out = String::with_capacity(64);
+            for byte in Sha256::digest(self.plan.encode()) {
+                write!(out, "{byte:02x}").unwrap();
+            }
+            out
+        })
     }
 
     /// The data source.
