@@ -305,7 +305,33 @@ must be finite, nonnegative and less than `f32::MAX`.
     98.16% of the 124,878,597 main triangles measured at 1 px. The bake is unchanged;
     the earlier floor report was incorrect. Optional fallback remains unmeasured.
 
+32. F1 replaces decision 28: vendor regular simplification can introduce an edge
+    with four incident triangles. Subdivision 5/seed 0 first exposes it; subdivision
+    6 fails uniform cuts too. All 21 fixtures have zero bounds-containment violations
+    at 1e-6 tolerance; no failure involved an ancestor overlap, an early terminal,
+    or the zero-error lift. For example edge (594,2331) changes from two incidences
+    in child group 4 to four in its replacement clusters 21/22 at depth 2. Their
+    projected simplified/refined errors are 4.940409/2.817221 px at threshold
+    3.167388 px: a valid flat cut of invalid replacement geometry.
+    Validate each replacement patch before packing: ordinary oriented interior
+    edges cancel; boundary and pre-existing nonmanifold scan edges must remain
+    identical. Stop an invalid transition and its dependent ancestor transitions,
+    remove their replacement clusters, and retain remaining finer clusters as
+    terminal groups. Vendor sources are unchanged. Format v2 records the changed
+    DAG; both assets will be re-baked. This preserves edge incidence, not a proof
+    against geometric self-intersection.
+
 ## Results
+
+F1 topology regression (`cargo test -p clod-bake --test topology -- --nocapture`):
+21 fixtures (subdivisions 3..9, noise seeds 0..2), 315 uniform cuts + 10,500
+oriented cameras. Before: 378 failed cuts, 616,144,192 triangle occurrences,
+62.419445333 s. After: 0 failures, 622,100,574 triangle occurrences,
+26.939051209 s. The edge oracle checks every decoded edge, including cluster
+interiors, incrementally as the cut changes. Detailed edge/cluster/group/depth
+and projected-error records: `<out>/F1/topology-before.log`; passing run:
+`<out>/F1/topology-after-final.log`. Smallest observed source fixture (8,192
+triangles): `<out>/F1/subdivision-5-seed-0.ply`.
 
 L1 verification, 2026-09-20, from cache `logs/L1-verify-{1,mac}.log`:
 

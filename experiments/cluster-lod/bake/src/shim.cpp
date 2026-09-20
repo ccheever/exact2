@@ -41,6 +41,7 @@ struct View {
     const uint8_t* indices; size_t index_count;
     void* owner;
 };
+#include "topology.h"
 static int emit(void* context, clodGroup group, const clodCluster* clusters, size_t count) {
     Output& o = *static_cast<Output*>(context);
     group.simplified.error = std::max(group.simplified.error, FLT_MIN);
@@ -83,6 +84,7 @@ extern "C" bool exact_clod_build(const float* positions, size_t vertex_count, co
         float weights[7] = {config.normal_weight, config.normal_weight, config.normal_weight, config.color_weight, config.color_weight, config.color_weight, config.color_weight};
         output->mesh = {indices, index_count, vertex_count, positions, 12, attributes, 28, nullptr, weights, colors ? size_t(7) : size_t(3), 0};
         clodBuild(c, output->mesh, output.get(), emit);
+        preserveTopology(*output);
         if (output->groups.empty()) return false;
         size_t levels = output->groups.back().depth + 1;
         output->nodes.resize(clodBuildHierarchyBound(output->groups.size(), 8, levels));

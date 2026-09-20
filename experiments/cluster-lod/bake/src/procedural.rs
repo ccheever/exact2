@@ -2,16 +2,17 @@
 use crate::{Mesh, Result, normalize};
 use std::{collections::HashMap, io::Write};
 
-fn hash(x: i32, y: i32, z: i32) -> f32 {
+fn hash(x: i32, y: i32, z: i32, seed: u32) -> f32 {
     let mut n = (x as u32).wrapping_mul(0x9e3779b9)
         ^ (y as u32).wrapping_mul(0x85ebca6b)
-        ^ (z as u32).wrapping_mul(0xc2b2ae35);
+        ^ (z as u32).wrapping_mul(0xc2b2ae35)
+        ^ seed.wrapping_mul(0x27d4eb2d);
     n ^= n >> 16;
     n = n.wrapping_mul(0x7feb352d);
     n ^= n >> 15;
     (n & 0xffffff) as f32 / 16777215.0 * 2.0 - 1.0
 }
-fn noise(p: [f32; 3]) -> f32 {
+fn noise(p: [f32; 3], seed: u32) -> f32 {
     let q = p.map(|x| x.floor() as i32);
     let f = std::array::from_fn::<_, 3, _>(|i| {
         let f = p[i] - q[i] as f32;
@@ -26,13 +27,16 @@ fn noise(p: [f32; 3]) -> f32 {
                     .enumerate()
                     .map(|(i, &b)| if b == 0 { 1.0 - f[i] } else { f[i] })
                     .product::<f32>();
-                value += weight * hash(q[0] + x, q[1] + y, q[2] + z);
+                value += weight * hash(q[0] + x, q[1] + y, q[2] + z, seed);
             }
         }
     }
     value
 }
 pub fn octasphere(subdivisions: u32) -> Result<Mesh> {
+    octasphere_seeded(subdivisions, 0)
+}
+pub fn octasphere_seeded(subdivisions: u32, seed: u32) -> Result<Mesh> {
     if subdivisions > 10 {
         return Err("procedural subdivisions must be <= 10".into());
     }
@@ -75,7 +79,7 @@ pub fn octasphere(subdivisions: u32) -> Result<Mesh> {
         let mut displacement = 0.0;
         for octave in 0..4 {
             let f = (3 << octave) as f32;
-            displacement += noise(p.map(|x| x * f)) * 0.08 / (1 << octave) as f32;
+            displacement += noise(p.map(|x| x * f), seed) * 0.08 / (1 << octave) as f32;
         }
         *p = p.map(|x| x * (1.0 + displacement));
     }

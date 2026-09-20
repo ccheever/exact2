@@ -17,5 +17,6 @@ fn main() {
         .file("src/shim.cpp")
         .compile("clod_vendor");
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/topology.h");
     println!("cargo:rerun-if-changed={vendor}");
 }
