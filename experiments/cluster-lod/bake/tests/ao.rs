@@ -17,6 +17,11 @@ fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
     }
     bump.normals = bump.positions.clone();
     let (convex, _) = ao::bake(&bump).unwrap();
+    let scaled_differences = small_ao.iter().zip(&crease).filter(|(a, b)| a != b).count();
+    println!("ao_scaled_differing_vertices={scaled_differences}");
+    if scaled_differences > 0 {
+        failures.push("AO bytes changed under 1e-9 unit scaling");
+    }
     let small_value = small_ao[20 * 41 + 1];
     println!("ao_scaled_crease={small_value}");
     if small_value >= 250 {

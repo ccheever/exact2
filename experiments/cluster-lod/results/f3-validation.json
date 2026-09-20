@@ -1,0 +1,599 @@
+{
+  "oracles": {
+    "gaul": [
+      {
+        "cameras": 256,
+        "changed_pixels": 0,
+        "failures": [],
+        "nonempty": 255,
+        "oracle": "grazing_cones",
+        "overflow": 0
+      },
+      {
+        "cameras_per_layout": 64,
+        "checked": 192,
+        "culling_image_pairs": 96,
+        "deterministic_png_pairs": 192,
+        "edge_triangles": 0,
+        "failures": [],
+        "identical_images": 192,
+        "near_boundary_differences": 0,
+        "oracle": "gpu_summary",
+        "overflow_dropped": 10828,
+        "pixels_checked": 12582912
+      }
+    ],
+    "washington": [
+      {
+        "cameras": 256,
+        "changed_pixels": 0,
+        "failures": [],
+        "nonempty": 255,
+        "oracle": "grazing_cones",
+        "overflow": 0
+      },
+      {
+        "cameras_per_layout": 64,
+        "checked": 192,
+        "culling_image_pairs": 96,
+        "deterministic_png_pairs": 192,
+        "edge_triangles": 0,
+        "failures": [],
+        "identical_images": 192,
+        "near_boundary_differences": 1,
+        "oracle": "gpu_summary",
+        "overflow_dropped": 354631,
+        "pixels_checked": 12582912
+      }
+    ]
+  },
+  "initial_verification": {
+    "tests_passed": 29,
+    "nonempty_suites": 17,
+    "failures": [
+      "fmt: new options fixture; formatted before final verification"
+    ]
+  },
+  "regressions": {
+    "range_scale1e20_distance1e21_threshold0_5": {
+      "cpu_clusters": 2,
+      "gpu_before": 0,
+      "gpu_after": 2
+    },
+    "eye1e19_threshold1e_20": {
+      "cpu_clusters": 65,
+      "gpu_before": 65,
+      "gpu_after": 65,
+      "status": "not reproduced on Metal, retained in regression"
+    },
+    "backdrop": {
+      "covered_pixels_per_mode": 1221,
+      "visible_before": 0,
+      "visible_after": 1221,
+      "modes": 2
+    },
+    "stretch": {
+      "accepted": true,
+      "tip_y": 3.528595e-05,
+      "visible_before": false,
+      "visible_after": true
+    },
+    "ao_units": {
+      "scale": 1e-09,
+      "crease_before": 255,
+      "crease_after": 248,
+      "unscaled_crease": 248,
+      "convex_mean": 255,
+      "differing_vertices": 0
+    },
+    "ao_proxy": {
+      "source_triangles": 262144,
+      "proxy_triangles": 250000,
+      "crease": 174,
+      "convex_source_triangles": 524288,
+      "convex_proxy_triangles": 250000,
+      "convex_mean": 255,
+      "workers": [
+        1,
+        1,
+        4
+      ],
+      "baked_bytes": 7060608,
+      "identical": true
+    },
+    "page_limits": {
+      "count_bytes_rejected": 240160000,
+      "pages_rejected": 65536,
+      "control_passed": true
+    },
+    "format": {
+      "corruption_cases": 38,
+      "rejected": 38,
+      "unflagged_ao_accepted_before": true
+    },
+    "bvh_levels": {
+      "depths": [
+        0,
+        4,
+        1
+      ],
+      "before": 2,
+      "after": 5
+    },
+    "overflow": {
+      "frames_per_mode": 3,
+      "main_total": 667,
+      "shadow_total": 3564,
+      "instrumented_and_intervals_only_fail": true
+    },
+    "reel_overrides": {
+      "cases": 2,
+      "reel_rejected_before_load": true,
+      "render_allowed": true
+    }
+  },
+  "bake_runs": {
+    "gaul": [
+      {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-5.clod",
+        "output_sha256": "65dce583862e07481f20ab2cc3df23fe6bccfce2052ba2610e52478e67890dbe",
+        "pages": 4,
+        "peak_rss_bytes": 709263360,
+        "seconds": {
+          "ao": 16.831792,
+          "build": 6.702483584,
+          "encode": 0.644105084,
+          "load": 1.36386275,
+          "normals": 0.006566375,
+          "write": 0.042386417
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      },
+      {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-5-repeat.clod",
+        "output_sha256": "65dce583862e07481f20ab2cc3df23fe6bccfce2052ba2610e52478e67890dbe",
+        "pages": 4,
+        "peak_rss_bytes": 710328320,
+        "seconds": {
+          "ao": 16.226116292,
+          "build": 7.4505825,
+          "encode": 1.6908400000000001,
+          "load": 1.5527060000000001,
+          "normals": 0.009369042,
+          "write": 0.038054458
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      }
+    ],
+    "washington": [
+      {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-5.clod",
+        "output_sha256": "3d4f20c19307bc72c39fa5c3ef460842966594fe7df60f3e006e06c718ac0af6",
+        "pages": 18,
+        "peak_rss_bytes": 2834464768,
+        "seconds": {
+          "ao": 16.777812667,
+          "build": 26.024117125,
+          "encode": 2.66572925,
+          "load": 10.980189125,
+          "normals": 0.033999709,
+          "write": 0.1925395
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      },
+      {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-5-repeat.clod",
+        "output_sha256": "3d4f20c19307bc72c39fa5c3ef460842966594fe7df60f3e006e06c718ac0af6",
+        "pages": 18,
+        "peak_rss_bytes": 2783494144,
+        "seconds": {
+          "ao": 15.209535417,
+          "build": 24.741136292,
+          "encode": 2.6614531660000003,
+          "load": 10.312604917,
+          "normals": 0.034938541,
+          "write": 0.1812125
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      }
+    ]
+  },
+  "final_verification": {
+    "commands": [
+      {
+        "name": "tests",
+        "pid": 74042,
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--no-fail-fast",
+          "--",
+          "--nocapture"
+        ]
+      },
+      {
+        "name": "tests",
+        "pid": 74042,
+        "command": [
+          "cargo",
+          "test",
+          "--workspace",
+          "--no-fail-fast",
+          "--",
+          "--nocapture"
+        ],
+        "exit": 0,
+        "seconds": 90.26041975
+      },
+      {
+        "name": "clippy",
+        "pid": 86707,
+        "command": [
+          "cargo",
+          "clippy",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ]
+      },
+      {
+        "name": "clippy",
+        "pid": 86707,
+        "command": [
+          "cargo",
+          "clippy",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 0.4146710840000014
+      },
+      {
+        "name": "fmt",
+        "pid": 86736,
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ]
+      },
+      {
+        "name": "fmt",
+        "pid": 86736,
+        "command": [
+          "cargo",
+          "fmt",
+          "--all",
+          "--",
+          "--check"
+        ],
+        "exit": 0,
+        "seconds": 0.16604725000000325
+      },
+      {
+        "name": "wasm-format",
+        "pid": 86744,
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "clod-format",
+          "--target",
+          "wasm32-unknown-unknown"
+        ]
+      },
+      {
+        "name": "wasm-format",
+        "pid": 86744,
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "clod-format",
+          "--target",
+          "wasm32-unknown-unknown"
+        ],
+        "exit": 0,
+        "seconds": 0.11299837499999557
+      },
+      {
+        "name": "wasm-view",
+        "pid": 86751,
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "clod-view",
+          "--lib",
+          "--target",
+          "wasm32-unknown-unknown"
+        ]
+      },
+      {
+        "name": "wasm-view",
+        "pid": 86751,
+        "command": [
+          "cargo",
+          "build",
+          "-p",
+          "clod-view",
+          "--lib",
+          "--target",
+          "wasm32-unknown-unknown"
+        ],
+        "exit": 0,
+        "seconds": 0.12881191699999908
+      },
+      {
+        "mode": "verify",
+        "commands": 5,
+        "source_files": 67,
+        "max_lines": [
+          733,
+          "view/src/gpu.rs"
+        ],
+        "failures": []
+      }
+    ],
+    "tests_passed": 29,
+    "nonempty_suites": 17,
+    "failures": []
+  },
+  "residency": {
+    "cpu_pages": 17,
+    "cpu_cuts": 96,
+    "random_prefixes": 64,
+    "arbitrary_masks": 32,
+    "triangle_occurrences": 492732,
+    "winding_errors": 0,
+    "ancestor_overlaps": 0,
+    "gpu_frames": 84,
+    "different_pixels": 0,
+    "missing_pixels": 0,
+    "procedural_interior_pixels": 257389,
+    "gaul_interior_pixels": 219552,
+    "shadow_comparisons": 2,
+    "failures": []
+  },
+  "web_build": {
+    "exit": 0,
+    "wasm_bytes": {
+      "raw": 638595,
+      "optimized": 364296,
+      "gzip": 153561
+    },
+    "wasm_clippy_exit": 0
+  },
+  "statuses": {
+    "1": "fixed",
+    "2": "fixed",
+    "3": "fixed",
+    "4": "fixed",
+    "5": "fixed",
+    "6": "fixed",
+    "7": "fixed",
+    "8": "fixed",
+    "9": "fixed",
+    "11": "fixed",
+    "10": "not reproduced: retain apex cone after 512 real-asset grazing cameras and 256 closed-fixture cameras"
+  },
+  "deferred": []
+}

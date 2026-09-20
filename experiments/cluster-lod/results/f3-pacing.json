@@ -1,0 +1,349 @@
+{
+  "pacing": [
+    {
+      "asset": "gaul-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.193583,
+        "p50": 0.715875,
+        "p95": 0.880042,
+        "p99": 1.0110830000000002
+      },
+      "dropped_frames": 39,
+      "frame_interval_ms": {
+        "max": 68.816083,
+        "p50": 8.3345,
+        "p95": 8.943125,
+        "p99": 20.382625
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 7.3395,
+        "p50": 4.38375,
+        "p95": 6.056917,
+        "p99": 6.3782499999999995
+      },
+      "gpu_select_ms": {
+        "max": 3.89875,
+        "p50": 1.91075,
+        "p95": 3.390583,
+        "p99": 3.621667
+      },
+      "instrumented": true,
+      "intervals": 600,
+      "late_intervals": 25,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "gaul-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.5228329999999999,
+        "p50": 0.8,
+        "p95": 0.949041,
+        "p99": 1.086292
+      },
+      "dropped_frames": 46,
+      "frame_interval_ms": {
+        "max": 74.230583,
+        "p50": 8.337375,
+        "p95": 10.886417,
+        "p99": 21.129542
+      },
+      "frames": 600,
+      "gpu_ms": null,
+      "gpu_select_ms": null,
+      "instrumented": false,
+      "intervals": 600,
+      "late_intervals": 29,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "gaul-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.324667,
+        "p50": 0.463917,
+        "p95": 0.9201250000000001,
+        "p99": 1.212958
+      },
+      "dropped_frames": 160,
+      "frame_interval_ms": {
+        "max": 100.537125,
+        "p50": 8.402,
+        "p95": 16.920125000000002,
+        "p99": 33.588708000000004
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 15.314541,
+        "p50": 5.923709000000001,
+        "p95": 12.26375,
+        "p99": 14.0555
+      },
+      "gpu_select_ms": {
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "instrumented": true,
+      "intervals": 600,
+      "late_intervals": 121,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "gaul-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.186459,
+        "p50": 0.5149170000000001,
+        "p95": 0.871,
+        "p99": 0.9872080000000001
+      },
+      "dropped_frames": 151,
+      "frame_interval_ms": {
+        "max": 155.79441699999998,
+        "p50": 8.364833,
+        "p95": 16.836917,
+        "p99": 34.635292
+      },
+      "frames": 600,
+      "gpu_ms": null,
+      "gpu_select_ms": null,
+      "instrumented": false,
+      "intervals": 600,
+      "late_intervals": 96,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "washington-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.371792,
+        "p50": 0.862416,
+        "p95": 1.001166,
+        "p99": 1.0852089999999999
+      },
+      "dropped_frames": 38,
+      "frame_interval_ms": {
+        "max": 67.03774999999999,
+        "p50": 8.333791999999999,
+        "p95": 9.413042,
+        "p99": 19.238334
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 11.052291,
+        "p50": 5.183625,
+        "p95": 6.255291,
+        "p99": 7.037876000000001
+      },
+      "gpu_select_ms": {
+        "max": 8.100291,
+        "p50": 3.6956670000000003,
+        "p95": 4.657166999999999,
+        "p99": 5.296291999999999
+      },
+      "instrumented": true,
+      "intervals": 600,
+      "late_intervals": 22,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 3
+    },
+    {
+      "asset": "washington-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.27525,
+        "p50": 0.8760420000000001,
+        "p95": 1.044917,
+        "p99": 1.160209
+      },
+      "dropped_frames": 36,
+      "frame_interval_ms": {
+        "max": 58.268750000000004,
+        "p50": 8.337917000000001,
+        "p95": 8.984167,
+        "p99": 19.519000000000002
+      },
+      "frames": 600,
+      "gpu_ms": null,
+      "gpu_select_ms": null,
+      "instrumented": false,
+      "intervals": 600,
+      "late_intervals": 22,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "washington-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.628625,
+        "p50": 0.7034170000000001,
+        "p95": 1.1109589999999998,
+        "p99": 1.393167
+      },
+      "dropped_frames": 1229,
+      "frame_interval_ms": {
+        "max": 114.58200000000001,
+        "p50": 15.470291000000001,
+        "p95": 59.818083,
+        "p99": 89.07650000000001
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 88.42108400000001,
+        "p50": 13.578790999999999,
+        "p95": 57.668625,
+        "p99": 82.02775
+      },
+      "gpu_select_ms": {
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "instrumented": true,
+      "intervals": 600,
+      "late_intervals": 487,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "washington-5",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 5.449541,
+        "p50": 0.7282080000000001,
+        "p95": 1.074,
+        "p99": 1.351792
+      },
+      "dropped_frames": 1111,
+      "frame_interval_ms": {
+        "max": 372.576875,
+        "p50": 16.599584,
+        "p95": 57.911375,
+        "p99": 91.187791
+      },
+      "frames": 600,
+      "gpu_ms": null,
+      "gpu_select_ms": null,
+      "instrumented": false,
+      "intervals": 600,
+      "late_intervals": 390,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "overflow": 0,
+      "overflow_frames_checked": 600,
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "retained_sample_limit": 1000,
+      "shadow_overflow": 0,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    }
+  ],
+  "failures": []
+}

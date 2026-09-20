@@ -1,0 +1,414 @@
+{
+  "attempts": [
+    {
+      "pid": 87830,
+      "flags": [
+        "--user-data-dir=/Users/ccheever/Library/Caches/exact2-cluster-lod/out/web/chrome-profile-0",
+        "--remote-debugging-port=0",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--enable-unsafe-webgpu",
+        "--use-angle=metal",
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-backgrounding-occluded-windows",
+        "--window-size=1280,720",
+        "--headless=new",
+        "about:blank"
+      ],
+      "state": {
+        "asset": "gaul",
+        "resident": 4,
+        "pages": 4,
+        "full": true,
+        "firstFrameMs": 1111.5999999046326,
+        "fullDetailMs": 1489.2999999523163,
+        "error": null,
+        "t": 0,
+        "threshold": 1,
+        "view": "lit",
+        "naive": false,
+        "paused": true,
+        "layout": "avenue:25",
+        "triangles": 92237,
+        "frameMs": 0,
+        "frames": 2,
+        "overflow": 0,
+        "metadataBytes": 8646432,
+        "assetBytes": 138247344,
+        "pageEvents": [
+          {
+            "page": 0,
+            "bytes": 33554048,
+            "verified": true,
+            "uploadedMs": 1091.5
+          },
+          {
+            "page": 1,
+            "bytes": 33553680,
+            "verified": true,
+            "uploadedMs": 1241.5
+          },
+          {
+            "page": 2,
+            "bytes": 33554304,
+            "verified": true,
+            "uploadedMs": 1367
+          },
+          {
+            "page": 3,
+            "bytes": 28938880,
+            "verified": true,
+            "uploadedMs": 1480.4000000953674
+          }
+        ],
+        "adapter": " | BrowserWebGpu |  | ",
+        "browserAdapter": {
+          "vendor": "apple",
+          "architecture": "metal-3",
+          "device": "",
+          "description": "",
+          "subgroupMinSize": 32,
+          "subgroupMaxSize": 32
+        },
+        "firstFramePages": 1,
+        "clusters": 772,
+        "firstFrameTriangles": 92237
+      },
+      "events": [],
+      "exitCode": 137,
+      "signal": "SIGKILL",
+      "reaped": true
+    }
+  ],
+  "comparisons": [
+    {
+      "t": 0,
+      "view": "lit",
+      "changed_pixels": 28,
+      "fraction_above_2": 0,
+      "max_byte": 2,
+      "mean": 5.106209150326797e-08,
+      "pixels": 921600
+    },
+    {
+      "t": 0.45,
+      "view": "lit",
+      "changed_pixels": 9,
+      "fraction_above_2": 0,
+      "max_byte": 1,
+      "mean": 1.4183914306463327e-08,
+      "pixels": 921600
+    },
+    {
+      "t": 0.75,
+      "view": "lit",
+      "changed_pixels": 39,
+      "fraction_above_2": 1.0850694444444444e-06,
+      "max_byte": 3,
+      "mean": 9.928740014524328e-08,
+      "pixels": 921600
+    },
+    {
+      "t": 1,
+      "view": "lit",
+      "changed_pixels": 80,
+      "fraction_above_2": 1.0850694444444444e-06,
+      "max_byte": 3,
+      "mean": 1.914828431372549e-07,
+      "pixels": 921600
+    },
+    {
+      "t": 0.75,
+      "view": "clusters",
+      "changed_pixels": 48,
+      "fraction_above_2": 2.170138888888889e-06,
+      "max_byte": 3,
+      "mean": 1.177264887436456e-07,
+      "pixels": 921600
+    }
+  ],
+  "failures": [],
+  "sizes": {
+    "raw": 638595,
+    "optimized": 364296,
+    "gzip": 153561
+  },
+  "http": [
+    {
+      "range": "bytes=0-191",
+      "status": 206,
+      "bytes": 192
+    },
+    {
+      "range": "bytes=-80",
+      "status": 206,
+      "bytes": 80
+    },
+    {
+      "range": "bytes=999999999999-",
+      "status": 416,
+      "bytes": 0
+    },
+    {
+      "range": "bytes=3-1",
+      "status": 416,
+      "bytes": 0
+    }
+  ],
+  "pacing": {
+    "frames": 600,
+    "intervalMs": {
+      "mean": 16.666666666666668,
+      "p50": 16.700000047683716,
+      "p95": 17.300000190734863,
+      "p99": 17.5,
+      "max": 17.700000047683716
+    },
+    "submitMs": {
+      "mean": 0.16716666062672933,
+      "p50": 0.19999980926513672,
+      "p95": 0.2999999523162842,
+      "p99": 0.39999985694885254,
+      "max": 0.5999999046325684
+    },
+    "completedMs": {
+      "mean": 4.677166664600373,
+      "p50": 4.200000047683716,
+      "p95": 7.3999998569488525,
+      "p99": 8.200000047683716,
+      "max": 8.900000095367432
+    },
+    "overflow": 0
+  },
+  "controls": [
+    {
+      "code": "Space",
+      "pass": true
+    },
+    {
+      "code": "Space",
+      "pass": true
+    },
+    {
+      "code": "ArrowRight",
+      "pass": true
+    },
+    {
+      "code": "ArrowLeft",
+      "pass": true
+    },
+    {
+      "code": "KeyC",
+      "pass": true
+    },
+    {
+      "code": "KeyC",
+      "pass": true
+    },
+    {
+      "code": "KeyD",
+      "pass": true
+    },
+    {
+      "code": "KeyD",
+      "pass": true
+    },
+    {
+      "code": "KeyT",
+      "pass": true
+    },
+    {
+      "code": "KeyT",
+      "pass": true
+    },
+    {
+      "code": "BracketLeft",
+      "pass": true
+    },
+    {
+      "code": "BracketRight",
+      "pass": true
+    },
+    {
+      "code": "Digit1",
+      "pass": true
+    },
+    {
+      "code": "Digit2",
+      "pass": true
+    },
+    {
+      "code": "Digit3",
+      "pass": true
+    },
+    {
+      "code": "Digit4",
+      "pass": true
+    },
+    {
+      "code": "drag",
+      "pass": true
+    }
+  ],
+  "naive": {
+    "enabled": true,
+    "triangles": 8000040
+  },
+  "hero": {
+    "asset": "washington",
+    "resident": 18,
+    "pages": 18,
+    "full": true,
+    "firstFrameMs": 3106.5999999046326,
+    "fullDetailMs": 5122.399999856949,
+    "error": null,
+    "t": 0,
+    "threshold": 1,
+    "view": "lit",
+    "naive": false,
+    "paused": true,
+    "layout": "avenue:25",
+    "triangles": 942975,
+    "frameMs": 0,
+    "frames": 2,
+    "overflow": 0,
+    "metadataBytes": 37141536,
+    "assetBytes": 626622224,
+    "pageEvents": [
+      {
+        "page": 0,
+        "bytes": 33552224,
+        "verified": true,
+        "uploadedMs": 3085
+      },
+      {
+        "page": 1,
+        "bytes": 33553632,
+        "verified": true,
+        "uploadedMs": 3245
+      },
+      {
+        "page": 2,
+        "bytes": 33554176,
+        "verified": true,
+        "uploadedMs": 3360.0999999046326
+      },
+      {
+        "page": 3,
+        "bytes": 33553216,
+        "verified": true,
+        "uploadedMs": 3472.5
+      },
+      {
+        "page": 4,
+        "bytes": 33554384,
+        "verified": true,
+        "uploadedMs": 3600.899999856949
+      },
+      {
+        "page": 5,
+        "bytes": 33553232,
+        "verified": true,
+        "uploadedMs": 3719.899999856949
+      },
+      {
+        "page": 6,
+        "bytes": 33552848,
+        "verified": true,
+        "uploadedMs": 3834.7999999523163
+      },
+      {
+        "page": 7,
+        "bytes": 33552720,
+        "verified": true,
+        "uploadedMs": 3954.699999809265
+      },
+      {
+        "page": 8,
+        "bytes": 33553840,
+        "verified": true,
+        "uploadedMs": 4074.2999999523163
+      },
+      {
+        "page": 9,
+        "bytes": 33552768,
+        "verified": true,
+        "uploadedMs": 4196.199999809265
+      },
+      {
+        "page": 10,
+        "bytes": 33554160,
+        "verified": true,
+        "uploadedMs": 4312.899999856949
+      },
+      {
+        "page": 11,
+        "bytes": 33553952,
+        "verified": true,
+        "uploadedMs": 4426.5
+      },
+      {
+        "page": 12,
+        "bytes": 33553952,
+        "verified": true,
+        "uploadedMs": 4557
+      },
+      {
+        "page": 13,
+        "bytes": 33553680,
+        "verified": true,
+        "uploadedMs": 4678
+      },
+      {
+        "page": 14,
+        "bytes": 33552496,
+        "verified": true,
+        "uploadedMs": 4796.199999809265
+      },
+      {
+        "page": 15,
+        "bytes": 33553840,
+        "verified": true,
+        "uploadedMs": 4912.899999856949
+      },
+      {
+        "page": 16,
+        "bytes": 33554016,
+        "verified": true,
+        "uploadedMs": 5030.699999809265
+      },
+      {
+        "page": 17,
+        "bytes": 19071552,
+        "verified": true,
+        "uploadedMs": 5101.099999904633
+      }
+    ],
+    "adapter": " | BrowserWebGpu |  | ",
+    "browserAdapter": {
+      "vendor": "apple",
+      "architecture": "metal-3",
+      "device": "",
+      "description": "",
+      "subgroupMinSize": 32,
+      "subgroupMaxSize": 32
+    },
+    "firstFramePages": 1,
+    "clusters": 9534,
+    "firstFrameTriangles": 942975
+  },
+  "interactive": {
+    "t": 0.019583349999999996,
+    "frames": 39,
+    "width": 1280,
+    "height": 720,
+    "dpr": 2,
+    "error": null
+  },
+  "resize": {
+    "width": 960,
+    "height": 540,
+    "error": null
+  }
+}

@@ -28,14 +28,26 @@ if(sweep.length!==4)failures.push({name:'quality',reason:`expected 4 rows, got $
 for(const r of [...rows,...sweep]) {
   if(!r.coverage_interior_pixels||r.overflow||!Number.isFinite(r.ratio)||r.gpu_main_ms<=0)failures.push({asset:r.asset,layout:r.layout,reason:'empty coverage, overflow or invalid timing'});
 }
+const closeup=[];
+for(const asset of ['gaul','washington']) {
+  const data=await run(`${asset}-closeup-no-shadows`,['target/debug/clod-view','bench',join(cache,`${asset}-5.clod`),'--layout','single','--frames','7','--size','2560x1440','--t','1','--threshold-px','1','--shadows','off']);
+  const measured=data.filter(r=>r.command==='bench').map(r=>({...r,asset}));closeup.push(...measured);
+  if(measured.length!==1||measured.some(r=>r.overflow||!Number.isFinite(r.ratio)))failures.push({asset,reason:'invalid close-up measurement'});
+}
 const f=(n,d=3)=>Number(n).toFixed(d),n=x=>Number(x).toLocaleString('en-US');
 const lines=[
 '<!-- L3B_BENCHMARK_START -->',
-'Apple M5 Max / Metal, format v5, 2560×1440, 4× MSAA, 4096² shadows, 1 px. Regenerate with `bun measure.mjs benchmark` (from this directory). Seven measured frames after one warmup per renderer, interleaved ABAB. Cluster shadows use 2× the threshold; naive shadows draw full geometry. Single/ring/grid/field use t=0; avenue uses t=.45. Both renderers use the same instance-frustum cull. Times are medians in milliseconds; total ratio is naive total / cluster total (selection + main + shadow). Main-only times and ratios are secondary.',
+'Apple M5 Max / Metal, format v5, 2560×1440, 4× MSAA, 4096² shadows, 1 px. Regenerate with `bun measure.mjs benchmark` (from this directory). Seven measured frames after one warmup per renderer, interleaved ABAB. Cluster shadows use 2× the threshold; naive shadows draw full geometry. Single/ring/grid/field use t=0; avenue uses t=.45. Both renderers use the same instance-frustum cull. Times are medians in milliseconds; total ratio is naive total / cluster total (selection + main + shadow). Main-only times and ratios are secondary. Totals are per-frame sums followed by medians; component medians need not sum.',
 '',
 '| Asset · layout | Source triangles × instances | Drawn triangles | TOTAL GPU cluster / naive ms | Total ratio | Main-only cluster / naive ms (ratio) | Shadow cluster / naive ms | Select ms | CPU ms | Resident bytes cluster / naive | RGB mean / p99.9 | Coverage cracks / interior |',
 '|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|',
 ...rows.map(r=>`| ${r.asset} · ${r.layout} | ${n(r.source_triangles)} × ${r.instances} | ${n(r.triangles_drawn)} | ${f(r.gpu_ms)} / ${f(r.naive_gpu_ms)} | ${f(r.ratio,2)}× | ${f(r.gpu_main_ms)} / ${f(r.naive_gpu_main_ms)} (${f(r.main_ratio,2)}×) | ${f(r.gpu_shadow_ms)} / ${f(r.naive_gpu_shadow_ms)} | ${f(r.gpu_select_ms)} | ${f(r.cpu_ms)} | ${n(r.bytes_resident_cluster)} / ${n(r.bytes_resident_naive)} | ${f(r.image_mean,7)} / ${f(r.image_p999,7)} | ${r.coverage_cracks} / ${n(r.coverage_interior_pixels)} |`),
+'',
+ 'Single statue close-up, t=1, shadows off (isolates geometry + selection):',
+'',
+'| Asset | TOTAL GPU cluster / naive ms | Total ratio | Main / select ms |',
+'|---|---:|---:|---:|',
+...closeup.map(r=>`| ${r.asset} | ${f(r.gpu_ms)} / ${f(r.naive_gpu_ms)} | ${f(r.ratio,2)}× | ${f(r.gpu_main_ms)} / ${f(r.gpu_select_ms)} |`),
 '',
 'Hero quality dial, Washington avenue t=.75, same settings:',
 '',
@@ -44,11 +56,11 @@ const lines=[
 ...sweep.map(r=>`| ${r.threshold_px} | ${n(r.triangles_drawn)} | ${f(r.gpu_ms)} / ${f(r.gpu_main_ms)} / ${f(r.gpu_shadow_ms)} / ${f(r.gpu_select_ms)} | ${f(r.image_mean,7)} / ${f(r.image_p999,7)} | ${r.coverage_cracks} / ${n(r.coverage_interior_pixels)} |`),
 '',
 'RGB mean is the mean absolute sRGB channel difference, normalized to 0–1; p99.9 is the nearest-rank percentile of the maximum RGB-channel difference per pixel. Lit comparisons include each renderer’s own shadows. Coverage counts completely missing pixels inside the fully covered naive mask after one-pixel erosion; silhouettes and partial MSAA samples are excluded. These image metrics are measured errors, not a proof that quadric bake error bounds screen pixels. Resident bytes count each renderer separately, including its allocated geometry, selection buffers and attachments, excluding driver overhead and diagnostic readbacks. GPU select includes main and shadow selection. CPU time covers selection plus encoding/submission, excluding blocking diagnostic readback and PNG encoding. Raw measurements: [F3 benchmark records](results/f3-benchmark.json).',
-'',`Measured rows: ${rows.length} + ${sweep.length} sweep; failures: ${failures.length}.`,
+'',`Measured rows: ${rows.length} + ${sweep.length} sweep + ${closeup.length} close-up; failures: ${failures.length}.`,
 '<!-- L3B_BENCHMARK_END -->'
 ];
-const result={rows,sweep,failures};writeFileSync(join(root,'results/f3-benchmark.json'),JSON.stringify(result,null,2)+'\n');
+const result={rows,sweep,closeup,failures};writeFileSync(join(root,'results/f3-benchmark.json'),JSON.stringify(result,null,2)+'\n');
 const path=join(root,'README.md');let readme=readFileSync(path,'utf8');
 if(readme.includes('<!-- L3B_BENCHMARK_START -->'))readme=readme.replace(/<!-- L3B_BENCHMARK_START -->[\s\S]*?<!-- L3B_BENCHMARK_END -->/,lines.join('\n'));
 else readme=readme.replace('# Cluster LOD on core WebGPU\n','# Cluster LOD on core WebGPU\n\n'+lines.join('\n')+'\n');
-writeFileSync(path,readme);console.log(JSON.stringify({benchmark_rows:rows.length,sweep_rows:sweep.length,failures}));process.exitCode=Number(failures.length>0);
+writeFileSync(path,readme);console.log(JSON.stringify({benchmark_rows:rows.length,sweep_rows:sweep.length,closeup_rows:closeup.length,failures}));process.exitCode=Number(failures.length>0);
