@@ -496,43 +496,42 @@ fn refused_boxed_resource_replacement_preserves_the_destination() {
 fn padded_world_save_cannot_succeed_when_its_default_budget_load_refuses() {
     let mut source = World::new(60, 0);
     source.register::<Padded>().unwrap();
-    for _ in 0..70_000 {
+    for _ in 0..29_720 {
         source.spawn(Padded(true)).unwrap();
     }
-    let saved = source.save();
-    println!("70000 padded components: save accepted={}", saved.is_ok());
-    if let Ok(bytes) = saved {
-        let mut destination = World::new(60, 0);
-        destination.register::<Padded>().unwrap();
-        load(
-            &mut destination,
-            "padded save/load",
-            &bytes,
-            MAX_LOAD_BYTES,
-            false,
-        )
-        .unwrap();
-    }
-    // A positive control must still save and load at both budgets.
-    let mut small = World::new(60, 0);
-    small.register::<Padded>().unwrap();
-    for _ in 0..64 {
-        small.spawn(Padded(true)).unwrap();
-    }
-    let bytes = small.save().unwrap();
-    for budget in [1 << 20, MAX_LOAD_BYTES] {
-        let mut destination = World::new(60, 0);
-        destination.register::<Padded>().unwrap();
-        load(
-            &mut destination,
-            "padded world positive",
-            &bytes,
-            budget,
-            false,
-        )
-        .unwrap();
-        assert_eq!(destination.save().unwrap(), bytes);
-    }
+    let bytes = source.save().expect("just-under world must save");
+    let mut destination = World::new(60, 0);
+    destination.register::<Padded>().unwrap();
+    load(
+        &mut destination,
+        "padded world just under",
+        &bytes,
+        MAX_LOAD_BYTES,
+        false,
+    )
+    .unwrap();
+    assert_eq!(destination.len(), 29_720);
+    assert!(destination
+        .query::<&Padded>()
+        .iter()
+        .all(|(_, value)| value.0));
+    assert_eq!(destination.save().unwrap(), bytes);
+    source.spawn(Padded(true)).unwrap();
+    let error = source.save().expect_err("just-over world must refuse save");
+    assert!(error.message.contains("budget"), "{error}");
+}
+#[test]
+fn boxed_values_save_and_load_just_under_and_refuse_save_just_over() {
+    let mut values: Vec<_> = (0..21_616).map(|_| Box::new(Padded(true))).collect();
+    let bytes = bin::to_vec(&values).expect("just-under boxes must save");
+    let loaded =
+        decode::<Vec<Box<Padded>>>("boxed values just under", &bytes, MAX_LOAD_BYTES).unwrap();
+    assert_eq!(loaded.len(), values.len());
+    assert!(loaded.iter().all(|value| value.0));
+    assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+    values.push(Box::new(Padded(true)));
+    let error = bin::to_vec(&values).expect_err("just-over boxes must refuse save");
+    assert!(error.message.contains("budget"), "{error}");
 }
 #[test]
 fn registration_refuses_oversized_or_overflowing_native_pages_without_construction() {
