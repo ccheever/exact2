@@ -395,6 +395,18 @@ releases its key on clock refusal. A stall includes the nearest blocker and clea
 side rays, also available from `Sim::route_diagnostic(entity, from, to)`. These
 rays explain a failed route; they do not certify a swept-character path.
 
+`World::log(&self, impl Display)` records deterministic game events in the saved
+4,096-entry world journal. Hosts and presentation executors use
+`World::session_log(&self, impl Display)` for diagnostics, excluded from saves,
+continuation comparisons and hashes. `World::journal()`, `journal_next()` and agent
+`logs` expose a separate 4,096-entry combined ring in append order, even at the same
+tick. Session churn cannot evict or renumber saved game events. Existing sessions
+keep their combined cursor through restore/restart and deferred setup; a fresh
+load starts with saved game history only. Session writes do O(text bytes) work,
+limited to 65,536 UTF-8 bytes per message; excess text emits an explicit
+`session journal refused` line. Reads visit at most 4,096 entries. Old combined
+entries expire through the existing ring/from-cursor behavior.
+
 Saves use **EXSIM v7**; v5/v6 are refused with recreate/inspect guidance and no
 migration. `restore(&[u8])` and `restore_bound(&[u8])` merge saved tick-zero Data,
 loaded runtime Data and the current authored initializer. Changed authored fields

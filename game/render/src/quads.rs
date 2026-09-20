@@ -211,7 +211,7 @@ impl Quads {
         self.particles.retain(|item| match item.value.validate() {
             Ok(()) => true,
             Err(error) => {
-                w.log(format!("{error} #{}", item.entity.index()));
+                w.session_log(format!("{error} #{}", item.entity.index()));
                 false
             }
         });
@@ -220,7 +220,7 @@ impl Quads {
             self.sprites.retain(|item| match item.value.validate() {
                 Ok(()) => true,
                 Err(error) => {
-                    w.log(format!("{error} #{}", item.entity.index()));
+                    w.session_log(format!("{error} #{}", item.entity.index()));
                     false
                 }
             });

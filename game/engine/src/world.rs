@@ -233,6 +233,8 @@ pub struct World {
     // Executor-owned derived data, populated only by linked callers; never saved.
     derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<Event>>,
+    saved_journal: RefCell<VecDeque<Event>>,
+    saved_journal_next: std::cell::Cell<u64>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
@@ -296,6 +298,8 @@ impl World {
             resources: BTreeMap::new(),
             derived: RefCell::new(BTreeMap::new()),
             journal: RefCell::new(VecDeque::new()),
+            saved_journal: RefCell::new(VecDeque::new()),
+            saved_journal_next: std::cell::Cell::new(0),
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
@@ -834,34 +838,6 @@ impl World {
     pub fn pick<'a, T>(&self, items: &'a [T]) -> Option<&'a T> {
         self.rng().pick(items)
     }
-    /// Append an event to the bounded 4,096-line journal.
-    /// The journal is telemetry: a record outside the world hash and observation,
-    /// so a read that logs must not change the world's course or mutation epoch.
-    pub fn log(&self, line: impl std::fmt::Display) {
-        self.log_args(format_args!("{line}"));
-    }
-    fn log_args(&self, line: std::fmt::Arguments<'_>) {
-        let mut j = self.journal.borrow_mut();
-        if j.len() == 4096 {
-            j.pop_front();
-        }
-        let index = self.journal_next.get();
-        self.journal_next.set(index + 1);
-        j.push_back(Event {
-            index,
-            tick: self.tick(),
-            seconds: self.seconds(),
-            line: format!(
-                "t={} tick={} {line}",
-                self.tick() as u128 * 1000 / self.hz() as u128,
-                self.tick()
-            ),
-        });
-    }
-    /// Snapshot journal events; journal reads do not affect simulation state.
-    pub fn journal(&self) -> Vec<Event> {
-        self.journal.borrow().iter().cloned().collect()
-    }
     /// Publish to the app and journal only changes to this key.
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
         self.publish_value(key, value.into().0);
@@ -1182,6 +1158,9 @@ impl World {
 mod tests;
 
 mod inspect;
+mod journal;
+#[cfg(test)]
+mod journal_tests;
 pub(crate) mod reload;
 pub(crate) use inspect::{Observation, ObservationState};
 

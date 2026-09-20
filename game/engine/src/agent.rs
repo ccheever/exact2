@@ -242,7 +242,7 @@ impl<G: Game> Sim<G> {
         {
             Ok(reply) => reply,
             Err(error) => {
-                self.world.log(format_args!("refusal: {error}"));
+                self.world.session_log(format_args!("refusal: {error}"));
                 format!(
                     "{{\"tick\":{},\"error\":{}}}",
                     self.world.tick(),

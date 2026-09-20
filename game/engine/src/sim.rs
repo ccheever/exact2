@@ -420,6 +420,7 @@ impl<G: Game> Sim<G> {
                 .expect("presentation generation exhausted");
             self.setup_pending = !world.assets.ready();
             self.asset_mesh_revision = u64::MAX;
+            world.continue_journal(&mut self.world, true);
             self.world = world;
             self.world_us = 0;
             self.live_time = None;
@@ -431,7 +432,7 @@ impl<G: Game> Sim<G> {
             self.overflow_logged = false;
             self.restored = false;
             self.world
-                .log(format_args!("world restarted: {}", changes.join(", ")));
+                .session_log(format_args!("world restarted: {}", changes.join(", ")));
         }
         let before = self.world.tick();
         self.args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
@@ -514,7 +515,7 @@ impl<G: Game> Sim<G> {
     }
     fn accept_input(&mut self, event: InputEvent, delivered: bool) -> bool {
         if let Err(error) = self.validate_input(&event) {
-            self.world.log(error);
+            self.world.session_log(error);
             return false;
         }
 
@@ -602,7 +603,7 @@ impl<G: Game> Sim<G> {
             }
             position -= usize::from(drop < position);
             if !self.overflow_logged {
-                self.world.log(if was_move {
+                self.world.session_log(if was_move {
                     "input queue overflow: dropped oldest move"
                 } else {
                     "input queue overflow: dropped oldest event"
@@ -639,7 +640,7 @@ impl<G: Game> Sim<G> {
         self.last_ms = None;
         self.live_time = None;
         self.lookahead_us_hz = 0;
-        self.world.log(if agent {
+        self.world.session_log(if agent {
             "control: agent attached; controlled clock"
         } else {
             "control: agent detached; human input and live clock"
@@ -648,7 +649,7 @@ impl<G: Game> Sim<G> {
     /// Input with a host-attested source; unexpected human input contaminates a controlled run.
     pub fn input_from(&mut self, event: InputEvent, agent: bool) {
         if let Err(error) = self.validate_input(&event) {
-            self.world.log(error);
+            self.world.session_log(error);
             return;
         }
         self.source_tagged = true;
@@ -656,7 +657,7 @@ impl<G: Game> Sim<G> {
             self.contamination = self.contamination.saturating_add(1);
             self.capture_fail("external human input contaminated the controlled capture");
             self.world
-                .log("control: external human input during agent ownership");
+                .session_log("control: external human input during agent ownership");
         }
         self.input(event);
     }
@@ -991,7 +992,9 @@ impl<G: Game> Sim<G> {
             // Drop all old component/resource values (including skipped fields
             // and physics executors) before decoding the replacement.
             let generation = self.world.presentation_generation;
-            self.world = self.world.registered_scratch();
+            let mut scratch = self.world.registered_scratch();
+            scratch.continue_journal(&mut self.world, false);
+            self.world = scratch;
             self.world.presentation_generation = generation;
             for (name, bytes) in models {
                 assets.models.insert(

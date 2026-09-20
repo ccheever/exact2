@@ -172,7 +172,9 @@ impl<G: Game> Sim<G> {
             }
         }
         if self.setup_pending && assets.ready() {
-            self.world = Self::build(&self.args, self.world.assets.clone());
+            let mut world = Self::build(&self.args, self.world.assets.clone());
+            world.continue_journal(&mut self.world, true);
+            self.world = world;
             self.base = self
                 .world
                 .initializer()

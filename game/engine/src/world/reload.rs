@@ -499,14 +499,14 @@ impl Report {
             ("unmatched", &self.unmatched),
         ] {
             for item in items {
-                world.log(format_args!(
+                world.session_log(format_args!(
                     "reload {kind}: {}.{}.{} {} → {} ({})",
                     item.entity, item.component, item.field, item.old, item.new, item.reason
                 ));
             }
         }
         if self.omitted > 0 {
-            world.log(format_args!(
+            world.session_log(format_args!(
                 "reload: {} additional items omitted",
                 self.omitted
             ));

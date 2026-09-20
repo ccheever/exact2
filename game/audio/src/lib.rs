@@ -299,7 +299,7 @@ impl<O: Output> Player<O> {
                     if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
                         if !synth.looping {
                             if self.refused_sources.insert((e, source.sound.clone())) {
-                                world.log(format!("refusal: AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound));
+                                world.session_log(format!("refusal: AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound));
                             }
                             continue;
                         }

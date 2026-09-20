@@ -90,9 +90,10 @@ impl<G: Game> Sim<G> {
             queue,
             world_us,
             published: self.world.publications(),
-            journal: self.world.journal(),
-            journal_next: self.world.journal_next(),
-            overflow_logged: self.overflow_logged,
+            journal: self.world.saved_journal(),
+            journal_next: self.world.saved_journal_next(),
+            // Reserved v7 field: queue diagnostics belong to the session.
+            overflow_logged: false,
         };
         let mut w = bin::Encoder::prefixed(b"EXSIM\0\x07");
         saved.write(&mut w);
@@ -151,6 +152,9 @@ impl<G: Game> Sim<G> {
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
         next.restarted = self.restarted;
+        next.overflow_logged = self.overflow_logged;
+        next.world.continue_journal(&mut self.world, false);
+        next.reload.log(&next.world);
         *self = next;
         Ok(())
     }
@@ -290,7 +294,6 @@ impl<G: Game> Sim<G> {
         crate::scene::place_followers(&next.world);
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
-        next.reload.log(&next.world);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
         next.input
@@ -313,7 +316,6 @@ impl<G: Game> Sim<G> {
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);
-        next.overflow_logged = s.overflow_logged;
         next.rebase_queue = true;
         next.restored = true;
         Ok(next)

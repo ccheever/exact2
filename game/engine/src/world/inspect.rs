@@ -128,14 +128,6 @@ impl World {
         self.state.busy.get_mut().clear();
         self.fresh.clear();
     }
-    /// The next journal cursor. Draining a host never erases an agent's history.
-    pub fn journal_next(&self) -> u64 {
-        self.journal_next.get()
-    }
-    pub(crate) fn restore_journal(&mut self, lines: Vec<Event>, next: u64) {
-        *self.journal.borrow_mut() = lines.into();
-        self.journal_next.set(next);
-    }
     pub(crate) fn publications(&self) -> BTreeMap<String, crate::values::Stored> {
         self.published.borrow().clone()
     }
