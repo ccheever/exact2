@@ -196,7 +196,7 @@ const SINGLETON: Entity = Entity {
     index: 0,
     generation: 0,
 };
-const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
@@ -651,7 +651,7 @@ impl World {
         ] {
             w.field(kind);
             w.begin_struct();
-            for (name, s) in storages {
+            for (name, s) in storages.iter().filter(|(_, s)| s.len() != 0) {
                 w.key(name);
                 s.write(w, &|index| {
                     if kind == "resources" {
@@ -715,7 +715,7 @@ impl World {
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
-                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
+                "unsupported world save format (expected EXGAME v4; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })

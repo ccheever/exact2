@@ -123,3 +123,19 @@ fn published_values_and_skipped_fields_are_not_saved() {
     assert_eq!(w.get::<Cache>(e).unwrap().cache, 0);
     assert_eq!(w.hash(), hash);
 }
+
+#[test]
+fn empty_columns_are_not_continuation_state() {
+    let mut clean = World::new(60, 7);
+    let mut churned = World::new(60, 7);
+    clean.register::<Health>();
+    churned.register::<Health>();
+    let e = clean.spawn(());
+    assert_eq!(e, churned.spawn(()));
+    churned.insert(e, Health { hp: 42 });
+    churned.remove::<Health>(e);
+    assert_eq!(clean.hash(), churned.hash());
+    assert_eq!(clean.save(), churned.save());
+    churned.insert(e, Health { hp: 23 });
+    assert_ne!(clean.hash(), churned.hash()); // negative control: populated columns count
+}

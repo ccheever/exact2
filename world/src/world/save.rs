@@ -77,9 +77,11 @@ impl Data for State {
 
 impl World {
     pub(crate) fn write_schema(&self, w: &mut dyn Writer) {
-        w.begin_seq(self.components.len() + self.resources.len());
+        w.begin_seq(
+            self.components.values().filter(|s| s.len() != 0).count() + self.resources.len(),
+        );
         for (resource, storages) in [(false, &self.components), (true, &self.resources)] {
-            for name in storages.keys() {
+            for (name, _) in storages.iter().filter(|(_, s)| s.len() != 0) {
                 w.item();
                 w.begin_seq(2);
                 w.item();
@@ -123,8 +125,9 @@ impl World {
     }
     pub(crate) fn matches_schema(&self, schema: &[(String, bool)]) -> bool {
         self.components
-            .keys()
-            .map(|s| (*s, false))
+            .iter()
+            .filter(|(_, s)| s.len() != 0)
+            .map(|(s, _)| (*s, false))
             .chain(self.resources.keys().map(|s| (*s, true)))
             .eq(schema.iter().map(|(s, r)| (s.as_str(), *r)))
     }
