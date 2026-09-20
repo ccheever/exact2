@@ -750,3 +750,144 @@ they also exited successfully. Local full output is `game/target/landfix1/fox.lo
 the engine and renderer results are beside it as `engine.log` and `render-lib.log`.
 Changed-file rustfmt, staged caps, boot and `git diff --check` passed.
 No runtime changes, pin changes, assertion removals, pushes or sub-agents.
+
+
+## LANDFIX4 — deterministic saved journals, unsaved session diagnostics
+
+`World::log(&self, impl Display)` still records exactly the game's events. EXSIM
+v7 saves its independent 4,096-entry game ring and game cursor. The new
+`World::session_log(&self, impl Display)` writes only the unsaved combined log
+view; ownership, host/adapter diagnostics and their ordering metadata cannot
+change saved bytes or a hash. Agent `logs`, `World::journal()` and `journal_next()`
+keep the existing event text and append order, including same-tick interleaving.
+No prefix-based filtering can accidentally remove a game's own log message.
+The v7 `overflow_logged` wire slot is always false; the diagnostic throttle is
+session state, retained through in-place/paranoid reconstruction.
+
+Restores reinstate saved game history and merge retained session diagnostics at
+their game-event boundaries. Deferred asset setup keeps attachment diagnostics
+that arrived before setup. FreshGame reconstruction retains the same unsaved
+history as Save. The first implementation kept the destination's game history
+instead of loading the checkpoint's history; the unchanged fixed Lanterns
+continuation assertion caught it. The merge correction and a dedicated regression
+landed in `db2f7db5`; no assertion was weakened. The other repair was a missing
+Character import in the new test fixture. All edits stayed in this clone.
+
+Every rerouted telemetry write (line numbers in the landed source):
+
+| File | Lines | Diagnostic |
+| --- | --- | --- |
+| `game/engine/src/sim.rs` | 435 | construction/restart outcome |
+| `game/engine/src/sim.rs` | 518, 652 | invalid ordinary/source-attested input |
+| `game/engine/src/sim.rs` | 606 | dropped-input queue overflow |
+| `game/engine/src/sim.rs` | 643 | agent attach/detach and clock ownership |
+| `game/engine/src/sim.rs` | 660 | external-human contamination |
+| `game/engine/src/agent.rs` | 245 | agent request/capture refusals |
+| `game/engine/src/world/reload.rs` | 502, 509 | reload items and omitted-item count |
+| `game/engine/src/animation.rs` | 1205, 1213, 1221 | adapter carry insertion refusals for Animation/Blend/Animator |
+| `game/render/src/quads.rs` | 214, 223 | invalid sprite/emitter presentation |
+| `game/audio/src/lib.rs` | 302 | executor refusing a non-looping AudioSource |
+
+Restore/checkpoint refusals, host reload diagnostics and screenshot notes already
+live outside Sim in the Linux/web/Apple host journals/state; those paths were
+kept. Greybox's real Linux proof still passes “restore refusal is in the canvas
+journal.” Spawn/despawn/publication, authored `world.log`, game animation markers,
+physics events, audio simulation events and deterministic scene/emitter diagnostics
+retain their original game-owned logging path.
+
+Five device-free regressions live in `engine/src/world/journal_tests.rs`:
+ownership/clock changes + refused-restore reporting + reload report preserve the
+complete save and hash; same-tick interleaving survives Off/Save/FreshGame; 10,000
+rounds of host/game/host churn preserve the clean simulation's entire save;
+attachment before versus after asset delivery gives identical saves; actual
+authored reload reports stay out of the next save; and restoring another world's
+saved event history merges diagnostics without duplicate logs on a second restore.
+The five tests group these assertions; they all pass. The fixture contains a
+Character, the loading case really defers setup, and game-event persistence plus
+exact nonempty log sequences are negative controls against returning nothing.
+
+Append bookkeeping is O(1), session formatting O(message bytes), capped at 65,536
+UTF-8 bytes per message. Oversized text emits the explicit
+`session journal refused: line exceeds 65536-byte budget` diagnostic; the exact
+boundary and one byte beyond it are tested. The combined view retains 4,096
+entries; reads visit at most 4,096 and restoration merges at most two such rings.
+Session churn never evicts saved game events. Game-owned message text remains
+unchanged and is governed by the existing game API, not the session text cap.
+
+All seven `bun game/prove.mjs <game> --repin --hosts linux` commands passed
+continuous, Save, FreshGame and release agreement. Every game also passed its
+normal Linux proof and `linux --paranoid` (28 ordinary/paranoid executions).
+Beacons was repinned again against the final implementation. All tick inventories
+and tick hashes are unchanged; only pin provenance metadata changed. No Linux
+continuation contained a rerouted telemetry line, so no baseline value moved.
+
+| Game | Old continuation SHA-256 | New continuation SHA-256 |
+| --- | --- | --- |
+| beacons | `0eb3e3de0f622153a875a04cc26d29a57f4da8ff477b07fde08933c3c1cfaac1` | `0eb3e3de0f622153a875a04cc26d29a57f4da8ff477b07fde08933c3c1cfaac1` |
+| greybox | `4a14675296f891ef23732a91a1a9698e028ccd4f57159dbe6505e975d483ada4` | `4a14675296f891ef23732a91a1a9698e028ccd4f57159dbe6505e975d483ada4` |
+| asset-fixture | `a4be74d1e6e64d344abdc21e5359f99505c8ccaaeffc4a223046c6960b5d6b43` | `a4be74d1e6e64d344abdc21e5359f99505c8ccaaeffc4a223046c6960b5d6b43` |
+| skinned-fixture | `9b1e9a3d9536f22f5de8fda464ec109a62c39b4b87e1c53163b048113651906f` | `9b1e9a3d9536f22f5de8fda464ec109a62c39b4b87e1c53163b048113651906f` |
+| particles-fixture | `0b6a72ae80d2e9bfb745a69d472e097824b41f3eeb541c1a771bd3bbeed14616` | `0b6a72ae80d2e9bfb745a69d472e097824b41f3eeb541c1a771bd3bbeed14616` |
+| sprites-fixture | `655da85cb8bd062f398efa16e7a505cca58843de511e740c64d8020d70014916` | `655da85cb8bd062f398efa16e7a505cca58843de511e740c64d8020d70014916` |
+| placement-fixture | `4e6d679868d48183d2d97ad22fcb86d6c62f762e2a59c3348f430cdaa624b5f5` | `4e6d679868d48183d2d97ad22fcb86d6c62f762e2a59c3348f430cdaa624b5f5` |
+
+Final verification on this Linux producer (`EXACT_UPDATE_TRUST=development`,
+all supplied zero-debug/no-incremental environment settings retained):
+
+| Suite | Passed | Failed | Ignored/skipped | Failure boundary |
+| --- | ---: | ---: | ---: | --- |
+| Game workspace, `--no-fail-fast` | 738 | 18 | 24 | GPU adapter required |
+| Nine ordinary app workspaces | 48 | 2 | 1 | Sprite/particle GPU tests |
+| Fixed Lanterns workspace | 4 | 0 | 1 | — |
+| Affected core (kernel/plan/runner/hosts/motion/GPU/Contract) | 542 | 3 | 1 | Native GPU registry load |
+| `cd game && bun test` | 146 | 3 | 1 | Missing Chrome |
+| `bun test ./host/web/tests` | 145 | 4 | 3 | Missing Apple `xcrun` |
+
+The strict Fox residency test ran as part of the workspace and failed because no
+adapter exists; it was not skipped or weakened. The other GPU errors likewise
+report no suitable adapter. Bun's named failures are browser reuse/IndexedDB,
+E10 keyboard focus/hover, and the newly generated game's web proof; its Linux
+proof passed. The four web-fixture failures are Mac/IOS zero-size/display-none
+capture and hidden placement tests. Real browser rendering, GPU residency/pixels,
+Apple execution and the Chrome-only Cubes proof remain unverified.
+
+Game, affected-core and all ten app/fixed workspace Clippy runs passed with
+`--all-targets -- -D warnings`. All workspace formatting checks passed. Four app
+Clippy runs initially reached host bakes before their generated surface declaration
+existed; checking their GPU shell first and rerunning cleared them. The initial
+core sweep also lacked frozen Bun dependencies/generated game metadata;
+`bun install --frozen-lockfile` and shell preparation cleared its formatter and
+TypeScript failures. There is no residual source fix or queue item for those
+preparation failures. Root build/test/Clippy were all attempted and remain blocked
+by the producer's missing lean Hermes executor in TypeScript app bakes.
+
+Live and fixed Lanterns each ran three direct Linux proofs with scratch-only
+collection, without publishing their empty first baselines. Every assertion and
+child cleanup passed. Exact inventory comparison confirmed three tick/two save
+keys for live Lanterns, and 1,210 tick/1,210 save keys for fixed Lanterns, identical
+across continuous/Save/FreshGame. Status is still `UNVERIFIED`: Linux agreement
+alone cannot establish their first Linux/web baseline. The fixed reference also
+compares every full continued save including queued input against the real host.
+
+Staged caps and boot passed: 742 sources within limits; two reachable JS modules,
+one wasm reference, 88,699 JS bytes and a 3,468-byte page. No unsafe code, assertion
+weakening, new workspace membership, remote Git action, push, worktree or sub-agent.
+Disk stayed above the 25 GiB stop threshold (about 60 GiB free at completion).
+Detailed command exits, proof summaries and logs are in
+`~/lanes/gamenext/scratch/landfix4/`; no generated build output is committed.
+
+This machine has no Chrome. The owner must rerun the reported reproducer:
+
+```sh
+bun game/prove.mjs beacons --repin --hosts linux,web
+```
+
+Then exercise the same agreement for the other six established games:
+
+```sh
+for game in greybox asset-fixture skinned-fixture particles-fixture sprites-fixture placement-fixture; do
+  bun game/prove.mjs "$game" --repin --hosts linux,web
+done
+```
+
+No web agreement is claimed by this Linux-only receipt.

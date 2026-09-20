@@ -10,6 +10,6 @@
     "linux"
   ],
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
-  "at": "3dce46822bc59b9054c4dcd132e240927b332d95",
-  "reason": "FOLD2 final tree: Linux continuous/Save/FreshGame and release agreement"
+  "at": "db2f7db5d69212d9f67ed3bcf1e45d8364ad9625",
+  "reason": "LANDFIX4: session diagnostics excluded from deterministic saved journal"
 }

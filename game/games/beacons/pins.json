@@ -11,6 +11,6 @@
     "linux"
   ],
   "generated": "bun game/prove.mjs beacons --repin --hosts linux",
-  "at": "8d75dee3c7666bc29ba44dee2dfc62544b28bb62",
-  "reason": "LANDFIX4: session diagnostics excluded from deterministic saved journal"
+  "at": "db2f7db5d69212d9f67ed3bcf1e45d8364ad9625",
+  "reason": "LANDFIX4 final tree: deterministic saved journal and unsaved session diagnostics"
 }
