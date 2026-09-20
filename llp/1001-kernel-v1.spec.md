@@ -386,9 +386,14 @@ Per-node flags (`STYLE_DIRTY`, `TEXT_DIRTY`, `CHILDREN_DIRTY`, `PROPS_DIRTY`,
 `PAINT_DIRTY`, `GEOMETRY_CHANGED`, `CREATED`), one published epoch
 (`Kernel::epoch`, bumped only by a commit that changed something), and a
 `CommitReceipt` per batch (`created`, `destroyed`, `touched`, `layout_invalidated`)
-retained in a 64-deep ring. `compute_layout(root, offer)` runs Taffy over that
-root, publishes absolute frames, and returns a `LayoutReceipt` naming exactly the
-nodes whose frame bits changed — the changed-geometry receipt.
+retained in a 64-deep ring. During apply, touched generation-checked keys collect
+in a vector. Adjacent duplicates collapse before sorting; publication removes
+remaining duplicates, destroyed generations and newly created nodes, in slot
+order. The retained vector releases excess scratch capacity. The same-batch
+reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+`compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
+and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
+the changed-geometry receipt.
 
 Frames retain fractional CSS pixel geometry (Messages, 2026-09-09). Taffy's
 whole-point rounding is disabled when constructing the layout tree, including

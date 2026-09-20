@@ -361,7 +361,7 @@ pub fn apply(
         epoch,
         ..CommitReceipt::default()
     };
-    let mut touched: BTreeSet<u32> = BTreeSet::new();
+    let mut touched: Vec<NodeKey> = Vec::new();
     let mut created: HashSet<u32> = HashSet::new();
 
     for (op_index, op) in ops.iter().enumerate() {
@@ -392,7 +392,7 @@ pub fn apply(
                     arena.children_mut(parent).retain(|c| *c != slot);
                     sync_children(arena, layout, parent);
                     arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
-                    touched.insert(parent);
+                    touched.push(arena.key(parent));
                 }
                 for s in arena.subtree(slot) {
                     if let Some(test_id) = arena.props(s).str(PropId::TestId) {
@@ -402,7 +402,6 @@ pub fn apply(
                         layout.remove(node);
                     }
                     receipt.destroyed.push(arena.key(s));
-                    touched.remove(&s);
                     created.remove(&s);
                     arena.free_slot(s);
                 }
@@ -427,7 +426,7 @@ pub fn apply(
                         invalidate_text_sources(arena, slot);
                     }
                 }
-                touched.insert(slot);
+                touched.push(arena.key(slot));
             }
             Op::ClearProp { id, prop } => {
                 let slot = live_slot(arena, op_index, *id)?;
@@ -445,7 +444,7 @@ pub fn apply(
                             invalidate_text_sources(arena, slot);
                         }
                     }
-                    touched.insert(slot);
+                    touched.push(arena.key(slot));
                 }
             }
             Op::SetStyle { id, patch } => {
@@ -458,7 +457,7 @@ pub fn apply(
                 arena.style_mut(slot).apply_patch(patch);
                 arena.update_exclusion_count(slot, excluded);
                 style_changed(arena, layout, slot, changed, &mut receipt);
-                touched.insert(slot);
+                touched.push(arena.key(slot));
                 propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
             }
             Op::ClearStyle { id, mask } => {
@@ -471,7 +470,7 @@ pub fn apply(
                 arena.style_mut(slot).clear(*mask);
                 arena.update_exclusion_count(slot, excluded);
                 style_changed(arena, layout, slot, changed, &mut receipt);
-                touched.insert(slot);
+                touched.push(arena.key(slot));
                 propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
             }
             Op::SetChildren { id, children } => {
@@ -522,7 +521,7 @@ pub fn apply(
                             arena.children_mut(p).retain(|c| c != n);
                             sync_children(arena, layout, p);
                             arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
-                            touched.insert(p);
+                            touched.push(arena.key(p));
                         }
                     }
                     arena.set_parent(*n, Some(slot));
@@ -533,7 +532,7 @@ pub fn apply(
                 if arena.node_type(slot) == NodeType::Text {
                     invalidate_text(arena, layout, slot);
                 }
-                touched.insert(slot);
+                touched.push(arena.key(slot));
                 receipt.layout_invalidated = true;
                 for (orphan, before) in detached {
                     inherited_after_move(arena, layout, orphan, before, &mut touched, &mut receipt);
@@ -551,7 +550,7 @@ pub fn apply(
                     if let Some(node) = arena.taffy(slot) {
                         layout.set_style(node, taffy_style(arena, slot));
                     }
-                    touched.insert(slot);
+                    touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
                 }
             }
@@ -564,11 +563,20 @@ pub fn apply(
             .resolve(*key)
             .is_some_and(|slot| created.contains(&slot))
     });
-    receipt.touched = touched
-        .into_iter()
-        .filter(|s| !created.contains(s))
-        .map(|s| arena.key(s))
-        .collect();
+    // Publication needs sorted unique live keys, not a tree update for every op.
+    // Generations discard touches from a node destroyed earlier in this batch.
+    // Consecutive props commonly touch the same node; collapse those before sorting.
+    touched.dedup();
+    touched.sort_unstable();
+    touched.dedup();
+    touched.retain(|key| {
+        arena
+            .resolve(*key)
+            .is_some_and(|slot| !created.contains(&slot))
+    });
+    // Receipts outlive this batch; do not retain scratch for duplicates or dead nodes.
+    touched.shrink_to_fit();
+    receipt.touched = touched;
     Ok(receipt)
 }
 
@@ -618,7 +626,7 @@ fn inherited_after_move(
     layout: &mut LayoutTree,
     slot: u32,
     before: InheritedStyle,
-    touched: &mut BTreeSet<u32>,
+    touched: &mut Vec<NodeKey>,
     receipt: &mut CommitReceipt,
 ) {
     // A formerly inline node may now expose its own paragraph. Its old local
@@ -631,7 +639,7 @@ fn inherited_after_move(
     let changed = before.changed_mask(&after);
     if !changed.is_empty() {
         inherited_changed(arena, layout, slot, changed, receipt);
-        touched.insert(slot);
+        touched.push(arena.key(slot));
         propagate_inherited(arena, layout, slot, changed, touched, receipt);
     }
 }
@@ -672,7 +680,7 @@ fn propagate_inherited(
     layout: &mut LayoutTree,
     slot: u32,
     changed: StyleMask,
-    touched: &mut BTreeSet<u32>,
+    touched: &mut Vec<NodeKey>,
     receipt: &mut CommitReceipt,
 ) {
     let changed = changed.intersect(StyleMask::INHERITED);
@@ -687,7 +695,7 @@ fn propagate_inherited(
             continue;
         }
         inherited_changed(arena, layout, s, pass, receipt);
-        touched.insert(s);
+        touched.push(arena.key(s));
         stack.extend(arena.children(s).iter().map(|c| (*c, pass)));
     }
 }
