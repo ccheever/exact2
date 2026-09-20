@@ -936,119 +936,143 @@ impl<'a> Lowerer<'a> {
         scope: &Scope,
         font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
-        // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
-        if let Expr::Str(v, _) = &a.value {
-            if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
-                return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", a.span);
+        // Validate every authored literal result, including inactive branches.
+        // Only the whole expression is type-checked here: match arms bind their
+        // own local names, which the type pass resolves in the proper scope.
+        let mut pending: Vec<(&Expr, Span)> = Vec::new();
+        let mut current = (&a.value, a.span);
+        loop {
+            let (value, span) = current;
+            match value {
+                Expr::Ternary(_, yes, no, _) => {
+                    pending.push((no, no.span()));
+                    pending.push((yes, yes.span()));
+                }
+                Expr::Match { some, none, .. } => {
+                    pending.push((none, none.span()));
+                    pending.push((some, some.span()));
+                }
+                _ => {}
             }
-            if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
-                return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", a.span);
-            }
-        }
-        let literal = match &a.value {
-            expr if numeric_literal(expr).is_some() => {
-                Some(StyleValue::Number(numeric_literal(expr).unwrap()))
-            }
-            Expr::Str(s, _) => Some(
-                // @ref LLP 1043.000 §3 D1 — leave existing properties' lowering
-                // and diagnostics unchanged; only wrap-flow adds this enum literal.
-                if s == "auto" && !rows.contains(&StyleId::WrapFlow) {
-                    StyleValue::Auto
-                } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
-                    StyleValue::Percent(pct)
-                } else {
-                    StyleValue::Text(s.clone())
-                },
-            ),
-            Expr::Bool(b, _) => {
-                return err(
-                    "lower-attr-value",
-                    format!(
-                        "`{}={b}` — a style value is a number or a string, not a bool",
-                        a.name
-                    ),
-                    a.span,
-                )
-            }
-            _ => None,
-        };
-        match literal {
-            Some(v) => {
-                let mut probe = StyleProps::default();
-                for row in rows {
-                    if let Err(e) = probe.set_dynamic(*row, &v) {
-                        return err(
-                            "lower-attr-value",
-                            format!(
-                                "`{}={}` is not a value for `{}`: {}",
-                                a.name,
-                                literal_text(&a.value),
-                                row.name(),
-                                describe(&e)
-                            ),
-                            a.span,
-                        );
-                    }
+            // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
+            if let Expr::Str(v, _) = value {
+                if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
+                    return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
+                }
+                if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
+                    return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
                 }
             }
-            None => {
-                if let Ok(t) = contract_types::infer(&a.value, scope, &self.types.shapes) {
-                    if !matches!(t, Ty::Number | Ty::String | Ty::Unknown) {
-                        return err(
-                            "lower-attr-type",
-                            format!(
-                                "`{}` takes a number or a string; this expression is `{t}`",
-                                a.name
-                            ),
-                            a.span,
-                        );
-                    }
+            let literal = match value {
+                expr if numeric_literal(expr).is_some() => {
+                    Some(StyleValue::Number(numeric_literal(expr).unwrap()))
                 }
-            }
-        }
-        if let Some(font) = font {
-            if rows.contains(&StyleId::FontStyle) {
-                let requested = match &a.value {
-                    Expr::Str(s, _) if s == "normal" => Some(false),
-                    Expr::Str(s, _) if s == "italic" => Some(true),
-                    _ => None,
-                };
-                if let Some(italic) = requested {
-                    if !font
-                        .font
-                        .faces
-                        .iter()
-                        .any(|(_, face_italic)| *face_italic == italic)
+                Expr::Str(s, _) => Some(
+                    // @ref LLP 1043.000 §3 D1 — leave existing properties' lowering
+                    // and diagnostics unchanged; only wrap-flow adds this enum literal.
+                    if s == "auto" && !rows.contains(&StyleId::WrapFlow) {
+                        StyleValue::Auto
+                    } else if let Some(pct) =
+                        s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok())
                     {
-                        return err(
-                            "lower-font-face",
-                            format!(
-                                "this family declares no real {} face; v1 never synthesizes one",
-                                if italic { "italic" } else { "normal" }
-                            ),
-                            a.span,
-                        );
+                        StyleValue::Percent(pct)
+                    } else {
+                        StyleValue::Text(s.clone())
+                    },
+                ),
+                Expr::Bool(b, _) => {
+                    return err(
+                        "lower-attr-value",
+                        format!(
+                            "`{}={b}` — a style value is a number or a string, not a bool",
+                            a.name
+                        ),
+                        span,
+                    )
+                }
+                _ => None,
+            };
+            match literal {
+                Some(v) => {
+                    let mut probe = StyleProps::default();
+                    for row in rows {
+                        if let Err(e) = probe.set_dynamic(*row, &v) {
+                            return err(
+                                "lower-attr-value",
+                                format!(
+                                    "`{}={}` is not a value for `{}`: {}",
+                                    a.name,
+                                    literal_text(value),
+                                    row.name(),
+                                    describe(&e)
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                None if std::ptr::eq(value, &a.value) => {
+                    if let Ok(t) = contract_types::infer(value, scope, &self.types.shapes) {
+                        if !matches!(t, Ty::Number | Ty::String | Ty::Unknown) {
+                            return err(
+                                "lower-attr-type",
+                                format!(
+                                    "`{}` takes a number or a string; this expression is `{t}`",
+                                    a.name
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if let Some(font) = font {
+                if rows.contains(&StyleId::FontStyle) {
+                    let requested = match value {
+                        Expr::Str(s, _) if s == "normal" => Some(false),
+                        Expr::Str(s, _) if s == "italic" => Some(true),
+                        _ => None,
+                    };
+                    if let Some(italic) = requested {
+                        if !font
+                            .font
+                            .faces
+                            .iter()
+                            .any(|(_, face_italic)| *face_italic == italic)
+                        {
+                            return err(
+                                "lower-font-face",
+                                format!(
+                                    "this family declares no real {} face; v1 never synthesizes one",
+                                    if italic { "italic" } else { "normal" }
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                if rows.contains(&StyleId::FontWeight) {
+                    if let (Expr::Number(weight, _), Some(italic)) = (value, font.italic) {
+                        if *weight >= 600.0
+                            && !font.font.faces.iter().any(|(face_weight, face_italic)| {
+                                *face_italic == italic && *face_weight >= 600
+                            })
+                        {
+                            return err(
+                                "lower-font-face",
+                                format!(
+                                    "this family has no real {} face for font-weight={weight}; v1 never synthesizes one",
+                                    if italic { "italic bold" } else { "bold" }
+                                ),
+                                span,
+                            );
+                        }
                     }
                 }
             }
-            if rows.contains(&StyleId::FontWeight) {
-                if let (Expr::Number(weight, _), Some(italic)) = (&a.value, font.italic) {
-                    if *weight >= 600.0
-                        && !font.font.faces.iter().any(|(face_weight, face_italic)| {
-                            *face_italic == italic && *face_weight >= 600
-                        })
-                    {
-                        return err(
-                            "lower-font-face",
-                            format!(
-                                "this family has no real {} face for font-weight={weight}; v1 never synthesizes one",
-                                if italic { "italic bold" } else { "bold" }
-                            ),
-                            a.span,
-                        );
-                    }
-                }
-            }
+            let Some(next) = pending.pop() else { break };
+            current = next;
         }
         Ok(())
     }

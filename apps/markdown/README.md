@@ -1217,3 +1217,13 @@ over 250 pt (`smooth/prepend-blank-7442359c/`). The captures sample about 20 fps
 not every display frame. These establish reduced reverse-scroll presenter work,
 not a fixed-protocol displayed-hitch win over Legend. The previous corrected
 120 Hz confirmation still fails that comparison.
+
+At integrated `e84ad146`, all five workspace gates pass with clean published
+Ibex inputs, alongside 263 native tests and the reader/appearance controls.
+The fixed six-round forward pilot (`smooth/integrated-e84ad146-pilot-120hz/`)
+retains all 18 trials: all pass input/focus/content checks. Mean hitch ms/s is
+4.861 for both prior `56add02e` and integrated `e84ad146`, versus 2.361 for Legend;
+medians are 5.416, 4.583 and 1.667 respectively. The integrated build beats Legend
+in one of six rounds. The 114.0 FPS baseline and 105.9 FPS Legend observations
+remain included. No confirmation is triggered: the retained reverse-scroll
+presenter improvement does not establish lower forward displayed hitches.

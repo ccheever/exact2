@@ -148,6 +148,21 @@ fn a_literal_request_that_would_need_synthesis_is_refused() {
 }
 
 #[test]
+fn conditional_literal_faces_require_real_declared_faces() {
+    for style in [
+        r#"font-style=(on ? "italic" : "normal")"#,
+        "font-weight=(on ? 700 : 400)",
+    ] {
+        refusal(&format!(
+            "font \"Regular Only\" = \"assets/DejaVuSans.ttf\"\ncomponent App\n  state on = false\n  view\n    text \"x\" font-family=\"Regular Only\" {style}\n"
+        ), "lower-font-face");
+    }
+    AppDir::new(&format!(
+        "{DECLARATION}component App\n  state on = false\n  view\n    text \"x\" font-family=\"Fixture Sans\" font-weight=(on ? 700 : 400)\n"
+    )).compile().unwrap();
+}
+
+#[test]
 fn duplicate_direct_attributes_cannot_bypass_the_face_diagnostic() {
     refusal(
         "font \"HasBold\"\n  400 = \"assets/DejaVuSans.ttf\"\n  700 = \"assets/DejaVuSans-Bold.ttf\"\nfont \"OnlyRegular\" = \"assets/DejaVuSans.ttf\"\ncomponent App\n  view\n    text \"hi\" font-family=\"HasBold\" font-family=\"OnlyRegular\" font-weight=700\n",

@@ -121,3 +121,69 @@ fn bake_refuses_a_pressable_with_zero_area() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn conditional_style_literals_are_refused_at_the_offending_branch() {
+    for (property, value, bad) in [
+        ("top", r#"(on ? "0px" : "0%")"#, "0px"),
+        ("top", r#"(on ? "0%" : "0px")"#, "0px"),
+        (
+            "align-items",
+            r#"(on ? "center" : (on ? "flex-end" : "middle"))"#,
+            "middle",
+        ),
+        (
+            "padding",
+            r#"(match maybe { case some(n) => n, case none => "auto" })"#,
+            "auto",
+        ),
+        (
+            "top",
+            r#"(match maybe { case some(n) => "0px", case none => n })"#,
+            "0px",
+        ),
+    ] {
+        let source = format!("component App\n  state on = false\n  state n = \"0%\"\n  state maybe = some(\"10%\")\n  view\n    column {property}={value}\n      text \"branch\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{source}: {error}");
+        assert!(error.message.contains(bad), "{error}");
+        let line = source.lines().nth(5).unwrap();
+        assert_eq!(
+            error.span,
+            (6, (line.find(&format!("\"{bad}\"")).unwrap() + 1) as u32),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn conditional_style_checks_preserve_computation_and_match_bindings() {
+    let source = r#"component App
+  state on = false
+  state n = true
+  state maybe = some(20)
+  action toggle writes on
+    on = !on
+  view
+    column testId="branch" top=(on ? -10 : (match maybe { case some(n) => n, case none => 0 })) align-items=(on ? "center" : "flex-end")
+      text "branch"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let mut runner = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let top = |runner: &exact_runner::Runner<NoData>| {
+        let kernel = runner.kernel();
+        let key = kernel.find_by_test_id("branch")[0];
+        kernel.node_by_key(key).unwrap().style.top
+    };
+    assert_eq!(top(&runner), exact_kernel::Dimension::Points(20.0));
+    runner.act("toggle", vec![]).unwrap();
+    assert_eq!(top(&runner), exact_kernel::Dimension::Points(-10.0));
+    assert!(!runner.is_poisoned());
+}

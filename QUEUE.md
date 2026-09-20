@@ -128,7 +128,10 @@ sits on that list carries the trade it would take.
   Simulator contact backend (1035.003 §3; the backend is Charlie's call — the held-read gate now passes at two placements after common-mode agent scheduling, `/tmp/messages-held-inspection/`), 1035.001
   slice 1 (XCTest units for the navigation/modal rules, journal lines for
   refused intents, a session-scoped blur in the two-session host), 1035.004's
-  six symbol roles, 1035.005's `contract fmt` with the continuation rule;
+  six symbol roles, 1035.005's `contract fmt` with the continuation rule
+  (2026-09-19: `fmt`/`symbols` are still absent from `origin/main` at `bac727ac`;
+  implementations exist on `lane/1035-merge` and `lane/game`, with later review
+  fixes. Integrate the authoring changes without dropping newer compiler features);
   `dynamic` as a `layout <node>` source once a constant binding can be told
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
@@ -560,7 +563,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Apple baseline precision: the kernel preserves fractional frames and `TextEngine` preserves authored fractional line heights, but intrinsic widths, normal paragraph heights and painted baselines still round to logical points. A same-font iOS 26.5 UILabel/CoreText/WebKit fixture found that removing that rounding improves some native labels but does not consistently match either UIKit or WebKit. Resolve line-box/baseline placement with a targeted comparison before changing painting globally; Removing all measurement ceilings changed Caltrain’s established scroll extent and canvas readback; investigate those intrinsic metrics separately. Authored line-height precision alone does not establish glyph fidelity.
 
 
-- Dynamic style diagnostics: a conditional `top` branch containing `"0px"` compiled but poisoned the runner with `WrongKind` on activation (`/tmp/messages-panel-placement/late-failure-web.json`). Accept the CSS length or diagnose the unsupported value before dispatch; the Messages branch currently uses the supported `"0%"`.
 
 - Continuous release loop (LLP 1030.003 r2, 2026-09-12): release id + signed `published` and the `use`-able version screen (Caltrain first), one hosted Interview release on the directory origin behind its tunnel, `--watch`, iOS through TestFlight (the archive verb, upload, `--status`, version/build numbers), safe activation + the web page's own check, the EAS macOS-worker spike for the Apple lanes (D8, Charlie's 2026-09-12 ask), then the EAS Hosting spike. D6a install pages and D6b's Mac-local development build/install are landed; distributable native artifacts and providers remain pending. §6's six questions await Charlie; other slices await an implementer.
 
