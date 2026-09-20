@@ -322,6 +322,44 @@ pub fn run(
                 json!({"oracle":"gpu_camera","layout":layout,"camera":step,"visible":cuts[0].clusters,"shadow_visible":cuts[1].clusters,"candidates":cuts[0].candidates,"shadow_candidates":cuts[1].candidates,"near_boundary":near+shadow_near,"bad_set_differences":bad+shadow_bad,"image_changed_bytes":image_bytes,"cull_color_changed_bytes":cull_bytes,"cull_shadow_changed_bytes":shadow_bytes,"deterministic":deterministic_ok})
             );
         }
+        if layout == "single" {
+            let camera = scene.camera(0.0, size[0] as f32 / size[1] as f32, 45f32.to_radians());
+            for threshold in [0.0, f32::MAX / 2.0] {
+                let frame = gpu.render_gpu(&scene, &camera, View::Lit, threshold, false, false)?;
+                let _ = readback::read(&gpu, &frame)?;
+                let actual = selection_readback::selections(
+                    &gpu,
+                    reader.pages.len(),
+                    reader.header.config.max_triangles,
+                    true,
+                )?;
+                let expected = select::select_culled(
+                    reader,
+                    &scene.instances,
+                    &camera,
+                    size[1],
+                    threshold,
+                    false,
+                );
+                let shadow_expected = select::select_culled(
+                    reader,
+                    &scene.instances,
+                    &light,
+                    2048,
+                    (threshold * 2.0).min(f32::MAX / 2.0),
+                    false,
+                );
+                let equal =
+                    actual[0].pages == expected.pages && actual[1].pages == shadow_expected.pages;
+                if !equal {
+                    failures.push(format!("extreme threshold {threshold}: set mismatch"));
+                }
+                println!(
+                    "{}",
+                    json!({"oracle":"extreme_threshold", "threshold":threshold, "main_triangles":actual[0].triangles, "shadow_triangles":actual[1].triangles, "equal":equal})
+                );
+            }
+        }
         let camera = scene.camera(0.0, size[0] as f32 / size[1] as f32, 45f32.to_radians());
         let reference = select::select(reader, &scene.instances, &camera, size[1], 1.0);
         let mut tiny = create()?;

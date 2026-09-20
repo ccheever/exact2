@@ -217,7 +217,7 @@ fn image_oracles() {
     }
     println!(
         "{}",
-        json!({"oracle":"image_summary","images":9,"debug_views":debug_count,"shader_files_validated_at_build":1,"failures":failures})
+        json!({"oracle":"image_summary","images":9,"debug_views":debug_count,"shader_files_validated_at_build":2,"failures":failures})
     );
     assert!(failures.is_empty(), "{}", failures.join("; "));
 }

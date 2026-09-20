@@ -6,8 +6,8 @@ culling, stable compaction and per-page indirect draws, retaining the CPU oracle
 The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
 
 **Status:** L1/L2a verified; L2b GPU image/selection oracles verified on Apple M5 Max
-/ Metal. Main-pass timing remains limited by invalid counter readbacks (decision 27);
-final validation and measurement results are recorded below.
+/ Metal. Initial invalid counter readbacks are documented in decision 27;
+final commands report sample validity and independent completed-frame latency.
 
 ## Run
 
@@ -177,7 +177,7 @@ must be finite, nonnegative and less than `f32::MAX`.
 12. Use flat, deterministic CPU selection with group error evaluated once per
     instance, then independent cluster selection and sphere/frustum culling.
     Uniform instance scale affects radius and error. No cone culling is needed
-    for this reference; raster backface culling handles backfaces.
+    for the L2a reference; L2b extends it with decision 25.
 13. Submit one instanced draw per baked page per pass, including zero-instance
     draws for empty pages. Each instance is one visible (cluster, scene instance)
     pair. Short clusters emit coincident out-of-clip vertices; padding consumes
@@ -249,10 +249,15 @@ must be finite, nonnegative and less than `f32::MAX`.
     binary searches bound a conservative contiguous candidate range. The enclosing
     sphere includes all selection bounds, not only vertices. This trades extra
     candidates within a depth for stable raster order and no format/re-bake change.
+    Pad the enclosing radius by 1.00002 and range thresholds by relative 1e-5,
+    only to avoid pruning borderline candidates; the final LOD predicate is exact.
+    Terminal sentinels always survive range pruning, including when a very large
+    finite threshold overflows its mesh-space conversion.
 25. Main culling uses instance/cluster spheres and meshoptimizer's perspective
     apex cone test. Shadows keep L2a's orthographic error at twice the threshold,
     light-frustum spheres, and the directional-light cone test. Camera-facing
-    tests are never used for shadow casters. Culling is disabled for overdraw.
+    tests are never used for shadow casters. Sphere planes and cone dots use a
+    conservative 1e-5 guard in both CPU and WGSL. Culling is disabled for overdraw.
 26. Allocate visible storage once: each instance gets min(cluster count,
     floor(4,194,304 / instance count)) slots per pass. `--capacity` overrides
     the per-instance slot count. Stable scans keep earliest coarse-to-fine IDs;
@@ -601,3 +606,72 @@ The original numeric fields are preserved. `out` paths use `<out>` below.
 ```
 
 </details>
+
+
+## L2b verification and measurements
+
+Run from this workspace: `python3 measure.py verify`, `python3 measure.py oracles`,
+then `python3 measure.py sweep`. Raw commands, recorded child PIDs and exit codes
+are in `<out>/L2b/{processes,runs}.jsonl`; each command's JSON lines and stderr are
+in `<out>/L2b/<case>.log`. Images remain in that cache directory. No vendor,
+workspace-root, engine, rule, or LLP file was changed.
+
+### Verification
+
+| Command | Result | Wall seconds |
+| --- | --- | ---: |
+| `cargo test --workspace --no-fail-fast -- --nocapture` | 6 passed; no GPU skips | 59.762278 |
+| `cargo clippy --all-targets -- -D warnings` | passed | 1.027986 |
+| `cargo fmt --all -- --check` | passed | 0.180267 |
+| `cargo build -p clod-format --target wasm32-unknown-unknown` | passed | 0.209517 |
+| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | passed | 0.283582 |
+| `clod-view oracle <out>/gaul-1.clod --steps 64 --size 256x256` | passed | 10.568004 |
+| `clod-view oracle <out>/washington-1.clod --steps 64 --size 256x256` | passed | 31.562371 |
+
+All oracle commands request **zero features** and exactly `Limits::default()`;
+selection uses seven storage bindings, raster uses five, workgroups contain 256
+invocations, and the largest dispatch is 5,000 workgroups in the measured scenes.
+Both WGSL files validate with Naga's empty capability set at build time. Source
+caps: 37 Rust/WGSL/Python files, maximum 678 lines, zero over 1,500.
+
+| Fixture | Cameras/layout | Layouts | Identical set/image pairs | Near-boundary differences | Exact color + shadow culling pairs | Identical repeated PNGs | Overflow drops (three tiny-capacity cases) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| L1 octasphere, 192² | 64 | 3 | 192 | 0 | 96 | 192 | 4,041 |
+| Gaul, 256² | 64 | 3 | 192 | 0 | 96 | 192 | 3,520 |
+| Washington, 256² | 64 | 3 | 192 | 0 | 96 | 192 | 276,958 |
+
+The three layouts are `single`, `ring:12`, `grid:400`. Half the cameras follow
+far-to-detail; half are inside the scene looking outward. Total: 576 set/image
+pairs, 32,243,712 color pixels compared exactly, 288 culling pairs with direct
+2048² shadow-depth byte comparisons, and 576 deterministic PNG pairs. No draw-order
+pixel exception was needed: stable page/instance/cluster order is preserved.
+The 64 unculled procedural GPU cuts checked 5,927,820 decoded triangles with
+L1's shared edge oracle: zero bad edges. No 1e-5 boundary exceptions occurred;
+when one does, the CLI checks the affected unculled GPU main/light cuts' edges.
+The two real scans are not asserted to be closed manifolds.
+
+All nine capacity-one cases matched the CPU's exact retained cluster subsets,
+exact drop counts and rendered pixels, without validation errors. They dropped
+284,519 selected clusters in total. This verifies safe deterministic degradation;
+it does **not** claim that an overflowing cut stays watertight. Normal measurement
+scenes have zero overflow in both passes. L1's numerical, corruption, loader and
+byte-determinism checks, L2a's procedural images, and its 12 real-asset baseline
+comparisons remain green. The subdivision-6 limitation is documented in decision 28.
+
+### Timing method
+
+Every timing row is `target/debug/clod-view time <out>/<asset>-1.clod --layout
+<layout> --size 2560x1440 --threshold-px 1 --frames 7 --select <gpu|brute|cpu>
+--out <out>/L2b/<case>.png`; naive substitutes `--mode naive`. One warmup, then
+seven measured frames; medians are per column, so totals need not sum across
+median columns. `GPU select` includes selection and stable compaction for **both**
+passes. `CPU` is both selections plus encoding/submission. `Completion` measures
+encode start through completed pixel readback; it excludes CPU reference selection,
+post-frame counter diagnostics, PNG encoding and scene load. Resident bytes count
+allocated buffers/textures, excluding diagnostic staging, driver and shader memory.
+All geometry and instance records are resident and immutable after scene load.
+
+Initial main timestamp failures and the three-round stop are documented in
+decision 27. Each final JSON reports valid timestamp sample counts explicitly;
+a stage with fewer than seven valid measured samples is null, not a partial median.
+The completed-frame host-clock number provides an independent latency measurement.

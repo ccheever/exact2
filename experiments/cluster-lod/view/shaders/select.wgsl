@@ -77,7 +77,7 @@ fn choose(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index
             }
             low=low*(1.0-1e-5); high=high*(1.0+1e-5);
             var a=0u; var b=cfg.sizes.x;
-            while a<b { let m=(a+b)/2u; if envelopes[m].x>low { a=m+1u; } else { b=m; } }
+            while a<b { let m=(a+b)/2u; if envelopes[m].x==bitcast<f32>(0x7f7fffffu) || envelopes[m].x>low { a=m+1u; } else { b=m; } }
             end=a; a=0u; b=end;
             while a<b { let m=(a+b)/2u; if envelopes[m].y>high { a=m+1u; } else { b=m; } }
             first=a;
