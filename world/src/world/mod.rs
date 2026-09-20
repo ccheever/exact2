@@ -496,7 +496,9 @@ impl World {
         let Some((name, index)) = target.rsplit_once('#') else {
             return self.named(target);
         };
-        let index: u32 = index.parse().ok()?;
+        let Ok(index) = index.parse::<u32>() else {
+            return self.named(target);
+        };
         let s = self.state.slots.get(index as usize)?;
         let e = Entity {
             index,

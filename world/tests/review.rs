@@ -647,3 +647,46 @@ fn hash_refuses_invalid_motion_and_excessive_nesting_without_panicking() {
     value.write(&mut sink);
     assert!(sink.report().is_err(), "hash ignored codec nesting limit");
 }
+
+#[test]
+fn nonnumeric_hash_names_resolve() {
+    let mut w = World::new(60, 0);
+    let boss = w.spawn_named("boss#red", ()).unwrap();
+    assert_eq!(w.resolve("boss#red"), Some(boss));
+}
+
+#[test]
+fn unreachable_action_keys_refuse() {
+    struct BadKeys;
+    impl Game for BadKeys {
+        const ID: &'static str = "bad-keys";
+        type Args = ();
+        const ACTIONS: &'static [Action] = &[Action::axis("move",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "KeyD")];
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    assert!(Sim::<BadKeys>::new(()).is_err());
+}
+
+#[test]
+fn conditional_data_fields_follow_rust_configuration() {
+    #[derive(Default, Data)]
+    struct Configured {
+        #[cfg(any())]
+        absent: NoSuchType,
+        #[cfg_attr(all(), data(skip))]
+        transient: u32,
+        #[cfg(all())]
+        saved: u32,
+    }
+    let value = Configured {
+        transient: 99,
+        saved: 7,
+    };
+    let bytes = bin::to_vec(&value).unwrap();
+    let loaded: Configured = bin::from_slice(&bytes).unwrap();
+    assert_eq!(loaded.transient, 0);
+    assert_eq!(loaded.saved, 7);
+    assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+}

@@ -111,6 +111,9 @@ impl Input {
         for (i, a) in actions.iter().enumerate() {
             if a.name.len() > 128
                 || a.keys.len() > 64
+                || a.keys.iter().any(|k| k.len() > 128)
+                || a.axis_keys
+                    .is_some_and(|(a, b)| a.len() > 128 || b.len() > 128)
                 || actions[..i].iter().any(|old| old.name == a.name)
             {
                 return Err(DataError::new("invalid action declarations"));

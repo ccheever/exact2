@@ -599,3 +599,9 @@ page iteration also short-circuits. Nonempty sparse queries remain explicit
 O(highest-live-slot/64 × terms + rows); despawn visits at most 256 registered
 columns. First high-slot insertion pays the documented 75,000-byte directory
 plus one value chunk; its test name now states that bound honestly.
+
+Rust expands field cfg/cfg_attr before derives: tests prove inactive fields are
+absent, active fields saved and cfg_attr(data(skip)) omitted. This allegation was
+not reproduced. Args now accepts qualified std/core scalar paths; parser errors
+still use invocation spans. Nonnumeric # suffixes resolve as names; action keys
+share the 128-byte runtime input bound, including both axis keys.

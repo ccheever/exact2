@@ -47,7 +47,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
             .output()
             .unwrap()
     };
-    let positive=compile("use exact_world::*; #[derive(Default,Component)] struct C { n:u32 } #[derive(Default,Args)] struct Options { #[live] on:bool }");
+    let positive=compile("use exact_world::*; #[derive(Default,Component)] struct C { n:u32 } #[derive(Default,Args)] struct Options { #[live] on:bool, count:std::primitive::u32, label:std::string::String }");
     assert!(
         positive.status.success(),
         "{}",

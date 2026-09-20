@@ -418,13 +418,24 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
                 && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "restart")
         });
         let (f, _) = strip(tokens, true)?;
-        if f.len() != 3 || !punct(&f[1], ':') {
+        if f.len() < 3 || !punct(&f[1], ':') {
             return Err(format!(
                 "{name}: expected a named field with a supported scalar type"
             ));
         }
         let field = f[0].to_string();
-        let ty = f[2].to_string();
+        let path = f[2..].iter().map(ToString::to_string).collect::<String>();
+        let ty = path.trim_start_matches("::");
+        let ty = [
+            "std::primitive::",
+            "core::primitive::",
+            "std::string::",
+            "alloc::string::",
+        ]
+        .iter()
+        .find_map(|prefix| ty.strip_prefix(prefix))
+        .unwrap_or(ty)
+        .to_owned();
         for pair in tokens.windows(2) {
             if punct(&pair[0], '#') {
                 if let TokenTree::Group(g) = &pair[1] {
