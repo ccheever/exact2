@@ -40,7 +40,7 @@ impl Renderer {
         selection: &Selection,
         shadow_selection: &Selection,
     ) -> Result<Frame> {
-        self.render_inner(scene, camera, view, selection, shadow_selection, None)
+        self.render_inner(scene, camera, view, selection, shadow_selection, None, true)
     }
     pub fn render_gpu(
         &mut self,
@@ -61,6 +61,33 @@ impl Renderer {
             &Selection::default(),
             &Selection::default(),
             Some((threshold, cull && view != View::Overdraw, brute)),
+            true,
+        )
+    }
+    /// Submit a frame without copying pixels. The host presents `color_view()` and reads only counters.
+    pub fn render_present(
+        &mut self,
+        scene: &Scene,
+        camera: &Camera,
+        view: View,
+        threshold: f32,
+    ) -> Result<Frame> {
+        let gpu = if self.mode == Mode::Cluster {
+            if self.compute.is_none() {
+                return Err("GPU selection not enabled".into());
+            }
+            Some((threshold, self.culling, false))
+        } else {
+            None
+        };
+        self.render_inner(
+            scene,
+            camera,
+            view,
+            &Selection::default(),
+            &Selection::default(),
+            gpu,
+            false,
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -72,6 +99,7 @@ impl Renderer {
         selection: &Selection,
         shadow_selection: &Selection,
         gpu: Option<(f32, bool, bool)>,
+        read_pixels: bool,
     ) -> Result<Frame> {
         let shadows = self.shadows && view != View::Coverage;
         let cull = gpu.map_or(self.culling, |(_, c, _)| c) && view != View::Overdraw;
@@ -324,31 +352,37 @@ impl Renderer {
         let row_bytes = (self.width * 4).div_ceil(256) * 256;
         let pixels = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frame readback"),
-            size: row_bytes as u64 * self.height as u64,
+            size: if read_pixels {
+                row_bytes as u64 * self.height as u64
+            } else {
+                4
+            },
             usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.color,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &pixels,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(row_bytes),
-                    rows_per_image: None,
+        if read_pixels {
+            encoder.copy_texture_to_buffer(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.color,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
                 },
-            },
-            wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-        );
+                wgpu::TexelCopyBufferInfo {
+                    buffer: &pixels,
+                    layout: wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(row_bytes),
+                        rows_per_image: None,
+                    },
+                },
+                wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
         let timestamps = if self.query.is_some() {
             let read = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamps"),

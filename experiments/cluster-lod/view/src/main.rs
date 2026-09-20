@@ -1,3 +1,7 @@
+#[path = "bin/bench.rs"]
+mod bench;
+#[path = "bin/demo.rs"]
+mod demo;
 #[path = "bin/options.rs"]
 mod options;
 #[path = "bin/oracle.rs"]
@@ -32,19 +36,22 @@ fn main() {
 }
 fn run() -> Result<()> {
     let options = Options::parse()?;
+    if options.command == "demo" {
+        return demo::run(options);
+    }
     let start = Instant::now();
     let bytes = std::fs::read(&options.file).map_err(|e| e.to_string())?;
     let reader = Reader::new(&bytes).map_err(|e| e.to_string())?;
     let scene = Scene::layout(&reader, &options.layout)?;
-    let needs_naive =
-        options.mode == Mode::Naive || ["compare", "pop"].contains(&options.command.as_str());
+    let needs_naive = options.mode == Mode::Naive
+        || ["compare", "pop", "bench"].contains(&options.command.as_str());
     let baseline = needs_naive.then(|| prepare::baseline(&reader));
     eprintln!(
         "{}",
         json!({"stage":"load","seconds":start.elapsed().as_secs_f64(),"source_triangles":reader.header.source_triangles,"pages":reader.pages.len(),"instances":scene.instances.len(),"baseline_chunks":baseline.as_ref().map_or(0,Vec::len),"baseline_vertices":baseline.as_ref().map(|b|b.iter().map(|c|c.vertices.len()).sum::<usize>()),"camera_hero":scene.hero.to_array(),"median_source_edge_world":scene.median_edge,"minimum_distance_1440p_2px":scene.minimum_distance(options.fov)})
     );
     let (device, queue, adapter) = pollster::block_on(clod_view::request_device(
-        ["time", "reel"].contains(&options.command.as_str()),
+        ["time", "reel", "bench"].contains(&options.command.as_str()),
     ))?;
     eprintln!(
         "{}",
@@ -69,6 +76,13 @@ fn run() -> Result<()> {
         Ok::<_, String>(renderer)
     };
     match options.command.as_str() {
+        "bench" => bench::run(
+            &mut create(Mode::Cluster)?,
+            &mut create(Mode::Naive)?,
+            &reader,
+            &scene,
+            &options,
+        )?,
         "reel" => reel::run(&mut create(options.mode)?, &reader, &scene, &options)?,
         "oracle" => oracle::run(
             &reader,
@@ -241,7 +255,7 @@ fn sample(
         s.overflow = cuts[0].overflow;
         s.shadow_overflow = cuts[1].overflow;
     }
-    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"shadows":options.shadows,"ground_draws":u32::from(options.view != View::Coverage),"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"frame_completion_ms":frame_completion_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
+    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"shadows":options.shadows,"ground_draws":u32::from(options.view != View::Coverage),"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"gpu_select_main_ms":times.map(|v|v[2]),"gpu_select_shadow_ms":times.map(|v|v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"frame_completion_ms":frame_completion_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
     Ok(Sample { pixels, report })
 }
 fn save(path: &Path, pixels: &[u8], width: u32, height: u32) -> Result<()> {

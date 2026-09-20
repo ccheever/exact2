@@ -166,7 +166,7 @@ fn entry(
         count: None,
     }
 }
-fn texture(
+pub(crate) fn texture(
     device: &wgpu::Device,
     w: u32,
     h: u32,
@@ -543,7 +543,9 @@ impl Renderer {
             height,
             1,
             wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::TEXTURE_BINDING,
         );
         let msaa = texture(
             &device,

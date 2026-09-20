@@ -4,8 +4,10 @@ use clod_view::{
 };
 use glam::Vec3;
 use std::path::PathBuf;
+#[derive(Clone)]
 pub struct Options {
     pub command: String,
+    pub exit: bool,
     pub file: PathBuf,
     pub out: PathBuf,
     pub width: u32,
@@ -32,10 +34,14 @@ impl Options {
     pub fn parse() -> Result<Self, String> {
         let mut args = std::env::args().skip(1);
         let command = args.next().ok_or(
-            "usage: clod-view <render|time|compare|pop|oracle|reel> <file.clod> [options]",
+            "usage: clod-view <render|time|compare|pop|oracle|reel|demo|bench> <file.clod> [options]",
         )?;
-        if !["render", "time", "compare", "pop", "oracle", "reel"].contains(&command.as_str()) {
-            return Err("command must be render|time|compare|pop|oracle|reel".into());
+        if ![
+            "render", "time", "compare", "pop", "oracle", "reel", "demo", "bench",
+        ]
+        .contains(&command.as_str())
+        {
+            return Err("command must be render|time|compare|pop|oracle|reel|demo|bench".into());
         }
         let file = args.next().ok_or("missing .clod file")?.into();
         let out = PathBuf::from(std::env::var("HOME").map_err(|e| e.to_string())?)
@@ -54,7 +60,7 @@ impl Options {
             seconds: 40.0,
             fps: 60,
             ao: true,
-            layout: if command == "reel" {
+            layout: if ["reel", "demo"].contains(&command.as_str()) {
                 "avenue:25".into()
             } else {
                 "single".into()
@@ -64,6 +70,7 @@ impl Options {
             } else {
                 out
             },
+            exit: false,
             command,
             file,
             width: 2560,
@@ -81,6 +88,10 @@ impl Options {
             fov: 45f32.to_radians(),
         };
         while let Some(arg) = args.next() {
+            if arg == "--exit" {
+                result.exit = true;
+                continue;
+            }
             let value = args
                 .next()
                 .ok_or_else(|| format!("missing value for {arg}"))?;

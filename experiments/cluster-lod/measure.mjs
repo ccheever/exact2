@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 // Run every requested measurement; retain commands, PIDs, numbers and all failures.
-import { mkdirSync, appendFileSync, openSync, closeSync, readFileSync } from 'node:fs';
+import { mkdirSync, appendFileSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const root=import.meta.dir;
-const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/L3a');
+const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/L3b');
 mkdirSync(out,{recursive:true});
 const mode=process.argv[2]??'verify';
+if(mode==='benchmark') { await import('./benchmark.mjs'); process.exit(process.exitCode??0); }
 const commands=[];
 if(mode==='verify') {
   commands.push(['tests',['cargo','test','--workspace','--no-fail-fast','--','--nocapture']],
@@ -13,6 +14,11 @@ if(mode==='verify') {
     ['fmt',['cargo','fmt','--all','--','--check']],
     ['wasm-format',['cargo','build','-p','clod-format','--target','wasm32-unknown-unknown']],
     ['wasm-view',['cargo','build','-p','clod-view','--lib','--target','wasm32-unknown-unknown']]);
+ } else if(mode==='pacing') {
+  commands.push(['build-view',['cargo','build','-p','clod-view']]);
+  for(const asset of ['gaul','washington']) for(const mode of ['cluster','naive']) {
+    commands.push([`${asset}-${mode}-600`,['target/debug/clod-view','demo',join(out,'..',`${asset}-4.clod`),'--mode',mode,'--frames','600','--exit']]);
+  }
 } else if(mode==='bake') {
   commands.push(['build-baker',['cargo','build','--release','-p','clod-bake']]);
   for(const [asset,file] of [['gaul','smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl'],['washington','si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj']]) {
@@ -47,10 +53,11 @@ if(mode==='verify') {
     }
   }
 } else {
-  console.error('usage: bun measure.mjs verify|sweep|oracles|bake|images');
+  console.error('usage: bun measure.mjs verify|sweep|oracles|bake|images|benchmark|pacing');
   process.exit(1);
 }
 const failures=[];
+const pacing=[];
 for(const [name,command] of commands) {
   const start=performance.now();
   const fd=openSync(join(out,`${name}.log`),'w');
@@ -64,12 +71,19 @@ for(const [name,command] of commands) {
   appendFileSync(join(out,'runs.jsonl'),JSON.stringify(record)+'\n');
   console.log(JSON.stringify(record));
   if(code) failures.push(name);
+  if(mode==='pacing' && name!=='build-view') {
+    const data=readFileSync(join(out,`${name}.log`),'utf8').split('\n').flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
+    const row=data.findLast(r=>r.command==='demo');
+    if(row)pacing.push(row);
+    if(!row||row.frames!==600||row.intervals!==600||!row.refresh_hz)failures.push(`${name}: incomplete pacing run`);
+  }
   if(mode==='sweep' && !code) {
     const rows=readFileSync(join(out,`${name}.log`),'utf8').split('\n').flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
     const measured=rows.findLast(row=>row.command==='time');
     if(!measured || measured.overflow || measured.shadow_overflow) failures.push(`${name}: missing measurement or dropped geometry`);
   }
 }
+if(mode==='pacing') writeFileSync(join(root,'results/l3b-pacing.json'),JSON.stringify({pacing,failures},null,2)+'\n');
 const lengths=[];
 for await(const path of new Bun.Glob('**/*.{rs,wgsl,mjs,c,cpp,h}').scan({cwd:root})) {
   if(path.startsWith('vendor/')||path.startsWith('target/')) continue;

@@ -5,6 +5,7 @@ mod hero;
 mod render;
 pub mod scene;
 pub mod select;
+mod target;
 pub use compute::Selector;
 pub use gpu::{Baseline, Mode, Renderer, SHADOW_SIZE, View, device_descriptor, request_device};
 pub use render::{Frame, FrameStats};

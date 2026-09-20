@@ -5,7 +5,7 @@ and cull on the GPU, then draw through ordinary hardware rasterization. No softw
 rasterizer, 64-bit atomics, optional rendering features, or vendor modifications.
 The native CLI renders the two scanned statues and a continuous avenue-to-detail
 camera path, including lit cluster colours, baked AO, and a 40-second 60fps H.264
-reel. It is an offscreen demo, not an interactive player. L3a uses format v4;
+reel. `demo` opens a native vsynced window; `reel` remains the offscreen exporter. Both use format v4;
 the F2 performance tables below remain historical v3 measurements.
 Hero: Smithsonian *George Washington*, Horatio Greenough, 1840 (CC0).
 Fast fixture: SMK *Dying Gaul* (Public Domain Mark).
@@ -29,6 +29,31 @@ shadows use full geometry. GPU selection costs 2.114 ms and 0.619 ms respectivel
 (including shadow selection), separate from the main-pass figures.
 
 ## How to run
+
+```sh
+cargo build -p clod-view
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-4.clod"
+target/debug/clod-view demo "$asset"
+target/debug/clod-view demo "$asset" --frames 600 --exit
+target/debug/clod-view demo "$asset" --mode naive --frames 600 --exit
+bun measure.mjs benchmark # regenerates the lead table and exact JSON records
+bun measure.mjs pacing    # both assets × both modes, 600 measured frames each
+```
+
+Space pauses; ←/→ scrub; C/D/T toggle lit cluster colours / DAG depth / triangle
+colours; N toggles indexed naive; [/] halve/double the threshold (0.125–16 px).
+1 single, 2 ring:12, 3 avenue:25, 4 grid:400. Drag the left mouse button while
+paused to orbit. Esc quits. `--layout field:5000,1` also works. Stats are in the
+window title. Resizing recreates attachments, not geometry. Normal playback
+traverses the 40-second path in both directions so the loop has no teleport.
+`--frames N --exit` samples t=0..1 uniformly over N measured frames after ten
+warmups; it exercises the whole path regardless of performance. Both modes use
+the same path samples and frustum culling. Pacing is the interval between host
+present calls, including vsync waits; core wgpu supplies no compositor scanout
+feedback. Dropped frames sum `max(round(interval / refresh_period) - 1, 0)`;
+late intervals exceed 1.5 refresh periods. The refresh rate comes from the
+window's monitor, not a hard-coded 60/120. All spikes remain in the report.
+
 
 Use this directory and the launch environment (debug info off, incremental off).
 There is one target directory, `target/`; this is an independent Cargo workspace.
@@ -151,6 +176,26 @@ does not enter the distance formula; the multi-fixture test applies random rigid
 orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
+
+L3b implementation decisions: use native-only winit 0.30 with raw-window-handle
+and X11 (the latter permits Linux CPU-only builds); retain wgpu 30 and core
+limits/features, with timestamp queries only for measurement. Window creation,
+input, clocks and polling live in the binary. Render to the existing sRGB target
+and GPU-blit to the surface's sRGB format; use FIFO present. Resize only targets.
+Keep both renderer modes resident for immediate N toggles; table residency lists
+each separately. Resolve timestamp counters after completed Metal work, preserving
+the existing stale-counter workaround; no pixel readback or PNG in the window.
+The GPU totals exclude the final presentation blit; host intervals include it.
+Full-path measurement uses frame-index sampling; interactive looping reverses at
+stationary endpoints. Number keys expose four requested layouts; field remains a
+CLI layout. Use nearest-rank pacing and p99.9 image percentiles, and the existing
+one-pixel-eroded coverage definition. Benchmark seven frames after one warmup,
+with all static layouts at t=0, avenue at t=.45 (hero plus avenue), and the quality
+dial at t=.75 (portrait). Report measured errors without treating quadric error
+as a strict pixel bound. The benchmark command rewrites only its delimited README
+lead and JSON records; scratch/logs remain cached. API references:
+[winit application lifecycle](https://docs.rs/winit/0.30.13/winit/application/trait.ApplicationHandler.html)
+and the locally installed wgpu 30 source.
 
 L3b (2026-09-20): implement solely on `lane/cluster-lod`, starting at `53fb1a94`,
 with local commits and no push or additional worktree/reviewer. The explicit lane
