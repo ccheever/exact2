@@ -262,8 +262,9 @@ impl World {
             // cloning state. Hooks only declare types, as required by the contract.
             let mut before = [0u8; 256];
             for r in self.registry.values() {
-                before[r.ordinal as usize] =
-                    1 | u8::from(r.make.is_some()) * 2 | u8::from(r.make_resource.is_some()) * 4;
+                before[r.ordinal as usize] = 1
+                    | (u8::from(r.make.is_some()) * 2)
+                    | (u8::from(r.make_resource.is_some()) * 4);
             }
             if !existed {
                 before[ordinal as usize] = 0;

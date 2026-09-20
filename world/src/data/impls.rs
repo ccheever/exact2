@@ -197,7 +197,9 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
-    const CHECK_DEFAULT_ACYCLIC: () = if N == 0 { () } else { T::CHECK_DEFAULT_ACYCLIC };
+    const CHECK_DEFAULT_ACYCLIC: () = if N != 0 {
+        T::CHECK_DEFAULT_ACYCLIC
+    };
     fn inline_size() -> usize {
         N.saturating_mul(T::inline_size())
     }

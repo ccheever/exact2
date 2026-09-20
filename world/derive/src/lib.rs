@@ -280,7 +280,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     let mut out = format!("const _: () = <{name} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;
     impl ::exact_world::Data for {name} {{
     const CHECK_DEFAULT_ACYCLIC: () = {{ {default_check} }};
-    fn inline_size() -> usize {{ {inline_size} }}
+    fn inline_size() -> ::core::primitive::usize {{ {inline_size} }}
     {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(

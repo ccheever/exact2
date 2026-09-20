@@ -654,3 +654,18 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - K1c remaining: typed clock/phase results, query `one`, and analog-only declarations; public APIs are documented in `world/README.md`.
 - K1d follow-up: field-spanned derive parser errors; F2 still requires engine consolidation, a real nonspatial web/Linux consumer, complete-consumer artifact and Ryu comparison evidence, ordinary-app/first-pixel budgets, old-save cutover policy, Apple/browser game execution and design-author/fresh-judge acceptance. F1 corrections and the amended 7,500-line budget do not establish F2 admission.
+
+## world kernel
+
+- Bulk hashing does not charge the decoded-data allowance (`world/src/data/hash.rs:123`); align its refusal with binary encoding (sol #4).
+- First high-slot insertion initializes and retains prefix metadata and peak chunks (`world/src/storage/directory.rs:46`, `world/src/storage/raw.rs:197`); retain the explicit bounded tradeoff until measured consumer memory warrants a change (sol #5).
+- Spawn repeatedly scans retired low slots in the reusable set (`world/src/world/mod.rs:389`); separate retired bookkeeping from reuse (sol #6).
+- Built-in RNG is also registrable as a second resource (`world/src/rng.rs:3`, `world/src/world/mod.rs:269`), yielding two saved RNGs (sol #7).
+- No-op driver operations invalidate observation/candidates (`world/src/sim.rs:149`, `world/src/sim.rs:206`); distinguish unchanged run/delivery boundaries (sol #8).
+- Ordinary component removal reserves two records but emits one (`world/src/world/mod.rs:574`); Parent needs both. Cursor exhaustion now returns Err, but the over-reservation remains (sol #9).
+- Publication keys have no removal operation; publish_batch updates a subset rather than replacing the complete map (`world/src/world/mod.rs:719`) (grok #7).
+- World::insert always returns Ok(true), including replacement (`world/src/world/mod.rs:541`) (grok #8).
+- Session telemetry ignores world poison (`world/src/world/journal.rs:250`); emit also retains its panic convention on event admission (`world/src/world/mod.rs:756`) (grok #9/#4).
+- Derive diagnostics use invocation spans (`world/derive/src/lib.rs:49`, `world/derive/src/lib.rs:418`), rather than the offending field (grok #5).
+- Test gaps: the live MAX-generation preflight fixture creates an unreachable valid-world state (`world/src/world/ownership.rs:233`); the zero-time assertion in resource_and_non_state_outputs is tautological (`world/tests/ecs.rs:166`); padded-varint exact-restore rejection lacks a direct control (`world/src/data/bin.rs:321`). Reachable retirement, register Err, maximal settle and map-key controls now exist (sol #10, grok #10).
+- smoothstep with equal/reversed edges remains outside its documented distinct/increasing-edge contract (`game/world-motion/src/lib.rs:9`); its test covers NaN input and the valid midpoint only (`game/world-motion/src/tween.rs:174`). It is no longer kernel vocabulary (grok #9/#10).
