@@ -15,6 +15,7 @@ pub(crate) struct Singleton<C> {
     pub(super) epoch: Rc<Cell<u64>>,
     name: &'static str,
     revision: Cell<u64>,
+    present: bool,
 }
 impl<C: Data> Singleton<C> {
     pub fn new(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -24,6 +25,7 @@ impl<C: Data> Singleton<C> {
             epoch,
             name,
             revision: Cell::new(0),
+            present: false,
         }
     }
     pub(crate) fn revision(&self) -> u64 {
@@ -36,6 +38,7 @@ impl<C: Data> Singleton<C> {
     pub fn insert(&mut self, value: C) {
         self.edited();
         *self.value.get_mut() = Some(value);
+        self.present = true;
     }
     pub fn get(&self) -> Option<Ref<'_, C>> {
         let lease = Lease::new(self.name, &self.borrowed, false);
@@ -70,7 +73,7 @@ impl<C: Data> Erased for Singleton<C> {
             .read(r)
     }
     fn has(&self, index: usize) -> bool {
-        index == 0 && self.get().is_some()
+        index == 0 && self.present
     }
     fn any(&self) -> &dyn Any {
         self
@@ -79,11 +82,12 @@ impl<C: Data> Erased for Singleton<C> {
         self
     }
     fn len(&self) -> usize {
-        usize::from(self.get().is_some())
+        usize::from(self.present)
     }
     fn remove(&mut self, index: usize) {
         if index == 0 {
             self.edited();
+            self.present = false;
             *self.value.get_mut() = None;
         }
     }
@@ -138,5 +142,23 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn settle_tick(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> Option<u64> {
         self.get().map_or(Some(now.tick), |v| v.settle_tick(now))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn membership_reads_do_not_borrow_a_mutably_leased_value() {
+        let mut cell = Singleton::<u32>::new("score", Rc::new(Cell::new(0)));
+        assert_eq!(cell.len(), 0);
+        cell.insert(7);
+        let mut value = cell.get_mut().unwrap();
+        assert!(cell.has(0));
+        assert_eq!(cell.len(), 1);
+        *value = 9;
+        drop(value);
+        cell.remove(0);
+        assert!(!cell.has(0));
     }
 }

@@ -148,7 +148,7 @@ struct State {
 type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
-    id: TypeId,
+    identity: fn() -> (TypeId, &'static str),
     make: Option<StorageFactory>,
     resource_size: usize,
     make_resource: Option<StorageFactory>,
@@ -277,15 +277,20 @@ impl World {
         if self
             .registry
             .get(name)
-            .is_some_and(|r| r.id != TypeId::of::<C>())
+            .is_some_and(|r| (r.identity)().0 != TypeId::of::<C>())
         {
-            return Err(DataError::new("duplicate storage name").at(name));
+            return Err(DataError::new(format!(
+                "duplicate storage name: {} and {}",
+                (self.registry[name].identity)().1,
+                std::any::type_name::<C>()
+            ))
+            .at(name));
         }
         if !self.registry.contains_key(name) && self.registry.len() == 256 {
             return Err(DataError::new("storage type limit (256)").at(name));
         }
         Ok(self.registry.entry(name).or_insert(Registration {
-            id: TypeId::of::<C>(),
+            identity: || (TypeId::of::<C>(), std::any::type_name::<C>()),
             make: None,
             make_resource: None,
             resource_size: 0,
@@ -295,7 +300,7 @@ impl World {
     fn registered<C: Data>(&self, name: &str, resource: bool) -> Result<(), DataError> {
         self.healthy()?;
         if !self.registry.get(name).is_some_and(|r| {
-            r.id == TypeId::of::<C>()
+            (r.identity)().0 == TypeId::of::<C>()
                 && if resource {
                     r.make_resource.is_some()
                 } else {
@@ -496,7 +501,7 @@ impl World {
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> Result<bool, DataError> {
         let count = c.preflight(self, e)?;
         if !self.contains(e) {
-            return Ok(false);
+            return Err(DataError::new("stale entity"));
         }
         self.change_room(count)?;
         self.mutation(|this| this.insert_commit(e, c))

@@ -294,3 +294,28 @@ fn manual_data_shared_mutation_cannot_return_a_stale_hash() {
     w.get::<Manual>(e).unwrap().0.set(5);
     assert_ne!(w.hash(), before);
 }
+
+#[test]
+fn registration_collision_names_both_rust_types_and_stale_insert_refuses() {
+    mod left {
+        #[derive(Default, exact_world::Component)]
+        pub struct Same;
+    }
+    mod right {
+        #[derive(Default, exact_world::Component)]
+        pub struct Same;
+    }
+    let mut w = World::new(60, 0);
+    w.register::<left::Same>().unwrap();
+    let error = match w.register::<right::Same>() {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("collision admitted"),
+    };
+    assert!(
+        error.contains("left::Same") && error.contains("right::Same"),
+        "{error}"
+    );
+    let stale = w.spawn(left::Same).unwrap();
+    w.despawn(stale);
+    assert!(w.insert(stale, left::Same).is_err());
+}
