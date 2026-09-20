@@ -3,6 +3,7 @@ mod compute;
 mod gpu;
 mod hero;
 mod render;
+pub mod residency;
 pub mod scene;
 pub mod select;
 mod target;

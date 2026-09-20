@@ -4,7 +4,7 @@ use clod_format::{ORIGINAL, Reader};
 use glam::{Mat4, Quat, Vec3, Vec4};
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable, serde::Serialize, serde::Deserialize)]
 pub struct Instance {
     pub matrix: [f32; 16],
 }
@@ -55,7 +55,7 @@ impl AssetBounds {
         (self.min + self.max) * 0.5
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Scene {
     pub instances: Vec<Instance>,
     pub center: Vec3,

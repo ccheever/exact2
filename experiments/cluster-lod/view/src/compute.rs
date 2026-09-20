@@ -52,6 +52,8 @@ pub(crate) struct Compute {
     page_count: u32,
     sphere: [f32; 4],
     pub bytes: u64,
+    readiness: wgpu::Buffer,
+    partial: bool,
 }
 impl Compute {
     pub fn new(renderer: &Renderer, reader: &Reader<'_>, capacity: Option<u32>) -> Result<Self> {
@@ -92,7 +94,13 @@ impl Compute {
             label: Some("validated selection WGSL"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/select.wgsl").into()),
         });
-        let entries: Vec<_> = (0..8)
+        let readiness = buffer(
+            device,
+            "resident groups",
+            bytemuck::cast_slice(&vec![1u32; reader.groups.len()]),
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        );
+        let entries: Vec<_> = (0..9)
             .map(|binding| wgpu::BindGroupLayoutEntry {
                 binding,
                 visibility: wgpu::ShaderStages::COMPUTE,
@@ -101,7 +109,7 @@ impl Compute {
                         wgpu::BufferBindingType::Uniform
                     } else {
                         wgpu::BufferBindingType::Storage {
-                            read_only: binding < 4,
+                            read_only: binding < 4 || binding == 8,
                         }
                     },
                     has_dynamic_offset: false,
@@ -111,7 +119,7 @@ impl Compute {
             })
             .collect();
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("seven storage buffers"),
+            label: Some("eight storage buffers"),
             entries: &entries,
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -129,7 +137,7 @@ impl Compute {
                 cache: None,
             })
         });
-        let mut bytes = envelope.size() + scratch.size();
+        let mut bytes = envelope.size() + scratch.size() + readiness.size();
         let passes = std::array::from_fn(|_| {
             let uniform = make(
                 "selection config",
@@ -164,6 +172,7 @@ impl Compute {
                 &counts,
                 &draws,
                 &visible,
+                &readiness,
             ];
             let entries: Vec<_> = buffers
                 .iter()
@@ -187,6 +196,8 @@ impl Compute {
             }
         });
         Ok(Self {
+            readiness,
+            partial: false,
             passes,
             pipelines,
             quota,
@@ -226,7 +237,12 @@ impl Compute {
                 self.page_count,
                 self.quota,
             ],
-            options: [cull as u32, brute as u32, renderer.max_triangles, 0],
+            options: [
+                cull as u32,
+                (brute || self.partial) as u32,
+                renderer.max_triangles,
+                0,
+            ],
             threshold: [threshold, 0.0, 0.0, 0.0],
         };
         renderer
@@ -287,6 +303,15 @@ impl Renderer {
             }
         }
         self.compute = Some(compute);
+        Ok(())
+    }
+    /// Residency masks may be synthetic in native oracles; production only adds verified pages.
+    pub fn set_residency(&mut self, reader: &Reader<'_>, pages: &[bool]) -> Result<()> {
+        let ready = crate::residency::groups(reader, pages)?;
+        let compute = self.compute.as_mut().ok_or("GPU selection not enabled")?;
+        self.queue
+            .write_buffer(&compute.readiness, 0, bytemuck::cast_slice(&ready));
+        compute.partial = pages.iter().any(|p| !p);
         Ok(())
     }
     pub fn gpu_capacity_per_instance(&self) -> Option<u32> {

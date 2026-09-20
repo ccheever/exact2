@@ -318,7 +318,7 @@ impl Renderer {
                 &device,
                 "baked page",
                 if mode == Mode::Cluster {
-                    reader.page_bytes(id).expect("page")
+                    reader.page_bytes(id).unwrap_or(&[0u8; 16])
                 } else {
                     &[0u8; 16]
                 },

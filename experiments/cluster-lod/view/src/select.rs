@@ -108,6 +108,26 @@ pub fn select_culled(
     threshold: f32,
     cull: bool,
 ) -> Selection {
+    select_resident(
+        reader,
+        instances,
+        camera,
+        height,
+        threshold,
+        cull,
+        &vec![1; reader.groups.len()],
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn select_resident(
+    reader: &Reader<'_>,
+    instances: &[Instance],
+    camera: &Camera,
+    height: u32,
+    threshold: f32,
+    cull: bool,
+    ready: &[u32],
+) -> Selection {
     let mut result = Selection {
         pages: vec![Vec::new(); reader.pages.len()],
         ..Selection::default()
@@ -124,7 +144,10 @@ pub fn select_culled(
         let above: Vec<bool> = reader
             .groups
             .iter()
-            .map(|g| projected(&g.simplified, model, scale, camera, height) > threshold)
+            .zip(ready)
+            .map(|(g, &r)| {
+                r != 0 && projected(&g.simplified, model, scale, camera, height) > threshold
+            })
             .collect();
         for (id, c) in reader.clusters.iter().enumerate() {
             result.candidates += 1;

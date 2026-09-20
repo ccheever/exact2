@@ -76,6 +76,13 @@ pub struct Reader<'a> {
 }
 impl<'a> Reader<'a> {
     pub fn new(bytes: &'a [u8]) -> Result<Self, Error> {
+        Self::parse(bytes, false)
+    }
+    /// Validate header, tables and DAG without requiring geometry to be resident.
+    pub fn metadata(bytes: &'a [u8]) -> Result<Self, Error> {
+        Self::parse(bytes, true)
+    }
+    fn parse(bytes: &'a [u8], metadata: bool) -> Result<Self, Error> {
         require(
             cfg!(target_endian = "little"),
             "little-endian host required",
@@ -87,7 +94,14 @@ impl<'a> Reader<'a> {
                 && h.header_bytes as usize == size_of::<Header>(),
             "unsupported header",
         )?;
-        require(h.file_bytes == bytes.len() as u64, "file length mismatch")?;
+        require(
+            if metadata {
+                h.geometry_offset
+            } else {
+                h.file_bytes
+            } == bytes.len() as u64,
+            "file length mismatch",
+        )?;
         require(
             h.source_vertices > 0
                 && h.source_triangles > 0
@@ -158,10 +172,10 @@ impl<'a> Reader<'a> {
             pages,
             nodes,
         };
-        r.validate(next)?;
+        r.validate(next, metadata)?;
         Ok(r)
     }
-    fn validate(&self, mut next: usize) -> Result<(), Error> {
+    fn validate(&self, mut next: usize, metadata: bool) -> Result<(), Error> {
         let mut cluster_cursor = 0usize;
         let mut has_color = false;
         for (pi, p) in self.pages.iter().enumerate() {
@@ -178,7 +192,7 @@ impl<'a> Reader<'a> {
                 .checked_add(length)
                 .ok_or_else(|| Error("page overflow".into()))?;
             require(
-                next <= self.bytes.len() && next.is_multiple_of(16),
+                next as u64 <= self.header.file_bytes && next.is_multiple_of(16),
                 "page outside file or unaligned",
             )?;
             require(
@@ -192,11 +206,6 @@ impl<'a> Reader<'a> {
                 .clusters
                 .get(cluster_cursor..end)
                 .ok_or_else(|| Error("page clusters outside table".into()))?;
-            let data = &self.bytes[p.offset as usize..next];
-            require(
-                <[u8; 32]>::from(Sha256::digest(data)) == p.sha256,
-                "page digest mismatch",
-            )?;
             require(
                 p.vertex_count as usize <= length / size_of::<Vertex>()
                     && p.indices_offset as usize <= length
@@ -210,79 +219,42 @@ impl<'a> Reader<'a> {
                     && align16(p.indices_offset as usize + p.index_count as usize)? == length,
                 "page layout mismatch",
             )?;
-            let vertices = section::<Vertex>(data, p.vertices_offset as u64, p.vertex_count)?;
-            zero_padding(
-                data,
-                p.vertex_count as usize * size_of::<Vertex>(),
-                p.indices_offset as usize,
-            )?;
-            zero_padding(
-                data,
-                p.indices_offset as usize + p.index_count as usize,
-                length,
-            )?;
-            has_color |= vertices
-                .iter()
-                .any(|v| v.color & 0x00ff_ffff != 0x00ff_ffff);
-            require(
-                vertices
-                    .iter()
-                    .all(|v| v.position.iter().all(|x| x.is_finite())),
-                "nonfinite position",
-            )?;
-            let indices = section::<u8>(data, p.indices_offset as u64, p.index_count)?;
-            let mut vc = 0usize;
-            let mut tc = 0usize;
+            let mut vc = 0u32;
+            let mut tc = 0u32;
             for c in cs {
                 require(
                     c.page as usize == pi
-                        && c.vertex_offset as usize == vc
-                        && c.triangle_offset as usize == tc,
-                    "cluster geometry partition",
-                )?;
-                require(
-                    c.vertex_count > 0
+                        && c.vertex_offset == vc
+                        && c.triangle_offset == tc
+                        && c.vertex_count > 0
                         && c.vertex_count <= 256
                         && c.triangle_count > 0
                         && c.triangle_count <= self.header.config.max_triangles
                         && c.reserved == [0; 3],
-                    "invalid cluster counts",
+                    "cluster geometry partition or counts",
                 )?;
-                vc += c.vertex_count as usize;
-                let te = tc + c.triangle_count as usize * 3;
-                require(vc <= vertices.len(), "cluster vertices out of range")?;
-                require(
-                    vertices[c.vertex_offset as usize..vc].iter().all(|v| {
-                        contains(
-                            [c.sphere[0], c.sphere[1], c.sphere[2]],
-                            c.sphere[3],
-                            v.position,
-                            0.0,
-                        )
-                    }),
-                    "culling sphere excludes vertices",
-                )?;
-                let local = indices
-                    .get(tc..te)
-                    .ok_or_else(|| Error("cluster indices out of range".into()))?;
-                require(
-                    local.iter().all(|v| (*v as u32) < c.vertex_count),
-                    "local index out of range",
-                )?;
-                tc = te;
+                vc = vc
+                    .checked_add(c.vertex_count)
+                    .ok_or_else(|| Error("vertex overflow".into()))?;
+                tc = tc
+                    .checked_add(c.triangle_count * 3)
+                    .ok_or_else(|| Error("index overflow".into()))?;
             }
             require(
-                vc == vertices.len() && tc == indices.len(),
-                "unclaimed page geometry",
+                vc == p.vertex_count && tc == p.index_count,
+                "unclaimed geometry",
             )?;
+            if !metadata {
+                has_color |= self.validate_page(pi, &self.bytes[p.offset as usize..next])?;
+            }
             cluster_cursor = end;
         }
         require(
-            next == self.bytes.len() && cluster_cursor == self.clusters.len(),
+            next as u64 == self.header.file_bytes && cluster_cursor == self.clusters.len(),
             "unclaimed bytes or clusters",
         )?;
         require(
-            has_color == (self.header.flags & HAS_COLOR != 0),
+            metadata || has_color == (self.header.flags & HAS_COLOR != 0),
             "color flag disagrees with vertex data",
         )?;
         let mut group_use = vec![false; self.clusters.len()];
@@ -371,6 +343,87 @@ impl<'a> Reader<'a> {
             "terminal/refinement reference mismatch",
         )?;
         self.validate_nodes()
+    }
+    /// Validate a separately downloaded page before it becomes resident. Returns its colour flag.
+    pub fn validate_page(&self, pi: usize, data: &[u8]) -> Result<bool, Error> {
+        let p = self
+            .pages
+            .get(pi)
+            .ok_or_else(|| Error("page index".into()))?;
+        require(data.len() as u64 == p.byte_length, "page length mismatch")?;
+        require(
+            <[u8; 32]>::from(Sha256::digest(data)) == p.sha256,
+            "page digest mismatch",
+        )?;
+        let length = data.len();
+        let cs =
+            &self.clusters[p.first_cluster as usize..(p.first_cluster + p.cluster_count) as usize];
+        let vertices = section::<Vertex>(data, p.vertices_offset as u64, p.vertex_count)?;
+        zero_padding(
+            data,
+            p.vertex_count as usize * size_of::<Vertex>(),
+            p.indices_offset as usize,
+        )?;
+        zero_padding(
+            data,
+            p.indices_offset as usize + p.index_count as usize,
+            length,
+        )?;
+        let has_color = vertices
+            .iter()
+            .any(|v| v.color & 0x00ff_ffff != 0x00ff_ffff);
+        require(
+            vertices
+                .iter()
+                .all(|v| v.position.iter().all(|x| x.is_finite())),
+            "nonfinite position",
+        )?;
+        let indices = section::<u8>(data, p.indices_offset as u64, p.index_count)?;
+        let mut vc = 0usize;
+        let mut tc = 0usize;
+        for c in cs {
+            require(
+                c.page as usize == pi
+                    && c.vertex_offset as usize == vc
+                    && c.triangle_offset as usize == tc,
+                "cluster geometry partition",
+            )?;
+            require(
+                c.vertex_count > 0
+                    && c.vertex_count <= 256
+                    && c.triangle_count > 0
+                    && c.triangle_count <= self.header.config.max_triangles
+                    && c.reserved == [0; 3],
+                "invalid cluster counts",
+            )?;
+            vc += c.vertex_count as usize;
+            let te = tc + c.triangle_count as usize * 3;
+            require(vc <= vertices.len(), "cluster vertices out of range")?;
+            require(
+                vertices[c.vertex_offset as usize..vc].iter().all(|v| {
+                    contains(
+                        [c.sphere[0], c.sphere[1], c.sphere[2]],
+                        c.sphere[3],
+                        v.position,
+                        0.0,
+                    )
+                }),
+                "culling sphere excludes vertices",
+            )?;
+            let local = indices
+                .get(tc..te)
+                .ok_or_else(|| Error("cluster indices out of range".into()))?;
+            require(
+                local.iter().all(|v| (*v as u32) < c.vertex_count),
+                "local index out of range",
+            )?;
+            tc = te;
+        }
+        require(
+            vc == vertices.len() && tc == indices.len(),
+            "unclaimed page geometry",
+        )?;
+        Ok(has_color)
     }
     fn validate_nodes(&self) -> Result<(), Error> {
         if self.nodes.is_empty() {

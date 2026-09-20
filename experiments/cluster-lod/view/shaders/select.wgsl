@@ -15,6 +15,7 @@ struct Config {
 // Each page: four indirect words, visible base, three unused. Then four totals.
 @group(0) @binding(6) var<storage,read_write> draws: array<u32>;
 @group(0) @binding(7) var<storage,read_write> visible: array<vec2<u32>>;
+@group(0) @binding(8) var<storage,read> ready: array<u32>;
 fn f(base:u32)->f32 { return bitcast<f32>(clusters[base]); }
 fn v3(base:u32)->vec3<f32> { return vec3(f(base),f(base+1u),f(base+2u)); }
 fn stable_length(v:vec3<f32>)->f32 {
@@ -52,8 +53,9 @@ fn cone_visible(base:u32,model:mat4x4<f32>,scale:f32)->bool {
 }
 fn selected(id:u32,model:mat4x4<f32>,scale:f32)->bool {
     let b=id*32u;
+    if ready[clusters[b+21u]]==0u { return false; }
     if !(projected(b+4u,model,scale)>cfg.threshold.x) { return false; }
-    if clusters[b+22u]!=0xffffffffu && projected(b+9u,model,scale)>cfg.threshold.x { return false; }
+    if clusters[b+22u]!=0xffffffffu && ready[clusters[b+22u]]!=0u && projected(b+9u,model,scale)>cfg.threshold.x { return false; }
     if cfg.options.x!=0u && (!sphere_visible(vec4(v3(b),f(b+3u)),model,scale) || !cone_visible(b,model,scale)) { return false; }
     return true;
 }
@@ -89,10 +91,12 @@ fn choose(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index
         atomicStore(&counts[stat],end-first);
     }
     workgroupBarrier();
-    for(var block=first;block<end;block+=256u) {
+    let range_first=workgroupUniformLoad(&first);
+    let range_end=workgroupUniformLoad(&end);
+    for(var block=range_first;block<range_end;block+=256u) {
         let id=block+lane;
         var keep=false;
-        if id<end { keep=selected(id,model,scale); }
+        if id<range_end { keep=selected(id,model,scale); }
         scan[lane]=select(0u,1u,keep);
         workgroupBarrier();
         for(var step=1u;step<256u;step*=2u) {
