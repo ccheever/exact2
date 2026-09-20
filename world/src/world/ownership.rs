@@ -14,6 +14,7 @@ impl World {
         }
         match parent {
             Some(parent) => {
+                self.check_parent(child, parent)?;
                 self.change_room(2)?;
                 self.register::<Parent>()?;
                 self.insert(child, Parent(parent))?;
@@ -163,6 +164,26 @@ impl World {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    #[test]
+    fn refused_parent_edge_does_not_declare_parent() {
+        for stale in [false, true] {
+            let mut w = World::new(60, 0);
+            let child = w.spawn(()).unwrap();
+            let parent = if stale { Entity::default() } else { child };
+            let before = w.save().unwrap();
+            let epoch = w.mutation_epoch();
+            let cursor = w.journal_next();
+            assert!(w.set_parent(child, Some(parent)).is_err());
+            assert!(w.registry.is_empty(), "refused edge declared Parent");
+            assert_eq!(w.save().unwrap(), before);
+            assert_eq!(w.mutation_epoch(), epoch);
+            assert_eq!(w.journal_next(), cursor);
+            let parent = w.spawn(()).unwrap();
+            w.set_parent(child, Some(parent)).unwrap();
+            assert!(w.registry.contains_key("Parent"));
+            assert_eq!(w.get::<Parent>(child).unwrap().entity(), parent);
+        }
+    }
     #[test]
     fn unchanged_boundary_does_not_visit_ownership_slots() {
         let mut w = World::new(60, 0);

@@ -106,7 +106,8 @@ declarations made by that call and its dependencies; retry runs the hook again.
 Hooks declare types only; arbitrary gameplay effects are not rolled back.
 Rollback takes a fixed 256-byte snapshot only when a hook declares a dependency;
 empty hooks do no snapshot scan or allocation. Type count bounds nested work. Panics still poison. `Game::register` receives borrowed setup/restart
-arguments, without formatting them. Insertion never registers types implicitly.
+arguments, without formatting them. Insertion requires declared types; `set_parent`
+implicitly declares the kernel-owned Parent after validating the edge.
 Registration and setup must not keep hidden continuation state.
 
 Shared and exclusive column leases enforce aliasing. Mutable queries are sealed;
