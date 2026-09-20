@@ -212,7 +212,6 @@ where
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
-        r.claim(Self::default_size())?;
         *self = Self::default();
         read_slice(self, r)
     }
@@ -253,7 +252,6 @@ impl<T: Data> Data for Box<T> {
         8usize.saturating_add(T::default_size())
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
-        r.claim(T::default_size())?;
         r.claim(std::mem::size_of::<T>())?;
         crate::storage::boxed(T::read_new(r)?)
     }
@@ -289,11 +287,7 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
         r.begin_struct()?;
         self.clear();
         while let Some(k) = r.field()? {
-            r.claim(
-                super::limits::map_bytes::<K, T>()
-                    .saturating_add(super::limits::rc_str_bytes(k.len())?)
-                    .saturating_add(T::default_size()),
-            )?;
+            r.claim(super::limits::map_bytes::<K, T>() + super::limits::rc_str_bytes(k.len())?)?;
             let value = T::read_new(r).map_err(|e| e.at(k))?;
             self.insert(k.into(), value);
         }
@@ -311,7 +305,7 @@ macro_rules! tuple {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-                r.begin_seq()?; r.claim(Self::default_size())?; *self = Self::default(); let mut i = 0;
+                r.begin_seq()?; *self = Self::default(); let mut i = 0;
                 while r.item()? {
                     match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.unknown().map_err(|e| e.at(i))?, }
                     i += 1;

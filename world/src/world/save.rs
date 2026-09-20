@@ -85,7 +85,7 @@ impl Data for State {
 impl World {
     pub(crate) fn read_publications(&mut self, r: &mut bin::Decoder<'_>) -> Result<(), DataError> {
         r.begin_struct()?;
-        let mut budget = crate::json::LIMIT;
+        let mut budget = crate::values::PublicationSize::default();
         let values = self.published.get_mut();
         while let Some(key) = r.field()? {
             if values.len() == 256 || key.len() > 256 {
@@ -98,7 +98,7 @@ impl World {
             let value = crate::Published::read_bounded(r, &mut budget, 0)?;
             values.insert(key.into(), value);
         }
-        self.published_cost.set(crate::json::LIMIT - budget);
+        self.published_cost.set(budget);
         Ok(())
     }
 }

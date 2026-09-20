@@ -49,13 +49,7 @@ impl Directory {
             .max(4)
             .min(crate::MAX_ENTITIES.div_ceil(PAGE))
     }
-    pub(super) fn growth_bytes(&self, index: usize) -> usize {
-        if index < self.len {
-            0
-        } else {
-            self.capacity_for(index) * 24
-        }
-    }
+
     pub(super) fn ensure(&mut self, index: usize) {
         assert!(index < crate::MAX_ENTITIES.div_ceil(PAGE), "chunk limit");
         if index < self.len {

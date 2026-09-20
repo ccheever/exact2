@@ -253,17 +253,16 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             );
             let defaults = vec!["::exact_world::data::field_default()".to_owned(); b.fields.len()];
             let wildcards = vec!["_".to_owned(); b.fields.len()];
-            read_new += &format!("{:?} => {{ r.claim({})?; let mut value = {}; let {pat} = &mut value else {{ unreachable!() }}; {} value }},", clean(&arm.name), default_size(b), pattern(&arm.name, b, &defaults), read_body(b, &refs));
+            read_new += &format!("{:?} => {{ let mut value = {}; let {pat} = &mut value else {{ unreachable!() }}; {} value }},", clean(&arm.name), pattern(&arm.name, b, &defaults), read_body(b, &refs));
             let bind = if arms.len() == 1 {
                 format!("let {pat} = self; (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?;", read_body(b, &refs))
             } else {
                 format!("if let {pat} = self {{ (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?; }}", read_body(b, &refs))
             };
             read += &format!(
-                "{:?} => {{ if !::core::matches!(self, {}) {{ r.claim({})?; *self = {}; }} {bind} }},",
+                "{:?} => {{ if !::core::matches!(self, {}) {{ *self = {}; }} {bind} }},",
                 clean(&arm.name),
                 pattern(&arm.name, b, &wildcards),
-                default_size(b),
                 pattern(&arm.name, b, &defaults)
             );
         }
@@ -363,16 +362,12 @@ fn write_body(b: &Body, access: &[String]) -> String {
 fn read_body(b: &Body, access: &[String]) -> String {
     let named = b.shape != Shape::Tuple;
     let mut s = String::new();
-    for (f, a) in b
+    for (_, a) in b
         .fields
         .iter()
         .zip(access)
         .filter(|(f, _)| f.skip || !named)
     {
-        s += &format!(
-            "r.claim(<{} as ::exact_world::Data>::default_size())?;",
-            f.ty
-        );
         s += &format!("{a} = ::exact_world::data::field_default();");
     }
     s += if named {

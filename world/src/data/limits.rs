@@ -72,17 +72,12 @@ impl Budget {
 pub(crate) fn allocation(_: std::collections::TryReserveError) -> DataError {
     DataError::new("cannot allocate decoded value")
 }
-pub(crate) fn reserve<T: Data>(
+pub(crate) fn reserve<T>(
     r: &mut dyn Reader,
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
-    grow(
-        v,
-        extra,
-        std::mem::size_of::<T>().max(T::default_size()),
-        |bytes| r.claim(bytes),
-    )
+    grow(v, extra, std::mem::size_of::<T>(), |bytes| r.claim(bytes))
 }
 fn grow<T>(
     v: &mut Vec<T>,
@@ -142,11 +137,7 @@ pub(crate) fn read_map<T: Data, K: Ord + for<'a> From<&'a str>>(
         if values.len() == limit || key.len() > key_bytes {
             return Err(DataError::new("map count/key limit"));
         }
-        r.claim(
-            map_bytes::<K, T>()
-                .saturating_add(rc_str_bytes(key.len())?)
-                .saturating_add(T::default_size()),
-        )?;
+        r.claim(map_bytes::<K, T>() + rc_str_bytes(key.len())?)?;
         let value = T::read_new(r).map_err(|e| e.at(key))?;
         values.insert(key.into(), value);
     }

@@ -17,17 +17,10 @@ pub enum Published {
 impl Published {
     pub(crate) fn read_bounded(
         r: &mut bin::Decoder<'_>,
-        budget: &mut usize,
+        budget: &mut PublicationSize,
         depth: usize,
     ) -> Result<Self, DataError> {
-        charge(budget, 64)?;
-        Self::read_reserved(r, budget, depth)
-    }
-    fn read_reserved(
-        r: &mut bin::Decoder<'_>,
-        budget: &mut usize,
-        depth: usize,
-    ) -> Result<Self, DataError> {
+        budget.add(1, 0)?;
         if depth > 80 {
             return Err(DataError::new("publication depth limit (80)"));
         }
@@ -52,7 +45,7 @@ impl Published {
                 "Bool" => Self::Bool(r.boolean()?),
                 "Str" => {
                     let s = r.borrowed_string()?;
-                    charge(budget, s.len().saturating_mul(6))?;
+                    budget.add(0, s.len())?;
                     r.claim(s.len())?;
                     let mut text = String::new();
                     text.try_reserve_exact(s.len())
@@ -79,11 +72,9 @@ impl Published {
                 "List" | "Record" => {
                     r.begin_seq()?;
                     let n = r.sequence_len().unwrap_or(0);
-                    if n > *budget / 64 {
+                    if n > 65_536 - budget.nodes {
                         return Err(DataError::new("publication child limit"));
                     }
-                    charge(budget, n * 64)?;
-                    r.claim(n * 64)?;
                     r.claim(
                         n.checked_mul(std::mem::size_of::<Self>())
                             .ok_or_else(|| DataError::new("publication allocation overflow"))?,
@@ -92,7 +83,7 @@ impl Published {
                     v.try_reserve_exact(n)
                         .map_err(crate::data::limits::allocation)?;
                     while r.item()? {
-                        v.push(Self::read_reserved(r, budget, depth + 1)?);
+                        v.push(Self::read_bounded(r, budget, depth + 1)?);
                     }
                     if arm == "List" {
                         Self::List(v)
@@ -104,7 +95,7 @@ impl Published {
                     r.begin_struct()?;
                     let mut v = std::collections::BTreeMap::new();
                     while let Some(k) = r.field()? {
-                        charge(budget, k.len().saturating_mul(6))?;
+                        budget.add(0, k.len())?;
                         r.claim(crate::data::limits::map_bytes::<String, Self>() + k.len())?;
                         let value = Self::read_bounded(r, budget, depth + 1)?;
                         v.insert(k.into(), value);
@@ -121,32 +112,28 @@ impl Published {
         r.end_variant()?;
         Ok(value)
     }
-    pub(crate) fn validate(&self, remaining: &mut usize, depth: usize) -> Result<(), DataError> {
-        let cost = match self {
-            Self::Str(s) => 64usize.saturating_add(s.len().saturating_mul(6)),
-            _ => 64,
-        };
-        *remaining = remaining
-            .checked_sub(cost)
-            .ok_or_else(|| DataError::new("publication exceeds 65536 bytes/visits"))?;
+    pub(crate) fn validate(
+        &self,
+        size: &mut PublicationSize,
+        depth: usize,
+    ) -> Result<(), DataError> {
+        size.add(1, if let Self::Str(s) = self { s.len() } else { 0 })?;
         if depth > 80 {
             return Err(DataError::new("publication depth limit"));
         }
         match self {
             Self::Object(fields) => {
                 for (k, v) in fields {
-                    *remaining = remaining
-                        .checked_sub(k.len().saturating_mul(6))
-                        .ok_or_else(|| DataError::new("publication key limit"))?;
-                    v.validate(remaining, depth + 1)?;
+                    size.add(0, k.len())?;
+                    v.validate(size, depth + 1)?;
                 }
             }
             Self::List(items) | Self::Record(items) => {
                 for v in items {
-                    v.validate(remaining, depth + 1)?;
+                    v.validate(size, depth + 1)?;
                 }
             }
-            Self::Option(Some(v)) => v.validate(remaining, depth + 1)?,
+            Self::Option(Some(v)) => v.validate(size, depth + 1)?,
             Self::Number(n) if !n.is_finite() => {
                 return Err(DataError::new("non-finite publication"))
             }
@@ -178,9 +165,26 @@ macro_rules! numbers {
 }
 numbers!(u8, u16, u32, i8, i16, i32, f32, f64);
 
-pub(crate) fn charge(budget: &mut usize, cost: usize) -> Result<(), DataError> {
-    *budget = budget
-        .checked_sub(cost)
-        .ok_or_else(|| DataError::new("publication exceeds 65536 bytes/visits"))?;
-    Ok(())
+/// Structural publication caps, independent of the resident-byte load budget.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PublicationSize {
+    pub nodes: usize,
+    pub text: usize,
+}
+impl PublicationSize {
+    pub fn add(&mut self, nodes: usize, text: usize) -> Result<(), DataError> {
+        if nodes > 65_536 - self.nodes || text > 65_536 - self.text {
+            return Err(DataError::new(
+                "publication exceeds 65536 nodes or string bytes",
+            ));
+        }
+        self.nodes += nodes;
+        self.text += text;
+        Ok(())
+    }
+    pub fn replace(&mut self, old: Self, new: Self) -> Result<(), DataError> {
+        self.nodes -= old.nodes;
+        self.text -= old.text;
+        self.add(new.nodes, new.text)
+    }
 }

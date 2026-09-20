@@ -279,16 +279,8 @@ impl RawStorage {
         valid: &dyn Fn(Entity) -> bool,
     ) -> Result<(), DataError> {
         r.begin_seq()?;
-        if let Some(count) = r.sequence_len() {
-            r.check_allocation(
-                count
-                    .div_ceil(PAGE)
-                    .checked_mul(PAGE.saturating_mul((self.desc.wire_size)()))
-                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
-            )?;
-        }
+
         let mut last = None;
-        r.claim((self.desc.wire_size)())?;
         r.claim(self.desc.layout.size())?;
         let mut value = Value {
             bytes: Bytes::try_new(self.desc.layout)?,
@@ -305,19 +297,6 @@ impl RawStorage {
             }
             r.required_item("missing component")?;
             let page = e.index() as usize / PAGE;
-            let backing = self.pages.growth_bytes(page).saturating_add(
-                if self
-                    .pages
-                    .chunks()
-                    .get(page)
-                    .is_none_or(|p| p.ptr.is_null())
-                {
-                    PAGE.saturating_mul((self.desc.wire_size)())
-                } else {
-                    0
-                },
-            );
-            r.claim(backing)?;
             self.pages.prepare(page, r)?;
             // SAFETY: correctly aligned scratch, initialized only on success.
             unsafe { (self.desc.read_new)(value.bytes.get(), r) }

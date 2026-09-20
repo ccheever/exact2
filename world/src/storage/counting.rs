@@ -87,6 +87,7 @@ pub fn histogram<T>(f: impl FnOnce() -> T) -> (T, (usize, usize), Vec<(usize, us
 
 /// Net live requested bytes above entry. Fixtures retain all pre-existing owners
 /// until the measured decode finishes; deallocation on successful install comes last.
+#[allow(dead_code)]
 pub fn peak<T>(f: impl FnOnce() -> T) -> (T, usize, (usize, usize)) {
     struct Stop;
     impl Drop for Stop {

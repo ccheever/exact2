@@ -156,7 +156,6 @@ struct Registration {
     ordinal: u8,
     identity: fn() -> (TypeId, &'static str),
     make: Option<StorageFactory>,
-    resource_size: usize,
     make_resource: Option<StorageFactory>,
     ambient: bool,
 }
@@ -194,7 +193,7 @@ pub struct World {
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     pub(crate) published: RefCell<BTreeMap<std::rc::Rc<str>, crate::Published>>,
-    published_cost: std::cell::Cell<usize>,
+    published_cost: std::cell::Cell<crate::values::PublicationSize>,
     pub(crate) messages: RefCell<Vec<String>>,
     entities_revision: u64,
     replacement: u64,
@@ -243,7 +242,7 @@ impl World {
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
-            published_cost: std::cell::Cell::new(0),
+            published_cost: std::cell::Cell::default(),
             messages: RefCell::new(Vec::new()),
             entities_revision: 0,
             replacement: 0,
@@ -280,7 +279,6 @@ impl World {
                     }
                     if flags & 4 == 0 {
                         r.make_resource = None;
-                        r.resource_size = 0;
                         r.ambient = false;
                     }
                     flags != 0
@@ -303,7 +301,6 @@ impl World {
         }
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::load_cell::<R>);
-        reg.resource_size = 64usize.saturating_add(R::default_size());
         reg.ambient = R::AMBIENT;
         Ok(self)
     }
@@ -353,7 +350,6 @@ impl World {
             identity: || (TypeId::of::<C>(), std::any::type_name::<C>()),
             make: None,
             make_resource: None,
-            resource_size: 0,
             ambient: false,
         }))
     }
@@ -708,13 +704,16 @@ impl World {
             return Ok(());
         }
         let cost = |v: &crate::Published| {
-            let mut remaining = crate::json::LIMIT;
+            let mut remaining = crate::values::PublicationSize::default();
             v.validate(&mut remaining, 0)?;
-            Ok::<_, DataError>(crate::json::LIMIT - remaining)
+            Ok::<_, DataError>(remaining)
         };
-        let total =
-            self.published_cost.get() - p.get(key).map_or(0, |v| cost(v).unwrap()) + cost(&value)?;
-        if total > crate::json::LIMIT || (!p.contains_key(key) && p.len() == 256) {
+        let mut total = self.published_cost.get();
+        total.replace(
+            p.get(key).map_or(Ok(Default::default()), cost)?,
+            cost(&value)?,
+        )?;
+        if !p.contains_key(key) && p.len() == 256 {
             return Err(DataError::new("publication bounds"));
         }
         self.change_room(1)?;
@@ -755,7 +754,7 @@ impl World {
             return Err(DataError::new("publication key limit (256)"));
         }
         let current = self.published.borrow();
-        let mut budget = crate::json::LIMIT;
+        let mut budget = crate::values::PublicationSize::default();
         let mut count = current.len();
         let mut changes = 0;
         for (key, value) in &values {
@@ -781,7 +780,7 @@ impl World {
         for (key, value) in values {
             self.commit_publication(&mut current, &key, value);
         }
-        self.published_cost.set(crate::json::LIMIT - budget);
+        self.published_cost.set(budget);
         Ok(())
     }
     pub fn emit(&self, text: impl Into<String>) -> Result<(), DataError> {
@@ -1021,7 +1020,6 @@ impl World {
                         })?;
                         let resource = field == "resources";
                         let make = if resource {
-                            r.claim(reg.resource_size).map_err(|e| e.at(name))?;
                             reg.make_resource
                         } else {
                             reg.make
@@ -1030,7 +1028,6 @@ impl World {
                             DataError::new("storage kind differs; declare it in Game::register")
                                 .at(name)
                         })?;
-                        r.claim(1024)?;
                         r.claim(crate::data::limits::map_bytes::<&str, Box<dyn Erased>>())?;
                         let mut s = make(key, self.epoch.clone(), r)?;
                         s.read(r, &|e| {
