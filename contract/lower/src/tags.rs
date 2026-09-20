@@ -537,9 +537,17 @@ pub(crate) fn validate_list(
             .iter()
             .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))
         {
+            if heights.len() == 1
+                && heights[0].name == "estimated-item-height"
+                && matches!(heights[0].value, Expr::Number(n, _) if n.is_finite() && n > 0.0)
+            {
+                // Shared collection template, viewport and flow checks follow
+                // in check_collection, including their specific diagnostics.
+                return Ok(());
+            }
             return super::err(
                 "lower-list-height",
-                "choose virtualized or an explicit row height, not both",
+                "virtualized lists accept one positive literal `estimated-item-height`, not a fixed row height",
                 span,
             );
         }
@@ -566,18 +574,11 @@ pub(crate) fn validate_list(
             .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
             .collect();
         if !heights.is_empty() {
-            let collection = tag == "list"
-                && expanded
-                    .iter()
-                    .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
-            let valid = collection
-                && heights.len() == 1
-                && heights[0].name == "estimated-item-height"
-                && matches!(heights[0].value, Expr::Number(n, _) if n.is_finite() && n > 0.0);
-            if !valid {
-                return super::err("lower-list-height",
-                    "virtualized lists accept one positive literal `estimated-item-height`; fixed row heights belong on non-virtualized lists", span);
-            }
+            return super::err(
+                "lower-list-height",
+                "row height hints belong on `list`",
+                span,
+            );
         }
     }
     if tag == "list"

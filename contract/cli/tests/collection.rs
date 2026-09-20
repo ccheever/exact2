@@ -9,6 +9,8 @@ fn literal_opt_in_and_ordinary_each_compile() {
         "list virtualized=true height=200",
         "list virtualized=true estimated-item-height=400 height=200",
         "list virtualized=false height=200",
+        "list virtualized=false estimated-item-height=400 height=200",
+        "list estimated-item-height=400 height=200",
         "scroll height=200",
         "column",
     ] {
@@ -56,9 +58,20 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
             "lower-list-height",
         ),
         (
-            "list virtualized=false estimated-item-height=400 height=200",
+            "list virtualized=true estimated-item-height=400 item-height=400 height=200",
             ROW,
             "lower-list-height",
+        ),
+        ("column estimated-item-height=400", ROW, "lower-list-height"),
+        (
+            "list virtualized=true estimated-item-height=400",
+            ROW,
+            "lower-collection-unbounded",
+        ),
+        (
+            "list virtualized=true estimated-item-height=400 height=200",
+            "      text \"no each\"",
+            "lower-collection-template",
         ),
         ("list virtualized=true", ROW, "lower-collection-unbounded"),
         (
@@ -314,4 +327,32 @@ fn tall_estimate_bounds_bootstrap_and_actual_measurements_replace_it() {
     assert_eq!(r.collections()[0].rows[0].height, 800.0);
     assert_eq!(r.data_ref().queries, queries);
     assert_eq!(r.last_instance_work().rows_keyed, 0);
+}
+
+#[test]
+fn row_height_hints_select_exactly_one_window_owner() {
+    for opt in ["", "virtualized=false", "virtualized=true"] {
+        for hint in ["item-height=400", "estimated-item-height=400"] {
+            if opt == "virtualized=true" && hint == "item-height=400" {
+                continue; // Rejected by the compiler cases above.
+            }
+            let source = source(
+                &format!("list {opt} {hint} height=200 testId=\"rows\""),
+                ROW,
+            );
+            let r = Runner::boot(
+                contract::compile(&source).unwrap(),
+                Rows { queries: 0 },
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let key = r.kernel().find_by_test_id("rows")[0];
+            let id = r.kernel().node_by_key(key).unwrap().id;
+            let shared = opt == "virtualized=true";
+            assert_eq!(r.collections().len(), usize::from(shared), "{opt} {hint}");
+            assert_eq!(r.list_status(id).is_some(), !shared, "{opt} {hint}");
+        }
+    }
 }

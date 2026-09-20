@@ -125,8 +125,8 @@ fn bake_refuses_a_pressable_with_zero_area() {
 #[test]
 fn conditional_style_literals_are_refused_at_the_offending_branch() {
     for (property, value, bad) in [
-        ("top", r#"(on ? "0px" : "0%")"#, "0px"),
-        ("top", r#"(on ? "0%" : "0px")"#, "0px"),
+        ("top", r#"(on ? "0pxx" : "0%")"#, "0pxx"),
+        ("top", r#"(on ? "0%" : "0pxx")"#, "0pxx"),
         (
             "align-items",
             r#"(on ? "center" : (on ? "flex-end" : "middle"))"#,
@@ -139,8 +139,8 @@ fn conditional_style_literals_are_refused_at_the_offending_branch() {
         ),
         (
             "top",
-            r#"(match maybe { case some(n) => "0px", case none => n })"#,
-            "0px",
+            r#"(match maybe { case some(n) => "0pxx", case none => n })"#,
+            "0pxx",
         ),
     ] {
         let source = format!("component App\n  state on = false\n  state n = \"0%\"\n  state maybe = some(\"10%\")\n  view\n    column {property}={value}\n      text \"branch\"\n");
@@ -186,4 +186,42 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
     runner.act("toggle", vec![]).unwrap();
     assert_eq!(top(&runner), exact_kernel::Dimension::Points(-10.0));
     assert!(!runner.is_poisoned());
+}
+
+#[test]
+fn conditional_pixel_lengths_compile_and_update() {
+    for expression in [
+        r#"(on ? "0px" : "20px")"#,
+        r#"(match maybe { case some(n) => "0px", case none => "20px" })"#,
+    ] {
+        let source = format!(
+            r#"component App
+  state on = false
+  state maybe = none
+  action toggle writes on, maybe
+    on = !on
+    maybe = some(1)
+  view
+    column testId="branch" top={expression}
+      text "branch"
+"#
+        );
+        let mut runner = exact_runner::Runner::boot(
+            contract::compile(&source).unwrap(),
+            NoData,
+            exact_kernel::Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        for expected in [20.0, 0.0] {
+            let key = runner.kernel().find_by_test_id("branch")[0];
+            assert_eq!(
+                runner.kernel().node_by_key(key).unwrap().style.top,
+                exact_kernel::Dimension::Points(expected)
+            );
+            runner.act("toggle", vec![]).unwrap();
+        }
+        assert!(!runner.is_poisoned());
+    }
 }

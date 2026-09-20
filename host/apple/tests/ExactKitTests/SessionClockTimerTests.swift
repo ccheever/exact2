@@ -20,6 +20,8 @@ final class SessionClockTimerTests: XCTestCase {
         #if os(macOS)
         let a = ExactApp.shared.makeSession(), b = ExactApp.shared.makeSession()
         defer { a.destroy(); b.destroy() }
+        XCTAssertNil(a.boot(size: CGSize(width: 390, height: 844)).error)
+        XCTAssertNil(b.boot(size: CGSize(width: 390, height: 844)).error)
         func inspect(_ session: ExactSession, mapped: Bool) throws -> [String: Any] {
             let bytes = try XCTUnwrap(session.agent("{\"op\":\"tree\"}").data(using: .utf8))
             let tree = try XCTUnwrap(JSONSerialization.jsonObject(with: bytes) as? [String: Any])

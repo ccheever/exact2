@@ -695,7 +695,10 @@ those later slices.
 ### 6.5 Shared viewport collection implementation, 2026-09-16
 
 `list virtualized=true` opts into the shared runner collection. An ordinary
-`each` and `virtualized=false` retain eager behavior. The initial supported
+`each` and `virtualized=false` retain eager behavior unless the list explicitly
+selects the fixed/measured row policy of §6.2 with `item-height` or
+`estimated-item-height`. Shared collections accept only the estimated hint;
+exactly one policy owns the list. The initial supported
 shape is a bounded vertical list with one direct keyed `each`, whose body
 has one normal-flow element root. Wrap multiple or conditional roots in a
 column. Absolute/overlapping rows and alternate container layouts are rejected.
