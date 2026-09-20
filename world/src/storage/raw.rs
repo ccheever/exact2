@@ -255,9 +255,9 @@ impl RawStorage {
                 + self.pages.mask().len() * 72
                 + self
                     .pages
-                    .chunks()
+                    .mask()
                     .iter()
-                    .filter(|p| !p.ptr.is_null())
+                    .filter(|mask| **mask != 0)
                     .count()
                     .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
         );

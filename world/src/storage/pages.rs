@@ -19,15 +19,15 @@ impl<'w, C: Component> Pages<'w, C> {
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {
         self.storage.into_iter().flat_map(|s| {
             s.pages
-                .chunks()
+                .mask()
                 .iter()
                 .enumerate()
-                .filter(|(i, _)| s.pages.mask()[*i] != 0)
-                .map(|(i, p)| Page {
+                .filter(|(_, mask)| **mask != 0)
+                .map(|(i, mask)| Page {
                     first: (i * PAGE) as u32,
-                    generation: p.generation.get(),
-                    mask: &s.pages.mask()[i],
-                    slots: p.ptr.cast::<C>(),
+                    generation: s.pages.chunks()[i].generation.get(),
+                    mask,
+                    slots: s.pages.chunks()[i].ptr.cast::<C>(),
                     _life: PhantomData,
                 })
         })
