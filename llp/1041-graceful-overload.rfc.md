@@ -9108,3 +9108,47 @@ binding preserves literal source/link bytes and the failed check. Fresh closure
 proves65 PIDs/20 groups absent, four owned UP releases and ports free, without
 guard actions or retries. Charged growth808,747,008B stays below2GiB. The user's
 updated disk policy triggers cleanup below25GB; this run ends above77.12GB.
+
+### 8.166 Resident painted-line reuse misses the changing Messages cohort
+
+A private prototype borrows an already-existing exact-painted Paragraph for
+urgent Mac rasterization. Exact identity, paint, width, ranges, baselines,
+catalog and ordinary-layout checks precede the main-thread-only lease. It saves
+attributed-string construction/copy, one typesetter and line reconstruction on
+a hit; drawing and IOSurface allocation remain. No persistent owner/cache or
+worker-policy change is added. A miss keeps reconstruction and adds lookup work.
+
+All75 actual Swift sources compile with the retained ABI8 Messages Rust archive;
+the header and archive identity are verified. Six existing tests pass111
+assertions. With test-only constructor counters, twelve methods pass354
+assertions, including12 exact active-BGRA surface cases and pixel-oracle,
+lifetime, catalog, geometry, async and callback controls. Disabling only the
+resident ensure branch yields exactly4 intended construction/hit failures and
+350 passes with the same tests. This is a branch control, not an old-production
+RED. Tests use an assertion adapter/direct calls, not the unavailable XCTest
+framework. Three adapter/transform setup refusals remain preserved.
+
+A separate actual Session/Presenter fixture boots the baked Reusable Messages
+model, supplies all10,000 rows and changes32 at each of eight programmatic
+steps. Full9,968-row prefixes remain identical and every changed tail differs.
+The first probe sees only16 header rasters and does not establish tail coverage.
+The strengthened fixture scrolls the real NSClipView during setup, then requires
+four visible tail rows at every step without further forced scrolling. Its
+960x932 window and943x582 port are not a matched normal-clock carrier cohort;
+actions and clock are programmatic, not physical input/performance evidence.
+
+The qualified fixture records **48 urgent requests and zero reuse hits**:
+two changing headers and four tail bodies per step. Colored new text has only
+black measurement geometry, not an existing exact-painted owner. Thus this
+prototype removes no construction in that cohort and stays **unselected**;
+no timing pair or speedup is claimed. Held-owner tests do not justify shipping
+an extra lookup on the measured miss path. Other possible scroll/selection
+cohorts remain unmeasured. Next work must reach source-changing reconstruction
+or qualify asynchronous publication without losing pixel/input authority.
+
+Evidence is MAIN`target/mac-urgent-line-reuse-validation-v1/REPORT.md`
+(`87e463c2`) and manifest`4fb8066f`:825 files/57,227,115B, excluding reproducible
+module cache. The three-path prototype remains private; MAIN production and
+the prior normal-clock diagnostic are unchanged. All compile/run operations
+are terminal with no guard actions;14 recorded PIDs/groups are freshly absent.
+Closure free space is76.81GB, above the user's25GB cleanup trigger.
