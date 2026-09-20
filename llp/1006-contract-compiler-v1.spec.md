@@ -265,6 +265,12 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
+Scope clones share immutable name/type frames while retaining independent frame
+stacks. Entering or leaving a branch changes only its own stack; shadowing and
+`Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
+ownership preserves the public scope's ability to cross threads. Frames live only
+as long as the scopes that use them; there is no cross-compilation cache.
+
 HTML `dialog` lowers to a View with `semanticTag="dialog"` and the absolute
 position default; `commandfor` and `command` are schema props, passed by their
 HTML names. Their presentation belongs to the host (LLP 1021 D2), with no

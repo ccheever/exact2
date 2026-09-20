@@ -23,7 +23,7 @@ pub mod routes;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use checks::{
     check_injects, check_shape_cycles, check_stmts, check_view, infer_owned_state_initializers,
@@ -229,7 +229,7 @@ pub enum Ref {
     Local(u32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct Frame {
     names: Vec<(String, Ref, Ty)>,
     /// Whether this frame is a region scope (counts toward `Item`/`Bound` depth).
@@ -240,24 +240,25 @@ struct Frame {
 /// parameters or region frames.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
-    frames: Vec<Frame>,
+    // Branches own their stacks, but names and types within a frame never change.
+    frames: Vec<Arc<Frame>>,
 }
 
 impl Scope {
     /// Push a non-region frame (component declarations, action parameters).
     pub fn push(&mut self, names: Vec<(String, Ref, Ty)>) {
-        self.frames.push(Frame {
+        self.frames.push(Arc::new(Frame {
             names,
             region: false,
-        });
+        }));
     }
 
     /// Push a region frame binding at most one name (`each` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
-        self.frames.push(Frame {
+        self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
             region: true,
-        });
+        }));
     }
 
     /// Pop the innermost frame.
