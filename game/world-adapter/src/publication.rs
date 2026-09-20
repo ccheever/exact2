@@ -158,7 +158,7 @@ impl Writer for RecordWriter {
         }));
     }
     fn string(&mut self, v: &str) {
-        self.claim(v.len());
+        self.claim(v.len().saturating_mul(6));
         self.push(Published::Str(v.into()));
     }
     fn bytes(&mut self, value: exact_world::data::Bulk<'_>) {

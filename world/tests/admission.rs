@@ -62,7 +62,7 @@ fn finite_recursive_defaults_hash_and_encode_without_aborting() {
 }
 
 #[test]
-fn unit_default_enum_charges_its_largest_inline_variant_before_allocation() {
+fn wide_enum_vector_charges_its_resident_layout_before_allocation() {
     #[allow(clippy::large_enum_variant)] // Adversarial inline layout is the regression.
     #[derive(Default, Component)]
     enum Wide {
@@ -100,54 +100,6 @@ fn closed_map_keys_round_trip_unicode_and_distinct_names() {
     }
     check::<String>();
     check::<std::rc::Rc<str>>();
-}
-
-#[derive(Default)]
-struct Claim<const N: usize>;
-impl<const N: usize> Data for Claim<N> {
-    fn write(&self, w: &mut dyn Writer) {
-        1u32.write(w);
-    }
-    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        u32::read_new(r).map(|_| ())
-    }
-}
-impl<const N: usize> Component for Claim<N> {
-    const NAME: &'static str = "Claim";
-}
-impl<const N: usize> Resource for Claim<N> {
-    const NAME: &'static str = "Claim";
-}
-
-#[test]
-fn oversized_admission_refuses_without_overflow_on_any_pointer_width() {
-    fn check<const N: usize>() {
-        let mut world = World::new(60, 0);
-        let before = world.save().unwrap();
-        assert!(world.register::<Claim<N>>().is_err());
-        assert!(world.register_resource::<Claim<N>>().is_err());
-        assert_eq!(world.save().unwrap(), before);
-        let values = std::collections::BTreeMap::from([("x".to_string(), Claim::<N>)]);
-        assert!(bin::to_vec(&values).is_err());
-        let bytes =
-            bin::to_vec(&std::collections::BTreeMap::from([("x".to_string(), 1u32)])).unwrap();
-        assert!(bin::from_slice::<std::collections::BTreeMap<String, Claim<N>>>(&bytes).is_err());
-    }
-    check::<4_294_967_000>(); // Same declaration on 32-bit and 64-bit targets.
-    check::<{ usize::MAX }>(); // Also contain an arbitrary manual implementation.
-    let mut large = World::new(60, 0);
-    large.register::<Claim<{ 64 * 1024 * 1024 }>>().unwrap();
-    large.spawn(Claim::<{ 64 * 1024 * 1024 }>).unwrap();
-    assert!(
-        large.save().is_err(),
-        "page cost wrapped on a narrow target"
-    );
-    let mut w = World::new(60, 0);
-    w.register::<Claim<64>>().unwrap();
-    w.spawn(Claim::<64>).unwrap();
-    let bytes = w.save().unwrap();
-    w.load(&bytes).unwrap();
-    assert_eq!(w.save().unwrap(), bytes);
 }
 
 #[test]

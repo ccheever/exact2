@@ -675,3 +675,4 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Module Tween deadlines saturate for huge finite durations (`game/world-motion/src/tween.rs:33`); refuse duration-to-tick overflow rather than admitting an unreachable settlement deadline (R-K6-grok #17).
 - Module Spring deadline search costs up to 2,400 samples per call (`game/world-motion/src/spring.rs:147`); make that caller-paid bound explicit when many springs request deadlines (R-K6-grok #17).
 - Omitted module work declarations allow settlement during motion (`game/world-motion/tests/motion.rs:105`); add the negative control showing a Tween without `work` can settle before its target (R-K6-grok #17).
+- KL experiment: recover default-construction accounting before adopting resident-byte loading. A derived skipped box loads a 200,004-byte input at a 4,000,096-byte peak under a 1 MiB budget; measured result and deleted guards are in `world/KL.md`.

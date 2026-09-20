@@ -196,7 +196,7 @@ still returns String keys. `publish(key, value) -> Result<(), DataError>` and
 admits all keys, values and event cursors before changing anything; the adapter
 uses it for complete record updates. A single changed publication validates only
 its old/new values, using the retained aggregate cost; batches visit at most 512
-old/new entries within the shared 65,536-unit publication budget.
+old/new entries within shared caps of 65,536 nodes and 65,536 string bytes.
 `emit(text) -> Result<(), DataError>` queues up to 1,024 messages of at most
 4,096 bytes each; refusal preserves pending delivery.
 
@@ -249,12 +249,8 @@ reanchors retained session messages after restored game history and reports rese
 
 ### Saves, codecs and admission
 
-World saves remain **EXGAME v4**. **EXSIM v10** corrects lost publication delivery:
-byte 6 changes 09→0a, the outer sequence count at byte 8 changes 9→10, and one
-final boolean byte records pending delivery. Every previous payload field and
-hash remains unchanged. Other versions refuse without migration. The frozen v9
-inventory normalizes exactly those three changes and checks the new pending bit;
-empty, pending and drained delivery have independent restore/from-save/carry tests.
+World saves use **EXGAME v4** and simulation saves use **EXSIM v10**.
+Other versions refuse without migration. Frozen checkpoints pin bytes and hashes.
 
 `World::load/carry` on a Sim-owned world refuses; use the owning Sim.
 Exact restore reconstructs a candidate and requires canonical bytes to reproduce
@@ -279,32 +275,14 @@ hashing, saving or inspection. Tags, little-endian order and float normalization
 remain unchanged. Numeric decoding still owns both raw and converted buffers;
 its cumulative budget counts both.
 
-Inspection and binary writers expose `stopped()`. Container loops stop after
-refusal and `finish()` propagates the error. Record publication admits sequence
-backing, strings, numeric vectors and nesting before allocation. Custom Data
-writers must honor `stopped` and claim owned decode storage. Allocating defaults,
-including skipped fields, must declare `default_size` or implement an admitted
-`read_new`; a codec cannot bound arbitrary user code. Derive requires Data + Default
-on skipped fields and charges every reset. Enum read_new constructs the selected
-variant without invoking an unrelated manual enum Default. Manual enum defaults
-charge the largest variant's defaults; unit-default enums charge their largest
-inline variant. `Data::inline_size()` separates portable inline storage from
-allocating defaults. Box contributes eight inline units; an empty Option does
-not recurse into its payload's default. Derive's constant default check refuses
-cyclic default-construction dependencies, including aliases and indirect cycles;
-recursive enums use a derived unit Default or manual Data admission. Rust expands cfg and
-cfg_attr before derive; retained, absent and conditionally skipped fields are tested.
-Parser diagnostics still use invocation spans.
-
-Publication decode charges one shared 65,536-unit allowance before children,
-strings and object keys allocate; declared sequence lengths preflight it. Logical
-depth is 80, leaving room within the 256 codec frames. Root keys separately have
-the fixed 256 × 256-byte bound. Error paths truncate at 256 UTF-8 bytes; the small
-diagnostic reserve stays bounded independently of rejected payload size.
-`bin::read_into` stages a saved copy plus patch under one 256 MiB decode budget;
-it costs a complete encode/decode and preserves the destination on decode error.
-`World::hash`, `hash::of` and `Hasher::finish` return Result and refuse invalid
-values, excessive strings, decode claims and nesting beyond 256 frames.
+Inspection and binary writers expose `stopped()`; container loops stop on refusal.
+A load shares one cumulative budget for requested allocation bytes, including validation.
+Charges use capacity × `size_of`, checked chunk layouts, string bytes and map node estimates.
+Growth charges the new allocation in full; old and new backing can coexist.
+Manual Data readers that allocate must call `r.claim(real_bytes)` before allocating.
+Defaults remain trusted code: even derived allocating defaults can escape this budget.
+Errors preserve the destination; saving checks output bounds without pre-proving loadability.
+`Paranoid` provides the functional save/load proof; refusal can differ by architecture.
 
 | Admission | Bound and refusal |
 |---|---|
@@ -316,16 +294,13 @@ values, excessive strings, decode claims and nesting beyond 256 frames.
 | Input / emitted messages | 1,024 queued each; messages 4,096 bytes |
 | Clock advance / settle | 216,000 / 3,600 ticks per request |
 | Binary/world/simulation output | Generic 256 MiB; World and Sim 128 MiB |
-| Decoder allocation / string / nesting | Cumulative 256 MiB / 1 MiB / 256 |
+| Input bytes | 256 MiB; Sim 128 MiB |
+| Requested decoder allocation / string / nesting | Cumulative 256 MiB / 1 MiB / 256 |
+| Sequence lengths | At most remaining input bytes before reservation |
+| Publication nodes / string bytes / logical depth | 65,536 / 65,536 / 80; root keys ≤ 256 × 256 bytes |
 
-Admission uses architecture-independent wire units, not `size_of`: scalar widths,
-24 units for text/container headers, 16 plus fields for derived records, and fixed
-metadata/chunk accounting. `Data::default_size()` declares those units, including
-allocating defaults; manual implementations must supply conservative fixed values.
-Overflow saturates to refusal; registration rejects a declaration above 256 MiB.
-This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
-layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
-past admission return errors, except programmer-facing infallible operations
+Requests
+past these bounds return errors, except programmer-facing infallible operations
 (such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Saved tick and game-journal cursors above 2^62 refuse decode with
 `cursor beyond supported range`; 2^62 is accepted. Structural, session and replacement
 cursors are unsaved and cannot be supplied by a checkpoint. Runtime overflow checks
@@ -367,124 +342,51 @@ replacement clears them. Reborrowing the same T exclusively still refuses.
 
 ## Measurements and reproduction
 
+The resident-byte experiment is **not ready to adopt**. A 200,004-byte input
+containing 100,000 empty records with a derived, skipped `Box<[u8; 32]>` field
+succeeds under a 1 MiB budget but peaks at 4,000,096 requested bytes on x86-64.
+Default construction and skipped-field resets are outside reader allocation sites.
+The counterexample is executable in `storage::resident`; a passing counterexample
+test confirms the gap, not the desired safety guarantee. Full measurements,
+deletions and verification limitations are in [the experiment report](KL.md).
+
+The other hostile fixtures assert both peak and cumulative requested allocations
+≤ the supplied budget + 8,192 diagnostic bytes. They cover forged counts, huge
+strings, wide enum/struct vectors, nested publications, many map keys, 200k slots,
+and sparse 1 KiB/4096-aligned chunks across types, at 1 MiB and 256 MiB budgets.
+Each runs inside `catch_unwind`, checks unchanged destinations on error, and has
+successful controls. The wasm32 harness executes the same cases and frozen saves;
+wasm aborts surface as host traps, since that target cannot unwind panics.
+
+The input cap and structural caps bound parser work independently of allocations:
+O(input bytes + admitted values + slots × registered types), with logarithmic map
+operations and key comparisons. Ordinary ticks retain their existing bounds and
+allocation counts. No query or run implementation or benchmark changed.
+
 Use the existing Cargo cache and shared target directory. Before a cold build,
-check `df -h ~`; stop below 25 GiB free. These counts are allocator calls and
-cumulative requested bytes, not resident memory, latency or first pixel.
-
-| Operation | Starting `8d24068` calls / bytes | K1f calls / bytes |
-|---|---:|---:|
-| Empty World | 1 / 24 | 1 / 24 |
-| 100-entity construction | 21 / 41,880 | 21 / 41,880 |
-| First tick with publication | 2 / 568 | 2 / 568 |
-| 1,000 changing-publication ticks | 3 / 200,704 | 3 / 200,704 |
-| Exact 10 KiB restore | 80 / 46,760 | 80 / 46,760 |
-| First 32-byte component at slot 199,999 | 4 / 77,536 | 4 / 77,536 |
-| 1,000 high-slot remove/reinsert cycles | 0 / 0 | 0 / 0 |
-| 1,000 sparse-edit ticks in 200k entities | 0 / 0 | 0 / 0 |
-| 1,000 prepared input-heavy ticks | 0 / 0 | 0 / 0 |
-
-Input fixtures prepare event strings, queue and edge buffers before counting;
-they assert press/release edges and movement while assets remain pending. Ordinary
-ticks perform zero Data writes; three explicit settle ticks perform 800,000 writes
-across four boundaries. The 200k owner-removal control reaps interleaved descendants
-without visiting ownership scratch, even after recycling the owner's slot.
-The nested reservation-chain control at depths 8, 40 and 80 now refuses after
-33,391 requested bytes; depth 8 previously allocated 262,430 bytes. A valid flat
-boundary still loads, including 1,023 siblings plus a nested 1,024th value.
-
-First high-slot insertion deliberately initializes at most 25,000 bytes of
-presence and 50,000 bytes of directory on this 64-bit host, plus one value chunk.
-Chunks and directory backing retain bounded high-water capacity until replacement.
-Nonempty queries cost O(highest-live-slot / 64 × terms + rows); runs cost
-O(directory chunks + runs + consumed values). Despawn visits at most 256 columns.
-The 200k reverse-insertion/recycled-generation benchmark compares complete storage
-implementations over 100 traversals and seven samples, checking every sum.
-
-Final quiet-run medians (ns/row) are diagnostic, not a significance claim:
-
-| Operation | Starting kernel | K1f engine | K1f kernel |
-|---|---:|---:|---:|
-| Dense query | 1.303 | 1.204 | 1.309 |
-| Sparse query | 3.263 | 2.801 | 3.007 |
-| Dense runs | 0.693 | 1.029 | 0.694 |
-| Sparse runs | 2.937 | 57.809 | 2.932 |
-
-Counts do not regress. Dense query/runs differ +0.5%/+0.1%, sparse runs -0.2%, and
-sparse query -7.8%; these timings do not establish a statistically significant
-change. Both runs used the existing benchmark and shared target directory; the
-starting kernel was copied from `8d24068`, with its dependency version relabeled
-only to distinguish the two path packages. No traversal optimization was added.
+check `df -h ~`; stop below 25 GiB free. Basic reproduction:
 
 ```sh
 export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH EXACT_UPDATE_TRUST=development
+cargo test -p exact-world -p exact-world-derive --no-fail-fast
+cargo test -p exact-world --test ecs --test kernel -- --ignored
+cargo test -p exact-world --lib resident -- --nocapture
 cargo test -p exact-world --test startup -- --nocapture
-cargo test -p exact-world -p exact-world-derive -p exact-motion --no-fail-fast
-cargo test -p exact-world -- --ignored
-cargo clippy -p exact-world -p exact-world-derive -p exact-motion --all-targets -- -D warnings
-cargo fmt -p exact-world -p exact-world-derive -p exact-motion -- --check
-cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel
-cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel \
-  dense_and_sparse_page_throughput -- --ignored --nocapture
+cargo test --release -p exact-world --test restore -- --ignored --nocapture
+cargo clippy -p exact-world -p exact-world-derive --all-targets -- -D warnings
+cargo fmt -p exact-world -p exact-world-derive -- --check
+cargo build -p exact-world --target wasm32-unknown-unknown
+cargo +nightly miri test -p exact-world --lib storage::raw::tests -- \
+  --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
+cargo +nightly miri test -p exact-world --lib world::journal -- --test-threads=1
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --lib \
+  storage::raw::tests -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
 cargo test --manifest-path game/Cargo.toml --workspace --no-fail-fast
 cargo clippy --manifest-path game/Cargo.toml --workspace --all-targets -- -D warnings
 cargo fmt --manifest-path game/Cargo.toml --all -- --check
 (cd game && bun test)
-bun game/app/shells.mjs --test
-# Every game/games/*/proof.mjs and game/tests/lanterns/proof.mjs takes linux.
 ```
 
-Miri exercises leases, retained mutable rows, aligned ZSTs, owned/padded values,
-replacement, slot reuse, failed readers and selected unwind paths. The new empty
-query control uses 321 slots under Miri and 200,000 natively. No unsafe code moved
-outside storage; the allocator used by refusal tests is test-only storage support.
-
-```sh
-cargo +nightly miri test -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
-cargo +nightly miri test -p exact-world --test pages --test ecs -- --test-threads=1 --skip resource_and_non_state_outputs
-cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
-cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
-cargo +nightly miri test -p exact-world --test admission -- --test-threads=1
-cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test admission -- --test-threads=1
-```
-
-K1f Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage, 1 i686 portable-boundary
-and 12 x86-64/i686 admission executions passed, with no UB detected (42 total).
-A real wasm32 build executed through Bun
-passes all five frozen continuation boundaries and the 2,232-accept/2,231-refuse
-admission boundary, skipped finite recursion and oversized 32-bit page admission.
-Generated simulations compare 2,048 complete save/load/save
-boundaries and hashes. These finite controls do not prove arbitrary manual Data.
-
-The temporary cross-engine consumer compares common Data/hash content and world
-bytes, normalizing only the EXGAME header. Both engines use the same reverse
-insertion order. Contract conversions remain in game/world-adapter, outside core;
-no root crate gained a dependency on the game workspace. F2 consolidation,
-nonspatial app startup/artifact evidence, deployed old-save cutover and owner/judge
-approval remain separate, unfinished admission work. This host has no GPU adapter,
-Chrome or Apple SDK; browser/Apple rendering and first pixel are unverified.
-
-Kernel/derive/core-motion tests: 185 passed, two large controls passed separately
-after every commit; clippy denies warnings and formatting passes. The 18 reviewed
-root motion-dependent tests plus a low-frequency compatibility control pass.
-Cross-engine and all six adapter tests pass. Game workspace: 749 passed, 25 ignored,
-18 missing-GPU failures; the optional motion module contributes nine passing tests.
-Authored-game workspaces: 48 passed, one ignored, three missing-GPU failures.
-Bun's full run reached 83 passes and two Chrome failures before an open server
-prevented exit. Excluding those two tests completed with 146 passes, one skip and
-one further Chrome failure (generated-game web proof): three unavailable checks.
-Seven Linux game proofs pass; both Lanterns fixtures execute but lack pins. Cubes
-is browser-only, failed process inventory and timed out. Root build/test/clippy require the absent lean
-Hermes producer. Caps passes; boot stays at 88,699 JS bytes, 3,468 page bytes,
-two pre-pixel modules and one Wasm reference. No game pins changed.
-
-EXGAME v4 and EXSIM v10 are unchanged by K1f. `git diff land/game-next -- motion/`
-is empty. Core dependencies are exact-world-derive, libm and ryu; optional
-exact-world-motion depends on exact-world and exact-motion. The root workspace
-does not include game, and Caltrain's normal dependency tree does not include world.
-
-K1f totals 7,254 lines: 6,738 Rust + 493 README + 23 manifests, down from 7,479.
-The extracted optional motion module adds 335 separate lines (326 Rust + 9 manifest)
-under the same exclusions; kernel plus module totals 7,589, up 110 from old core alone.
 The production ceiling is 7,500 handwritten lines: all production Rust under
 world/ including derive, this README and both manifests. Comments and blank lines
 count. Only tests and test-only allocator support are excluded. Reproduce with:

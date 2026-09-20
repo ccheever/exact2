@@ -51,6 +51,11 @@ fn huge_count_tiny_input_and_huge_string_length() {
         assert!(decode::<Vec<String>>("huge count", &count, budget).is_err());
         count[0] = 6;
         assert!(decode::<String>("huge string", &count, budget).is_err());
+        let positive = bin::to_vec(&"kept".to_owned()).unwrap();
+        assert_eq!(
+            decode::<String>("string positive", &positive, budget).unwrap(),
+            "kept"
+        );
     }
 }
 #[allow(clippy::large_enum_variant)]
@@ -279,8 +284,10 @@ fn nested_publication_peak_is_bounded() {
                 next.read_publications(&mut bin::Decoder::for_load(&bytes, Some(&allowance)))?;
                 Ok(next)
             });
+            assert_eq!(result.is_err(), depth > 8);
             if let Ok(next) = result {
                 destination = next;
+                assert!(destination.publications().contains_key("x"));
             } else {
                 assert_eq!(
                     json::to_string(&*destination.publications()).unwrap(),
@@ -289,4 +296,59 @@ fn nested_publication_peak_is_bounded() {
             }
         }
     }
+}
+
+#[test]
+fn allocating_derived_defaults_expose_the_experiments_budget_gap() {
+    #[derive(Default, Data)]
+    struct Defaults {
+        #[data(skip)]
+        bytes: Box<[u8; 32]>,
+    }
+    let mut w = bin::Encoder::default();
+    w.begin_seq(100_000);
+    for _ in 0..100_000 {
+        w.begin_struct();
+        w.end_struct();
+    }
+    w.end_seq();
+    let bytes = w.finish().unwrap();
+    let budget = LoadBudget::new(1 << 20);
+    let (result, peak, counts) = crate::counting::peak(|| {
+        catch_unwind(AssertUnwindSafe(|| {
+            bin::from_slice_in::<Vec<Defaults>>(&bytes, Some(&budget))
+        }))
+    });
+    let loaded = result.unwrap().unwrap();
+    assert_eq!(loaded.len(), 100_000);
+    assert_eq!(*loaded[0].bytes, [0; 32]);
+    // This is the experiment's measured counterexample, NOT a conformance test.
+    // Removing default-construction accounting weakens an actual memory bound.
+    assert!(peak > (1 << 20) + SLOP);
+    println!(
+        "DEFAULT GAP: budget={} input={} peak={peak} cumulative={} calls={}",
+        1 << 20,
+        bytes.len(),
+        counts.1,
+        counts.0
+    );
+}
+
+#[test]
+fn publication_nodes_and_text_have_independent_shared_caps() {
+    let w = World::new(60, 0);
+    w.publish("a", Published::List(vec![Published::Unit; 65_535]))
+        .unwrap();
+    assert!(w.publish("b", Published::Unit).is_err());
+    assert_eq!(w.publications().len(), 1);
+    w.publish("a", "x".repeat(65_536)).unwrap();
+    assert!(w.publish("b", "x").is_err());
+    w.publish("b", Published::Unit).unwrap();
+    let values = w.publications();
+    let bytes = bin::to_vec(&*values).unwrap();
+    let mut loaded = World::new(60, 0);
+    loaded
+        .read_publications(&mut bin::Decoder::new(&bytes))
+        .unwrap();
+    assert_eq!(*loaded.publications(), *values);
 }

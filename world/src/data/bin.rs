@@ -21,7 +21,12 @@ pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Resu
 }
 pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> {
     let budget = LoadBudget::new(MAX_LOAD_BYTES);
-    let mut next = from_slice_in::<T>(&to_vec(value)?, Some(&budget))?;
+    let mut w = Encoder {
+        budget: Some(Budget::shared(&budget)),
+        ..Encoder::default()
+    };
+    value.write(&mut w);
+    let mut next = from_slice_in::<T>(&w.finish()?, Some(&budget))?;
     let mut r = Decoder::for_load(bytes, Some(&budget));
     next.read(&mut r)
         .and_then(|()| r.finish())

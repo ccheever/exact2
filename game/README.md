@@ -702,8 +702,10 @@ outgoing World/Args; outgoing destructor panics propagate without poisoning the
 incoming state. `bin::read_into` stages patches and preserves values on decode errors.
 
 Optional-kernel `World::hash`, `hash::of` and `Hasher::finish` now return
-`Result<u64, DataError>` for invalid Data and excessive nesting. Derived skipped
-fields require `Data + Default` so allocation admission includes their defaults.
+`Result<u64, DataError>` for invalid Data and excessive nesting. The optional kernel's `Data` trait has only `read_new`, `write` and `read`;
+manual allocating readers claim real bytes with `Reader::claim`. Skipped fields
+require `Default`. This branch's resident-byte experiment has an allocating-default
+gap and is not ready to adopt; see [its report](../world/KL.md).
 
 `exact-world-motion` is a separate module in this workspace. It exports saved
 `Spring`, `SpringConfig` and `Tween` Data, plus `smoothstep`. Tween anchors are

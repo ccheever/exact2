@@ -542,9 +542,9 @@ fn carry_keeps_live_args_refuses_setup_changes_and_publication_budget_is_cumulat
     let before = s.save().unwrap();
     assert!(s.carry(&saved).is_err());
     assert_eq!(s.save().unwrap(), before);
-    s.world().publish("a", "a".repeat(6000)).unwrap();
+    s.world().publish("a", "a".repeat(32_768)).unwrap();
     let before = s.save().unwrap();
-    assert!(s.world().publish("b", "b".repeat(6000)).is_err());
+    assert!(s.world().publish("b", "b".repeat(32_769)).is_err());
     assert_eq!(s.save().unwrap(), before);
     s.restore(&before).unwrap();
 }

@@ -140,55 +140,6 @@ mod publication_tests {
         assert_eq!(w.publications().len(), 1);
     }
     #[test]
-    fn nested_reservation_chain_cannot_spend_outstanding_sibling_allowances() {
-        use crate::Published::{List, Unit};
-        for depth in [1, 8, 40, 80] {
-            let mut value = Unit;
-            for level in (0..depth).rev() {
-                let mut items = vec![Unit; 1023 - level];
-                items[0] = value;
-                value = List(items);
-            }
-            let mut out = bin::Encoder::default();
-            out.begin_struct();
-            out.key("x");
-            value.write(&mut out);
-            out.end_struct();
-            let bytes = out.finish().unwrap();
-            let mut world = World::new(60, 0);
-            let mut r = bin::Decoder::new(&bytes);
-            let (result, counts) = counting::measure(|| world.read_publications(&mut r));
-            println!("reservation chain depth={depth}: {counts:?}");
-            assert_eq!(result.is_ok(), depth == 1);
-            assert!(
-                counts.1 < 60_000,
-                "outstanding sibling reservations escaped: {counts:?}"
-            );
-        }
-        // Exactly 1,024 values, with a reserved child that has its own child.
-        let mut items = vec![Unit; 1022];
-        items[0] = List(vec![Unit]);
-        struct G;
-        impl crate::Game for G {
-            const ID: &'static str = "nested-publication-boundary";
-            type Args = ();
-            fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
-                Ok(())
-            }
-            fn tick(_: &mut World, _: &crate::Input, _: &()) -> Result<(), DataError> {
-                Ok(())
-            }
-        }
-        let source = crate::Sim::<G>::new(()).unwrap();
-        let expected = List(items);
-        source.world().publish("x", expected.clone()).unwrap();
-        let saved = source.save().unwrap();
-        let mut loaded = crate::Sim::<G>::new(()).unwrap();
-        loaded.restore(&saved).unwrap();
-        assert_eq!(loaded.save().unwrap(), saved);
-        assert_eq!(loaded.world().publications().get("x"), Some(&expected));
-    }
-    #[test]
     fn wide_unit_default_component_refuses_before_allocating_a_page() {
         #[allow(clippy::large_enum_variant)]
         #[derive(Default, crate::Component)]

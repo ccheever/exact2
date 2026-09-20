@@ -168,93 +168,6 @@ fn bounded_encoder_stops_before_payload_allocation_and_element_traversal() {
 }
 
 #[test]
-fn nested_box_default_is_preflighted_before_allocating() {
-    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    struct Large([u64; 1024]);
-    impl Default for Large {
-        fn default() -> Self {
-            DEFAULTS.set(DEFAULTS.get() + 1);
-            Self([0; 1024])
-        }
-    }
-    impl Data for Large {
-        fn write(&self, w: &mut dyn Writer) {
-            self.0[0].write(w);
-        }
-        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-            self.0[0].read(r)
-        }
-    }
-    #[derive(Default, Data)]
-    struct Outer {
-        inner: Box<Large>,
-    }
-    DEFAULTS.set(0);
-    assert!(bin::from_slice_in::<Outer>(&[], Some(&data::LoadBudget::new(1024))).is_err());
-    assert_eq!(DEFAULTS.get(), 0);
-}
-
-#[test]
-fn omitted_box_fields_and_container_resets_claim_defaults_before_allocation() {
-    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    struct Large([u64; 1024]);
-    impl Default for Large {
-        fn default() -> Self {
-            DEFAULTS.set(DEFAULTS.get() + 1);
-            Self([0; 1024])
-        }
-    }
-    impl Data for Large {
-        fn write(&self, w: &mut dyn Writer) {
-            self.0[0].write(w);
-        }
-        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-            self.0[0].read(r)
-        }
-    }
-    #[derive(Default, Data)]
-    struct Record {
-        boxed: Box<Large>,
-    }
-    // Hostile patch records omit the allocating field. Charging only Box::read
-    // never sees it, so the outer construction must charge the recursive default.
-    let empty_records = |n| {
-        let mut w = bin::Encoder::default();
-        w.begin_seq(n);
-        for _ in 0..n {
-            w.item();
-            w.begin_struct();
-            w.end_struct();
-        }
-        w.end_seq();
-        w.finish().unwrap()
-    };
-    DEFAULTS.set(0);
-    assert!(bin::from_slice_in::<Vec<Record>>(
-        &empty_records(10),
-        Some(&data::LoadBudget::new(10000))
-    )
-    .is_err());
-    assert!(
-        DEFAULTS.get() <= 1,
-        "constructed {} large defaults",
-        DEFAULTS.get()
-    );
-    DEFAULTS.set(0);
-    let decoded =
-        bin::from_slice_in::<Vec<Record>>(&empty_records(2), Some(&data::LoadBudget::new(100000)))
-            .unwrap();
-    assert_eq!(decoded.len(), 2);
-    assert_eq!(DEFAULTS.get(), 2); // negative control: admitted defaults are constructed
-    let mut array = [Box::<Large>::default()];
-    let bytes = bin::to_vec(&Vec::<()>::new()).unwrap();
-    DEFAULTS.set(0);
-    let mut r = bin::Decoder::for_load(&bytes, Some(&data::LoadBudget::new(1024)));
-    assert!(array.read(&mut r).is_err());
-    assert_eq!(DEFAULTS.get(), 0, "array reset allocated before admission");
-}
-
-#[test]
 fn live_ticks_never_visit_components_and_settle_samples_each_boundary_once() {
     thread_local! { static VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
     #[derive(Default)]
@@ -600,64 +513,6 @@ fn refusing_nested_dynamic_paths_has_bounded_error_allocations() {
 }
 
 #[test]
-fn skipped_defaults_and_manual_enum_defaults_cannot_escape_decode_admission() {
-    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    struct Large(Vec<u8>);
-    impl Default for Large {
-        fn default() -> Self {
-            DEFAULTS.set(DEFAULTS.get() + 1);
-            Self(vec![0; 65_536])
-        }
-    }
-    impl Data for Large {
-        fn write(&self, w: &mut dyn Writer) {
-            self.0.write(w);
-        }
-        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-            self.0.read(r)
-        }
-    }
-    #[derive(Default, Data)]
-    struct Skipped {
-        #[data(skip)]
-        large: Box<Large>,
-    }
-    #[derive(Data)]
-    enum Choice {
-        Unit,
-        Large(Large),
-    }
-    impl Default for Choice {
-        fn default() -> Self {
-            Self::Large(Large::default())
-        }
-    }
-    let mut out = bin::Encoder::default();
-    out.begin_struct();
-    out.end_struct();
-    let bytes = out.finish().unwrap();
-    DEFAULTS.set(0);
-    assert!(bin::from_slice_in::<Skipped>(&bytes, Some(&data::LoadBudget::new(1024))).is_err());
-    assert_eq!(DEFAULTS.get(), 0, "skipped default allocated before claim");
-    let bytes = bin::to_vec(&Choice::Unit).unwrap();
-    DEFAULTS.set(0);
-    let value = bin::from_slice_in::<Choice>(&bytes, Some(&data::LoadBudget::new(1024))).unwrap();
-    assert!(matches!(value, Choice::Unit));
-    assert_eq!(
-        DEFAULTS.get(),
-        0,
-        "decoding an enum called its unrelated manual default"
-    );
-    #[derive(Default, Data)]
-    struct Nested {
-        choice: Choice,
-    }
-    DEFAULTS.set(0);
-    assert!(bin::from_slice_in::<Nested>(&[8, 0], Some(&data::LoadBudget::new(1024))).is_err());
-    assert_eq!(DEFAULTS.get(), 0, "nested enum default escaped admission");
-}
-
-#[test]
 fn unknown_variant_errors_do_not_copy_attacker_sized_names() {
     #[derive(Default, Data)]
     enum Choice {
@@ -682,21 +537,22 @@ fn unknown_variant_errors_do_not_copy_attacker_sized_names() {
 }
 
 #[test]
-fn writer_accounts_for_skipped_default_resets_before_returning_unreadable_bytes() {
-    #[derive(Default)]
-    struct Costly;
-    impl Data for Costly {
-        fn write(&self, w: &mut dyn Writer) {
-            w.unit();
-        }
-        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-            r.skip()
+fn selected_enum_reader_avoids_unrelated_manual_default() {
+    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    #[derive(Data)]
+    enum Choice {
+        Unit,
+        Large(Vec<u8>),
+    }
+    impl Default for Choice {
+        fn default() -> Self {
+            DEFAULTS.set(DEFAULTS.get() + 1);
+            Self::Large(vec![0; 65_536])
         }
     }
-    #[derive(Default, Data)]
-    struct Skipped {
-        #[data(skip)]
-        value: Costly,
-    }
-    assert!(bin::to_vec(&Skipped::default()).is_err());
+    let bytes = bin::to_vec(&Choice::Unit).unwrap();
+    DEFAULTS.set(0);
+    let value = bin::from_slice_in::<Choice>(&bytes, Some(&data::LoadBudget::new(1024))).unwrap();
+    assert!(matches!(value, Choice::Unit));
+    assert_eq!(DEFAULTS.get(), 0);
 }

@@ -308,7 +308,7 @@ mod budget_tests {
         assert!(!w.contains(live));
     }
     #[test]
-    fn ownership_scratch_does_not_consume_the_state_decode_allowance() {
+    fn ownership_scratch_and_validation_share_the_resident_budget() {
         let mut w = World::new(60, 0);
         let root = w.spawn(()).unwrap();
         for _ in 0..100 {
@@ -316,11 +316,11 @@ mod budget_tests {
             w.set_parent(e, Some(root)).unwrap();
         }
         let bytes = w.save().unwrap();
-        let decodes = |budget| {
+        let decodes = |bytes_budget| {
             let mut next = World::new(60, 0);
             next.register::<Parent>().unwrap();
-            let mut r = bin::Decoder::with_budget(&bytes[8..], budget);
-            next.read(&mut r).and_then(|()| r.finish()).is_ok()
+            let budget = crate::data::LoadBudget::new(bytes_budget);
+            next.load_in(&bytes, Some(&budget), false).is_ok()
         };
         let (mut low, mut high) = (0, 1_000_000);
         while low < high {

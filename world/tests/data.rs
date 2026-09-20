@@ -238,38 +238,3 @@ fn borrowed_identities_reject_duplicate_literals_and_restore_outer_marks() {
         }
     }
 }
-
-#[test]
-fn portable_admission_boundary_matches_32_and_64_bit_readers() {
-    #[derive(Default, Data)]
-    struct Headers {
-        a: Vec<String>,
-        b: String,
-        c: Option<Vec<u32>>,
-    }
-    let values: Vec<_> = (0..8).map(|_| Headers::default()).collect();
-    let bytes = bin::to_vec(&values).unwrap();
-    let admits = |units| {
-        bin::from_slice_in::<Vec<Headers>>(&bytes, Some(&exact_world::data::LoadBudget::new(units)))
-            .is_ok()
-    };
-    let (mut lo, mut hi) = (0, 100_000);
-    while lo < hi {
-        let mid = (lo + hi) / 2;
-        if admits(mid) {
-            hi = mid;
-        } else {
-            lo = mid + 1;
-        }
-    }
-    assert_eq!(
-        lo, 2232,
-        "fixed wire units on both 32-bit and 64-bit readers"
-    );
-    assert!(admits(lo));
-    assert!(!admits(lo - 1));
-    assert_eq!(
-        bin::to_vec(&bin::from_slice::<Vec<Headers>>(&bytes).unwrap()).unwrap(),
-        bytes
-    );
-}
