@@ -320,7 +320,11 @@ impl World {
     pub fn replacement(&self) -> u64 {
         self.replacement
     }
-    pub(crate) fn adopt(&mut self, mut next: Self) -> Result<(), DataError> {
+    pub(crate) fn adopt(&mut self, next: Self) -> Result<(), DataError> {
+        drop(self.exchange(next)?);
+        Ok(())
+    }
+    pub(crate) fn exchange(&mut self, mut next: Self) -> Result<Self, DataError> {
         // Reset consumes only the unsaved structural cursor. A healthy candidate
         // may replace a poisoned destination; all refusal precedes moving journals.
         self.change_next
@@ -341,8 +345,7 @@ impl World {
             *at = next.journal_next.get();
         }
         std::mem::swap(self, &mut next);
-        self.mutation(|_| drop(next));
-        Ok(())
+        Ok(next)
     }
 }
 

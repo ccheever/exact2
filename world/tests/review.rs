@@ -459,3 +459,104 @@ fn unrelated_derived_slots_borrow_independently_and_clear_on_replacement() {
     assert_eq!(*w.derived::<u32>(), 0);
     assert!(w.derived::<String>().is_empty());
 }
+
+#[test]
+fn failed_read_into_keeps_the_destination_unchanged() {
+    #[derive(Default, Data)]
+    struct Record {
+        hp: u32,
+        name: String,
+    }
+    let mut live = Record {
+        hp: 7,
+        name: "kept".into(),
+    };
+    let mut patch = bin::to_vec(&Record {
+        hp: 99,
+        name: "new".into(),
+    })
+    .unwrap();
+    patch.pop();
+    assert!(bin::read_into(&patch, &mut live).is_err());
+    assert_eq!((live.hp, live.name.as_str()), (7, "kept"));
+    let patch = bin::to_vec(&Record {
+        hp: 99,
+        name: "new".into(),
+    })
+    .unwrap();
+    bin::read_into(&patch, &mut live).unwrap();
+    assert_eq!((live.hp, live.name.as_str()), (99, "new"));
+}
+
+#[test]
+fn incoming_world_survives_outgoing_destructor_panic() {
+    #[derive(Default, Component)]
+    struct Bomb(bool);
+    impl Drop for Bomb {
+        fn drop(&mut self) {
+            assert!(!self.0, "outgoing bomb");
+        }
+    }
+    let mut w = World::new(60, 0);
+    w.register::<Bomb>().unwrap();
+    let healthy = w.save().unwrap();
+    w.spawn(Bomb(true)).unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.load(&healthy))).is_err());
+    assert_eq!(w.save().unwrap(), healthy);
+    w.spawn(Bomb(false)).unwrap();
+}
+
+#[test]
+fn restore_and_bind_install_complete_driver_before_dropping_args() {
+    thread_local! { static ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    #[derive(Default, Args)]
+    struct Options {
+        seed: u32,
+        #[live]
+        live: bool,
+    }
+    impl Drop for Options {
+        fn drop(&mut self) {
+            assert!(!ARMED.replace(false), "old args drop");
+        }
+    }
+    struct Config;
+    impl Game for Config {
+        const ID: &'static str = "drop-args";
+        type Args = Options;
+        fn setup(w: &mut World, _: &Options) {
+            w.spawn(()).unwrap();
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) {}
+    }
+    for mode in 0..3 {
+        let mut s = Sim::<Config>::new(Options::default()).unwrap();
+        let healthy = s.save().unwrap();
+        s.run(17.).unwrap();
+        ARMED.set(true);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match mode {
+            0 => s.restore(&healthy),
+            1 => s.bind(Options {
+                seed: 1,
+                live: false,
+            }),
+            _ => s.bind(Options {
+                seed: 0,
+                live: true,
+            }),
+        }));
+        assert!(result.is_err());
+        assert!(
+            s.save().is_ok(),
+            "driver partly installed after mode {mode}"
+        );
+        if mode == 0 {
+            assert_eq!(s.save().unwrap(), healthy);
+        }
+        if mode == 2 {
+            assert!(s.args().live);
+            assert_eq!(s.world().observation(), None);
+        }
+        s.run(17.).unwrap();
+    }
+}

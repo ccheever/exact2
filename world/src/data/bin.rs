@@ -20,11 +20,14 @@ pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Resu
     Ok(value)
 }
 pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> {
-    let mut r = Decoder::new(bytes);
-    value
-        .read(&mut r)
+    let budget = LoadBudget::new(MAX_LOAD_BYTES);
+    let mut next = from_slice_in::<T>(&to_vec(value)?, Some(&budget))?;
+    let mut r = Decoder::for_load(bytes, Some(&budget));
+    next.read(&mut r)
         .and_then(|()| r.finish())
-        .map_err(|e| e.at(super::type_name::<T>()))
+        .map_err(|e| e.at(super::type_name::<T>()))?;
+    *value = next;
+    Ok(())
 }
 
 /// A binary stream sink, usable for a world whose component types are erased.

@@ -101,16 +101,11 @@ impl<G: Game> Sim<G> {
         if self.args.setup_changed(&args) {
             let mut next = Self::new(args)?;
             next.paranoid = self.paranoid;
-            self.world.adopt(next.world)?;
-            self.args = next.args;
-            self.input = next.input;
-            self.queue = next.queue;
-            self.world_us = 0;
-            self.caller_us = 0;
-            self.tick_failed = false;
+            self.install(next, false)?;
         } else {
-            self.args = args;
+            let old = std::mem::replace(&mut self.args, args);
             self.world.mutated();
+            drop(old);
         }
         Ok(())
     }
@@ -342,15 +337,18 @@ impl<G: Game> Sim<G> {
         Ok(changed)
     }
     fn install(&mut self, next: Self, keep_args: bool) -> Result<(), DataError> {
-        self.world.adopt(next.world)?;
-        if !keep_args {
-            self.args = next.args;
-        }
+        let old_world = self.world.exchange(next.world)?;
+        let old_args = if keep_args {
+            next.args
+        } else {
+            std::mem::replace(&mut self.args, next.args)
+        };
         self.input = next.input;
         self.queue = next.queue;
         self.world_us = next.world_us;
         self.caller_us = next.caller_us;
         self.tick_failed = false;
+        drop((old_world, old_args));
         Ok(())
     }
     fn candidate(bytes: &[u8], adapt: bool) -> Result<Self, DataError> {

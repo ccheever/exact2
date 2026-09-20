@@ -107,7 +107,9 @@ caches. Mutable access conservatively invalidates revisions even without assignm
 
 A panicking structural mutation poisons its world; discard it. A panicking tick
 once gameplay has started poisons its driver and World, so neither continuation
-boundary can save partial logic. A healthy Sim checkpoint can recover it. Input admission happens before the boundary changes. Earlier
+boundary can save partial logic. A healthy Sim checkpoint can recover it. Installation swaps the complete driver
+before dropping outgoing state; a destructor panic propagates with the incoming
+state healthy and consistent. Live bind invalidates observation before old Args drop. Input admission happens before the boundary changes. Earlier
 successful ticks remain committed if a later tick in the request is refused.
 
 ### Ordinary ticks and explicit observation
@@ -565,3 +567,7 @@ sequence count at byte 8 changes 9→10, and one final boolean byte records pend
 delivery. EXGAME v4, hashes and all prior payload fields are unchanged. The frozen
 v9 inventory normalizes precisely these bytes; empty/pending/drained restore,
 from-save and carry have independent controls. v9 refuses; no migration ships.
+
+`bin::read_into(bytes, &mut value)` stages a saved copy and patch under one
+256 MiB decode allowance, replacing only on successful completion. This explicit
+patch path costs a complete encode/decode of the existing value.
