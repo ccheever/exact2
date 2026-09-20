@@ -899,7 +899,6 @@ name = "exact-world"
 version = "0.1.0"
 dependencies = [
  "exact-motion",
- "exact-plan",
  "exact-world-derive",
  "libm",
  "ryu",

@@ -403,12 +403,10 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         return Err(format!("{name}: Args requires named fields"));
     }
     let mut fields = Vec::new();
-    let mut decode = Vec::new();
-    let mut values = Vec::new();
     let mut borrowed = Vec::new();
     let mut checks = Vec::new();
     let mut changed = vec!["false".to_owned()];
-    for (i, tokens) in split(g.stream())?.iter().enumerate() {
+    for tokens in &split(g.stream())? {
         let live = tokens.windows(2).any(|w| {
             punct(&w[0], '#')
                 && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "live")
@@ -456,11 +454,6 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
             "{:?} => Some(::exact_world::args::ArgumentRef::{value}),",
             clean(&field)
         ));
-        values.push(match ty.as_str() {
-            "String" => format!("::exact_world::Value::str(&self.{field})"),
-            "bool" => format!("::exact_world::Value::Bool(self.{field})"),
-            _ => format!("::exact_world::Value::Number(self.{field} as f64)"),
-        });
         if !matches!(
             ty.as_str(),
             "bool" | "u32" | "u64" | "i32" | "i64" | "f32" | "f64" | "String"
@@ -469,17 +462,13 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         }
         let invalid = match ty.as_str() {
             "f32" | "f64" => Some(format!("!self.{field}.is_finite()")),
-            "u64" => Some(format!("self.{field} > 9_007_199_254_740_991")),
-            "i64" => Some(format!(
-                "!(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&self.{field})"
-            )),
             "String" => Some(format!(
                 "self.{field}.len() > ::exact_world::data::MAX_LOAD_STRING"
             )),
             _ => None,
         };
         if let Some(invalid) = invalid {
-            checks.push(format!("if {invalid} {{ return Err(format!(\"{{}}: expected {{}}\", {:?}, <{ty} as ::exact_world::args::Argument>::EXPECTED)); }}", clean(&field)));
+            checks.push(format!("if {invalid} {{ return Err(format!(\"{{}}: invalid scalar or oversized text\", {:?})); }}", clean(&field)));
         }
         let kind = if live {
             "Live"
@@ -490,10 +479,6 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
         };
         fields.push(format!(
             "({:?}, ::exact_world::ArgumentKind::{kind})",
-            clean(&field)
-        ));
-        decode.push(format!(
-            "{field}: ::exact_world::args::field::<{ty}>(values, {i}, {:?})?",
             clean(&field)
         ));
         if !live {
@@ -507,19 +492,13 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
     Ok(format!(
         "impl ::exact_world::Args for {name} {{
         const FIELDS: &'static [(&'static str, ::exact_world::ArgumentKind)] = &[{}];
-        fn decode(values: &[::exact_world::Value]) -> Result<Self, String> {{
-            ::exact_world::args::arity(values, Self::FIELDS)?; Ok(Self {{ {} }})
-        }}
         fn argument(&self, name: &str) -> Option<::exact_world::args::ArgumentRef<'_>> {{ match name {{ {} _ => None }} }}
         fn check_scalars(&self) -> Result<(), String> {{ {} Ok(()) }}
-        fn values(&self) -> Vec<::exact_world::Value> {{ vec![{}] }}
         fn setup_changed(&self, next: &Self) -> bool {{ let _ = next; {} }}
     }}",
         fields.join(","),
-        decode.join(","),
         borrowed.join(""),
         checks.join(""),
-        values.join(","),
         changed.join(" || ")
     ))
 }

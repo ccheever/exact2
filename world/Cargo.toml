@@ -10,7 +10,6 @@ name = "exact_world"
 
 [dependencies]
 exact-world-derive = { path = "derive" }
-exact-plan = { path = "../plan" }
 exact-motion = { path = "../motion" }
 libm = "0.2"
 ryu = { version = "1.0.23", features = ["small"] }

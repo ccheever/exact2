@@ -3,7 +3,6 @@
 #![deny(unsafe_code)]
 extern crate self as exact_world;
 pub use exact_motion::SpringConfig;
-pub use exact_plan::Value;
 pub use exact_world_derive::{Args, Component, Data, Resource};
 pub mod data;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};

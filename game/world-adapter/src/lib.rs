@@ -1,5 +1,6 @@
 //! Contract conversions for the external world surface adapter.
 #![deny(unsafe_code)]
+pub mod args;
 pub mod publication;
 
 #[cfg(test)]
