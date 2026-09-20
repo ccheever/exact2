@@ -195,3 +195,39 @@ impl<C: Data> Erased for Storage<C> {
         self.raw.read(r, valid)
     }
 }
+
+pub(crate) fn boxed<T>(value: T) -> Result<Box<T>, DataError> {
+    let bytes = raw::Bytes::try_new(std::alloc::Layout::new::<T>())?;
+    let ptr = bytes.get().cast::<T>();
+    // SAFETY: freshly allocated, uniquely owned and aligned for T, including ZSTs.
+    unsafe {
+        ptr.write(value);
+    }
+    std::mem::forget(bytes);
+    // SAFETY: ptr now owns one initialized T with the allocator/layout Box expects.
+    Ok(unsafe { Box::from_raw(ptr) })
+}
+pub(crate) fn load<C: Data>(
+    name: &'static str,
+    epoch: std::rc::Rc<Cell<u64>>,
+    r: &mut dyn Reader,
+) -> Result<Box<dyn Erased>, DataError> {
+    std::alloc::Layout::array::<C>(PAGE)
+        .map_err(|_| DataError::new("component chunk layout overflow"))?;
+    r.claim(std::mem::size_of::<Storage<C>>())?;
+    Ok(boxed(Storage::<C> {
+        raw: RawStorage::new::<C>(name, epoch),
+        _type: PhantomData,
+    })?)
+}
+pub(crate) fn load_cell<C: Data>(
+    name: &'static str,
+    epoch: std::rc::Rc<Cell<u64>>,
+    r: &mut dyn Reader,
+) -> Result<Box<dyn Erased>, DataError> {
+    r.claim(std::mem::size_of::<Singleton<C>>())?;
+    Ok(boxed(Singleton::<C>::new(name, epoch))?)
+}
+
+#[cfg(test)]
+mod resident;

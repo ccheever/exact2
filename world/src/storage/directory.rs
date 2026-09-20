@@ -64,6 +64,9 @@ impl Directory {
         let len = self.capacity_for(index);
         let (layout, offset) = Self::shape(len);
         let bytes = Bytes::new(layout);
+        self.install(len, offset, bytes);
+    }
+    fn install(&mut self, len: usize, offset: usize, bytes: Bytes) {
         // SAFETY: both regions are in the new allocation, aligned and disjoint.
         // Only metadata is initialized. Copies transfer pointer ownership; Chunk
         // has no Drop, and replacing old Bytes frees only the metadata allocation.
@@ -80,6 +83,32 @@ impl Directory {
         self.chunks = bytes.get().wrapping_add(offset).cast();
         self.bytes = bytes;
         self.len = len;
+    }
+    pub(super) fn prepare(
+        &mut self,
+        index: usize,
+        r: &mut dyn crate::Reader,
+    ) -> Result<(), crate::DataError> {
+        if index >= crate::MAX_ENTITIES.div_ceil(PAGE) {
+            return Err(crate::DataError::new("chunk limit"));
+        }
+        if index >= self.len {
+            let len = self.capacity_for(index);
+            let (layout, offset) = Self::shape(len);
+            r.claim(layout.size())?;
+            let bytes = Bytes::try_new(layout)?;
+            self.install(len, offset, bytes);
+        }
+        if self.chunks()[index].ptr.is_null() {
+            r.claim(self.layout.size())?;
+            let bytes = Bytes::try_new(self.layout)?;
+            // SAFETY: exclusive initialized metadata slot owns this checked allocation.
+            unsafe {
+                (*self.chunks.add(index)).ptr = bytes.get();
+            }
+            std::mem::forget(bytes);
+        }
+        Ok(())
     }
     pub(super) fn allocate(&mut self, index: usize) {
         self.ensure(index);

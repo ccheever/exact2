@@ -54,11 +54,22 @@ impl Published {
                     let s = r.borrowed_string()?;
                     charge(budget, s.len().saturating_mul(6))?;
                     r.claim(s.len())?;
-                    Self::Str(s.into())
+                    let mut text = String::new();
+                    text.try_reserve_exact(s.len())
+                        .map_err(crate::data::limits::allocation)?;
+                    text.push_str(s);
+                    Self::Str(text)
                 }
                 "Option" => {
                     let v = if r.option()? {
-                        Some(Box::new(Self::read_bounded(r, budget, depth + 1)?))
+                        {
+                            r.claim(std::mem::size_of::<Self>())?;
+                            Some(crate::storage::boxed(Self::read_bounded(
+                                r,
+                                budget,
+                                depth + 1,
+                            )?)?)
+                        }
                     } else {
                         None
                     };
@@ -73,7 +84,13 @@ impl Published {
                     }
                     charge(budget, n * 64)?;
                     r.claim(n * 64)?;
-                    let mut v = Vec::with_capacity(n);
+                    r.claim(
+                        n.checked_mul(std::mem::size_of::<Self>())
+                            .ok_or_else(|| DataError::new("publication allocation overflow"))?,
+                    )?;
+                    let mut v = Vec::new();
+                    v.try_reserve_exact(n)
+                        .map_err(crate::data::limits::allocation)?;
                     while r.item()? {
                         v.push(Self::read_reserved(r, budget, depth + 1)?);
                     }
@@ -88,7 +105,7 @@ impl Published {
                     let mut v = std::collections::BTreeMap::new();
                     while let Some(k) = r.field()? {
                         charge(budget, k.len().saturating_mul(6))?;
-                        r.claim(64usize.saturating_add(k.len()))?;
+                        r.claim(crate::data::limits::map_bytes::<String, Self>() + k.len())?;
                         let value = Self::read_bounded(r, budget, depth + 1)?;
                         v.insert(k.into(), value);
                     }

@@ -146,7 +146,11 @@ struct State {
     work: RefCell<BTreeMap<String, crate::Work>>,
 }
 type DerivedSlot = std::cell::OnceCell<(TypeId, RefCell<Box<dyn std::any::Any>>)>;
-type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
+type StorageFactory = fn(
+    &'static str,
+    std::rc::Rc<std::cell::Cell<u64>>,
+    &mut dyn Reader,
+) -> Result<Box<dyn Erased>, DataError>;
 #[derive(Clone, Copy)]
 struct Registration {
     ordinal: u8,
@@ -263,7 +267,7 @@ impl World {
         if reg.make.is_none() {
             let outer = self.registration_before.take();
             let registering = std::mem::replace(&mut self.registering, true);
-            self.registry.get_mut(C::NAME).unwrap().make = Some(storage::make::<C>);
+            self.registry.get_mut(C::NAME).unwrap().make = Some(storage::load::<C>);
             let result = self.mutation(C::register);
             self.registering = registering;
             let before = self.registration_before.take();
@@ -298,7 +302,7 @@ impl World {
             return Err(DataError::new("Rng is reserved for the built-in generator"));
         }
         let reg = self.registration::<R>(R::NAME)?;
-        reg.make_resource = Some(storage::make_cell::<R>);
+        reg.make_resource = Some(storage::load_cell::<R>);
         reg.resource_size = 64usize.saturating_add(R::default_size());
         reg.ambient = R::AMBIENT;
         Ok(self)
@@ -352,6 +356,9 @@ impl World {
             resource_size: 0,
             ambient: false,
         }))
+    }
+    pub(crate) fn claim_registry(&self, r: &mut dyn Reader) -> Result<(), DataError> {
+        r.claim(self.registry.len() * crate::data::limits::map_bytes::<&str, Registration>())
     }
     fn registered<C: Data>(&self, name: &str, resource: bool) -> Result<(), DataError> {
         self.healthy()?;
@@ -877,12 +884,17 @@ impl World {
         adapt: bool,
     ) -> Result<(Self, bool), DataError> {
         let payload = Self::saved_payload(bytes)?;
+        let mut r = bin::Decoder::for_load(payload, budget);
+        r.claim(std::mem::size_of::<(usize, usize, u64)>())?;
+        r.claim(self.registry.len() * crate::data::limits::map_bytes::<&str, Registration>())?;
         let mut next = Self::new(self.hz(), 0);
         next.registry = self.registry.clone();
-        let mut r = bin::Decoder::for_load(payload, budget);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
-        let changed = next.save()? != bytes;
+        next.validate()?;
+        let mut w = bin::Encoder::for_validation(MAGIC, r.into_budget());
+        next.write(&mut w, true);
+        let changed = w.finish()? != bytes;
         if changed && !adapt {
             return Err(DataError::new(
                 "exact save identity differs; use carry for schema adaptation",
@@ -964,7 +976,11 @@ impl World {
                         if slot.alive {
                             self.alive_mask[index / 64] |= 1 << (index % 64);
                             if let Some(name) = &slot.name {
-                                r.claim(512usize.saturating_add(name.len()))?;
+                                r.claim(
+                                    crate::data::limits::map_bytes::<String, BTreeSet<Entity>>()
+                                        + crate::data::limits::map_bytes::<Entity, ()>()
+                                        + name.len(),
+                                )?;
                                 self.names.entry(name.clone()).or_default().insert(Entity {
                                     index: index as u32,
                                     generation: slot.generation,
@@ -989,9 +1005,11 @@ impl World {
                         if !self.registry.contains_key(name) {
                             match name {
                                 "Parent" => {
+                                    r.claim(crate::data::limits::map_bytes::<&str, Registration>())?;
                                     self.register::<Parent>()?;
                                 }
                                 "Ambient" => {
+                                    r.claim(crate::data::limits::map_bytes::<&str, Registration>())?;
                                     self.register::<crate::Ambient>()?;
                                 }
                                 _ => {}
@@ -1013,7 +1031,8 @@ impl World {
                                 .at(name)
                         })?;
                         r.claim(1024)?;
-                        let mut s = make(key, self.epoch.clone());
+                        r.claim(crate::data::limits::map_bytes::<&str, Box<dyn Erased>>())?;
+                        let mut s = make(key, self.epoch.clone(), r)?;
                         s.read(r, &|e| {
                             if resource {
                                 e == SINGLETON
@@ -1043,6 +1062,15 @@ impl World {
         }
         while self.alive_mask.last() == Some(&0) {
             self.alive_mask.pop();
+        }
+        let parents = self.storage::<Parent>().map_or(0, |s| s.len());
+        if parents != 0 {
+            r.claim(
+                parents
+                    * (crate::data::limits::map_bytes::<Entity, BTreeSet<Entity>>()
+                        + crate::data::limits::map_bytes::<Entity, ()>()),
+            )?;
+            crate::data::limits::reserve(r, self.ownership.get_mut(), self.state.slots.len())?;
         }
         self.rebuild_owners();
         Ok(())

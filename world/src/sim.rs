@@ -300,7 +300,9 @@ impl<G: Game> Sim<G> {
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.check_clock()?;
         self.world.validate()?;
-        let mut w = bin::Encoder::prefixed(MAGIC);
+        self.write_save(bin::Encoder::prefixed(MAGIC))
+    }
+    fn write_save(&self, mut w: bin::Encoder) -> Result<Vec<u8>, DataError> {
         w.begin_seq(10);
         w.item();
         w.string(G::ID);
@@ -384,8 +386,10 @@ impl<G: Game> Sim<G> {
         r.required_item("incomplete Sim save")?;
         let args = G::Args::read_new(&mut r)?;
         Self::check(&args)?;
+        r.claim(std::mem::size_of::<(usize, usize, u64)>())?;
         let mut world = World::new(G::HZ, 0);
         G::register(&mut world, SetupArgs(&args))?;
+        world.claim_registry(&mut r)?;
         r.required_item("incomplete Sim save")?;
         world.read(&mut r)?;
         r.required_item("incomplete Sim save")?;
@@ -445,7 +449,9 @@ impl<G: Game> Sim<G> {
             tick_error: None,
             game: PhantomData,
         };
-        let changed = next.save()? != bytes;
+        next.world.validate()?;
+        let changed =
+            next.write_save(bin::Encoder::for_validation(MAGIC, r.into_budget()))? != bytes;
         if !adapt && changed {
             return Err(DataError::new(
                 "exact save identity differs; use carry for schema adaptation",

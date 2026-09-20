@@ -36,6 +36,7 @@ pub struct Encoder {
     names: BTreeMap<std::borrow::Cow<'static, str>, u64>,
     limit: usize,
     decoded: usize,
+    budget: Option<Budget>,
     depth: usize,
     error: Option<DataError>,
 }
@@ -58,6 +59,7 @@ impl Encoder {
             names: BTreeMap::new(),
             limit,
             decoded: 0,
+            budget: None,
             depth: 0,
             error: None,
         }
@@ -66,6 +68,20 @@ impl Encoder {
         let mut w = Self::bounded(128 * 1024 * 1024);
         w.append(prefix);
         w
+    }
+    pub(crate) fn for_validation(prefix: &[u8], budget: Budget) -> Self {
+        let mut w = Self::bounded(128 * 1024 * 1024);
+        w.budget = Some(budget);
+        w.append(prefix);
+        w
+    }
+    fn allocation(&mut self, bytes: usize) -> bool {
+        if let Some(budget) = &mut self.budget {
+            if let Err(error) = budget.claim(bytes) {
+                self.error = Some(error);
+            }
+        }
+        !self.stopped()
     }
     pub fn finish(self) -> Result<Vec<u8>, DataError> {
         self.error.map_or(Ok(self.bytes), Err)
@@ -84,6 +100,9 @@ impl Encoder {
             let capacity = needed
                 .max(self.bytes.capacity().saturating_mul(2))
                 .min(self.limit);
+            if !self.allocation(capacity) {
+                return;
+            }
             if self
                 .bytes
                 .try_reserve_exact(capacity - self.bytes.len())
@@ -128,6 +147,9 @@ impl Encoder {
             self.var(i + 1);
         } else {
             self.claim_decoded(64);
+            if !self.allocation(super::limits::map_bytes::<std::borrow::Cow<str>, u64>()) {
+                return;
+            }
             self.var(0);
             self.text(&s);
             if !self.stopped() {
@@ -217,7 +239,9 @@ impl Writer for Encoder {
         }
         self.claim_decoded(64usize.saturating_add(name.len()));
         self.append(&[1]);
-        self.name(name.to_owned().into());
+        if self.allocation(name.len()) {
+            self.name(name.to_owned().into());
+        }
     }
     fn end_struct(&mut self) {
         self.leave();
@@ -282,6 +306,9 @@ impl<'a> Decoder<'a> {
             r.budget = Budget::shared(budget);
         }
         r
+    }
+    pub(crate) fn into_budget(self) -> Budget {
+        self.budget
     }
     pub fn finish(&self) -> Result<(), DataError> {
         if self.pos == self.bytes.len() && self.frames.is_empty() {
@@ -435,7 +462,7 @@ impl<'a> Reader<'a> for Decoder<'a> {
     fn shared_string(&mut self) -> Result<std::rc::Rc<str>, DataError> {
         self.tag(6, "expected a string")?;
         let text = self.text()?;
-        self.claim(text.len().saturating_add(16))?;
+        self.claim(super::limits::rc_str_bytes(text.len())?)?;
         Ok(text.into())
     }
     fn begin_seq(&mut self) -> Result<(), DataError> {
@@ -477,6 +504,10 @@ impl<'a> Reader<'a> for Decoder<'a> {
             }
             1 => {
                 let name = self.name()?;
+                if !self.marks.contains_key(name) {
+                    self.budget
+                        .claim(super::limits::map_bytes::<&str, usize>())?;
+                }
                 let mark = self.marks.entry(name).or_insert(0);
                 if *mark == self.frames.len() {
                     return Err(DataError::new("duplicate field").at(name));

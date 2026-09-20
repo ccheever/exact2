@@ -55,7 +55,7 @@ impl Budget {
         Ok(out)
     }
     pub fn reserve<T>(&mut self, v: &mut Vec<T>) -> Result<(), DataError> {
-        grow(v, 1, 32, |bytes| self.claim(bytes))
+        grow(v, 1, std::mem::size_of::<T>(), |bytes| self.claim(bytes))
     }
     pub fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         let remaining = self
@@ -77,7 +77,12 @@ pub(crate) fn reserve<T: Data>(
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
-    grow(v, extra, T::default_size(), |bytes| r.claim(bytes))
+    grow(
+        v,
+        extra,
+        std::mem::size_of::<T>().max(T::default_size()),
+        |bytes| r.claim(bytes),
+    )
 }
 fn grow<T>(
     v: &mut Vec<T>,
@@ -92,7 +97,7 @@ fn grow<T>(
     if need > v.capacity() {
         let capacity = need.max(v.capacity().saturating_mul(2)).max(4);
         claim(
-            (capacity - v.capacity())
+            capacity
                 .checked_mul(unit)
                 .ok_or_else(|| DataError::new("allocation size overflow"))?,
         )?;
@@ -138,12 +143,28 @@ pub(crate) fn read_map<T: Data, K: Ord + for<'a> From<&'a str>>(
             return Err(DataError::new("map count/key limit"));
         }
         r.claim(
-            64usize
-                .saturating_add(key.len())
+            map_bytes::<K, T>()
+                .saturating_add(rc_str_bytes(key.len())?)
                 .saturating_add(T::default_size()),
         )?;
         let value = T::read_new(r).map_err(|e| e.at(key))?;
         values.insert(key.into(), value);
     }
     Ok(())
+}
+
+/// Two full B-tree nodes per inserted entry cover roots, leaves and propagated splits.
+/// std's nodes hold at most eleven pairs and twelve child pointers.
+pub(crate) fn map_bytes<K, V>() -> usize {
+    2 * (std::mem::size_of::<([K; 11], [V; 11], [usize; 12], usize, u16, u16)>()
+        + std::mem::align_of::<(K, V)>())
+}
+pub(crate) fn rc_str_bytes(len: usize) -> Result<usize, DataError> {
+    std::alloc::Layout::new::<[usize; 2]>()
+        .extend(
+            std::alloc::Layout::array::<u8>(len)
+                .map_err(|_| DataError::new("string layout overflow"))?,
+        )
+        .map(|(layout, _)| layout.pad_to_align().size())
+        .map_err(|_| DataError::new("string layout overflow"))
 }

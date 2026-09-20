@@ -32,7 +32,7 @@ impl Data for Free {
             if last.is_some_and(|old| old >= i) {
                 return Err(DataError::new("free list is not strictly ordered"));
             }
-            r.claim(64)?;
+            r.claim(limits::map_bytes::<u32, ()>())?;
             self.0.insert(i);
             last = Some(i);
         }
@@ -91,7 +91,10 @@ impl World {
             if values.len() == 256 || key.len() > 256 {
                 return Err(DataError::new("publication count/key limit"));
             }
-            r.claim(64usize.saturating_add(key.len()))?;
+            r.claim(
+                limits::map_bytes::<std::rc::Rc<str>, crate::Published>()
+                    + limits::rc_str_bytes(key.len())?,
+            )?;
             let value = crate::Published::read_bounded(r, &mut budget, 0)?;
             values.insert(key.into(), value);
         }

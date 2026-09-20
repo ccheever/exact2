@@ -56,6 +56,15 @@ impl Bytes {
         };
         Self { ptr, layout }
     }
+    pub(super) fn try_new(layout: Layout) -> Result<Self, DataError> {
+        if layout.size() == 0 {
+            return Ok(Self::new(layout));
+        }
+        // SAFETY: checked nonzero layout, allocation failure is returned to the reader.
+        let ptr = NonNull::new(unsafe { alloc(layout) })
+            .ok_or_else(|| DataError::new("cannot allocate decoded storage"))?;
+        Ok(Self { ptr, layout })
+    }
     pub(super) fn get(&self) -> *mut u8 {
         self.ptr.as_ptr()
     }
@@ -280,8 +289,9 @@ impl RawStorage {
         }
         let mut last = None;
         r.claim((self.desc.wire_size)())?;
+        r.claim(self.desc.layout.size())?;
         let mut value = Value {
-            bytes: Bytes::new(self.desc.layout),
+            bytes: Bytes::try_new(self.desc.layout)?,
             desc: self.desc,
             live: false,
         };
@@ -308,6 +318,7 @@ impl RawStorage {
                 },
             );
             r.claim(backing)?;
+            self.pages.prepare(page, r)?;
             // SAFETY: correctly aligned scratch, initialized only on success.
             unsafe { (self.desc.read_new)(value.bytes.get(), r) }
                 .map_err(|err| err.at(e.index()))?;

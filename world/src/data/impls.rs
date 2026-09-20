@@ -254,7 +254,8 @@ impl<T: Data> Data for Box<T> {
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
         r.claim(T::default_size())?;
-        Ok(Box::new(T::read_new(r)?))
+        r.claim(std::mem::size_of::<T>())?;
+        crate::storage::boxed(T::read_new(r)?)
     }
     fn write(&self, w: &mut dyn Writer) {
         w.claim_decoded(Self::default_size().saturating_mul(2));
@@ -289,8 +290,8 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
         self.clear();
         while let Some(k) = r.field()? {
             r.claim(
-                64usize
-                    .saturating_add(k.len())
+                super::limits::map_bytes::<K, T>()
+                    .saturating_add(super::limits::rc_str_bytes(k.len())?)
                     .saturating_add(T::default_size()),
             )?;
             let value = T::read_new(r).map_err(|e| e.at(k))?;
