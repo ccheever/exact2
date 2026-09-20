@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -168,6 +168,43 @@ test('resident reads see root replacement, refuse links, and do not hold Bun ope
       child.on('close',code=>{clearTimeout(timer);code===0 ? resolve() : reject(new Error(stderr || `child exited ${code}`));});
     });
     assert.equal(output.trim(),'done');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('filesystem callers retain their helper across rebuilds and report failed operations without retrying', () => {
+  const dir=mkdtempSync(join(tmpdir(),'exact-helper-capture-'));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'bin'));
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    // Stand in for Cargo's mutable public output, independently of the real
+    // workspace cache. A second caller publishes a different executable.
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+test -z "\${CLIPPY_ARGS-}"
+test "\${RUSTC_WORKSPACE_WRAPPER-}" != /toolchain/clippy-driver
+mkdir -p target/exact-filesystem-tool/debug
+cp helper-source target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+`,{mode:0o755});
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    writeFileSync(join(dir,'helper-source'),helper('first'));
+    const program=`
+      import assert from 'node:assert/strict';
+      import {writeFileSync,readFileSync} from 'node:fs';
+      import {spawnSync} from 'node:child_process';
+      import {filesystem} from './scripts/filesystem.mjs';
+      assert.equal(filesystem({op:'get'}),'first');
+      writeFileSync('helper-source',${JSON.stringify(helper('second'))});
+      const next=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}));"],{encoding:'utf8'});
+      assert.equal(next.status,0,next.stderr);assert.equal(next.stdout.trim(),'second');
+      assert.equal(filesystem({op:'get'}),'first','a rebuild must not replace a selected helper');
+      writeFileSync('helper-source','#!/bin/sh\\nprintf x >> attempts\\nexit 42\\n');
+      const failed=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';try{filesystem({op:'put'});process.exit(3)}catch(e){console.log(e.message)}"],{encoding:'utf8'});
+      assert.equal(failed.status,0,failed.stderr);assert.match(failed.stdout,/status 42, signal none/);
+      assert.equal(readFileSync('attempts','utf8'),'x','failed operations must not be retried');
+    `;
+    const child=spawnSync(process.execPath,['--eval',program],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,RUSTC_WORKSPACE_WRAPPER:'/toolchain/clippy-driver',CLIPPY_ARGS:'-D warnings'}});
+    assert.equal(child.status,0,child.stderr);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 

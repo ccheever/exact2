@@ -1,7 +1,8 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
@@ -9,7 +10,8 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
 function executable() {
   if (binary) return binary;
-  const target = resolve(root, 'target/exact-filesystem-tool/debug/exact-filesystem');
+  const directory = resolve(root, 'target/exact-filesystem-tool');
+  const target = resolve(directory, 'debug/exact-filesystem');
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
   // on that app build directory lock. Once per Bun process, Cargo checks
@@ -17,11 +19,49 @@ function executable() {
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
   const env = { ...process.env };
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
-  const built = spawnSync('cargo', ['build', '--quiet', '--locked', '--offline', '-p', 'exact-filesystem', '--target-dir', resolve(root, 'target/exact-filesystem-tool')], { cwd: root, env, encoding: 'utf8' });
-  if (built.error) throw built.error;
-  if (built.status !== 0) throw new Error(built.stderr || 'could not build exact-filesystem');
-  binary = target;
-  return target;
+  for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
+    if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];
+  }
+  delete env.CLIPPY_ARGS;
+  // Cargo protects compilation, but releases its lock before we can exec.
+  // Another profile can replace its public binary in that gap. Hold this
+  // bootstrap claim through capture, then execute immutable captured bytes.
+  // This is not the helper's stream lock; stale build claims are never stolen.
+  mkdirSync(directory, { recursive: true });
+  const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}:${randomBytes(12).toString('hex')}`;
+  const started = Date.now(), wait = new Int32Array(new SharedArrayBuffer(4));
+  for (;;) {
+    try { writeFileSync(claim, owner, { flag: 'wx' }); break; }
+    catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      if (Date.now() - started >= 60000) throw new Error(`filesystem helper build busy (${claim}); remove a stale claim only after verifying its owner has exited`);
+      Atomics.wait(wait, 0, 0, 25);
+    }
+  }
+  let held = true;
+  const release = () => {
+    if (!held) return;
+    held = false;
+    process.removeListener('exit', release);
+    if (existsSync(claim) && readFileSync(claim, 'utf8') === owner) rmSync(claim);
+  };
+  process.once('exit', release);
+  try {
+    const built = spawnSync('cargo', ['build', '--quiet', '--locked', '--offline', '-p', 'exact-filesystem', '--target-dir', directory], { cwd: root, env, encoding: 'utf8' });
+    if (built.error) throw built.error;
+    if (built.status !== 0) throw new Error(built.stderr || `could not build exact-filesystem (status ${built.status}, signal ${built.signal ?? 'none'})`);
+    const bytes = readFileSync(target), digest = createHash('sha256').update(bytes).digest('hex');
+    const captured = resolve(directory, `exact-filesystem-${digest}`);
+    if (!existsSync(captured)) {
+      const temporary = `${captured}.${owner}.tmp`;
+      try {
+        writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o755 });
+        renameSync(temporary, captured);
+      } finally { rmSync(temporary, { force: true }); }
+    }
+    binary = captured;
+    return captured;
+  } finally { release(); }
 }
 function decode(response) {
   if (!response.error) return response.value;
@@ -34,7 +74,7 @@ const request = (input) => ({ ...input, token: randomBytes(24).toString('hex') }
 export function filesystem(input) {
   const result = spawnSync(executable(), [], { input: `${JSON.stringify(request(input))}\n`, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(result.stderr || 'exact-filesystem exited before replying');
+  if (result.status !== 0) throw new Error(`exact-filesystem exited before replying (status ${result.status}, signal ${result.signal ?? 'none'})${result.stderr ? `: ${result.stderr}` : ''}`);
   return decode(JSON.parse(result.stdout));
 }
 /** One child owns the root and OS lock throughout the asynchronous callback. */
@@ -48,7 +88,7 @@ export async function filesystemLock(root, path, fn) {
   const rejectAll = (error) => { failure = error; for (const item of pending.splice(0)) item.reject(error); };
   child.on('error', rejectAll);
   child.stdin.on('error', rejectAll);
-  child.on('exit', (code) => { rejectAll(new Error(stderr || `filesystem lock holder exited ${code}`)); });
+  child.on('exit', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
   lines.on('line', (line) => {
     const item = pending.shift();
     if (!item) return;
@@ -99,7 +139,7 @@ function createReader() {
   child.on('error', fail);
   child.stdin.on('error', fail);
   child.stderr.on('data', data => { stderr = (stderr + data).slice(-8192); });
-  child.on('close', code => fail(new Error(stderr || `filesystem reader exited ${code}`)));
+  child.on('close', (code, signal) => fail(new Error(`filesystem reader exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)));
   lines.on('line', line => {
     const item = pending.shift();
     if (!item) { fail(new Error('unexpected filesystem reply')); return; }

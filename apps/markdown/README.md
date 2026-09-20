@@ -1170,6 +1170,14 @@ Older completed `diag1`, `diag2`, `diag4`–`diag6`, `flat`, `lean`, `single` an
 were SHA-256 verified before deleting the uncompressed copy;
 `verified-archives-20260919.json` records the original paths and hashes. A full
 workspace validation at `799bf1ba` passed build and the separate 14 web tests,
-but test compilation exhausted available disk and was interrupted. It is not a
+but test compilation exhausted usable disk headroom and was interrupted. It is not a
 verified gate. The task-owned debug cache was removed; subsequent workspace
 checks disable debug symbols and incremental caching to bound disk consumption.
+
+The subsequent `08941a89` gate passed lint, caps and boot but failed build/test
+while launching the mutable filesystem-helper output (ENOENT and an exit before
+reply). The tooling bridge now serializes compilation plus executable capture,
+launches immutable digest-named copies, removes inherited Clippy settings and
+reports helper exit status/signal without retrying operations. The existing
+tooling suite's nine tests pass; restoring the mutable launch path fails the new
+rebuild control. Full workspace verification must run again on the fixed commit.
