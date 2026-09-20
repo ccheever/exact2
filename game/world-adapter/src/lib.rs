@@ -38,3 +38,32 @@ mod tests {
         assert!(w.work("overflow", Work::Pending).is_err());
     }
 }
+
+#[cfg(test)]
+mod atomic_publication {
+    #[test]
+    fn late_invalid_field_preserves_publications_and_game_history() {
+        use exact_world::*;
+        #[derive(Default, Data)]
+        struct Record {
+            a: u32,
+            z: String,
+        }
+        let w = World::new(60, 0);
+        w.publish("a", 0u32);
+        let before = w.publications().clone();
+        let cursor = w.journal_next();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::publication::publish_record(
+                &w,
+                &Record {
+                    a: 1,
+                    z: "x".repeat(11_000),
+                },
+            )
+        }))
+        .is_err());
+        assert_eq!(*w.publications(), before);
+        assert_eq!(w.journal_next(), cursor);
+    }
+}

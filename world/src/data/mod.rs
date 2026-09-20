@@ -141,6 +141,9 @@ pub trait Writer {
     fn begin_struct(&mut self);
     fn field(&mut self, name: &'static str);
     fn key(&mut self, name: &str);
+    fn static_key(&mut self, name: &'static str) {
+        self.key(name);
+    }
     fn end_struct(&mut self);
     fn variant(&mut self, name: &'static str, index: u32);
     fn end_variant(&mut self);
@@ -184,6 +187,9 @@ pub trait Reader<'data> {
     }
     fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError>;
     fn string(&mut self) -> Result<String, DataError>;
+    fn shared_string(&mut self) -> Result<std::rc::Rc<str>, DataError> {
+        Ok(self.string()?.into())
+    }
     fn begin_seq(&mut self) -> Result<(), DataError>;
     fn item(&mut self) -> Result<bool, DataError>;
     fn required_item(&mut self, message: &str) -> Result<(), DataError> {

@@ -212,9 +212,9 @@ pub fn publish_record(world: &World, record: &impl Data) {
     let Published::Object(fields) = writer.result else {
         panic!("publish_record expects a named record");
     };
-    for (key, value) in fields {
-        world.publish(&key, value);
-    }
+    world
+        .publish_batch(fields)
+        .expect("publication batch admission");
 }
 #[cfg(test)]
 mod tests {

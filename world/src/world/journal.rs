@@ -33,7 +33,7 @@ pub enum EventKind {
     #[default]
     Started,
     Structural(ChangeKind, Entity),
-    Published(String),
+    Published(std::rc::Rc<str>),
     Message(String),
 }
 #[derive(Clone, Debug, Default, Data)]
@@ -58,7 +58,8 @@ pub struct Logs {
 impl Event {
     fn text(&self) -> &str {
         match &self.kind {
-            EventKind::Message(s) | EventKind::Published(s) => s,
+            EventKind::Message(s) => s,
+            EventKind::Published(s) => s,
             EventKind::Structural(
                 ChangeKind::Insert(s) | ChangeKind::Replace(s) | ChangeKind::Remove(s),
                 _,

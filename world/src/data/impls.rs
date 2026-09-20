@@ -86,6 +86,18 @@ impl Data for std::borrow::Cow<'static, str> {
         Ok(())
     }
 }
+impl Data for std::rc::Rc<str> {
+    fn default_size() -> usize {
+        24
+    }
+    fn write(&self, w: &mut dyn Writer) {
+        w.string(self);
+    }
+    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        *self = r.shared_string()?;
+        Ok(())
+    }
+}
 impl<T: Data> Data for Vec<T> {
     fn default_size() -> usize {
         24
@@ -249,7 +261,7 @@ impl<T: Data> Data for Box<T> {
         (**self).read(r)
     }
 }
-impl<T: Data> Data for BTreeMap<String, T> {
+impl<K: Data + Ord + AsRef<str> + for<'a> From<&'a str>, T: Data> Data for BTreeMap<K, T> {
     fn default_size() -> usize {
         24
     }
@@ -264,7 +276,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
             if w.stopped() {
                 break;
             }
-            w.key(k);
+            w.key(k.as_ref());
             v.write(w);
         }
         w.end_struct();

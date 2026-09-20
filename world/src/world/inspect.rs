@@ -281,6 +281,7 @@ impl World {
         let mut next = self.decoded(&self.save()?, None, false)?.0;
         *next.published.get_mut() = self.published.borrow().clone();
         next.published_pending.set(self.published_pending.get());
+        next.published_cost.set(self.published_cost.get());
         *next.journal.get_mut() = self.journal.borrow().clone();
         next.journal_next.set(self.journal_next());
         Ok(Candidate(next))
@@ -288,13 +289,17 @@ impl World {
     pub fn take_messages(&self) -> Vec<String> {
         std::mem::take(&mut *self.messages.borrow_mut())
     }
-    pub fn publications(&self) -> std::cell::Ref<'_, BTreeMap<String, crate::Published>> {
+    pub fn publications(&self) -> std::cell::Ref<'_, BTreeMap<std::rc::Rc<str>, crate::Published>> {
         self.published.borrow()
     }
     pub fn take_published(&self) -> Option<BTreeMap<String, crate::Published>> {
-        self.published_pending
-            .replace(false)
-            .then(|| self.published.borrow().clone())
+        self.published_pending.replace(false).then(|| {
+            self.published
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect()
+        })
     }
 }
 

@@ -125,9 +125,9 @@ pub(crate) fn read_vec<T: Data>(
     Ok(())
 }
 
-pub(crate) fn read_map<T: Data>(
+pub(crate) fn read_map<T: Data, K: Ord + for<'a> From<&'a str>>(
     r: &mut dyn Reader,
-    values: &mut std::collections::BTreeMap<String, T>,
+    values: &mut std::collections::BTreeMap<K, T>,
     limit: usize,
     key_bytes: usize,
 ) -> Result<(), DataError> {

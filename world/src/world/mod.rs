@@ -185,7 +185,8 @@ pub struct World {
     session_next: std::cell::Cell<u64>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
-    pub(crate) published: RefCell<BTreeMap<String, crate::Published>>,
+    pub(crate) published: RefCell<BTreeMap<std::rc::Rc<str>, crate::Published>>,
+    published_cost: std::cell::Cell<usize>,
     pub(crate) messages: RefCell<Vec<String>>,
     entities_revision: u64,
     replacement: u64,
@@ -232,6 +233,7 @@ impl World {
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
+            published_cost: std::cell::Cell::new(0),
             messages: RefCell::new(Vec::new()),
             entities_revision: 0,
             replacement: 0,
@@ -627,25 +629,82 @@ impl World {
         if p.get(key) == Some(&value) {
             return;
         }
-        let mut budget = crate::json::LIMIT;
-        value.validate(&mut budget, 0).expect("publication bounds");
-        for (_, value) in p.iter().filter(|(other, _)| other.as_str() != key) {
-            value.validate(&mut budget, 0).expect("publication bounds");
-        }
+        let cost = |v: &crate::Published| {
+            let mut remaining = crate::json::LIMIT;
+            v.validate(&mut remaining, 0)?;
+            Ok::<_, DataError>(crate::json::LIMIT - remaining)
+        };
+        let total = self.published_cost.get() - p.get(key).map_or(0, |v| cost(v).unwrap())
+            + cost(&value).expect("publication bounds");
+        assert!(total <= crate::json::LIMIT, "publication bounds");
         assert!(
             p.contains_key(key) || p.len() < 256,
             "publication key limit (256)"
         );
-        let stored = p.get_mut(key);
-        self.event(crate::EventKind::Published(key.into()))
+        self.commit_publication(&mut p, key, value);
+        self.published_cost.set(total);
+        self.published_pending.set(true);
+        self.mutated();
+    }
+    fn commit_publication(
+        &self,
+        p: &mut BTreeMap<std::rc::Rc<str>, crate::Published>,
+        key: &str,
+        value: crate::Published,
+    ) {
+        if p.get(key) == Some(&value) {
+            return;
+        }
+        let key = p
+            .get_key_value(key)
+            .map_or_else(|| std::rc::Rc::<str>::from(key), |(k, _)| k.clone());
+        self.event(crate::EventKind::Published(key.clone()))
             .expect("publication journal cursor");
-        if let Some(stored) = stored {
+        if let Some(stored) = p.get_mut(&key) {
             *stored = value;
         } else {
-            p.insert(key.into(), value);
+            p.insert(key, value);
         }
         self.published_pending.set(true);
         self.mutated();
+    }
+    /// Admit a complete publication update before committing any field or event.
+    pub fn publish_batch(
+        &self,
+        values: BTreeMap<String, crate::Published>,
+    ) -> Result<(), DataError> {
+        if values.len() > 256 {
+            return Err(DataError::new("publication key limit (256)"));
+        }
+        let current = self.published.borrow();
+        let mut budget = crate::json::LIMIT;
+        let mut count = current.len();
+        let mut changes = 0;
+        for (key, value) in &values {
+            if key.len() > 256 {
+                return Err(DataError::new("publication key exceeds 256 bytes"));
+            }
+            count += usize::from(!current.contains_key(key.as_str()));
+            changes += usize::from(current.get(key.as_str()) != Some(value));
+            value.validate(&mut budget, 0)?;
+        }
+        if count > 256 {
+            return Err(DataError::new("publication key limit (256)"));
+        }
+        for (_, value) in current
+            .iter()
+            .filter(|(k, _)| !values.contains_key(k.as_ref()))
+        {
+            value.validate(&mut budget, 0)?;
+        }
+        self.change_room(changes)?;
+        drop(current);
+        let mut current = self.published.borrow_mut();
+        for (key, value) in values {
+            self.commit_publication(&mut current, &key, value);
+        }
+        self.published_cost.set(crate::json::LIMIT - budget);
+        Ok(())
     }
     pub fn emit(&self, text: impl Into<String>) {
         let text = text.into();
@@ -689,7 +748,7 @@ impl World {
                 if w.stopped() {
                     break;
                 }
-                w.key(name);
+                w.static_key(name);
                 s.write(w, &|index| {
                     if kind == "resources" {
                         SINGLETON

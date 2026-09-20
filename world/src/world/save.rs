@@ -91,6 +91,7 @@ impl World {
         for value in self.published.get_mut().values() {
             value.validate(&mut budget, 0)?;
         }
+        self.published_cost.set(crate::json::LIMIT - budget);
         self.published_pending.set(true);
         Ok(())
     }

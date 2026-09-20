@@ -205,6 +205,9 @@ impl Writer for Encoder {
         self.append(&[1]);
         self.name(name.into());
     }
+    fn static_key(&mut self, name: &'static str) {
+        self.field(name);
+    }
     fn key(&mut self, name: &str) {
         if self.stopped() {
             return;
@@ -421,6 +424,12 @@ impl<'a> Reader<'a> for Decoder<'a> {
         self.tag(6, "expected a string")?;
         let text = self.text()?;
         self.budget.text(text)
+    }
+    fn shared_string(&mut self) -> Result<std::rc::Rc<str>, DataError> {
+        self.tag(6, "expected a string")?;
+        let text = self.text()?;
+        self.claim(text.len() + 16)?;
+        Ok(text.into())
     }
     fn begin_seq(&mut self) -> Result<(), DataError> {
         self.tag(7, "expected a sequence")?;
