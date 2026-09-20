@@ -1,8 +1,31 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render } from '../../scripts/agent.mjs';
+import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
+
+test('retained development source maps survive later generations and refuse mismatched plans', async () => {
+  const cache = mkdtempSync(join(tmpdir(), 'exact-dev-source-map-'));
+  const epoch = 'a'.repeat(32), prefix = `/__dev/generation/${epoch}/`;
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const card = bytes => ({ bytes: bytes.length, sha256: digest(bytes) });
+  try {
+    for (const seq of [1, 2, 3, 4]) {
+      const plan = Buffer.from(`plan ${seq}`);
+      const map = Buffer.from(JSON.stringify({digest: seq === 3 ? digest('different') : digest(plan), nodes: [{file: `source-${seq}.contract`}]}));
+      const envelope = Buffer.from(JSON.stringify({exact: 1, plan: card(plan), assets: [], dev: {epoch, seq, ...(seq === 4 ? {} : {sourceMap: card(map)})}}));
+      retainDevGeneration(cache, epoch, seq, new Map([['app.plan', plan], ['app.plan.map.json', map], ['exact.json', envelope]]));
+    }
+    expect(JSON.parse(readDevGeneration(cache, prefix + '1/app.plan.map.json').body).nodes[0].file).toBe('source-1.contract');
+    expect(JSON.parse((await readDevGenerationAsync(cache, prefix + '2/app.plan.map.json')).body).nodes[0].file).toBe('source-2.contract');
+    expect(readDevGeneration(cache, prefix + '3/app.plan.map.json')).toBeNull();
+    expect(await readDevGenerationAsync(cache, prefix + '4/app.plan.map.json')).toBeNull();
+  } finally { rmSync(cache, {recursive: true, force: true}); }
+});
 
 // Like http-body/request-refusal.test.mjs, run the actual glue with host doubles.
 // Include the real public object and nodeDetail so registration and flow facts

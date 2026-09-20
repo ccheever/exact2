@@ -57,6 +57,40 @@ fn boot(plan: Plan) -> Runner<NoData> {
     )
     .unwrap()
 }
+
+#[test]
+fn captured_source_paths_relocate_together_without_reading_newer_contents() {
+    let app = App::new("relocate");
+    let root = app.write("app.contract", "use Child from \"./ui/child.contract\"\ncomponent App\n  view\n    column\n      Child()\n");
+    app.write(
+        "ui/child.contract",
+        "component Child\n  view\n    text \"child\" testId=\"child\"\n",
+    );
+    let (plan, mut map) = contract::compile_path_mapped(&root).unwrap();
+    let before = map.json(&plan.encode());
+    let original = app.0.join("missing-original");
+    assert!(map.relocate_sources(&app.0.join("ui"), &original).is_err());
+    assert_eq!(
+        before,
+        map.json(&plan.encode()),
+        "a refused relocation changes nothing"
+    );
+    // Changing or removing original files cannot alter captured line ranges.
+    map.relocate_sources(&app.0, &original).unwrap();
+    let json: Json = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let runner = boot(plan);
+    let child = at(&runner, &json, "child");
+    assert_eq!(
+        child["file"],
+        original.join("ui/child.contract").to_str().unwrap()
+    );
+    assert_eq!(child["line"], 3);
+    assert_eq!(
+        child["chain"][0]["file"],
+        original.join("app.contract").to_str().unwrap()
+    );
+    assert_eq!(child["chain"][0]["line"], 5);
+}
 fn at<'a>(runner: &Runner<NoData>, map: &'a Json, id: &str) -> &'a Json {
     let node = runner.kernel().find_by_test_id(id)[0];
     let view = runner.kernel().node_by_key(node).unwrap().id;

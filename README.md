@@ -91,7 +91,12 @@ files; ordinary compilation collects neither instantiation provenance nor loweri
 the plan; `SourceMap::bake_error` resolves measured layout refusals, and
 `SourceMap::json` takes the final encoded bytes after baking. A consumer must
 verify the map's digest against the plan actually accepted by its session.
-Automatic dev-loop emission and driver display are still pending.
+The resident Contract, TypeScript and portable Rust producers emit maps after
+baking. Temporary source captures retain the original app filenames. The dev
+server keeps the matching map at the generation's `app.plan.map.json` URL,
+declared under `dev.sourceMap`; it is never an asset or module payload. Static
+builds and production publication omit it. Runtime identity checks and driver
+display are still pending.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result

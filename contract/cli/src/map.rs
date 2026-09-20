@@ -28,6 +28,17 @@ impl SourceMap {
         Self { sites, sources }
     }
 
+    /// A producer compiled a verified copy of the app tree. Restore its original
+    /// filenames by relative path, without reading newer source contents. Every
+    /// source must belong to the captured tree; a refusal changes no locations.
+    pub fn relocate_sources(
+        &mut self,
+        captured: &std::path::Path,
+        original: &std::path::Path,
+    ) -> Result<(), String> {
+        self.sources.relocate(captured, original)
+    }
+
     fn at(&self, out: &mut Vec<u8>, span: Span) {
         out.extend_from_slice(b"\"file\":");
         quote(out, &self.sources.path(span).to_string_lossy());

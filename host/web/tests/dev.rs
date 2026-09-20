@@ -33,6 +33,16 @@ fn a_save_becomes_a_plan_and_an_identical_save_is_nothing() {
     assert!(built.compile_ms < 100.0 && built.bake_ms < 100.0);
     assert_eq!(std::fs::read(&out).unwrap(), built.bytes);
     assert!(exact_plan::Plan::decode(&built.bytes).is_ok());
+    let map_path = dir.join("app.plan.map.json");
+    let map = std::fs::read_to_string(&map_path).unwrap();
+    assert_eq!(
+        exact_runner::agent::field_str(&map, "digest"),
+        Some(contract::plan_digest(&built.bytes))
+    );
+    assert_eq!(
+        exact_runner::agent::field_str(map.split_once("\"nodes\":[").unwrap().1, "file"),
+        Some(src.to_str().unwrap().to_owned())
+    );
     assert!(s.poll::<NoData>().is_none(), "nothing changed");
     // Same bytes, new mtime: not a change.
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -46,6 +56,11 @@ fn a_save_becomes_a_plan_and_an_identical_save_is_nothing() {
     std::fs::write(&src, GOOD.replace("\"one\"", "\"two\"")).unwrap();
     let again = s.poll::<NoData>().expect("an edit builds").unwrap();
     assert_ne!(again.bytes, built.bytes);
+    let map = std::fs::read_to_string(&map_path).unwrap();
+    assert_eq!(
+        exact_runner::agent::field_str(&map, "digest"),
+        Some(contract::plan_digest(&again.bytes))
+    );
     assert!(again.saved_ms > built.saved_ms);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -58,6 +73,7 @@ fn a_broken_save_is_a_named_refusal_and_the_last_plan_stays() {
     std::fs::write(&src, GOOD).unwrap();
     let mut s = Session::new(&src, &out);
     let good = s.poll::<NoData>().unwrap().unwrap();
+    let good_map = std::fs::read(dir.join("app.plan.map.json")).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(20));
     std::fs::write(
         &src,
@@ -71,6 +87,43 @@ fn a_broken_save_is_a_named_refusal_and_the_last_plan_stays() {
         good.bytes,
         "the page keeps the last good plan"
     );
+    assert_eq!(
+        std::fs::read(dir.join("app.plan.map.json")).unwrap(),
+        good_map
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn static_build_omits_the_map_and_dev_bake_errors_name_imported_sources() {
+    let dir = scratch("static-map");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    std::fs::write(&src, GOOD).unwrap();
+    let good = Session::static_build(&src, &out)
+        .poll::<NoData>()
+        .unwrap()
+        .unwrap();
+    assert!(!dir.join("app.plan.map.json").exists());
+    let dev = Session::new(&src, &out).poll::<NoData>().unwrap().unwrap();
+    assert_eq!(good.bytes, dev.bytes);
+    std::fs::write(
+        &src,
+        "use Child from \"./child.contract\"\ncomponent App\n  view\n    column\n      Child()\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("child.contract"),
+        "component Child\n  state width = 0\n  view\n    button width=width height=0\n      text \"hidden\"\n",
+    )
+    .unwrap();
+    let error = Session::new(&src, &out)
+        .poll::<NoData>()
+        .unwrap()
+        .unwrap_err();
+    assert!(error.contains("child.contract:4:"), "{error}");
+    assert!(error.contains("app.contract:5:"), "{error}");
+    assert_eq!(std::fs::read(&out).unwrap(), good.bytes);
     let _ = std::fs::remove_dir_all(dir);
 }
 

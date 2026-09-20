@@ -234,7 +234,7 @@ fn build_sources(
         &Tools::default(),
         &stage.0,
         &mut BTreeMap::new(),
-        None,
+        BakeMode::Production,
         composer,
         None,
     )?;
@@ -352,6 +352,9 @@ pub struct Baked {
     pub declarations: String,
     /// App identity, grants, ABI and content hashes; not a signing receipt.
     pub receipt: String,
+    /// Development-only source locations, keyed by the final plan digest.
+    /// Absent from standalone and Cargo bakes, receipts and module payloads.
+    pub source_map: Option<String>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -484,7 +487,22 @@ fn digest(bytes: &[u8]) -> String {
 /// declaration is overwritten. This producer currently requires macOS Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     let stage = Scratch::new(&std::env::temp_dir())?;
-    bake_in(app, tools, &stage.0, &mut BTreeMap::new(), None, None, None)
+    bake_in(
+        app,
+        tools,
+        &stage.0,
+        &mut BTreeMap::new(),
+        BakeMode::Production,
+        None,
+        None,
+    )
+}
+
+enum BakeMode<'a> {
+    Production,
+    Development {
+        compiler: Option<&'a mut resident::Compiler>,
+    },
 }
 
 fn bake_in(
@@ -492,7 +510,7 @@ fn bake_in(
     tools: &Tools,
     stage: &Path,
     previous: &mut BTreeMap<PathBuf, Vec<u8>>,
-    compiler: Option<&mut resident::Compiler>,
+    mode: BakeMode<'_>,
     composer: Option<Composer<'_>>,
     seed: Option<&Seed>,
 ) -> Result<Baked, String> {
@@ -536,12 +554,27 @@ fn bake_in(
     if sources(&app)? != captured {
         return Err("app sources changed during capture; retry the build".into());
     }
-    let plan = contract::compile_path(&stage.join("app.contract")).map_err(|e| e.to_string())?;
+    let (plan, source_map) = match &mode {
+        BakeMode::Production => (
+            contract::compile_path(&stage.join("app.contract"))
+                .map_err(|e| contract_error(e, stage, &app))?,
+            None,
+        ),
+        BakeMode::Development { .. } => {
+            let (plan, mut map) = contract::compile_path_mapped(&stage.join("app.contract"))
+                .map_err(|e| contract_error(e, stage, &app))?;
+            map.relocate_sources(stage, &app)?;
+            (plan, Some(map))
+        }
+    };
     let declarations = contract::typescript(&plan)?;
     write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
     let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
-    if let Some(compiler) = compiler {
+    if let BakeMode::Development {
+        compiler: Some(compiler),
+    } = mode
+    {
         compiler.compile(stage, &tools.hermesc)?;
     } else {
         compile_once(stage, tools)?;
@@ -564,8 +597,13 @@ fn bake_in(
         (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
         (None, None) => contract::bake(plan, module),
     }
-    .map_err(|e| e.to_string())?
+    .map_err(|e| {
+        source_map
+            .as_ref()
+            .map_or_else(|| e.to_string(), |map| map.bake_error(&e).to_string())
+    })?
     .encode();
+    let source_map = source_map.map(|map| map.json(&plan));
     let receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": exact_js::ABI,
         "rustSources": rust_sources,
@@ -581,7 +619,25 @@ fn bake_in(
         bytecode,
         declarations,
         receipt,
+        source_map,
     })
+}
+
+fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
+    let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
+    for path in error
+        .file
+        .iter_mut()
+        .chain(error.related.iter_mut().filter_map(|r| r.file.as_mut()))
+    {
+        if let Ok(relative) = path
+            .strip_prefix(stage)
+            .or_else(|_| path.strip_prefix(&canonical))
+        {
+            *path = app.join(relative);
+        }
+    }
+    error.to_string()
 }
 
 fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
@@ -669,6 +725,9 @@ impl Baked {
         // directory is not a candidate until that complete receipt exists.
         std::fs::create_dir(&output).map_err(|e| e.to_string())?;
         let result = (|| {
+            if let Some(map) = &self.source_map {
+                std::fs::write(output.join("app.plan.map.json"), map).map_err(|e| e.to_string())?;
+            }
             for (name, bytes) in [
                 ("app.plan", &self.plan[..]),
                 ("app.js", &self.script),

@@ -13,6 +13,28 @@ pub(crate) struct Sources {
     pub(crate) imports: Vec<UseDecl>,
 }
 impl Sources {
+    pub(crate) fn relocate(&mut self, captured: &Path, original: &Path) -> Result<(), String> {
+        let canonical = captured.canonicalize().map_err(|e| e.to_string())?;
+        let paths = self
+            .paths
+            .iter()
+            .map(|path| {
+                path.strip_prefix(captured)
+                    .or_else(|_| path.strip_prefix(&canonical))
+                    .map(|relative| original.join(relative))
+                    .map_err(|_| {
+                        format!(
+                            "source {} is outside captured root {}",
+                            path.display(),
+                            captured.display()
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        self.paths = paths;
+        Ok(())
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }

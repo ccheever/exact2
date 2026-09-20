@@ -475,7 +475,7 @@ for (const [name, html, files, expectCode, expect] of [
   const dir = mkdtempSync(join(tmpdir(), 'exact-public-web-'));
   writeFileSync(join(dir, 'index.html'), 'public');
   writeFileSync(join(dir, '.exact-build.json'), 'private');
-  writeFileSync(join(dir, 'unexpected.txt'), 'private too');
+  writeFileSync(join(dir, 'app.plan.map.json'), '{"file":"private-source.contract"}');
   const origin = { kind: 'directory', describe: () => 'test-origin', get: async () => null };
   const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
     origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },

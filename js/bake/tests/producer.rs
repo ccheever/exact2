@@ -75,6 +75,10 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         return;
     }
     let first = f.bake();
+    assert!(
+        first.source_map.is_none(),
+        "standalone bakes carry no source map"
+    );
     let repeat = f.bake();
     assert_eq!(first.plan, repeat.plan);
     assert_eq!(first.bytecode, repeat.bytecode);
@@ -109,6 +113,7 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
     assert_eq!(live.resource("message"), Some(&Value::str("old: 1")));
     let out = f.0.join("dist");
     first.write_new(&out).unwrap();
+    assert!(!out.join("app.plan.map.json").exists());
     served_pair(&out);
     assert!(
         first.write_new(&out).is_err(),
@@ -433,6 +438,26 @@ fn resident_producer_rechecks_changed_deleted_and_added_sources_and_recovers() {
     assert_eq!(first.bytecode, standalone.bytecode);
     assert_eq!(first.plan, standalone.plan);
     assert_eq!(first.receipt, standalone.receipt);
+    assert!(standalone.source_map.is_none());
+    let map: Json = serde_json::from_str(first.source_map.as_ref().unwrap()).unwrap();
+    assert_eq!(
+        map["digest"],
+        format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&first.plan))
+    );
+    assert_eq!(
+        map["nodes"][0]["file"],
+        f.0.canonicalize()
+            .unwrap()
+            .join("app.contract")
+            .to_str()
+            .unwrap()
+    );
+    let out = f.0.join("dist");
+    first.write_new(&out).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(out.join("app.plan.map.json")).unwrap(),
+        *first.source_map.as_ref().unwrap()
+    );
     assert_eq!(first.receipt, producer.bake(&f.0, None).unwrap().receipt);
 
     f.write("app.ts", &format!("import './app.js';\n{SOURCE}"));
@@ -553,6 +578,75 @@ fn resident_producer_honors_compiler_overrides() {
         .err()
         .unwrap()
         .contains("/usr/bin/false refused"));
+}
+
+#[test]
+fn resident_maps_name_original_imports_and_bake_refusals_after_capture() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    std::fs::create_dir(f.0.join("ui")).unwrap();
+    f.write(
+        "app.contract",
+        &format!(
+            "use Label from \"./ui/label.contract\"\n{}",
+            CONTRACT.replace("text message testId=\"message\"", "Label(body=message)")
+        ),
+    );
+    f.write("ui/label.contract", "component Label\n  props\n    body: string\n  state width = 80\n  view\n    button width=width height=20\n      text body testId=\"message\"\n");
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let baked = producer.bake(&f.0, None).unwrap();
+    assert_eq!(baked.plan, f.bake().plan);
+    let map: Json = serde_json::from_str(baked.source_map.as_ref().unwrap()).unwrap();
+    let source = f.0.canonicalize().unwrap();
+    let nodes = map["nodes"].as_array().unwrap();
+    let child = nodes
+        .iter()
+        .find(|node| node["component"] == "Label" && node["line"] == 7)
+        .unwrap();
+    assert_eq!(
+        child["file"],
+        source.join("ui/label.contract").to_str().unwrap()
+    );
+    assert_eq!(
+        child["chain"][0]["file"],
+        source.join("app.contract").to_str().unwrap()
+    );
+    assert!(map["slots"]
+        .as_object()
+        .unwrap()
+        .values()
+        .any(|slot| slot["component"] == "Label"
+            && slot["file"] == source.join("ui/label.contract").to_str().unwrap()));
+    f.write("ui/label.contract", "component Label\n  props\n    body: string\n  state width = 0\n  view\n    button width=width height=0\n      text body testId=\"message\"\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(
+        error.contains("bake-zero-size")
+            && error.contains(&format!(
+                "{}:6:",
+                source.join("ui/label.contract").display()
+            )),
+        "{error}"
+    );
+    assert!(
+        error.contains(&format!("{}:", source.join("app.contract").display())),
+        "{error}"
+    );
+    assert!(!error.contains(".exact-js-bake-"), "{error}");
+    f.write(
+        "ui/label.contract",
+        "component Label\n  props\n    body: string\n  view\n    text missing\n",
+    );
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(
+        error.contains(&format!(
+            "{}:5:",
+            source.join("ui/label.contract").display()
+        )),
+        "{error}"
+    );
+    assert!(!error.contains(".exact-js-bake-"), "{error}");
 }
 
 #[test]
