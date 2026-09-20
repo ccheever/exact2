@@ -80,6 +80,18 @@ additional standalone showcase apps wait behind this composition; existing full
 stress workloads and controls remain intact. No new UI framework, general job
 scheduler or cross-device synchronization service is implied.
 
+**Expanded (Charlie, 2026-09-20: "make an app that shows off clones of" the
+Pretext demos):** Reflow (`apps/reflow`) is a seventh showcase — balls, the
+illustrated dragon, masonry, a drag-to-reflow magazine, proportional ASCII
+art, an occlusion-culled wall and an obstacle-aware spread — to show exact2
+has Pretext's capabilities: text around shapes from the kernel (LLP 1043.000)
+and heights-before-layout from a data crate that measures with advances read
+out of the app's font files at build time and breaks lines with the hosts'
+own `exact-textflow` walker. Unblocks a public comparison on every host with
+no new kernel row and no app-side measurement seam. Take: no Pretext library,
+no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed;
+the dragon is a polygon, not a `shape-outside: <image>`.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

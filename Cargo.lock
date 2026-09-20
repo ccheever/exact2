@@ -2361,6 +2361,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "reflow-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-logic",
+ "reflow-data",
+]
+
+[[package]]
+name = "reflow-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "exact-textflow",
+ "ttf-parser",
+]
+
+[[package]]
+name = "reflow-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "exact-logic",
+ "exact-textflow",
+ "reflow-data",
+]
+
+[[package]]
+name = "reflow-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-logic",
+ "exact-web",
+ "reflow-data",
+]
+
+[[package]]
 name = "renderdoc-sys"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

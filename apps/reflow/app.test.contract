@@ -1,0 +1,38 @@
+// Reflow's tests (LLP 1017 P7): the agent API's operations and `expect` lines
+// over their replies, run on any host with
+// `bun scripts/agent.mjs <host> --app reflow --test apps/reflow/app.test.contract`.
+
+test "the balls scene opens first and its spheres are exclusions"
+  expect tree has "reflow"
+  expect tree has "balls-prose"
+  expect tree has "ball-1"
+  expect state scene == "balls"
+
+test "the clock moves the spheres and only the spheres"
+  clock +800
+  expect state elapsed == 800
+  tap "scene-dragon"
+  expect state scene == "dragon"
+  expect state elapsed == 0
+  clock +800
+  expect state elapsed == 0
+
+test "every scene mounts its page"
+  tap "scene-masonry"
+  expect tree has "masonry"
+  expect tree has "card-0"
+  tap "scene-magazine"
+  expect tree has "magazine-page"
+  expect tree has "mag-0"
+  tap "scene-ascii"
+  expect tree has "ascii-art"
+  expect tree has "row-0"
+  tap "ascii-naive"
+  expect state measured == false
+  tap "scene-wall"
+  expect tree has "wall-scroll"
+  expect tree has "wall-0"
+  tap "scene-spread"
+  expect tree has "spread-body"
+  expect tree has "spread-0"
+  expect tree has "spread-quote"

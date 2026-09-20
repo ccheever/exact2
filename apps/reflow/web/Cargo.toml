@@ -1,0 +1,21 @@
+[package]
+name = "reflow-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Reflow on the web: one wasm with the runner, the kernel, its data source and baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "reflow_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+reflow-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+reflow-data = { path = "../data" }
