@@ -319,3 +319,39 @@ fn registration_collision_names_both_rust_types_and_stale_insert_refuses() {
     w.despawn(stale);
     assert!(w.insert(stale, left::Same).is_err());
 }
+
+#[test]
+fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
+    #[derive(Default, Args)]
+    struct Pause {
+        #[live]
+        paused: bool,
+    }
+    struct Clock;
+    impl Game for Clock {
+        const ID: &'static str = "boundary";
+        const HZ: u32 = 1000;
+        type Args = Pause;
+        fn setup(_: &mut World, _: &Pause) {}
+        fn tick(_: &mut World, _: &Input, _: &Pause) {}
+        fn paused(args: &Pause) -> bool {
+            args.paused
+        }
+    }
+    for paused in [false, true] {
+        let mut s = Sim::<Clock>::new(Pause { paused }).unwrap();
+        s.input(InputEvent::Key {
+            code: "K".into(),
+            down: true,
+            at_ms: 1.,
+        })
+        .unwrap();
+        s.run(1.).unwrap();
+        assert!(
+            !s.input_state().key("K"),
+            "event on the boundary ran early (paused={paused})"
+        );
+        s.run(1.).unwrap();
+        assert!(s.input_state().key("K"));
+    }
+}

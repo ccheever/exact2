@@ -153,7 +153,7 @@ impl<G: Game> Sim<G> {
         if G::paused(&self.args) {
             let due = self
                 .queue
-                .partition_point(|e| micros(e.at_ms()).unwrap() <= target_us);
+                .partition_point(|e| micros(e.at_ms()).unwrap() < target_us);
             self.apply_input(due)?;
             self.input.clear_edges();
             self.caller_us = target_us;
