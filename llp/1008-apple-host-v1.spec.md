@@ -295,7 +295,8 @@ An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
 `content` size. A new leading child is inserted before existing Exact-only
 siblings, preserving their mounts; containers with native decorations retain
-their existing ordering path. Frames are set from `frame` ops; `present` ops set an
+their existing ordering path. Child updates use an identity set for membership
+and compare each retained child's current position directly. Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The

@@ -820,7 +820,8 @@ final class Presenter {
                 if parent.kind == "text" { parent.setTextChildren(want); continue }
                 for child in want { child.textParent = nil }
                 let container = parent.container
-                for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
+                let wanted = Set(want.map { ObjectIdentifier($0) })
+                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) { child.removeFromSuperview() }
                 for (i, child) in want.enumerated() {
                     if child.superview !== container {
                         child.prepareToMount()
@@ -831,7 +832,8 @@ final class Presenter {
                             container.addSubview(child, positioned: .below, relativeTo: first)
                         } else { container.addSubview(child) }
                     }
-                    if container.subviews.firstIndex(of: child) != i {
+                    let siblings = container.subviews
+                    if i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
