@@ -184,3 +184,33 @@ fn manifest_failure_uses_the_same_json_protocol() {
     assert_eq!(errors[0]["file"], "app.contract");
     assert_eq!(errors[0]["line"], 0);
 }
+
+#[test]
+fn every_command_help_succeeds_without_reading_or_changing_files() {
+    let app = App::new("help");
+    // A literal operand would try to parse these; help must not open them.
+    for flag in ["--help", "-h"] {
+        app.write(flag, "this is not a Contract source\n");
+    }
+    for command in ["", "build", "symbols", "fmt", "types", "test", "compat"] {
+        for flag in ["--help", "-h"] {
+            let mut process = Command::new(env!("CARGO_BIN_EXE_contract"));
+            if !command.is_empty() {
+                process.arg(command);
+            }
+            let output = process.arg(flag).current_dir(&app.0).output().unwrap();
+            assert!(output.status.success(), "{command} {flag}: {output:?}");
+            assert!(output.stderr.is_empty(), "{command} {flag}: {output:?}");
+            let text = String::from_utf8(output.stdout).unwrap();
+            assert!(text.starts_with("usage:"), "{text}");
+            assert!(text.contains(&format!("contract {command}")), "{text}");
+        }
+    }
+    for flag in ["--help", "-h"] {
+        assert_eq!(
+            std::fs::read_to_string(app.0.join(flag)).unwrap(),
+            "this is not a Contract source\n"
+        );
+    }
+    assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 2);
+}

@@ -69,10 +69,15 @@ fn symbols(args: &[String]) -> ExitCode {
 }
 
 fn types(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract types <file.contract> [-o <app.d.ts>]";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let valid = matches!(args, [input] if !input.starts_with('-'))
         || matches!(args, [input, flag, output] if !input.starts_with('-') && flag == "-o" && !output.starts_with('-'));
     if !valid {
-        eprintln!("usage: contract types <file.contract> [-o <app.d.ts>]");
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     }
     let result = contract::compile_path(std::path::Path::new(&args[0]))
@@ -103,8 +108,13 @@ fn types(args: &[String]) -> ExitCode {
 /// data crate's to declare and cannot be asked here without linking it;
 /// the bake, which links it, passes them (`build.rs` of each host crate).
 fn compat(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let Some(dir) = args.first().filter(|a| !a.starts_with("--")) else {
-        eprintln!("usage: contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
     let flag = |name: &str| {
@@ -141,8 +151,13 @@ fn compat(args: &[String]) -> ExitCode {
 /// `contract test <file.test.contract>`: the tests as JSON for the agent
 /// driver (`bun scripts/agent.mjs <host> --test <file>` runs them).
 fn tests(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract test <file.test.contract>";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let Some(input) = args.first() else {
-        eprintln!("usage: contract test <file.test.contract>");
+        eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
     let src = match std::fs::read_to_string(input) {
@@ -166,6 +181,11 @@ fn tests(args: &[String]) -> ExitCode {
 
 /// Explicit formatting, with read-only preview and check modes.
 fn fmt(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract fmt [--check | --stdout] <file.contract>";
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let (input, mode) = match args {
         [input] if !input.starts_with('-') => (input, ""),
         [flag, input]
@@ -179,7 +199,7 @@ fn fmt(args: &[String]) -> ExitCode {
             (input, flag.as_str())
         }
         _ => {
-            eprintln!("usage: contract fmt [--check | --stdout] <file.contract>");
+            eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
