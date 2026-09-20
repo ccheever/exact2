@@ -183,3 +183,11 @@ and nesting before allocating. A million nested values stops inspection before
 6,000 element visits, and an already-refused inspection performs zero subsequent
 allocations. Public method descriptions are consolidated here (included in rustdoc);
 storage safety and mutation contracts remain beside their implementations.
+
+Merged logs use `logs(LogCursor::default()) -> Result<Logs, DataError>`, then
+`logs(page.next)`. The opaque, unsaved cursor tracks replacement plus independent
+game/session offsets. `Logs` reports `reset`, `truncated`, `next` and JSON `entries`.
+A page admits at most 512 records and 65,536 escaped output bytes before visiting
+records; smaller pages accommodate long messages. Saved game event indices and
+EXSIM bytes do not change. Session-only output progresses across any number of
+pages up to the retained 4,096 entries; overflow and restore are explicit.

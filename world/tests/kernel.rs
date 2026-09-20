@@ -437,7 +437,7 @@ fn bounded_inspection_refuses_large_values_and_reading_is_passive() {
     let before = w.save().unwrap();
     assert!(w.state(e).unwrap().contains('4'));
     assert_eq!(w.tree().0.len(), 1);
-    assert!(!w.logs(0).unwrap().is_empty());
+    assert!(!w.logs(LogCursor::default()).unwrap().entries.is_empty());
     assert_eq!(w.save().unwrap(), before);
     assert!(json::to_string(&"x".repeat(json::LIMIT + 1)).is_err());
     assert!(w.log(&"x".repeat(4097)).is_err());
@@ -498,16 +498,26 @@ fn saved_game_journal_excludes_session_telemetry_and_survives_restore() {
     assert_eq!(s.world().journal_next(), cursor);
     s.restore(&before).unwrap();
     assert_eq!(s.save().unwrap(), before);
-    let logs = s.world().logs(0).unwrap();
+    let logs = s.world().logs(LogCursor::default()).unwrap().entries;
     assert!(logs.contains("game scored"));
     assert!(logs.contains("agent attached"));
     assert!(logs.find("game scored") < logs.find("agent attached"));
     s.world().log("game next").unwrap();
-    let logs = s.world().logs(0).unwrap();
+    let logs = s.world().logs(LogCursor::default()).unwrap().entries;
     assert!(logs.find("agent attached") < logs.find("game next"));
     let fresh = Sim::<Counter>::from_save(&s.save().unwrap()).unwrap();
-    assert!(!fresh.world().logs(0).unwrap().contains("agent attached"));
-    assert!(fresh.world().logs(0).unwrap().contains("game next"));
+    assert!(!fresh
+        .world()
+        .logs(LogCursor::default())
+        .unwrap()
+        .entries
+        .contains("agent attached"));
+    assert!(fresh
+        .world()
+        .logs(LogCursor::default())
+        .unwrap()
+        .entries
+        .contains("game next"));
 }
 #[test]
 fn carry_keeps_live_args_refuses_setup_changes_and_publication_budget_is_cumulative() {
@@ -877,4 +887,67 @@ fn subscriptions_retain_the_minimum_ack_and_suffix_reads_have_exact_size() {
     assert!(w.subscribe_changes().is_err());
     consumers.pop();
     assert!(w.subscribe_changes().is_ok());
+}
+
+#[test]
+fn merged_logs_page_session_only_history_and_report_truncation_and_reset() {
+    let mut s = Sim::<Still>::new(()).unwrap();
+    let saved = s.save().unwrap();
+    let game_next = s.world().journal_next();
+    for i in 0..1200 {
+        s.world().session_log(&format!("session-{i:04}")).unwrap();
+    }
+    assert_eq!(s.world().journal_next(), game_next);
+    assert_eq!(s.save().unwrap(), saved);
+    let mut cursor = LogCursor::default();
+    let mut history = String::new();
+    let mut pages = 0;
+    loop {
+        let page = s.world().logs(cursor).unwrap();
+        assert!(!page.reset && !page.truncated);
+        if page.entries == "[]" {
+            break;
+        }
+        assert_ne!(page.next, cursor);
+        cursor = page.next;
+        history.push_str(&page.entries);
+        pages += 1;
+    }
+    assert!(pages > 2);
+    for i in 0..1200 {
+        assert_eq!(history.matches(&format!("session-{i:04}")).count(), 1);
+    }
+    for i in 0..5000 {
+        s.world().session_log(&format!("overflow-{i:04}")).unwrap();
+    }
+    let page = s.world().logs(cursor).unwrap();
+    assert!(page.truncated && !page.reset);
+    assert!(!page.entries.contains("overflow-0000"));
+    assert!(page.entries.contains("overflow-0904"));
+    s.restore(&saved).unwrap();
+    let page = s.world().logs(page.next).unwrap();
+    assert!(page.reset);
+    assert_eq!(s.world().journal_next(), game_next);
+    assert_eq!(s.save().unwrap(), saved);
+}
+
+#[test]
+fn merged_log_pages_admit_escaped_text_before_formatting() {
+    let w = World::new(60, 0);
+    for _ in 0..600 {
+        w.session_log(&"\0".repeat(4096)).unwrap();
+    }
+    let mut cursor = LogCursor::default();
+    let mut entries = 0;
+    loop {
+        let page = w.logs(cursor).unwrap();
+        assert!(page.entries.len() <= json::LIMIT);
+        if page.entries == "[]" {
+            break;
+        }
+        entries += page.entries.matches("\"Message\"").count();
+        assert_ne!(cursor, page.next);
+        cursor = page.next;
+    }
+    assert_eq!(entries, 600);
 }

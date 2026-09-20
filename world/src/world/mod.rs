@@ -183,7 +183,8 @@ pub struct World {
     // Executor-owned derived data, populated only by linked callers; never saved.
     derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<crate::Event>>,
-    session_journal: RefCell<VecDeque<crate::Event>>,
+    session_journal: RefCell<VecDeque<(u64, crate::Event)>>,
+    session_next: std::cell::Cell<u64>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     pub(crate) published: RefCell<BTreeMap<String, crate::values::Stored>>,
@@ -228,6 +229,7 @@ impl World {
             derived: RefCell::new(BTreeMap::new()),
             journal: RefCell::new(VecDeque::new()),
             session_journal: RefCell::new(VecDeque::new()),
+            session_next: std::cell::Cell::new(0),
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),

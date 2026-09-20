@@ -42,6 +42,31 @@ pub struct Event {
     pub tick: u64,
     pub kind: EventKind,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LogCursor {
+    replacement: u64,
+    game: u64,
+    session: u64,
+}
+#[derive(Debug, PartialEq, Eq)]
+pub struct Logs {
+    pub next: LogCursor,
+    pub reset: bool,
+    pub truncated: bool,
+    pub entries: String,
+}
+impl Event {
+    fn text(&self) -> &str {
+        match &self.kind {
+            EventKind::Message(s) | EventKind::Published(s) => s,
+            EventKind::Structural(
+                ChangeKind::Insert(s) | ChangeKind::Replace(s) | ChangeKind::Remove(s),
+                _,
+            ) => s,
+            _ => "",
+        }
+    }
+}
 impl World {
     pub(super) fn change_room(&self, count: usize) -> Result<(), DataError> {
         self.healthy()?;
@@ -166,25 +191,64 @@ impl World {
             .cloned()
             .collect()
     }
-    pub fn logs(&self, since: u64) -> Result<String, DataError> {
+    pub fn logs(&self, mut cursor: LogCursor) -> Result<Logs, DataError> {
+        let reset = cursor.replacement != self.replacement;
+        if reset {
+            cursor = LogCursor {
+                replacement: self.replacement,
+                ..LogCursor::default()
+            };
+        }
         let game = self.journal.borrow();
         let session = self.session_journal.borrow();
-        let mut game = game.iter().filter(|e| e.index >= since).peekable();
-        let mut session = session.iter().filter(|e| e.index >= since).peekable();
-        let events: Vec<_> = std::iter::from_fn(|| {
-            if session
+        let first_game = self.journal_next() - game.len() as u64;
+        let first_session = self.session_next.get() - session.len() as u64;
+        let truncated = cursor.game < first_game || cursor.session < first_session;
+        if cursor.game > self.journal_next() || cursor.session > self.session_next.get() {
+            return Err(DataError::new("future log cursor"));
+        }
+        cursor.game = cursor.game.max(first_game);
+        cursor.session = cursor.session.max(first_session);
+        let mut game = game.range((cursor.game - first_game) as usize..).peekable();
+        let mut session = session
+            .range((cursor.session - first_session) as usize..)
+            .peekable();
+        let mut w = crate::json::Encoder::default();
+        let mut budget = crate::json::LIMIT - 2;
+        w.begin_seq(0);
+        for _ in 0..512 {
+            let host = session
                 .peek()
-                .is_some_and(|s| game.peek().is_none_or(|g| s.index <= g.index))
-            {
-                session.next()
+                .is_some_and(|(at, _)| game.peek().is_none_or(|g| *at <= g.index));
+            let event = if host {
+                session.peek().map(|(_, e)| e)
             } else {
-                game.next()
+                game.peek().copied()
+            };
+            let Some(event) = event else {
+                break;
+            };
+            let Some(left) = budget.checked_sub(256 + 6 * event.text().len()) else {
+                break;
+            };
+            budget = left;
+            w.item();
+            event.write(&mut w);
+            if host {
+                cursor.session = event.index + 1;
+                session.next();
+            } else {
+                cursor.game = event.index + 1;
+                game.next();
             }
+        }
+        w.end_seq();
+        Ok(Logs {
+            next: cursor,
+            reset,
+            truncated,
+            entries: w.finish()?,
         })
-        .take(512)
-        .cloned()
-        .collect();
-        crate::json::to_string(&events)
     }
     /// Unsaved host telemetry, anchored before the next deterministic game event.
     pub fn session_log(&self, message: &str) -> Result<(), DataError> {
@@ -195,11 +259,20 @@ impl World {
         if events.len() == 4096 {
             events.pop_front();
         }
-        events.push_back(Event {
-            index: self.journal_next(),
-            tick: self.tick(),
-            kind: EventKind::Message(message.into()),
-        });
+        let index = self.session_next.get();
+        self.session_next.set(
+            index
+                .checked_add(1)
+                .ok_or_else(|| DataError::new("session cursor exhausted"))?,
+        );
+        events.push_back((
+            self.journal_next(),
+            Event {
+                index,
+                tick: self.tick(),
+                kind: EventKind::Message(message.into()),
+            },
+        ));
         Ok(())
     }
     pub(crate) fn write_journal(&self, w: &mut dyn Writer) {
@@ -229,21 +302,11 @@ impl World {
             .ok_or_else(|| DataError::new("journal cursor precedes entries"))?;
         let mut tick = 0;
         for (i, e) in events.iter().enumerate() {
-            let text = match &e.kind {
-                EventKind::Message(s) | EventKind::Published(s) => s.as_str(),
-                EventKind::Structural(
-                    ChangeKind::Insert(s) | ChangeKind::Replace(s) | ChangeKind::Remove(s),
-                    _,
-                ) => s.as_ref(),
-                EventKind::Structural(ChangeKind::Reset, _) => {
-                    return Err(DataError::new("reset is not a game event"))
-                }
-                _ => "",
-            };
             if e.index != first + i as u64
                 || e.tick < tick
                 || e.tick > self.tick()
-                || text.len() > 4096
+                || e.text().len() > 4096
+                || matches!(e.kind, EventKind::Structural(ChangeKind::Reset, _))
             {
                 return Err(DataError::new("invalid saved journal"));
             }
@@ -269,8 +332,9 @@ impl World {
         next.change_next = self.change_next;
         next.record_change(Entity::default(), ChangeKind::Reset);
         next.session_journal = std::mem::take(&mut self.session_journal);
-        for e in next.session_journal.get_mut() {
-            e.index = next.journal_next.get();
+        next.session_next = self.session_next.clone();
+        for (at, _) in next.session_journal.get_mut() {
+            *at = next.journal_next.get();
         }
         std::mem::swap(self, &mut next);
         self.mutation(|_| drop(next));
@@ -307,10 +371,10 @@ mod atomic_tests {
         w.session_log("retained").unwrap();
         w.change_next = u64::MAX;
         let before = w.changes.clone();
-        let logs = w.logs(0).unwrap();
+        let logs = w.logs(LogCursor::default()).unwrap();
         let result = catch_unwind(AssertUnwindSafe(|| w.adopt(World::new(60, 0))));
         assert_eq!(w.changes, before);
-        assert_eq!(w.logs(0).unwrap(), logs);
+        assert_eq!(w.logs(LogCursor::default()).unwrap(), logs);
         assert!(result.unwrap().is_err());
     }
 }
