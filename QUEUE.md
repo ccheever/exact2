@@ -15,9 +15,9 @@ sits on that list carries the trade it would take.
   on the Air); investigate without weakening the limit. Interview's new Mac
   materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
 
-- **Web driver shutdown** (2026-09-14): Caltrain web smoke and Interview web
-  drive print success after closing sessions but leave Bun alive; find the
-  remaining handle. Explicit exit after the smoke returns completes cleanly.
+- **Web driver shutdown** (2026-09-20): Caltrain/Interview and Tally smoke print
+  success after sessions close but retain `exact-filesystem --serve-reads`.
+  Close that reader at CLI shutdown; terminating the recorded child releases Bun.
 
 - **List memory** (2026-09-14, Codex; LLP 1010 §6): baseline at 25/1,000/25,000
   rows, then shared runner/web windowing, Apple/Linux, raster budget and Messages

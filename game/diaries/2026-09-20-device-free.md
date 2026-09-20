@@ -516,3 +516,183 @@ bun scripts/agent.mjs web --plan /tmp/k4-canvas.plan "clock 0" "screenshot /tmp/
 
 The smoke's beacon-waited readback is the parity proof; the last screenshot alone
 is diagnostic.
+
+## K6 (2026-09-20)
+
+Started on `core/world` at `2e0f07a8`. Read JUDGE-7 and both H7 reviews in full.
+No edits to `world/`, `world/derive/`, or `motion/`; no subagents, pushes, remote
+commands, worktrees, dependency-version changes, or determinism repins.
+
+### The two ABIs
+
+`git diff f418821 --numstat -- host/web/gpu-glue.js` is **51 additions, 0 deletions**.
+No pre-existing line was edited, so there are no edited-line exceptions to justify.
+The additions are ownership-only branches selected by absence of `gpu_load`, plus
+performance stamps. Device module load/shader order, ready/settled, recovery,
+staging, swap, beacon timing and `dataset.gpuMs` execute their original lines.
+`gpu_attach`, in-place upgrades, background device promises, `deviceModules`, and
+the device ABI's web headless exports were deleted. Native headless exports retain
+the original API, with `gpu_advance` added. The original required `Surface::render`
+contract was restored; `advance` is the only new defaulted Surface method.
+
+An owned module loads, creates, binds/restores, and joins the frame loop immediately.
+It never requests a device or shaders and sends no GPU beacon. Smoke checks the
+beacon only when state does not identify an ownership-only module. Mixed apps
+containing a shader canvas use the device ABI and wait for their device; the adapter
+README declares this limit. Ordinary app and ordinary device-game HTML were both
+executed through the `f418821` and current bake fragments and compared byte-for-byte;
+they match, including the existing frozen fixture. Preload hints are world-only.
+
+### API and failure behavior
+
+- `Surface::advance(&mut self, _now_ms: f64) -> bool { false }`;
+  `WorldSurface::advance` calls `Sim::advance_to` and retains pending publication
+  delivery. The ownership web ABI and native ABI export `gpu_advance(id, now_ms)
+  returning bool. Owned web frames and Linux commits use it. Agent clock replies
+  remain available; the old device-game placement drive is unchanged.
+- `publication::publish_record(&World, &impl Data) -> Result<(), DataError>`
+  refuses shape, range, traversal, and batch admission without mutation or panic.
+- `emit_declaration::<G>(app_dir) -> Result<(), Box<dyn Error>>` reports declaration
+  errors to the bake. `exact-app-shell` contains the generic Contract shell code
+  moved out of `exact-game-app`; no engine implementation was copied.
+  Existing `exact-game-app::NoData` remains reexported for callers.
+- Failed state/tree do not hash. The original error survives dead ownership;
+  state uses `world.error`, and a readable tree uses `world.error` plus top-level
+  `failed`. Top-level `error` remains the host's refused-operation channel. Failed
+  tick messages and publications are withheld. Timestamped setup rebinding reaches
+  Sim restart recovery; exact restore still works.
+- Reload supplies plain values and an array of setup indices, and `releaseInput`
+  clears held Sim keys. Actual Tally wasm exercises production `stagePlan`, including
+  pressing the same key again after reload. Three live frames advance a real world
+  with no agent clock operation.
+- Logs carry string lines with line-index cursors, retaining at most 512 lines /
+  48 KiB encoded text. A read consumes at most 512 kernel events / 64 KiB. The
+  adapter splits already encoded kernel events rather than deserializing objects.
+  Escapes, delimiters and Unicode round-trip through an independent JSON reader.
+- Owned requests admit 16 KiB / depth 64; returned text 64 KiB, buffered messages
+  1,024 / 64 KiB, saves 256 MiB. The regular and owned IDs refuse exhaustion and
+  more than 256 live instances. Regular scene bindings retain their previous range:
+  Lanterns exposed a mistakenly shared 16 KiB check, which was removed from shared
+  binding and retained at the owned ABI boundary. A 20 KiB regression covers both.
+- Adapter and `web_owned` runtime sources have no explicit panic/unwrap/assert path.
+  Reentrant owned calls now refuse through `try_borrow_mut`; a callback cannot make
+  the owner panic by requesting unload. Remaining abort possibilities are arbitrary
+  user callbacks, allocation failure, and kernel/internal library assertions. Generic
+  shell bake panics and the generated declaration `expect` are build-time diagnostics,
+  not wasm runtime paths. No wasm panic is claimed recoverable.
+
+The adapter uses only `exact-world` in its comparison tests. All four Tally shell
+`cargo tree` outputs contain no `exact-game*` package. GPU, web and Linux shells were
+baked; Apple dependency resolution is proven, but Apple execution needs the SDK.
+`world: true` with audio/assets true refuses at manifest validation instead of
+producing an invalid macro invocation. Ordinary audio/assets combinations remain.
+
+### Validation
+
+Failing-first evidence is under `scratch/k6`: `web-red.log`, `adapter-red2.log`,
+`gpu-red2.log`, `gpu-bounds-red2.log`, `adapter-input-red2.log`, `manifest-red.log`,
+`log-lines-red.log`, `reentrant-red.log`, `failure-web-final.log`, and
+`binding-limit-red.log`. The last two caught actual host-carrier/ordinary-app
+failures after the narrower tests had passed; both were fixed and rerun.
+
+| Check | Result |
+|---|---|
+| Adapter | 23 passed: 8 unit + 15 integration |
+| Idle drive, unfavorable input | Normal Off mode: 1,000 advances, 1,000 components: 0 allocations, 0 bytes, 0 Data writes; real ticks advance, explicit state writes 1,000 components |
+| Failed ownership | Adapter and native ABI retain original error, suppress messages, restore/restart; browser proof 17 assertions passes |
+| Reload/live ticking | Actual baked Tally + production staging; held-key release and three automatic frames pass |
+| Publication/bounds/logs/IDs | Atomic refusal, numerical limits, nested/large data, 5,000-event log churn, encoded output bounds, exhaustion, reentrancy, regular large-binding control pass |
+| Tally | All six Linux/web Off, Save and FreshGame proofs pass; original tick and continuation pins unchanged |
+| Other Linux games | Seven pass; Lanterns runs with zero failures but is UNVERIFIED because it has no pins |
+| Tally browser smoke | `smoke web --app-only` passes, ownership-only beacon exemption exercised |
+| Game Rust workspace | 765 passed, 18 GPU-required failures, 25 ignored; final adapter rerun has one additional log test, 23 passed |
+| App-owned Rust workspaces | `bun app/shells.mjs --test`: 49 passed, 3 failures explicitly report no suitable graphics adapter, 1 ignored |
+| Generic shell / compatibility API | 4 tests pass; both crates pass clippy after preserving the existing NoData reexport |
+| Game Bun | Full run 149 passed / 1 skipped / 1 disk-guard refusal; isolated refused fixture then passed after cleanup, giving 150 passed / 1 skipped |
+| Web JS | 156 passed / 3 skipped / 4 Swift execution fixtures fail because `xcrun` is absent |
+| Root world/GPU/web/Linux | Initial run 345 passed / 4 failed / 4 ignored; ordinary agent-refusal regression corrected, module tests 14/14; remaining three require GPU. One later owned-binding regression added and passes |
+| Owned ABI units | 3/3: returned bounds, reentrant callback, large regular binding versus owned refusal |
+| Clippy | Game workspace and targeted root GPU/Linux/web `-D warnings` pass; final adapter/GPU reruns pass |
+| Formatting/caps/boot | Pass; 806 source files, two pre-pixel modules / one wasm reference |
+| Caltrain wasm | `cargo build --offline -p caltrain-gpu --target wasm32-unknown-unknown` passes on final Rust sources |
+| Whole-root build/test/clippy | Refuse because the lean Hermes producer is absent for TypeScript app bakes |
+
+All external lockfile package versions/sources that remain are unchanged; the
+Tally/failure locks each drop one unused external package with the engine edge.
+No hash, position, continuation byte pin, or canvas reference moved.
+
+Smoke printed success but retained its existing `exact-filesystem --serve-reads`
+child. Its browser had exited. Recorded helper PID 3416118 was terminated; its
+Bun parent 3415612 then exited and was awaited by the shell. The existing queue
+entry now identifies that handle. No unrelated process was signaled.
+An explicit caller cleanup (`k6_smoke` below) then reran Tally smoke successfully
+and exited 0 without manual process cleanup.
+
+### Measurements and limits
+
+[The adapter README](../world-adapter/README.md#current-measurements-k6-2026-09-20)
+contains all four browser policy/cache columns, raw/gzip sizes, and the Linux
+breakdown. Raw evidence is `scratch/k6/{web,linux,sizes}.json`, with
+`web-processes.json` recording 22 browser PIDs and no leaks. There are 20 cold and
+20 warm observations plus two discarded priming loads. Each navigation transfers
+app wasm, module JS and module wasm exactly once. Sampling ran without local builds.
+
+Bun 1.3.12 / wasm-bindgen 0.2.127; Binaryen 131 is unavailable and no remote install
+was attempted. These normal-bake outputs are unoptimized: app wasm 806,232 raw /
+285,946 gzip; owned module 836,870 / 181,225; module JS 16,259 / 3,746. This is not
+an optimized apples-to-apples size comparison with K4.
+
+The 100 ms target remains red. Preload cold median FCP / instantiated / first tick /
+publication: **164 / 168.70 / 176.20 / 181.20 ms**. Warm: **112 / 124.85 / 125.65 /
+126.60 ms**. Preload saves 52.3 ms of cold publication versus serial loading while
+costing 26 ms FCP in this unoptimized sample. Median app/world transfer completion
+is 72.25 / 110.45 ms; paired world-response-to-instantiation interval is 61.8 ms,
+then 9.9 ms for create/bind/first tick, then 6.4 ms to publication. The first
+interval includes browser compilation and app startup coordination; no CPU profiler
+attribution is claimed. The owned path has no device wait. Linux publication is
+25.270 / 25.670 ms median/p95; create/bind/first tick is 0.163 / 0.170 ms.
+
+Matched Linux comparator build:
+
+```sh
+RUSTFLAGS='-C llvm-args=-fp-contract=off' cargo build -p caltrain-linux -p caltrain-gpu \
+  --target x86_64-unknown-linux-gnu --profile gpu-dev \
+  --config profile.gpu-dev.opt-level=3 \
+  --config profile.gpu-dev.debug-assertions=false \
+  --config profile.gpu-dev.overflow-checks=false
+K6_SCRATCH=$HOME/lanes/gamenext/scratch/k6 \
+  bun game/world-adapter/measure.mjs --sizes --linux --web --compare-preload
+```
+
+Disk was checked before cold builds. One integration test's own 25 GiB guard
+stopped its nested bake; clearing only this clone's completed Cargo profiles let
+it pass. Final free space is about 26 GiB. No extra worktree/build matrix was added.
+
+### Commands still required on the Mac
+
+Use the pinned Bun and Binaryen 131. Real WebGPU, pixels, actual device loss and
+recovery, and Apple execution were not available here; JS fixtures do not replace
+them. From this checkout (do not repin references):
+
+```sh
+export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH EXACT_UPDATE_TRUST=development
+export CHROME='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+k6_smoke() {
+  bun -e 'process.argv=["bun","scripts/smoke.mjs",...process.argv.slice(1)]; try { await import("./scripts/smoke.mjs"); } finally { (await import("./scripts/filesystem.mjs")).closeFilesystemReader(); }' "$@"
+}
+df -h ~
+bun install --frozen-lockfile
+bun host/web/build.mjs caltrain-web
+k6_smoke web --shot /tmp/k6-caltrain-web.png
+bun game/games/asset-fixture/proof.mjs web
+bun test host/web/tests
+bun game/games/tally/proof.mjs web --paranoid
+bun game/tests/world-failure/proof.mjs
+bun host/apple/build.mjs
+k6_smoke macos --shot /tmp/k6-caltrain-macos.png
+bun host/apple/build.mjs --ios
+k6_smoke ios --shot /tmp/k6-caltrain-ios.png
+bun game/games/tally/proof.mjs macos
+bun game/games/tally/proof.mjs ios
+cargo test --manifest-path game/Cargo.toml -p exact-game-render surface_lifecycle -- --ignored
+```

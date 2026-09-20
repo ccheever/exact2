@@ -31,7 +31,7 @@ if(process.argv.includes('--linux')) {
       if(p.status!==0)throw Error(p.stderr || p.error?.message);
       const ready=JSON.parse(p.stdout.split('\n').find(line=>line.startsWith('{')) ?? 'null');
       if(!ready?.ready || ready.error || /not a loadable source/.test(p.stderr))throw Error('host did not boot completely: '+p.stdout+p.stderr);
-      const row={};let binding;
+      const row={boot_reported:ready.boot};let binding;
       for(const line of p.stderr.split('\n')) {
         if(line.startsWith('exact-world-startup: ')){const v=JSON.parse(line.slice(21));row[v.event]=v.ms;}
         if(line.startsWith('exact-world-binding: '))binding=JSON.parse(line.slice(21));

@@ -9,15 +9,18 @@ Use `?` in `Game::setup` and `Game::tick`, both returning `Result<(), DataError>
 Binding constructs the simulation and takes its first fixed tick synchronously.
 A returned tick error stops driving, withholds partial publications and is returned
 once by `take_error()`. `state.world` retains `failed: true`, the string `error`
-and `ready: false`; state/tree/log inspection remains available. Clock requests
-refuse until a successful restore or setup-argument restart clears the failure. Diagnostics beyond 4,096
+and `ready: false`; state/tree/log inspection remains available. A readable failed
+tree retains the diagnostic in `tree.world.error`, with `tree.failed: true`;
+top-level `error` means the inspection itself was refused. Clock requests refuse
+until a successful restore or setup-argument restart clears the failure. Diagnostics beyond 4,096
 UTF-8 bytes are explicitly truncated. A panic can abort an entire wasm module;
 never unwrap kernel errors in gameplay callbacks.
 
 Lifecycle, keys, named button/scalar-axis controls, clock ownership, messages,
 publications and exact save/restore use the ordinary Surface API.
-`sim(&self) -> Option<&Sim<G>>` gives read-only access. Rendering, device callbacks
-and child composition use Surface defaults. Web `gpu_load_headless()` and
+`sim(&self) -> Option<&Sim<G>>` gives read-only access. Device rendering delegates
+to the same advance method; device callbacks and child composition use Surface
+defaults. Web `gpu_load_headless()` and
 `gpu_create_headless(name)` establish ownership after instantiation.
 `Surface::advance(&mut self, now_ms: f64) -> bool` drives time without an agent
 request or observation; `gpu_advance(id, now_ms) -> bool` exports it on the
@@ -66,7 +69,7 @@ lagging readers receive the retained suffix with `truncated: true`.
 
 Use the pinned Bun from `package.json`, Binaryen 131 and wasm-bindgen 0.2.127.
 Set `EXACT_UPDATE_TRUST=development`, `CARGO_TARGET_DIR` to one shared cache,
-`CHROME` to Chromium and `K4_SCRATCH` to the diagnostic output directory.
+`CHROME` to Chromium and `K6_SCRATCH` to the diagnostic output directory.
 Check `df -h ~` before cold builds; stop below 25 GiB free.
 
 ```sh
@@ -84,7 +87,64 @@ Ten fresh profiles and ten reloads per policy use identical modules; only the
 preload links vary. The no-store server transfers full resources on warm reloads.
 Each sampled navigation must show exactly one resource transfer per module.
 
-## Current measurements (K4)
+## Current measurements (K6, 2026-09-20)
+
+Pinned Bun 1.3.12, wasm-bindgen 0.2.127, gzip level 9. Binaryen is unavailable
+on this machine: these are **unoptimized** normal-bake outputs, not comparable
+to K4's Binaryen 131 size figures. No dependency or determinism pins changed.
+
+| Artifact | Raw B | Gzip B |
+|---|---:|---:|
+| `app.wasm` | 806,232 | 285,946 |
+| `gpu_bg.wasm` | 836,870 | 181,225 |
+| `gpu.js` | 16,259 | 3,746 |
+
+K4's procedure: ten fresh profiles and ten reloads per loading policy, interleaved
+cold runs, two discarded priming loads, no local builds while sampling. All 42
+navigations transferred each module exactly once. All 22 browsers were SIGKILLed
+and awaited; none leaked.
+
+| Chromium ms, median / p95 | Serial cold | Preload cold | Serial warm | Preload warm |
+|---|---:|---:|---:|---:|
+| FCP | 138 / 236 | 164 / 192 | 100 / 108 | 112 / 136 |
+| Module instantiated | 212.45 / 311.10 | 168.70 / 201.00 | 178.20 / 190.80 | 124.85 / 148.70 |
+| Bound / first tick | 225.30 / 324.00 | 176.20 / 211.40 | 178.95 / 191.50 | 125.65 / 149.50 |
+| Publication accepted | 233.50 / 332.40 | 181.20 / 218.30 | 180.10 / 196.10 | 126.60 / 150.70 |
+
+The 100 ms cold-interactive target is **not met**. Preload cuts median cold
+publication by 52.3 ms but costs 26 ms of median FCP in this unoptimized run.
+On preload cold runs the app wasm response ends at median 72.25 ms and the world
+wasm response at 110.45 ms. Paired median intervals are 61.8 ms from world response
+end to module instantiation, 9.9 ms from instantiation to bind/first tick, and
+6.4 ms to publication. The first interval includes browser compilation and app
+startup coordination; these stamps do not separate their CPU costs. Warm
+bind/first tick takes 0.75 ms and subsequent publication 1 ms. No device wait
+occurs on this path. Repeating with Binaryen 131 is still required for the
+matched K4 size/performance comparison.
+
+| Linux, 20 launches, ms from host entry | Median / p95 |
+|---|---:|
+| Plan decoded | 0.122 / 0.238 |
+| Fonts ready | 6.939 / 7.227 |
+| Painter ready | 7.739 / 8.018 |
+| First host frame | 13.259 / 13.566 |
+| Module verified | 24.739 / 25.136 |
+| Module dlopen complete | 24.962 / 25.360 |
+| Bind work / first tick work | 0.054 / 0.061; 0.007 / 0.007 |
+| First tick complete | 25.160 / 25.558 |
+| Publication accepted | 25.270 / 25.670 |
+| Create + bind + first tick, including ABI / trace | 0.163 / 0.170 |
+| Tally reported boot | 25.229 / 25.636 |
+| Caltrain first frame, assets loaded | 36.830 / 37.115 |
+| Caltrain reported boot | 36.910 / 37.190 |
+
+In normal (Off) mode the counting allocator measures 1,000 advances on 1,000 idle components:
+**0 allocations, 0 allocated bytes, 0 Data writes**. The clock really advances;
+an explicit state inspection writes all 1,000 components as a negative control.
+The [K6 receipt](../diaries/2026-09-20-device-free.md#k6-2026-09-20) lists validation,
+remaining environmental failures, ABI decisions, and Mac commands.
+
+## Historical measurements (K4)
 
 Binaryen 131 `-Oz`; gzip level 9, normalized to K3's Bun 1.3.14 compressor:
 
