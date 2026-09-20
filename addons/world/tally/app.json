@@ -1,0 +1,7 @@
+{
+  "name": "Tally as a source",
+  "short_name": "Tally",
+  "app": { "id": "com.exact.x1-tally", "name": "Tally as a source" },
+  "host": { "macos": { "minimumOS": "14.0" }, "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] }, "web": {}, "linux": {} },
+  "rust": false
+}

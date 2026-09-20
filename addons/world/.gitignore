@@ -1,0 +1,11 @@
+/target/
+/dist/
+/evidence/*.log
+/evidence/*.png
+/evidence/profiles/
+/evidence/store/
+*.DS_Store
+
+/evidence/baseline-dist/
+/evidence/plans/
+/evidence/*.checkpoint

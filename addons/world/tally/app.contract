@@ -1,0 +1,95 @@
+shape Hud
+  score: number
+  hand: list<number>
+  pile_count: number
+  over: bool
+  ticks: number
+shape World
+  published: Hud
+  tick: number
+  error: string
+shape Entity
+  name: string
+  components: string
+shape Inspection
+  tick: number
+  hash: string
+  entities: list<Entity>
+  logs: string
+  error: string
+  queries: number
+
+shape Metrics
+  allocations: number
+  bytes: number
+  firstTickUs: number
+  entryUs: number
+
+component Tally
+  state nowMs = 0
+  state checkpointText = ""
+  resource world = world(nowMs) as shape World
+  mutation result as shape bool
+  mutation exported as shape string
+  mutation inspection as shape Inspection
+  mutation metrics as shape Metrics
+  action tick writes nowMs
+    nowMs = now()
+  task ticker mount
+    every(10, tick)
+  action press(name: string) writes result
+    send result = press(now(), name)
+  action reset writes result
+    send result = reset(now())
+    refresh world
+  action inspect writes inspection, metrics
+    send metrics = metrics()
+    send inspection = inspect()
+  action save writes result, exported
+    send result = save(now())
+    send exported = export()
+  action editCheckpoint(text: string) writes checkpointText
+    checkpointText = text
+  action restore writes result
+    send result = restore(now(), checkpointText)
+    refresh world
+  action forget writes result
+    send result = forget()
+  view
+    main width="100%" height="100%" background-color="#202731" color="#ffffff"
+      column padding=24 gap=12
+        text "Tally · world as a source" font-size=28
+        text `Score ${world.published.score}` testId="score"
+        text `Pile ${world.published.pile_count}` testId="pile"
+        text `Tick ${world.tick}` testId="ticks"
+        each card in world.published.hand key=card
+          text `Card ${card}`
+        when world.published.over
+          text "Round over" testId="over"
+        text world.error testId="error" color="#ffaaaa"
+        row gap=12
+          button press=press("draw") testId="draw" padding=16 background-color="#354751"
+            text "Draw"
+          button press=press("hold") testId="hold" padding=16 background-color="#354751"
+            text "Hold"
+          button press=reset testId="reset" padding=16 background-color="#354751"
+            text "Reset"
+        row gap=12
+          button press=save testId="save" padding=12
+            text "Save"
+          button press=inspect testId="inspect" padding=12
+            text "Inspect"
+          button press=press("fail") testId="fail" padding=12
+            text "Fail tick"
+          button press=forget testId="forget" padding=12
+            text "Forget save"
+        row gap=12
+          input value=checkpointText change=editCheckpoint testId="checkpoint" width=220 placeholder="Paste checkpoint to restore"
+          button press=restore testId="restore" padding=12
+            text "Restore"
+        match inspection
+          case some(info)
+            text info.hash testId="hash"
+            text info.logs testId="world-logs"
+          case none
+            text "Inspection is on demand"

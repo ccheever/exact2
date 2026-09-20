@@ -1,0 +1,822 @@
+use exact_world::*;
+#[derive(Default, Component)]
+struct Counter {
+    n: u32,
+}
+struct Board;
+impl Game for Board {
+    const ID: &'static str = "k1d";
+    type Args = ();
+    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+        w.register::<Counter>()?;
+        Ok(())
+    }
+    fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+        w.spawn_named("counter", Counter { n: 7 })?;
+        Ok(())
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+        w.get_mut::<Counter>("counter").unwrap().n += 1;
+        Ok(())
+    }
+}
+#[test]
+fn untouched_and_edited_candidates_preserve_complete_continuation() {
+    for drained in [false, true] {
+        let mut s = Sim::<Board>::new(()).unwrap();
+        s.run(17.).unwrap();
+        s.world().publish("score", 7u32).unwrap();
+        s.world().log("saved game history").unwrap();
+        s.world().emit("pending delivery").unwrap();
+        s.world().session_log("session history").unwrap();
+        if drained {
+            s.world().take_published();
+        }
+        let before = s.save().unwrap();
+        s.world()
+            .candidate()
+            .unwrap()
+            .commit(s.world_mut())
+            .unwrap();
+        assert_eq!(s.save().unwrap(), before);
+        assert_eq!(s.world().take_published().is_some(), !drained);
+        assert!(s
+            .world()
+            .logs(LogCursor::default())
+            .unwrap()
+            .entries
+            .contains("session history"));
+        let e = s.world().named("counter").unwrap();
+        let mut c = s.world().candidate().unwrap();
+        c.edit(
+            Some(e),
+            "Counter",
+            &bin::to_vec(&Counter { n: 99 }).unwrap(),
+        )
+        .unwrap();
+        c.commit(s.world_mut()).unwrap();
+        assert_eq!(s.world().get::<Counter>(e).unwrap().n, 99);
+        assert_eq!(s.world().publications().len(), 1);
+        assert!(s
+            .world()
+            .logs(LogCursor::default())
+            .unwrap()
+            .entries
+            .contains("saved game history"));
+        assert_eq!(s.world().take_messages(), ["pending delivery"]);
+    }
+}
+
+#[test]
+fn five_empty_columns_do_not_change_observation_of_200k_entities() {
+    #[derive(Default, Component)]
+    struct A;
+    #[derive(Default, Component)]
+    struct B;
+    #[derive(Default, Component)]
+    struct C;
+    #[derive(Default, Component)]
+    struct D;
+    #[derive(Default, Component)]
+    struct E;
+    let mut w = World::new(60, 0);
+    w.register::<A>()
+        .unwrap()
+        .register::<B>()
+        .unwrap()
+        .register::<C>()
+        .unwrap()
+        .register::<D>()
+        .unwrap()
+        .register::<E>()
+        .unwrap();
+    for _ in 0..MAX_ENTITIES {
+        w.spawn(()).unwrap();
+    }
+    let high = w.entity_at(MAX_ENTITIES - 1).unwrap();
+    let before = w.sample().unwrap();
+    w.insert(high, A).unwrap();
+    w.remove::<A>(high).unwrap();
+    w.insert(high, B).unwrap();
+    w.remove::<B>(high).unwrap();
+    w.insert(high, C).unwrap();
+    w.remove::<C>(high).unwrap();
+    w.insert(high, D).unwrap();
+    w.remove::<D>(high).unwrap();
+    w.insert(high, E).unwrap();
+    w.remove::<E>(high).unwrap();
+    let after = w.sample().unwrap();
+    assert_eq!((after.hash, after.components), (before.hash, 0));
+    let bytes = w.save().unwrap();
+    w.load(&bytes).unwrap();
+    assert_eq!(w.sample().unwrap().hash, before.hash);
+    w.insert(high, A).unwrap();
+    assert_eq!(w.sample().unwrap().components, 1);
+    assert_ne!(w.sample().unwrap().hash, before.hash);
+}
+
+#[test]
+fn extreme_rebased_clocks_refuse_without_mutation() {
+    let mut s = Sim::<Board>::new(()).unwrap();
+    s.run(17.).unwrap();
+    s.reconcile_input(0., &[]).unwrap();
+    let before = s.save().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        s.advance_to((i64::MAX / 1000) as f64)
+    }));
+    assert!(result.is_ok(), "clock overflow panicked");
+    assert!(result.unwrap().is_err());
+    assert_eq!(s.save().unwrap(), before);
+    s.reconcile_input((i64::MAX / 1000) as f64, &[]).unwrap();
+    let before = s.save().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.settle(2)));
+    assert!(result.is_ok(), "settle overflow panicked");
+    assert!(result.unwrap().is_err());
+    assert_eq!(s.save().unwrap(), before);
+    assert_eq!(s.world().observation(), None);
+}
+
+#[test]
+fn panicking_tick_cannot_be_saved_through_the_underlying_world() {
+    struct Panics;
+    impl Game for Panics {
+        const ID: &'static str = "panics";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            w.spawn(())?;
+            panic!("tick interrupted")
+        }
+    }
+    let mut s = Sim::<Panics>::new(()).unwrap();
+    let healthy = s.save().unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.run(17.))).is_err());
+    assert!(s.save().is_err());
+    assert!(
+        s.world().save().is_err(),
+        "partial tick escaped as valid EXGAME"
+    );
+    s.restore(&healthy).unwrap();
+    assert_eq!(s.save().unwrap(), healthy);
+}
+
+#[test]
+fn owned_world_load_is_refused_before_changing_simulation() {
+    let mut s = Sim::<Board>::new(()).unwrap();
+    let bytes = s.world().save().unwrap();
+    s.run(17.).unwrap();
+    let before = s.save().unwrap();
+    assert!(s.world_mut().load(&bytes).is_err());
+    assert_eq!(s.save().unwrap(), before);
+}
+
+#[derive(Default, Args)]
+struct Options {
+    #[live]
+    paused: bool,
+    label: String,
+}
+struct Configured;
+impl Game for Configured {
+    const ID: &'static str = "configured";
+    type Args = Options;
+    fn setup(_: &mut World, _: &Options) -> Result<(), DataError> {
+        Ok(())
+    }
+    fn tick(_: &mut World, _: &Input, _: &Options) -> Result<(), DataError> {
+        Ok(())
+    }
+}
+#[test]
+fn args_admission_and_live_carry_identity() {
+    assert!(Sim::<Configured>::new(Options {
+        label: "x".repeat(1_048_577),
+        ..Default::default()
+    })
+    .is_err());
+    let bytes = Sim::<Configured>::new(Options::default())
+        .unwrap()
+        .save()
+        .unwrap();
+    let mut s = Sim::<Configured>::new(Options {
+        paused: true,
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(
+        s.carry(&bytes).unwrap(),
+        "retained live arguments change canonical bytes"
+    );
+    assert!(s.args().paused);
+    assert_ne!(s.save().unwrap(), bytes);
+}
+
+#[test]
+fn natural_ownership_chains_refuse_at_a_bounded_walk() {
+    let mut w = World::new(60, 0);
+    let mut parent = w.spawn(()).unwrap();
+    for _ in 0..256 {
+        let child = w.spawn(()).unwrap();
+        w.set_parent(child, Some(parent)).unwrap();
+        parent = child;
+    }
+    let child = w.spawn(()).unwrap();
+    let before = w.save().unwrap();
+    assert!(w.set_parent(child, Some(parent)).is_err());
+    assert_eq!(w.save().unwrap(), before);
+    assert_eq!(w.query::<&Parent>().iter().count(), 256);
+}
+
+#[test]
+fn manual_data_shared_mutation_cannot_return_a_stale_hash() {
+    #[derive(Default)]
+    struct Manual(std::cell::Cell<u32>);
+    impl Data for Manual {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0.get().write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            let mut n = 0;
+            n.read(r)?;
+            self.0.set(n);
+            Ok(())
+        }
+    }
+    impl Component for Manual {
+        const NAME: &'static str = "Manual";
+    }
+    let mut w = World::new(60, 0);
+    w.register::<Manual>().unwrap();
+    let e = w.spawn(Manual::default()).unwrap();
+    let before = w.hash();
+    w.get::<Manual>(e).unwrap().0.set(5);
+    assert_ne!(w.hash(), before);
+}
+
+#[test]
+fn registration_collision_names_both_rust_types_and_stale_insert_refuses() {
+    mod left {
+        #[derive(Default, exact_world::Component)]
+        pub struct Same;
+    }
+    mod right {
+        #[derive(Default, exact_world::Component)]
+        pub struct Same;
+    }
+    let mut w = World::new(60, 0);
+    w.register::<left::Same>().unwrap();
+    let error = match w.register::<right::Same>() {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("collision admitted"),
+    };
+    assert!(
+        error.contains("left::Same") && error.contains("right::Same"),
+        "{error}"
+    );
+    let stale = w.spawn(left::Same).unwrap();
+    w.despawn(stale).unwrap();
+    assert!(w.insert(stale, left::Same).is_err());
+}
+
+#[test]
+fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
+    #[derive(Default, Args)]
+    struct Pause {
+        #[live]
+        paused: bool,
+    }
+    struct Clock;
+    impl Game for Clock {
+        const ID: &'static str = "boundary";
+        const HZ: u32 = 1000;
+        type Args = Pause;
+        fn setup(_: &mut World, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn paused(args: &Pause) -> bool {
+            args.paused
+        }
+    }
+    for paused in [false, true] {
+        let mut s = Sim::<Clock>::new(Pause { paused }).unwrap();
+        s.input(InputEvent::Key {
+            code: "K".into(),
+            down: true,
+            at_ms: 1.,
+        })
+        .unwrap();
+        s.run(1.).unwrap();
+        assert!(
+            !s.input_state().key("K"),
+            "event on the boundary ran early (paused={paused})"
+        );
+        s.run(1.).unwrap();
+        assert!(s.input_state().key("K"));
+    }
+}
+
+#[test]
+fn stale_candidates_refuse_without_changing_continuation() {
+    for elapsed in [17., 34.] {
+        let mut s = Sim::<Board>::new(()).unwrap();
+        s.world().publish("score", 7u32).unwrap();
+        s.world().emit("delivery").unwrap();
+        let candidate = s.world().candidate().unwrap();
+        s.run(elapsed).unwrap();
+        let before = s.save().unwrap();
+        assert!(candidate.commit(s.world_mut()).is_err());
+        assert_eq!(s.save().unwrap(), before);
+        assert_eq!(s.world().take_messages(), ["delivery"]);
+        assert!(s.world().take_published().is_some());
+        s.run(17.).unwrap();
+        assert!(s.world().get::<Counter>("counter").unwrap().n > 7);
+    }
+    let a = Sim::<Board>::new(()).unwrap();
+    let mut b = Sim::<Board>::new(()).unwrap();
+    assert!(a
+        .world()
+        .candidate()
+        .unwrap()
+        .commit(b.world_mut())
+        .is_err());
+}
+
+#[test]
+fn erased_parent_edits_refuse_even_valid_reparenting() {
+    let mut w = World::new(60, 0);
+    let a = w.spawn(()).unwrap();
+    let b = w.spawn(()).unwrap();
+    let child = w.spawn(()).unwrap();
+    w.set_parent(child, Some(a)).unwrap();
+    let mut candidate = w.candidate().unwrap();
+    w.set_parent(child, Some(b)).unwrap();
+    let patch = bin::to_vec(&*w.get::<Parent>(child).unwrap()).unwrap();
+    assert!(candidate.edit(Some(child), "Parent", &patch).is_err());
+}
+
+#[test]
+fn sim_checkpoints_preserve_empty_pending_and_drained_publications() {
+    for published in [false, true] {
+        for drained in [false, true] {
+            let s = Sim::<Board>::new(()).unwrap();
+            if published {
+                s.world().publish("score", 7u32).unwrap();
+            }
+            if drained {
+                s.world().take_published();
+            }
+            let bytes = s.save().unwrap();
+            let mut fresh = Sim::<Board>::from_save(&bytes).unwrap();
+            for mode in 0..3 {
+                match mode {
+                    1 => fresh.restore(&bytes).unwrap(),
+                    2 => {
+                        fresh.carry(&bytes).unwrap();
+                    }
+                    _ => (),
+                }
+                assert_eq!(fresh.save().unwrap(), bytes);
+                assert_eq!(
+                    fresh.world().take_published().is_some(),
+                    published && !drained
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn unrelated_derived_slots_borrow_independently_and_clear_on_replacement() {
+    let mut w = World::new(60, 0);
+    {
+        let mut a = w.derived::<u32>();
+        let mut b = w.derived::<String>();
+        *a = 42;
+        b.push_str("live");
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.derived::<u32>())).is_err()
+        );
+        assert_eq!((*a, b.as_str()), (42, "live"));
+    }
+    let bytes = w.save().unwrap();
+    w.load(&bytes).unwrap();
+    assert_eq!(*w.derived::<u32>(), 0);
+    assert!(w.derived::<String>().is_empty());
+}
+
+#[test]
+fn failed_read_into_keeps_the_destination_unchanged() {
+    #[derive(Default, Data)]
+    struct Record {
+        hp: u32,
+        name: String,
+    }
+    let mut live = Record {
+        hp: 7,
+        name: "kept".into(),
+    };
+    let mut patch = bin::to_vec(&Record {
+        hp: 99,
+        name: "new".into(),
+    })
+    .unwrap();
+    patch.pop();
+    assert!(bin::read_into(&patch, &mut live).is_err());
+    assert_eq!((live.hp, live.name.as_str()), (7, "kept"));
+    let patch = bin::to_vec(&Record {
+        hp: 99,
+        name: "new".into(),
+    })
+    .unwrap();
+    bin::read_into(&patch, &mut live).unwrap();
+    assert_eq!((live.hp, live.name.as_str()), (99, "new"));
+}
+
+#[test]
+fn incoming_world_survives_outgoing_destructor_panic() {
+    #[derive(Default, Component)]
+    struct Bomb(bool);
+    impl Drop for Bomb {
+        fn drop(&mut self) {
+            assert!(!self.0, "outgoing bomb");
+        }
+    }
+    let mut w = World::new(60, 0);
+    w.register::<Bomb>().unwrap();
+    let healthy = w.save().unwrap();
+    w.spawn(Bomb(true)).unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.load(&healthy))).is_err());
+    assert_eq!(w.save().unwrap(), healthy);
+    w.spawn(Bomb(false)).unwrap();
+}
+
+#[test]
+fn restore_and_bind_install_complete_driver_before_dropping_args() {
+    thread_local! { static ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    #[derive(Default, Args)]
+    struct Options {
+        seed: u32,
+        #[live]
+        live: bool,
+    }
+    impl Drop for Options {
+        fn drop(&mut self) {
+            assert!(!ARMED.replace(false), "old args drop");
+        }
+    }
+    struct Config;
+    impl Game for Config {
+        const ID: &'static str = "drop-args";
+        type Args = Options;
+        fn setup(w: &mut World, _: &Options) -> Result<(), DataError> {
+            w.spawn(())?;
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &Options) -> Result<(), DataError> {
+            Ok(())
+        }
+    }
+    for mode in 0..3 {
+        let mut s = Sim::<Config>::new(Options::default()).unwrap();
+        let healthy = s.save().unwrap();
+        s.run(17.).unwrap();
+        ARMED.set(true);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match mode {
+            0 => s.restore(&healthy),
+            1 => s.bind(Options {
+                seed: 1,
+                live: false,
+            }),
+            _ => s.bind(Options {
+                seed: 0,
+                live: true,
+            }),
+        }));
+        assert!(result.is_err());
+        assert!(
+            s.save().is_ok(),
+            "driver partly installed after mode {mode}"
+        );
+        if mode == 0 {
+            assert_eq!(s.save().unwrap(), healthy);
+        }
+        if mode == 2 {
+            assert!(s.args().live);
+            assert_eq!(s.world().observation(), None);
+        }
+        s.run(17.).unwrap();
+    }
+}
+
+#[test]
+fn storage_names_are_admitted_before_any_unreadable_journal_is_created() {
+    #[derive(Default, Data)]
+    struct LongName;
+    impl Component for LongName {
+        const NAME: &'static str = concat!(
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza"
+        );
+    }
+    let mut w = World::new(60, 0);
+    let before = w.save().unwrap();
+    assert!(w.register::<LongName>().is_err());
+    assert_eq!(w.save().unwrap(), before);
+}
+
+#[test]
+fn generated_simulations_round_trip_exact_bytes_and_hashes() {
+    for seed in 0..64 {
+        let mut rng = Rng::new(seed);
+        let mut s = Sim::<Board>::new(()).unwrap();
+        for _ in 0..32 {
+            match rng.next_u32() % 6 {
+                0 => {
+                    s.world_mut().spawn(Counter { n: rng.next_u32() }).unwrap();
+                }
+                1 => {
+                    if let Some(e) = s.world().entities().last() {
+                        if e.index() != 0 {
+                            s.world_mut().despawn(e).unwrap();
+                        }
+                    }
+                }
+                2 => {
+                    s.run((rng.next_u32() % 40) as f64).unwrap();
+                }
+                3 => {
+                    s.world().publish("score", rng.next_u32()).unwrap();
+                }
+                4 => {
+                    s.world().take_published();
+                }
+                _ => {
+                    s.world().log("generated").unwrap();
+                }
+            }
+            let bytes = s.save().unwrap();
+            let next = Sim::<Board>::from_save(&bytes).unwrap();
+            assert_eq!(next.save().unwrap(), bytes);
+            assert_eq!(next.world().hash(), s.world().hash());
+        }
+    }
+}
+
+#[test]
+fn hash_refuses_excessive_nesting_without_panicking() {
+    #[derive(Default, Data)]
+    enum Node {
+        #[default]
+        End,
+        More(Box<Node>),
+    }
+    let mut value = Node::End;
+    for _ in 0..500 {
+        value = Node::More(Box::new(value));
+    }
+    let mut sink = hash::Hasher::bounded(1024 * 1024);
+    value.write(&mut sink);
+    assert!(sink.report().is_err(), "hash ignored codec nesting limit");
+}
+
+#[test]
+fn nonnumeric_hash_names_resolve() {
+    let mut w = World::new(60, 0);
+    let boss = w.spawn_named("boss#red", ()).unwrap();
+    assert_eq!(w.resolve("boss#red"), Some(boss));
+}
+
+#[test]
+fn unreachable_action_keys_refuse() {
+    struct BadKeys;
+    impl Game for BadKeys {
+        const ID: &'static str = "bad-keys";
+        type Args = ();
+        const ACTIONS: &'static [Action] = &[Action::axis("move",
+            "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza", "KeyD")];
+        fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+    }
+    assert!(Sim::<BadKeys>::new(()).is_err());
+}
+
+#[test]
+#[allow(clippy::non_minimal_cfg)] // Exercise both eliminated and retained fields.
+fn conditional_data_fields_follow_rust_configuration() {
+    #[derive(Default, Data)]
+    struct Configured {
+        #[cfg(any())]
+        absent: NoSuchType,
+        #[cfg_attr(all(), data(skip))]
+        transient: u32,
+        #[cfg(all())]
+        saved: u32,
+    }
+    let value = Configured {
+        transient: 99,
+        saved: 7,
+    };
+    let bytes = bin::to_vec(&value).unwrap();
+    let loaded: Configured = bin::from_slice(&bytes).unwrap();
+    assert_eq!(loaded.transient, 0);
+    assert_eq!(loaded.saved, 7);
+    assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+}
+
+#[test]
+fn set_parent_refuses_a_small_cycle_before_mutating_or_journaling() {
+    let mut w = World::new(60, 0);
+    let a = w.spawn(()).unwrap();
+    let b = w.spawn(()).unwrap();
+    let c = w.spawn(()).unwrap();
+    w.set_parent(a, Some(b)).unwrap();
+    w.set_parent(b, Some(c)).unwrap();
+    let before = w.save().unwrap();
+    let cursor = w.journal_next();
+    assert_eq!(
+        w.set_parent(c, Some(a)).unwrap_err().message,
+        "ownership cycle"
+    );
+    assert_eq!(w.journal_next(), cursor);
+    assert_eq!(w.save().unwrap(), before);
+}
+
+#[test]
+fn admitted_publication_depth_always_fits_the_simulation_codec() {
+    for depth in [80, 81] {
+        let s = Sim::<Board>::new(()).unwrap();
+        let before = s.save().unwrap();
+        let mut value = Published::Unit;
+        for _ in 0..depth {
+            value = Published::List(vec![value]);
+        }
+        let result = s.world().publish("nested", value);
+        assert_eq!(result.is_ok(), depth == 80);
+        if result.is_ok() {
+            let bytes = s.save().unwrap();
+            assert_eq!(
+                Sim::<Board>::from_save(&bytes).unwrap().save().unwrap(),
+                bytes
+            );
+        } else {
+            assert_eq!(s.save().unwrap(), before);
+        }
+    }
+}
+
+#[test]
+fn no_op_driving_and_empty_delivery_preserve_candidates_and_observation() {
+    #[derive(Default, Args)]
+    struct Pause {
+        #[live]
+        paused: bool,
+    }
+    struct Idle;
+    impl Game for Idle {
+        const ID: &'static str = "no-op";
+        type Args = Pause;
+        fn setup(_: &mut World, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn paused(args: &Pause) -> bool {
+            args.paused
+        }
+    }
+    for paused in [false, true] {
+        for operation in 0..3 {
+            let mut s = Sim::<Idle>::new(Pause::default()).unwrap();
+            s.settle(1).unwrap();
+            // Live argument binding itself invalidates observation.
+            if paused {
+                s.bind(Pause { paused }).unwrap();
+            }
+            let observed = s.world().observation();
+            let epoch = s.world().mutation_epoch();
+            let c = s.world().candidate().unwrap();
+            match operation {
+                0 => {
+                    assert_eq!(s.run(0.).unwrap(), 0);
+                }
+                1 => {
+                    assert_eq!(s.run(0.25).unwrap(), 0);
+                }
+                _ => {
+                    assert!(s.world().take_messages().is_empty());
+                }
+            }
+            assert_eq!(s.world().mutation_epoch(), epoch);
+            assert_eq!(s.world().observation(), observed);
+            if !paused {
+                assert_eq!(observed, Some(true));
+            }
+            c.commit(s.world_mut()).unwrap();
+        }
+    }
+    // Applying due input while paused still changes the candidate boundary.
+    let mut s = Sim::<Idle>::new(Pause { paused: true }).unwrap();
+    s.input(InputEvent::Key {
+        code: "K".into(),
+        down: true,
+        at_ms: 0.,
+    })
+    .unwrap();
+    let c = s.world().candidate().unwrap();
+    s.run(1.).unwrap();
+    assert!(s.input_state().key("K"));
+    assert!(c.commit(s.world_mut()).is_err());
+    s.world().emit("delivery").unwrap();
+    let c = s.world().candidate().unwrap();
+    assert_eq!(s.world().take_messages(), ["delivery"]);
+    assert!(c.commit(s.world_mut()).is_err());
+}
+
+#[test]
+fn emitted_message_limits_refuse_without_panicking_or_changing_delivery() {
+    for oversized in [false, true] {
+        let w = World::new(60, 0);
+        let count = if oversized { 1 } else { 1024 };
+        for _ in 0..count {
+            let _ = w.emit("x".repeat(4096));
+        }
+        let before = w.save().unwrap();
+        let epoch = w.mutation_epoch();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.emit(if oversized {
+                "x".repeat(4097)
+            } else {
+                "one too many".into()
+            })
+        }));
+        assert!(result.is_ok(), "game-reachable admission must not panic");
+        assert!(result
+            .unwrap()
+            .unwrap_err()
+            .message
+            .contains("message queue limit"));
+        assert_eq!(w.save().unwrap(), before);
+        assert_eq!(w.mutation_epoch(), epoch);
+        assert_eq!(w.take_messages(), vec!["x".repeat(4096); count]);
+        w.validate().unwrap();
+    }
+}
+
+#[test]
+fn signed_zero_publications_change_scalar_and_nested_delivery() {
+    use Published::*;
+    for nested in [false, true] {
+        let value = |n| {
+            if nested {
+                Object(std::collections::BTreeMap::from([(
+                    "zero".into(),
+                    Record(vec![List(vec![Option(Some(Box::new(Number(n))))])]),
+                )]))
+            } else {
+                Number(n)
+            }
+        };
+        let s = Sim::<Board>::new(()).unwrap();
+        s.world().publish("value", value(0.)).unwrap();
+        s.world().take_published().unwrap();
+        let before = s.save().unwrap();
+        let cursor = s.world().journal_next();
+        if nested {
+            s.world()
+                .publish_batch(std::collections::BTreeMap::from([(
+                    "value".into(),
+                    value(-0.),
+                )]))
+                .unwrap();
+        } else {
+            s.world().publish("value", value(-0.)).unwrap();
+        }
+        assert_eq!(s.world().journal_next(), cursor + 1);
+        assert!(s.world().take_published().is_some());
+        assert_eq!(
+            bin::to_vec(&s.world().publications()["value"]).unwrap(),
+            bin::to_vec(&value(-0.)).unwrap()
+        );
+        assert_ne!(s.save().unwrap(), before);
+        let after = s.save().unwrap();
+        assert_eq!(
+            Sim::<Board>::from_save(&after).unwrap().save().unwrap(),
+            after
+        );
+        s.world().publish("value", value(-0.)).unwrap();
+        assert_eq!(s.world().journal_next(), cursor + 1);
+        assert!(s.world().take_published().is_none());
+    }
+}
