@@ -1,3 +1,4 @@
+use super::ink_tests::messages_envelope_model as messages_trim_model;
 use super::*;
 use crate::image::Bitmap;
 use crate::paint::{Backend, Painter, Presented, Rect4, Scene, Shape};
@@ -234,6 +235,178 @@ mod trim_sort {
         b.engine.paragraphs.finish_handoff();
         compare(&mut a, &mut b, 0, None, (1, 1));
         assert!(a.weak.iter().all(|w| w.upgrade().is_none()));
+    }
+
+    fn scratch_budget(exact: bool) {
+        let mut a = fixture(3, true);
+        let mut b = fixture(3, true);
+        let bytes = a.engine.residency().cold_policy_bytes;
+        assert!(bytes > 0 && a.engine.residency().cold_paragraphs == 3);
+        let before = cache::trim_vector_entries();
+        compare(&mut a, &mut b, bytes + usize::from(!exact), None, (0, 0));
+        let after = cache::trim_vector_entries();
+        let entries = (after.0 - before.0, after.1 - before.1);
+        eprintln!("exact={exact} eviction_vector_entries={entries:?}");
+        assert_eq!(entries, (0, 0), "under-budget eviction scratch");
+    }
+
+    #[test]
+    fn trim_scratch_below_budget_materializes_no_candidates() {
+        scratch_budget(false);
+    }
+
+    #[test]
+    fn trim_scratch_exact_budget_materializes_no_candidates() {
+        scratch_budget(true);
+    }
+
+    #[test]
+    fn trim_scratch_identity_pressure_does_not_collect_widths() {
+        let mut a = fixture(256, true);
+        let mut b = fixture(256, true);
+        for f in [&mut a, &mut b] {
+            f.engine.paragraphs.identity(&spec("257th cold identity"));
+            assert_eq!(f.engine.residency().identities, 257);
+            assert_eq!(f.engine.residency().cold_paragraphs, 256);
+        }
+        let before = cache::trim_vector_entries();
+        compare(&mut a, &mut b, usize::MAX, None, (0, 1));
+        let after = cache::trim_vector_entries();
+        assert_eq!(after.1 - before.1, 257, "identity eviction still required");
+        assert_eq!(
+            after.0 - before.0,
+            0,
+            "byte budget needs no width candidates"
+        );
+    }
+
+    #[test]
+    fn trim_scratch_messages_10000_32_setup_and_saturated_revisions() {
+        use messages_trim_model::{history, Controls};
+        use sha2::Digest;
+        const COUNT: usize = 10_000;
+        const BATCH: usize = 32;
+        let initial = history(Controls::new(COUNT, 0, BATCH).unwrap(), "").unwrap();
+        let mut f = fixture(0, false);
+        f.engine.paragraphs.trim_test_target(cache::COLD_BYTES);
+        let mut previous = Vec::<Rc<Paragraph>>::new();
+        let mut work = [(0, 0); 3]; // Revisions 1..2, 3..44 warmup, 45..48 saturated.
+        let mut mask = tiny_skia::Mask::new(320, 128).unwrap();
+        let path = tiny_skia::PathBuilder::from_rect(
+            tiny_skia::Rect::from_xywh(10.125, 7.25, 275.5, 110.5).unwrap(),
+        );
+        mask.fill_path(
+            &path,
+            tiny_skia::FillRule::Winding,
+            true,
+            Transform::identity(),
+        );
+        let rgba = |engine: &mut TextEngine, p: &Paragraph| {
+            let mut image = Pixmap::new(320, 128).unwrap();
+            image.fill(tiny_skia::Color::WHITE);
+            engine.paint(
+                &mut image,
+                p,
+                &[RunPaint {
+                    color: [31, 72, 211, 230],
+                    source: 2,
+                }],
+                (7.375, -0.625),
+                1.,
+                Transform::identity(),
+                Some(&mask),
+            );
+            image.data().to_vec()
+        };
+        for revision in 1..=48 {
+            let rows = history(Controls::new(COUNT, revision, BATCH).unwrap(), "").unwrap();
+            assert_eq!(rows.len(), COUNT);
+            assert_eq!(rows[..COUNT - BATCH], initial[..COUNT - BATCH]);
+            let before = cache::trim_vector_entries();
+            let current = rows[COUNT - BATCH..]
+                .iter()
+                .map(|row| {
+                    let mut s = spec(&row.body);
+                    s.strut.size = 14.;
+                    s.strut.line_height = Some(14. * 1.45);
+                    s.runs[0].size = 14.;
+                    s.runs[0].line_height = s.strut.line_height;
+                    s.white_space = exact_kernel::WhiteSpace::PreWrap;
+                    let measured = f.engine.measure(&s, AxisOffer::Definite(280.));
+                    let p = f.engine.paragraph(&s, Some(280.));
+                    assert_eq!(measured, paragraph_metrics(&p));
+                    p
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(current.len(), BATCH);
+            assert_eq!(
+                current
+                    .iter()
+                    .map(Rc::as_ptr)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .len(),
+                6,
+                "ordinary equal-body sharing must remain"
+            );
+            if !previous.is_empty() {
+                for (old, new) in previous.iter().zip(&current) {
+                    assert!(!Rc::ptr_eq(&old.source, &new.source));
+                    assert!(Rc::ptr_eq(&old.source.catalog, &new.source.catalog));
+                }
+            }
+            drop(previous); // Retire A only after B exists; no synthetic cold clones.
+            f.engine.finish_text_frame();
+            let after = cache::trim_vector_entries();
+            let phase = if revision <= 2 {
+                0
+            } else {
+                usize::from(revision > 44) + 1
+            };
+            work[phase].0 += after.0 - before.0;
+            work[phase].1 += after.1 - before.1;
+            let residency = f.engine.residency();
+            assert!(
+                residency.cold_policy_bytes < cache::COLD_BYTES,
+                "STOP: byte pressure"
+            );
+            if revision > 44 {
+                assert!(
+                    residency.identities >= cache::COLD_IDENTITIES,
+                    "STOP: not saturated"
+                );
+            }
+            if revision == 2 || revision == 48 {
+                let pixels = current
+                    .iter()
+                    .map(|p| rgba(&mut f.engine, p))
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "revision={revision} metrics={:?} rgba_sha256={:x}",
+                    current
+                        .iter()
+                        .map(|p| (paragraph_metrics(p), &p.baselines))
+                        .collect::<Vec<_>>(),
+                    sha2::Sha256::digest(pixels.concat())
+                );
+                let state = f.engine.paragraphs.trim_test_state();
+                f.engine.trim_paragraphs();
+                assert_eq!(state, f.engine.paragraphs.trim_test_state());
+                for (p, pixels) in current.iter().zip(pixels) {
+                    assert_eq!(pixels, rgba(&mut f.engine, p), "full RGBA changed");
+                }
+            }
+            previous = current;
+        }
+        eprintln!("Messages body projection 10000/32 setup/warmup/saturated entries={work:?}");
+        assert!(
+            work[2].1 > 0,
+            "STOP: no actual saturated identity-eviction work"
+        );
+        assert_eq!(work[0], (0, 0), "setup needs no eviction vectors");
+        assert_eq!(
+            work[2].0, 0,
+            "saturated identity budget needs no width vector"
+        );
     }
 }
 

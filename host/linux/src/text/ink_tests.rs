@@ -5,7 +5,7 @@ use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 
 #[allow(dead_code)]
 #[path = "../../../../apps/messages-stress/data/src/model.rs"]
-mod messages_envelope_model;
+pub(super) mod messages_envelope_model;
 
 fn engine() -> TextEngine {
     let engine = TextEngine::new();

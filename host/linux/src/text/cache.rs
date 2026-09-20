@@ -165,6 +165,12 @@ thread_local! { static TRIM_SORTS: std::cell::Cell<(usize, usize)> = const { std
 pub(super) fn trim_sort_calls() -> (usize, usize) {
     TRIM_SORTS.with(std::cell::Cell::get)
 }
+#[cfg(test)]
+thread_local! { static TRIM_ENTRIES: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) }; }
+#[cfg(test)]
+pub(super) fn trim_vector_entries() -> (usize, usize) {
+    TRIM_ENTRIES.with(std::cell::Cell::get)
+}
 
 struct Snapshot {
     weak: Weak<Paragraph>,
@@ -556,66 +562,94 @@ impl Cache {
         self.prune_bindings();
     }
     pub fn trim(&mut self, keep: Option<u64>) {
-        let mut cold = Vec::new();
         let mut bytes = 0;
-        let mut cold_keys = Vec::new();
-        for (hash, bucket) in &mut self.identities {
-            for entry in bucket {
-                entry
-                    .widths
-                    .retain(|_, value| value.weak.strong_count() != 0);
-                if !entry.pinned() {
-                    bytes += entry.key_bytes() + entry.source_bytes();
-                    if Some(entry.id) != keep {
-                        cold_keys.push((entry.used, *hash, entry.id));
-                    }
-                }
-                for (width, slot) in &entry.widths {
-                    if !slot.pinned() {
-                        if let Some(p) = &slot.cold {
-                            let cost = p.layout_capacity_bytes() + p.private_text_bytes_estimate;
-                            bytes += cost;
-                            cold.push((slot.used, *hash, entry.id, *width, cost));
-                        }
+        // Keep contributes one even if absent or pinned: preserve the original
+        // eviction policy, including that phantom count.
+        let mut count = usize::from(keep.is_some());
+        for entry in self.identities.values_mut().flatten() {
+            entry
+                .widths
+                .retain(|_, value| value.weak.strong_count() != 0);
+            if !entry.pinned() {
+                bytes += entry.key_bytes() + entry.source_bytes();
+                count += usize::from(Some(entry.id) != keep);
+            }
+            for slot in entry.widths.values() {
+                if !slot.pinned() {
+                    if let Some(p) = &slot.cold {
+                        bytes += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
                     }
                 }
             }
         }
+        if bytes <= self.target && count <= COLD_IDENTITIES {
+            self.prune_bindings();
+            return;
+        }
         if bytes > self.target {
+            let mut cold = Vec::new();
+            // No owner changes between accounting and collection. Preserve the
+            // original iteration order before the age-only unstable width sort.
+            for (hash, bucket) in &self.identities {
+                for entry in bucket {
+                    for (width, slot) in &entry.widths {
+                        if !slot.pinned() {
+                            if let Some(p) = &slot.cold {
+                                let cost =
+                                    p.layout_capacity_bytes() + p.private_text_bytes_estimate;
+                                cold.push((slot.used, *hash, entry.id, *width, cost));
+                                #[cfg(test)]
+                                TRIM_ENTRIES.with(|n| n.set((n.get().0 + 1, n.get().1)));
+                            }
+                        }
+                    }
+                }
+            }
             #[cfg(test)]
             TRIM_SORTS.with(|n| {
                 let (a, b) = n.get();
                 n.set((a + 1, b));
             });
             cold.sort_unstable_by_key(|v| v.0);
-        }
-        for (_, hash, id, width, cost) in cold {
-            if bytes <= self.target {
-                break;
+            for (_, hash, id, width, cost) in cold {
+                if bytes <= self.target {
+                    break;
+                }
+                self.entry((hash, id)).widths.remove(&width);
+                bytes -= cost;
             }
-            self.entry((hash, id)).widths.remove(&width);
-            bytes -= cost;
         }
-        let mut count = cold_keys.len() + usize::from(keep.is_some());
         if count > COLD_IDENTITIES || bytes > self.target {
+            let mut cold_keys = Vec::new();
+            // Removing only unpinned widths cannot change identity pinning or
+            // the remaining keys' iteration order, ages, or source/key costs.
+            for (hash, bucket) in &self.identities {
+                for entry in bucket {
+                    if !entry.pinned() && Some(entry.id) != keep {
+                        cold_keys.push((entry.used, *hash, entry.id));
+                        #[cfg(test)]
+                        TRIM_ENTRIES.with(|n| n.set((n.get().0, n.get().1 + 1)));
+                    }
+                }
+            }
             #[cfg(test)]
             TRIM_SORTS.with(|n| {
                 let (a, b) = n.get();
                 n.set((a, b + 1));
             });
             cold_keys.sort_unstable();
-        }
-        for (_, hash, id) in cold_keys {
-            if count <= COLD_IDENTITIES && bytes <= self.target {
-                break;
-            }
-            let bucket = self.identities.get_mut(&hash).unwrap();
-            let pos = bucket.iter().position(|e| e.id == id).unwrap();
-            let old = bucket.remove(pos);
-            bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
-            count -= 1;
-            if bucket.is_empty() {
-                self.identities.remove(&hash);
+            for (_, hash, id) in cold_keys {
+                if count <= COLD_IDENTITIES && bytes <= self.target {
+                    break;
+                }
+                let bucket = self.identities.get_mut(&hash).unwrap();
+                let pos = bucket.iter().position(|e| e.id == id).unwrap();
+                let old = bucket.remove(pos);
+                bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
+                count -= 1;
+                if bucket.is_empty() {
+                    self.identities.remove(&hash);
+                }
             }
         }
         self.prune_bindings();
