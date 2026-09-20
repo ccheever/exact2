@@ -17,6 +17,7 @@ final class Presenter {
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
+    var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
@@ -249,6 +250,7 @@ final class Presenter {
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
+        videoVisibility?.reset()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -380,6 +382,9 @@ final class Presenter {
         defer { listSyncDepth -= 1 }
         listGeometry = listGeometry.filter { views[$0.key] != nil }
         for list in Array(listViews.values) {
+            // Shared collections use revisioned feedback, not the earlier
+            // item-height window protocol (which rejects their row tree).
+            guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
             guard views[list.id] === list, let scroll = list.scroll,
                   let content = list.container.subviews.first as? NodeView else { continue }
@@ -455,6 +460,7 @@ final class Presenter {
             collections.endBatch()
             if outermost {
                 applying = false
+                videoVisibility?.changed()
                 let q = waiting
                 waiting = []
                 for (id, f) in q where id.map({ views[$0] != nil }) ?? true { f() }

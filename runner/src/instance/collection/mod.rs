@@ -43,6 +43,8 @@ pub(crate) struct Collection {
     view: ViewId,
     region: RegionsId,
     index: HeightIndex,
+    estimated_height: f64,
+    bootstrap_rows: usize,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
     string_keys: bool,
@@ -96,7 +98,7 @@ impl Collection {
         for key in std::mem::take(&mut self.zero_heights) {
             if let Some(token) = self.index.measurement_token(&key) {
                 self.index
-                    .set_measured_height(&key, token, ESTIMATED_HEIGHT)
+                    .set_measured_height(&key, token, self.estimated_height)
                     .map_err(index_error)?;
             }
         }
@@ -128,12 +130,23 @@ impl Collection {
         let descriptor = plan.node(node);
         let mut enabled = false;
         let mut follow_end = false;
+        let mut estimated_height = ESTIMATED_HEIGHT;
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
             if binding.kind == BindingKind::Prop && binding.id == PropId::Virtualized as u16 {
                 enabled = u.eval(binding.expr, frames)? == Value::Bool(true);
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
                 follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::EstimatedItemHeight as u16
+            {
+                let Value::Number(height) = u.eval(binding.expr, frames)? else {
+                    return Err(invalid("estimated item height must be a number"));
+                };
+                if !height.is_finite() || height <= 0.0 {
+                    return Err(invalid("estimated item height must be positive and finite"));
+                }
+                estimated_height = height;
             }
         }
         if !enabled {
@@ -162,7 +175,13 @@ impl Collection {
             preview: None,
             view,
             region,
-            index: HeightIndex::new(ESTIMATED_HEIGHT).map_err(index_error)?,
+            index: HeightIndex::new(estimated_height).map_err(index_error)?,
+            estimated_height,
+            // Keep the original provisional pixel budget, capped at sixteen
+            // rows. Actual nested-scrollport feedback determines the real window.
+            bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
+                .ceil()
+                .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
             items: Rc::new(Vec::new()),
             keys: Vec::new(),
             string_keys: true,
@@ -397,7 +416,7 @@ impl Collection {
                 .segments
         } else {
             let first = self.index.row_at(0.0).map_err(index_error)?.unwrap_or(0);
-            std::iter::once(first..self.index.len().min(first + BOOTSTRAP_ROWS)).collect()
+            std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
             .into_iter()

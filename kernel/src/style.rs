@@ -389,9 +389,16 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
-            // The one text a dimension row takes: CSS's `env()` length.
             StyleValue::Text(t) if Dimension::parse_env(t).is_some() => {
                 Ok(Dimension::parse_env(t).unwrap_or_default())
+            }
+            StyleValue::Text(t) => {
+                parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
+                    .map(Dimension::Points)
+                    .ok_or(StyleValueError::WrongKind {
+                        style,
+                        expected: "number, px length, percent, auto, or env(safe-area-inset-*)",
+                    })
             }
             _ => Err(StyleValueError::WrongKind {
                 style,
@@ -457,51 +464,52 @@ impl StyleValue {
     }
 }
 
+// CSS pixel length or unitless zero, shared by dimensions and translation.
+fn parse_pixel_length(token: &str) -> Option<f32> {
+    let pixels = token
+        .get(token.len().saturating_sub(2)..)
+        .is_some_and(|unit| unit.eq_ignore_ascii_case("px"));
+    let number = if pixels {
+        &token[..token.len() - 2]
+    } else {
+        token
+    };
+    // Rust floats accept spellings outside CSS number tokens. Check the
+    // decimal/exponent grammar before the range-preserving conversion.
+    let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
+    let (mantissa, exponent) = unsigned.find(['e', 'E']).map_or((unsigned, None), |i| {
+        (&unsigned[..i], Some(&unsigned[i + 1..]))
+    });
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let valid_mantissa = match mantissa.split_once('.') {
+        Some((whole, fraction)) => (whole.is_empty() || digits(whole)) && digits(fraction),
+        None => digits(mantissa),
+    };
+    if !valid_mantissa || exponent.is_some_and(|e| !digits(e.strip_prefix(['+', '-']).unwrap_or(e)))
+    {
+        return None;
+    }
+    let value: f64 = number.parse().ok()?;
+    if !value.is_finite()
+        || value.abs() > f32::MAX as f64
+        || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))
+    {
+        return None;
+    }
+    Some(value as f32)
+}
+
 // Fixed 2D CSS subset for Contract text authoring. `none` is deliberately not
 // zero: CSS gives those different containing-block/stacking semantics. Percent,
 // calc and a third axis need a richer row, not a lossy conversion to this Vec2.
 fn parse_translate(text: &str) -> Option<Vec2> {
-    fn axis(token: &str) -> Option<f32> {
-        let pixels = token
-            .get(token.len().saturating_sub(2)..)
-            .is_some_and(|unit| unit.eq_ignore_ascii_case("px"));
-        let number = if pixels {
-            &token[..token.len() - 2]
-        } else {
-            token
-        };
-        // Rust floats accept spellings outside CSS number tokens. Check the
-        // decimal/exponent grammar before the range-preserving conversion.
-        let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
-        let (mantissa, exponent) = unsigned.find(['e', 'E']).map_or((unsigned, None), |i| {
-            (&unsigned[..i], Some(&unsigned[i + 1..]))
-        });
-        let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-        let valid_mantissa = match mantissa.split_once('.') {
-            Some((whole, fraction)) => (whole.is_empty() || digits(whole)) && digits(fraction),
-            None => digits(mantissa),
-        };
-        if !valid_mantissa
-            || exponent.is_some_and(|e| !digits(e.strip_prefix(['+', '-']).unwrap_or(e)))
-        {
-            return None;
-        }
-        let value: f64 = number.parse().ok()?;
-        if !value.is_finite()
-            || value.abs() > f32::MAX as f64
-            || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))
-        {
-            return None;
-        }
-        Some(value as f32)
-    }
     // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
     let mut parts = text
         .split(['\t', '\n', '\u{c}', '\r', ' '])
         .filter(|s| !s.is_empty());
-    let x = axis(parts.next()?)?;
+    let x = parse_pixel_length(parts.next()?)?;
     let y = match parts.next() {
-        Some(s) => axis(s)?,
+        Some(s) => parse_pixel_length(s)?,
         None => 0.0,
     };
     if parts.next().is_some() {
@@ -1075,7 +1083,7 @@ mod tests {
             Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
             length(8.0_f32)
         );
-        // Through the untyped value: text is an `env()` length or nothing.
+        // Environment and explicit pixel lengths share dimension decoding.
         let mut s = StyleProps::default();
         s.set_dynamic(
             StyleId::PaddingTop,
@@ -1084,9 +1092,10 @@ mod tests {
         .unwrap();
         assert_eq!(s.padding_top, Dimension::Env(Edge::Top, 0.0));
         assert!(uses_env(&s));
-        assert!(s
-            .set_dynamic(StyleId::PaddingTop, &StyleValue::Text("12px".into()))
-            .is_err());
+        s.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("12px".into()))
+            .unwrap();
+        assert_eq!(s.padding_top, Dimension::Points(12.0));
+        assert!(!uses_env(&s));
         assert!(!uses_env(&StyleProps::default()));
     }
 

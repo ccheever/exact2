@@ -24,7 +24,7 @@ implemented by admitting `video`.
 
 `video "assets/movie.mp4"` is a replaced leaf. `src` can also be named.
 The web arm is an actual `HTMLVideoElement`; Apple is AVPlayer with
-AVPlayerViewController on iOS and AVPlayerView on macOS. Decoding, HLS,
+AVPlayerViewController or an inline AVPlayerLayer on iOS, and AVPlayerView on macOS. Decoding, HLS,
 native controls, track menus, presentation and the media clock belong to those
 engines. Codecs are engine capabilities, not promises by Exact. MP4/H.264 is the
 bundled consumer. Native HLS and alternate tracks are delegated to AVKit;
@@ -42,6 +42,18 @@ Apple imports AVKit only in `libexact_video.dylib`, loaded at first video
 creation. ExactKit carries its opaque ABI; no Cargo feature or alternate core
 build exists. The web helper is loaded on demand after the first animation
 frame. It sets DOM properties and reports events; it does not render frames.
+
+For iOS inline videos that request no controls, fullscreen behavior, PiP,
+linear-playback restriction or video-frame analysis, the optional artifact uses
+an AVPlayerLayer-backed view (Shop, 2026-09-19). Default PiP and frame-analysis
+preferences still select AVKit; authors must opt out to use the layer. The first
+presentation waits for source props instead of constructing a controller before
+they arrive. Enabling any controller feature later promotes the same AVPlayer
+without replacing its item or seeking. Once installed, that controller remains
+until the node is destroyed, including when controls are subsequently hidden.
+This does not replace AVKit's gestures or controls. `state.media.renderer`
+distinguishes AVPlayerLayer from AVKit. Both remain in the existing optional
+video artifact; this change does not remove its AVKit link dependency.
 
 One node incarnation owns one player. Changing style, typing, window resizing
 and keyboard notifications retain player identity and playback position. A new
@@ -75,6 +87,38 @@ Autoplay remains a request. Browsers can reject it. The sample is muted and
 inline so it can start without surprise audio; rejected play reaches `error`.
 An app observing play/pause may mirror those events into `paused`; equality
 prevents a feedback seek or repeated play call.
+
+### Visibility-controlled inline playback (Shop, 2026-09-19)
+
+Shop product media needs to suspend a playing inline video as its gallery leaves
+view, then resume the same item on return. `playbackVisibilityThreshold` is an
+explicit Exact media policy, not an HTML attribute or a global video default.
+With an authored `paused` binding, a finite value in 0–1 temporarily overrides
+that request to paused when the positive rectangular intersection area divided
+by the video box area falls below the threshold. Zero admits any positive area.
+Removing the property restores the authored request. A manual `paused=true`
+always wins, and the item and playback position remain retained. Without an
+explicit `paused` binding the policy is inactive, so native controls remain the
+playback owner. Literal out-of-range values are refused by the compiler.
+
+The browser uses IntersectionObserver with an implicit viewport root and
+threshold notifications. Apple checks actual view coordinates against the window
+and clipping ancestors, including nested scrollports. Native scroll, layout,
+mount and completed-batch notifications coalesce on the main queue; the host
+tracks only opted-in videos and sends no app scroll action or polling frame loop.
+Only a changed effective pause request reaches the player. Retirement clears the
+native weak registration and disconnects the browser observer. Existing play and
+pause events report actual engine state so the app can label its custom control.
+This is rectangular intersection, not sibling occlusion or pixel visibility;
+PiP/background playback must use a different app policy.
+
+Shop authors 0.5 based on source controls observed paused at low partial visibility
+and resumed after returning; the exact source threshold is inferred, not extracted.
+Web/iOS media-clock probes cover partial vertical clipping, frozen time, automatic
+return, retained generation on Apple, manual pause, horizontal paging, covered
+routes and unmount. The Swift clipping test exercises two axes, hide/show and
+removal. Final direct-device evidence and broader check results belong in the
+consumer checkpoint. Linux has no decoder, so it has no playback policy to apply.
 
 ### Native presentation and tuning
 
@@ -206,6 +250,17 @@ keyboard visible and smaller video height, editor above the keyboard, unchanged
 source generation, and restored height after Done. A malformed source must
 produce an observable error. Unmount must stop the player. Evidence and exact
 results are recorded in the app README after running.
+
+Shop startup validation (2026-09-19): four alternating normal-timing simulator
+launches per build reduce same-feed median exec-to-first-node-draw from 352.8
+to 307.85 ms with the opted-out layer presentation. Home/product playback and
+retained-player promotion probes pass; 216 Apple host tests pass. This is not
+loaded-content readiness or physical-device/source-app performance evidence.
+Direct Mac input could not reveal native transport controls in either the old
+or new signed fixture; native controller selection alone is not a gesture pass.
+Workspace build/test/Clippy were incomplete in filesystem-helper fixture bakes;
+formatting, caps, boot and Apple platform builds pass. Detailed evidence lives
+in the Shop consumer's `.evidence/video-startup-checkpoint.json`.
 
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),

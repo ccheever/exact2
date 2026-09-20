@@ -27,7 +27,10 @@ extension NodeView {
         let point = pan.translation(in: window), time = CACurrentMediaTime()
         switch pan.state {
         case .began:
-            transformHold?.cancel(); transformOrigin = point
+            // UIKit measures translation from touch-down. Preserve the movement
+            // that recognized this pan: a coalesced drag can deliver began/end
+            // at the same nonzero translation, without any changed callback.
+            transformHold?.cancel(); transformOrigin = .zero
             transformHold = TransformDragHold(self, time: time)
         case .changed:
             guard let hold = transformHold else { return }

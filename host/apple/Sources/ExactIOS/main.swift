@@ -54,6 +54,14 @@ final class Adapter: ExactSessionDelegate {
             case "light": window?.overrideUserInterfaceStyle = .light
             default: window?.overrideUserInterfaceStyle = .unspecified
             }
+        case "openURL":
+            guard args.count == 1, let value = args.first as? String,
+                  let url = URL(string: value),
+                  ["http", "https", "mailto", "tel"].contains(url.scheme?.lowercased() ?? "") else {
+                fputs("exact: openURL requires an external web, email or telephone URL\n", stderr)
+                return
+            }
+            UIApplication.shared.open(url)
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }

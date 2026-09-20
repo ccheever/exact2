@@ -651,6 +651,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         // The list window and the text bands follow the scroll; they are not
         // part of it (`Presenter.scrolled`).
         presenter?.scrolled()
@@ -1107,6 +1108,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -1120,6 +1122,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()

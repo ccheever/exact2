@@ -516,6 +516,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func didMoveToWindow() {
         super.didMoveToWindow()
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if window != nil { presenter?.flushPendingFocus() }
     }
 
@@ -552,6 +553,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         presenter?.syncLists()
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
@@ -1023,9 +1025,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         scroll?.decelerationRate = (s["scroll_snap_type"] as? String) == "x mandatory" ? .fast : .normal
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
-        // LLP 1008 §9: a vertical scroll container keeps elastic boundary feedback
-        // even when its content fits (for example a short conversation inbox).
-        scroll?.alwaysBounceVertical = oy == "scroll"
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
         let indicators = (s["scrollbar_width"] as? String ?? "auto") != "none"
@@ -1052,6 +1051,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard let sv = scroll else { return }
         let size = CGSize(width: sv.scrollsX ? max(content.width, sv.bounds.width) : sv.bounds.width, height: sv.scrollsY ? max(content.height, sv.bounds.height) : sv.bounds.height)
         if sv.contentSize != size { sv.contentSize = size }
+        // An orthogonal carousel's computed auto axis has no vertical travel.
+        // Making that axis bounce traps Mac wheel input instead of letting the
+        // enclosing page scroll. Keep elastic feedback for vertical content,
+        // including short vertical lists that have no horizontal overflow.
+        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || size.width <= sv.bounds.width + 0.5)
     }
 
     func applyTransform() {
@@ -1066,6 +1070,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()

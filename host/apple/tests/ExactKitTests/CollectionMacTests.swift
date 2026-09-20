@@ -77,6 +77,21 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertFalse(p.collections.owns(list.id))
         XCTAssertEqual(legacyReports, [list.id])
     }
+    func testSharedCollectionResizeUsesOnlyRevisionedFeedback() {
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        var legacyReports = 0
+        var collectionReports = 0
+        p.onList = { _, _, _, _, _, _, _ in legacyReports += 1 }
+        p.collections.onFeedback = { _ in collectionReports += 1 }
+        p.apply(batch([
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 240.0]
+        ]))
+        p.collections.flush()
+        XCTAssertEqual(legacyReports, 0, "the legacy window protocol rejects a shared collection tree")
+        XCTAssertEqual(collectionReports, 1, "the resized collection still reports actual geometry")
+    }
+
     func testFeedbackMembershipCommitsContinueOnLaterTurnsWithoutScroll() {
         let (p, _) = fixture()
         defer { p.collections.reset() }

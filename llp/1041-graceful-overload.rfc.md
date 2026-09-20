@@ -1162,6 +1162,76 @@ physical 120-Hz result is claimed.
 
 ### 8.12 Numeric sheet-height presentation trial, 2026-09-17
 
+**Shop consumer extension, Codex, 2026-09-19:** the kernel now accepts
+`&[PresentedHeight]` on `compute_layout_presented`; an empty slice restores all
+current authored heights. Several product sections must share a single layout
+publication when their animations overlap. The complete set is validated before
+mutation, including rejection of duplicate generational owners. Equal samples
+in any order reuse layout state; removing one restores only that owner's latest
+authored style. The retained vector grows with active owners and reuses capacity
+on subsequent frames; callers pass borrowed slices without a per-call sample
+allocation. Rebuild reapplies the complete validated set. Existing Apple/Linux
+and interaction-gallery callers pass their optional single sample as a slice;
+their one-owner admission policy is unchanged. Numeric-only eligibility and the
+registered-content-region exclusion remain. Content-sized section measurement,
+automatic host adoption, app wiring and physical motion verification are still
+required; this kernel increment alone does not animate the Shop accordions.
+Validation: all 263 kernel tests pass, including 23 projection cases; the
+Apple unit/integration groups pass 161 tests. The scoped Linux unit, Height,
+height-binding and hold groups pass 348 with one existing GPU test ignored;
+the gallery's eight windowed collection tests pass. Strict all-target Clippy
+for kernel/Apple/Linux/gallery, workspace formatting, caps and boot pass.
+Full-workspace build/test/Clippy remain failed at the filesystem helper in
+application bakes. These are layout/host checks, not physical animation evidence.
+**Content-height measurement, Codex, 2026-09-19:**
+`Kernel::measure_height_targets(root, offer, owners)` returns the current
+authored used border-box heights, including content-sized `auto` boxes. It
+validates the complete request before touching derived layout, temporarily
+removes active projections, computes the authored target layout, then restores
+every prior projection before returning. It publishes no frames, overflow,
+flags, authored styles, receipts or epoch. Engine recovery reapplies the prior
+sample set; invalid host metrics preserve publication and invalidate the bad
+measurement cache. Text, width and same-epoch intrinsic-size changes are read
+from the current tree. Empty requests do not lay out. Query results and the
+saved projection set allocate only for this target pass, not for each motion
+frame. Repeated equal text offers reuse measured-leaf metrics.
+
+Explicit presentation now also admits `height: auto` on a border-box owner;
+percent/env heights and content-box auto remain refused. Ordinary layout and
+`height_target`/host admission remain unchanged: this is no automatic animation
+policy. Measurements include used min/max constraints and are not the raw
+intrinsic size or a complete implementation of CSS `interpolate-size`.
+Automatic host adoption, content/offer invalidation, authored opt-in and physical
+accordion comparison remain unfinished. Hosts must call this on target changes,
+not indiscriminately on every animation tick.
+
+**Shop host integration, Codex, 2026-09-19:** the inherited schema row
+`interpolate-size` defaults to `numeric-only`; `allow-keywords` opts eligible
+Apple border-box numeric/auto Height transitions into automatic ownership.
+The existing receipt walk tracks declarations. Authored epoch changes and
+viewport/inset/intrinsic invalidation trigger one target pass; motion ticks reuse
+samples without target measurement. Settled auto content changes use ordinary
+layout; active changes retarget the shared engine continuously. Changing the
+opt-in alone does not cancel an active transition. Hiding/removing owners retires
+their Height state, and failed measurements preserve published frames for retry.
+The manual draggable owner remains separate. Automatic adoption requires one
+layout root and no registered content region; Linux automatic adoption is still
+open. This is not full CSS intrinsic-size/calc-size support.
+
+Dimension decoding now accepts CSS pixel-length strings as well as numeric
+values, sharing the checked number grammar with translation. This permits
+same-type Contract branches between `"0px"` and `"auto"`. The Shop app retains
+clipped, inert section bodies and declares a 260 ms easing transition plus
+chevron rotation. Browser CSS supplies the web animation. Actual app probes on
+both web and iOS observe 263 → 103.3 points at 65 ms, matching following-sibling
+movement and continuous reversal back to 263. Five new Apple-host cases pass,
+including simultaneous owners and no target query during motion ticks. The
+curve is provisional: source timing, physical frame pacing, performance impact
+and broader CSS parity are not established by these checks.
+
+The original single-owner trial and its measurements below are historical.
+
+
 The kernel trial separates sampled layout height from authored state.
 Leibniz owns the kernel prototype and tests in an isolated worktree; Tuft owns
 integration and the subsequent native/DOM experiment. The first consumer is one

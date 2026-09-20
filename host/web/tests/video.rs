@@ -9,7 +9,7 @@ fn media_properties_events_and_rejections() {
     seconds = value
   view
     column interactive-widget="resizes-content"
-      video "assets/movie.mp4" testId="video" controls=false muted=true currentTime=seconds timeupdate=update
+      video "assets/movie.mp4" testId="video" controls=false muted=true playbackVisibilityThreshold=0.5 currentTime=seconds timeupdate=update
       text `${seconds}`
 "#;
     let plan = contract::compile(source).unwrap();
@@ -26,6 +26,10 @@ fn media_properties_events_and_rejections() {
         "{first}"
     );
     assert!(first.contains("\"controls\":\"false\""), "{first}");
+    assert!(
+        first.contains("\"playbackVisibilityThreshold\":\"0.5\""),
+        "{first}"
+    );
     let key = host.runner().kernel().find_by_test_id("video")[0];
     let id = host.runner().kernel().node_by_key(key).unwrap().id;
     // Media and binary reorder dispatch occupy distinct web ABI kinds.
@@ -48,7 +52,13 @@ fn media_properties_events_and_rejections() {
     assert!(Event::media_payload("timeupdate\nNaN").is_none());
     assert!(Event::media_payload("press\n").is_none());
     assert!(Event::media_payload("pan\n").is_none());
-    for attribute in ["volume=2", "playbackRate=0", "preload=\"sometimes\""] {
+    for attribute in [
+        "volume=2",
+        "playbackRate=0",
+        "preload=\"sometimes\"",
+        "playbackVisibilityThreshold=-0.1",
+        "playbackVisibilityThreshold=1.1",
+    ] {
         assert!(
             contract::compile(&format!("component App\n  view\n    video {attribute}\n")).is_err()
         );

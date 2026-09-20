@@ -26,7 +26,7 @@ pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerErr
     }
     if let Some(number) = numeric_literal(value) {
         let range = match name {
-            "volume" => Some((0.0, 1.0)),
+            "volume" | "playbackVisibilityThreshold" => Some((0.0, 1.0)),
             "playbackRate" => Some((0.25, 4.0)),
             "currentTime" | "preferredPeakBitRate" | "preferredForwardBufferDuration" => {
                 Some((0.0, f64::MAX))
