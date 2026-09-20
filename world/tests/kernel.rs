@@ -22,17 +22,18 @@ impl Game for Counter {
         Action::axis("horizontal", "KeyL", "KeyR"),
     ];
     type Args = Options;
-    fn register(w: &mut World, args: args::SetupArgs<'_, Options>) {
+    fn register(w: &mut World, args: args::SetupArgs<'_, Options>) -> Result<(), DataError> {
         assert!(args.get("paused").is_none());
         assert!(matches!(
             args.get("seed"),
             Some(args::ArgumentRef::Unsigned(_))
         ));
-        w.register::<Count>();
+        w.register::<Count>().unwrap();
+        Ok(())
     }
     fn setup(w: &mut World, a: &Options) {
         w.reseed(a.seed);
-        w.spawn_named("counter", Count(0));
+        w.spawn_named("counter", Count(0)).unwrap();
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let random = w.rng().next_u32() as u64;
@@ -52,8 +53,9 @@ struct Still;
 impl Game for Still {
     const ID: &'static str = "still";
     type Args = ();
-    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) {
-        w.register::<Count>();
+    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+        w.register::<Count>().unwrap();
+        Ok(())
     }
     fn setup(_: &mut World, _: &()) {}
     fn tick(_: &mut World, _: &Input, _: &()) {}
@@ -65,16 +67,19 @@ fn idempotent_recursive_registration_runs_hook_once() {
     struct Hook(u32);
     impl Component for Hook {
         const NAME: &'static str = "Hook";
-        fn register(w: &mut World) {
+        fn register(w: &mut World) -> Result<(), DataError> {
             CALLS.set(CALLS.get() + 1);
-            w.register::<Hook>();
+            w.register::<Hook>().unwrap();
+            Ok(())
         }
     }
     CALLS.set(0);
     let mut w = World::new(60, 0);
+    w.register::<Count>().unwrap();
+    w.register::<Hook>().unwrap();
     for n in 0..100 {
-        w.spawn(Hook(n));
-        w.register::<Hook>();
+        w.spawn(Hook(n)).unwrap();
+        w.register::<Hook>().unwrap();
     }
     assert_eq!(CALLS.get(), 1);
     w.load(&w.save()).unwrap();
@@ -84,7 +89,8 @@ fn idempotent_recursive_registration_runs_hook_once() {
 #[test]
 fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
     let mut w = World::new(60, 0);
-    let es: Vec<_> = (0..257).map(|_| w.spawn(())).collect();
+    w.register::<Count>().unwrap();
+    let es: Vec<_> = (0..257).map(|_| w.spawn(()).unwrap()).collect();
     for pair in es.windows(2) {
         w.set_parent(pair[0], Some(pair[1])).unwrap();
     }
@@ -117,13 +123,15 @@ fn decoded_ownership_cycle_refuses_atomically() {
         const NAME: &'static str = "Parent";
     }
     let mut bad = World::new(60, 0);
-    let a = bad.spawn(());
-    let b = bad.spawn(());
-    bad.insert(a, Forged(b));
-    bad.insert(b, Forged(a));
+    bad.register::<Forged>().unwrap();
+    let a = bad.spawn(()).unwrap();
+    let b = bad.spawn(()).unwrap();
+    bad.insert(a, Forged(b)).unwrap();
+    bad.insert(b, Forged(a)).unwrap();
     let mut w = World::new(60, 0);
-    w.register::<Parent>();
-    w.spawn_named("retained", ());
+    w.register::<Count>().unwrap();
+    w.register::<Parent>().unwrap();
+    w.spawn_named("retained", ()).unwrap();
     let before = w.save();
     assert!(w.load(&bad.save()).unwrap_err().message.contains("cycle"));
     assert_eq!(w.save(), before);
@@ -132,12 +140,12 @@ fn decoded_ownership_cycle_refuses_atomically() {
 fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restore() {
     let mut s = Sim::<Still>::new(()).unwrap();
     let w = s.world_mut();
-    let a = w.spawn(Count(1));
-    let owner = w.spawn(());
-    w.insert(a, Count(2));
+    let a = w.spawn(Count(1)).unwrap();
+    let owner = w.spawn(()).unwrap();
+    w.insert(a, Count(2)).unwrap();
     w.set_parent(a, Some(owner)).unwrap();
     w.despawn(a);
-    let b = w.spawn(Count(3));
+    let b = w.spawn(Count(3)).unwrap();
     assert_eq!(a.index(), b.index());
     assert_ne!(a.generation(), b.generation());
     let cursor = w.change_cursor();
@@ -286,12 +294,13 @@ fn restore_never_runs_setup_and_derived_slots_are_unsaved() {
     impl Game for G {
         const ID: &'static str = "no-setup";
         type Args = ();
-        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) {
-            w.register::<Count>();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<Count>().unwrap();
+            Ok(())
         }
         fn setup(w: &mut World, _: &()) {
             SETUPS.set(SETUPS.get() + 1);
-            w.spawn(Count(4));
+            w.spawn(Count(4)).unwrap();
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
@@ -316,6 +325,8 @@ fn borrowed_queries_and_safe_runs_cover_holes_padding_and_owned_data() {
         n: u64,
     }
     let mut w = World::new(60, 0);
+    w.register::<Count>().unwrap();
+    w.register::<Padded>().unwrap();
     let es: Vec<_> = (0..130)
         .map(|n| {
             w.spawn(Padded {
@@ -323,6 +334,7 @@ fn borrowed_queries_and_safe_runs_cover_holes_padding_and_owned_data() {
                 text: format!("{n}"),
                 n,
             })
+            .unwrap()
         })
         .collect();
     for &i in &[0, 2, 3, 63, 64, 100] {
@@ -398,7 +410,8 @@ fn input_edges_axes_boundaries_and_queue_limits() {
 #[test]
 fn bounded_inspection_refuses_large_values_and_reading_is_passive() {
     let mut w = World::new(60, 0);
-    let e = w.spawn(Count(4));
+    w.register::<Count>().unwrap();
+    let e = w.spawn(Count(4)).unwrap();
     let before = w.save();
     assert!(w.state(e).unwrap().contains('4'));
     assert_eq!(w.tree().0.len(), 1);
@@ -416,9 +429,11 @@ fn ambient_motion_deadlines_and_same_value_leases_do_not_hide_changes() {
     struct Motion(Tween);
     let mut tween = Tween::new(0.);
     tween.to(Now { tick: 0, hz: 60 }, 1., 1.);
-    let e = s.world_mut().spawn(Motion(tween));
+    s.world_mut().register::<Motion>().unwrap();
+    s.world_mut().register::<Ambient>().unwrap();
+    let e = s.world_mut().spawn(Motion(tween)).unwrap();
     assert_eq!(s.world().settle_tick(), Some(60));
-    s.world_mut().insert(e, Ambient);
+    s.world_mut().insert(e, Ambient).unwrap();
     assert_eq!(s.settle(2).unwrap(), 1);
     s.world_mut().remove::<Ambient>(e);
     assert_eq!(s.settle(100).unwrap(), 59);
@@ -431,20 +446,21 @@ fn ambient_motion_deadlines_and_same_value_leases_do_not_hide_changes() {
 #[ignore = "admission ceilings; explicit long workload"]
 fn full_entity_and_journal_limits_refuse_without_losing_events() {
     let mut w = World::new(60, 0);
+    w.register::<Count>().unwrap();
     for _ in 0..MAX_ENTITIES {
-        w.spawn(());
+        w.spawn(()).unwrap();
     }
-    assert!(catch_unwind(AssertUnwindSafe(|| w.spawn(()))).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| w.spawn(()).unwrap())).is_err());
     assert_eq!(w.len(), MAX_ENTITIES);
     let cursor = w.change_cursor();
     w.consume_changes(cursor).unwrap();
     let e = w.resolve("#0").unwrap();
     for n in 0..999_999 {
-        w.insert(e, Count(n));
+        w.insert(e, Count(n)).unwrap();
     }
     // insert reserves two events so ownership can always journal its edge too.
     let cursor = w.change_cursor();
-    assert!(catch_unwind(AssertUnwindSafe(|| w.insert(e, Count(0)))).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| w.insert(e, Count(0)).unwrap())).is_err());
     assert_eq!(w.change_cursor(), cursor);
     assert_eq!(w.changes(cursor - 1).unwrap().count(), 1);
 }
@@ -678,18 +694,19 @@ fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
     impl Game for G {
         const ID: &'static str = "selected-registration";
         type Args = Mode;
-        fn register(w: &mut World, a: args::SetupArgs<'_, Mode>) {
+        fn register(w: &mut World, a: args::SetupArgs<'_, Mode>) -> Result<(), DataError> {
             if matches!(a.get("new"), Some(args::ArgumentRef::Bool(true))) {
-                w.register::<New>();
+                w.register::<New>().unwrap();
             } else {
-                w.register::<Old>();
+                w.register::<Old>().unwrap();
             }
+            Ok(())
         }
         fn setup(w: &mut World, a: &Mode) {
             if a.new {
-                w.spawn(New(7));
+                w.spawn(New(7)).unwrap();
             } else {
-                w.spawn(Old(4));
+                w.spawn(Old(4)).unwrap();
             }
         }
         fn tick(_: &mut World, _: &Input, _: &Mode) {}
@@ -704,4 +721,37 @@ fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
     old.restore(&saved).unwrap();
     assert_eq!(old.world().require::<New>("#0").0, 7);
     assert_eq!(old.save().unwrap(), saved);
+}
+
+#[test]
+fn refused_orphan_reap_cannot_repeat_game_logic() {
+    thread_local! { static TICKS: Cell<u32> = const { Cell::new(0) }; }
+    struct G;
+    impl Game for G {
+        const ID: &'static str = "reap-refusal";
+        type Args = ();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<Count>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            let parent = w.spawn_named("parent", Count(0)).unwrap();
+            let child = w.spawn(()).unwrap();
+            w.set_parent(child, Some(parent)).unwrap();
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            TICKS.set(TICKS.get() + 1);
+            w.despawn(w.named("parent").unwrap());
+        }
+    }
+    TICKS.set(0);
+    let mut s = Sim::<G>::new(()).unwrap();
+    let parent = s.world().named("parent").unwrap();
+    while s.world().change_cursor() < 999_999 {
+        s.world_mut().insert(parent, Count(0)).unwrap();
+    }
+    assert!(s.run(17.).is_err());
+    assert!(s.run(17.).is_err());
+    assert_eq!(TICKS.get(), 1);
+    assert!(s.save().is_err());
 }

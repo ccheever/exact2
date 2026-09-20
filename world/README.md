@@ -9,8 +9,9 @@ struct Board;
 impl Game for Board {
     const ID: &'static str = "readme-board";
     type Args = Options;
-    fn register(w: &mut World, _: args::SetupArgs<'_, Options>) { w.register::<Counter>(); }
-    fn setup(w: &mut World, _: &Options) { w.spawn_named("counter", Counter(0)); }
+    fn register(w: &mut World, _: args::SetupArgs<'_, Options>) -> Result<(), DataError> { w.register::<Counter>().unwrap(); Ok(())
+}
+    fn setup(w: &mut World, _: &Options) { w.spawn_named("counter", Counter(0)).unwrap(); }
     fn tick(w: &mut World, _: &Input, a: &Options) { w.require_mut::<Counter>("counter").0 += a.increment; }
 }
 let mut sim = Sim::<Board>::new(Options { increment: 2 })?;
@@ -26,10 +27,10 @@ assert_eq!(page.runs().next().unwrap().1[0].0, 2);
 
 | Public API (method signatures omit receivers) | Contract |
 |---|---|
-| `World::new(hz: u32, seed: u64) -> World`; `spawn(bundle: impl Bundle) -> Entity`; `spawn_named(name: impl AsRef<str>, bundle: impl Bundle) -> Entity`; `despawn(Entity) -> bool` | Lowest free slot; names resolve lowest live slot; generation rejects stale handles. Tuples implement Bundle. |
-| `insert<C: Component>(Entity, C) -> bool`; `remove<C>(Entity) -> Option<C>`; `get<C>(impl Target) -> Option<Ref<C>>`; `get_mut<C>(impl Target) -> Option<RefMut<C>>`; `insert_resource<R: Resource>(R)`; `resource<R>() -> Ref<R>`; `resource_mut<R>() -> RefMut<R>` | Column leases reject aliasing. `require`, `require_mut`, `try_resource`, `has`, `named`, `resolve`, `name`, `entities`, `count` provide typed lookup. |
+| `World::new(hz: u32, seed: u64) -> World`; `spawn(bundle: impl Bundle) -> Result<Entity, DataError>`; `spawn_named(name: impl AsRef<str>, bundle: impl Bundle) -> Result<Entity, DataError>`; `despawn(Entity) -> bool` | Lowest free slot; names resolve lowest live slot; generation rejects stale handles. Tuples implement Bundle. |
+| `insert<C: Component>(Entity, C) -> Result<bool, DataError>`; `remove<C>(Entity) -> Option<C>`; `get<C>(impl Target) -> Option<Ref<C>>`; `get_mut<C>(impl Target) -> Option<RefMut<C>>`; `insert_resource<R: Resource>(R) -> Result<(), DataError>`; `resource<R>() -> Ref<R>`; `resource_mut<R>() -> RefMut<R>` | Column leases reject aliasing. `require`, `require_mut`, `try_resource`, `has`, `named`, `resolve`, `name`, `entities`, `count` provide typed lookup. |
 | `try_query<Q: Query>() -> Result<QueryBorrow<Q>, String>`; `QueryBorrow::get(Entity) -> Option<Q::Item>`; `matching_count(&World) -> Result<(usize, Option<Entity>), String>`; `pages<C>() -> Pages<C>`; `Page::runs() -> impl Iterator<Item=(u32, &[C])>` | Ordered sealed joins, optional terms, with/without/with_any filters, entity-bearing borrowed or guarded iteration; safe typed runs exclude holes and padding. |
-| `id() -> WorldId`; `replacement()`, `revision<C>()`, `membership<C>()`, `entities_revision()`, `mutation_epoch() -> u64`; `Page { first, generation, mask, .. }` | Cache keys include world identity/replacement; value generations conservatively advance on mutable access, membership only on structural edits. |
+| `id() -> WorldId`; `replacement()`, `revision<C>()`, `membership<C>()`, `entities_revision()`, `mutation_epoch() -> u64`; `Page { first, generation, .. }`; `Page::mask() -> &[u64]` | Cache keys include world identity/replacement; value generations conservatively advance on mutable access, membership only on structural edits. |
 | `set_parent(Entity, Option<Entity>) -> Result<(), DataError>`; `children(Entity) -> Vec<Entity>`; `validate()`, `reap_orphans() -> Result<(), DataError>` | Independent cycle validation; children and deferred destruction use ascending slot order; Parent cannot be mutated through ordinary leases. |
 | `change_cursor() -> u64`; `changes(since: u64) -> Result<impl Iterator<Item=&Change>, DataError>`; `consume_changes(through: u64) -> Result<(), DataError>` | Retained across ticks; generation-bearing spawn/despawn/insert/replace/remove/reparent/reset events. Consumers acknowledge their minimum cursor. |
 | `work(&str, Work) -> Result<(), DataError>`; `clear_work(&str)`; `busy(&'static str) -> Result<(), DataError>`; `readiness() -> Readiness`; `settle_tick() -> Option<u64>`; `quiescent() -> bool`; `derived<T: Default + 'static>() -> RefMut<T>` | Ready/Pending/Failed reasons and simulation Deadline data; busy expires each tick. Derived slots are unsaved and cleared on replacement. Ambient still saves/hashes but is excluded from rest observation. |
@@ -70,3 +71,23 @@ Per-file counts below use paths relative to `world/`; all source files are below
 | `src/rng.rs` 103 | `src/sim.rs` 368 | `src/spring.rs` 133 | `src/storage/cell.rs` 134 | `src/storage/mod.rs` 206 |
 | `src/storage/pages.rs` 70 | `src/storage/query.rs` 479 | `src/storage/raw.rs` 364 | `src/tween.rs` 111 | `src/values.rs` 322 |
 | `src/world/inspect.rs` 225 | `src/world/journal.rs` 230 | `src/world/mod.rs` 862 | `src/world/ownership.rs` 109 | `src/world/save.rs` 148 |
+
+Registration is explicit: `register::<C>()` and `register_resource::<R>()` return
+`Result<&mut World, DataError>` and are idempotent. `Game::register` and
+`Component::register` return `Result<(), DataError>`. Declare every saved type in
+`Game::register`; construction and every reconstruction invoke it with saved setup
+arguments. Insertion never registers. Missing declarations name the type in a
+`DataError`. Bundle spawning checks every declaration and the complete structural
+journal requirement before allocating an entity. A panic in a structural mutation
+or a failed registration hook poisons the world; discard it. A tick failing after
+gameplay begins poisons the driver, preventing retry of partially executed logic.
+Input refusal happens before the tick and leaves its boundary unchanged. Earlier
+completed ticks in a multi-tick request remain committed on a later refusal.
+
+`run` and `advance_to` use one caller clock. Pause advances that clock and reconciles
+held input without advancing simulation time or retaining edges for resume.
+`reconcile_input(clock_ms, held: &[InputEvent]) -> Result<(), DataError>` replaces
+held state, clears edges and queued input, and rebases caller time without a tick;
+its complete-state batch admits at most 1,024 events. Each delta rounds separately
+to microseconds. `world_mut` remains available for authoring, but save and clock
+operations refuse a replaced World whose tick/rate contradict the driver.

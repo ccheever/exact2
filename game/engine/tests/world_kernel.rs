@@ -60,10 +60,18 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
     (history,data)
 }
 "#;
-    let fixture_new = fixture.replace("ENGINE", "exact_world");
+    let fixture_new = fixture.replace("ENGINE", "exact_world")
+        .replace("register::<Other>()", "register::<Other>().unwrap()")
+        .replace("register::<Counter>()", "register::<Counter>().unwrap()")
+        .replace("register_resource::<Ledger>()", "register_resource::<Ledger>().unwrap()")
+        .replace("}, ())", "}, ()).unwrap()")
+        .replace("link: Some(entities[0]) });", "link: Some(entities[0]) }).unwrap();")
+        .replace("Other(vec![0,65535]))", "Other(vec![0,65535])).unwrap()")
+        .replace("insert_resource(ledger)", "insert_resource(ledger).unwrap()")
+        .replace("..Counter::default() },))", "..Counter::default() },)).unwrap()");
     // Old EXGAME v3 retained empty columns. Compare canonical content against
     // the old engine's never-populated history, and exercise churn only in new.
-    let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>(); w.insert(entities[1999], Temporary); w.remove::<Temporary>(entities[1999]); let mut history =");
+    let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>().unwrap(); w.insert(entities[1999], Temporary).unwrap(); w.remove::<Temporary>(entities[1999]); let mut history =");
     let fixture_new = fixture_new.replace("w.save()", "{ let mut b = w.save(); b[7] = 3; b }");
     let fixture_new = fixture_new.replace("w.load(&bytes)", "w.load(&{ let mut b = bytes.clone(); b[7] = 4; b })");
     let source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);

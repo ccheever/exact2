@@ -37,6 +37,12 @@ pub struct Event {
 }
 impl World {
     pub(super) fn change_room(&self, count: usize) -> Result<(), DataError> {
+        self.healthy()?;
+        if self.change_next.checked_add(count as u64).is_none()
+            || self.journal_next.get().checked_add(count as u64).is_none()
+        {
+            return Err(DataError::new("journal cursor exhausted"));
+        }
         if self.changes.len().saturating_add(count) > CHANGE_LIMIT {
             Err(DataError::new("structural journal full; consume changes"))
         } else {
@@ -214,6 +220,9 @@ impl World {
             .replacement
             .checked_add(1)
             .ok_or_else(|| DataError::new("replacement exhausted"))?;
+        self.changes
+            .try_reserve(1)
+            .map_err(crate::data::limits::allocation)?;
         next.changes = std::mem::take(&mut self.changes);
         next.change_next = self.change_next;
         next.record_change(Entity::default(), ChangeKind::Reset);
@@ -221,7 +230,40 @@ impl World {
         for e in next.session_journal.get_mut() {
             e.index = next.journal_next.get();
         }
-        *self = next;
+        std::mem::swap(self, &mut next);
+        self.mutation(|_| drop(next));
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod atomic_tests {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    #[derive(Default, crate::Component)]
+    struct C(u32);
+    #[test]
+    fn spawn_capacity_refusal_does_not_publish_an_empty_entity() {
+        let mut w = World::new(60, 0);
+        w.register::<C>().unwrap();
+        w.changes.resize(CHANGE_LIMIT - 1, Change::default());
+        let before = w.hash();
+        let _ = catch_unwind(AssertUnwindSafe(|| w.spawn(C(7)).unwrap()));
+        assert!(w.is_empty());
+        assert_eq!(w.hash(), before);
+        assert_eq!(w.changes.len(), CHANGE_LIMIT - 1);
+    }
+    #[test]
+    fn adopt_cursor_exhaustion_preserves_both_journals() {
+        let mut w = World::new(60, 0);
+        w.spawn(()).unwrap();
+        w.session_log("retained").unwrap();
+        w.change_next = u64::MAX;
+        let before = w.changes.clone();
+        let logs = w.logs(0).unwrap();
+        let result = catch_unwind(AssertUnwindSafe(|| w.adopt(World::new(60, 0))));
+        assert_eq!(w.changes, before);
+        assert_eq!(w.logs(0).unwrap(), logs);
+        assert!(result.unwrap().is_err());
     }
 }

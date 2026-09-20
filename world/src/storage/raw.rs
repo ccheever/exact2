@@ -368,11 +368,14 @@ mod tests {
         }
         assert!(std::mem::size_of::<Padded>() > 1 + std::mem::size_of::<String>() + 8);
         let mut w = World::new(60, 0);
-        let e = w.spawn(Padded {
-            byte: 1,
-            owned: "first".into(),
-            word: 2,
-        });
+        w.register::<Padded>().unwrap();
+        let e = w
+            .spawn(Padded {
+                byte: 1,
+                owned: "first".into(),
+                word: 2,
+            })
+            .unwrap();
         w.insert(
             e,
             Padded {
@@ -380,7 +383,8 @@ mod tests {
                 owned: "second".into(),
                 word: 4,
             },
-        );
+        )
+        .unwrap();
         let saved = w.save();
         w.load(&saved).unwrap();
         assert_eq!(w.save(), saved);
@@ -404,15 +408,16 @@ mod tests {
         assert_eq!(std::mem::size_of::<Guard>(), 0);
         DROPS.set(0);
         let mut w = World::new(60, 0);
-        let e = w.spawn(Guard);
+        w.register::<Guard>().unwrap();
+        let e = w.spawn(Guard).unwrap();
         assert_eq!(DROPS.get(), 0);
-        w.insert(e, Guard);
+        w.insert(e, Guard).unwrap();
         assert_eq!(DROPS.get(), 1);
         let value = w.remove::<Guard>(e).unwrap();
         assert_eq!(DROPS.get(), 1, "remove transfers ownership to its caller");
         drop(value);
         assert_eq!(DROPS.get(), 2);
-        w.insert(e, Guard);
+        w.insert(e, Guard).unwrap();
         let saved = w.save();
         w.load(&saved).unwrap();
         assert_eq!(DROPS.get(), 3, "load drops the old world");
@@ -441,14 +446,15 @@ mod tests {
         }
         DROPPED.with_borrow_mut(Vec::clear);
         let mut w = World::new(60, 0);
-        let e = w.spawn(Owner::new(1));
-        w.insert(e, Owner::new(2));
+        w.register::<Owner>().unwrap();
+        let e = w.spawn(Owner::new(1)).unwrap();
+        w.insert(e, Owner::new(2)).unwrap();
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
         let owner = w.remove::<Owner>(e).unwrap();
         assert_eq!(owner.id, 2);
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
         drop(owner);
-        w.insert(e, Owner::new(3));
+        w.insert(e, Owner::new(3)).unwrap();
         let bytes = w.save();
         w.load(&bytes).unwrap();
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3]));
@@ -466,11 +472,13 @@ mod tests {
             n: u32,
         }
         let mut w = World::new(60, 0);
+        w.register::<Aligned>().unwrap();
         for n in 0..1030 {
             w.spawn(Aligned {
                 text: "owned".into(),
                 n,
-            });
+            })
+            .unwrap();
         }
         let bytes = w.save();
         w.load(&bytes).unwrap();
@@ -499,10 +507,13 @@ mod tests {
             }
         }
         let mut w = World::new(60, 0);
-        let e = w.spawn(Bomb {
-            explode: true,
-            text: "old".into(),
-        });
+        w.register::<Bomb>().unwrap();
+        let e = w
+            .spawn(Bomb {
+                explode: true,
+                text: "old".into(),
+            })
+            .unwrap();
         assert!(catch_unwind(AssertUnwindSafe(|| {
             w.insert(
                 e,
@@ -510,13 +521,23 @@ mod tests {
                     explode: false,
                     text: "replacement".into(),
                 },
-            );
+            )
+            .unwrap();
         }))
         .is_err());
         assert_eq!(w.get::<Bomb>(e).unwrap().text, "replacement");
-        w.get_mut::<Bomb>(e).unwrap().explode = true;
+        assert!(w.validate().unwrap_err().message.contains("poisoned"));
+        drop(w);
+        let mut w = World::new(60, 0);
+        w.register::<Bomb>().unwrap();
+        let e = w
+            .spawn(Bomb {
+                explode: true,
+                text: "doomed".into(),
+            })
+            .unwrap();
         assert!(catch_unwind(AssertUnwindSafe(|| w.despawn(e))).is_err());
         assert!(w.get::<Bomb>(e).is_none());
-        assert!(w.despawn(e));
+        assert!(w.validate().unwrap_err().message.contains("poisoned"));
     }
 }

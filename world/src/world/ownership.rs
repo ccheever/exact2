@@ -15,8 +15,8 @@ impl World {
         self.change_room(2)?;
         match parent {
             Some(parent) => {
-                self.check_parent(child, parent)?;
-                self.insert(child, Parent(parent));
+                self.register::<Parent>()?;
+                self.insert(child, Parent(parent))?;
             }
             None => {
                 self.remove::<Parent>(child);
@@ -89,6 +89,7 @@ impl World {
     }
     /// Validate without transforms. No mutation on refusal.
     pub fn validate(&self) -> Result<(), DataError> {
+        self.healthy()?;
         self.validate_state()?;
         self.validate_ownership(&mut bin::Decoder::new(&[]))
     }

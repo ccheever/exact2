@@ -102,10 +102,10 @@ impl World {
         let mut seen = BTreeSet::new();
         for (name, resource) in &schema {
             if name == "Parent" {
-                self.register::<Parent>();
+                self.register::<Parent>()?;
             }
             if name == "Ambient" {
-                self.register::<crate::Ambient>();
+                self.register::<crate::Ambient>()?;
             }
             let reg = self
                 .registry

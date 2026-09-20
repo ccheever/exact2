@@ -22,7 +22,9 @@ pub trait Game: 'static {
     fn validate(_args: &Self::Args) -> Result<(), String> {
         Ok(())
     }
-    fn register(_world: &mut World, _args: SetupArgs<'_, Self::Args>) {}
+    fn register(_world: &mut World, _args: SetupArgs<'_, Self::Args>) -> Result<(), DataError> {
+        Ok(())
+    }
     fn setup(world: &mut World, args: &Self::Args);
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
     fn paused(_args: &Self::Args) -> bool {
@@ -45,6 +47,7 @@ pub struct Sim<G: Game> {
     world_us: i64,
     caller_us: i64,
     paranoid: Paranoid,
+    tick_failed: bool,
     game: PhantomData<G>,
 }
 const MAGIC: &[u8] = b"EXSIM\0\x09";
@@ -67,7 +70,7 @@ impl<G: Game> Sim<G> {
         Self::check(&args)?;
         let input = Input::new(G::ACTIONS)?;
         let mut world = World::new(G::HZ, 0);
-        G::register(&mut world, SetupArgs(&args));
+        G::register(&mut world, SetupArgs(&args))?;
         G::setup(&mut world, &args);
         world.validate()?;
         Ok(Self {
@@ -78,6 +81,7 @@ impl<G: Game> Sim<G> {
             world_us: 0,
             caller_us: 0,
             paranoid: Paranoid::Off,
+            tick_failed: false,
             game: PhantomData,
         })
     }
@@ -115,6 +119,7 @@ impl<G: Game> Sim<G> {
             self.queue = next.queue;
             self.world_us = 0;
             self.caller_us = 0;
+            self.tick_failed = false;
         } else {
             self.args = args;
         }
@@ -141,6 +146,10 @@ impl<G: Game> Sim<G> {
         self.advance_us(micros(clock_ms)?)
     }
     fn check_clock(&self) -> Result<(), DataError> {
+        self.world.healthy()?;
+        if self.tick_failed {
+            return Err(DataError::new("simulation poisoned by an incomplete tick"));
+        }
         if self.world.hz() != G::HZ
             || self.world.tick() as u128 != self.world_us as u128 * G::HZ as u128 / 1_000_000
         {
@@ -185,9 +194,11 @@ impl<G: Game> Sim<G> {
             self.world.begin_tick();
             self.input = input;
             self.queue.drain(..due);
+            self.tick_failed = true;
             G::tick(&mut self.world, &self.input, &self.args);
             self.world.reap_orphans()?;
             self.world.step_clock();
+            self.tick_failed = false;
             self.world_us = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
             self.caller_us = self.world_us + offset;
             if self.paranoid != Paranoid::Off {
@@ -335,6 +346,7 @@ impl<G: Game> Sim<G> {
         self.queue = next.queue;
         self.world_us = next.world_us;
         self.caller_us = next.caller_us;
+        self.tick_failed = false;
         Ok(())
     }
     fn candidate(bytes: &[u8]) -> Result<Self, DataError> {
@@ -362,7 +374,7 @@ impl<G: Game> Sim<G> {
         args.read(&mut r)?;
         Self::check(&args)?;
         let mut world = World::new(G::HZ, 0);
-        G::register(&mut world, SetupArgs(&args));
+        G::register(&mut world, SetupArgs(&args))?;
         item(&mut r)?;
         let schema = world.read_schema(&mut r)?;
         item(&mut r)?;
@@ -421,6 +433,7 @@ impl<G: Game> Sim<G> {
             world_us,
             caller_us,
             paranoid: Paranoid::Off,
+            tick_failed: false,
             game: PhantomData,
         })
     }

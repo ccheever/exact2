@@ -661,3 +661,9 @@ tests use `game/bake/tests/support`’s `assets` helper with `Sim::with_assets` 
 `exact_game_render::fixture::Recording::feed(&mut self, &mut Feed, &World)`
 records the production primitive feed for consumer tests without a GPU. The
 renderer fixture owns its frozen Fox model/texture; it depends on no game.
+
+The optional root `exact-world` kernel is still separate from `exact-game`.
+Its revised authoring API requires explicit fallible registration before spawn or
+insert; see [kernel API](../world/README.md). Its clock reconciliation and save
+versions do not change the game engine API or existing game pins. The cross-engine
+fixture compares common Data/hash content, including temporary-column churn.

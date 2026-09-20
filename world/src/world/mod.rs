@@ -91,7 +91,9 @@ pub trait Component: Data {
     const SAVED_FIELDS: &'static [&'static str] = &[];
     const NAME: &'static str;
     /// Register data this component produces, before restoring a saved world.
-    fn register(_world: &mut World) {}
+    fn register(_world: &mut World) -> Result<(), DataError> {
+        Ok(())
+    }
 }
 /// Named singleton Data; the same semantic immutability contract as Component.
 ///
@@ -101,21 +103,46 @@ pub trait Resource: Data {
     const AMBIENT: bool = false;
 }
 
-pub trait Bundle {
-    fn insert(self, world: &mut World, entity: Entity);
+mod bundle_sealed {
+    pub trait Sealed {}
+    impl<C: super::Component> Sealed for C {}
+    impl Sealed for () {}
+}
+pub trait Bundle: bundle_sealed::Sealed {
+    fn preflight(&self, world: &World, entity: Entity) -> Result<usize, DataError>;
+    fn insert(self, world: &mut World, entity: Entity) -> Result<(), DataError>;
 }
 impl<C: Component> Bundle for C {
-    fn insert(self, w: &mut World, e: Entity) {
-        w.insert(e, self);
+    fn preflight(&self, w: &World, e: Entity) -> Result<usize, DataError> {
+        w.registered::<C>(C::NAME, false)?;
+        if let Some(parent) = (self as &dyn std::any::Any).downcast_ref::<Parent>() {
+            w.check_parent(e, parent.entity())?;
+            return Ok(2);
+        }
+        Ok(1)
+    }
+    fn insert(self, w: &mut World, e: Entity) -> Result<(), DataError> {
+        w.insert(e, self).map(|_| ())
     }
 }
 impl Bundle for () {
-    fn insert(self, _: &mut World, _: Entity) {}
+    fn preflight(&self, _: &World, _: Entity) -> Result<usize, DataError> {
+        Ok(0)
+    }
+    fn insert(self, _: &mut World, _: Entity) -> Result<(), DataError> {
+        Ok(())
+    }
 }
 macro_rules! bundles {
     ($($T:ident:$i:tt),+) => {
+        impl<$($T: Bundle),+> bundle_sealed::Sealed for ($($T,)+) {}
         impl<$($T: Bundle),+> Bundle for ($($T,)+) {
-            fn insert(self, w: &mut World, e: Entity) { $(self.$i.insert(w, e);)+ }
+            fn preflight(&self, w: &World, e: Entity) -> Result<usize, DataError> {
+                Ok(0usize $(.saturating_add(self.$i.preflight(w, e)?))+)
+            }
+            fn insert(self, w: &mut World, e: Entity) -> Result<(), DataError> {
+                $(self.$i.insert(w, e)?;)+ Ok(())
+            }
         }
     };
 }
@@ -191,6 +218,7 @@ pub struct World {
     changes: VecDeque<crate::Change>,
     change_next: u64,
     observed: Option<(u64, u64)>,
+    poisoned: bool,
 }
 const SINGLETON: Entity = Entity {
     index: 0,
@@ -232,63 +260,137 @@ impl World {
             changes: VecDeque::new(),
             change_next: 0,
             observed: None,
+            poisoned: false,
         }
     }
     pub fn id(&self) -> WorldId {
         self.id.clone()
     }
     /// Register a component before loading. Registration itself is not state.
-    pub fn register<C: Component>(&mut self) -> &mut Self {
-        let reg = self.registration::<C>(C::NAME);
+    pub fn register<C: Component>(&mut self) -> Result<&mut Self, DataError> {
+        let reg = self.registration::<C>(C::NAME)?;
         if reg.make.is_none() {
             reg.make = Some(storage::make::<C>);
-            C::register(self);
+            if let Err(error) = self.mutation(C::register) {
+                self.poisoned = true;
+                return Err(error);
+            }
         }
-        self
+        Ok(self)
     }
-    pub fn register_resource<R: Resource>(&mut self) -> &mut Self {
-        let reg = self.registration::<R>(R::NAME);
+    pub fn register_resource<R: Resource>(&mut self) -> Result<&mut Self, DataError> {
+        let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
         reg.resource_size = std::mem::size_of::<storage::Singleton<R>>();
         reg.ambient = R::AMBIENT;
-        self
+        Ok(self)
     }
-    fn registration<C: Data>(&mut self, name: &'static str) -> &mut Registration {
-        let id = TypeId::of::<C>();
-        assert!(
-            self.registry.contains_key(name) || self.registry.len() < 256,
-            "storage type limit (256)"
-        );
-        let reg = self.registry.entry(name).or_insert(Registration {
-            id,
+    fn registration<C: Data>(
+        &mut self,
+        name: &'static str,
+    ) -> Result<&mut Registration, DataError> {
+        self.healthy()?;
+        if self
+            .registry
+            .get(name)
+            .is_some_and(|r| r.id != TypeId::of::<C>())
+        {
+            return Err(DataError::new("duplicate storage name").at(name));
+        }
+        if !self.registry.contains_key(name) && self.registry.len() == 256 {
+            return Err(DataError::new("storage type limit (256)").at(name));
+        }
+        Ok(self.registry.entry(name).or_insert(Registration {
+            id: TypeId::of::<C>(),
             make: None,
             make_resource: None,
             resource_size: 0,
             ambient: false,
-        });
-        assert_eq!(reg.id, id, "duplicate component name {}", name);
-        reg
+        }))
+    }
+    fn registered<C: Data>(&self, name: &str, resource: bool) -> Result<(), DataError> {
+        self.healthy()?;
+        if !self.registry.get(name).is_some_and(|r| {
+            r.id == TypeId::of::<C>()
+                && if resource {
+                    r.make_resource.is_some()
+                } else {
+                    r.make.is_some()
+                }
+        }) {
+            return Err(
+                DataError::new("unregistered storage; declare it in Game::register").at(name),
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn healthy(&self) -> Result<(), DataError> {
+        if self.poisoned {
+            Err(DataError::new("world poisoned by a panicking mutation"))
+        } else {
+            Ok(())
+        }
+    }
+    fn mutation<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self))) {
+            Ok(value) => value,
+            Err(panic) => {
+                self.poisoned = true;
+                std::panic::resume_unwind(panic)
+            }
+        }
     }
     pub(crate) fn storage<C: Component>(&self) -> Option<&Storage<C>> {
         self.components.get(C::NAME)?.any().downcast_ref()
     }
     /// Spawn in the lowest free slot.
-    pub fn spawn(&mut self, bundle: impl Bundle) -> Entity {
+    pub fn spawn(&mut self, bundle: impl Bundle) -> Result<Entity, DataError> {
         self.spawn_inner(None, bundle)
     }
     /// Spawn with an agent-visible name. Repeated names resolve lowest-index first.
-    pub fn spawn_named(&mut self, name: impl AsRef<str>, bundle: impl Bundle) -> Entity {
-        assert!(name.as_ref().len() <= 256, "entity name exceeds 256 bytes");
+    pub fn spawn_named(
+        &mut self,
+        name: impl AsRef<str>,
+        bundle: impl Bundle,
+    ) -> Result<Entity, DataError> {
+        if name.as_ref().len() > 256 {
+            return Err(DataError::new("entity name exceeds 256 bytes"));
+        }
         self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
-    fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
-        self.change_room(1).expect("structural journal full");
+    fn spawn_inner(
+        &mut self,
+        name: Option<String>,
+        bundle: impl Bundle,
+    ) -> Result<Entity, DataError> {
+        let index = self
+            .state
+            .free
+            .0
+            .first()
+            .copied()
+            .unwrap_or(self.state.slots.len() as u32);
+        if index as usize >= crate::MAX_ENTITIES {
+            return Err(DataError::new("entity slot limit (200000)"));
+        }
+        let e = Entity {
+            index,
+            generation: self
+                .state
+                .slots
+                .get(index as usize)
+                .map_or(0, |s| s.generation),
+        };
+        self.change_room(1usize.saturating_add(bundle.preflight(self, e)?))?;
+        self.mutation(|this| this.spawn_commit(name, bundle))
+    }
+    fn spawn_commit(
+        &mut self,
+        name: Option<String>,
+        bundle: impl Bundle,
+    ) -> Result<Entity, DataError> {
         self.mutated();
         let index = if self.state.free.0.is_empty() {
-            assert!(
-                self.state.slots.len() < crate::MAX_ENTITIES,
-                "entity slot limit (200000)"
-            );
             let i = self.state.slots.len() as u32;
             assert_ne!(i, u32::MAX, "entity slots exhausted");
             self.state.slots.push(Slot::default());
@@ -313,16 +415,19 @@ impl World {
         self.alive_mask[word] |= 1 << (index % 64);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.record_change(e, crate::ChangeKind::Spawn);
-        bundle.insert(self, e);
-        e
+        bundle.insert(self, e)?;
+        Ok(e)
     }
     /// Remove this entity only; descendants leave at the end of the tick.
-    /// A panicking component destructor leaves the slot alive until a later retry.
+    /// A panicking component destructor poisons the world; discard it afterward.
     pub fn despawn(&mut self, e: Entity) -> bool {
         if !self.contains(e) {
             return false;
         }
         self.change_room(1).expect("structural journal full");
+        self.mutation(|this| this.despawn_commit(e))
+    }
+    fn despawn_commit(&mut self, e: Entity) -> bool {
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
@@ -409,14 +514,16 @@ impl World {
         (s.alive && (name.is_empty() || s.name.as_deref() == Some(name))).then_some(e)
     }
     /// Insert or replace a component, returning false if the entity is gone.
-    pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
+    pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> Result<bool, DataError> {
+        let count = c.preflight(self, e)?;
         if !self.contains(e) {
-            return false;
+            return Ok(false);
         }
-        self.change_room(2).expect("structural journal full");
+        self.change_room(count)?;
+        self.mutation(|this| this.insert_commit(e, c))
+    }
+    fn insert_commit<C: Component>(&mut self, e: Entity, c: C) -> Result<bool, DataError> {
         if let Some(parent) = (&c as &dyn std::any::Any).downcast_ref::<Parent>() {
-            self.check_parent(e, parent.entity())
-                .expect("invalid ownership");
             self.record_change(e, crate::ChangeKind::Reparent(Some(parent.entity())));
         }
         let kind = if self.has::<C>(e) {
@@ -425,7 +532,6 @@ impl World {
             crate::ChangeKind::Insert(C::NAME.into())
         };
         self.record_change(e, kind);
-        self.register::<C>();
         self.components
             .entry(C::NAME)
             .or_insert_with(|| storage::make::<C>(C::NAME, self.epoch.clone()))
@@ -433,7 +539,7 @@ impl World {
             .downcast_mut::<Storage<C>>()
             .unwrap()
             .insert(e.index as usize, c);
-        true
+        Ok(true)
     }
     /// Remove a component, returning its last value.
     pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
@@ -514,8 +620,12 @@ impl World {
             .map(|(e, _)| e)
             .collect()
     }
-    pub fn insert_resource<R: Resource>(&mut self, r: R) {
-        self.register_resource::<R>();
+    pub fn insert_resource<R: Resource>(&mut self, r: R) -> Result<(), DataError> {
+        self.registered::<R>(R::NAME, true)?;
+        self.mutation(|this| this.insert_resource_commit(r));
+        Ok(())
+    }
+    fn insert_resource_commit<R: Resource>(&mut self, r: R) {
         self.resources
             .entry(R::NAME)
             .or_insert_with(|| storage::make_cell::<R>(R::NAME, self.epoch.clone()))
@@ -670,6 +780,7 @@ impl World {
     }
     /// Hash simulation state in type-name order, excluding saved delivery queues.
     pub fn hash(&self) -> u64 {
+        self.healthy().expect("cannot hash poisoned world");
         if let Some((epoch, hash)) = self.hash_cache.get() {
             if epoch == self.mutation_epoch() {
                 return hash;
@@ -683,6 +794,7 @@ impl World {
     }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     pub fn save(&self) -> Vec<u8> {
+        self.healthy().expect("cannot save poisoned world");
         let mut w = bin::Encoder::prefixed(MAGIC);
         self.write(&mut w, true);
         w.finish()

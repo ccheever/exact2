@@ -9,16 +9,23 @@ struct Score(u64);
 #[test]
 fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     let mut w = World::new(144, 8123);
-    w.register::<Health>().register_resource::<Score>();
-    let e = w.spawn_named("fox", (Health { hp: 15 },));
-    let dead = w.spawn_named("dead", (Health { hp: 4 },));
+    w.register::<Health>()
+        .unwrap()
+        .register_resource::<Score>()
+        .unwrap();
+    let e = w.spawn_named("fox", (Health { hp: 15 },)).unwrap();
+    let dead = w.spawn_named("dead", (Health { hp: 4 },)).unwrap();
     w.despawn(dead);
-    w.insert_resource(Score(79));
+    w.insert_resource(Score(79)).unwrap();
     w.rng().next_u32();
     let bytes = w.save();
     let hash = w.hash();
     let mut loaded = World::new(30, 1);
-    loaded.register_resource::<Score>().register::<Health>();
+    loaded
+        .register_resource::<Score>()
+        .unwrap()
+        .register::<Health>()
+        .unwrap();
     loaded.load(&bytes).unwrap();
     assert_eq!(hash, loaded.hash());
     assert_eq!(bytes, loaded.save());
@@ -28,14 +35,15 @@ fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
     for _ in 0..20 {
         assert_eq!(w.rng().next_u32(), loaded.rng().next_u32());
     }
-    assert_eq!(w.spawn(()), loaded.spawn(()));
+    assert_eq!(w.spawn(()).unwrap(), loaded.spawn(()).unwrap());
 }
 #[test]
 fn load_failure_is_atomic_and_names_unknown_types() {
     let mut source = World::new(60, 9);
-    source.spawn((Health { hp: 7 },));
+    source.register::<Health>().unwrap();
+    source.spawn((Health { hp: 7 },)).unwrap();
     let mut target = World::new(30, 2);
-    target.spawn_named("keep", ());
+    target.spawn_named("keep", ()).unwrap();
     let before = target.save();
     let error = target.load(&source.save()).unwrap_err().to_string();
     assert!(
@@ -43,7 +51,7 @@ fn load_failure_is_atomic_and_names_unknown_types() {
         "{error}"
     );
     assert_eq!(before, target.save());
-    target.register::<Health>();
+    target.register::<Health>().unwrap();
     let b = source.save();
     for i in 0..b.len() {
         assert!(target.load(&b[..i]).is_err());
@@ -88,12 +96,15 @@ fn component_schema_evolves_by_field_name() {
         const NAME: &'static str = "Actor";
     }
     let mut old = World::new(60, 0);
-    let e = old.spawn((Old {
-        hp: 7,
-        obsolete: vec!["discard".into()],
-    },));
+    old.register::<Old>().unwrap();
+    let e = old
+        .spawn((Old {
+            hp: 7,
+            obsolete: vec!["discard".into()],
+        },))
+        .unwrap();
     let mut new = World::new(60, 0);
-    new.register::<New>();
+    new.register::<New>().unwrap();
     new.load(&old.save()).unwrap();
     assert_eq!(new.get::<New>(e).unwrap().hp, 7);
     assert_eq!(new.get::<New>(e).unwrap().added, 123);
@@ -110,10 +121,13 @@ fn published_values_and_skipped_fields_are_not_saved() {
         cache: u32,
     }
     let mut w = World::new(60, 0);
-    let e = w.spawn((Cache {
-        value: 2,
-        cache: 42,
-    },));
+    w.register::<Cache>().unwrap();
+    let e = w
+        .spawn((Cache {
+            value: 2,
+            cache: 42,
+        },))
+        .unwrap();
     let hash = w.hash();
     let bytes = w.save();
     w.get_mut::<Cache>(e).unwrap().cache = 17;
@@ -128,14 +142,65 @@ fn published_values_and_skipped_fields_are_not_saved() {
 fn empty_columns_are_not_continuation_state() {
     let mut clean = World::new(60, 7);
     let mut churned = World::new(60, 7);
-    clean.register::<Health>();
-    churned.register::<Health>();
-    let e = clean.spawn(());
-    assert_eq!(e, churned.spawn(()));
-    churned.insert(e, Health { hp: 42 });
+    clean.register::<Health>().unwrap();
+    churned.register::<Health>().unwrap();
+    let e = clean.spawn(()).unwrap();
+    assert_eq!(e, churned.spawn(()).unwrap());
+    churned.insert(e, Health { hp: 42 }).unwrap();
     churned.remove::<Health>(e);
     assert_eq!(clean.hash(), churned.hash());
     assert_eq!(clean.save(), churned.save());
-    churned.insert(e, Health { hp: 23 });
+    churned.insert(e, Health { hp: 23 }).unwrap();
     assert_ne!(clean.hash(), churned.hash()); // negative control: populated columns count
+}
+
+#[test]
+fn unregistered_insert_is_refused_without_mutation() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn(()).unwrap();
+    let before = w.save();
+    assert!(w
+        .insert(e, Health { hp: 7 })
+        .unwrap_err()
+        .to_string()
+        .contains("Health"));
+    assert_eq!(w.save(), before);
+}
+
+#[test]
+fn registration_errors_name_types_and_panics_poison_partial_hooks() {
+    use exact_world::DataError;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    #[derive(Default, Data)]
+    struct Hook;
+    impl Component for Hook {
+        const NAME: &'static str = "Hook";
+        fn register(w: &mut World) -> Result<(), DataError> {
+            w.register::<Health>()?;
+            panic!("partial hook");
+        }
+    }
+    let mut w = World::new(60, 0);
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        let _ = w.register::<Hook>();
+    }))
+    .is_err());
+    assert!(w.validate().is_err());
+    assert!(w.register::<Hook>().is_err());
+    let mut w = World::new(60, 0);
+    let before = w.save();
+    assert!(w
+        .spawn(Health::default())
+        .unwrap_err()
+        .to_string()
+        .contains("Health"));
+    assert_eq!(w.save(), before);
+    w.register::<Health>()
+        .unwrap()
+        .register::<Health>()
+        .unwrap();
+    let e = w.spawn(Health { hp: 3 }).unwrap();
+    assert_eq!(w.get::<Health>(e).unwrap().hp, 3);
+    w.register::<exact_world::Parent>().unwrap();
+    assert!(w.insert(e, exact_world::Parent::default()).is_err());
 }

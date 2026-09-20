@@ -18,16 +18,19 @@ fn panic_text(f: impl FnOnce()) -> String {
 #[test]
 fn generations_names_and_order_under_churn() {
     let mut w = World::new(60, 19);
-    let first = w.spawn_named("fox", (A(1),));
-    let second = w.spawn_named("fox", (A(2),));
-    let third = w.spawn((A(3),));
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    let first = w.spawn_named("fox", (A(1),)).unwrap();
+    let second = w.spawn_named("fox", (A(2),)).unwrap();
+    let third = w.spawn((A(3),)).unwrap();
     assert_eq!(w.named("fox"), Some(first));
     assert_eq!(w.resolve(&format!("fox#{}", second.index())), Some(second));
     assert_eq!(w.resolve(&format!("#{}", third.index())), Some(third));
     assert_eq!(w.resolve(&format!("fox#{}", third.index())), None);
     w.despawn(second);
     w.despawn(first);
-    let recycled = w.spawn_named("fox", (A(4),));
+    let recycled = w.spawn_named("fox", (A(4),)).unwrap();
     assert_eq!(recycled.index(), first.index());
     assert_eq!(recycled.generation(), first.generation() + 1);
     assert!(!w.contains(first));
@@ -40,7 +43,7 @@ fn generations_names_and_order_under_churn() {
             let i = rng.range(0..entities.len() as u32) as usize;
             w.despawn(entities.remove(i));
         } else {
-            entities.push(w.spawn((A(rng.next_u32()),)));
+            entities.push(w.spawn((A(rng.next_u32()),)).unwrap());
         }
         let got: Vec<_> = w.query::<&A>().iter().map(|(e, _)| e.index()).collect();
         assert!(got.windows(2).all(|p| p[0] < p[1]));
@@ -49,7 +52,10 @@ fn generations_names_and_order_under_churn() {
         assert_eq!(got, expected);
     }
     let mut restored = World::new(1, 0);
-    restored.register::<A>();
+    restored.register::<A>().unwrap();
+    restored.register::<B>().unwrap();
+    restored.register::<C>().unwrap();
+    restored.register::<A>().unwrap();
     restored.load(&w.save()).unwrap();
     let rows = |w: &World| {
         w.query::<&A>()
@@ -63,9 +69,12 @@ fn generations_names_and_order_under_churn() {
 #[test]
 fn joins_option_filters_and_nested_reads() {
     let mut w = World::new(60, 1);
-    let both = w.spawn((A(10), B(20)));
-    let just_a = w.spawn((A(30),));
-    let empty = w.spawn(());
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    let both = w.spawn((A(10), B(20))).unwrap();
+    let just_a = w.spawn((A(30),)).unwrap();
+    let empty = w.spawn(()).unwrap();
     assert_eq!(
         w.query::<(&A, &B)>()
             .iter()
@@ -108,7 +117,10 @@ fn joins_option_filters_and_nested_reads() {
 #[test]
 fn borrows_name_conflicts_and_survive_iterator_drop() {
     let mut w = World::new(60, 0);
-    let e = w.spawn((A(1), B(2)));
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    let e = w.spawn((A(1), B(2))).unwrap();
     let a = w.get_mut::<A>(e).unwrap();
     assert!(panic_text(|| {
         w.query::<&A>();
@@ -155,11 +167,15 @@ fn resource_and_non_state_outputs() {
     #[derive(Default, Resource)]
     struct Score(u32);
     let mut w = World::new(120, 37);
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    w.register_resource::<Score>().unwrap();
     assert!(panic_text(|| {
         w.resource::<Score>();
     })
     .contains("Score is absent"));
-    w.insert_resource(Score(7));
+    w.insert_resource(Score(7)).unwrap();
     w.resource_mut::<Score>().0 += 1;
     assert_eq!(w.resource::<Score>().0, 8);
     let before = w.hash();
@@ -181,9 +197,12 @@ fn resource_and_non_state_outputs() {
 #[test]
 fn hierarchy_despawn_and_live_generations() {
     let mut w = World::new(60, 0);
-    let child = w.spawn((A(1),));
-    let root = w.spawn(());
-    let leaf = w.spawn(());
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    let child = w.spawn((A(1),)).unwrap();
+    let root = w.spawn(()).unwrap();
+    let leaf = w.spawn(()).unwrap();
     w.set_parent(leaf, Some(child)).unwrap();
     w.set_parent(child, Some(root)).unwrap();
     assert_eq!(w.children(root), [child]);
@@ -207,8 +226,16 @@ fn eight_way_query_and_retained_mutable_rows() {
     #[derive(Default, Component)]
     struct H;
     let mut w = World::new(60, 0);
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    w.register::<D>().unwrap();
+    w.register::<E>().unwrap();
+    w.register::<F>().unwrap();
+    w.register::<G>().unwrap();
+    w.register::<H>().unwrap();
     for n in 0..10 {
-        w.spawn((A(n), B(n), C, D, E, F, G, H));
+        w.spawn((A(n), B(n), C, D, E, F, G, H)).unwrap();
     }
     let mut query = w.query::<(&mut A, &B, &C, &D, &E, &F, &G, &H)>();
     let mut rows: Vec<_> = query.iter().collect();
@@ -240,23 +267,27 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     };
     let count = |id: usize| DROPS.with_borrow(|counts| counts[id]);
     let mut w = World::new(60, 0);
-    let e = w.spawn((value(1),));
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    w.register::<Counted>().unwrap();
+    let e = w.spawn((value(1),)).unwrap();
     assert_eq!(count(1), 0);
-    w.insert(e, value(2));
+    w.insert(e, value(2)).unwrap();
     assert_eq!(count(1), 1);
     let removed = w.remove::<Counted>(e).unwrap();
     assert_eq!(count(2), 0);
     assert_eq!(w.pages::<Counted>().iter().count(), 0);
     drop(removed);
     assert_eq!(count(2), 1);
-    w.insert(e, value(3));
+    w.insert(e, value(3)).unwrap();
     w.despawn(e);
     assert_eq!(count(3), 1);
-    let first = w.spawn((value(4),));
+    let first = w.spawn((value(4),)).unwrap();
     for _ in 0..exact_world::PAGE {
-        w.spawn(());
+        w.spawn(()).unwrap();
     }
-    let last = w.spawn((value(5),));
+    let last = w.spawn((value(5),)).unwrap();
     assert_eq!(w.pages::<Counted>().iter().count(), 2);
     assert!(w.remove::<Counted>(e).is_none()); // stale incarnation cannot remove #4
     assert!(w.get::<Counted>(e).is_none());
@@ -264,7 +295,11 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     assert!(w.has::<Counted>(first));
     let bytes = w.save();
     let mut loaded = World::new(60, 0);
-    loaded.spawn((value(6),));
+    loaded.register::<A>().unwrap();
+    loaded.register::<B>().unwrap();
+    loaded.register::<C>().unwrap();
+    loaded.register::<Counted>().unwrap();
+    loaded.spawn((value(6),)).unwrap();
     loaded.load(&bytes).unwrap();
     assert_eq!(count(6), 1);
     assert_eq!(loaded.get::<Counted>(last).unwrap().payload, "owned 5");
@@ -282,19 +317,22 @@ fn drops_exactly_present_slots_including_load_over_existing() {
 #[test]
 fn mask_joins_across_words_pages_and_optional_only_queries() {
     let mut w = World::new(60, 0);
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
     let entities: Vec<_> = (0..3 * exact_world::PAGE + 19)
-        .map(|_| w.spawn(()))
+        .map(|_| w.spawn(()).unwrap())
         .collect();
     for &e in &entities {
         let i = e.index();
         if i % 3 == 0 {
-            w.insert(e, A(i));
+            w.insert(e, A(i)).unwrap();
         }
         if i % 5 == 0 {
-            w.insert(e, B(i));
+            w.insert(e, B(i)).unwrap();
         }
         if i % 7 == 0 {
-            w.insert(e, C);
+            w.insert(e, C).unwrap();
         }
     }
     for &e in entities.iter().step_by(11) {
@@ -356,16 +394,22 @@ fn large_churn_has_history_independent_order_hash_and_save() {
     let n: usize = if cfg!(miri) { 2_100 } else { 200_000 };
     let batch: usize = if cfg!(miri) { 32 } else { 2_000 };
     let mut left = World::new(120, 42);
+    left.register::<A>().unwrap();
+    left.register::<B>().unwrap();
+    left.register::<C>().unwrap();
     let mut right = World::new(120, 42);
+    right.register::<A>().unwrap();
+    right.register::<B>().unwrap();
+    right.register::<C>().unwrap();
     let mut entities = Vec::new();
     for i in 0..n {
-        entities.push(left.spawn((A(i as u32), B(i as u32))));
-        assert_eq!(right.spawn(()), entities[i]);
+        entities.push(left.spawn((A(i as u32), B(i as u32))).unwrap());
+        assert_eq!(right.spawn(()).unwrap(), entities[i]);
     }
     // Same state, opposite component insertion history.
     for &e in entities.iter().rev() {
-        right.insert(e, B(e.index()));
-        right.insert(e, A(e.index()));
+        right.insert(e, B(e.index())).unwrap();
+        right.insert(e, A(e.index())).unwrap();
     }
     for tick in 0..4 {
         let mut selected: Vec<_> = (0..batch).map(|i| (i * 47 + tick * 131) % n).collect();
@@ -378,14 +422,14 @@ fn large_churn_has_history_independent_order_hash_and_save() {
             right.despawn(entities[i]);
         }
         for &i in &selected {
-            let a = left.spawn(());
-            let b = right.spawn(());
+            let a = left.spawn(()).unwrap();
+            let b = right.spawn(()).unwrap();
             assert_eq!(a, b);
             assert_eq!(a.index() as usize, i); // lowest free index first
-            left.insert(a, A(a.index()));
-            left.insert(a, B(a.index()));
-            right.insert(b, B(b.index()));
-            right.insert(b, A(b.index()));
+            left.insert(a, A(a.index())).unwrap();
+            left.insert(a, B(a.index())).unwrap();
+            right.insert(b, B(b.index())).unwrap();
+            right.insert(b, A(b.index())).unwrap();
             entities[i] = a;
         }
         let order: Vec<_> = left
@@ -403,12 +447,15 @@ fn large_churn_has_history_independent_order_hash_and_save() {
 #[test]
 fn names_do_not_shadow_index_selectors() {
     let mut w = World::new(60, 0);
-    let shadow = w.spawn_named("fox#12", ());
-    w.spawn_named("#12", ());
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    w.register::<C>().unwrap();
+    let shadow = w.spawn_named("fox#12", ()).unwrap();
+    w.spawn_named("#12", ()).unwrap();
     for _ in 2..12 {
-        w.spawn(());
+        w.spawn(()).unwrap();
     }
-    let fox = w.spawn_named("fox", ());
+    let fox = w.spawn_named("fox", ()).unwrap();
     assert_eq!(w.resolve("fox#12"), Some(fox));
     assert_eq!(w.resolve("#12"), Some(fox));
     assert_eq!(w.named("fox#12"), Some(shadow));

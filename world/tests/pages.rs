@@ -7,7 +7,11 @@ fn write_generations_cover_mutable_rows_without_marking_other_pages() {
     #[derive(Default, Component)]
     struct Selected;
     let mut w = World::new(60, 0);
-    let entities: Vec<_> = (0..PAGE * 3).map(|_| w.spawn(Item::default())).collect();
+    w.register::<Item>().unwrap();
+    w.register::<Selected>().unwrap();
+    let entities: Vec<_> = (0..PAGE * 3)
+        .map(|_| w.spawn(Item::default()).unwrap())
+        .collect();
     let generations = |w: &World| {
         w.pages::<Item>()
             .iter()
@@ -23,7 +27,7 @@ fn write_generations_cover_mutable_rows_without_marking_other_pages() {
     assert_eq!(after[0], initial[0]);
     assert_ne!(after[1], initial[1]);
     assert_eq!(after[2], initial[2]);
-    w.insert(entities[PAGE * 2 + 9], Selected);
+    w.insert(entities[PAGE * 2 + 9], Selected).unwrap();
     for (_, t) in w.query::<&mut Item>().with::<Selected>().iter() {
         t.0 = 1.;
     }
@@ -61,12 +65,15 @@ fn membership_union_is_ordered_and_does_not_require_both_columns() {
     #[derive(Default, Component)]
     struct B;
     let mut w = World::new(60, 0);
-    let es: Vec<_> = (0..PAGE * 3).map(|_| w.spawn(())).collect();
+    w.register::<Item>().unwrap();
+    w.register::<A>().unwrap();
+    w.register::<B>().unwrap();
+    let es: Vec<_> = (0..PAGE * 3).map(|_| w.spawn(()).unwrap()).collect();
     for i in [0, PAGE + 9, PAGE * 2] {
-        w.insert(es[i], A);
+        w.insert(es[i], A).unwrap();
     }
     for i in [17, PAGE + 9] {
-        w.insert(es[i], B);
+        w.insert(es[i], B).unwrap();
     }
     let found: Vec<_> = w
         .query::<(Option<&A>, Option<&B>)>()
@@ -101,7 +108,9 @@ fn zst_rows_retain_leases_after_iterator_drop_and_unwind() {
     let refs: Vec<_> = plain.iter_mut().collect();
     assert!(std::ptr::eq(refs[0], refs[1]), "safe std ZST control");
     let mut w = World::new(60, 0);
-    let es: Vec<_> = (0..PAGE * 3 + 1).map(|_| w.spawn(Flag)).collect();
+    w.register::<Item>().unwrap();
+    w.register::<Flag>().unwrap();
+    let es: Vec<_> = (0..PAGE * 3 + 1).map(|_| w.spawn(Flag).unwrap()).collect();
     let mut rows = w.query::<Option<&mut Flag>>().into_iter();
     let mut first = rows.next().unwrap().unwrap();
     let last = rows.last().unwrap().unwrap(); // iterator has now dropped
@@ -121,7 +130,7 @@ fn zst_rows_retain_leases_after_iterator_drop_and_unwind() {
         assert!(w.despawn(e));
     }
     assert_eq!(DROPS.get(), es.len());
-    let reused = w.spawn(Flag);
+    let reused = w.spawn(Flag).unwrap();
     assert_eq!(reused.index(), es[0].index());
     assert_ne!(reused, es[0]);
     drop(w);

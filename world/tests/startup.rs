@@ -12,16 +12,18 @@ struct Board<const N: u64>;
 impl<const N: u64> Game for Board<N> {
     const ID: &'static str = "startup-board";
     type Args = ();
-    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) {
-        w.register::<CellValue>();
-        w.register_resource::<Blob>();
+    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+        w.register::<CellValue>().unwrap();
+        w.register_resource::<Blob>().unwrap();
+        Ok(())
     }
     fn setup(w: &mut World, _: &()) {
         for number in 0..N {
             w.spawn(CellValue {
                 number,
                 payload: [number; 3],
-            });
+            })
+            .unwrap();
         }
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
@@ -56,7 +58,7 @@ fn construction_activation_restore_counts() {
     assert_eq!(sim.world().require::<CellValue>("#99").number, 100);
     let mut sim = Sim::<Board<32>>::new(()).unwrap();
     sim.run(17.).unwrap();
-    sim.world_mut().insert_resource(Blob::default());
+    sim.world_mut().insert_resource(Blob::default()).unwrap();
     let mut size = 0usize;
     for _ in 0..4 {
         let len = sim.save().unwrap().len();
@@ -64,7 +66,9 @@ fn construction_activation_restore_counts() {
             break;
         }
         size = (size as isize + 10240 - len as isize) as usize;
-        sim.world_mut().insert_resource(Blob(vec![7; size]));
+        sim.world_mut()
+            .insert_resource(Blob(vec![7; size]))
+            .unwrap();
     }
     let bytes = sim.save().unwrap();
     assert_eq!(bytes.len(), 10240);
@@ -79,12 +83,12 @@ fn construction_activation_restore_counts() {
 #[test]
 fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
     let mut w = World::new(60, 0);
-    w.register::<CellValue>();
+    w.register::<CellValue>().unwrap();
     for _ in 0..MAX_ENTITIES {
-        w.spawn(());
+        w.spawn(()).unwrap();
     }
     let e = w.resolve("#199999").unwrap();
-    let (_, counts) = counting::measure(|| w.insert(e, CellValue::default()));
+    let (_, counts) = counting::measure(|| w.insert(e, CellValue::default()).unwrap());
     report("insert.slot199999", counts, (8, 8192));
     assert_eq!(
         w.query::<&CellValue>()
