@@ -777,7 +777,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
         }
         shapes.map.insert(s.name.clone(), Vec::new());
     }
-    check_shape_cycles(file)?;
+    check_shape_cycles(file, &shapes)?;
     for s in &file.shapes {
         let mut fields = Vec::new();
         for f in &s.fields {
