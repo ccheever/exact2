@@ -305,7 +305,10 @@ layout refusals; the measured ones are bake's, §3 Driver); a leaf tag with
 children, or a `text` holding anything
 but `text` runs, is `lower-leaf-children`); every expression through one assembler
 (`expr.rs`: `and`/`or` short-circuit through a local; inline `match` binds a
-local; a non-string template part gets `toString`). Row order is source
+local; a non-string template part gets `toString`). A template whose parts are
+all literal strings after component expansion emits one interned string, so a
+literal prefix passed to a component adds no runtime concatenation. Dynamic
+parts and non-string conversions retain their ordinary evaluation. Row order is source
 order, so compilation is byte-identical (`the_app_compiles_deterministically…`).
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`

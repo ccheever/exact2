@@ -34,6 +34,26 @@ pub(crate) fn compile(
             asm.simple(Opcode::Some);
         }
         Expr::Template(parts, _) => {
+            // Component expansion can make every interpolated string literal.
+            // Reuse should then cost the same as spelling the final text once.
+            if parts.iter().all(|part| {
+                matches!(
+                    part,
+                    TemplatePart::Text(_) | TemplatePart::Expr(Expr::Str(..))
+                )
+            }) {
+                let text: String = parts
+                    .iter()
+                    .map(|part| match part {
+                        TemplatePart::Text(text) | TemplatePart::Expr(Expr::Str(text, _)) => {
+                            text.as_str()
+                        }
+                        _ => unreachable!(),
+                    })
+                    .collect();
+                asm.str(l.b.str(&text));
+                return Ok(());
+            }
             let mut first = true;
             for p in parts {
                 match p {

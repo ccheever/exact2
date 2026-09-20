@@ -639,3 +639,77 @@ fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar()
     )
     .unwrap();
 }
+
+#[test]
+fn inlined_literal_string_templates_cost_the_same_as_literal_text() {
+    let source = |body: &str| format!("component App\n  view\n    {body}\n");
+    for (template, literal) in [
+        (r#"`hello ${"世界"}!`"#, r#""hello 世界!""#),
+        (r#"`${""}${""}`"#, r#""""#),
+        (r#"``"#, r#""""#),
+    ] {
+        assert_eq!(
+            contract::compile(&source(&format!("text {template}")))
+                .unwrap()
+                .encode(),
+            contract::compile(&source(&format!("text {literal}")))
+                .unwrap()
+                .encode()
+        );
+    }
+    let reused = r#"component App
+  view
+    Label(prefix="reply-typing")
+component Label
+  props
+    prefix: string
+  view
+    text "dot" testId=`${prefix}-dot-0`
+"#;
+    let literal = source(r#"text "dot" testId="reply-typing-dot-0""#);
+    assert_eq!(
+        contract::compile(reused).unwrap().encode(),
+        contract::compile(&literal).unwrap().encode()
+    );
+}
+
+#[test]
+fn template_folding_preserves_dynamic_values_and_string_conversion() {
+    let source = r#"component App
+  state name = "one"
+  state n = 2
+  action change writes name, n
+    name = "two"
+    n = 3
+  view
+    Label(prefix="前", name=name, n=n)
+component Label
+  props
+    prefix: string
+    name: string
+    n: number
+  view
+    text `${prefix}:${name}:${n}:${true}` testId="result"
+"#;
+    let mut runner = Runner::boot(
+        contract::compile(source).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for expected in ["前:one:2:true", "前:two:3:true"] {
+        let key = runner.kernel().find_by_test_id("result")[0];
+        assert_eq!(
+            runner
+                .kernel()
+                .node_by_key(key)
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some(expected)
+        );
+        runner.act("change", vec![]).unwrap();
+    }
+}
