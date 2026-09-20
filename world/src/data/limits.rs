@@ -77,7 +77,13 @@ pub(crate) fn reserve<T: Data>(
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
-    grow(v, extra, T::default_size(), |bytes| r.claim(bytes))
+    // Keep portable/default admission, with native padding as a lower bound.
+    grow(
+        v,
+        extra,
+        T::default_size().max(std::mem::size_of::<T>()),
+        |bytes| r.claim(bytes),
+    )
 }
 fn grow<T>(
     v: &mut Vec<T>,

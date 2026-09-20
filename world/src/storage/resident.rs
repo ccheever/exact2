@@ -12,6 +12,10 @@ fn measured<T>(
     let (result, peak, (_, total)) = crate::counting::peak(|| catch_unwind(AssertUnwindSafe(f)));
     assert!(result.is_ok(), "{label}: panic");
     println!("{label}: budget={budget} peak={peak} cumulative={total}");
+    assert!(
+        peak <= budget + 8192,
+        "{label}: peak {peak} > {budget} + 8192"
+    );
     result.unwrap()
 }
 fn decode<T: Data>(label: &str, bytes: &[u8], budget: usize) -> Result<T, DataError> {
@@ -80,7 +84,7 @@ fn wide_enum_and_padded_struct_vectors() {
         }
         w.end_seq();
         let bytes = w.finish().unwrap();
-        let _ = decode::<Vec<Padded>>("padded struct", &bytes, budget);
+        assert!(decode::<Vec<Padded>>("padded struct", &bytes, budget).is_err());
         let bytes = bin::to_vec(&vec![Wide::Empty, Wide::Empty]).unwrap();
         assert_eq!(
             decode::<Vec<Wide>>("wide positive", &bytes, budget)
@@ -141,6 +145,7 @@ fn near_cap_entity_table() {
         }
     }
 }
+// Only the first byte is semantic; the rest is native inline padding.
 struct Large<const I: usize>([u8; 1024]);
 impl<const I: usize> Default for Large<I> {
     fn default() -> Self {
@@ -163,6 +168,13 @@ impl Component for Padded {
 }
 #[test]
 fn sparse_chunks_across_types_charge_real_layouts() {
+    sparse_chunks(false);
+}
+#[test]
+fn aligned_chunks_charge_real_layouts() {
+    sparse_chunks(true);
+}
+fn sparse_chunks(padded: bool) {
     let mut destination = World::new(60, 0);
     destination
         .register::<Large<0>>()
@@ -184,7 +196,7 @@ fn sparse_chunks_across_types_charge_real_layouts() {
         .register::<Padded>()
         .unwrap();
     // Forge sparse presence without ever allocating its multi-gigabyte decoded shape.
-    for padded in [false, true] {
+    {
         let mut w = bin::Encoder::default();
         w.begin_struct();
         w.field("state");
@@ -230,7 +242,7 @@ fn sparse_chunks_across_types_charge_real_layouts() {
         let mut bytes = b"EXGAME\0\x04".to_vec();
         bytes.extend(w.finish().unwrap());
         for budget in [1 << 20, MAX_LOAD_BYTES] {
-            let _ = load(
+            assert!(load(
                 &mut destination,
                 if padded {
                     "aligned chunks"
@@ -240,21 +252,26 @@ fn sparse_chunks_across_types_charge_real_layouts() {
                 &bytes,
                 budget,
                 true,
-            );
+            )
+            .is_err());
         }
     }
     let mut source = World::new(60, 0);
     source.register::<Large<0>>().unwrap();
-    source.spawn(Large::<0>::default()).unwrap();
+    let mut value = Large::<0>::default();
+    value.0[0] = 73;
+    source.spawn(value).unwrap();
     let bytes = source.save().unwrap();
     assert!(load(&mut destination, "chunk positive", &bytes, 1 << 20, false).is_ok());
+    assert_eq!(destination.get::<Large<0>>("#0").unwrap().0[0], 73);
+    assert_eq!(destination.save().unwrap(), bytes);
 }
 #[test]
 fn nested_publication_peak_is_bounded() {
-    for depth in [8, 40, 81] {
+    for depth in [1, 8, 40, 81] {
         let mut value = Published::Unit;
         for _ in 0..depth {
-            let mut children = vec![Published::Unit; 2000];
+            let mut children = vec![Published::Unit; if depth == 1 { 2 } else { 2000 }];
             children[0] = value;
             value = Published::List(children);
         }
@@ -269,15 +286,15 @@ fn nested_publication_peak_is_bounded() {
             destination.publish("old", true).unwrap();
             let before = json::to_string(&*destination.publications()).unwrap();
             let allowance = LoadBudget::new(budget);
-            let result = measured("nested publication", budget, || {
+            let result = measured(&format!("nested publication depth {depth}"), budget, || {
                 let mut next = World::new(60, 0);
                 next.read_publications(&mut bin::Decoder::for_load(&bytes, Some(&allowance)))?;
                 Ok(next)
             });
-            println!("publication depth={depth} refused={}", result.is_err());
+            assert_eq!(result.is_err(), depth > 1);
             if let Ok(next) = result {
                 destination = next;
-                assert!(destination.publications().contains_key("x"));
+                assert_eq!(destination.publications().get("x"), Some(&value));
             } else {
                 assert_eq!(
                     json::to_string(&*destination.publications()).unwrap(),
