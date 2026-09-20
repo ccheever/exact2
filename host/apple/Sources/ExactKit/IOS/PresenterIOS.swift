@@ -17,6 +17,7 @@ final class Presenter {
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
+    var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
@@ -249,6 +250,7 @@ final class Presenter {
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
+        videoVisibility?.reset()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -458,6 +460,7 @@ final class Presenter {
             collections.endBatch()
             if outermost {
                 applying = false
+                videoVisibility?.changed()
                 let q = waiting
                 waiting = []
                 for (id, f) in q where id.map({ views[$0] != nil }) ?? true { f() }

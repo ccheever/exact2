@@ -780,7 +780,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1334,7 +1334,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   pendingScrolls.clear();
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
-  for (const el of views.values()) if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); }
+  for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}

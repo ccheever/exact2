@@ -244,6 +244,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "playbackRate" => AttrTarget::Prop(p("playbackRate")),
         "currentTime" => AttrTarget::Prop(p("currentTime")),
         "paused" => AttrTarget::Prop(p("paused")),
+        "playbackVisibilityThreshold" => AttrTarget::Prop(p("playbackVisibilityThreshold")),
         "preservesPitch" => AttrTarget::Prop(p("preservesPitch")),
         "allowsPictureInPicturePlayback" => AttrTarget::Prop(p("allowsPictureInPicturePlayback")),
         "canStartPictureInPictureAutomaticallyFromInline" => {

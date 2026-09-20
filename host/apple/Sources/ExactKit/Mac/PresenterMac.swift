@@ -182,6 +182,7 @@ final class Presenter {
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
+    var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
     let textRasters = TextRasterizer()
@@ -225,7 +226,7 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
     }
 
     deinit {
@@ -538,6 +539,7 @@ final class Presenter {
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
+        videoVisibility?.reset()
         selection.structureChanged()
         visibleText.removeAll()
         textViewportIndex = nil
@@ -758,6 +760,7 @@ final class Presenter {
             collections.endBatch()
             if outermost {
                 applying = false
+                videoVisibility?.changed()
                 let geometry = pendingGeometry
                 pendingGeometry = nil
                 let q = waiting

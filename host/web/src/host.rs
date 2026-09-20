@@ -1140,6 +1140,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::PlaybackRate => "playbackRate",
             PropId::CurrentTime => "currentTime",
             PropId::Paused => "paused",
+            PropId::PlaybackVisibilityThreshold => "playbackVisibilityThreshold",
             PropId::PreservesPitch => "preservesPitch",
             PropId::AllowsPictureInPicturePlayback => "allowsPictureInPicturePlayback",
             PropId::CanStartPictureInPictureAutomaticallyFromInline => {

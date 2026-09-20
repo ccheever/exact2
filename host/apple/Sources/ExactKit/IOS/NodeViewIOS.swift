@@ -516,6 +516,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func didMoveToWindow() {
         super.didMoveToWindow()
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if window != nil { presenter?.flushPendingFocus() }
     }
 
@@ -552,6 +553,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         presenter?.syncLists()
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
@@ -1066,6 +1068,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()
