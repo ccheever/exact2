@@ -295,7 +295,7 @@ impl<G: Game> Sim<G> {
         }
         w.end_seq();
         w.item();
-        self.world.write_publications(&mut w);
+        self.world.published.borrow().write(&mut w);
         w.item();
         w.begin_seq(2);
         // Two streamed fields share one sequence item; journal owns their framing.
@@ -344,25 +344,18 @@ impl<G: Game> Sim<G> {
             .ok_or_else(|| DataError::new("unsupported Sim save version; expected EXSIM v9"))?;
         let mut r = bin::Decoder::with_budget(payload, 256 * 1024 * 1024);
         r.begin_seq()?;
-        fn item(r: &mut dyn Reader) -> Result<(), DataError> {
-            if r.item()? {
-                Ok(())
-            } else {
-                Err(DataError::new("incomplete Sim save"))
-            }
-        }
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         if r.string()? != G::ID {
             return Err(DataError::new("game identity differs"));
         }
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         let args = G::Args::read_new(&mut r)?;
         Self::check(&args)?;
         let mut world = World::new(G::HZ, 0);
         G::register(&mut world, SetupArgs(&args))?;
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         world.read(&mut r)?;
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         let mut world_us = 0i64;
         world_us.read(&mut r)?;
         if world_us < 0
@@ -371,11 +364,11 @@ impl<G: Game> Sim<G> {
         {
             return Err(DataError::new("saved clock disagrees with world"));
         }
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         let mut input = Input::default();
         input.read(&mut r)?;
         input.validate_saved(G::ACTIONS)?;
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         let mut queue = Vec::new();
         crate::data::limits::read_vec(&mut r, &mut queue, 1024)?;
         let mut last = 0.;
@@ -386,15 +379,15 @@ impl<G: Game> Sim<G> {
             }
             last = e.at_ms();
         }
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         world.read_publications(&mut r)?;
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         r.begin_seq()?;
         world.read_journal(&mut r)?;
         if r.item()? {
             return Err(DataError::new("extra journal data"));
         }
-        item(&mut r)?;
+        r.required_item("incomplete Sim save")?;
         let mut caller_us = 0i64;
         caller_us.read(&mut r)?;
         if caller_us < 0 {

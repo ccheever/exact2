@@ -1,5 +1,5 @@
 //! Bounded inspection output only. Request parsing belongs to adapters.
-use super::{BulkKind, Data, DataError, Number, Writer};
+use super::{Data, DataError, Number, Writer};
 use std::fmt::Write;
 /// Maximum output bytes and value visits for one inspection.
 pub const LIMIT: usize = 65_536;
@@ -82,16 +82,17 @@ impl Writer for Encoder {
     fn unit(&mut self) {
         self.push("null");
     }
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
-        if value.len() > LIMIT {
+    fn bytes(&mut self, value: super::Bulk<'_>) {
+        let (_, len) = value.shape();
+        if len > LIMIT {
             self.fail("inspection bulk exceeds limit");
             return;
         }
         let mut hash = super::hash::Hasher::default();
-        hash.bytes(kind, value);
+        hash.bytes(value);
         self.push(&format!(
             "{{\"bytes\":{},\"hash\":\"0x{:016x}\"}}",
-            value.len(),
+            len,
             hash.finish()
         ));
     }

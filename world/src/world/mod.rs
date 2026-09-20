@@ -186,7 +186,7 @@ pub struct World {
     session_journal: RefCell<VecDeque<crate::Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
-    published: RefCell<BTreeMap<String, crate::values::Stored>>,
+    pub(crate) published: RefCell<BTreeMap<String, crate::values::Stored>>,
     pub(crate) messages: RefCell<Vec<String>>,
     entities_revision: u64,
     replacement: u64,

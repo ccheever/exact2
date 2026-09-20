@@ -314,16 +314,12 @@ impl RawStorage {
         while r.item()? {
             r.begin_seq()?;
             let mut e = Entity::default();
-            if !r.item()? {
-                return Err(DataError::new("missing entity"));
-            }
+            r.required_item("missing entity")?;
             e.read(r)?;
             if !valid(e) {
                 return Err(DataError::new("stale or invalid entity").at(e.index()));
             }
-            if !r.item()? {
-                return Err(DataError::new("missing component"));
-            }
+            r.required_item("missing component")?;
             let page = e.index() as usize / PAGE;
             if !self.pages.contains_key(&page) {
                 r.check_allocation(self.page_layout.size())?;

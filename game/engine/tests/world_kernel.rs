@@ -12,7 +12,7 @@ fn generic_world_hash_and_data_are_identical_to_the_kernel() {
         .parent()
         .unwrap()
         .join("scratch")
-        .join("k1b-1")
+        .join("K1b-2")
         .join(format!("cross-{}", std::process::id()));
     fs::create_dir_all(scratch.join("src")).unwrap();
     fs::write(

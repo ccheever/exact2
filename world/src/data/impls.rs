@@ -79,30 +79,18 @@ impl<T: Data> Data for Vec<T> {
         // Stable Rust has no specialization: downcasts select the four closed
         // bulk types without unsafe layout casts or changing other Vec<T> values.
         let any = self as &dyn Any;
-        if let Some(v) = any.downcast_ref::<Vec<u8>>() {
-            w.bytes(BulkKind::U8, v);
-            return;
-        }
         macro_rules! bulk {
-            ($ty:ty, $kind:ident, $bytes:expr) => {
+            ($ty:ty, $kind:ident) => {
                 if let Some(v) = any.downcast_ref::<Vec<$ty>>() {
-                    w.claim_decoded(
-                        v.len()
-                            .saturating_mul(std::mem::size_of::<$ty>())
-                            .saturating_mul(2),
-                    );
-                    if !w.allow_bytes(v.len().saturating_mul(std::mem::size_of::<$ty>())) {
-                        return;
-                    }
-                    let bytes: Vec<u8> = v.iter().flat_map($bytes).collect();
-                    w.bytes(BulkKind::$kind, &bytes);
+                    w.bytes(super::Bulk::$kind(v));
                     return;
                 }
             };
         }
-        bulk!(u16, U16, |v: &u16| v.to_le_bytes());
-        bulk!(u32, U32, |v: &u32| v.to_le_bytes());
-        bulk!(f32, F32, |v: &f32| super::f32_bits(*v).to_le_bytes());
+        bulk!(u8, U8);
+        bulk!(u16, U16);
+        bulk!(u32, U32);
+        bulk!(f32, F32);
         w.claim_decoded(
             self.len()
                 .saturating_mul(std::mem::size_of::<T>())

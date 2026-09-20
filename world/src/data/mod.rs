@@ -103,12 +103,7 @@ pub enum BulkKind {
 }
 impl BulkKind {
     pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::U8 => "u8",
-            Self::U16 => "u16",
-            Self::U32 => "u32",
-            Self::F32 => "f32",
-        }
+        ["u8", "u16", "u32", "f32"][self as usize]
     }
 }
 
@@ -117,9 +112,6 @@ pub trait Writer {
     fn claim_decoded(&mut self, _bytes: usize) {}
     fn stopped(&self) -> bool {
         false
-    }
-    fn allow_bytes(&mut self, _bytes: usize) -> bool {
-        !self.stopped()
     }
     fn entity(&mut self, index: u32, generation: u32) {
         self.begin_struct();
@@ -135,7 +127,7 @@ pub trait Writer {
     }
     fn boolean(&mut self, value: bool);
     fn number(&mut self, value: Number);
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]);
+    fn bytes(&mut self, value: Bulk<'_>);
     fn string(&mut self, value: &str);
     fn begin_seq(&mut self, len: usize);
     fn item(&mut self);
@@ -188,6 +180,11 @@ pub trait Reader<'data> {
     fn string(&mut self) -> Result<String, DataError>;
     fn begin_seq(&mut self) -> Result<(), DataError>;
     fn item(&mut self) -> Result<bool, DataError>;
+    fn required_item(&mut self, message: &str) -> Result<(), DataError> {
+        self.item()?
+            .then_some(())
+            .ok_or_else(|| DataError::new(message))
+    }
     fn begin_struct(&mut self) -> Result<(), DataError>;
     fn field(&mut self) -> Result<Option<&'data str>, DataError>;
     fn variant(&mut self) -> Result<&'data str, DataError>;
@@ -216,4 +213,56 @@ pub(crate) fn f64_bits(n: f64) -> u64 {
 }
 pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
+}
+
+/// Borrowed numeric payload; sinks stream canonical little-endian chunks.
+#[derive(Clone, Copy)]
+pub enum Bulk<'a> {
+    U8(&'a [u8]),
+    U16(&'a [u16]),
+    U32(&'a [u32]),
+    F32(&'a [f32]),
+}
+impl<'a> Bulk<'a> {
+    pub fn shape(self) -> (BulkKind, usize) {
+        match self {
+            Self::U8(v) => (BulkKind::U8, v.len()),
+            Self::U16(v) => (BulkKind::U16, v.len() * 2),
+            Self::U32(v) => (BulkKind::U32, v.len() * 4),
+            Self::F32(v) => (BulkKind::F32, v.len() * 4),
+        }
+    }
+    /// At most 1024 stack bytes; false stops before the next chunk.
+    pub fn chunks(self, mut sink: impl FnMut(&[u8]) -> bool) {
+        let mut buffer = [0u8; 1024];
+        macro_rules! chunks {
+            ($v:expr, $width:expr, $convert:expr) => {
+                for part in $v.chunks(1024 / $width) {
+                    for (dst, value) in buffer.chunks_exact_mut($width).zip(part) {
+                        dst.copy_from_slice(&$convert(value));
+                    }
+                    if !sink(&buffer[..part.len() * $width]) {
+                        break;
+                    }
+                }
+            };
+        }
+        match self {
+            Self::U8(v) => {
+                sink(v);
+            }
+            Self::U16(v) => chunks!(v, 2, |v: &u16| v.to_le_bytes()),
+            Self::U32(v) => chunks!(v, 4, |v: &u32| v.to_le_bytes()),
+            Self::F32(v) => chunks!(v, 4, |v: &f32| f32_bits(*v).to_le_bytes()),
+        }
+    }
+    pub fn numbers(self) -> impl Iterator<Item = f64> + 'a {
+        let (kind, bytes) = self.shape();
+        (0..bytes / [1, 2, 4, 4][kind as usize]).map(move |i| match self {
+            Self::U8(v) => v[i] as f64,
+            Self::U16(v) => v[i] as f64,
+            Self::U32(v) => v[i] as f64,
+            Self::F32(v) => v[i] as f64,
+        })
+    }
 }

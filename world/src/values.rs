@@ -329,26 +329,8 @@ impl Writer for RecordWriter {
     fn string(&mut self, v: &str) {
         self.push(Stored::Str(v.into()));
     }
-    fn bytes(&mut self, kind: crate::data::BulkKind, bytes: &[u8]) {
-        use crate::data::BulkKind;
-        let width = match kind {
-            BulkKind::U8 => 1,
-            BulkKind::U16 => 2,
-            BulkKind::U32 | BulkKind::F32 => 4,
-        };
-        self.push(Stored::List(
-            bytes
-                .chunks_exact(width)
-                .map(|chunk| {
-                    Stored::Number(match kind {
-                        BulkKind::U8 => chunk[0] as f64,
-                        BulkKind::U16 => u16::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                        BulkKind::U32 => u32::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                        BulkKind::F32 => f32::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                    })
-                })
-                .collect(),
-        ));
+    fn bytes(&mut self, value: crate::data::Bulk<'_>) {
+        self.push(Stored::List(value.numbers().map(Stored::Number).collect()));
     }
     fn begin_seq(&mut self, len: usize) {
         self.stack.push(Stored::List(Vec::with_capacity(len)));

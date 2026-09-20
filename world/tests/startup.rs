@@ -330,3 +330,20 @@ fn unchanged_ownership_reuses_scratch_and_churn_reaps_reverse_chains() {
         "changed ownership also reuses its high-water scratch"
     );
 }
+
+#[test]
+fn typed_bulk_hash_and_inspection_never_allocate_conversion_payloads() {
+    let large = vec![u32::MAX; 1_000_000];
+    let (hash, counts) = counting::measure(|| exact_world::hash::of(&large));
+    assert_eq!(counts, (0, 0));
+    assert_ne!(hash, exact_world::hash::of(&vec![0u32; large.len()]));
+    let small = vec![0x1234u16; 32_768];
+    let (json, counts) = counting::measure(|| json::to_string(&small).unwrap());
+    assert!(json.contains("65536"));
+    assert!(
+        counts.1 < 1024,
+        "inspection allocated a conversion payload: {counts:?}"
+    );
+    let (_, counts) = counting::measure(|| assert!(json::to_string(&large).is_err()));
+    assert!(counts.1 < 1024);
+}

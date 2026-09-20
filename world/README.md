@@ -168,3 +168,11 @@ returns an empty batch with `resync: true`. Rebuild derived state, then acknowle
 fail because a subscriber is slow. Reads index directly into the retained deque.
 Portable scalar math functions now directly re-export their libm implementations;
 this removes forwarding wrappers without changing signatures or arithmetic.
+
+`Writer::bytes(Bulk<'_>)` borrows typed U8/U16/U32/F32 slices. `Bulk::chunks`
+streams at most 1,024 bytes of stack conversion space, preserving little-endian
+bytes and canonical NaNs. Hashing a four-megabyte numeric vector allocates zero
+bytes; inspecting a 65,536-byte numeric vector allocates under 1,024 bytes. The
+cross-engine fixture rechecks all four bulk tags, generic Data bytes and world
+hash/content parity. It uses the same reverse component insertion order in both
+engines; it does not prove opposite insertion histories between engines.

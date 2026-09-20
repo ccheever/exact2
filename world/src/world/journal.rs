@@ -215,13 +215,9 @@ impl World {
         w.end_seq();
     }
     pub(crate) fn read_journal(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        if !r.item()? {
-            return Err(DataError::new("missing journal cursor"));
-        }
+        r.required_item("missing journal cursor")?;
         self.journal_next.get_mut().read(r)?;
-        if !r.item()? {
-            return Err(DataError::new("missing journal entries"));
-        }
+        r.required_item("missing journal entries")?;
         let mut events: Vec<Event> = Vec::new();
         crate::data::limits::read_vec(r, &mut events, 4096)?;
         let first = self

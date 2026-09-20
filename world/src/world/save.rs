@@ -80,9 +80,6 @@ impl Data for State {
 }
 
 impl World {
-    pub(crate) fn write_publications(&self, w: &mut dyn Writer) {
-        self.published.borrow().write(w);
-    }
     pub(crate) fn read_publications(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         self.published.get_mut().read(r)?;
         if self.published.get_mut().len() > 256

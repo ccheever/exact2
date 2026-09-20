@@ -46,6 +46,13 @@ impl Default for Encoder {
     }
 }
 impl Encoder {
+    fn allow_bytes(&mut self, len: usize) -> bool {
+        if self.bytes.len().saturating_add(len) > self.limit {
+            self.fail("encoded size exceeds save limit");
+        }
+        !self.stopped()
+    }
+
     pub fn bounded(limit: usize) -> Self {
         Self {
             bytes: Vec::new(),
@@ -140,17 +147,18 @@ impl Writer for Encoder {
     fn stopped(&self) -> bool {
         self.error.is_some()
     }
-    fn allow_bytes(&mut self, len: usize) -> bool {
-        if self.bytes.len().saturating_add(len) > self.limit {
-            self.fail("encoded size exceeds save limit");
+    fn bytes(&mut self, value: super::Bulk<'_>) {
+        let (kind, len) = value.shape();
+        self.claim_decoded(len.saturating_mul(2));
+        if !self.allow_bytes(len) {
+            return;
         }
-        !self.stopped()
-    }
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
-        self.claim_decoded(value.len().saturating_mul(2));
         self.append(&[12 + kind as u8]);
-        self.var(value.len() as u64);
-        self.append(value);
+        self.var(len as u64);
+        value.chunks(|part| {
+            self.append(part);
+            !self.stopped()
+        });
     }
     fn boolean(&mut self, n: bool) {
         self.append(&[u8::from(n)]);

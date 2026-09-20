@@ -103,21 +103,15 @@ impl<C: Data> Erased for Singleton<C> {
         valid: &dyn Fn(Entity) -> bool,
     ) -> Result<(), DataError> {
         r.begin_seq()?;
-        if !r.item()? {
-            return Err(DataError::new("resource must contain one value"));
-        }
+        r.required_item("resource must contain one value")?;
         r.begin_seq()?;
-        if !r.item()? {
-            return Err(DataError::new("missing entity"));
-        }
+        r.required_item("missing entity")?;
         let mut e = Entity::default();
         e.read(r)?;
         if e.index() != 0 || !valid(e) {
             return Err(DataError::new("stale or invalid entity"));
         }
-        if !r.item()? {
-            return Err(DataError::new("missing component"));
-        }
+        r.required_item("missing component")?;
         let value = C::read_new(r)?;
         if r.item()? {
             return Err(DataError::new("extra component entry value"));
