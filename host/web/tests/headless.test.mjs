@@ -59,3 +59,13 @@ realWorld('baked Tally reload stages plain values and releases a held Sim key',a
     assert.equal(f.exact.gpu.agent(2,{op:'state'}).world.published.pile_count,before-1);
   } finally {module.gpu_unload();}
 });
+
+test('a resize before the first paced frame never advances ownership time', async () => {
+  const stamps=[];
+  const f=await fixture({live:true,gpu:{gpu_load:undefined,gpu_error:()=>'',gpu_advance:at=>{stamps.push(at);return true;}}});
+  f.create(1);
+  f.mutation();
+  assert.deepEqual(stamps,[], 'observer callbacks are layout, not simulation steps');
+  f.paint(17);
+  assert.equal(stamps.length,1, 'negative control: the paced frame still drives');
+});

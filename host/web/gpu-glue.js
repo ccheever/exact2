@@ -354,7 +354,7 @@ function attach(entry, staging = false) {
     if (publishers.get(entry.name) === entry) surfaceRecord(entry.name, entry.stagedPublication);
     delete entry.stagedPublication;
   }
-  entry.observer = new ResizeObserver(() => { if (live(entry.view) === entry) render(entry, frameAt ?? performance.now()); });
+  entry.observer = new ResizeObserver(() => { if (gpu.gpu_load && live(entry.view) === entry) render(entry, frameAt ?? performance.now()); });
   entry.observer.observe(entry.el);
   watchCheckpoints(entry);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);

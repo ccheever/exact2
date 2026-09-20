@@ -110,7 +110,12 @@ impl<G: Game> WorldSurface<G> {
         }
         let dt = self.host.map_or(0., |old| now - old);
         if dt < 0. {
-            return Err(invalid("host clock cannot retreat"));
+            return if self.seekable {
+                Err(invalid("host clock cannot retreat"))
+            } else {
+                // Keep the high-water anchor: a late live frame contributes no ticks.
+                Ok(false)
+            };
         }
         let ticks = if self.seekable || !(self.hidden || self.interrupted) {
             let sim = self.sim_mut()?;

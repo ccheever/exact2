@@ -203,3 +203,10 @@ prefix of at most 4 KiB. Refusals precede delivery across the ABI. Pending deliv
 is checked after each native callback over at most 256 owned instances; application
 callbacks remain responsible for their own allocation/work before returning.
 The ordinary device ABI retains its prior text range (including 20 KiB bindings).
+
+Live host timestamps at or below the last accepted timestamp contribute zero ticks;
+a retreat retains the last accepted anchor. Agent-controlled time still refuses a
+retreat. ResizeObserver only performs device presentation; owned worlds advance
+from paced frames or explicit agent clocks. `bun game/games/tally/live.mjs` runs
+baked Tally in Chromium from a human-clock boot, forces a real observer delivery
+before its first world frame, then prints two published tick counts one second apart.

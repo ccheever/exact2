@@ -484,3 +484,34 @@ fn host_input_with_nonfinite_stamp_refuses_without_mutation() {
         assert_eq!(s.carry().unwrap(), before);
     }
 }
+
+#[test]
+fn live_host_retreat_is_zero_ticks_but_controlled_clock_stays_strict() {
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.clock(false);
+    s.bind(&[], Some(100.)).unwrap();
+    s.published();
+    let before = s.carry().unwrap();
+    for now in [99.99, 1., 100.] {
+        s.advance(now);
+        assert!(
+            s.take_error().is_none(),
+            "live host retreat must not poison the world"
+        );
+        assert_eq!(s.carry().unwrap(), before);
+    }
+    assert!(s.advance(117.));
+    assert_ne!(
+        s.carry().unwrap(),
+        before,
+        "negative control: live time advances"
+    );
+    s.clock(true);
+    s.advance(200.);
+    let before = s.carry().unwrap();
+    assert!(s
+        .agent(r#"{"op":"clock","now":199}"#)
+        .unwrap()
+        .contains("cannot retreat"));
+    assert_eq!(s.carry().unwrap(), before);
+}
