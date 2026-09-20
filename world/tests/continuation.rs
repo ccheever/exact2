@@ -26,9 +26,9 @@ impl Game for Fixture {
             .register_resource::<Ledger>()?;
         Ok(())
     }
-    fn setup(w: &mut World, _: &()) {
+    fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
         for i in 0..137 {
-            w.spawn_named(format!("slot{i}"), ()).unwrap();
+            w.spawn_named(format!("slot{i}"), ())?;
         }
         for i in (0..137).rev() {
             w.insert(
@@ -37,36 +37,34 @@ impl Game for Fixture {
                     x: i as i64,
                     label: format!("value{i}"),
                 },
-            )
-            .unwrap();
+            )?;
             if i % 7 == 0 {
-                w.insert(w.entity_at(i).unwrap(), Tag).unwrap();
+                w.insert(w.entity_at(i).unwrap(), Tag)?;
             }
         }
         for i in (0..137).step_by(11) {
-            w.despawn(w.entity_at(i).unwrap()).unwrap();
+            w.despawn(w.entity_at(i).unwrap())?;
             w.spawn(Position {
                 x: -1,
                 label: "recycled".into(),
-            })
-            .unwrap();
+            })?;
         }
         w.insert_resource(Ledger {
             values: vec![0, 17, u16::MAX],
-        })
-        .unwrap();
-        w.set_parent(w.entity_at(136).unwrap(), Some(w.entity_at(65).unwrap()))
-            .unwrap();
-        w.work("assets", Work::Pending).unwrap();
+        })?;
+        w.set_parent(w.entity_at(136).unwrap(), Some(w.entity_at(65).unwrap()))?;
+        w.work("assets", Work::Pending)?;
+        Ok(())
     }
-    fn tick(w: &mut World, input: &Input, _: &()) {
+    fn tick(w: &mut World, input: &Input, _: &()) -> Result<(), DataError> {
         for (_, (p, tag)) in &mut w.query::<(&mut Position, Option<&Tag>)>() {
             p.x += i64::from(input.held("move")) + i64::from(tag.is_some());
         }
         w.resource_mut::<Ledger>().values[1] += 1;
-        w.publish("drive", input.axis("drive")).unwrap();
-        w.publish("tick", w.tick() as u32).unwrap();
+        w.publish("drive", input.axis("drive"))?;
+        w.publish("tick", w.tick() as u32)?;
         w.rng().next_u32();
+        Ok(())
     }
 }
 // Length framing is only the test inventory; each payload is an unchanged save.

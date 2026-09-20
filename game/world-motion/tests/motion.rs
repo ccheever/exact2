@@ -114,17 +114,19 @@ fn module_deadline_survives_exact_restore_and_prevents_early_settle() {
             w.register::<Motion>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             let mut tween = Tween::new(0.);
             tween.to(w.now(), 1., 1.);
             w.work(
                 "animation",
                 Work::Deadline(tween.settle_tick(w.now()).unwrap()),
-            )
-            .unwrap();
-            w.spawn(Motion(tween)).unwrap();
+            )?;
+            w.spawn(Motion(tween))?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     let mut sim = Sim::<Animated>::new(()).unwrap();
     assert!(sim.settle(10).is_err());

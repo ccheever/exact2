@@ -19,8 +19,8 @@ pub trait Game: 'static {
     fn register(_world: &mut World, _args: SetupArgs<'_, Self::Args>) -> Result<(), DataError> {
         Ok(())
     }
-    fn setup(world: &mut World, args: &Self::Args);
-    fn tick(world: &mut World, input: &Input, args: &Self::Args);
+    fn setup(world: &mut World, args: &Self::Args) -> Result<(), DataError>;
+    fn tick(world: &mut World, input: &Input, args: &Self::Args) -> Result<(), DataError>;
     fn paused(_args: &Self::Args) -> bool {
         false
     }
@@ -42,6 +42,7 @@ pub struct Sim<G: Game> {
     caller_us: i64,
     paranoid: Paranoid,
     tick_failed: bool,
+    tick_error: Option<DataError>,
     game: PhantomData<G>,
 }
 const MAGIC: &[u8] = b"EXSIM\0\x0a";
@@ -65,7 +66,7 @@ impl<G: Game> Sim<G> {
         let input = Input::new(G::ACTIONS)?;
         let mut world = World::new(G::HZ, 0);
         G::register(&mut world, SetupArgs(&args))?;
-        G::setup(&mut world, &args);
+        G::setup(&mut world, &args).map_err(|e| e.at("setup"))?;
         world.validate()?;
         world.driver_owned = true;
         Ok(Self {
@@ -77,6 +78,7 @@ impl<G: Game> Sim<G> {
             caller_us: 0,
             paranoid: Paranoid::Off,
             tick_failed: false,
+            tick_error: None,
             game: PhantomData,
         })
     }
@@ -110,6 +112,7 @@ impl<G: Game> Sim<G> {
         Ok(())
     }
     pub fn input(&mut self, event: InputEvent) -> Result<(), DataError> {
+        self.check_clock()?;
         self.input.validate_event(&event)?;
         if self.queue.len() == 1024 {
             return Err(DataError::new("input queue limit (1024)"));
@@ -120,6 +123,7 @@ impl<G: Game> Sim<G> {
         Ok(())
     }
     pub fn run(&mut self, elapsed_ms: f64) -> Result<u64, DataError> {
+        self.check_clock()?;
         let target = self
             .caller_us
             .checked_add(micros(elapsed_ms)?)
@@ -127,9 +131,13 @@ impl<G: Game> Sim<G> {
         self.advance_us(target)
     }
     pub fn advance_to(&mut self, clock_ms: f64) -> Result<u64, DataError> {
+        self.check_clock()?;
         self.advance_us(micros(clock_ms)?)
     }
     fn check_clock(&self) -> Result<(), DataError> {
+        if let Some(error) = &self.tick_error {
+            return Err(error.clone());
+        }
         self.world.healthy()?;
         if self.tick_failed {
             return Err(DataError::new("simulation poisoned by an incomplete tick"));
@@ -179,7 +187,13 @@ impl<G: Game> Sim<G> {
             self.apply_input(due)?;
             self.world.begin_tick();
             self.tick_failed = true;
-            self.world.mutation(|w| G::tick(w, &self.input, &self.args));
+            if let Err(error) = self.world.mutation(|w| G::tick(w, &self.input, &self.args)) {
+                let error = error.at(format_args!("tick {}", self.world.tick() + 1));
+                self.tick_error = Some(error.clone());
+                // Telemetry refusal must not replace the original tick failure.
+                let _ = self.world.session_log(&error.to_string());
+                return Err(error);
+            }
             self.world.reap_orphans()?;
             self.world.step_clock();
             self.tick_failed = false;
@@ -219,6 +233,7 @@ impl<G: Game> Sim<G> {
     /// Replace held input and rebase caller time without a tick. Clears all queued
     /// events and edges; at most 1024 events describing the complete held state.
     pub fn reconcile_input(&mut self, clock_ms: f64, held: &[InputEvent]) -> Result<(), DataError> {
+        self.check_clock()?;
         let caller_us = micros(clock_ms)?;
         if held.len() > 1024 {
             return Err(DataError::new("input reconciliation limit (1024)"));
@@ -240,10 +255,10 @@ impl<G: Game> Sim<G> {
         (self.world.tick(), (phase % 1_000_000) as u32, 1_000_000)
     }
     pub fn settle(&mut self, max_ticks: u32) -> Result<u64, DataError> {
+        self.check_clock()?;
         if max_ticks > 3600 {
             return Err(DataError::new("settle limit is 3600 ticks"));
         }
-        self.check_clock()?;
         let offset = self.caller_us as i128 - self.world_us as i128;
         let last =
             ((self.world.tick() as u128 + max_ticks as u128) * 1_000_000).div_ceil(G::HZ as u128);
@@ -348,6 +363,7 @@ impl<G: Game> Sim<G> {
         self.world_us = next.world_us;
         self.caller_us = next.caller_us;
         self.tick_failed = false;
+        self.tick_error = None;
         drop((old_world, old_args));
         Ok(())
     }
@@ -425,6 +441,7 @@ impl<G: Game> Sim<G> {
             caller_us,
             paranoid: Paranoid::Off,
             tick_failed: false,
+            tick_error: None,
             game: PhantomData,
         };
         let canonical = next.save()?;

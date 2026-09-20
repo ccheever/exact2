@@ -17,21 +17,22 @@ impl<const N: u64> Game for Board<N> {
         w.register_resource::<Blob>().unwrap();
         Ok(())
     }
-    fn setup(w: &mut World, _: &()) {
+    fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
         for number in 0..N {
             w.spawn(CellValue {
                 number,
                 payload: [number; 3],
-            })
-            .unwrap();
+            })?;
         }
+        Ok(())
     }
-    fn tick(w: &mut World, _: &Input, _: &()) {
+    fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
         for (_, value) in w.query::<&mut CellValue>().iter() {
             value.number += 1;
         }
         let n = w.rng().next_u32();
-        w.publish("tick", n).unwrap();
+        w.publish("tick", n)?;
+        Ok(())
     }
 }
 fn report(label: &str, actual: (usize, usize), ceiling: (usize, usize)) {
@@ -281,16 +282,18 @@ fn live_ticks_never_visit_components_and_settle_samples_each_boundary_once() {
             w.register::<Counted>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             for i in 0..200_000 {
-                w.spawn(Counted(i)).unwrap();
+                w.spawn(Counted(i))?;
             }
+            Ok(())
         }
-        fn tick(w: &mut World, _: &Input, _: &()) {
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
             // Sparse touching in a maximal world, with a controller still active.
             if w.tick() < 1002 {
                 w.get_mut::<Counted>("#199999").unwrap().0 += 1;
             }
+            Ok(())
         }
     }
     let mut sim = Sim::<Live>::new(()).unwrap();
@@ -442,17 +445,19 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
             w.register::<Controller>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
-            w.spawn(Controller::default()).unwrap();
-            w.work("assets", Work::Pending).unwrap();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            w.spawn(Controller::default())?;
+            w.work("assets", Work::Pending)?;
+            Ok(())
         }
-        fn tick(w: &mut World, input: &Input, _: &()) {
+        fn tick(w: &mut World, input: &Input, _: &()) -> Result<(), DataError> {
             assert!(input.key("key00"));
             let mut c = w.get_mut::<Controller>("#0").unwrap();
             c.ticks += 1;
             c.travel += input.axis("drive");
             c.presses += u32::from(input.pressed("jump"));
             c.releases += u32::from(input.released("jump"));
+            Ok(())
         }
     }
     let mut sim = Sim::<Active>::new(()).unwrap();

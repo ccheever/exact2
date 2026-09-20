@@ -11,11 +11,13 @@ impl Game for Board {
         w.register::<Counter>()?;
         Ok(())
     }
-    fn setup(w: &mut World, _: &()) {
-        w.spawn_named("counter", Counter { n: 7 }).unwrap();
+    fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+        w.spawn_named("counter", Counter { n: 7 })?;
+        Ok(())
     }
-    fn tick(w: &mut World, _: &Input, _: &()) {
+    fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
         w.get_mut::<Counter>("counter").unwrap().n += 1;
+        Ok(())
     }
 }
 #[test]
@@ -140,10 +142,12 @@ fn panicking_tick_cannot_be_saved_through_the_underlying_world() {
     impl Game for Panics {
         const ID: &'static str = "panics";
         type Args = ();
-        fn setup(_: &mut World, _: &()) {}
-        fn tick(w: &mut World, _: &Input, _: &()) {
-            w.spawn(()).unwrap();
-            panic!("tick interrupted");
+        fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            w.spawn(())?;
+            panic!("tick interrupted")
         }
     }
     let mut s = Sim::<Panics>::new(()).unwrap();
@@ -178,8 +182,12 @@ struct Configured;
 impl Game for Configured {
     const ID: &'static str = "configured";
     type Args = Options;
-    fn setup(_: &mut World, _: &Options) {}
-    fn tick(_: &mut World, _: &Input, _: &Options) {}
+    fn setup(_: &mut World, _: &Options) -> Result<(), DataError> {
+        Ok(())
+    }
+    fn tick(_: &mut World, _: &Input, _: &Options) -> Result<(), DataError> {
+        Ok(())
+    }
 }
 #[test]
 fn args_admission_and_live_carry_identity() {
@@ -284,8 +292,12 @@ fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
         const ID: &'static str = "boundary";
         const HZ: u32 = 1000;
         type Args = Pause;
-        fn setup(_: &mut World, _: &Pause) {}
-        fn tick(_: &mut World, _: &Input, _: &Pause) {}
+        fn setup(_: &mut World, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
         fn paused(args: &Pause) -> bool {
             args.paused
         }
@@ -461,10 +473,13 @@ fn restore_and_bind_install_complete_driver_before_dropping_args() {
     impl Game for Config {
         const ID: &'static str = "drop-args";
         type Args = Options;
-        fn setup(w: &mut World, _: &Options) {
-            w.spawn(()).unwrap();
+        fn setup(w: &mut World, _: &Options) -> Result<(), DataError> {
+            w.spawn(())?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &Options) {}
+        fn tick(_: &mut World, _: &Input, _: &Options) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     for mode in 0..3 {
         let mut s = Sim::<Config>::new(Options::default()).unwrap();
@@ -586,8 +601,12 @@ fn unreachable_action_keys_refuse() {
         type Args = ();
         const ACTIONS: &'static [Action] = &[Action::axis("move",
             "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzza", "KeyD")];
-        fn setup(_: &mut World, _: &()) {}
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     assert!(Sim::<BadKeys>::new(()).is_err());
 }

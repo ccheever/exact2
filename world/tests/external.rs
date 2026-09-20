@@ -168,18 +168,21 @@ fn settle_at_max_entities_counts_only_live_components_and_slots() {
                 .register::<E>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             for _ in 0..MAX_ENTITIES {
-                w.spawn(()).unwrap();
+                w.spawn(())?;
             }
             let e = w.entity_at(MAX_ENTITIES - 1).unwrap();
-            w.insert(e, A).unwrap();
-            w.insert(e, B).unwrap();
-            w.insert(e, C).unwrap();
-            w.insert(e, D).unwrap();
-            w.insert(e, E(7)).unwrap();
+            w.insert(e, A)?;
+            w.insert(e, B)?;
+            w.insert(e, C)?;
+            w.insert(e, D)?;
+            w.insert(e, E(7))?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     let mut sim = Sim::<Maximal>::new(()).unwrap();
     assert_eq!(sim.world().sample().unwrap().components, 5);
