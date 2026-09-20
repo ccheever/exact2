@@ -226,7 +226,7 @@ while triangles drop 1,251,764→228,140. A trial of conservative bounds
 for aligned 256-cluster blocks plus skipping empty-block compaction scans measured
 3.632501 ms combined selection, 1.135375 ms main and 0.246334 ms shadow at the
 revised portrait; it did not meet 1.5 ms and was removed. It allocated 913,677,824
-GPU bytes (2,265,288 more than the pre-light-uniform retained selector). This trial was not retained
+GPU bytes (2,265,288 more than the retained selector before adding the light-direction uniform). This trial was not retained
 or certified by equality oracles. Commands were `clod-view time <washington-4.clod>
 --path hero --t 0.75 --frames 7 --out <cache>/out/L3b/after.png` and the final
 benchmark command. Its counters were 317,358 main candidates / 110,862 shadow
@@ -478,6 +478,53 @@ maximum byte difference **0**. Against the first approved portrait preview, the
 corrected full portrait has **3,686,400 pixels**, normalized mean difference
 **1.0637935729847494e-9**, maximum **1 byte**. The lighter backdrop is intentionally
 outside the closing-relief ROI. Both corrected stills were opened and inspected.
+
+### L3b corrected reel
+
+The final `reel` command in How to run rendered **2,400/2,400 frames**, **40 seconds
+at 60 fps**, **zero main/shadow overflow**, **zero frame or encoder failures**.
+PNG rendering took **513.605656 s**; rendering plus both encodes took
+**560.260484 s**. GPU resident allocation: **911,412,552 bytes**.
+All media is in `<cache>/out/reel-l3b/`; L3a's original `out/reel/` remains intact.
+[Exact final reel records](results/l3b-reel.json).
+
+| Measurement | Min / p50 / p95 / p99 / max |
+|---|---:|
+| gpu_ms | 2.810958 / 11.261625 / 13.203249 / 16.622417 / 48.670251 |
+| gpu_main_ms | 0.652125 / 2.018291 / 4.381166 / 5.499042 / 7.207083 |
+| gpu_shadow_ms | 0.145750 / 0.390917 / 1.480792 / 1.878625 / 2.783250 |
+| gpu_select_ms | 0.628208 / 8.897250 / 10.287875 / 12.475334 / 47.487208 |
+| gpu_select_main_ms | 0.512416 / 8.459500 / 9.508125 / 10.531250 / 38.910458 |
+| gpu_select_shadow_ms | 0.086500 / 0.601209 / 1.119916 / 1.764375 / 38.201000 |
+| cpu_ms | 0.539874 / 0.830249 / 1.464876 / 15.457583 / 125.582666 |
+| frame_completion_ms | 5.823125 / 14.480042 / 19.012291 / 44.769250 / 159.379125 |
+| triangles_drawn | 287795.000000 / 758260.000000 / 1522013.000000 / 1630620.000000 / 1648903.000000 |
+| shadow_triangles | 410832.000000 / 629014.000000 / 1634055.000000 / 1634650.000000 / 1653515.000000 |
+
+Times are milliseconds; triangle rows are counts. Percentiles use nearest rank;
+the CLI's separate summary retains its upper-middle median. Offline selection
+still exceeds the 1.5 ms target and has spikes. The native cluster maximum is
+7.156793 ms total GPU; this offline run reaches 48.670251 ms, including 47.487208 ms
+selection. This difference is recorded, not attributed to PNG work or claimed fixed.
+
+Both H.264 / yuv420p videos passed `ffprobe -count_frames` and complete `ffmpeg
+-i <video> -f null -` decoding, exit 0, no decoder errors. Both report 60/1 fps.
+These commands use the cache-local `DYLD_LIBRARY_PATH` in How to run.
+
+| Video | Dimensions | Decoded frames | Seconds | Bytes | Decode seconds |
+|---|---|---:|---:|---:|---:|
+| `cluster-lod-reel.mp4` | 2560×1440 | 2400 | 40.000000 | 27,202,779 | 0.928158 |
+| `cluster-lod-reel-1080p.mp4` | 1920×1080 | 2400 | 40.000000 | 15,423,430 | 0.597372 |
+
+The final **144 frames / 2.4 seconds** have **one byte-identical scene digest**
+after excluding the bottom 90-pixel statistics caption. Eight saved stills have
+**zero RGB channels clipped to 255**; the largest channel value is **238**.
+The final portrait and closing stills were opened after export. The head occupies
+the upper third with the raised hand visible; the closing relief retains the
+side-lit shape established in L3a. Camera preflight again checks **2,401 samples**:
+minimum original-triangle distance **0.905398488**, worst t **0.632083356**,
+projected median source edge **1.966121435 px**. This is a sampled clearance and
+median-edge budget, not a bound on every edge or a continuous collision proof.
 
 ### L3a museum reel (format v4)
 

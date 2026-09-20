@@ -1,0 +1,427 @@
+{
+  "summary": {
+    "command": "reel",
+    "elapsed_seconds": 560.260483542,
+    "failures": [],
+    "fps": 60,
+    "frames_measured": 2400,
+    "frames_requested": 2400,
+    "gpu_ms_max": 48.670251,
+    "gpu_ms_median": 11.262416,
+    "gpu_ms_min": 2.810958,
+    "seconds": 40.0,
+    "source_triangles_times_instances": 421523250,
+    "stills": [
+      0,
+      360,
+      720,
+      1080,
+      1439,
+      1799,
+      2159,
+      2399
+    ],
+    "triangles_max": 1648903,
+    "triangles_min": 287795
+  },
+  "statistics": {
+    "gpu_ms": {
+      "min": 2.810958,
+      "p50": 11.261625,
+      "p95": 13.203249,
+      "p99": 16.622417000000002,
+      "max": 48.670251
+    },
+    "gpu_main_ms": {
+      "min": 0.652125,
+      "p50": 2.018291,
+      "p95": 4.381166,
+      "p99": 5.499042,
+      "max": 7.207083
+    },
+    "gpu_shadow_ms": {
+      "min": 0.14575,
+      "p50": 0.390917,
+      "p95": 1.480792,
+      "p99": 1.878625,
+      "max": 2.78325
+    },
+    "gpu_select_ms": {
+      "min": 0.628208,
+      "p50": 8.89725,
+      "p95": 10.287875,
+      "p99": 12.475334,
+      "max": 47.487208
+    },
+    "gpu_select_main_ms": {
+      "min": 0.512416,
+      "p50": 8.4595,
+      "p95": 9.508125,
+      "p99": 10.53125,
+      "max": 38.910458
+    },
+    "gpu_select_shadow_ms": {
+      "min": 0.0865,
+      "p50": 0.601209,
+      "p95": 1.119916,
+      "p99": 1.764375,
+      "max": 38.201
+    },
+    "cpu_ms": {
+      "min": 0.539874,
+      "p50": 0.830249,
+      "p95": 1.464876,
+      "p99": 15.457583,
+      "max": 125.582666
+    },
+    "frame_completion_ms": {
+      "min": 5.823125,
+      "p50": 14.480042000000001,
+      "p95": 19.012291,
+      "p99": 44.76925,
+      "max": 159.37912500000002
+    },
+    "triangles_drawn": {
+      "min": 287795,
+      "p50": 758260,
+      "p95": 1522013,
+      "p99": 1630620,
+      "max": 1648903
+    },
+    "shadow_triangles": {
+      "min": 410832,
+      "p50": 629014,
+      "p95": 1634055,
+      "p99": 1634650,
+      "max": 1653515
+    }
+  },
+  "overflow": 0,
+  "resident_bytes": [
+    911412552
+  ],
+  "stills": [
+    {
+      "file": "t-000.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          48,
+          235
+        ],
+        [
+          46,
+          233
+        ],
+        [
+          39,
+          230
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-015.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          48,
+          235
+        ],
+        [
+          42,
+          233
+        ],
+        [
+          33,
+          230
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-030.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          51,
+          235
+        ],
+        [
+          45,
+          233
+        ],
+        [
+          36,
+          230
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-045.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          53,
+          238
+        ],
+        [
+          50,
+          236
+        ],
+        [
+          44,
+          233
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-060.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          13,
+          235
+        ],
+        [
+          23,
+          234
+        ],
+        [
+          19,
+          231
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-075.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          53,
+          235
+        ],
+        [
+          56,
+          234
+        ],
+        [
+          50,
+          231
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-090.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          45,
+          234
+        ],
+        [
+          39,
+          232
+        ],
+        [
+          31,
+          229
+        ]
+      ],
+      "channels_clipped_255": 0
+    },
+    {
+      "file": "t-100.png",
+      "size": [
+        2560,
+        1440
+      ],
+      "rgb_extrema": [
+        [
+          45,
+          234
+        ],
+        [
+          39,
+          233
+        ],
+        [
+          31,
+          229
+        ]
+      ],
+      "channels_clipped_255": 0
+    }
+  ],
+  "videos": [
+    {
+      "file": "cluster-lod-reel.mp4",
+      "bytes": 27202779,
+      "commands": [
+        {
+          "kind": "probe",
+          "pid": 57223,
+          "command": [
+            "/opt/homebrew/bin/ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            "stream=codec_name,pix_fmt,width,height,r_frame_rate,avg_frame_rate,duration,nb_frames,nb_read_frames:format=duration,size",
+            "-of",
+            "json",
+            "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel-l3b/cluster-lod-reel.mp4"
+          ],
+          "exit": 0,
+          "seconds": 7.400184708000001,
+          "stderr": ""
+        },
+        {
+          "kind": "decode",
+          "pid": 58272,
+          "command": [
+            "/opt/homebrew/bin/ffmpeg",
+            "-v",
+            "error",
+            "-progress",
+            "pipe:1",
+            "-i",
+            "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel-l3b/cluster-lod-reel.mp4",
+            "-f",
+            "null",
+            "-"
+          ],
+          "exit": 0,
+          "seconds": 0.928157917,
+          "stderr": ""
+        }
+      ],
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 2560,
+            "height": 1440,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "60/1",
+            "avg_frame_rate": "60/1",
+            "duration": "40.000000",
+            "nb_frames": "2400",
+            "nb_read_frames": "2400"
+          }
+        ],
+        "format": {
+          "duration": "40.000000",
+          "size": "27202779"
+        }
+      },
+      "decode": "frame=1498\nfps=0.00\nstream_0_0_q=-0.0\nbitrate=N/A\ntotal_size=N/A\nout_time_us=24966667\nout_time_ms=24966667\nout_time=00:00:24.966667\ndup_frames=0\ndrop_frames=0\nspeed=49.7x\nprogress=continue\nframe=2400\nfps=0.00\nstream_0_0_q=-0.0\nbitrate=N/A\ntotal_size=N/A\nout_time_us=40000000\nout_time_ms=40000000\nout_time=00:00:40.000000\ndup_frames=0\ndrop_frames=0\nspeed=45.4x\nprogress=end\n"
+    },
+    {
+      "file": "cluster-lod-reel-1080p.mp4",
+      "bytes": 15423430,
+      "commands": [
+        {
+          "kind": "probe",
+          "pid": 58400,
+          "command": [
+            "/opt/homebrew/bin/ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-show_entries",
+            "stream=codec_name,pix_fmt,width,height,r_frame_rate,avg_frame_rate,duration,nb_frames,nb_read_frames:format=duration,size",
+            "-of",
+            "json",
+            "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel-l3b/cluster-lod-reel-1080p.mp4"
+          ],
+          "exit": 0,
+          "seconds": 4.208164417000001,
+          "stderr": ""
+        },
+        {
+          "kind": "decode",
+          "pid": 58971,
+          "command": [
+            "/opt/homebrew/bin/ffmpeg",
+            "-v",
+            "error",
+            "-progress",
+            "pipe:1",
+            "-i",
+            "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel-l3b/cluster-lod-reel-1080p.mp4",
+            "-f",
+            "null",
+            "-"
+          ],
+          "exit": 0,
+          "seconds": 0.5973716659999972,
+          "stderr": ""
+        }
+      ],
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1920,
+            "height": 1080,
+            "pix_fmt": "yuv420p",
+            "r_frame_rate": "60/1",
+            "avg_frame_rate": "60/1",
+            "duration": "40.000000",
+            "nb_frames": "2400",
+            "nb_read_frames": "2400"
+          }
+        ],
+        "format": {
+          "duration": "40.000000",
+          "size": "15423430"
+        }
+      },
+      "decode": "frame=2151\nfps=0.00\nstream_0_0_q=-0.0\nbitrate=N/A\ntotal_size=N/A\nout_time_us=35850000\nout_time_ms=35850000\nout_time=00:00:35.850000\ndup_frames=0\ndrop_frames=0\nspeed=70.9x\nprogress=continue\nframe=2400\nfps=0.00\nstream_0_0_q=-0.0\nbitrate=N/A\ntotal_size=N/A\nout_time_us=40000000\nout_time_ms=40000000\nout_time=00:00:40.000000\ndup_frames=0\ndrop_frames=0\nspeed=71.9x\nprogress=end\n"
+    }
+  ],
+  "failures": [],
+  "hold": {
+    "frames": 144,
+    "unique_scene_digests": 1
+  },
+  "clearance": {
+    "median_edge_pixels_at_clearance": 1.9661214351654053,
+    "oracle": "camera_clearance",
+    "samples": 2401,
+    "source_triangle_clearance": 0.9053984880447388,
+    "worst_t": 0.6320833563804626
+  },
+  "render_seconds": 513.605655917,
+  "command": "DYLD_LIBRARY_PATH=<cache>/out/reel/encoder-lib target/debug/clod-view reel <cache>/out/washington-4.clod --out <cache>/out/reel-l3b --seconds 40 --fps 60 --size 2560x1440"
+}
