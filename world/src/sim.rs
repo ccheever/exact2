@@ -67,6 +67,7 @@ impl<G: Game> Sim<G> {
         G::register(&mut world, SetupArgs(&args))?;
         G::setup(&mut world, &args);
         world.validate()?;
+        world.driver_owned = true;
         Ok(Self {
             world,
             args,
@@ -181,7 +182,7 @@ impl<G: Game> Sim<G> {
             self.apply_input(due)?;
             self.world.begin_tick();
             self.tick_failed = true;
-            G::tick(&mut self.world, &self.input, &self.args);
+            self.world.mutation(|w| G::tick(w, &self.input, &self.args));
             self.world.reap_orphans()?;
             self.world.step_clock();
             self.tick_failed = false;
@@ -411,6 +412,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("extra Sim save data"));
         }
         r.finish()?;
+        world.driver_owned = true;
         let next = Self {
             world,
             args,

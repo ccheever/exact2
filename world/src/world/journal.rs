@@ -313,6 +313,7 @@ impl World {
             .replacement
             .checked_add(1)
             .ok_or_else(|| DataError::new("replacement exhausted"))?;
+        next.driver_owned = self.driver_owned;
         next.changes = std::mem::take(&mut self.changes);
         next.consumers = std::mem::take(&mut self.consumers);
         next.change_next = self.change_next;

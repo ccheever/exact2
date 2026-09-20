@@ -184,3 +184,34 @@ fn smoothstep_preserves_nan_input() {
     assert!(math::smoothstep(0., 1., f32::NAN).is_nan());
     assert_eq!(math::smoothstep(0., 1., 0.5), 0.5);
 }
+
+#[test]
+fn panicking_tick_cannot_be_saved_through_the_underlying_world() {
+    struct Panics;
+    impl Game for Panics {
+        const ID: &'static str = "panics";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.spawn(()).unwrap();
+            panic!("tick interrupted");
+        }
+    }
+    let mut s = Sim::<Panics>::new(()).unwrap();
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.run(17.))).is_err());
+    assert!(s.save().is_err());
+    assert!(
+        s.world().save().is_err(),
+        "partial tick escaped as valid EXGAME"
+    );
+}
+
+#[test]
+fn owned_world_load_is_refused_before_changing_simulation() {
+    let mut s = Sim::<Board>::new(()).unwrap();
+    let bytes = s.world().save().unwrap();
+    s.run(17.).unwrap();
+    let before = s.save().unwrap();
+    assert!(s.world_mut().load(&bytes).is_err());
+    assert_eq!(s.save().unwrap(), before);
+}

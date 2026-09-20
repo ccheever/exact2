@@ -197,6 +197,7 @@ pub struct World {
     ownership: RefCell<Vec<u8>>,
     reap_dirty: bool,
     poisoned: bool,
+    pub(crate) driver_owned: bool,
 }
 const SINGLETON: Entity = Entity {
     index: 0,
@@ -242,6 +243,7 @@ impl World {
             ownership: RefCell::new(Vec::new()),
             reap_dirty: false,
             poisoned: false,
+            driver_owned: false,
         }
     }
     pub fn id(&self) -> WorldId {
@@ -311,7 +313,7 @@ impl World {
             Ok(())
         }
     }
-    fn mutation<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+    pub(crate) fn mutation<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self))) {
             Ok(value) => value,
             Err(panic) => {
@@ -727,6 +729,9 @@ impl World {
         budget: Option<&crate::data::limits::LoadBudget>,
         adapt: bool,
     ) -> Result<bool, DataError> {
+        if self.driver_owned {
+            return Err(DataError::new("restore the owning Sim, not its World"));
+        }
         let (next, changed) = self.decoded(bytes, budget, adapt)?;
         self.adopt(next)?;
         Ok(changed)
