@@ -161,19 +161,18 @@ pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
             related: Box::new([]),
         })?;
     let (file, sources) = sources::load(path, &src, &root)?;
-    let types = if file.components.is_empty() {
-        Types {
-            shapes: contract_types::check_declarations(&file)
-                .map_err(|e| sources.resolve(e.into()))?,
-            components: Vec::new(),
-        }
+    let (types, expanded) = if file.components.is_empty() {
+        (
+            Types {
+                shapes: contract_types::check_declarations(&file)
+                    .map_err(|e| sources.resolve(e.into()))?,
+                components: Vec::new(),
+            },
+            None,
+        )
     } else {
-        contract_types::check(&file).map_err(|e| sources.resolve(e.into()))?
-    };
-    let expanded = if file.components.is_empty() {
-        None
-    } else {
-        Some(expand(&file).map_err(|e| sources.resolve(e.into()))?)
+        let checked = contract_types::check(&file).map_err(|e| sources.resolve(e.into()))?;
+        (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {
         file: &file,

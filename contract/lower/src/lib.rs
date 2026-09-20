@@ -4,7 +4,7 @@
 //! vocabulary) / D4 (a `resource` names a source and its arguments) / D6
 //! (the corpus compares canonical bytes)
 //!
-//! Three steps. **Inline**: every component use is replaced by the used
+//! Input: the type-checked expansion, where every component use is replaced by the used
 //! component's view with its props substituted by the use's argument
 //! expressions and its bound names renamed apart, so the plan has one
 //! component and no prop table — a child component is a view over its props
@@ -28,7 +28,7 @@ pub mod tags;
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, UnOp};
-use contract_types::{Ref, Scope, Ty, Types};
+use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use exact_plan::asm::Asm;
 use exact_plan::builder::PlanBuilder;
@@ -161,19 +161,16 @@ struct FontUse {
 
 /// Lower a checked file to a plan.
 pub fn lower(
-    file: &File,
-    types: &Types,
+    checked: &Checked<'_>,
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    // The root as the plan sees it: inlined, with every stateful child's
-    // declarations lifted in (LLP 1017 P4c) — the same expansion the type
-    // pass checked, so its slots line up with `types.components[0]`.
-    let ex = contract_syntax::expand(file).map_err(|e| LowerError {
-        id: e.id,
-        message: e.message,
-        span: e.span,
-    })?;
+    // Keep the exact expansion whose root and row slots inference checked.
+    let Checked {
+        file,
+        types,
+        expanded: ex,
+    } = checked;
     let root = &ex.root;
     let root_types = &types.components[0];
     let mut l = Lowerer {

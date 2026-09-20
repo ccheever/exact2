@@ -17,7 +17,7 @@
 mod arity;
 
 use contract_syntax::{Component, Expr, File, Node, Span, Stmt};
-use contract_types::{Ref, Scope, Ty, Types};
+use contract_types::{Checked, Ref, Scope, Ty};
 use std::collections::BTreeSet;
 
 /// Another authored location needed to understand a rejection.
@@ -81,8 +81,13 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
     Ok(())
 }
 
-/// Check a file against its types.
-pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
+/// Analyze the authored file using its type-checked expansion.
+pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
+    let Checked {
+        file,
+        types,
+        expanded,
+    } = checked;
     check_routes_root(file, true)?;
     let Some(root) = file.components.first() else {
         return err(
@@ -101,12 +106,6 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
     // owns no `resource`, `mutation`, or `task` is the type pass's refusal
     // (`type-child-resource`), made before its view is checked.
-    let expanded = contract_syntax::expand(file).map_err(|e| AnalyzeError {
-        id: e.id,
-        message: e.message,
-        span: e.span,
-        related: Vec::new(),
-    })?;
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };

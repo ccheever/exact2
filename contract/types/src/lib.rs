@@ -367,6 +367,17 @@ pub(crate) fn record_source(
     Ok(())
 }
 
+/// A checked component file and the exact expansion its types describe.
+/// Later passes borrow this result instead of repeating component expansion.
+pub struct Checked<'a> {
+    /// Authored declarations, retained for scopes and source locations.
+    pub file: &'a File,
+    /// Inferred types, including the expanded root's lifted declarations.
+    pub types: Types,
+    /// The root and row ownership used during inference.
+    pub expanded: contract_syntax::Expanded,
+}
+
 /// Everything the checker learned.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Types {
@@ -900,7 +911,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 }
 
 /// Check a file: shared declarations, then every component.
-pub fn check(file: &File) -> Result<Types, TypeError> {
+pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
     if file.components.is_empty() {
         return err(
             "analyze-no-component",
@@ -973,7 +984,11 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         &types,
         file,
     )?;
-    Ok(types)
+    Ok(Checked {
+        file,
+        types,
+        expanded,
+    })
 }
 
 fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Result<(), TypeError> {

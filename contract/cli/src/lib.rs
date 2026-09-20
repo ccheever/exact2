@@ -377,9 +377,9 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
     contract_analyze::check_routes_root(&file, true)?;
-    let types = contract_types::check(&file)?;
-    let analysis = contract_analyze::check(&file, &types)?;
-    Ok(contract_lower::lower(&file, &types, &analysis, asset_root)?)
+    let checked = contract_types::check(&file)?;
+    let analysis = contract_analyze::check(&checked)?;
+    Ok(contract_lower::lower(&checked, &analysis, asset_root)?)
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

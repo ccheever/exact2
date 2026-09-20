@@ -252,8 +252,10 @@ bracket-aware line continuation, template strings lexed whole), a
 recursive-descent parser with spans on every node, and **inlining**: every
 component use becomes the used component's view with props substituted by the
 use's argument expressions (a curried `press=prop(args)` becomes
-`action(parent-args…, args)`) and the child's bound names renamed apart. Both
-later passes run on the same expansion.
+`action(parent-args…, args)`) and the child's bound names renamed apart. The
+type pass expands once and returns `Checked`, pairing the authored file,
+its inferred types, and that expansion. Analysis, lowering, and component
+symbol navigation reuse it without cloning or re-expanding the root.
 
 **Types** (`contract-types`): `Ty`, `Shapes`, the shared `Scope`/`Ref` (how
 a name resolves: slot, derive, resource, action, prop, param, `each` item at
