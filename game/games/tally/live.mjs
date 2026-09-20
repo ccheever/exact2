@@ -31,6 +31,9 @@ try {
     if(result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
     return result.result.value;
   };
+  // Without the Page domain enabled the script below is never injected, and the wrapped
+  // gpu_advance then throws on every frame: the world looks frozen when it is the fixture that failed.
+  await call('Page.enable');
   await call('Page.addScriptToEvaluateOnNewDocument',{source:`
     globalThis.race={advances:[],observerAdvances:null,done:false};
     const raf=globalThis.requestAnimationFrame.bind(globalThis), cancel=globalThis.cancelAnimationFrame.bind(globalThis);
@@ -56,20 +59,24 @@ try {
   await call('Page.navigate',{url:`http://127.0.0.1:${server.port}/`});
   let ready=false;
   for(let i=0;i<500;i++) {
-    ready=await evaluate('Boolean(globalThis.exact?.gpu && race.done)');
+    // The first polls can still see about:blank, where the injected script never ran.
+    ready=await evaluate('Boolean(globalThis.exact?.gpu && globalThis.race?.done)');
     if(ready)break;
     await Bun.sleep(20);
   }
   assert.ok(ready,'real ResizeObserver must deliver before the held first world frame');
   assert.equal(await evaluate('race.observerAdvances'),0,'negative control: resize must never call gpu_advance');
-  const state=()=>evaluate('Promise.resolve(exact.agent({op:"state"}))');
-  const before=(await state()).world[0];
-  await Bun.sleep(1000);
-  const after=(await state()).world[0];
-  assert.equal(before.host.owner,'human');assert.equal(after.host.owner,'human');
+  // A page opened without ?agent has no agent carrier at all: that IS the human-owned clock. Read what a person
+  // would see — the Contract text bound to the world's published tick count.
+  assert.equal(await evaluate('typeof exact.agent'),'undefined');
   assert.equal(await evaluate('Boolean(exact.now)'),false);
-  assert.ok(after.published.ticks>before.published.ticks,'negative control: live ticks must advance after the observer race');
-  console.log(JSON.stringify({before:before.published.ticks,after:after.published.ticks,elapsedMs:1000,observerAdvances:0,owner:'human'}));
+  const ticks=async()=>Number(/Tick (\d+)/.exec(await evaluate('document.body.innerText'))?.[1]);
+  const before=await ticks();
+  await Bun.sleep(1000);
+  const after=await ticks();
+  assert.ok(Number.isFinite(before) && after>before,`negative control: live ticks must advance after the observer race (${before} → ${after})`);
+  assert.ok(after-before>=30 && after-before<=90,`about 60 ticks per second expected, got ${after-before}`);
+  console.log(JSON.stringify({before,after,elapsedMs:1000,observerAdvances:0,owner:'human'}));
 } finally {
   if(child?.pid)child.kill('SIGKILL');
   if(exited)await exited;
