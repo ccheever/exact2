@@ -40,6 +40,10 @@ lto = "fat"
 opt-level = 0
 debug = true
 
+# Keep the CPU rasterizer's per-pixel loops fast during development and tests.
+[profile.dev.package.tiny-skia]
+opt-level = 3
+
 # Fast independent business-logic links in the resident development loop.
 [profile.logic-dev]
 inherits = "dev"

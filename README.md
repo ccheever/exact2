@@ -369,6 +369,11 @@ bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
 ```
 
+Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
+Debug assertions and overflow checks remain enabled; the normal development
+profile still leaves app and engine code unoptimized. Tests keep their full frame
+counts. Use release builds when comparing application frame costs.
+
 The shared build scripts select development trust explicitly too. Direct Cargo
 builds otherwise use production trust: an updating native artifact requires
 `EXACT_UPDATE_RECEIPT` pointing to the authenticated publisher receipt for its
