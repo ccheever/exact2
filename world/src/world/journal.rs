@@ -410,7 +410,7 @@ mod review_tests {
         let consumer = w.subscribe_changes().unwrap();
         w.spawn(()).unwrap();
         w.publish("kept", 3u32).unwrap();
-        w.emit("queued");
+        w.emit("queued").unwrap();
         w.session_log("session").unwrap();
         w.replacement = u64::MAX;
         let bytes = w.save().unwrap();

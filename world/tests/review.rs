@@ -27,7 +27,7 @@ fn untouched_and_edited_candidates_preserve_complete_continuation() {
         s.run(17.).unwrap();
         s.world().publish("score", 7u32).unwrap();
         s.world().log("saved game history").unwrap();
-        s.world().emit("pending delivery");
+        s.world().emit("pending delivery").unwrap();
         s.world().session_log("session history").unwrap();
         if drained {
             s.world().take_published();
@@ -325,7 +325,7 @@ fn stale_candidates_refuse_without_changing_continuation() {
     for elapsed in [17., 34.] {
         let mut s = Sim::<Board>::new(()).unwrap();
         s.world().publish("score", 7u32).unwrap();
-        s.world().emit("delivery");
+        s.world().emit("delivery").unwrap();
         let candidate = s.world().candidate().unwrap();
         s.run(elapsed).unwrap();
         let before = s.save().unwrap();
@@ -738,8 +738,38 @@ fn no_op_driving_and_empty_delivery_preserve_candidates_and_observation() {
     s.run(1.).unwrap();
     assert!(s.input_state().key("K"));
     assert!(c.commit(s.world_mut()).is_err());
-    s.world().emit("delivery");
+    s.world().emit("delivery").unwrap();
     let c = s.world().candidate().unwrap();
     assert_eq!(s.world().take_messages(), ["delivery"]);
     assert!(c.commit(s.world_mut()).is_err());
+}
+
+#[test]
+fn emitted_message_limits_refuse_without_panicking_or_changing_delivery() {
+    for oversized in [false, true] {
+        let w = World::new(60, 0);
+        let count = if oversized { 1 } else { 1024 };
+        for _ in 0..count {
+            let _ = w.emit("x".repeat(4096));
+        }
+        let before = w.save().unwrap();
+        let epoch = w.mutation_epoch();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.emit(if oversized {
+                "x".repeat(4097)
+            } else {
+                "one too many".into()
+            })
+        }));
+        assert!(result.is_ok(), "game-reachable admission must not panic");
+        assert!(result
+            .unwrap()
+            .unwrap_err()
+            .message
+            .contains("message queue limit"));
+        assert_eq!(w.save().unwrap(), before);
+        assert_eq!(w.mutation_epoch(), epoch);
+        assert_eq!(w.take_messages(), vec!["x".repeat(4096); count]);
+        w.validate().unwrap();
+    }
 }

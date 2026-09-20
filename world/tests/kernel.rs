@@ -557,13 +557,13 @@ fn paranoid_preserves_drained_delivery() {
         type Args = ();
         fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             w.publish("fixed", 1u32)?;
-            w.emit("initial");
+            w.emit("initial")?;
             Ok(())
         }
         fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
             w.publish("fixed", 1u32)?;
             if w.tick() == 1 {
-                w.emit("second");
+                w.emit("second")?;
                 w.publish("fixed", 2u32)?;
             }
             Ok(())
