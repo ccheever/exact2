@@ -1108,7 +1108,11 @@ const server = createServer(async (req, res) => {
   try {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
-    if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
+    // Verified dev loading fetches JS as bytes (not an ES module) and bypasses
+    // HTTP caches. Static-bake hints would transfer those same bytes twice.
+    if (index) body = body.toString()
+      .replace(/<link rel="(?:modulepreload|preload)"[^>]+href="(?:app\.wasm|gpu(?:_bg\.wasm|\.js))"[^>]*>\n/g, '')
+      .replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
     if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin'
       ? developmentInstallPage(body.toString(), localInstallToken)
       : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');

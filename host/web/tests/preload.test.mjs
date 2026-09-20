@@ -29,3 +29,15 @@ test('only manifest-declared surface modules preload the JS and credential-match
     assert.equal(document.includes('data-device-free-surfaces'),world);
   }
 });
+
+test('dev response drops static hints before its verified byte loader, leaving ordinary pages unchanged',()=>{
+  const source=readFileSync(new URL('../dev.mjs',import.meta.url),'utf8');
+  const start=source.indexOf('    if (index) body = body.toString()');
+  const transform=new Function('body','index',source.slice(start,source.indexOf('    if (INSTALL_FILES.includes(found.route))',start))+'return body;');
+  const before=page(ordinary);
+  assert.equal(transform(before,true),before.replace('<script type="module" src="./glue.js"></script>','<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>'));
+  const withModule=page({...ordinary,game:{world:true}});
+  assert.equal(transform(withModule,true).includes('rel="preload"'),false);
+  assert.equal(transform(withModule,true).includes('rel="modulepreload"'),false);
+  assert.equal(transform(withModule,false),withModule);
+});
