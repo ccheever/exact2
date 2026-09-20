@@ -1,5 +1,5 @@
 //! Bounded host string journal with line-index cursors, outside saved state.
-use exact_world::{DataError, LogCursor, World};
+use exact_world::{json, Data, DataError, LogCursor, World, Writer};
 use std::collections::VecDeque;
 const BYTES: usize = 48 * 1024;
 #[derive(Default)]
@@ -20,16 +20,11 @@ impl History {
         // The kernel returns at most 512 events / 64 KiB per read. Host lines
         // are JSON strings containing each event, not objects coerced by JS.
         let page = world.logs(self.cursor)?;
-        let entries: Vec<serde_json::Value> =
-            serde_json::from_str(&page.entries).map_err(|e| DataError::new(e.to_string()))?;
-        let lines = entries
+        let lines = event_lines(&page.entries)?
             .into_iter()
             .map(|entry| {
                 let line = entry.to_string();
-                let size = serde_json::to_string(&line)
-                    .map_err(|e| DataError::new(e.to_string()))?
-                    .len()
-                    + 1;
+                let size = json::to_string(&line)?.len() + 1;
                 if size > BYTES {
                     return Err(DataError::new("log line exceeds 49152 encoded bytes"));
                 }
@@ -60,24 +55,90 @@ impl History {
         }
         let first = self.next - self.lines.len() as u64;
         let from = since.max(first);
-        let lines: Vec<&str> = self
-            .lines
-            .iter()
-            .skip((from - first) as usize)
-            .map(|(line, _)| line.as_str())
-            .collect();
-        Ok(
-            serde_json::json!({"tick":world.tick(), "from":from, "next":self.next,
-            "lines":lines, "reset":self.reset_at.is_some_and(|at| since <= at),
-            "truncated":self.truncated || from != since})
-            .to_string(),
-        )
+        let mut out = json::Encoder::default();
+        out.begin_struct();
+        out.field("tick");
+        world.tick().write(&mut out);
+        out.field("from");
+        from.write(&mut out);
+        out.field("next");
+        self.next.write(&mut out);
+        out.field("lines");
+        out.begin_seq((self.next - from) as usize);
+        for (line, _) in self.lines.iter().skip((from - first) as usize) {
+            out.item();
+            out.string(line);
+        }
+        out.end_seq();
+        out.field("reset");
+        out.boolean(self.reset_at.is_some_and(|at| since <= at));
+        out.field("truncated");
+        out.boolean(self.truncated || from != since);
+        out.end_struct();
+        out.finish()
     }
+}
+
+// Split the kernel's already valid, bounded JSON event array. Do not decode or
+// reconstruct event objects merely to carry their existing text as host lines.
+fn event_lines(text: &str) -> Result<Vec<&str>, DataError> {
+    let text = text
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .ok_or_else(|| DataError::new("kernel log array expected"))?;
+    let (mut start, mut depth, mut quoted, mut escape) = (0, 0u32, false, false);
+    let mut lines = Vec::new();
+    for (i, b) in text.bytes().enumerate() {
+        if quoted {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                quoted = false;
+            }
+        } else {
+            match b {
+                b'"' => quoted = true,
+                b'{' | b'[' => depth += 1,
+                b'}' | b']' => depth = depth.saturating_sub(1),
+                b',' if depth == 0 => {
+                    lines.push(
+                        text.get(start..i)
+                            .ok_or_else(|| DataError::new("invalid log boundary"))?,
+                    );
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    if let Some(last) = text.get(start..).filter(|s| !s.trim().is_empty()) {
+        lines.push(last);
+    }
+    Ok(lines)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn host_lines_preserve_kernel_events_with_delimiters_escapes_and_unicode() {
+        let world = World::new(60, 0);
+        world.log("quotes \" slash \\ newline\n ,{}[] 🌕").unwrap();
+        let kernel: Vec<serde_json::Value> =
+            serde_json::from_str(&world.logs(LogCursor::default()).unwrap().entries).unwrap();
+        let page: serde_json::Value =
+            serde_json::from_str(&History::default().read(&world, 0).unwrap()).unwrap();
+        let host: Vec<serde_json::Value> = page["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|line| serde_json::from_str(line.as_str().unwrap()).unwrap())
+            .collect();
+        assert!(!host.is_empty());
+        assert_eq!(host, kernel);
+    }
     #[test]
     fn churn_returns_bounded_string_suffix_with_line_indices() {
         let world = World::new(60, 0);

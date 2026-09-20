@@ -332,6 +332,15 @@ fn broken_ownership_failure_is_inspectable_and_timestamped_restart_recovers() {
             text.contains("child") || text.contains("resources"),
             "{text}"
         );
+        let reply: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert!(
+            reply.get("error").is_none(),
+            "inspection must succeed through the agent carrier: {text}"
+        );
+        assert!(reply["world"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("original failure"));
     }
     assert!(s.messages().is_empty());
     s.bind(&[Value::Bool(true)], Some(1000.)).unwrap();

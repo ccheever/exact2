@@ -340,8 +340,15 @@ impl<G: Game> WorldSurface<G> {
             out.unit();
             out.field("failed");
             out.boolean(true);
+            // A top-level error is a refused agent operation. This is a
+            // successful inspection of a failed world, as with state.world.
+            out.field("world");
+            out.begin_struct();
+            out.field("failed");
+            out.boolean(true);
             out.field("error");
             out.string(error);
+            out.end_struct();
         } else {
             out.string(&format!("0x{:016x}", w.hash()?));
         }
