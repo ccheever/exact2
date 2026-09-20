@@ -56,6 +56,7 @@ make sense to do next.
 ## Inspect and format Contract
 
 ```sh
+cargo run -q -p contract -- build apps/messages/app.contract --json
 cargo run -q -p contract -- symbols apps/messages/app.contract
 cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
 cargo run -q -p contract -- fmt --check apps/messages/app.contract
@@ -68,6 +69,15 @@ local bindings, parameters, typed shape fields and literal IDs are navigable.
 Shared shape/function/style files can be queried directly. The query uses the
 compiler's import and type rules and writes no files. Repeated literal IDs have
 an edge to each matching declaration; dynamic IDs have no static target.
+
+`build --json` writes one diagnostics array to stdout: `[]` on success, or a
+stable `id`, `message`, original `file`, `line`, `col`, `end_col`, and `related`
+array per refusal. Compilation currently returns the first refusal; related
+locations remain empty. Locations use the same byte columns as symbols; zero
+means no source range, and a null file means no file is associated. No prose is
+mixed into JSON, including argument and output-write failures. Exit codes are
+0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
+`-o <file.plan>` writes the same plan bytes in either output mode.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result

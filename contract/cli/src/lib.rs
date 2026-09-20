@@ -85,6 +85,25 @@ pub struct CompileError {
     pub file: Option<PathBuf>,
 }
 
+impl CompileError {
+    /// A machine-readable diagnostic (LLP 1035.005 D2). Columns are one-based
+    /// UTF-8 byte offsets with an exclusive end; zero means no source range.
+    /// Standalone source has a null file. Related locations are empty until a
+    /// compiler pass supplies them; no location is guessed from message text.
+    pub fn to_json(&self) -> String {
+        serde_json::json!({
+            "id": self.id,
+            "message": self.message,
+            "file": self.file.as_ref().map(|file| file.to_string_lossy()),
+            "line": self.span.line,
+            "col": self.span.col,
+            "end_col": self.span.end_col,
+            "related": [],
+        })
+        .to_string()
+    }
+}
+
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = &self.file {
