@@ -58,6 +58,9 @@ impl Compute {
     pub fn new(renderer: &Renderer, reader: &Reader<'_>, capacity: Option<u32>) -> Result<Self> {
         let device = &renderer.device;
         let instances = renderer.instance_count;
+        if instances as u64 * reader.clusters.len() as u64 > u32::MAX as u64 {
+            return Err("scene exceeds the u32 candidate counter limit".into());
+        }
         let quota = capacity
             .unwrap_or(4_194_304 / instances)
             .min(reader.clusters.len() as u32)

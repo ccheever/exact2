@@ -299,6 +299,24 @@ pub fn run(
                     }
                 }
             }
+            if shadow_near > 0 {
+                let (_, full) = gpu_frame(&mut gpu, reader, &scene, &camera, false)?;
+                let reference_light =
+                    select::select_culled(reader, &scene.instances, &light, 2048, 2.0, false);
+                let affected: BTreeSet<_> = pair_set(&reference_light)
+                    .symmetric_difference(&pair_set(&full[1]))
+                    .map(|p| p[1])
+                    .collect();
+                for instance in affected {
+                    let (triangles, bad_edges) = edge_counts(reader, &full[1], instance);
+                    edge_triangles += triangles;
+                    if bad_edges > 0 {
+                        failures.push(format!(
+                            "{layout}/{step}/{instance}: shadow GPU cut has {bad_edges} bad edges"
+                        ));
+                    }
+                }
+            }
             println!(
                 "{}",
                 json!({"oracle":"gpu_camera","layout":layout,"camera":step,"visible":cuts[0].clusters,"shadow_visible":cuts[1].clusters,"candidates":cuts[0].candidates,"shadow_candidates":cuts[1].candidates,"near_boundary":near+shadow_near,"bad_set_differences":bad+shadow_bad,"image_changed_bytes":image_bytes,"cull_color_changed_bytes":cull_bytes,"cull_shadow_changed_bytes":shadow_bytes,"deterministic":deterministic_ok})

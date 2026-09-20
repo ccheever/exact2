@@ -271,7 +271,8 @@ impl Renderer {
                 resource: globals.as_entire_binding(),
             }],
         });
-        let mut static_bytes = instances.size() + clusters.size() + globals.size();
+        let mut static_bytes =
+            instances.size() + clusters.size() + globals.size() + dummy_draws.size();
         let mut pages = Vec::new();
         for (id, p) in reader
             .pages

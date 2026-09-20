@@ -72,6 +72,11 @@ impl Renderer {
         shadow_selection: &Selection,
         gpu: Option<(f32, bool, bool)>,
     ) -> Result<Frame> {
+        if gpu.is_none() && self.compute.is_some() {
+            return Err(
+                "CPU reference rendering needs its own renderer with CPU-owned lists".into(),
+            );
+        }
         if self.mode == Mode::Naive
             && matches!(view, View::Clusters | View::Depth | View::Triangles)
         {
@@ -263,10 +268,6 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        // Metal counters are resolved in a subsequent command buffer so final fragment
-        // timestamps are complete. No CPU wait or map occurs at this boundary.
-        self.queue.submit([encoder.finish()]);
-        let mut encoder = self.device.create_command_encoder(&Default::default());
         let timestamps = if let (Some(query), Some(resolve)) = (&self.query, &self.query_resolve) {
             let read = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamps"),

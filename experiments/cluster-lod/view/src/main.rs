@@ -107,6 +107,7 @@ fn run() -> Result<()> {
                 "gpu_ms",
                 "gpu_select_ms",
                 "cpu_ms",
+                "frame_completion_ms",
                 "gpu_main_ms",
                 "gpu_shadow_ms",
             ] {
@@ -115,9 +116,14 @@ fn run() -> Result<()> {
                     .filter_map(|s| s.report[key].as_f64())
                     .collect();
                 values.sort_by(f64::total_cmp);
-                if !values.is_empty() {
-                    report[key] = json!(values[values.len() / 2]);
+                if key.starts_with("gpu_") {
+                    report["valid_timestamp_samples"][key] = json!(values.len());
                 }
+                report[key] = if values.len() == count as usize {
+                    json!(values[values.len() / 2])
+                } else {
+                    json!(null)
+                };
             }
             report["measured_frames"] = json!(count);
             report["warmup_frames"] = json!(u32::from(options.command == "time"));
@@ -203,6 +209,7 @@ fn sample(
     };
     let encode_ms = start.elapsed().as_secs_f64() * 1000.0;
     let (pixels, times) = readback::read(renderer, &frame)?;
+    let frame_completion_ms = start.elapsed().as_secs_f64() * 1000.0;
     let mut s = frame.stats;
     if gpu {
         let cuts = selection_readback::selections(
@@ -222,7 +229,7 @@ fn sample(
         s.overflow = cuts[0].overflow;
         s.shadow_overflow = cuts[1].overflow;
     }
-    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"ground_draws":1,"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
+    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"ground_draws":1,"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"frame_completion_ms":frame_completion_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
     Ok(Sample { pixels, report })
 }
 fn save(path: &Path, pixels: &[u8], width: u32, height: u32) -> Result<()> {

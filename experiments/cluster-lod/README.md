@@ -1,10 +1,13 @@
-# Cluster LOD — offline bake and CPU reference renderer
+# Cluster LOD — offline bake, GPU selection and hardware rasterization
 
 Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numerical
-oracles; L2a adds Metal/WebGPU hardware rasterization and the CPU reference selector.
+oracles; L2a adds hardware rasterization; L2b adds core-WebGPU selection,
+culling, stable compaction and per-page indirect draws, retaining the CPU oracle.
 The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
 
-**Status:** L1 verified on Linux and this Mac; L2a complete and verified on Apple M5 Max / Metal; Wasm library builds.
+**Status:** L1/L2a verified; L2b GPU image/selection oracles verified on Apple M5 Max
+/ Metal. Main-pass timing remains limited by invalid counter readbacks (decision 27);
+final validation and measurement results are recorded below.
 
 ## Run
 
@@ -32,11 +35,18 @@ All meshes, baked outputs, exported cuts and logs belong in
 
 ```sh
 cargo build -p clod-view
+# Full checks, all 32 timing cases, and 64 cameras × three layouts per real asset:
+python3 measure.py verify
+python3 measure.py sweep
+python3 measure.py oracles
 asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-1.clod"
 out="$HOME/Library/Caches/exact2-cluster-lod/out/demo"
 target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 0.5
 target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 0.5
-target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --frames 7
+target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --select gpu --frames 7
+target/debug/clod-view time "$asset" --out "$out/brute.png" --layout grid:400 --select brute --frames 7
+target/debug/clod-view render "$asset" --out "$out/overflow.png" --capacity 1
+target/debug/clod-view oracle "$asset" --steps 64 --size 256x256
 target/debug/clod-view compare "$asset" --out "$out/compare" --threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1
 target/debug/clod-view pop "$asset" --out "$out/pop" --threshold-px 1 --steps 240
 cargo test --workspace --no-fail-fast -- --nocapture
@@ -45,9 +55,13 @@ cargo fmt --all -- --check
 cargo build -p clod-view --lib --target wasm32-unknown-unknown
 ```
 
-Defaults: cluster mode, lit view, single layout, threshold 1 px, 2560×1440,
+Defaults: cluster mode, GPU selection, culling on, lit view, single layout, threshold 1 px, 2560×1440,
 45° vertical field of view, hero t=0. `--mode naive` uses the indexed baseline.
-Layouts: `single`, `ring:N`, `grid:N`, `field:N,seed`; N=1..10,000. Views:
+Selection: `--select gpu|cpu|brute`; `brute` scans every cluster of each surviving
+instance on the GPU. `--cull on|off` controls both passes; overdraw disables culling.
+`--capacity N` sets a fixed **per-instance** GPU quota at load time (default rule
+in decision 26); zero is clamped to one. CPU reference rendering uses its own
+renderer/list buffers. Layouts: `single`, `ring:N`, `grid:N`, `field:N,seed`; N=1..10,000. Views:
 `lit|clusters|depth|triangles|instances|overdraw`. Explicit world-space camera:
 `--eye x,y,z --target x,y,z --fov degrees`. `--size WIDTHxHEIGHT` caps at 8192².
 The library accepts byte slices and caller-owned wgpu devices; I/O, timing,
@@ -212,6 +226,8 @@ must be finite, nonnegative and less than `f32::MAX`.
     on visibility. Baseline chunks cap indices at 128 MiB and vertices at 120 MiB.
     GPU residency counts allocated buffers/textures, with readback separate;
     driver overhead, shader binaries and allocator overhead are not measurable here.
+    L2b supersedes the growing GPU list with decision 26; the CPU reference retains
+    this growth policy.
 
 22. Keep only the current and worst frame pairs in memory in compare/pop and
     encode the winning PNGs once at the end. This removes repeated PNG writes
@@ -245,12 +261,16 @@ must be finite, nonnegative and less than `f32::MAX`.
     holes; it is an explicitly reported degraded image, not a crack-free cut.
 
 27. Metal timing limitation found during L2b: main-pass end counters were zero
-    or stale after indirect compute-selected rendering. Three diagnostic/fix
+    or stale in the expanded timing path (CPU and naive commands also affected). Three diagnostic/fix
     rounds inspected raw counters, reordered query indices into execution order,
     and resolved in a subsequent command buffer. The issue persisted; the fix
     loop stopped. Invalid pairs are printed with all eight raw values and become
-    JSON null, never zero or a fabricated duration. Valid select/shadow timings
-    and CPU costs are still reported; a missing total cannot establish 16.6 ms.
+    JSON null, never zero or a fabricated duration. A stage median requires all
+    measured samples to be valid; valid sample counts are explicit. Valid select/shadow timings
+    and CPU costs are still reported. `frame_completion_ms` is a separate host-clock
+    latency from encode start through completed RGBA readback: an upper bound
+    including submission, GPU work and pixel transfer, not a substitute GPU
+    stage time. The unsuccessful extra-submission workaround was removed.
 
 28. Reuse L1's 524,288-triangle (subdivision 8) closed fixture for the GPU edge
     oracle, and share the edge-count implementation through `clod-format::oracle`.
@@ -258,6 +278,19 @@ must be finite, nonnegative and less than `f32::MAX`.
     cuts, identically on CPU and GPU (zero set differences). That new-fixture
     bake/topology limitation is retained here as evidence, not blamed on GPU
     selection or hidden by a relaxed edge threshold.
+
+29. Keep topology-preserving bakes and their unchanged SHA-256 digests. At 1 px,
+    Washington field main geometry is about 125 M triangles, over four times the
+    30.44 M terminal floor for 5,000 instances. That measurement does not isolate
+    the terminal floor as the dominant cost; permissive/sloppy fallback is not
+    adopted or claimed tested. No HZB, streaming or optional core features added.
+30. The GPU frame uploads two fixed selection uniforms and one render uniform,
+    encodes eight fixed compute dispatches and two page-draw loops, and submits.
+    Instances and metadata are uploaded only at scene load. CPU frame work is
+    O(pages), independent of clusters and instances, for a fixed asset. Diagnostic
+    visible/counter/shadow readbacks are explicit post-frame CLI/test operations;
+    their results never feed a draw. Reject scenes exceeding the u32 candidate
+    counter range rather than silently wrapping a measurement.
 
 ## Results
 
@@ -525,9 +558,9 @@ show source facets and visibly coarse shadow edges. At 8 px the worst-pair
 images show altered relief/shadow detail; small mean RGB errors do not imply
 that every feature is visually identical.
 
-This is an offscreen CPU-reference lane. The browser library compiles but has
+The L2a results above are from the offscreen CPU-reference lane. The browser library compiles but has
 not been driven in a browser, and there is no interactive window, streaming,
-occlusion culling or LOD morphing. GPU selection belongs to L2b. The declared
+occlusion culling or LOD morphing. L2b results below cover GPU selection. The declared
 regression bounds apply to the measured fixtures/cameras, not arbitrary meshes.
 
 Useful local PNGs: `<out>/L2a/<asset>/render-single-cluster.png`,
