@@ -8620,6 +8620,16 @@ no pending picture or unfinished input. The final observer flush is unmeasured.
 |Loaded|99|12.357211|6|
 |Recovery|92|7.533652|0|
 
+The complete advancing-timer cohorts remain slower than the all-turn population:
+loaded8/8 paint, with whole median9.701077ms/max12.357211ms and6/8 misses;
+silent8/8 paint, median10.704581ms/max11.735834ms and8/8 misses. The loaded
+Paint median is3.996827ms, Tick2.312384ms, picture observation1.928987ms and
+KMS copy1.045192ms. Their separate medians cannot be added to reconstruct a
+median turn. FrameBuild includes Paint and observation; HostCommit/Geometry
+are nested inside Tick. Observation is measurable overhead, not a measured
+counterfactual production speedup. Selected arithmetic is retained in the private
+`target/messages-stock-observer-b3d12c3-timer-price-v1/selected.json`.
+
 These are instrumented elapsed baseline observations, not an A/B improvement,
 CPU time or physical120Hz. Loaded timers include8 advancing and26 no-change
 callbacks; counting all34 as producer progress or using all-turn medians as
@@ -8670,3 +8680,54 @@ evidence is under MAIN`target/mac-messages-current-execution-v1`, including
 All owned groups retire, no retry or recompile occurs in the corrected runtime
 relay, and host free space stays above76.37GB. No measured resize phase, native
 performance benefit or120Hz claim follows from this setup repair.
+
+### 8.158 Keep collection geometry out of the legacy AppKit list path
+
+The presenter registered every `list` view for legacy viewport reports, including
+lists already owned by common collections. A legacy report reaches
+Runner.list_viewport and the legacy instance window updater, which cannot operate
+on a collection's separately owned rows. Its `not a windowed list` error can
+poison subsequent Runner actions. The originating error was not captured in
+§8.157's carrier stderr; the specific chain was initially a source-derived cause
+candidate, while the later `Poisoned` refusals were directly observed.
+
+A one-condition change at the legacy report entry rejects collection-owned
+views. It covers initial synchronization, scroll synchronization and deferred
+list filling without suppressing common collection layout/scroll feedback.
+Ownership is installed by the batch metadata pre-scan before view operations;
+complete snapshots retire ownership and reset clears both paths. Ordinary
+legacy lists still use their existing callback. All other current flow and
+between-frame list scheduling remains unchanged.
+
+Tests are authored first in the existing CollectionMacTests fixture: an onList
+spy is installed before initial apply, collection reports must stay zero while
+common feedback still emits, and an equivalent noncollection list must report
+once. These XCTest methods remain UNRUN on this CLT-only machine. Source review
+checks the actual registration order and the ordinary positive path; this is
+not substituted for an executed unit result.
+
+One coherent1bc/ABI6 Swift app adds only this ownership guard to §8.157's
+owned-UP product; the Rust archive, generated app and workload remain unchanged.
+The optimized Swift build exits0 in21.727s and capture exits0 in0.434s. A single
+29-request actual-app diagnostic then exits0 in3.286s with all five actions
+accepted: windowing at action epoch2, history10,000 at5, batch32 at6, keyboard
+batch1 at7 and keyboard batch32 at8. Common feedback advances the first returned
+state to epoch4; the acceptance check correctly distinguishes action epoch from
+later geometry commits. Every counted history is complete; final state is
+10,000 rows/batch32/windowed=true. Existing journals have no dropped lines and
+the ten existing journal reads capture no carrier stderr lines. There is no
+claim about shutdown output after the last read.
+
+This closes the reproduced setup refusal in the pinned app. It does not prove
+current ABI8 runtime behavior, ordinary physical clicks, continuous resize or a
+performance gain. The former29-request run with four Poisoned refusals and all
+earlier failures remain unchanged. No producer/resize/performance phase is run.
+
+MAIN`target/mac-messages-current-execution-v1/collection-legacy-report-fix-v1`
+retains the two source patches, authored tests, compiled inputs, build/runtime
+receipts and original JSON replies. Binary`3569fa78`, relink receipt`d78a33cb`
+and report`a3287b09` identify distinct objects. Current production differs by
+exactly the ownership condition, inverse-checked against its own base rather
+than replacing the file with the older ABI6 source. All owned groups retire;
+host free space remains above76.32GB. No retry or additional instrumentation
+is used, and the source/runtime validation scopes stay separate.
