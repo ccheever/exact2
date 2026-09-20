@@ -16,13 +16,13 @@ cut of a closed mesh is closed; not guaranteed manifold: 503 pinched edges acros
 501 cuts, worst incidence 4. These are edge-cut occurrences in the 21-fixture sweep;
 this statement does not promise absence of geometric self-intersection.
 
-Historical F1 strict-manifold cost: at 400 instances, 2560×1440 and 1 px, the main-pass medians are **22.332 vs 74.609 ms
-(Gaul)** and **115.172 vs 428.440 ms (Washington)**, GPU cluster vs indexed naive.
-The corresponding shadow medians are 15.619 vs 68.396 ms and 70.339 vs 357.158 ms.
-These runs have zero drops; Washington uses a 12,000-cluster per-instance quota.
-Shadows use twice the main error threshold, so the main-pass comparison leads.
-The strict-manifold criterion raised the minimum geometry substantially. These
-F1 timings are historical; F2 measurements below supersede them. Quota-overflow rows draw incomplete images and support no speedup claim.
+At 400 instances, 2560×1440 and 1 px, main-pass medians are **1.490 vs 78.622 ms
+(Gaul)** and **3.852 vs 365.483 ms (Washington)**, GPU cluster vs indexed naive
+with the same instance-frustum cull. All four rows have zero overflow. Both
+cluster rows use 10,485 slots per instance. Shadows, measured separately, are
+0.313 vs 72.492 ms and 2.328 vs 336.622 ms; cluster shadows use 2 px and naive
+shadows use full geometry. GPU selection costs 2.114 ms and 0.619 ms respectively
+(including shadow selection), separate from the main-pass figures.
 
 ## How to run
 
@@ -37,15 +37,17 @@ cargo run -p clod-bake -- <input.ply> <cache>/out/mesh.clod --max-triangles 128 
 cargo run -p clod-bake -- --inspect <cache>/out/mesh.clod
 cargo run -p clod-bake -- --cut <cache>/out/mesh.clod --threshold 1e30 --obj <cache>/out/terminal.obj
 cargo run -p clod-bake -- --generate 8 <cache>/out/sphere.ply
+bun measure.mjs bake # cached scans, two release bakes each
 bun measure.mjs verify
 bun measure.mjs sweep
 bun measure.mjs oracles
+bun measure.mjs images # both scans: comparison, 240-frame path, lit/cluster views
 ```
 
 `verify` runs workspace tests with `--no-fail-fast --nocapture`, clippy with
 `-D warnings`, fmt, and both format/view-library wasm32 builds; it reports all
 command failures and source-file lengths. `sweep` runs 48 default-quota timing
-configurations plus four larger-quota runs for complete Gaul field/Washington grid cuts.
+configurations plus four larger-quota comparison runs; any overflow fails the sweep.
 `oracles` checks 64 cameras × three layouts per real asset. The scripts record
 commands, PIDs, exit codes and elapsed times in `<cache>/out/F2/`.
 
@@ -153,13 +155,17 @@ F2 decisions: compare signed position-welded boundary chains, discarding zero
 coefficients and incidence counts; zero-length edges contribute zero. Retain the
 existing dependent-transition stop for a real chain change. Record direct rejects
 and dependent stops separately. Bump the bake to v3 because the accepted DAG changes.
-Freeze the valid 6,456-triangle mixed cut from sweep camera 36 for six aimed
-32×32 image windows; this intentionally magnifies the pinches without automatic
-refinement removing them. CPU uploads this cut to the ordinary cluster hardware
+Freeze three valid cuts from sweep cameras 36, 9 and 16 to cover all four
+distinct observed pinches in twelve aimed 32×32 image windows; this intentionally
+magnifies the pinches without automatic
+refinement removing them. CPU uploads each cut to the ordinary cluster hardware
 path; the permanent GPU sweep independently checks GPU-selected cuts.
 Target subdivision 6/seed 0 for pinch images: it has the most edge-cut pinch
 occurrences (109) and the largest simultaneous count (2, tied). Keep F1 costs as
-historical results. Do not add a manifold mode.
+historical results. Do not add a manifold mode. Make sweep exit nonzero on any
+overflow so a green
+sweep certifies complete measured rows; keep the same 52 configurations for F1
+comparison. Bake with the release baker, matching the previous bake measurements.
 
 1. Preserve position bits; pack normals only. Identical border coordinates are
    necessary but insufficient for a crack-free cut: decision 32 also checks topology.
@@ -249,7 +255,8 @@ historical results. Do not add a manifold mode.
 40. Use Bun for measurement orchestration. Preserve superseded measurements in an
     explicitly historical archive; current tables must come from v3 and reversed-Z.
 41. Equality oracles reserve the full 128 MiB core visible-list binding budget,
-    divided per instance, to check complete cuts of the larger v2 terminal patches.
+    divided per instance. This was needed by F1's inflated terminal patches and
+    remains the complete-cut oracle budget, independent of performance quotas.
     Default-quota timings remain separate, and the one-slot overflow oracle remains.
 42. Disable shadow cone rejection in CPU/WGSL: on Washington's grid it removed a
     rasterized texel (depth 0.48806113 → 0.48824522), while sphere-only culling was
@@ -259,233 +266,309 @@ historical results. Do not add a manifold mode.
     numerical boundary band. Closed-edge diagnostics apply only to closed fixtures;
     the real scans use image equality and localized coverage.
 
-## Results (F1 historical measurements; F2 evidence above)
+## Results
 
-Measurements below are on Apple M5 Max / Metal, wgpu 30.0.1, opt-level=2,
-debug=false, incremental=false. `<out>` means `<cache>/out/F1/`.
-[Round-1 archive](results/round-1.md) preserves every prior README number for
-provenance; its v1 timings and earlier validation claims are superseded.
+Apple M5 Max / Metal, wgpu 30.0.1. Viewer/test opt-level=2; release baker;
+debug info and incremental compilation disabled. `<out>` means `<cache>/out/F2/`.
+The [F1 manifold-cost archive](results/f1-manifold.md) preserves the superseded
+measurements, including the 5,000-instance failures. [Earlier measurements](results/round-1.md)
+and [F1 details](results/f1-details.md) remain historical.
 
-### Topology and regression evidence
+### Boundary-chain evidence
 
 Command: `cargo test -p clod-bake --test topology -- --nocapture`.
-Before: 21 fixtures, 315 uniform +10,500 oriented camera cuts, 378 failed cuts,
-616,144,192 triangle occurrences, 62.419445333 s. The first topology-only fix
-checked 622,100,574 occurrences in 26.939051209 s with zero failures; subsequent
-normal normalization changes the deterministic fixture bake. Final counts are in
-the verification table below. Detailed failures include every edge's incident
-clusters, group IDs, depths and both projected errors in `<out>/topology-before.log`.
-Smallest observed source: `<out>/subdivision-5-seed-0.ply` (8,192 triangles).
+The unfiltered run checked 614,133,420 triangle occurrences in 10,815 cuts
+(315 uniform, 10,500 camera cuts). All 503 offending occurrences were balanced
+pinches across 501 cuts, representing 16 distinct fixture/edge pairs. No ancestor
+overlaps or sphere-containment violations were observed. The final chain-filter
+run checks the same geometry and cuts and passes in 31.825762 s.
 
-Uniform cuts fail too. All 21 original fixtures had zero ancestor overlaps and
-zero sphere-containment violations at 1e-6 tolerance. Edge (594,2331), formerly
-2 incidences in child group 4, had 4 in replacement clusters 21/22 at depth 2;
-simplified/refined errors 4.940409/2.817221 px, threshold 3.167388 px. Thus this was
-invalid replacement topology, not projection nonmonotonicity, early terminals,
-FLT_MIN or a wrong refined link. Rejected transitions preserve the finer patch.
+| Incidence | Net winding | Edge-cut occurrences | Closed-cut failures under F2 |
+| --- | --- | --- | --- |
+| 4 | 0 | 503 | 0 |
+| any | non-zero | 0 | 0 |
 
-| Review item | Failing evidence before fix | Passing gate / disposition |
-| --- | --- | --- |
-| Root cause | `topology-before.log`: 378 bad cuts, including uniform | `multi_fixture_closed_cuts`: 21 fixtures ×515 cuts |
-| 1: zero threshold | `projection-before.log`: 8/9 cases drew 24,382 instead of 32,768 | CPU, envelope GPU and brute GPU: 9/9 source cuts |
-| 2: vacuity/coverage | `lod-disabled-old-oracle.log` passed forced-original; new gate failed it. Injected crack passed mean gate | Reduction/diversity/mixed cuts, 96 scan coverage cameras and two crack controls |
-| 3: reader | `reader-before.log`: eight new corruptions accepted | 36 malformed files rejected, five accessor-overflow and four writer-arithmetic cases |
-| 4–5: depth/scene | `render-before.log`: equal depths, nonuniform/zero extent accepted | 0.01-separated surfaces at distance 100, both render paths; scene errors |
-| 6: fairness/timing | Unculled naive count; invalid timestamp counters; wrap failed | Same instance cull, eight on/off timing cases, five arithmetic cases, 52 timing commands |
-| 7: FFI | Borrowed pointers remained; unchecked narrowing | Clear pointers, checked conversions, exercised by all fixture/scan bakes |
-| 8: normals | `inputs-before.log`: six extreme-normal cases failed | Six finite cases preserve direction; nonfinite inputs rejected before FFI |
-| 9: glTF | Mixed primitive lost authored normals | Preserve authored primitive; missing buffer panic **not reproduced**, index 99 already Err |
-| 10–11: scene/limits | Zero extent accepted; naive cluster limit rejected; oversized baseline panicked | Error before GPU allocation; unused 134,217,856-byte cluster table accepted in naive |
-| 12–13: tooling/docs | Python runner and superseded notebook | Bun verify/sweep/oracles; structured README and historical numeric archive |
+| Input | Transitions checked | Direct chain rejects | Total stopped, including dependents |
+| --- | --- | --- | --- |
+| 21 fixtures | 8,425 | 0 | 0 |
+| Gaul | 4,004 | 0 | 0 |
+| Washington | 17,186 | 3 | 3 |
 
-Pop remains a report, not a quality test. No pop-bound claim is made. FFI structural
-repairs were verified through bakes rather than fabricated runtime failing cases.
+Washington still needs three genuine boundary-chain rejections; its existing
+boundary/defects must be preserved. Neither scan is asserted to be closed.
+The counts above cover every candidate replacement in each bake. Five oracle
+controls also distinguish closed edges, a balanced pinch, a missing face, a
+flipped face, and odd incidence: all five pass with the expected winding counts.
 
-### Verification
+### Pinches under inspection
 
-Command: `bun measure.mjs verify`. 18 tests passed; zero GPU/asset skips.
+Command: `cargo test -p clod-view --test pinches -- --nocapture`.
+Subdivision 6 / seed 0 has 109 pinch occurrences, the largest fixture total,
+and four distinct pinched edges. Three valid cuts from sweep cameras 36, 9 and 16
+cover all four. Freeze them for inspection so the aimed close cameras do not
+refine away those edges. The cluster path uses CPU-uploaded selection and ordinary
+hardware rasterization; this is a magnified diagnostic, not a 1 px selection claim.
+
+100,000 area-weighted cut→source samples per cut; 1,025 additional samples along
+each pinched edge (300,000 +4,100 samples total). All maxima are below claim and
+pass the existing 4×claim +1e-6 gate. Zero winding errors or ancestor overlaps.
+
+| Cut camera | Triangles | Pinches | Claimed error | Max distance | RMS | Edge max | Max / claim | Gate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 36 | 6456 | 2 | 0.025093328207731247 | 0.016419235482643745 | 0.0023954809377335446 | 0.005297556592517174 | 0.6543267336528513 | 0.10037431283092499 |
+| 9 | 1020 | 1 | 0.0682688057422638 | 0.03970591802658101 | 0.007744344005375535 | 0.016327933736090972 | 0.5816114343128154 | 0.27307622296905515 |
+| 16 | 510 | 1 | 0.10654407739639282 | 0.059685048141485196 | 0.011571682463316281 | 0.030042413606826406 | 0.5601911396672895 | 0.42617730958557126 |
+
+| Cut / edge / camera | Mean absolute RGB /255 | Max byte | Fraction >2/255 | Interior / missing pixels |
+| --- | --- | --- | --- | --- |
+| 36 / 0 / 0 | 0.012201286764705882 | 8 | 0.654296875 | 1024 / 0 |
+| 36 / 0 / 1 | 0.012538296568627452 | 8 | 0.646484375 | 1024 / 0 |
+| 36 / 0 / 2 | 0.012271497140522876 | 8 | 0.666015625 | 1024 / 0 |
+| 36 / 1 / 3 | 0.0350796568627451 | 16 | 0.99609375 | 1024 / 0 |
+| 36 / 1 / 4 | 0.015607128267973856 | 7 | 0.90234375 | 1024 / 0 |
+| 36 / 1 / 5 | 0.013802083333333333 | 7 | 0.84765625 | 1024 / 0 |
+| 9 / 0 / 0 | 0.02497702205882353 | 25 | 0.845703125 | 1024 / 0 |
+| 9 / 0 / 1 | 0.023012408088235296 | 27 | 0.822265625 | 1024 / 0 |
+| 9 / 0 / 2 | 0.021343954248366014 | 25 | 0.796875 | 1024 / 0 |
+| 16 / 0 / 0 | 0.013978247549019608 | 18 | 0.861328125 | 1024 / 0 |
+| 16 / 0 / 1 | 0.010926011029411764 | 18 | 0.5986328125 | 1024 / 0 |
+| 16 / 0 / 2 | 0.0063751021241830064 | 16 | 0.2421875 | 1024 / 0 |
+
+All twelve windows are 32×32, centered on the known pinched edge: 12,288 interior
+pixels, zero missing. The largest local max is 27/255; mean differences range
+from 0.0063751021241830064 to 0.0350796568627451. Images are in
+`<out>/pinches/cut-{36,9,16}/` with naive, cluster and cluster-colour panels.
+I inspected cut 36's `edge-0-camera-1-crops.png` and `edge-1-camera-3-crops.png`:
+the first shows a modest shading shift; the second a narrow crease/shading change.
+Neither shows a background gap. I also inspected `edge-0-camera-1-crops.png` for
+cuts 9 and 16: darker facet variation in 9, a small highlight/crease difference in
+16, no visible gap in either. Pinches do not make these images identical to naive.
+
+### Verification and numerical oracles
+
+`bun measure.mjs verify` exits 0: 20 tests pass, zero GPU/asset skips.
+46 source files; maximum 705 lines (`view/src/gpu.rs`). Two WGSL shaders validate
+with no capabilities. Rendering requires zero optional features, eight storage
+bindings/stage, a 134,217,728-byte storage binding and a 268,435,456-byte buffer.
+Only timing uses `TIMESTAMP_QUERY`.
 
 | Command | Exit | Wall seconds |
 | --- | --- | --- |
-| `cargo test --workspace --no-fail-fast -- --nocapture` | 0 | 72.81098458299999 |
-| `cargo clippy --all-targets -- -D warnings` | 0 | 1.4698457909999998 |
-| `cargo fmt --all -- --check` | 0 | 0.14374258299999929 |
-| `cargo build -p clod-format --target wasm32-unknown-unknown` | 0 | 0.10872258400000283 |
-| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | 0 | 0.9148390840000066 |
+| `cargo test --workspace --no-fail-fast -- --nocapture` | 0 | 67.0259235 |
+| `cargo clippy --all-targets -- -D warnings` | 0 | 0.5496247500000027 |
+| `cargo fmt --all -- --check` | 0 | 0.13465475000000152 |
+| `cargo build -p clod-format --target wasm32-unknown-unknown` | 0 | 0.08787870799998927 |
+| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | 0 | 0.08884245900000678 |
 
-45 source files; maximum 705 lines (`view/src/gpu.rs`); two WGSL shaders validate with no capabilities. Rendering: zero required features, eight storage bindings/stage, 134,217,728-byte storage binding and 268,435,456-byte buffer limits.
+The procedural camera oracle checks 240 cameras, 109 distinct triangle counts,
+126–524,288 triangles and 28,820,546 triangle occurrences including 15 uniform
+cuts: zero non-zero-winding edges or ancestor overlaps, worst incidence 4.
+Threshold-zero scan tests check 12 comparisons at 2560×1440, both triangle orders,
+t=0/.5/1; every RGB max/mean/fraction is zero (18 GPU frames).
 
-| Gate | Measured result |
-| --- | --- |
-| 21-fixture closed topology | 10,815 cuts, 621,330,298 triangle occurrences, 0 failures, 33.439433416 s |
-| L1 camera cuts | 240 cameras, 105 distinct sizes, 2,038–524,288 triangles, 28,936,928 occurrences including 15 uniform cuts; zero edges/overlaps |
-| Procedural threshold 0 | 306,628 culled triangles from 524,288 source; RGB max/mean/fraction = 0 |
-| Procedural 1 px | 27,580 triangles +2,372 padding, 17 draws; mean 0.003517335934663217, max 61/255, fraction 0.12141927083333333 |
-| Planar threshold 0 | 9 cases ×32,768 triangles, scales 1 or 1e-20, distances 1 or 1e20; all source cuts |
-| Depth at 100 / separation .01 | Before both 0.99998206; after 1.8000037e-5 / 1.7998036e-5; both paths return near red [213,2,1,255] |
-| Reader / arithmetic | 36 corruptions, 5 accessor overflows, 4 writer cases; all rejected as expected |
-| Loaders / normals | 8 formats, 3 malformed inputs, 3 CLI commands; 6 extreme normals; two glTF primitives retain 3 authored +3 generated normals |
-| Timing | 8 shadows on/off render cases and 5 modular-arithmetic cases; all pass |
-| Shadow depth | 4,532,800 clusters /499,906,400 triangles; configured and sphere-only cuts both match unculled pixels exactly |
-
-Command: `cargo test -p clod-view --test coverage -- --nocapture`. 512², one-pixel silhouette exclusion, fully covered MSAA interior.
+`cargo test -p clod-view --test coverage -- --nocapture`: 512², one-pixel
+silhouette exclusion, fully covered MSAA interior. Both injected one-pixel cracks
+are detected. Each has mean 0.0000012715657552083333, fraction
+0.000003814697265625, max 255/255 and would pass the old mean gate.
 
 | Asset | Cameras / mixed | Interior pixels | Missing | Injected cracks detected |
 | --- | --- | --- | --- | --- |
 | gaul | 48 / 48 | 3,094,126 | 0 | 1 |
 | washington | 48 / 48 | 3,985,199 | 0 | 1 |
 
-Each injected one-pixel crack has mean 0.0000012715657552083333, fraction 0.000003814697265625, max 255/255: the old mean gate accepts it; localized coverage detects it.
+`bun measure.mjs oracles` exits 0. Procedural GPU selection is included in `verify`.
 
-Command: `bun measure.mjs oracles` (real scans) and `cargo test -p clod-view --test gpu_selection -- --nocapture` (procedural). All image comparisons include numerical-boundary cases.
-
-| Asset | Cuts / exact images | Pixels | Cull pairs | Deterministic PNGs | Boundary pairs | One-slot drops | Failures |
+| Asset | Cuts / exact images | Pixels | Cull pairs | Deterministic PNG pairs | Boundary pairs | One-slot drops | Failures |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| procedural | 192 / 192 | 7,077,888 | 96 | 192 | 0 | 15,114 | 0 |
-| gaul | 192 / 192 | 12,582,912 | 96 | 192 | 1 | 2,019,560 | 0 |
-| washington | 192 / 192 | 12,582,912 | 96 | 192 | 1 | 8,995,784 | 0 |
+| procedural | 192 / 192 | 7,077,888 | 96 | 192 | 0 | 4,384 | 0 |
+| gaul | 192 / 192 | 12,582,912 | 96 | 192 | 0 | 3,779 | 0 |
+| washington | 192 / 192 | 12,582,912 | 96 | 192 | 0 | 286,764 | 0 |
 
-The procedural GPU oracle also checks 5,968,822 decoded triangles. Real scan closed-edge count is intentionally zero. Threshold-zero scan tests check 12 comparisons at 2560×1440, both triangle orders, t=0/.5/1: every max/mean/fraction is zero (18 GPU frames).
+One-slot drops are deliberate overflow-control tests, with exact subset/pixel
+checks. They are separate from performance rows. The procedural GPU oracle also
+checks 5,968,822 decoded triangles. Closed-edge checks do not apply to open scans.
 
-Command: `cargo test -p clod-bake --test oracles -- --nocapture`; 100,000 samples per row, one-sided cut→source.
+`cargo test -p clod-bake --test oracles -- --nocapture`: 100,000 samples per row,
+one-sided cut→source. The 0.1 cut contains a pinch and its maximum is below claim.
 
-| Threshold | Cut triangles | Claimed refined error | Max distance | RMS | Max / claim | 4× +1e-6 gate |
+| Threshold | Triangles | Pinches | Claimed error | Max distance | RMS | Max / claim | 4× +1e-6 gate |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0.0010000000474974513 | 259552 | 0 | 0.0009929724037647247 | 0.0007128301127924904 | 8.782397147560541e-05 | 0.7178750487827139 | 0.003972889615058899 |
+| 0.009999999776482582 | 16332 | 0 | 0.009320216253399849 | 0.005378318276093772 | 0.0011488024152074676 | 0.577059386806809 | 0.0372818650135994 |
+| 0.10000000149011612 | 1018 | 1 | 0.071912482380867 | 0.05255345970332874 | 0.0084438157398557 | 0.7307974632970129 | 0.287650929523468 |
+| 1.0 | 126 | 0 | 0.25400853157043457 | 0.1036819308005273 | 0.023436139602799295 | 0.4081828675576478 | 1.0160351262817382 |
+
+### Repeated v3 bakes
+
+Command: `bun measure.mjs bake`. Four release bakes; each scan's pair has the
+same SHA-256. v3 rejects v1/v2; no compatibility path. Sources remain in
+`<cache>/assets/`, outputs in `<cache>/out/<asset>-3{,-repeat}.clod`.
+
+| Asset | Source triangles / vertices | Clusters / groups / BVH | Depth / pages | File bytes | Bytes/source triangle | Terminal triangles |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0.0010000000474974513 | 259,552 | 0.0009929724037647247 | 0.0007128301127924904 | 0.00008782397147560541 | 0.7178750487827139 | 0.003972889615058899 |
-| 0.009999999776482582 | 16,332 | 0.009320216253399849 | 0.005378318276093772 | 0.0011488024152074676 | 0.577059386806809 | 0.0372818650135994 |
-| 0.10000000149011612 | 2,038 | 0.04534897953271866 | 0.03280584918284454 | 0.005445760300585687 | 0.7234087629066841 | 0.18139691813087463 |
-| 1 | 2,038 | 0.04534897953271866 | 0.030166941867430696 | 0.005430983040835787 | 0.6652176560150745 | 0.18139691813087463 |
-
-### Repeated v2 bakes
-
-Commands: `target/release/clod-bake <source> <cache>/out/<asset>-2.clod`, repeated to `<asset>-2-repeat.clod`. Sources are the cached SMK STL and Smithsonian OBJ named below. Full phase records: `<out>/<asset>-bake-{0,1}.log`.
-
-| Asset | Source triangles / vertices | Clusters / groups / BVH | Depth / pages | File bytes | B/source triangle | Terminal triangles |
-| --- | --- | --- | --- | --- | --- | --- |
-| gaul | 4,000,020 / 1,999,991 | 62,852 / 3,921 / 4,494 | 6 / 4 | 132,955,424 | 33.238689806550965 | 296,378 |
-| washington | 16,860,930 / 9,022,298 | 269,362 / 16,851 / 19,275 | 7 / 17 | 597,206,000 | 35.41951719151909 | 1,249,766 |
+| gaul | 4,000,020 / 1,999,991 | 65,403 / 4,005 / 4,597 | 15 / 4 | 138,273,552 | 34.568215158924204 | 114 |
+| washington | 16,860,930 / 9,022,298 | 281,147 / 17,201 / 19,679 | 11 / 18 | 626,912,848 | 37.18139201099821 | 25,356 |
 
 | Asset/run | Load s | Normals s | Build s | Encode s | Write s | Peak RSS bytes |
 | --- | --- | --- | --- | --- | --- | --- |
-| gaul/0 | 1.396051666 | 0.102508667 | 6.809361041 | 0.622238917 | 0.018604125 | 683,212,800 |
-| gaul/1 | 1.615406375 | 0.0767055 | 6.542359542 | 0.574022583 | 0.023276416 | 681,607,168 |
-| washington/0 | 10.680276375 | 0.1151795 | 26.470118792 | 3.143933583 | 0.189276417 | 2,654,011,392 |
-| washington/1 | 10.524749 | 0.098171666 | 29.162845375 | 2.7213552500000002 | 0.225657916 | 2,652,061,696 |
+| gaul/0 | 1.5544447080000001 | 0.099407083 | 6.748234625 | 0.657382541 | 0.02965175 | 664,813,568 |
+| gaul/1 | 1.301903125 | 0.063758625 | 6.161743292 | 0.58652025 | 0.031260167 | 679,968,768 |
+| washington/0 | 9.422958125 | 0.101013625 | 24.856583042 | 3.20343025 | 0.188847375 | 2,907,389,952 |
+| washington/1 | 9.716125333 | 0.088989041 | 23.765434959 | 2.651840209 | 0.172433667 | 2,902,884,352 |
 
-gaul: source `smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl`, SHA-256 `4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2`. Both baked outputs: **`04614794a20f516ffaf79d835dd9476de38968a4a94ff73c08d95d4c61eddefc`**. Triangles per depth: 4,000,020, 1,998,656, 986,540, 453,509, 184,718, 62,586, 14,494; clusters per depth: 31,491, 16,767, 8,445, 3,899, 1,590, 535, 125.
+gaul: source `smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl`, SHA-256
+`4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2`. Both v3 outputs:
+**`78f9666e7240af766b236679bcc9dd737a66fb3f8bfb5f5b3b04a64e07f02dc7`**.
+Triangles per depth: 4000020, 1999614, 999162, 499210, 249416, 124610, 62254, 31110, 15544, 7762, 3880, 1940, 970, 484, 242, 114.
+Clusters per depth: 31491, 16776, 8553, 4294, 2148, 1070, 538, 268, 137, 65, 32, 16, 8, 4, 2, 1.
 
-washington: source `si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj`, SHA-256 `ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9`. Both baked outputs: **`98d74ea42db9d4cf95fce58e2dba6c7e320f72bd3c93e4f75ae73f0e673a6f7a`**. Triangles per depth: 16,860,930, 8,408,464, 4,134,230, 1,924,118, 806,474, 267,311, 51,427, 3,224; clusters per depth: 133,228, 72,178, 36,448, 17,233, 7,303, 2,459, 483, 30.
+washington: source `si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj`, SHA-256
+`ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9`. Both v3 outputs:
+**`51e90f84dac67153ac17afe6423295be433fb1b6c11f0c1c06b6830727285455`**.
+Triangles per depth: 16860930, 8428004, 4210912, 2103774, 1051012, 525064, 262312, 131102, 66766, 37294, 18878, 1075.
+Clusters per depth: 133228, 72356, 37149, 18880, 9581, 4872, 2475, 1269, 684, 413, 227, 13.
 
 ### Timings
 
-Command: `bun measure.mjs sweep`. Apple M5 Max / Metal; 2560×1440, t=0, 1 px, one warmup +7 measured frames, median milliseconds. Both modes use the same instance-frustum cull. GPU select includes main and shadow selection; CPU includes selection +encode/submit. Shadows-on clusters use 2 px shadows; naive uses full resolution. Off rows remove the shadow pass. Main-pass comparisons therefore lead. Individual stage medians need not sum to the median total.
+Command: `bun measure.mjs sweep`; **exit 0, all 52 configurations complete, zero
+main or shadow overflows, zero limit failures**. 2560×1440, t=0, main 1 px;
+one warmup +7 measured frames, median milliseconds. Every row has seven valid
+samples for each reported GPU stage. Both paths use the same instance-frustum
+cull. GPU select includes main +shadow selection; CPU includes selection and
+encode/submit. Cluster shadows use 2 px; naive uses full geometry. Individual
+stage medians need not sum to the total median. The table includes all original
+F1 layouts, selectors and quotas; no dropped-image row supports the headline.
 
 | Scene | Path / shadows / quota | Main ms | Shadow ms | GPU select ms | CPU ms | Main triangles | Drops main / shadow |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| gaul/single | gpu / on / 62852 | 0.733167 | 0.143584 | 0.436291 | 0.423792 | 289,677 | 0 / 0 |
-| gaul/single | brute / on / 62852 | 0.591791 | 0.116583 | 1.567333 | 0.533875 | 289,677 | 0 / 0 |
-| gaul/single | cpu / on / — | 1.719000 | 0.336625 | 0.000000 | 1.996583 | 289,677 | 0 / 0 |
-| gaul/single | naive / on / — | 1.060458 | 0.434834 | 0.000000 | 0.232500 | 4,000,020 | 0 / 0 |
-| gaul/single | gpu / off / 62852 | 0.540708 | 0.000000 | 0.317542 | 0.291916 | 289,677 | 0 / 0 |
-| gaul/single | naive / off / — | 0.788125 | 0.000000 | 0.000000 | 0.133625 | 4,000,020 | 0 / 0 |
-| gaul/ring:12 | gpu / on / 62852 | 0.915375 | 0.535000 | 0.151167 | 0.470792 | 3,401,146 | 0 / 0 |
-| gaul/ring:12 | brute / on / 62852 | 1.285166 | 0.732208 | 1.452499 | 0.425750 | 3,401,146 | 0 / 0 |
-| gaul/ring:12 | cpu / on / — | 1.412083 | 0.868625 | 0.000000 | 4.070584 | 3,401,146 | 0 / 0 |
-| gaul/ring:12 | naive / on / — | 2.505209 | 2.191792 | 0.000000 | 0.216709 | 48,000,240 | 0 / 0 |
-| gaul/ring:12 | gpu / off / 62852 | 1.470541 | 0.000000 | 0.131750 | 0.295583 | 3,401,146 | 0 / 0 |
-| gaul/ring:12 | naive / off / — | 2.408292 | 0.000000 | 0.000000 | 0.194250 | 48,000,240 | 0 / 0 |
-| gaul/grid:400 | gpu / on / 10485 | 22.331875 | 15.619375 | 0.774291 | 0.435541 | 111,876,590 | 0 / 0 |
-| gaul/grid:400 | brute / on / 10485 | 22.307000 | 15.630833 | 4.246292 | 0.476750 | 111,876,590 | 0 / 0 |
-| gaul/grid:400 | cpu / on / — | 22.616708 | 15.743959 | 0.000000 | 76.129291 | 111,876,590 | 0 / 0 |
-| gaul/grid:400 | naive / on / — | 74.608667 | 68.396459 | 0.000000 | 0.257084 | 1,600,008,000 | 0 / 0 |
-| gaul/grid:400 | gpu / off / 10485 | 22.193583 | 0.000000 | 0.380250 | 0.361458 | 111,876,590 | 0 / 0 |
-| gaul/grid:400 | naive / off / — | 75.965667 | 0.000000 | 0.000000 | 0.262084 | 1,600,008,000 | 0 / 0 |
-| gaul/field:5000,1 | gpu / on / 838 | 98.858916 | 64.904292 | 8.284375 | 0.509792 | 492,021,329 | 7,786,187 / 8,435,000 |
-| gaul/field:5000,1 | brute / on / 838 | 98.824083 | 65.643875 | 46.562334 | 0.533792 | 492,021,329 | 7,786,187 / 8,435,000 |
-| gaul/field:5000,1 | cpu / on / — | 289.722625 | 204.712250 | 0.000000 | 1421.765291 | 1,416,304,398 | 0 / 0 |
-| gaul/field:5000,1 | naive / on / — | 1286.603292 | 1196.325291 | 0.000000 | 0.700500 | 20,000,100,000 | 0 / 0 |
-| gaul/field:5000,1 | gpu / off / 838 | 105.177875 | 0.000000 | 4.475292 | 0.539626 | 492,021,329 | 7,786,187 / 0 |
-| gaul/field:5000,1 | naive / off / — | 1267.483875 | 0.000000 | 0.000000 | 0.494292 | 20,000,100,000 | 0 / 0 |
-| gaul/field:5000,1 | gpu / on / 3000 | 357.430375 | 248.213292 | 11.890125 | 0.746125 | 1,416,304,398 | 0 / 0 |
-| gaul/field:5000,1 | gpu / off / 3000 | 369.544750 | 0.000000 | 6.315834 | 0.516084 | 1,416,304,398 | 0 / 0 |
-| washington/single | gpu / on / 269362 | 1.017375 | 0.360917 | 1.391334 | 0.629666 | 1,186,453 | 0 / 0 |
-| washington/single | brute / on / 269362 | 0.652834 | 0.221125 | 4.246875 | 0.521334 | 1,186,453 | 0 / 0 |
-| washington/single | cpu / on / — | 2.854000 | 1.050292 | 0.000000 | 10.340625 | 1,186,453 | 0 / 0 |
-| washington/single | naive / on / — | 1.808333 | 1.150167 | 0.000000 | 0.227833 | 16,860,930 | 0 / 0 |
-| washington/single | gpu / off / 269362 | 0.810375 | 0.000000 | 0.926709 | 0.391583 | 1,186,453 | 0 / 0 |
-| washington/single | naive / off / — | 1.728084 | 0.000000 | 0.000000 | 0.215168 | 16,860,930 | 0 / 0 |
-| washington/ring:12 | gpu / on / 269362 | 3.714708 | 2.145250 | 0.473167 | 0.537625 | 13,611,402 | 0 / 0 |
-| washington/ring:12 | brute / on / 269362 | 3.703208 | 2.180667 | 4.262751 | 0.490667 | 13,611,402 | 0 / 0 |
-| washington/ring:12 | cpu / on / — | 3.718750 | 2.182500 | 0.000000 | 30.492167 | 13,611,402 | 0 / 0 |
-| washington/ring:12 | naive / on / — | 10.421709 | 8.951791 | 0.000000 | 0.262541 | 202,331,160 | 0 / 0 |
-| washington/ring:12 | gpu / off / 269362 | 3.637333 | 0.000000 | 0.245500 | 0.353625 | 13,611,402 | 0 / 0 |
-| washington/ring:12 | naive / off / — | 9.855667 | 0.000000 | 0.000000 | 0.188709 | 202,331,160 | 0 / 0 |
-| washington/grid:400 | gpu / on / 10485 | 117.542375 | 65.565916 | 2.160792 | 0.571750 | 464,852,668 | 14,051 / 338,800 |
-| washington/grid:400 | brute / on / 10485 | 116.210042 | 65.570917 | 20.132667 | 0.592584 | 464,852,668 | 14,051 / 338,800 |
-| washington/grid:400 | cpu / on / — | 114.643583 | 70.762250 | 0.000000 | 658.895209 | 466,600,422 | 0 / 0 |
-| washington/grid:400 | naive / on / — | 428.439500 | 357.158209 | 0.000000 | 0.345000 | 6,744,372,000 | 0 / 0 |
-| washington/grid:400 | gpu / off / 10485 | 126.044541 | 0.000000 | 1.207792 | 0.675499 | 464,852,668 | 14,051 / 0 |
-| washington/grid:400 | naive / off / — | 523.388625 | 0.000000 | 0.000000 | 0.376168 | 6,744,372,000 | 0 / 0 |
-| washington/field:5000,1 | gpu / on / 838 | 106.213625 | 71.173667 | 23.835417 | 0.789417 | 459,013,110 | 46,525,494 / 52,470,000 |
-| washington/field:5000,1 | brute / on / 838 | 148.147584 | 101.576375 | 308.533709 | 0.878042 | 459,013,110 | 46,525,494 / 52,470,000 |
-| washington-field-5000-1-cpu-shadows-on | **ERROR** | — | — | — | — | — | page 0 visible list exceeds 128 MiB core storage binding |
-| washington/field:5000,1 | naive / on / — | 5036.812875 | 4586.307042 | 0.000000 | 0.807042 | 84,304,650,000 | 0 / 0 |
-| washington/field:5000,1 | gpu / off / 838 | 97.746292 | 0.000000 | 11.691416 | 0.639416 | 459,013,110 | 46,525,494 / 0 |
-| washington/field:5000,1 | naive / off / — | 5189.691791 | 0.000000 | 0.000000 | 0.516583 | 84,304,650,000 | 0 / 0 |
-| washington/grid:400 | gpu / on / 12000 | 115.171750 | 70.338875 | 2.119624 | 0.758917 | 466,600,422 | 0 / 0 |
-| washington/grid:400 | gpu / off / 12000 | 114.340458 | 0.000000 | 1.128125 | 0.408125 | 466,600,422 | 0 / 0 |
+| gaul/single | gpu / on / 65403 | 1.252334 | 0.151083 | 0.972250 | 0.540126 | 138,145 | 0 / 0 |
+| gaul/single | brute / on / 65403 | 0.535291 | 0.065958 | 1.970874 | 0.676832 | 138,145 | 0 / 0 |
+| gaul/single | cpu / on / — | 1.252459 | 0.152708 | 0.000000 | 1.839209 | 138,145 | 0 / 0 |
+| gaul/single | naive / on / — | 1.067917 | 0.412042 | 0.000000 | 0.242833 | 4,000,020 | 0 / 0 |
+| gaul/single | gpu / off / 65403 | 0.851542 | 0.000000 | 0.791583 | 0.345376 | 138,145 | 0 / 0 |
+| gaul/single | naive / off / — | 1.218833 | 0.000000 | 0.000000 | 0.251917 | 4,000,020 | 0 / 0 |
+| gaul/ring:12 | gpu / on / 65403 | 0.825459 | 0.138875 | 0.241542 | 0.431792 | 101,537 | 0 / 0 |
+| gaul/ring:12 | brute / on / 65403 | 0.823625 | 0.138875 | 4.627542 | 0.498917 | 101,537 | 0 / 0 |
+| gaul/ring:12 | cpu / on / — | 0.825958 | 0.141209 | 0.000000 | 3.184749 | 101,537 | 0 / 0 |
+| gaul/ring:12 | naive / on / — | 2.474375 | 2.206792 | 0.000000 | 0.224458 | 48,000,240 | 0 / 0 |
+| gaul/ring:12 | gpu / off / 65403 | 0.146000 | 0.000000 | 0.042208 | 0.312458 | 101,537 | 0 / 0 |
+| gaul/ring:12 | naive / off / — | 2.414500 | 0.000000 | 0.000000 | 0.253416 | 48,000,240 | 0 / 0 |
+| gaul/grid:400 | gpu / on / 10485 | 1.489791 | 0.312833 | 2.114208 | 0.700375 | 419,476 | 0 / 0 |
+| gaul/grid:400 | brute / on / 10485 | 0.317791 | 0.068125 | 4.328958 | 0.600083 | 419,476 | 0 / 0 |
+| gaul/grid:400 | cpu / on / — | 1.491042 | 0.314875 | 0.000000 | 97.228583 | 419,476 | 0 / 0 |
+| gaul/grid:400 | naive / on / — | 78.622333 | 72.491792 | 0.000000 | 0.342292 | 1,600,008,000 | 0 / 0 |
+| gaul/grid:400 | gpu / off / 10485 | 0.239625 | 0.000000 | 0.245375 | 0.473083 | 419,476 | 0 / 0 |
+| gaul/grid:400 | naive / off / — | 80.138875 | 0.000000 | 0.000000 | 0.419417 | 1,600,008,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / on / 838 | 0.327667 | 0.108709 | 5.503625 | 0.594499 | 634,384 | 0 / 0 |
+| gaul/field:5000,1 | brute / on / 838 | 0.330208 | 0.109208 | 47.131332 | 0.655583 | 634,384 | 0 / 0 |
+| gaul/field:5000,1 | cpu / on / — | 1.527791 | 0.510667 | 0.000000 | 1118.367792 | 634,384 | 0 / 0 |
+| gaul/field:5000,1 | naive / on / — | 1083.980000 | 1003.870083 | 0.000000 | 0.523583 | 20,000,100,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / off / 838 | 0.255958 | 0.000000 | 2.753625 | 0.318959 | 634,384 | 0 / 0 |
+| gaul/field:5000,1 | naive / off / — | 1014.531250 | 0.000000 | 0.000000 | 0.252542 | 20,000,100,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / on / 3000 | 0.325750 | 0.109083 | 5.514668 | 0.570875 | 634,384 | 0 / 0 |
+| gaul/field:5000,1 | gpu / off / 3000 | 0.394208 | 0.000000 | 4.296500 | 0.311708 | 634,384 | 0 / 0 |
+| washington/single | gpu / on / 281147 | 0.759375 | 0.158834 | 2.743249 | 0.596666 | 449,499 | 0 / 0 |
+| washington/single | brute / on / 281147 | 0.387250 | 0.079708 | 4.316416 | 0.532167 | 449,499 | 0 / 0 |
+| washington/single | cpu / on / — | 0.787000 | 0.202791 | 0.000000 | 10.041585 | 449,499 | 0 / 0 |
+| washington/single | naive / on / — | 1.854584 | 1.133708 | 0.000000 | 0.244249 | 16,860,930 | 0 / 0 |
+| washington/single | gpu / off / 281147 | 0.566917 | 0.000000 | 2.326333 | 0.370875 | 449,499 | 0 / 0 |
+| washington/single | naive / off / — | 1.724291 | 0.000000 | 0.000000 | 0.179167 | 16,860,930 | 0 / 0 |
+| washington/ring:12 | gpu / on / 281147 | 0.908292 | 0.306541 | 0.276208 | 0.537500 | 912,031 | 0 / 0 |
+| washington/ring:12 | brute / on / 281147 | 0.457667 | 0.153542 | 4.238001 | 0.464291 | 912,031 | 0 / 0 |
+| washington/ring:12 | cpu / on / — | 2.129667 | 0.724500 | 0.000000 | 28.103084 | 912,031 | 0 / 0 |
+| washington/ring:12 | naive / on / — | 10.185167 | 8.592500 | 0.000000 | 0.275292 | 202,331,160 | 0 / 0 |
+| washington/ring:12 | gpu / off / 281147 | 0.735542 | 0.000000 | 0.164042 | 0.429542 | 912,031 | 0 / 0 |
+| washington/ring:12 | naive / off / — | 9.911292 | 0.000000 | 0.000000 | 0.248875 | 202,331,160 | 0 / 0 |
+| washington/grid:400 | gpu / on / 10485 | 3.852416 | 2.328167 | 0.619042 | 0.567750 | 13,806,771 | 0 / 0 |
+| washington/grid:400 | brute / on / 10485 | 3.876333 | 2.326416 | 19.008668 | 0.499917 | 13,806,771 | 0 / 0 |
+| washington/grid:400 | cpu / on / — | 6.251333 | 9.431291 | 0.000000 | 657.641750 | 13,806,771 | 0 / 0 |
+| washington/grid:400 | naive / on / — | 365.483000 | 336.621958 | 0.000000 | 0.304125 | 6,744,372,000 | 0 / 0 |
+| washington/grid:400 | gpu / off / 10485 | 3.787875 | 0.000000 | 0.319208 | 0.501917 | 13,806,771 | 0 / 0 |
+| washington/grid:400 | naive / off / — | 338.740541 | 0.000000 | 0.000000 | 0.229125 | 6,744,372,000 | 0 / 0 |
+| washington/field:5000,1 | gpu / on / 838 | 34.949000 | 23.737083 | 6.758333 | 0.594625 | 130,563,783 | 0 / 0 |
+| washington/field:5000,1 | brute / on / 838 | 34.948750 | 23.766917 | 199.201541 | 0.542458 | 130,563,783 | 0 / 0 |
+| washington/field:5000,1 | cpu / on / — | 34.857000 | 32.849792 | 0.000000 | 7973.888792 | 130,563,783 | 0 / 0 |
+| washington/field:5000,1 | naive / on / — | 4608.793917 | 4092.343000 | 0.000000 | 0.474958 | 84,304,650,000 | 0 / 0 |
+| washington/field:5000,1 | gpu / off / 838 | 34.807541 | 0.000000 | 3.372500 | 0.396541 | 130,563,783 | 0 / 0 |
+| washington/field:5000,1 | naive / off / — | 4861.361708 | 0.000000 | 0.000000 | 0.300958 | 84,304,650,000 | 0 / 0 |
+| washington/grid:400 | gpu / on / 12000 | 3.873500 | 2.329500 | 0.617583 | 0.707999 | 13,806,771 | 0 / 0 |
+| washington/grid:400 | gpu / off / 12000 | 3.765375 | 0.000000 | 0.313875 | 0.415957 | 13,806,771 | 0 / 0 |
 
-51 rows completed; every one has seven valid samples for each reported GPU stage.
-One row fails explicitly, so `sweep` exits 1 after reporting all 52 configurations.
-Rows with drops are incomplete images and support no speedup claim. Washington
-field:5000 CPU errors because page zero exceeds its 128 MiB visible-list limit.
-Washington field cannot fit its complete terminal cut in the GPU's 128 MiB binding
-either. The 12,000-slot Washington grid and 3,000-slot Gaul field rows have zero
-drops. Raw exact values, every command and PID remain in `<out>/*shadows-*.log`,
-`processes.jsonl` and `runs.jsonl`.
+The default 838-slot quotas now complete both 5,000-instance GPU scenes.
+Washington's CPU reference also completes its former 128 MiB page-list failure;
+its selection still scans every candidate and costs 7,973.889 ms/frame here.
+This is not the interactive path. The field GPU main pass costs 34.949 ms for
+Washington and 0.328 ms for Gaul; selection adds 6.758 and 5.504 ms respectively.
+The restored Gaul grid main pass measures 1.490 ms in this run; the earlier
+0.27 ms figure was not reproduced and is not reused as the headline.
 
-### Image and camera-path reports
+Historical F1 cost of requiring manifold interiors (separate runs, same machine):
 
-Commands: `clod-view compare <asset>-2.clod --out <out>/<asset>-compare` and `clod-view pop <asset>-2.clod --out <out>/<asset>-pop`. Compare: five hero positions ×five thresholds ×two assets, 2560×1440. Each row below is the largest mean error among five positions at that threshold; maxima/fractions belong to that same pair.
+| Asset | F1 terminal triangles | F2 terminal triangles | F1 zero-drop main / naive ms | F1 shadow / naive ms | F1 quota |
+| --- | --- | --- | --- | --- | --- |
+| Gaul | 296,378 | 114 | 22.331875 / 74.608667 | 15.619375 / 68.396459 | 10,485 |
+| Washington | 1,249,766 | 25,356 | 115.171750 / 428.439500 | 70.338875 / 357.158209 | 12,000 |
 
-| Asset | Threshold px | t | Mean | Max /255 | Fraction >2/255 | Cluster main triangles |
+These F1 numbers record the cost of the over-constraint, not an isolated
+same-clock comparison. Full F1 tables, including the overflows and failed CPU
+row, remain in [the archive](results/f1-manifold.md).
+
+### Image and continuous camera-path reports
+
+Command: `bun measure.mjs images`, exit 0. Each scan: five hero positions ×five
+thresholds at 2560×1440, plus a 240-frame path and close lit/cluster-colour renders.
+The table selects the largest mean error among the five positions at each
+threshold; max and fraction refer to that same pair. Full position-by-position
+numbers are in [the detailed results](results/f2-details.md).
+
+| Asset | Threshold px | t | Mean absolute RGB /255 | Max byte | Fraction >2/255 | Cluster main triangles |
 | --- | --- | --- | --- | --- | --- | --- |
-| gaul | 0.5 | 1 | 0.0010314499931917212 | 27 | 0.04269911024305555 | 301,154 |
-| gaul | 1 | 0.75 | 0.0014355862353622004 | 64 | 0.04125217013888889 | 370,736 |
-| gaul | 2 | 0.75 | 0.002080289465323166 | 86 | 0.06336073133680556 | 240,773 |
-| gaul | 4 | 0.75 | 0.002420610504039579 | 86 | 0.07476372612847222 | 201,104 |
-| gaul | 8 | 1 | 0.003186876616966231 | 85 | 0.1133932834201389 | 114,772 |
-| washington | 0.5 | 1 | 0.0009235270714188454 | 27 | 0.03732638888888889 | 53,483 |
-| washington | 1 | 1 | 0.0019767486638752724 | 119 | 0.07094780815972222 | 50,347 |
-| washington | 2 | 1 | 0.001992602379493464 | 120 | 0.07128228081597222 | 46,501 |
-| washington | 4 | 1 | 0.002000243254130356 | 120 | 0.0713916015625 | 41,595 |
-| washington | 8 | 1 | 0.002643800069217502 | 120 | 0.09010281032986112 | 35,788 |
+| gaul | 0.5 | 1.0 | 0.001495685253267974 | 35 | 0.06139512803819445 | 301154 |
+| gaul | 1.0 | 1.0 | 0.002215701876815541 | 46 | 0.08418592664930556 | 270973 |
+| gaul | 2.0 | 1.0 | 0.0030394830530591868 | 41 | 0.11152316623263889 | 195231 |
+| gaul | 4.0 | 1.0 | 0.005211344932938454 | 56 | 0.13700113932291666 | 135795 |
+| gaul | 8.0 | 1.0 | 0.016049382361451526 | 85 | 0.2602316623263889 | 96925 |
+| washington | 0.5 | 1.0 | 0.0009235270714188454 | 27 | 0.03732638888888889 | 53483 |
+| washington | 1.0 | 1.0 | 0.0019767486638752724 | 119 | 0.07094780815972222 | 50347 |
+| washington | 2.0 | 1.0 | 0.001992602379493464 | 120 | 0.07128228081597222 | 46501 |
+| washington | 4.0 | 1.0 | 0.0034199247117828614 | 120 | 0.10945149739583333 | 41595 |
+| washington | 8.0 | 1.0 | 0.003831886928671932 | 120 | 0.11935112847222222 | 35788 |
 
-Pop is a report, **not a test or a no-popping guarantee**. Two 240-frame paths, 478 temporal pairs.
+At 1 px, the largest means are 0.002215701876815541 (Gaul) and
+0.0019767486638752724 (Washington), both at t=1. Maxima at those positions are
+46/255 and 119/255. Across **all** five 1 px positions, the maximum byte errors
+are 107/255 (Gaul, t=0) and 119/255 (Washington, t=1). Thus 1 px selection is
+not a per-channel colour-error bound. Coverage still finds zero missing interior
+pixels in its separate 96 mixed-cut camera checks.
+
+Pop remains a report, not a no-popping guarantee. Two paths, 478 temporal pairs:
 
 | Asset | Pairs | Max spatial temporal residual | Worst step | Max excess MAD | Excess step | Failures |
 | --- | --- | --- | --- | --- | --- | --- |
-| gaul | 239 | 0.003003001316267248 | 194 | -0.000014553759872004343 | 239 | 0 |
-| washington | 239 | 0.0018133520986519608 | 174 | 0.00018020308528503975 | 232 | 0 |
+| gaul | 239 | 0.0032067663654003265 | 195 | 0.0002564891407952005 | 220 | 0 |
+| washington | 239 | 0.0018351027766430647 | 174 | 0.00018020308528503975 | 232 | 0 |
 
-Final lit/cluster PNGs: `<out>/<asset>-close-{lit,clusters}.png`; winning compare/pop frames are in their output directories. No mesh, baked output, PNG or log is committed. [Detailed measurement tables](results/f1-details.md) retain the per-fixture, camera, image, memory, padding and temporal numbers without lengthening this README. Preliminary F1 numbers before the shadow-cone repair remain in `<out>/pre-shadow-fix/`; those timings are superseded.
+Close views: `<out>/<asset>-close-{lit,clusters}.png`. Winning compare/pop frames
+are under `<out>/<asset>-{compare,pop}/`; every per-frame record and command is
+in the cache. [Detailed results](results/f2-details.md) retain all timing, memory,
+padding, per-fixture, sampling, crop and comparison numbers. Source meshes,
+baked files, images and raw logs are never committed.
 
 ## Known limits
 
-All pages are resident. The hero required about 775 MiB in the earlier run;
-current exact byte counts are in the timing tables. A browser tab will not hold
-this whole hero reliably: page residency/streaming is future work, and a web demo
-must use a smaller asset or a page budget. This lane provides a Wasm library, not
-a deployed web demo or interactive native player.
+All pages are resident. Exact GPU residency is reported in the detailed timing
+tables. A browser tab may not hold the whole Washington scan reliably; this lane
+provides a Wasm library, not a deployed web demo or interactive native player.
 
-Quota overflow drops geometry. Some large scenes also exceed the CPU reference's
-128 MiB page-list limit. Such measurements are failures or degraded-image rows,
-not evidence of crack-free rendering or valid speedups. The current topology filter
-is conservative and can keep large early terminal patches; the resulting raster
-floor is a real limitation of this experiment.
+Quota overflow still drops geometry and the CPU reference still has a 128 MiB
+page-list limit. Neither limit is hit in the F2 sweep. The deliberate one-slot
+oracle continues to verify overflow reporting. Washington retains three
+boundary-chain stops; the bake does not repair input defects.
 
 The error-honesty oracle is one-sided, sampled and uses a 4× refined-error gate.
 Coverage tests detect fully missing interior pixels, excluding one pixel of the
 MSAA silhouette; they do not prove a global geometric or subpixel error bound.
-No geomorphing, occlusion hierarchy, streaming, software rasterizer or fallback
-simplifier is implemented. Cross-ISA byte identity is not claimed.
+Pinches can change shading, as the aimed crops show. No geomorphing, occlusion
+hierarchy, streaming, software rasterizer or fallback simplifier is implemented.
+No no-popping guarantee or cross-ISA byte identity is claimed. Timing rows use
+one warmup and seven samples from one run, without machine-wide load control.
