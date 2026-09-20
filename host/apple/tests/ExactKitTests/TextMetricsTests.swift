@@ -138,6 +138,61 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
     }
 
+    func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-resize")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        func batch(_ ops: [[String: Any]]) {
+            presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        batch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text",
+             "props": ["text": "Why a magazine measures first and draws second"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
+        ])
+        let node = try XCTUnwrap(presenter.views[2])
+        XCTAssertTrue(node.rastersText)
+        XCTAssertFalse(presenter.textIsVisible(node))
+        // The pixels a worker painted for this width, published by the pump.
+        let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
+                                box: node.contentBox(), scale: window.backingScaleFactor)
+        node.textRasterKey = key
+        node.showTextRaster(pixels, for: key, deferOffscreen: true)
+        presenter.refreshVisibleText()
+        XCTAssertFalse(node.needsTextRaster)
+        XCTAssertTrue(node.layer?.contents as? IOSurface === pixels)
+
+        // Moving the paragraph is not resizing it: those pixels still fit.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 400.0, "h": 30.0]])
+        XCTAssertEqual(node.textRasterKey, key)
+        XCTAssertFalse(node.needsTextRaster)
+
+        // The window widens while the paragraph is off screen. Its layer
+        // would stretch the old surface across the new width.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 460.0, "h": 30.0]])
+        XCTAssertNotEqual(node.textRasterKey, key)
+        XCTAssertTrue(node.needsTextRaster, "a resized paragraph still owes the pump pixels")
+        XCTAssertTrue(node.layer?.contents as? IOSurface === pixels, "the old pixels stay up until new ones arrive")
+
+        // Scrolled back to it: painted at the width it has now, not stretched.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 40.0, "w": 460.0, "h": 30.0]])
+        XCTAssertTrue(presenter.textIsVisible(node))
+        presenter.refreshVisibleText()
+        XCTAssertFalse(node.needsTextRaster)
+        XCTAssertEqual(node.textRasterKey?.size, node.bounds.size)
+        XCTAssertFalse(node.layer?.contents as? IOSurface === pixels)
+    }
+
     func testWorkerPublicationDefersOnlyOffscreenCurrentPixels() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-publication")
