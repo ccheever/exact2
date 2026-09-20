@@ -171,8 +171,11 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
+    fn inline_size() -> usize {
+        8usize.saturating_add(T::inline_size())
+    }
     fn default_size() -> usize {
-        8usize.saturating_add(T::default_size())
+        Self::inline_size()
     }
     fn write(&self, w: &mut dyn Writer) {
         w.option(self.is_some());
@@ -194,6 +197,10 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
+    const CHECK_DEFAULT_ACYCLIC: () = if N == 0 { () } else { T::CHECK_DEFAULT_ACYCLIC };
+    fn inline_size() -> usize {
+        N.saturating_mul(T::inline_size())
+    }
     fn default_size() -> usize {
         N.saturating_mul(T::default_size())
     }
@@ -236,6 +243,10 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
     Ok(())
 }
 impl<T: Data> Data for Box<T> {
+    const CHECK_DEFAULT_ACYCLIC: () = T::CHECK_DEFAULT_ACYCLIC;
+    fn inline_size() -> usize {
+        8
+    }
     fn default_size() -> usize {
         8usize.saturating_add(T::default_size())
     }
@@ -281,6 +292,8 @@ impl<K: Data + Ord + AsRef<str> + for<'a> From<&'a str>, T: Data> Data for BTree
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
+            const CHECK_DEFAULT_ACYCLIC: () = { $(let () = $T::CHECK_DEFAULT_ACYCLIC;)* };
+            fn inline_size() -> usize { 16usize $(.saturating_add($T::inline_size()))* }
             fn default_size() -> usize { 16usize $(.saturating_add($T::default_size()))* }
                     fn write(&self, w: &mut dyn Writer) {
                 w.claim_decoded(Self::default_size().saturating_mul(2));

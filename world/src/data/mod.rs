@@ -38,6 +38,12 @@ pub fn field_default<T: FieldDefault>() -> T {
     message = "Data fields require Data and Default, including skipped fields: {Self}"
 )]
 pub trait Data: Sized + Default + 'static {
+    #[doc(hidden)]
+    const CHECK_DEFAULT_ACYCLIC: () = ();
+    /// Portable inline storage units, excluding allocations made by Default.
+    fn inline_size() -> usize {
+        Self::default_size()
+    }
     /// Architecture-independent admission units; manual implementations declare a
     /// conservative bound for their default and must not use native layout sizes.
     /// Construction-oriented decode. Allocation-free defaults may use this

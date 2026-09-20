@@ -125,6 +125,26 @@ fn replace(w: &World) {
         "{}",
         String::from_utf8_lossy(&static_fields.stderr)
     );
+    for source in [
+        r#"use exact_world::Data;
+type Alias = Box<Node>;
+#[derive(Default, Data)] struct Node { #[data(skip)] next: Alias }"#,
+        r#"use exact_world::Data;
+#[derive(Default, Data)] struct A { next: Box<B> }
+#[derive(Default, Data)] struct B { next: Box<A> }"#,
+        r#"use exact_world::Data;
+type Alias = Box<Tree>;
+#[derive(Data)] enum Tree { End, More(Alias) }
+impl Default for Tree { fn default() -> Self { Self::End } }"#,
+    ] {
+        let result = compile(source);
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            !result.status.success(),
+            "recursive default admission compiled"
+        );
+        assert!(error.contains("CHECK_DEFAULT_ACYCLIC"), "{error}");
+    }
     let cases = [
         r###"fn main() {
 use exact_world::{World, Component};

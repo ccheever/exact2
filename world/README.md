@@ -259,8 +259,12 @@ including skipped fields, must declare `default_size` or implement an admitted
 `read_new`; a codec cannot bound arbitrary user code. Derive requires Data + Default
 on skipped fields and charges every reset. Enum read_new constructs the selected
 variant without invoking an unrelated manual enum Default. Manual enum defaults
-charge the largest variant; recursive enums require a derived unit Default or
-manual Data admission. Rust expands cfg and
+charge the largest variant's defaults; unit-default enums charge their largest
+inline variant. `Data::inline_size()` separates portable inline storage from
+allocating defaults. Box contributes eight inline units; an empty Option does
+not recurse into its payload's default. Derive's constant default check refuses
+cyclic default-construction dependencies, including aliases and indirect cycles;
+recursive enums use a derived unit Default or manual Data admission. Rust expands cfg and
 cfg_attr before derive; retained, absent and conditionally skipped fields are tested.
 Parser diagnostics still use invocation spans.
 

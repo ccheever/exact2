@@ -182,8 +182,12 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     }
     let mut read_new = String::new();
     let mut enum_size = String::from("64usize");
+    let mut inline_size = String::from("64usize");
+    let mut default_check = String::new();
     let (write, read) = if kind == "struct" {
         let b = body(tokens.get(2))?;
+        inline_size = default_size(&b).replace("default_size", "inline_size");
+        default_check = check_defaults(&b);
         let access: Vec<_> = b
             .fields
             .iter()
@@ -214,16 +218,18 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 body: body(a.get(1))?,
             });
         }
-        if !unit_default {
-            for arm in &arms {
-                if arm.body.fields.iter().any(|f| {
-                    f.ty.split(|c: char| !c.is_alphanumeric() && c != '_')
-                        .any(|t| t == name || t == "Self")
-                }) {
-                    return Err("recursive Data enums require a derived unit Default or manual Data admission".into());
-                }
+        for arm in &arms {
+            inline_size += &format!(
+                ".max({})",
+                default_size(&arm.body).replace("default_size", "inline_size")
+            );
+            if !unit_default {
+                default_check += &check_defaults(&arm.body);
                 enum_size += &format!(".max({})", default_size(&arm.body));
             }
+        }
+        if unit_default {
+            enum_size = inline_size.clone();
         }
         let mut write = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm {");
@@ -271,7 +277,11 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     } else {
         enum_size
     };
-    let mut out = format!("impl ::exact_world::Data for {name} {{ {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("const _: () = <{name} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;
+    impl ::exact_world::Data for {name} {{
+    const CHECK_DEFAULT_ACYCLIC: () = {{ {default_check} }};
+    fn inline_size() -> usize {{ {inline_size} }}
+    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -279,6 +289,17 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         );
     }
     Ok(out)
+}
+fn check_defaults(b: &Body) -> String {
+    b.fields
+        .iter()
+        .map(|f| {
+            format!(
+                "let () = <{} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;",
+                f.ty
+            )
+        })
+        .collect()
 }
 fn default_size(b: &Body) -> String {
     let mut size = "16usize".to_owned();

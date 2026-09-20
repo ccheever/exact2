@@ -170,4 +170,39 @@ mod publication_tests {
         loaded.load(&saved).unwrap();
         assert_eq!(loaded.save().unwrap(), saved);
     }
+    #[test]
+    fn wide_unit_default_component_refuses_before_allocating_a_page() {
+        #[allow(clippy::large_enum_variant)]
+        #[derive(Default, crate::Component)]
+        enum Wide {
+            #[default]
+            Empty,
+            Full([[[u8; 32]; 32]; 32]),
+        }
+        let mut source = World::new(60, 0);
+        source.register::<Wide>().unwrap();
+        for _ in 0..129 {
+            source.spawn(()).unwrap();
+        }
+        for slot in [128, 0, 64] {
+            source
+                .insert(source.entity_at(slot).unwrap(), Wide::Empty)
+                .unwrap();
+        }
+        let bytes = source.save().unwrap();
+        let mut destination = World::new(60, 0);
+        destination.register::<Wide>().unwrap();
+        let before = destination.save().unwrap();
+        let (result, counts) = counting::measure(|| {
+            destination.load_in(&bytes, Some(&crate::data::LoadBudget::new(65_536)), false)
+        });
+        assert!(result.is_err());
+        assert!(
+            counts.1 < 65_536,
+            "page allocated before admission: {counts:?}"
+        );
+        assert_eq!(destination.save().unwrap(), before);
+        destination.load(&bytes).unwrap();
+        assert_eq!(destination.save().unwrap(), bytes);
+    }
 }
