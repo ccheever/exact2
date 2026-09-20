@@ -1,6 +1,6 @@
 use Inbox from "./models.contract"
 use NewMessageSheet from "./new-message-sheet.contract"
-use ReactionBadges from "./message-parts.contract"
+use MessageBubble from "./message-parts.contract"
 use NewContactSheet from "./new-contact-sheet.contract"
 use ContactDetails from "./contact-details.contract"
 
@@ -605,19 +605,20 @@ component Messages
                           when message.reply != ""
                             text message.reply font-size=13 color="#8e8e93" max-width="75%" border-left-style="solid" border-left-width=2 border-color="light-dark(#c7c7cc, #48484a)" padding-left=8 margin-bottom=5 line-clamp=2
                           row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
-                            when message.outgoing
-                              ReactionBadges(message=message, prefix="reaction", hidden=(selected == message.id and replying == ""), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false))
-                            button retainFocus=true swiperight=openReplies(message.replyRoot) touch-action="pan-right pan-y" transition="translate 180ms ease-out" contextmenu=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true) dblclick=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false) id=`bubble-${message.id}` testId=`bubble-${message.id}` opacity=(selected == message.id and replying == "" ? 0 : 1) aria-label=message.body max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(message.outgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #262629)")
-                              column swipeIndicator=true testId=`swipe-indicator-${message.id}` position="absolute" left=-40 top="50%" margin-top=-16 width=32 height=32 align-items="center" justify-content="center" opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
-                                box width=20 height=16 clip-path="path('M 8 0 Q 9 0 9 1 L 9 4 L 11 4 C 17 4 20 8 20 14 Q 20 16 19 14 C 17 10 15 9 11 9 L 9 9 L 9 12 Q 9 13 8 12 L 1 7 Q 0 6 1 5 Z')" background-color="light-dark(#aeaeb2, #636366)"
-                              when message.tail
-                                when message.outgoing
-                                  box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
-                                else
-                                  box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#e9e9eb, #262629)"
-                              MessageBody(body=message.body, outgoing=message.outgoing, selecting=(selectingText == message.id and replying == ""), finish=finishTextSelection)
-                            when not message.outgoing
-                              ReactionBadges(message=message, prefix="reaction", hidden=(selected == message.id and replying == ""), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false))
+                            MessageBubble(
+                              message=message,
+                              bubbleId=`bubble-${message.id}`,
+                              swipeId=`swipe-indicator-${message.id}`,
+                              reactionPrefix="reaction",
+                              hidden=(selected == message.id and replying == ""),
+                              selectingText=(selectingText == message.id and replying == ""),
+                              outgoingTailPath=outgoingTailPath,
+                              incomingTailPath=incomingTailPath,
+                              openReplies=openReplies(message.replyRoot),
+                              showActions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true),
+                              showReactions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false),
+                              finishTextSelection=finishTextSelection,
+                            )
                             when selecting
                               button press=chooseMessage(message.selection) retainFocus=true testId=`selection-toggle-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" left=(message.outgoing ? -8 : (message.senderName != "" ? -92.666667 : -48.666667)) top="50%" margin-top=-16 width=32 height=32 z-index=4 display="flex" align-items="center" justify-content="center"
                                 column testId=`selection-circle-${message.id}` width=22 height=22 border-radius=11 background-color=(message.chosen ? "light-dark(#007aff, #0a84ff)" : "light-dark(#c7c7cc, #48484a)") align-items="center" justify-content="center"
@@ -663,19 +664,20 @@ component Messages
                                 else
                                   box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
                             row width="100%" justify-content=(message.outgoing ? "flex-end" : "flex-start")
-                              when message.outgoing
-                                ReactionBadges(message=message, prefix="reply-reaction", hidden=(selected == message.id), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false))
-                              button retainFocus=true swiperight=openReplies(message.replyRoot) touch-action="pan-right pan-y" transition="translate 180ms ease-out" contextmenu=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true) dblclick=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false) id=`reply-bubble-${message.id}` testId=`reply-bubble-${message.id}` opacity=(selected == message.id ? 0 : 1) aria-label=message.body max-width="75%" min-width=48 box-sizing="border-box" display="flex" justify-content="center" align-items="center" padding-left=14 padding-right=14 padding-top=10 padding-bottom=10 border-radius=20 background-color=(message.outgoing ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #262629)")
-                                column swipeIndicator=true testId=`reply-swipe-indicator-${message.id}` position="absolute" left=-40 top="50%" margin-top=-16 width=32 height=32 align-items="center" justify-content="center" opacity=0 scale=0.5 transition="opacity 180ms ease-out, scale 180ms ease-out"
-                                  box width=20 height=16 clip-path="path('M 8 0 Q 9 0 9 1 L 9 4 L 11 4 C 17 4 20 8 20 14 Q 20 16 19 14 C 17 10 15 9 11 9 L 9 9 L 9 12 Q 9 13 8 12 L 1 7 Q 0 6 1 5 Z')" background-color="light-dark(#aeaeb2, #636366)"
-                                when message.tail
-                                  when message.outgoing
-                                    box position="absolute" right=5 bottom=-7 width=22 height=24 clip-path=outgoingTailPath background-color="light-dark(#007aff, #0a84ff)"
-                                  else
-                                    box position="absolute" left=5 bottom=-7 width=22 height=24 clip-path=incomingTailPath background-color="light-dark(#e9e9eb, #262629)"
-                                MessageBody(body=message.body, outgoing=message.outgoing, selecting=(selectingText == message.id), finish=finishTextSelection)
-                              when not message.outgoing
-                                ReactionBadges(message=message, prefix="reply-reaction", hidden=(selected == message.id), open=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false))
+                              MessageBubble(
+                                message=message,
+                                bubbleId=`reply-bubble-${message.id}`,
+                                swipeId=`reply-swipe-indicator-${message.id}`,
+                                reactionPrefix="reply-reaction",
+                                hidden=(selected == message.id),
+                                selectingText=(selectingText == message.id),
+                                outgoingTailPath=outgoingTailPath,
+                                incomingTailPath=incomingTailPath,
+                                openReplies=openReplies(message.replyRoot),
+                                showActions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", true),
+                                showReactions=select(message.id, message.body, message.outgoing, message.reaction, message.tail, message.replyRoot, message.senderName != "", false),
+                                finishTextSelection=finishTextSelection,
+                              )
                             when message.delivery != ""
                               text message.delivery testId=`reply-delivery-status-${message.id}` opacity=(selected == message.id ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
                       when chat.typingName != "" and chat.typingRoot == replying

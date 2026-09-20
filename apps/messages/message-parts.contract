@@ -1,5 +1,89 @@
 use Message from "./models.contract"
 
+// One balloon in either transcript; its caller owns selection and action binding.
+// @ref LLP 1035.005 D4 — shared presentation with explicit values and actions.
+component MessageBubble
+  props
+    message: Message
+    bubbleId: string
+    swipeId: string
+    reactionPrefix: string
+    hidden: bool
+    selectingText: bool
+    outgoingTailPath: string
+    incomingTailPath: string
+    openReplies: action
+    showActions: action
+    showReactions: action
+    finishTextSelection: action
+  view
+    when message.outgoing
+      ReactionBadges(message=message, prefix=reactionPrefix, hidden=hidden, open=showReactions)
+    button retainFocus=true
+      swiperight=openReplies
+      touch-action="pan-right pan-y"
+      transition="translate 180ms ease-out"
+      contextmenu=showActions
+      dblclick=showReactions
+      id=bubbleId
+      testId=bubbleId
+      opacity=(hidden ? 0: 1)
+      aria-label=message.body
+      max-width="75%"
+      min-width=48
+      box-sizing="border-box"
+      display="flex"
+      justify-content="center"
+      align-items="center"
+      padding-left=14
+      padding-right=14
+      padding-top=10
+      padding-bottom=10
+      border-radius=20
+      background-color=(message.outgoing ? "light-dark(#007aff, #0a84ff)": "light-dark(#e9e9eb, #262629)")
+      column swipeIndicator=true
+        testId=swipeId
+        position="absolute"
+        left=- 40
+        top="50%"
+        margin-top=- 16
+        width=32
+        height=32
+        align-items="center"
+        justify-content="center"
+        opacity=0
+        scale=0.5
+        transition="opacity 180ms ease-out, scale 180ms ease-out"
+        box width=20
+          height=16
+          clip-path="path('M 8 0 Q 9 0 9 1 L 9 4 L 11 4 C 17 4 20 8 20 14 Q 20 16 19 14 C 17 10 15 9 11 9 L 9 9 L 9 12 Q 9 13 8 12 L 1 7 Q 0 6 1 5 Z')"
+          background-color="light-dark(#aeaeb2, #636366)"
+      when message.tail
+        when message.outgoing
+          box position="absolute"
+            right=5
+            bottom=- 7
+            width=22
+            height=24
+            clip-path=outgoingTailPath
+            background-color="light-dark(#007aff, #0a84ff)"
+        else
+          box position="absolute"
+            left=5
+            bottom=- 7
+            width=22
+            height=24
+            clip-path=incomingTailPath
+            background-color="light-dark(#e9e9eb, #262629)"
+      MessageBody(
+        body=message.body,
+        outgoing=message.outgoing,
+        selecting=selectingText,
+        finish=finishTextSelection
+      )
+    when not message.outgoing
+      ReactionBadges(message=message, prefix=reactionPrefix, hidden=hidden, open=showReactions)
+
 // A zero-width side slot preserves the balloon's percentage width and gesture target.
 component ReactionBadges
   props
