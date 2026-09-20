@@ -1,5 +1,5 @@
 //! Game declarations over the engine-free Contract shell bake.
-pub use exact_app_shell::{bake, bake_declaration, bake_registry};
+pub use exact_app_shell::{bake, bake_declaration, bake_registry, NoData};
 use exact_runner::Value;
 use std::{env, fs, path::PathBuf};
 
@@ -38,7 +38,7 @@ fn write_declaration<G: exact_game::Game>(path: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use exact_app_shell::{declaration_arguments, NoData};
+    use exact_app_shell::declaration_arguments;
     #[derive(Default, exact_game::Args)]
     struct Options {
         seed: u32,
