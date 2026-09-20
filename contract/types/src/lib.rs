@@ -229,7 +229,7 @@ pub enum Ref {
     Local(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Frame {
     names: Vec<(String, Ref, Ty)>,
     /// Whether this frame is a region scope (counts toward `Item`/`Bound` depth).
@@ -240,7 +240,7 @@ struct Frame {
 /// parameters or region frames.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
-    // Branches own their stacks, but names and types within a frame never change.
+    // Branches own their stacks, and shared frames remain immutable.
     frames: Vec<Arc<Frame>>,
 }
 
@@ -1166,7 +1166,7 @@ fn check_component(
         ct.mutations.push(shapes.resolve(&m.shape)?);
     }
     // Slots from initializers (may hold `?` inside an option).
-    {
+    if !c.states.is_empty() {
         let mut scope = Scope::default();
         let mut names: Vec<(String, Ref, Ty)> = c
             .props
@@ -1178,8 +1178,8 @@ fn check_component(
             let i = c.props.len() + j;
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
         }
+        scope.push(names);
         for (i, s) in c.states.iter().enumerate() {
-            scope.frames_reset(&names);
             let t = if i == 0 && owners.is_some() && shapes.routes.is_some() {
                 Ty::Record("Router".into())
             } else if owners
@@ -1190,7 +1190,9 @@ fn check_component(
             } else {
                 infer(&s.expr, &scope, shapes)?
             };
-            names.push((s.name.clone(), Ref::Slot(i as u32), t.clone()));
+            // Duplicate declarations were refused above. Each initializer sees
+            // only earlier slots, without copying their names and types again.
+            scope.push_name((s.name.clone(), Ref::Slot(i as u32), t.clone()));
             ct.slots.push(t);
         }
     }
@@ -1328,6 +1330,12 @@ fn check_component(
 }
 
 impl Scope {
+    fn push_name(&mut self, name: (String, Ref, Ty)) {
+        Arc::make_mut(self.frames.last_mut().expect("initializer scope frame"))
+            .names
+            .push(name);
+    }
+
     fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
         self.frames.clear();
         self.push(names.to_vec());

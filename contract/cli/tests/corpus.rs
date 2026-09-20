@@ -151,6 +151,54 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 }
 
 #[test]
+fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
+    let src = r#"component App
+  state value = 7
+  state wrapped = some(value)
+  state next = match wrapped { case some(value) => value + 1, case none => value }
+  state again = value + next
+  view
+    text `${value} ${next} ${again}` testId="values"
+"#;
+    let r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "values").as_deref(), Some("7 8 15"));
+}
+
+#[test]
+fn state_initializers_refuse_later_names_and_leaked_locals() {
+    for (declarations, id, line) in [
+        (
+            "  state next = later\n  state later = 1\n",
+            "type-unknown-name",
+            2,
+        ),
+        ("  state own = own\n", "type-unknown-name", 2),
+        (
+            "  state value = 1\n  state value = 2\n",
+            "type-duplicate-name",
+            3,
+        ),
+        (
+            "  state value = match some(1) { case some(local) => local, case none => 0 }\n  state leaked = local\n",
+            "type-unknown-name",
+            3,
+        ),
+    ] {
+        let source = format!("component App\n{declarations}  view\n    text \"value\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{source}");
+        assert_eq!(error.span.line, line, "{source}");
+    }
+}
+
+#[test]
 fn button_primary_text_is_a_real_accessible_text_child() {
     let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
     let plan = contract::compile(src).unwrap();

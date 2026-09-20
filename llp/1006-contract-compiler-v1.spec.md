@@ -270,6 +270,12 @@ stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
 ownership preserves the public scope's ability to cross threads. Frames live only
 as long as the scopes that use them; there is no cross-compilation cache.
+Ordinary state initializers grow one non-region frame after each initializer is
+inferred. Earlier bindings are retained without recopying the whole prefix; later
+states remain unavailable, and duplicate declarations are refused beforehand.
+Growth uses copy-on-write so any shared snapshot stays unchanged, retaining the
+same within-frame name lookup order. Row-owned initializers are still resolved in
+their owning region scopes in the later pass.
 Before constructing a component scope, inference has allocated every declaration's
 type entry, including unresolved derive and action parameter types. Scope construction
 copies bindings directly from that table into its owned snapshot, without first
