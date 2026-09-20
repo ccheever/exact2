@@ -1148,3 +1148,10 @@ and eight sampled baseline/candidate forward/reversal captures passed, including
 32-point rows. No physical-hitch pilot was run for this rejected mechanism test.
 Evidence remains in `smooth/tails/bounded-refill-*` and
 `smooth/bounded-refill-reversal-ac5385d0`; the one-viewport refill threshold returns.
+
+The next isolated candidate restricts navigation's disabled/editable property
+lookups to nodes with native controls. Scroll profiles attribute part of every
+batch's navigation work to these lookups on ordinary text and wrapper nodes.
+Ancestor inert/hidden checks, unconditional AX restoration, focus clearing and
+actual native editor-state comparisons remain. Existing availability tests cover
+external native-state changes; a displayed-performance benefit is unproven.

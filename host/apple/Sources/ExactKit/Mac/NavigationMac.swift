@@ -36,10 +36,14 @@ final class NavigationHost {
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
             node.setAccessibilityHidden(hidden)
-            let enabled = !node.disabled && !inert
-            if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
-            let editable = enabled && node.props["editable"] != "false"
-            if let area = node.textArea, area.isEditable != editable { area.isEditable = editable }
+            if let field = node.field {
+                let enabled = !node.disabled && !inert
+                if field.isEnabled != enabled { field.isEnabled = enabled }
+            }
+            if let area = node.textArea {
+                let editable = !node.disabled && !inert && node.props["editable"] != "false"
+                if area.isEditable != editable { area.isEditable = editable }
+            }
             if hidden, let responder = node.window?.firstResponder as? NSView,
                responder === node || responder.isDescendant(of: node) || node.field?.currentEditor() === responder {
                 node.window?.makeFirstResponder(nil)
