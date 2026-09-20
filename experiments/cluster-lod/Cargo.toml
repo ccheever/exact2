@@ -1,0 +1,17 @@
+[workspace]
+members = ["format", "bake"]
+resolver = "2"
+
+[workspace.dependencies]
+bytemuck = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+
+[profile.dev]
+opt-level = 2
+debug = false
+incremental = false
+
+[profile.test]
+opt-level = 2
+debug = false
+incremental = false
