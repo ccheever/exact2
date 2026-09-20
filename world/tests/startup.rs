@@ -347,3 +347,54 @@ fn typed_bulk_hash_and_inspection_never_allocate_conversion_payloads() {
     let (_, counts) = counting::measure(|| assert!(json::to_string(&large).is_err()));
     assert!(counts.1 < 1024);
 }
+
+#[test]
+fn inspection_refusal_stops_nested_traversal_and_later_growth() {
+    thread_local! { static VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default)]
+    struct Item;
+    impl Data for Item {
+        fn write(&self, w: &mut dyn Writer) {
+            VISITS.set(VISITS.get() + 1);
+            w.string("0123456789");
+        }
+        fn read(&mut self, _: &mut dyn Reader) -> Result<(), DataError> {
+            Ok(())
+        }
+    }
+    let values: Vec<Vec<Item>> = (0..1000)
+        .map(|_| (0..1000).map(|_| Item).collect())
+        .collect();
+    VISITS.set(0);
+    assert!(json::to_string(&values).is_err());
+    assert!(
+        VISITS.get() > 0 && VISITS.get() < 6000,
+        "visits {}",
+        VISITS.get()
+    );
+    let mut w = json::Encoder::default();
+    w.begin_seq(json::LIMIT + 1);
+    assert!(w.stopped());
+    let (_, counts) = counting::measure(|| values.write(&mut w));
+    assert_eq!(counts, (0, 0));
+    assert!(w.finish().is_err());
+    assert_eq!(json::to_string(&vec![Item]).unwrap(), "[\"0123456789\"]");
+    #[derive(Default, Data)]
+    struct Record {
+        values: Vec<u32>,
+    }
+    let record = Record {
+        values: vec![0; 1_000_000],
+    };
+    let world = World::new(60, 0);
+    let (_, counts) = counting::measure(|| {
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || world.publish_record(&record)
+        ))
+        .is_err());
+    });
+    assert!(
+        counts.1 < 4096,
+        "publication allocated before refusal: {counts:?}"
+    );
+}

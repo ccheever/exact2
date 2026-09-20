@@ -95,7 +95,6 @@ impl<G: Game> Sim<G> {
         self.paranoid = mode;
         self
     }
-    /// Validate before swapping. Setup/restart edges construct a new world at tick zero.
     pub fn bind(&mut self, args: G::Args) -> Result<(), DataError> {
         Self::check(&args)?;
         if self.args.setup_changed(&args) {
@@ -113,7 +112,6 @@ impl<G: Game> Sim<G> {
         }
         Ok(())
     }
-    /// Admit at most 1024 events, stable in timestamp order. No reserved queue at startup.
     pub fn input(&mut self, event: InputEvent) -> Result<(), DataError> {
         self.input.validate_event(&event)?;
         if self.queue.len() == 1024 {
@@ -237,12 +235,10 @@ impl<G: Game> Sim<G> {
         self.caller_us = caller_us;
         Ok(())
     }
-    /// Adapter inputs only; no display pacing, look-ahead or frame policy.
     pub fn alpha_inputs(&self) -> (u64, u32, u32) {
         let phase = self.world_us as u128 * G::HZ as u128;
         (self.world.tick(), (phase % 1_000_000) as u32, 1_000_000)
     }
-    /// External pending/failed readiness refuses immediately; virtual time cannot finish I/O.
     pub fn settle(&mut self, max_ticks: u32) -> Result<u64, DataError> {
         if max_ticks > 3600 {
             return Err(DataError::new("settle limit is 3600 ticks"));
@@ -290,6 +286,9 @@ impl<G: Game> Sim<G> {
         w.item();
         w.begin_seq(self.queue.len());
         for e in &self.queue {
+            if w.stopped() {
+                break;
+            }
             w.item();
             e.write(&mut w);
         }
@@ -313,7 +312,6 @@ impl<G: Game> Sim<G> {
         let next = Self::candidate(bytes, false)?;
         self.install(next, false)
     }
-    /// Compatible-state carry preserves current live arguments; structural/setup changes refuse.
     pub fn carry(&mut self, bytes: &[u8]) -> Result<bool, DataError> {
         let next = Self::candidate(bytes, true)?;
         if next.args.setup_changed(&self.args) {

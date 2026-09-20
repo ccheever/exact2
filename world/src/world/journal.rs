@@ -209,6 +209,9 @@ impl World {
         w.item();
         w.begin_seq(events.len());
         for e in events.iter() {
+            if w.stopped() {
+                break;
+            }
             w.item();
             e.write(w);
         }

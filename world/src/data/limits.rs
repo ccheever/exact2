@@ -1,11 +1,8 @@
 use super::{Data, DataError, Reader};
 use std::{cell::Cell, rc::Rc};
 
-/// Maximum entity slots accepted by a world save: 200,000, including dead slots.
 pub const MAX_LOAD_ENTITIES: usize = crate::MAX_ENTITIES;
-/// Maximum decoded UTF-8 bytes in any one string: 1 MiB.
 pub const MAX_LOAD_STRING: usize = 1024 * 1024;
-/// Maximum input bytes and accounted decoded allocations per decoder: 256 MiB.
 pub const MAX_LOAD_BYTES: usize = 256 * 1024 * 1024;
 
 /// One explicit cumulative allowance across nested binary/JSON/world decoders.
@@ -13,7 +10,6 @@ pub const MAX_LOAD_BYTES: usize = 256 * 1024 * 1024;
 #[derive(Clone)]
 pub struct LoadBudget(Rc<Cell<usize>>);
 impl LoadBudget {
-    /// Set the total accounted allocation allowance for cooperating decoders.
     pub fn new(bytes: usize) -> Self {
         Self(Rc::new(Cell::new(bytes)))
     }

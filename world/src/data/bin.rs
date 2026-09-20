@@ -5,24 +5,20 @@ use super::BulkKind;
 use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
 use std::collections::BTreeMap;
 
-/// Encode one value, canonicalizing all NaNs while preserving negative zero.
 pub fn to_vec<T: Data>(value: &T) -> Result<Vec<u8>, DataError> {
     let mut w = Encoder::default();
     value.write(&mut w);
     w.finish()
 }
-/// Read one value over its defaults, rejecting trailing input.
 pub fn from_slice<T: Data>(bytes: &[u8]) -> Result<T, DataError> {
     from_slice_in(bytes, None)
 }
-/// Read a value using a shared allocation allowance when supplied.
 pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Result<T, DataError> {
     let mut r = Decoder::for_load(bytes, budget);
     let value = T::read_new(&mut r).map_err(|e| e.at(super::type_name::<T>()))?;
     r.finish()?;
     Ok(value)
 }
-/// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> {
     let mut r = Decoder::new(bytes);
     value
@@ -207,6 +203,9 @@ impl Writer for Encoder {
         self.name(name.into());
     }
     fn key(&mut self, name: &str) {
+        if self.stopped() {
+            return;
+        }
         self.claim_decoded(64 + name.len());
         self.append(&[1]);
         self.name(name.to_owned().into());
@@ -262,14 +261,12 @@ impl<'a> Decoder<'a> {
             budget: Budget::default(),
         }
     }
-    /// An importing subsystem can tighten allocations without changing world saves.
     pub(crate) fn with_budget(bytes: &'a [u8], allocation_bytes: usize) -> Self {
         Self {
             budget: Budget::new(allocation_bytes),
             ..Self::new(bytes)
         }
     }
-    /// Read using a shared allocation allowance, with collection preflight.
     pub fn for_load(bytes: &'a [u8], budget: Option<&LoadBudget>) -> Self {
         let mut r = Self::new(bytes);
         if let Some(budget) = budget {

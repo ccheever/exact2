@@ -280,9 +280,11 @@ struct RecordWriter {
     stack: Vec<Stored>,
     fields: Vec<String>,
     result: Stored,
+    spent: usize,
 }
 impl RecordWriter {
     fn push(&mut self, value: Stored) {
+        self.claim_decoded(64);
         match self.stack.last_mut() {
             Some(Stored::Object(fields)) => {
                 fields.insert(self.fields.pop().expect("record field"), value);
@@ -293,12 +295,23 @@ impl RecordWriter {
             _ => unreachable!(),
         }
     }
+    fn begin(&mut self, value: Stored) {
+        assert!(self.stack.len() < 256, "publication nesting limit");
+        self.stack.push(value);
+    }
     fn end(&mut self) {
         let value = self.stack.pop().expect("Data container");
         self.push(value);
     }
 }
 impl Writer for RecordWriter {
+    fn claim_decoded(&mut self, bytes: usize) {
+        self.spent = self.spent.saturating_add(bytes);
+        assert!(
+            self.spent <= crate::json::LIMIT,
+            "publication traversal limit"
+        );
+    }
     fn unit(&mut self) {
         self.push(Stored::Unit);
     }
@@ -327,25 +340,29 @@ impl Writer for RecordWriter {
         }));
     }
     fn string(&mut self, v: &str) {
+        self.claim_decoded(v.len());
         self.push(Stored::Str(v.into()));
     }
     fn bytes(&mut self, value: crate::data::Bulk<'_>) {
+        self.claim_decoded(value.numbers().size_hint().0.saturating_mul(64));
         self.push(Stored::List(value.numbers().map(Stored::Number).collect()));
     }
     fn begin_seq(&mut self, len: usize) {
-        self.stack.push(Stored::List(Vec::with_capacity(len)));
+        self.claim_decoded(len.saturating_mul(64));
+        self.begin(Stored::List(Vec::with_capacity(len)));
     }
     fn item(&mut self) {}
     fn end_seq(&mut self) {
         self.end();
     }
     fn begin_struct(&mut self) {
-        self.stack.push(Stored::Object(Default::default()));
+        self.begin(Stored::Object(Default::default()));
     }
     fn field(&mut self, name: &'static str) {
         self.key(name);
     }
     fn key(&mut self, name: &str) {
+        self.claim_decoded(name.len());
         self.fields.push(name.into());
     }
     fn end_struct(&mut self) {
@@ -356,7 +373,7 @@ impl Writer for RecordWriter {
     }
     fn end_variant(&mut self) {}
     fn option(&mut self, _: bool) {
-        self.stack.push(Stored::Option(None));
+        self.begin(Stored::Option(None));
     }
     fn end_option(&mut self) {
         assert!(

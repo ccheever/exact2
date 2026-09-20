@@ -205,7 +205,6 @@ const SINGLETON: Entity = Entity {
 const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
-    /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
         let epoch = std::rc::Rc::new(std::cell::Cell::new(0));
@@ -247,7 +246,6 @@ impl World {
     pub fn id(&self) -> WorldId {
         self.id.clone()
     }
-    /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> Result<&mut Self, DataError> {
         let reg = self.registration::<C>(C::NAME)?;
         if reg.make.is_none() {
@@ -324,11 +322,9 @@ impl World {
     pub(crate) fn storage<C: Component>(&self) -> Option<&Storage<C>> {
         self.components.get(C::NAME)?.any().downcast_ref()
     }
-    /// Spawn in the lowest free slot.
     pub fn spawn(&mut self, bundle: impl Bundle) -> Result<Entity, DataError> {
         self.spawn_inner(None, bundle)
     }
-    /// Spawn with an agent-visible name. Repeated names resolve lowest-index first.
     pub fn spawn_named(
         &mut self,
         name: impl AsRef<str>,
@@ -450,7 +446,6 @@ impl World {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
-    /// Living entities in ascending slot order.
     pub fn entities(&self) -> impl Iterator<Item = Entity> + '_ {
         self.state
             .slots
@@ -468,7 +463,6 @@ impl World {
             generation: self.state.slots[index].generation,
         }
     }
-    /// The lowest-index living entity bearing this name, in O(log distinct names).
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.names.get(name)?.first().copied()
     }
@@ -478,7 +472,6 @@ impl World {
         }
         self.state.slots[e.index as usize].name.as_deref()
     }
-    /// Resolve fox, fox#12, or #12; an explicit name must agree with the slot.
     pub fn resolve(&self, target: &str) -> Option<Entity> {
         let Some((name, index)) = target.rsplit_once('#') else {
             return self.named(target);
@@ -491,7 +484,6 @@ impl World {
         };
         (s.alive && (name.is_empty() || s.name.as_deref() == Some(name))).then_some(e)
     }
-    /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> Result<bool, DataError> {
         let count = c.preflight(self, e)?;
         if !self.contains(e) {
@@ -519,7 +511,6 @@ impl World {
             .insert(e.index as usize, c);
         Ok(true)
     }
-    /// Remove a component, returning its last value.
     pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
         if !self.has::<C>(e) {
             return None;
@@ -566,15 +557,12 @@ impl World {
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
         Pages::new(self.storage::<C>())
     }
-    /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, |s| s.revision())
     }
-    /// Component membership generation; changing an existing value leaves it alone.
     pub fn membership<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, |s| s.membership())
     }
-    /// Spawn/despawn generation, including equal-count slot recycling. Not simulation state.
     pub fn entities_revision(&self) -> u64 {
         self.entities_revision
     }
@@ -610,7 +598,6 @@ impl World {
             .and_then(|s| s.any().downcast_ref())
             .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
     }
-    /// Borrow optional singleton data without requiring its installation.
     pub fn try_resource<R: Resource>(&self) -> Option<Ref<'_, R>> {
         self.resources
             .get(R::NAME)?
@@ -618,11 +605,9 @@ impl World {
             .downcast_ref::<storage::Singleton<R>>()?
             .get()
     }
-    /// Borrow a resource; absence panics with its name.
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
         self.resource_storage::<R>().get().unwrap()
     }
-    /// Borrow a resource exclusively; absence panics with its name.
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
         self.resource_storage::<R>().get_mut().unwrap()
     }
@@ -632,11 +617,9 @@ impl World {
     pub fn hz(&self) -> u32 {
         self.state.hz
     }
-    /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
         self.rng.get_mut().unwrap()
     }
-    /// Publish to the app and journal only changes to this key.
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
         self.publish_value(key, value.into().0);
     }
@@ -665,7 +648,6 @@ impl World {
         self.published_pending.set(true);
         self.mutated();
     }
-    /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
         let text = text.into();
         let mut messages = self.messages.borrow_mut();
@@ -697,6 +679,9 @@ impl World {
         w.begin_struct();
         w.field("state");
         for slot in &self.state.slots {
+            if w.stopped() {
+                break;
+            }
             if let Some(name) = &slot.name {
                 w.claim_decoded(512 + name.len());
             }
@@ -711,6 +696,9 @@ impl World {
             w.field(kind);
             w.begin_struct();
             for (name, s) in storages.iter().filter(|(_, s)| s.len() != 0) {
+                if w.stopped() {
+                    break;
+                }
                 w.key(name);
                 s.write(w, &|index| {
                     if kind == "resources" {
@@ -728,7 +716,6 @@ impl World {
         }
         w.end_struct();
     }
-    /// Hash simulation state in type-name order, excluding saved delivery queues.
     pub fn hash(&self) -> u64 {
         self.healthy().expect("cannot hash poisoned world");
         if let Some((epoch, hash)) = self.hash_cache.get() {
@@ -742,7 +729,6 @@ impl World {
         self.hash_cache.set(Some((self.mutation_epoch(), hash)));
         hash
     }
-    /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.validate()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
@@ -754,7 +740,6 @@ impl World {
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         self.load_in(bytes, None, false).map(|_| ())
     }
-    /// Intentional field adaptation. True means the canonical saved content changed.
     pub fn carry(&mut self, bytes: &[u8]) -> Result<bool, DataError> {
         self.load_in(bytes, None, true)
     }

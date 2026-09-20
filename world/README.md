@@ -176,3 +176,10 @@ bytes; inspecting a 65,536-byte numeric vector allocates under 1,024 bytes. The
 cross-engine fixture rechecks all four bulk tags, generic Data bytes and world
 hash/content parity. It uses the same reverse component insertion order in both
 engines; it does not prove opposite insertion histories between engines.
+
+Inspection and binary sinks expose `Writer::stopped`; container loops stop on
+refusal. Record publication also admits strings, numeric vectors, sequence backing
+and nesting before allocating. A million nested values stops inspection before
+6,000 element visits, and an already-refused inspection performs zero subsequent
+allocations. Public method descriptions are consolidated here (included in rustdoc);
+storage safety and mutation contracts remain beside their implementations.

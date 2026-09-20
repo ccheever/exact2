@@ -79,12 +79,15 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn stopped(&self) -> bool {
+        self.error.is_some()
+    }
     fn unit(&mut self) {
         self.push("null");
     }
     fn bytes(&mut self, value: super::Bulk<'_>) {
         let (_, len) = value.shape();
-        if len > LIMIT {
+        if self.stopped() || len > LIMIT {
             self.fail("inspection bulk exceeds limit");
             return;
         }
@@ -100,6 +103,9 @@ impl Writer for Encoder {
         self.push(if n { "true" } else { "false" });
     }
     fn number(&mut self, n: Number) {
+        if self.stopped() {
+            return;
+        }
         let mut text = String::new();
         match n {
             Number::Unsigned(n) => write!(text, "{n}").unwrap(),
@@ -125,7 +131,7 @@ impl Writer for Encoder {
         self.quote(s);
     }
     fn begin_seq(&mut self, len: usize) {
-        if len > LIMIT {
+        if self.stopped() || len > LIMIT {
             self.fail("inspection sequence exceeds limit");
         }
         self.begin("[");
