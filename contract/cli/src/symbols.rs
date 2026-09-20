@@ -7,7 +7,7 @@ use crate::{
 };
 use contract_syntax::*;
 use contract_types::{Ref, Scope, Ty, Types};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, io::Write, path::Path};
 
 struct Definition {
     kind: &'static str,
@@ -96,42 +96,66 @@ impl Graph {
         }
     }
     fn json(&self, sources: &Sources) -> String {
-        let location = |span: Span| {
-            serde_json::json!({
-                "file": sources.path(span).to_string_lossy(), "line": span.line,
-                "col": span.col, "end_col": span.end_col,
-            })
-        };
-        let definitions: Vec<_> = self
-            .definitions
-            .iter()
-            .map(|d| {
-                let mut value = location(d.span);
-                value["kind"] = d.kind.into();
-                value["name"] = d.name.clone().into();
-                if let Some(c) = &d.component {
-                    value["component"] = c.clone().into();
-                }
-                if let Some(o) = &d.owner {
-                    value["owner"] = o.clone().into();
-                }
-                value
-            })
-            .collect();
-        let references: Vec<_> = self
-            .references
-            .iter()
-            .map(|r| {
-                let d = &self.definitions[r.to];
-                let mut value = location(r.span);
-                value["kind"] = d.kind.into();
-                value["name"] = d.name.clone().into();
-                value["to"] = r.to.into();
-                value
-            })
-            .collect();
-        serde_json::json!({"definitions": definitions, "references": references}).to_string()
+        // Emit the existing graph directly, without cloning every name and
+        // filename into a second tree of JSON objects.
+        let mut out = Vec::with_capacity((self.definitions.len() + self.references.len()) * 128);
+        out.extend_from_slice(b"{\"definitions\":[");
+        for (i, definition) in self.definitions.iter().enumerate() {
+            if i != 0 {
+                out.push(b',');
+            }
+            write_symbol(&mut out, sources, definition, definition.span, None);
+        }
+        out.extend_from_slice(b"],\"references\":[");
+        for (i, reference) in self.references.iter().enumerate() {
+            if i != 0 {
+                out.push(b',');
+            }
+            write_symbol(
+                &mut out,
+                sources,
+                &self.definitions[reference.to],
+                reference.span,
+                Some(reference.to),
+            );
+        }
+        out.extend_from_slice(b"]}");
+        String::from_utf8(out).expect("JSON serialization is UTF-8")
     }
+}
+
+fn write_symbol(
+    out: &mut Vec<u8>,
+    sources: &Sources,
+    definition: &Definition,
+    span: Span,
+    to: Option<usize>,
+) {
+    // Keep the previous sorted property order as well as its optional fields.
+    write!(out, "{{\"col\":{}", span.col).unwrap();
+    if to.is_none() {
+        if let Some(component) = &definition.component {
+            out.extend_from_slice(b",\"component\":");
+            quote(out, component);
+        }
+    }
+    write!(out, ",\"end_col\":{},\"file\":", span.end_col).unwrap();
+    quote(out, &sources.path(span).to_string_lossy());
+    out.extend_from_slice(b",\"kind\":");
+    quote(out, definition.kind);
+    write!(out, ",\"line\":{},\"name\":", span.line).unwrap();
+    quote(out, &definition.name);
+    if let Some(to) = to {
+        write!(out, ",\"to\":{to}").unwrap();
+    } else if let Some(owner) = &definition.owner {
+        out.extend_from_slice(b",\"owner\":");
+        quote(out, owner);
+    }
+    out.push(b'}');
+}
+
+fn quote(out: &mut Vec<u8>, value: &str) {
+    serde_json::to_writer(out, value).expect("writing JSON into a Vec cannot fail");
 }
 
 /// Definitions and references as JSON, with exact original byte ranges.
