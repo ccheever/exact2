@@ -54,6 +54,7 @@ pub mod paint;
 mod placement;
 pub mod presenter;
 pub mod raster;
+mod surface_startup;
 mod surfaces;
 pub mod text;
 #[cfg(target_os = "linux")]

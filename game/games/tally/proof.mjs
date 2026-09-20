@@ -3,12 +3,13 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import {proof} from '../../proof.mjs';
 process.env.CARGO_TARGET_DIR ??= resolve(import.meta.dir,'../../target');
-if (import.meta.main) await proof(import.meta, async ({open,check,equal,out})=>{
+if (import.meta.main) await proof(import.meta, async ({open,check,equal,out,pin,pinSave})=>{
   const state=async s=>(await s.state()).world[0];
   const play=async s=>{await s.tap('draw');await s.clock('+100');await s.tap('hold');await s.clock('+100');};
   const saved=resolve(out,'checkpoint.world'), final=resolve(out,'continued.world');
   const s=await open();
   const initial=await state(s);
+  pin(initial.tick,initial);
   check('device-free world ready after binding and first tick',initial.ready===true);
   await s.clock('+1000');
   const next=await state(s);
@@ -22,7 +23,8 @@ if (import.meta.main) await proof(import.meta, async ({open,check,equal,out})=>{
   check('Contract text contains published score',(await s.tree()).nodes.some(n=>n.props?.testId==='score' && n.props.text===`Score ${held.published.score}`));
   await s.world('world').save(saved);
   await play(s);const expected=await s.world('world').snapshot();
-  await s.world('world').save(final);await s.logs();await s.close();
+  pin(expected.tick,expected);
+  await s.world('world').save(final);pinSave('continuation',final);await s.logs();await s.close();
   const r=await open({fresh:true,world:saved});
   check('restore acknowledged',(await state(r)).restored===true);
   await play(r);

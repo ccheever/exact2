@@ -344,6 +344,7 @@ pub fn boot_presenter<D: DataSource + Default>(
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
+    let started = Instant::now();
     if print_baked_receipt(compat) {
         return 0;
     }
@@ -357,7 +358,6 @@ pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
         );
         return 1;
     }
-    let started = Instant::now();
     let mut config = Config::from_env(baked, compat);
     run_config::<D>(&mut config, started)
 }
@@ -374,6 +374,7 @@ pub fn print_baked_receipt(compat: &str) -> bool {
 
 /// Run a configured app, optionally composed with a delivery adapter.
 pub fn run_config<D: DataSource + Default>(config: &mut Config, started: Instant) -> i32 {
+    crate::surface_startup::start(started);
     if let Err(why) = exact_runner::delivery::refuse_analysis(&config.compat) {
         eprintln!("exact: {why}");
         return 1;

@@ -1,1 +1,16 @@
-{"ticks":{},"saves":{}}
+{
+  "ticks": {
+    "1": "0x32a9f7776ceb5052",
+    "85": "0x3d943e409a0493be"
+  },
+  "saves": {
+    "continuation": "5e48162a4e3c959e83b205d74a78642b052de101033214e6099042026173f0de"
+  },
+  "game": "tally",
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "generated": "bun game/prove.mjs tally --hosts linux,web",
+  "at": "f1426ff018314ef084f9317c4382f0017846633a"
+}

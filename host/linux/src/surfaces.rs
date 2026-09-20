@@ -371,6 +371,10 @@ impl Surfaces {
                 self.error = abi.error();
                 continue;
             }
+            if crate::surface_startup::enabled() {
+                let at = std::time::Instant::now();
+                crate::surface_startup::tick(at, &abi.agent(c.id, &json!({"op":"state"})));
+            }
             if !self.restore_read {
                 self.restore_read = true;
                 self.restore = std::env::var_os("EXACT_WORLD").map(|path| {
@@ -484,6 +488,7 @@ impl Surfaces {
                         .error
                         .take()
                         .or(host.surface_record(&c.name, Some(&record)));
+                    crate::surface_startup::published();
                     changed = true;
                 }
             }
