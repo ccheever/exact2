@@ -102,7 +102,7 @@ layouts; the bytes and hashes themselves remain portable.
 
 `Data::read_new` admits construction before calling defaults; boxed values claim
 before allocation. Derives expose `default_size` recursively through fields.
-A custom allocating Default must supply an adequate `default_size` in a manual
+Custom allocating defaults, including skipped fields, must supply an adequate `default_size` in a manual
 Data implementation, or override `read_new` and claim before allocation. Manual
 writers must account owned decode storage through `Writer::claim_decoded` and
 honor `stopped`; arbitrary user code cannot be bounded by a codec.
@@ -120,7 +120,7 @@ The extra validation pass raises the measured 10 KiB restore to 1,042 allocation
 To keep production Rust under 6,500 lines, this revision deletes the duplicate
 `Data::moving` traversal (use `settle_tick`), the redundant Sim name/role schema
 table (storage maps and exact canonical comparison validate the same information),
-unused `Component::SAVED_FIELDS`, `Sim::from_values`, `Now::seconds`, `World::{count,dt,seconds}`, required-value
+unused `Component::SAVED_FIELDS`, `Sim::from_values`, `Now::seconds`, `World::{count,dt,seconds,seed}`, required-value
 lookup wrappers and Target labels, `Query::names`, `QueryBorrow::{one,matching_count}`,
 and range/chance/pick RNG conveniences. Use `get`/`get_mut`, joined iteration,
 `Args::decode`, and `Rng::{next_u32,next_f32}` directly. No state is removed and

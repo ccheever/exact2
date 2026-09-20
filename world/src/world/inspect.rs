@@ -32,9 +32,6 @@ impl World {
             hz: self.hz(),
         }
     }
-    pub fn seed(&self) -> u64 {
-        self.state.seed
-    }
     pub fn reseed(&mut self, seed: u64) {
         self.state.seed = seed;
         self.rng.insert(Rng::new(seed));

@@ -355,8 +355,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("game identity differs"));
         }
         item(&mut r)?;
-        let mut args = G::Args::default();
-        args.read(&mut r)?;
+        let args = G::Args::read_new(&mut r)?;
         Self::check(&args)?;
         let mut world = World::new(G::HZ, 0);
         G::register(&mut world, SetupArgs(&args))?;

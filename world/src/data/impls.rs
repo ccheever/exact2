@@ -191,10 +191,12 @@ where
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
+        w.claim_decoded(Self::default_size().saturating_mul(2));
         write_slice(self, w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
+        r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?;
         *self = Self::default();
         read_slice(self, r)
     }
@@ -242,7 +244,6 @@ impl<T: Data> Data for Box<T> {
         (**self).write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        r.claim(std::mem::size_of::<T>())?;
         (**self).read(r)
     }
 }
@@ -280,10 +281,11 @@ macro_rules! tuple {
             fn default_size() -> usize { std::mem::size_of::<Self>() $(.saturating_add($T::default_size().saturating_sub(std::mem::size_of::<$T>())))* }
             fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {
+                w.claim_decoded(Self::default_size().saturating_mul(2));
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-                r.begin_seq()?; *self = Self::default(); let mut i = 0;
+                r.begin_seq()?; r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?; *self = Self::default(); let mut i = 0;
                 while r.item()? {
                     match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.unknown().map_err(|e| e.at(i))?, }
                     i += 1;

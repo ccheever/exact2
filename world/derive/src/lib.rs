@@ -239,7 +239,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 format!("if let {pat} = self {{ (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?; }}", read_body(b, &refs))
             };
             read += &format!(
-                "{:?} => {{ if !::core::matches!(self, {}) {{ r.check_allocation({})?; *self = {}; }} {bind} }},",
+                "{:?} => {{ if !::core::matches!(self, {}) {{ r.claim({})?; *self = {}; }} {bind} }},",
                 clean(&arm.name),
                 pattern(&arm.name, b, &wildcards),
                 default_size(b),
@@ -318,12 +318,15 @@ fn write_body(b: &Body, access: &[String]) -> String {
 fn read_body(b: &Body, access: &[String]) -> String {
     let named = b.shape != Shape::Tuple;
     let mut s = String::new();
-    for (_, a) in b
+    for (f, a) in b
         .fields
         .iter()
         .zip(access)
         .filter(|(f, _)| f.skip || !named)
     {
+        if !f.skip {
+            s += &format!("r.claim(<{} as ::exact_world::Data>::default_size().saturating_sub(::core::mem::size_of::<{}>()))?;", f.ty, f.ty);
+        }
         s += &format!("{a} = ::core::default::Default::default();");
     }
     s += if named {

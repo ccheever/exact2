@@ -31,6 +31,7 @@ pub trait Data: Sized + Default + 'static {
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
         r.check_allocation(Self::default_size().max(1))?;
+        r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?;
         let mut value = Self::default();
         value.read(r)?;
         Ok(value)

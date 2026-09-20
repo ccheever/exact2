@@ -181,3 +181,63 @@ fn nested_box_default_is_preflighted_before_allocating() {
     assert!(bin::from_slice_in::<Outer>(&[], Some(&data::LoadBudget::new(1024))).is_err());
     assert_eq!(DEFAULTS.get(), 0);
 }
+
+#[test]
+fn omitted_box_fields_and_container_resets_claim_defaults_before_allocation() {
+    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    struct Large([u64; 1024]);
+    impl Default for Large {
+        fn default() -> Self {
+            DEFAULTS.set(DEFAULTS.get() + 1);
+            Self([0; 1024])
+        }
+    }
+    impl Data for Large {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0[0].write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0[0].read(r)
+        }
+    }
+    #[derive(Default, Data)]
+    struct Record {
+        boxed: Box<Large>,
+    }
+    // Hostile patch records omit the allocating field. Charging only Box::read
+    // never sees it, so the outer construction must charge the recursive default.
+    let empty_records = |n| {
+        let mut w = bin::Encoder::default();
+        w.begin_seq(n);
+        for _ in 0..n {
+            w.item();
+            w.begin_struct();
+            w.end_struct();
+        }
+        w.end_seq();
+        w.finish().unwrap()
+    };
+    DEFAULTS.set(0);
+    assert!(bin::from_slice_in::<Vec<Record>>(
+        &empty_records(10),
+        Some(&data::LoadBudget::new(10000))
+    )
+    .is_err());
+    assert!(
+        DEFAULTS.get() <= 1,
+        "constructed {} large defaults",
+        DEFAULTS.get()
+    );
+    DEFAULTS.set(0);
+    let decoded =
+        bin::from_slice_in::<Vec<Record>>(&empty_records(2), Some(&data::LoadBudget::new(30000)))
+            .unwrap();
+    assert_eq!(decoded.len(), 2);
+    assert_eq!(DEFAULTS.get(), 2); // negative control: admitted defaults are constructed
+    let mut array = [Box::<Large>::default()];
+    let bytes = bin::to_vec(&Vec::<()>::new()).unwrap();
+    DEFAULTS.set(0);
+    let mut r = bin::Decoder::for_load(&bytes, Some(&data::LoadBudget::new(1024)));
+    assert!(array.read(&mut r).is_err());
+    assert_eq!(DEFAULTS.get(), 0, "array reset allocated before admission");
+}
