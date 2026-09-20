@@ -186,7 +186,7 @@ impl<G: Game> Sim<G> {
             self.world_us = next_world;
             self.caller_us = next_caller;
             if self.paranoid != Paranoid::Off {
-                let hash = self.world.hash();
+                let hash = self.world.hash()?;
                 let bytes = self.save()?;
                 if self.paranoid == Paranoid::FreshGame {
                     let next = Self::from_save(&bytes)?;
@@ -196,7 +196,7 @@ impl<G: Game> Sim<G> {
                 }
                 assert_eq!(
                     hash,
-                    self.world.hash(),
+                    self.world.hash()?,
                     "paranoid {:?} tick {}",
                     self.paranoid,
                     self.world.tick()

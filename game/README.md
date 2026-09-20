@@ -700,3 +700,7 @@ The optional kernel now returns `Result<(), DataError>` from `World::publish`,
 including journal exhaustion. Restore installs the complete driver before dropping
 outgoing World/Args; outgoing destructor panics propagate without poisoning the
 incoming state. `bin::read_into` stages patches and preserves values on decode errors.
+
+Optional-kernel `World::hash`, `hash::of` and `Hasher::finish` now return
+`Result<u64, DataError>` for invalid Data and excessive nesting. Derived skipped
+fields require `Data + Default` so allocation admission includes their defaults.

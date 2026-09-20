@@ -10,10 +10,10 @@ fn cards(empty: bool) -> [(Vec<u8>, u64); 4] {
     let c = if empty { vec![] } else { vec![0x3f80_0000u32] };
     let d = if empty { vec![] } else { vec![1.0f32] };
     [
-        (bin::to_vec(&a).unwrap(), hash::of(&a)),
-        (bin::to_vec(&b).unwrap(), hash::of(&b)),
-        (bin::to_vec(&c).unwrap(), hash::of(&c)),
-        (bin::to_vec(&d).unwrap(), hash::of(&d)),
+        (bin::to_vec(&a).unwrap(), hash::of(&a).unwrap()),
+        (bin::to_vec(&b).unwrap(), hash::of(&b).unwrap()),
+        (bin::to_vec(&c).unwrap(), hash::of(&c).unwrap()),
+        (bin::to_vec(&d).unwrap(), hash::of(&d).unwrap()),
     ]
 }
 

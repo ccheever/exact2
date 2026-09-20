@@ -20,7 +20,7 @@ fn run_cross(benchmark: bool) {
         .parent()
         .unwrap()
         .join("scratch")
-        .join("K1d")
+        .join("K1e")
         .join(format!("cross-{}", std::process::id()));
     fs::create_dir_all(scratch.join("src")).unwrap();
     fs::write(
@@ -111,6 +111,7 @@ pub fn throughput(label: &str, dense: bool) {
             "Published::Record(vec![Published::Bool(true),Published::Str(\"x\".into())])",
         )
         .replace("ENGINE", "exact_world")
+        .replace("w.hash()", "w.hash().unwrap()")
         .replace(
             "register::<Throughput>()",
             "register::<Throughput>().unwrap()",

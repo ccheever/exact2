@@ -104,7 +104,7 @@ pub fn inventory() -> Vec<u8> {
         driver[6] = 9;
         assert_eq!(driver[8], 10);
         driver[8] = 9;
-        out.extend_from_slice(&sim.world().hash().to_le_bytes());
+        out.extend_from_slice(&sim.world().hash().unwrap().to_le_bytes());
         for bytes in [world, driver] {
             out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
             out.extend_from_slice(&bytes);

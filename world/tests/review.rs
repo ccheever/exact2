@@ -560,3 +560,90 @@ fn restore_and_bind_install_complete_driver_before_dropping_args() {
         s.run(17.).unwrap();
     }
 }
+
+#[test]
+fn storage_names_are_admitted_before_any_unreadable_journal_is_created() {
+    #[derive(Default, Data)]
+    struct LongName;
+    impl Component for LongName {
+        const NAME: &'static str = concat!(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        );
+    }
+    let mut w = World::new(60, 0);
+    let before = w.save().unwrap();
+    assert!(w.register::<LongName>().is_err());
+    assert_eq!(w.save().unwrap(), before);
+}
+
+#[test]
+fn generated_simulations_round_trip_exact_bytes_and_hashes() {
+    for seed in 0..64 {
+        let mut rng = Rng::new(seed);
+        let mut s = Sim::<Board>::new(()).unwrap();
+        for _ in 0..32 {
+            match rng.next_u32() % 6 {
+                0 => {
+                    s.world_mut().spawn(Counter { n: rng.next_u32() }).unwrap();
+                }
+                1 => {
+                    if let Some(e) = s.world().entities().last() {
+                        if e.index() != 0 {
+                            s.world_mut().despawn(e);
+                        }
+                    }
+                }
+                2 => {
+                    s.run((rng.next_u32() % 40) as f64).unwrap();
+                }
+                3 => {
+                    s.world().publish("score", rng.next_u32()).unwrap();
+                }
+                4 => {
+                    s.world().take_published();
+                }
+                _ => {
+                    s.world().log("generated").unwrap();
+                }
+            }
+            let bytes = s.save().unwrap();
+            let next = Sim::<Board>::from_save(&bytes).unwrap();
+            assert_eq!(next.save().unwrap(), bytes);
+            assert_eq!(next.world().hash(), s.world().hash());
+        }
+    }
+}
+
+#[test]
+fn hash_refuses_invalid_motion_and_excessive_nesting_without_panicking() {
+    #[derive(Default, Component)]
+    struct Motion(Tween);
+    let mut w = World::new(60, 0);
+    w.register::<Motion>().unwrap();
+    w.spawn(Motion(Tween {
+        duration: -1.,
+        ..Default::default()
+    }))
+    .unwrap();
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.hash()))
+            .unwrap()
+            .is_err()
+    );
+    #[derive(Default, Data)]
+    enum Node {
+        #[default]
+        End,
+        More(Box<Node>),
+    }
+    let mut value = Node::End;
+    for _ in 0..500 {
+        value = Node::More(Box::new(value));
+    }
+    let mut sink = hash::Hasher::bounded(1024 * 1024);
+    value.write(&mut sink);
+    assert!(sink.report().is_err(), "hash ignored codec nesting limit");
+}

@@ -83,7 +83,7 @@ Data fields traverse in declaration order. Storage traverses in type-name order;
 queries return ascending entity slots. Hashing and binary encoding canonicalize
 NaNs and preserve signed zero. Semantic Data has no interior mutability. Manual
 implementations must obey the visitor and admission contracts below. Explicit
-`hash()` always walks current Data; it no longer caches by the mutation epoch.
+`hash() -> Result<u64, DataError>` always walks current Data; it no longer caches by the mutation epoch.
 
 `Entity` contains a slot and generation. Reusing the lowest free slot does not
 revive an old handle. `entity_at(index: usize) -> Option<Entity>` checks the slot
@@ -584,3 +584,8 @@ Enum `read_new` constructs the incoming variant with admitted field defaults;
 it never invokes a manual enum Default for an unrelated variant. Skipped field
 defaults and every generated reset charge their declared size before construction.
 Manual allocating defaults must still fit their declared `Data::default_size`.
+
+Storage names admit 1–256 UTF-8 bytes before registration. `World::hash`,
+`hash::of` and `Hasher::finish` return `Result`; invalid values and nesting beyond
+256 frames refuse just as save/sample do. Accepted hash bytes are unchanged.
+The generated-simulation control checks 2,048 complete save/load/save boundaries.

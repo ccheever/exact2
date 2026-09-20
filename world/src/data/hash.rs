@@ -5,7 +5,7 @@
 use super::{f32_bits, f64_bits, Data, Number, Writer};
 
 /// Hash the values in declaration order.
-pub fn of<T: Data>(value: &T) -> u64 {
+pub fn of<T: Data>(value: &T) -> Result<u64, super::DataError> {
     let mut w = Hasher::default();
     value.write(&mut w);
     w.finish()
@@ -20,6 +20,8 @@ pub struct Hasher {
     len: u64,
     limit: u64,
     refused: bool,
+    depth: usize,
+    decoded: usize,
 }
 impl Default for Hasher {
     fn default() -> Self {
@@ -30,6 +32,8 @@ impl Default for Hasher {
             len: 0,
             limit: u64::MAX,
             refused: false,
+            depth: 0,
+            decoded: 0,
         }
     }
 }
@@ -49,7 +53,7 @@ impl Hasher {
         if self.refused {
             Err(super::DataError::new("observation byte budget exhausted"))
         } else {
-            Ok((self.finish(), self.len))
+            Ok((self.finish()?, self.len))
         }
     }
     fn allow(&mut self, bytes: usize) -> bool {
@@ -85,12 +89,30 @@ impl Hasher {
         }
     }
     /// Finalize without changing the writer, so snapshots are cheap.
-    pub fn finish(&self) -> u64 {
-        assert!(!self.refused, "bounded hash refused; use report");
-        mix(self.state ^ mix(u64::from_le_bytes(self.tail)) ^ self.len)
+    pub fn finish(&self) -> Result<u64, super::DataError> {
+        if self.refused {
+            return Err(super::DataError::new(
+                "hash admission or byte budget exhausted",
+            ));
+        }
+        Ok(mix(self.state
+            ^ mix(u64::from_le_bytes(self.tail))
+            ^ self.len))
+    }
+    fn enter(&mut self) {
+        self.depth += 1;
+        self.refused |= self.depth > 256;
+        self.claim_decoded(64);
+    }
+    fn leave(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
 }
 impl Writer for Hasher {
+    fn claim_decoded(&mut self, bytes: usize) {
+        self.decoded = self.decoded.saturating_add(bytes);
+        self.refused |= self.decoded > super::MAX_LOAD_BYTES;
+    }
     fn reject(&mut self, _: &str) {
         self.refused = true;
     }
@@ -134,19 +156,24 @@ impl Writer for Hasher {
         }
     }
     fn string(&mut self, s: &str) {
+        self.refused |= s.len() > super::MAX_LOAD_STRING;
+        self.claim_decoded(s.len());
         self.raw(&[6]);
         self.raw(&(s.len() as u64).to_le_bytes());
         self.raw(s.as_bytes());
     }
     fn begin_seq(&mut self, len: usize) {
+        self.enter();
         self.raw(&[7]);
         self.raw(&(len as u64).to_le_bytes());
     }
     fn item(&mut self) {}
     fn end_seq(&mut self) {
+        self.leave();
         self.raw(&[12]);
     }
     fn begin_struct(&mut self) {
+        self.enter();
         self.raw(&[8]);
     }
     fn field(&mut self, _: &'static str) {}
@@ -154,19 +181,24 @@ impl Writer for Hasher {
         self.string(key);
     }
     fn end_struct(&mut self) {
+        self.leave();
         self.raw(&[13]);
     }
     fn variant(&mut self, _: &'static str, index: u32) {
+        self.enter();
         self.raw(&[9]);
         self.raw(&index.to_le_bytes());
     }
     fn end_variant(&mut self) {
+        self.leave();
         self.raw(&[14]);
     }
     fn option(&mut self, some: bool) {
+        self.enter();
         self.raw(&[if some { 11 } else { 10 }]);
     }
     fn end_option(&mut self) {
+        self.leave();
         self.raw(&[15]);
     }
 }

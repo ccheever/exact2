@@ -99,7 +99,7 @@ impl Writer for Encoder {
         self.push(&format!(
             "{{\"bytes\":{},\"hash\":\"0x{:016x}\"}}",
             len,
-            hash.finish()
+            hash.finish().expect("bounded numeric preview hash")
         ));
     }
     fn boolean(&mut self, n: bool) {

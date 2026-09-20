@@ -274,6 +274,9 @@ impl World {
         name: &'static str,
     ) -> Result<&mut Registration, DataError> {
         self.healthy()?;
+        if name.is_empty() || name.len() > 256 {
+            return Err(DataError::new("storage name must contain 1..=256 bytes"));
+        }
         if self
             .registry
             .get(name)
@@ -771,8 +774,8 @@ impl World {
         }
         w.end_struct();
     }
-    pub fn hash(&self) -> u64 {
-        self.healthy().expect("cannot hash poisoned world");
+    pub fn hash(&self) -> Result<u64, DataError> {
+        self.validate()?;
         let mut w = hash::Hasher::default();
         self.write(&mut w, false);
         w.finish()
