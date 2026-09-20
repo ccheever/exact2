@@ -1,0 +1,20 @@
+[package]
+name = "clod-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+clod-view = { path = "../view" }
+clod-format = { path = "../format" }
+wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu"] }
+wasm-bindgen = "=0.2.127"
+wasm-bindgen-futures = "0.4.77"
+web-sys = { version = "0.3.104", features = ["HtmlCanvasElement", "Window", "Response"] }
+js-sys = "0.3.104"
+bytemuck.workspace = true
+serde_json = "1"
+glam = "0.33"

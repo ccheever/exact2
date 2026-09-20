@@ -1,5 +1,8 @@
 # Cluster LOD on core WebGPU
 
+L4 now runs the same renderer in Chrome with verified coarse-first page streaming.
+See [the browser commands and measurements](#browser-l4) below.
+
 <!-- L3B_BENCHMARK_START -->
 Apple M5 Max / Metal, format v4, 2560×1440, 4× MSAA, 4096² shadows, 1 px. Regenerate with `bun measure.mjs benchmark` (from this directory). Seven measured frames after one warmup per renderer. Single/ring/grid/field use t=0; avenue uses t=.45. Both renderers use the same instance-frustum cull. Times are medians in milliseconds; ratio is naive main / cluster main.
 
@@ -142,6 +145,193 @@ require `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
 commands emit JSON lines, including errors with exit 1. `compare` and `pop` are
 measurement reports; the permanent quality gates are the cargo tests.
 
+## Browser L4
+
+From `experiments/cluster-lod/`, with the launch environment unchanged:
+
+```sh
+bun web/build.mjs
+bun web/serve.mjs
+# Open http://127.0.0.1:8765/
+# Washington: http://127.0.0.1:8765/?asset=washington
+bun web/proof.mjs
+cargo test --workspace --no-fail-fast -- --nocapture
+cargo clippy --all-targets -- -D warnings
+cargo clippy -p clod-web --target wasm32-unknown-unknown -- -D warnings
+cargo fmt --all -- --check
+```
+
+The build command runs release Wasm compilation, native host/helper compilation,
+wasm-bindgen **0.2.127** (matching the installed CLI), and `wasm-opt -O3` with
+`--enable-bulk-memory --enable-nontrapping-float-to-int`. Generated glue, Wasm,
+JSON companions, baseline buffers, Chrome profiles/logs and PNGs live only in
+`<cache>/out/web/`. The server serves the original cached `gaul-4.clod` by Range;
+no mesh or baked file is copied into the checkout. No framework or bundler.
+`web/` adds only canvas/fetch/input/presentation/async counter readback; the
+renderer, camera interpolation, scene lighting and two WGSL shaders are shared.
+
+The page implements the native Space, arrows, C/D/T, N, brackets, 1–4 and paused
+pointer-orbit controls. It uses DPR for its drawing buffer. `?asset=washington`
+selects the hero; default is Gaul. Missing WebGPU, device loss, validation/OOM and
+fetch/integrity errors become the corner message. There is no fallback renderer.
+Naive buffers are generated lazily from the same `.clod` using the native cache
+optimizer; N is enabled for Gaul only. Its cached conventional payload is
+**88,000,068 bytes**, one chunk; the proof draws **8,000,040 triangles** at t=.75
+(two visible instances after the same frustum cull). Washington's extra naive
+allocation is declined with a message; no eviction system was added.
+
+### L4 results
+
+Command: **`bun web/proof.mjs`**, exit **0**, failures **0**. Chrome
+**153.0.8010.52**, headless, 1280×720, avenue:25, 45° FOV, 1 px,
+4× MSAA, 4096² shadows; both hosts request **zero optional features** and
+`Limits::default()`. Browser adapter fields: vendor **apple**, architecture
+**metal-3**, subgroup min/max **32/32**; device and description are empty.
+wgpu reports `BrowserWebGpu` and an empty name/driver. The native comparator
+reports **Apple M5 Max / Metal**; the browser does not expose that model name.
+
+Working Chrome flags (the profile and port belong to this proof process):
+
+```text
+--user-data-dir=<cache>/out/web/chrome-profile-0
+--remote-debugging-port=0 --no-first-run --no-default-browser-check
+--enable-unsafe-webgpu --use-angle=metal
+--disable-background-timer-throttling --disable-renderer-backgrounding
+--disable-backgrounding-occluded-windows --window-size=1280,720 --headless=new
+about:blank
+```
+
+The successful final proof launched PID **71130**, sent **SIGKILL**, and awaited
+exit **137** / signal **SIGKILL** before finishing. Initial shader-failure PIDs
+26629, 26846, 27032 and the first corrected validation PID 41059 were likewise
+killed and reaped. No launched browser remains. The proof always cleans up in
+`finally`, including failed loads.
+
+| Wasm size | Bytes |
+|---|---:|
+| Raw wasm-bindgen output | 631849 |
+| wasm-opt -O3 | 361960 |
+| gzip of optimized Wasm | 151963 |
+
+Localhost timings are navigation-relative wall milliseconds through submitted
+GPU work completion, including glue/Wasm fetch, SHA checks and uploads. First
+frame means page 0 has drawn and its GPU work completed; it is not compositor
+scanout telemetry. The loader yields an animation frame before page 1. Gaul's
+camera companion is prepared before the server listens; Washington's is generated
+lazily on first request and that cost is included in its figures. These are one
+cold-profile run, not a network or repeated-load distribution. Full detail means
+all pages are resident; camera LOD still controls which geometry is drawn.
+
+| Asset | Asset bytes | Metadata bytes | Pages at first / full | First frame ms | Full detail ms | First-frame triangles |
+|---|---:|---:|---:|---:|---:|---:|
+| gaul | 138247344 | 8646432 | 1 / 4 | 940.000 | 1398.000 | 92237 |
+| washington | 626622224 | 37141536 | 1 / 18 | 2173.600 | 3980.700 | 942975 |
+
+Every page was SHA-256 verified with WebCrypto before upload, followed by the
+shared Rust digest/geometry checks. Page completion times (navigation-relative):
+
+| Page | Gaul bytes / uploaded ms | Washington bytes / uploaded ms |
+|---|---:|---:|
+| 0 | 33554048 / 917.600 | 33552224 / 2154.000 |
+| 1 | 33553680 / 1108.200 | 33553632 / 2277.600 |
+| 2 | 33554304 / 1260.400 | 33554176 / 2383.200 |
+| 3 | 28938880 / 1388.600 | 33553216 / 2489.800 |
+| 4 | — | 33554384 / 2595.900 |
+| 5 | — | 33553232 / 2702.300 |
+| 6 | — | 33552848 / 2811.200 |
+| 7 | — | 33552720 / 2917.600 |
+| 8 | — | 33553840 / 3024.100 |
+| 9 | — | 33552768 / 3134.800 |
+| 10 | — | 33554160 / 3239.000 |
+| 11 | — | 33553952 / 3357.400 |
+| 12 | — | 33553952 / 3467.300 |
+| 13 | — | 33553680 / 3577.600 |
+| 14 | — | 33552496 / 3685.600 |
+| 15 | — | 33553840 / 3792.900 |
+| 16 | — | 33554016 / 3899.400 |
+| 17 | — | 19071552 / 3963.200 |
+
+600 measured frames after 10 warmups, uniformly sampling the avenue path t=0..1.
+No native GPU tests ran during this final pacing sample. Each frame is scheduled
+by rAF and awaited through `onSubmittedWorkDone`; **overflow 0**. Submit time
+includes Rust selection encoding and both queue submissions, not GPU completion.
+Completed time includes browser/driver scheduling plus GPU execution and the
+canvas blit; it is **not** a GPU timestamp measurement. Intervals reflect
+headless Chrome's ~60 Hz rAF pacing, not display refresh/scanout.
+
+| Time ms | Mean | p50 | p95 | p99 | Max |
+|---|---:|---:|---:|---:|---:|
+| Frame interval | 16.666333 | 16.700000 | 16.800000 | 16.900000 | 17.100000 |
+| CPU submit | 0.144333 | 0.100000 | 0.200000 | 0.300000 | 0.600000 |
+| Submit through completion | 5.633833 | 5.900000 | 7.600000 | 7.900000 | 8.200000 |
+
+Frozen-camera PNG parity: `clod.frame(t, view)` reads the browser canvas with
+`toDataURL` over CDP; the proof invokes native `clod-view render` with the same
+asset/layout/size/t/threshold/view. Each row compares **921,600 pixels**;
+**4,608,000 pixels** total. Mean is absolute RGB-channel difference /255;
+fraction is pixels with any channel >2/255.
+
+| t | View | Mean abs RGB /255 | Max byte | Fraction >2/255 | Changed pixels |
+|---:|---|---:|---:|---:|---:|
+| 0 | lit | 5.106209150326797e-08 | 2 | 0 | 28 |
+| 0.45 | lit | 1.418391430646333e-08 | 1 | 0 | 9 |
+| 0.75 | lit | 9.928740014524328e-08 | 3 | 1.085069444444444e-06 | 39 |
+| 1 | lit | 1.914828431372549e-07 | 3 | 1.085069444444444e-06 | 80 |
+| 0.75 | clusters | 1.177264887436456e-07 | 3 | 2.170138888888889e-06 | 48 |
+
+The shared offscreen attachment is RGBA8 sRGB on both hosts. The browser blits to
+an sRGB view of its canvas format, avoiding a second gamma transform. Same 4× MSAA
+sample count and resolve path. The remaining sparse 1–3-byte differences are
+consistent with Naga-versus-Tint/Metal arithmetic and resolve/blit rounding; their
+individual causes were not isolated. There is no broad colour-space shift.
+The report gate is mean ≤.002 and fraction ≤.02, deliberately distinct from a
+byte-equality claim; the actual errors above are much smaller.
+
+I opened `gaul-0.75-lit-web.png` and `gaul-0.75-clusters-web.png`: the lit frame
+shows the seated Gaul's head, hair, arm and torso with a ground shadow. The debug
+frame preserves that framing and shadow while showing smaller coloured clusters
+in the hair and across the torso. No visible background gaps. I also opened
+`washington-portrait-web.png`: the raised hand, face, torso and draped cloth fill
+the portrait, with the arm/hand shadow on the chest. These are visual observations,
+not a geometric or no-popping proof.
+
+HTTP: four Range cases, zero failures: `0-191` → **206 / 192 bytes**,
+`-80` → **206 / 80 bytes**, out-of-file and reversed ranges → **416 / 0 bytes**.
+Controls: **16 key assertions +1 pointer-orbit assertion**, all pass. Naive mode
+loads and draws; all **18/18** hero pages load. Normal playback at DPR **2**
+produces **1280×720** pixels for a **640×360** CSS viewport, advances to t=.014165
+by **27** frames, then resizes to **960×540** for **480×270** CSS pixels with zero
+errors. Raw proof records and exact commands remain in `<cache>/out/web/proof.json`
+and `<cache>/out/l4-proof.log`; these generated records are not committed.
+
+`cargo test -p clod-view --test residency -- --nocapture`: procedural **17 pages**,
+**96 cuts** (64 random prefixes and 32 arbitrary masks), **492,732 triangle
+occurrences**, **0 winding errors**, **0 ancestor overlaps**. CPU selection applies
+whole-group ancestor closure independently of the GPU. Streamed GPU results are
+compared to those CPU cuts, not to the full-detail silhouette of a different LOD:
+
+| Asset | Prefixes | GPU cut comparisons | Interior coverage pixels | Missing pixels | Different pixels | RGB max / mean / fraction | Shadow comparisons |
+|---|---:|---:|---:|---:|---:|---|---:|
+| procedural | 17 | 68 | 257389 | 0 | 0 | 0 / 0 / 0 | 1 |
+| gaul scan | 4 | 16 | 219552 | 0 | 0 | 0 / 0 / 0 | 1 |
+
+All **84** GPU cuts match CPU cluster lists exactly with zero overflow. The
+coverage reference is the valid resident CPU cut; this catches dropped or wrongly
+uploaded geometry without misclassifying coarse silhouette changes as cracks.
+The existing fully resident scan-versus-naive coverage tests also remain green.
+`cargo test --workspace --no-fail-fast -- --nocapture`: **23 passed, 0 failed,
+0 skipped**. Native all-target clippy, Wasm clippy and fmt all exit **0**. Source
+length audit: **65 files**, maximum **716 lines** (`view/src/gpu.rs`), **0 over
+1,500**. Both WGSL modules validate with no Naga capabilities.
+
+Limits: there is no page eviction, geomorphing or no-popping guarantee. Partial
+residency scans the full cluster table to preserve coarse fallback, so near-camera
+loading can cost more than steady state. Web proof checks exact CPU/GPU resident
+cuts and native/browser images, not global geometric error. Device-lost/OOM paths
+are installed, but actual OOM was not induced: Washington succeeded on this Mac.
+Browser identity is privacy-redacted. The five parity frames are Gaul; Washington
+was loaded and visually inspected, not included in that parity table.
+
 ## Format v4
 
 Little endian, magic `CLOD0004`, version 4. Earlier versions are rejected; the spare
@@ -206,6 +396,44 @@ does not enter the distance formula; the multi-fixture test applies random rigid
 orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
+
+L4 host choices: Gaul is the default to bound ordinary tab memory. Washington is
+query-selected and its naive toggle is declined; only Gaul lazily fetches the
+native-optimized indexed baseline. Rebind instance/selection buffers for layout
+changes while preserving already uploaded geometry. Retain only metadata in the
+Wasm loader; discard downloaded page bytes after verification/upload. Keep
+rendering on the core-feature device; use rAF and queue-completion wall times
+instead of requesting optional timestamp queries. Present through an sRGB canvas
+view to match the native sRGB target. Keep all generated assets and proof output
+in the cache and the single existing Cargo target directory.
+
+
+L4 Chrome found a real shader portability bug: Tint rejected the pre-existing
+workgroup-memory loop bounds as non-uniform around `workgroupBarrier`, though
+Naga accepted them. Use core `workgroupUniformLoad` for the two range bounds in
+the one shared WGSL selector. Do not disable uniformity validation or fork shaders.
+The initial headless and two headed attempts all obtained devices and reported
+this same shader error; all three Chrome PIDs were SIGKILLed and reaped.
+
+
+L4 streaming: use whole-group availability with ancestor closure, computed in
+reverse topological order. A group is available only when every cluster page and
+every parent group is available. CPU and WGSL replace `above(g)` with
+`available(g) && projected(g)>threshold`; all clusters referring to a child use
+the same predicate. This admits complete boundary-preserving transitions only.
+Page zero is mandatory. Partial residency disables error-envelope pruning because
+its lower bound would discard the retained coarse ancestors. Full residency
+restores the existing selector. No eviction or format change.
+
+L4 camera data: native scene construction measures source bounds, raycasts the
+hero anchor and finds the median original edge length. Those require pages that
+have not arrived yet. Export the exact shared `Scene` values to a deterministic
+cache-side JSON companion, bound to the baked metadata digest. The server prepares
+the default Gaul companion before listening, outside its browser load timing.
+Washington preparation is lazy and is included in its first-load timing.
+This preserves the native path from the first coarse frame. All camera math,
+lighting, selection, MSAA and shading remain in the shared Rust/WGSL library.
+
 
 L3b closing-shot correction: visual inspection of the first full export found that
 a global front key flattened the chariot relief. Confine the key move to the
@@ -946,9 +1174,10 @@ baked files, images and raw logs are never committed.
 
 ## Known limits
 
-All pages are resident. Exact GPU residency is reported in the detailed timing
-tables. A browser tab may not hold the whole Washington scan reliably; this lane
-provides a Wasm library, not a deployed web demo or interactive native player.
+The historical native timing tables use full residency. L4 now streams pages in
+the browser and provides the local WebGPU demo above; L3b provides the native
+window. Neither host has eviction. Washington loaded in the tested Chrome session,
+but this is not a promise that every tab can hold its allocations.
 
 Quota overflow still drops geometry and the CPU reference still has a 128 MiB
 page-list limit. Neither limit is hit in the F2 sweep. The deliberate one-slot
@@ -959,6 +1188,7 @@ The error-honesty oracle is one-sided, sampled and uses a 4× refined-error gate
 Coverage tests detect fully missing interior pixels, excluding one pixel of the
 MSAA silhouette; they do not prove a global geometric or subpixel error bound.
 Pinches can change shading, as the aimed crops show. No geomorphing, occlusion
-hierarchy, streaming, software rasterizer or fallback simplifier is implemented.
+hierarchy, software rasterizer or fallback simplifier is implemented. L4 streaming
+is sequential, integrity-checked and append-only.
 No no-popping guarantee or cross-ISA byte identity is claimed. Timing rows use
 one warmup and seven samples from one run, without machine-wide load control.
