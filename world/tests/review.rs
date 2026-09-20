@@ -23,7 +23,7 @@ fn untouched_and_edited_candidates_preserve_complete_continuation() {
     for drained in [false, true] {
         let mut s = Sim::<Board>::new(()).unwrap();
         s.run(17.).unwrap();
-        s.world().publish("score", 7u32);
+        s.world().publish("score", 7u32).unwrap();
         s.world().log("saved game history").unwrap();
         s.world().emit("pending delivery");
         s.world().session_log("session history").unwrap();
@@ -375,7 +375,7 @@ fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
 fn stale_candidates_refuse_without_changing_continuation() {
     for elapsed in [0.25, 17.] {
         let mut s = Sim::<Board>::new(()).unwrap();
-        s.world().publish("score", 7u32);
+        s.world().publish("score", 7u32).unwrap();
         s.world().emit("delivery");
         let candidate = s.world().candidate().unwrap();
         s.run(elapsed).unwrap();
@@ -416,7 +416,7 @@ fn sim_checkpoints_preserve_empty_pending_and_drained_publications() {
         for drained in [false, true] {
             let s = Sim::<Board>::new(()).unwrap();
             if published {
-                s.world().publish("score", 7u32);
+                s.world().publish("score", 7u32).unwrap();
             }
             if drained {
                 s.world().take_published();

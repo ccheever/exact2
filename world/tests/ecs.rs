@@ -180,9 +180,9 @@ fn resource_and_non_state_outputs() {
     assert_eq!(w.resource::<Score>().0, 8);
     let before = w.hash();
     w.log("an event").unwrap();
-    w.publish("score", Published::Number(4.0));
+    w.publish("score", Published::Number(4.0)).unwrap();
     let n = w.journal_next();
-    w.publish("score", Published::Number(4.0));
+    w.publish("score", Published::Number(4.0)).unwrap();
     assert_eq!(w.journal_next(), n);
     assert_eq!(before, w.hash());
     assert_eq!(

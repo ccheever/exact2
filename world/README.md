@@ -169,7 +169,8 @@ The kernel has no `exact-plan` dependency or Value re-export. The adapter expose
 `args::decode_args::<A>(&[Value])`, `argument_values(&A)` and `from_values::<G>`;
 conversion uses Data, preserves omitted defaults and checks Contract numeric range.
 Publication map keys and journal keys share `Rc<str>` allocations. Owned delivery
-still returns String keys. `publish_batch(BTreeMap<String, Published>) -> Result`
+still returns String keys. `publish(key, value) -> Result<(), DataError>` and
+`publish_batch(BTreeMap<String, Published>) -> Result`
 admits all keys, values and event cursors before changing anything; the adapter
 uses it for complete record updates. A single changed publication validates only
 its old/new values, using the retained aggregate cost; batches visit at most 512
@@ -275,7 +276,7 @@ allocating defaults; manual implementations must supply conservative fixed value
 This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
 layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations
-(such as invalid publication/borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
+(such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
 live generation `u32::MAX` refuse decode; `log` returns an error before dropping
 retained events. A dead exhausted slot is retired permanently. Spawn selects the lowest reusable
 free slot, skipping at most 200,000 retired indices, then appends if capacity

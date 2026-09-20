@@ -625,29 +625,31 @@ impl World {
     pub fn rng(&self) -> RefMut<'_, Rng> {
         self.rng.get_mut().unwrap()
     }
-    pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
+    pub fn publish(&self, key: &str, value: impl Into<crate::Published>) -> Result<(), DataError> {
         let value = value.into();
-        assert!(key.len() <= 256, "publication key exceeds 256 bytes");
+        if key.len() > 256 {
+            return Err(DataError::new("publication key exceeds 256 bytes"));
+        }
         let mut p = self.published.borrow_mut();
         if p.get(key) == Some(&value) {
-            return;
+            return Ok(());
         }
         let cost = |v: &crate::Published| {
             let mut remaining = crate::json::LIMIT;
             v.validate(&mut remaining, 0)?;
             Ok::<_, DataError>(crate::json::LIMIT - remaining)
         };
-        let total = self.published_cost.get() - p.get(key).map_or(0, |v| cost(v).unwrap())
-            + cost(&value).expect("publication bounds");
-        assert!(total <= crate::json::LIMIT, "publication bounds");
-        assert!(
-            p.contains_key(key) || p.len() < 256,
-            "publication key limit (256)"
-        );
+        let total =
+            self.published_cost.get() - p.get(key).map_or(0, |v| cost(v).unwrap()) + cost(&value)?;
+        if total > crate::json::LIMIT || (!p.contains_key(key) && p.len() == 256) {
+            return Err(DataError::new("publication bounds"));
+        }
+        self.change_room(1)?;
         self.commit_publication(&mut p, key, value);
         self.published_cost.set(total);
         self.published_pending.set(true);
         self.mutated();
+        Ok(())
     }
     fn commit_publication(
         &self,

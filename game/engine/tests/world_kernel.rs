@@ -61,7 +61,7 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
         for i in (batch..entities.len()).step_by(13) { w.despawn(entities[i]); }
         for i in (batch..entities.len()).step_by(13) { let n=w.rng().next_u32() as u64; entities[i] = w.spawn((Counter { n, ..Counter::default() },)); }
         for (_, (c,o)) in w.query::<(&mut Counter,Option<&Other>)>().iter() { c.n = c.n.wrapping_add(o.map_or(0,|o| o.0.len() as u64)); }
-        w.emit("delivery"); w.publish("score",batch as u32);
+        w.emit("delivery"); let _ = w.publish("score",batch as u32);
         history.push((w.hash(),w.save()));
         let bytes = w.save(); w.load(&bytes).unwrap(); assert_eq!(w.save(),bytes);
     }

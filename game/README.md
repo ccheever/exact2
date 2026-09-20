@@ -695,3 +695,8 @@ World refuses direct load/carry. Restore through the owning Sim.
 
 K1e candidates commit only to their unchanged source boundary; erased Parent
 patches refuse so ownership changes continue through `set_parent`.
+
+The optional kernel now returns `Result<(), DataError>` from `World::publish`,
+including journal exhaustion. Restore installs the complete driver before dropping
+outgoing World/Args; outgoing destructor panics propagate without poisoning the
+incoming state. `bin::read_into` stages patches and preserves values on decode errors.

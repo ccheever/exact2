@@ -31,7 +31,7 @@ impl<const N: u64> Game for Board<N> {
             value.number += 1;
         }
         let n = w.rng().next_u32();
-        w.publish("tick", n);
+        w.publish("tick", n).unwrap();
     }
 }
 fn report(label: &str, actual: (usize, usize), ceiling: (usize, usize)) {
@@ -405,18 +405,18 @@ fn inspection_refusal_stops_nested_traversal_and_later_growth() {
 fn unchanged_work_and_publications_do_not_allocate_or_invalidate() {
     let w = World::new(60, 0);
     w.work("assets", Work::Pending).unwrap();
-    w.publish("score", 7u32);
+    w.publish("score", 7u32).unwrap();
     let before = (w.mutation_epoch(), w.journal_next());
     let (_, counts) = counting::measure(|| {
         for _ in 0..1000 {
             w.work("assets", Work::Pending).unwrap();
-            w.publish("score", 7u32);
+            w.publish("score", 7u32).unwrap();
         }
     });
     assert_eq!(counts, (0, 0));
     assert_eq!(before, (w.mutation_epoch(), w.journal_next()));
     w.work("assets", Work::Ready).unwrap();
-    w.publish("score", 8u32);
+    w.publish("score", 8u32).unwrap();
     assert_ne!(before, (w.mutation_epoch(), w.journal_next()));
 }
 

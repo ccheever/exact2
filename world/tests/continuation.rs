@@ -64,8 +64,8 @@ impl Game for Fixture {
             p.x += i64::from(input.held("move")) + i64::from(tag.is_some());
         }
         w.resource_mut::<Ledger>().values[1] += 1;
-        w.publish("drive", input.axis("drive"));
-        w.publish("tick", w.tick() as u32);
+        w.publish("drive", input.axis("drive")).unwrap();
+        w.publish("tick", w.tick() as u32).unwrap();
         w.rng().next_u32();
     }
 }

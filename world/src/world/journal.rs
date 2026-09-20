@@ -409,7 +409,7 @@ mod review_tests {
         let mut w = World::new(60, 0);
         let consumer = w.subscribe_changes().unwrap();
         w.spawn(()).unwrap();
-        w.publish("kept", 3u32);
+        w.publish("kept", 3u32).unwrap();
         w.emit("queued");
         w.session_log("session").unwrap();
         w.replacement = u64::MAX;
@@ -448,6 +448,20 @@ mod review_tests {
         assert!(result.is_ok());
         assert!(result.unwrap().is_err());
         assert_eq!(w.logs(LogCursor::default()).unwrap(), before);
+    }
+    #[test]
+    fn exhausted_publication_cursor_refuses_without_mutation() {
+        let w = World::new(60, 0);
+        w.publish("kept", 1u32).unwrap();
+        w.journal_next.set(u64::MAX - 1);
+        let before = w.publications().clone();
+        let cursor = w.journal_next();
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.publish("new", 2u32)));
+        assert!(result.is_ok(), "publish must return an error");
+        assert!(result.unwrap().is_err());
+        assert_eq!(*w.publications(), before);
+        assert_eq!(w.journal_next(), cursor);
     }
     #[test]
     fn live_exhausted_generation_refuses_decode_but_retired_slot_does_not_block_spawn() {

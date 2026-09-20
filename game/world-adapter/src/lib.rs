@@ -50,7 +50,7 @@ mod atomic_publication {
             z: String,
         }
         let w = World::new(60, 0);
-        w.publish("a", 0u32);
+        w.publish("a", 0u32).unwrap();
         let before = w.publications().clone();
         let cursor = w.journal_next();
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

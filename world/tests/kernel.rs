@@ -42,7 +42,7 @@ impl Game for Counter {
             c.0 = c.0.wrapping_add(random + u64::from(input.pressed("add")));
             c.0
         };
-        w.publish("count", (n % 1_000_000) as u32);
+        w.publish("count", (n % 1_000_000) as u32).unwrap();
         *w.derived::<u64>() = n; // Reconstructible, never a dependency of the next tick.
     }
     fn paused(a: &Options) -> bool {
@@ -540,12 +540,9 @@ fn carry_keeps_live_args_refuses_setup_changes_and_publication_budget_is_cumulat
     let before = s.save().unwrap();
     assert!(s.carry(&saved).is_err());
     assert_eq!(s.save().unwrap(), before);
-    s.world().publish("a", "a".repeat(6000));
+    s.world().publish("a", "a".repeat(6000)).unwrap();
     let before = s.save().unwrap();
-    assert!(catch_unwind(AssertUnwindSafe(|| s
-        .world()
-        .publish("b", "b".repeat(6000))))
-    .is_err());
+    assert!(s.world().publish("b", "b".repeat(6000)).is_err());
     assert_eq!(s.save().unwrap(), before);
     s.restore(&before).unwrap();
 }
@@ -557,14 +554,14 @@ fn paranoid_preserves_drained_delivery() {
         const ID: &'static str = "delivery";
         type Args = ();
         fn setup(w: &mut World, _: &()) {
-            w.publish("fixed", 1u32);
+            w.publish("fixed", 1u32).unwrap();
             w.emit("initial");
         }
         fn tick(w: &mut World, _: &Input, _: &()) {
-            w.publish("fixed", 1u32);
+            w.publish("fixed", 1u32).unwrap();
             if w.tick() == 1 {
                 w.emit("second");
-                w.publish("fixed", 2u32);
+                w.publish("fixed", 2u32).unwrap();
             }
         }
     }
