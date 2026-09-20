@@ -105,7 +105,7 @@ values, never holes or padding. Page masks are read-only. World identity,
 replacement, component revision/membership and page generations support external
 caches. Mutable access conservatively invalidates revisions even without assignment.
 
-A panicking structural mutation poisons its world; discard it. A tick failing
+A panicking structural mutation poisons its world; discard it. A panicking tick
 once gameplay has started poisons its driver and World, so neither continuation
 boundary can save partial logic. A healthy Sim checkpoint can recover it. Input admission happens before the boundary changes. Earlier
 successful ticks remain committed if a later tick in the request is refused.
@@ -340,7 +340,7 @@ not claimed to be allocation-free.
 | 1,000 ticks with sparse edits among 200,000 entities | 0 / 0 | **0 / 0**, zero component visitor calls |
 | 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 0 / 0 | **0 / 0** |
 | 1,000 ticks changing a publication every tick | 1,003 / 204,704 | **3 / 200,704** |
-| Exact 10,240-byte restore | 80 / 46,764 | **80 / 46,764** |
+| Exact 10,240-byte restore | 80 / 46,873 | **80 / 46,764** |
 | First component at slot 199,999 | 4 / 77,536 | **4 / 77,536** |
 | 1,000 empty-column remove/reinsert cycles at slot 199,999 | 2,000 / 77,048,000 | **0 / 0** |
 
@@ -354,13 +354,10 @@ unfavorable case. Spawning into a valid hierarchy also performs no ownership wal
 
 Relative to lane 1 (1,038 / 106,671), restore allocation calls remain **13×** lower
 and requested bytes **2.28×** lower. K1d preserves the 80 allocation calls.
-The histogram printed by the test locates the remaining requests: canonical
-re-encoding buffer growth requests 26,611 bytes; the Blob owns 6,176 bytes; the
-65-event journal backing requests 3,640; the component page 2,048; and the slot
-table 1,024. Metadata, registries, storage owners and small strings account for
-the remainder. There are 33 nine-byte allocations: 32 saved `CellValue` event
-names and one canonical encoder key. Removing field/variant churn does not
-remove owned state or the exact-comparison buffer.
+The histogram printed by the test locates the remaining requests, including the
+full canonical comparison encoding, the Blob, event backing and value chunk.
+Thirty-two nine-byte strings are saved CellValue event names. Sharing publication
+keys removes their steady-state allocations without changing any Data/hash tags.
 
 Hashing a 4 MB numeric vector allocates **0 / 0**. Inspection of a 65,536-byte
 numeric vector allocates under 1,024 bytes; an oversized vector refuses before
@@ -385,16 +382,17 @@ values. Counts/sums are checked every traversal; clocks are diagnostic samples.
 
 Medians of seven samples, each with 100 traversals, on this same builder:
 
-| Shape / operation, ns/row | Engine (1,024 values) | Before (64 values) | Flat presence + 64 values |
-|---|---:|---:|---:|
-| Dense query | 1.211 | 1.928 | 1.309 |
-| Sparse query | 2.798 | 30.407 | 2.981 |
-| Dense runs | 1.034 | 0.936 | 0.704 |
-| Sparse runs | 58.212 | 34.959 | 2.910 |
+| Shape / operation, ns/row | K1c engine | K1c kernel | K1d engine | K1d kernel |
+|---|---:|---:|---:|---:|
+| Dense query | 1.211 | 1.309 | 1.121 | 1.312 |
+| Sparse query | 2.798 | 2.981 | 2.804 | 2.770 |
+| Dense runs | 1.034 | 0.704 | 1.026 | 0.695 |
+| Sparse runs | 58.212 | 2.910 | 56.018 | 2.933 |
 
-The engine column is the paired after measurement; its before medians were
-1.124/2.719 for dense/sparse queries and 1.028/55.983 for runs. The measured after
-ratios are 1.081× dense and 1.065× sparse. Both query targets pass; runs improve.
+Kernel dense queries changed +0.2%, sparse queries -7.1%, dense runs -1.3%,
+and sparse runs +0.8%. These are timing samples, not a significance claim. The
+paired kernel/engine query ratios are 1.170× dense and 0.988× sparse. Both query
+targets pass; allocation and work bounds have no regression.
 
 Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
 for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes
@@ -439,14 +437,33 @@ insertion histories across engines. It normalizes only the EXGAME header version
 the old engine's unpopulated column history is compared with new-kernel
 create/remove history. The separate 200k churn test checks history independence.
 
-K1d validation and environment results are recorded below after the final runs.
-The box has no GPU adapter, Chrome or Apple SDK. Rendering, GPU residency and
-Apple execution cannot be certified here; F2 core admission remains outstanding.
+K1d ran 123 kernel tests successfully (including the doctest and compile probes),
+plus both ignored large controls separately. Cross-engine and all five frozen
+continuation boundaries pass unchanged. Game workspace: 740 pass, 25 ignored,
+18 fail exclusively for the missing GPU adapter. Authored-game tests: 48 pass,
+one ignored, three GPU failures. Bun: 146 pass, one skipped, three Chrome-dependent
+failures. Game and kernel clippy with warnings denied and formatting pass.
+
+Linux proofs pass for asset-fixture, Beacons, Greybox, particles-fixture,
+placement-fixture, skinned-fixture and sprites-fixture. Both Lanterns fixtures
+run but refuse empty pins; no parity claim is made. The cubes benchmark invokes
+Chrome even with `linux` and reached its 300-second external deadline.
+Root workspace build/test/clippy are blocked by the absent lean Hermes producer
+for weatherlight/fieldnotes. Caps passes all 785 sources; boot reports 88,699 JS
+bytes, 3,468 page bytes, two pre-pixel JS modules and one Wasm reference.
+The box has no GPU adapter, Chrome or Apple SDK. Rendering, GPU residency, real
+browser/Apple execution and first pixel cannot be certified here. F2 consolidation,
+complete-consumer artifact measurements and owner/judge acceptance remain open.
 
 ### Unsafe boundary verification
 
 Nightly `1.100.0-nightly (feaadeeac 2026-09-19)` with Miri installed successfully.
 The final storage command passed seven tests; query/page commands passed thirteen.
+The same seven storage tests also passed under i686 Miri, plus its near-limit
+admission test. A direct wasm32 build executed through Bun preserved all five
+complete frozen checkpoint boundaries and matched native/i686 admission exactly:
+2,232 units accepts and 2,231 refuses. The redundant full i686 Miri continuation
+run was cancelled after this real wasm result; it is not counted as a pass.
 No undefined behavior was detected. This includes aligned ZST retained rows,
 lease unwind, padded/owned moves, slot reuse, rejecting readers and panicking drops.
 The 200k directory stress stays native; Miri's churn/overalignment sizes are reduced
@@ -456,7 +473,7 @@ while still crossing chunks. The equal-address ZST allegation was not reproduced
 cargo +nightly miri test -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
 cargo +nightly miri test -p exact-world --test pages --test ecs -- --test-threads=1 --skip resource_and_non_state_outputs
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
-cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test continuation
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
 ```
 
 The raw query `Fetch` trait and reference constructors are crate-private. External
@@ -466,9 +483,9 @@ compile probes refuse both direct construction and a generic attempt to mint a
 Derives require `Default` on every field, including skipped fields, even when the
 outer type supplies its own manual Default. Tuple/container replacement and enum
 switching construct field defaults. The compile harness checks a skipped
-`NoDefault` field and requires the compiler's Default diagnostic. Field-spanned
-macro parser diagnostics remain deferred; this lane does not introduce a second
-parser or weaken the bounds.
+`NoDefault` field and requires the explicit diagnostic "Data fields require Default,
+including skipped fields", naming its type. Field-spanned parser diagnostics remain
+deferred; this lane does not introduce a second parser or weaken the bounds.
 
 ## Public surface and remaining work
 
@@ -512,7 +529,8 @@ separate cross-engine test still proves common grammar/hash parity.
 
 The ceiling is **7,500 lines for all handwritten kernel material**: production
 Rust in world/ and world/derive, README and both manifests. Tests alone are excluded;
-comments and blank lines count. Reproduce the honest total with:
+comments and blank lines count. K1d totals 7,311: 6,732 Rust + 555 README + 24 manifests.
+Reproduce the honest total with:
 
 ```sh
 python3 - <<'PYCOUNT'
