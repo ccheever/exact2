@@ -246,7 +246,7 @@ async function openWeb({ plan, world, worldMode = 'open', size = [420, 900], url
     };
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
-      async reset() {
+      async reset({warm = false} = {}) {
         // Release browser-owned input while its original document still exists.
         for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
         if (contact) await call('Input.dispatchTouchEvent', {type:'touchCancel', touchPoints:[]});
@@ -254,16 +254,22 @@ async function openWeb({ plan, world, worldMode = 'open', size = [420, 900], url
         contact = null;
         if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
         touch = false;
-        await evaluate('sessionStorage.clear()');
-        await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
-        await call('Page.navigate', {url:'about:blank'});
         const deadline = Date.now() + 30000;
-        while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
-          if (Date.now() > deadline) throw new Error('the reused page never left its old document');
-          await sleep(15);
+        if (warm) {
+          // Warm startup measurement uses a real reload in this same profile.
+          await evaluate("delete document.getElementById('exact-root').dataset.bootMs");
+          await call('Page.reload');
+        } else {
+          await evaluate('sessionStorage.clear()');
+          await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
+          await call('Page.navigate', {url:'about:blank'});
+          while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
+            if (Date.now() > deadline) throw new Error('the reused page never left its old document');
+            await sleep(15);
+          }
+          await call('Page.navigate', {url:page.href});
         }
         hostLines.length = 0; gpuMs = null;
-        await call('Page.navigate', {url:page.href});
         let boot;
         while ((boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null)) == null) {
           if (Date.now() > deadline) throw new Error('the reused page never booted');

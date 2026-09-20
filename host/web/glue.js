@@ -715,14 +715,18 @@ function apply(batch) {
       }
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
-        // loaded, queued until then. The module itself is fetched only
-        // after a rendering opportunity, and only when a canvas exists.
+        // loaded, queued until then. Device-free registrations can start
+        // loading immediately; device registrations wait for a rendering opportunity.
         if (globalThis.exact.gpu) globalThis.exact.gpu.surface(op.id, op.name, op.values);
         else {
           const pending = (globalThis.exact.pendingSurfaces ??= []);
           const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
           if (queued) { queued.name = op.name; queued.values = op.values; }
-          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded)); }
+          else {
+            pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation });
+            if (document.documentElement?.hasAttribute("data-device-free-surfaces")) loadGpuIfNeeded();
+            else requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
+          }
         }
         break;
       }

@@ -690,7 +690,7 @@ function worlds(request) {
           firstFrameMeaning: 'rendering opportunity after GPU submission; not scanout',
           resources: performance.getEntriesByType('resource')
             .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
-            .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, bytes: r.decodedBodySize })),
+            .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, durationMs: r.duration, transferBytes: r.transferSize, encodedBytes: r.encodedBodySize, bytes: r.decodedBodySize })),
         };
       }
       out.push({ ...world, canvas: view });

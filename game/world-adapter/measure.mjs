@@ -1,76 +1,104 @@
 #!/usr/bin/env bun
-// Diagnostic, not a gate. Run after the ordinary Tally production web bake.
-import {spawn,spawnSync} from 'node:child_process';
+// Diagnostic, not a gate. Bake Tally normally; use the existing agent carrier.
+import {spawnSync} from 'node:child_process';
 import {createServer} from 'node:http';
-import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
+import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {gzipSync} from 'node:zlib';
-import {Cdp} from '../../scripts/agent.mjs';
+import {open} from '../../scripts/agent.mjs';
 import {serveStatic} from '../../host/web/serve.mjs';
-const root=resolve(import.meta.dir,'../..'), scratch=resolve(process.env.K2_SCRATCH ?? '/home/ccheever/lanes/gamenext/scratch/k2');
-const dist=resolve(root,'game/games/tally/dist');
-const median=a=>{a.sort((a,b)=>a-b);const mid=Math.floor(a.length/2);return a.length%2?a[mid]:(a[mid-1]+a[mid])/2;};
-const sizes=dir=>Object.fromEntries(['app.wasm','gpu_bg.wasm','gpu.js'].map(name=>{const b=readFileSync(resolve(dir,name));return [name,{raw:b.length,gzip:gzipSync(b,{level:9}).length}];}));
-if(process.argv.includes('--sizes')) console.log(JSON.stringify({full:sizes(resolve(scratch,'full')),deviceFree:sizes(dist)},null,2));
+const root=resolve(import.meta.dir,'../..');
+const scratch=resolve(process.env.K3_SCRATCH ?? `${process.env.HOME}/lanes/gamenext/scratch/k3`);
+const app=resolve(root,'game/games/tally'), dist=resolve(app,'dist');
+mkdirSync(scratch,{recursive:true});
+const stats=values=>{const a=[...values].sort((a,b)=>a-b), mid=a.length/2;return {median:(a[Math.floor(mid)]+a[Math.ceil(mid)-1])/2,p95:a[Math.ceil(a.length*.95)-1]};};
+const summarize=rows=>Object.fromEntries(Object.keys(rows[0]).map(key=>[key,stats(rows.map(row=>row[key]))]));
+const save=(name,value)=>writeFileSync(resolve(scratch,`${name}.json`),JSON.stringify(value,null,2)+'\n');
+if(process.argv.includes('--sizes')) {
+  const result=Object.fromEntries(['app.wasm','gpu_bg.wasm','gpu.js'].map(name=>{
+    const b=readFileSync(resolve(dist,name));return [name,{raw:b.length,gzip:gzipSync(b,{level:9}).length}];
+  }));save('sizes',result);console.log(JSON.stringify(result,null,2));
+}
 if(process.argv.includes('--linux')) {
-  const rows=[];
-  for(let i=0;i<20;i++) {
-    const p=spawnSync(resolve(root,'game/target/x86_64-unknown-linux-gnu/gpu-dev/tally-linux'),[],{env:{...process.env,EXACT_AGENT:'1',EXACT_WORLD_TIMING:'1',EXACT_UPDATE_TRUST:'development'},input:'',encoding:'utf8'});
-    if(p.status!==0)throw Error(p.stderr);
-    const row={}; for(const line of p.stderr.split('\n'))if(line.startsWith('exact-world-startup: ')){const v=JSON.parse(line.slice(21));row[v.event]=v.ms;}
-    if(!row.first_tick||!row.first_publication)throw Error(p.stderr);rows.push(row);
+  const target=process.env.CARGO_TARGET_DIR ?? resolve(root,'game/target');
+  const results={};
+  for(const name of ['tally','caltrain']) {
+    const binary=process.env[name==='tally'?'TALLY_LINUX':'CALTRAIN_LINUX'] ?? resolve(target,`x86_64-unknown-linux-gnu/gpu-dev/${name}-linux`);
+    const rows=[];
+    for(let i=0;i<20;i++) {
+      const p=spawnSync(binary,[],{env:{...process.env,EXACT_AGENT:'1',EXACT_WORLD_TIMING:'1',EXACT_UPDATE_TRUST:'development'},input:'',encoding:'utf8'});
+      if(p.status!==0)throw Error(p.stderr || p.error?.message);
+      const row={};let binding;
+      for(const line of p.stderr.split('\n')) {
+        if(line.startsWith('exact-world-startup: ')){const v=JSON.parse(line.slice(21));row[v.event]=v.ms;}
+        if(line.startsWith('exact-world-binding: '))binding=JSON.parse(line.slice(21));
+      }
+      if(!row.first_frame)throw Error('missing first frame: '+p.stderr);
+      if(name==='tally') {
+        if(!binding || !row.first_publication)throw Error('missing world spans: '+p.stderr);
+        row.bind_work=binding.bind_ms;row.tick_work=binding.first_tick_ms;
+        // bind_start is outside the ABI; the adapter spans exclude stderr output.
+        row.first_tick=row.bind_start+row.bind_work+row.tick_work;
+        row.world_work=row.create-row.load_headless+row.bind_work+row.tick_work;
+      }
+      rows.push(row);
+    }
+    results[name]={rows,summary:summarize(rows)};
   }
-  const result={rows,summary:Object.fromEntries(['first_tick','first_publication'].map(key=>{const a=rows.map(r=>r[key]).sort((a,b)=>a-b);return [key,{median:median([...a]),p95:a[18]}];}))};
-  writeFileSync(resolve(scratch,'linux.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result.summary));
+  save('linux',results);console.log(JSON.stringify(Object.fromEntries(Object.entries(results).map(([k,v])=>[k,v.summary])),null,2));
 }
 if(process.argv.includes('--web')) {
-  let mode='after';
-  const baseline=spawnSync('git',['show','f418821:host/web/gpu-glue.js'],{cwd:root,encoding:'utf8'}).stdout.replace('gpu = await loadModule(version);','gpu = await loadModule(version); exact.root.dataset.worldModuleMs = performance.now();');
+  Object.assign(process.env,{EXACT_APP_DIR:app,EXACT_WEB_DIST:dist});
+  const compare=process.argv.includes('--compare-delay');
+  let mode='immediate';
+  const index=readFileSync(resolve(dist,'index.html'),'utf8');
+  if(!index.includes('data-device-free-surfaces'))throw Error('bake Tally with the device-free startup marker first');
+  // Only the declared loading policy varies; every wasm and JS byte is identical.
   const server=createServer((req,res)=>{
-    const path=new URL(req.url,'http://local').pathname;
-    if(mode==='before' && path==='/gpu-glue.js'){res.writeHead(200,{'content-type':'text/javascript'});res.end(baseline);return;}
-    if(mode==='before' && ['/gpu.js','/gpu_bg.wasm'].includes(path)){res.writeHead(200,{'content-type':path.endsWith('.wasm')?'application/wasm':'text/javascript'});res.end(readFileSync(resolve(scratch,'full',path.slice(1))));return;}
+    if(new URL(req.url,'http://local').pathname==='/') {
+      res.writeHead(200,{'content-type':'text/html','cache-control':'no-store'});
+      res.end(mode==='delayed'?index.replace(' data-device-free-surfaces',''):index);return;
+    }
     serveStatic(dist,req,res);
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
-  const url=`http://127.0.0.1:${server.address().port}/`;
-  const records=[];
-  async function browser(cache,loads) {
-    const profile=mkdtempSync(resolve(scratch,'chromium-'));
-    const p=spawn(process.env.CHROME ?? resolve(process.env.HOME,'.cache/ms-playwright/chromium-1234/chrome-linux64/chrome'),['--headless=new','--remote-debugging-pipe','--no-sandbox','--disable-gpu','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
-    let stderr='';p.stderr.on('data',b=>stderr+=b);
-    const exited=new Promise(r=>p.once('exit',(code,signal)=>{if(code)console.error('browser exit',code,signal,stderr.slice(-2000));r();}));
-    const cdp=new Cdp(p.stdio[3],p.stdio[4]);
-    try {
-      const target=(await cdp.send('Target.getTargets')).targetInfos.find(t=>t.type==='page') ?? await cdp.send('Target.createTarget',{url:'about:blank'});
-      const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:target.targetId,flatten:true});
-      const call=(method,params)=>cdp.send(method,params,sessionId);
-      const evaluate=async expression=>{const r=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(JSON.stringify(r.exceptionDetails));return r.result.value;};
-      await call('Page.enable');await call('Page.bringToFront');await call('Runtime.enable');await call('Network.enable');await call('Network.setCacheDisabled',{cacheDisabled:!cache});
-      await call('Page.addScriptToEvaluateOnNewDocument',{source:`
-        Object.defineProperty(navigator,'gpu',{get:()=>undefined});
-        new MutationObserver(()=>{if(!globalThis.tallyVisible && /Tick [1-9][0-9]*/.test(document.body?.textContent??''))globalThis.tallyVisible=performance.now();}).observe(document,{subtree:true,childList:true,characterData:true});
-      `});
-      for(let i=0;i<loads+(cache?1:0);i++) {
-        await call('Page.navigate',{url});
-        await new Promise(r=>setTimeout(r,30));
-        console.log('load',mode,cache,i,p.pid);
-        const until=Date.now()+3000;
-        while(Date.now()<until) {
-          const done=await evaluate(`location.href===${JSON.stringify(url)} && Boolean(globalThis.tallyVisible || (globalThis.exact?.root?.dataset.worldModuleMs && ${JSON.stringify(mode)}==='before'))`).catch(()=>false);
-          if(done)break;
-          await new Promise(r=>setTimeout(r,25));
-        }
-        const row=await evaluate(`(()=>{const w=exact.gpu?.decorate({op:'state'}, {})?.world?.[0];return {fcp:performance.getEntriesByName('first-contentful-paint')[0]?.startTime??null,module:Number(exact.root.dataset.worldModuleMs)||null,bound:w?.perf?.boundMs??null,tick:w?.perf?.firstTickMs??null,published:globalThis.tallyVisible??null};})()`);
-        if(!cache||i>0) { records.push({mode,cache:cache?'warm':'cold',...row}); writeFileSync(resolve(scratch,'web-partial.json'),JSON.stringify(records,null,2)); }
-        await call('Page.navigate',{url:'about:blank'});
-      }
-    } finally {try{process.kill(-p.pid,'SIGKILL');}catch{}await exited;rmSync(profile,{recursive:true,force:true});}
+  const url=`http://127.0.0.1:${server.address().port}/`, children=[],rows=[];
+  const launch=()=>open({host:'web',url,onProcess:child=>{children.push(child);console.log('browser PID',child.pid);}});
+  async function sample(session,cache,index) {
+    // Passive grace: do not let a state request pull the lazy module ahead of paint.
+    await new Promise(r=>setTimeout(r,200));
+    const perf=(await session.state()).world?.[0]?.perf;
+    for(const key of ['navigationToFirstContentfulPaintMs','moduleInstantiatedMs','boundMs','firstTickMs','firstPublicationMs']) {
+      if(!Number.isFinite(perf?.[key]))throw Error('missing startup marker '+key);
+    }
+    for(const name of ['/app.wasm','/gpu.js','/gpu_bg.wasm']) {
+      if(!perf.resources.some(r=>r.name===name && Number.isFinite(r.transferBytes)))throw Error('missing resource '+name);
+    }
+    rows.push({mode,cache,index,...perf});save('web-partial',rows);
+    console.log(mode,cache,index,perf.navigationToFirstContentfulPaintMs,perf.firstPublicationMs);
   }
   try {
-    for(mode of ['before','after']) {for(let i=0;i<10;i++)await browser(false,1);await browser(true,10);console.log(`measured ${mode}`);}
+    for(let i=0;i<10;i++)for(mode of (compare?(i%2?['immediate','delayed']:['delayed','immediate']):['immediate'])) {
+      const s=await launch();try{await sample(s,'cold',i);}finally{await s.close();}
+    }
+    mode='immediate';const s=await launch();
+    try {
+      await sample(s,'prime',0);
+      for(let i=0;i<10;i++){await s.carrier.reset({warm:true});await sample(s,'warm',i);}
+    } finally {await s.close();}
+    const markers=['navigationToFirstContentfulPaintMs','moduleInstantiatedMs','boundMs','firstTickMs','firstPublicationMs'];
     const summary=[];
-    for(const mode of ['before','after'])for(const cache of ['cold','warm']){const rows=records.filter(r=>r.mode===mode&&r.cache===cache);summary.push({mode,cache,...Object.fromEntries(['fcp','module','bound','tick','published'].map(k=>[k,rows.every(r=>r[k]!=null)?median(rows.map(r=>r[k])):null]))});}
-    writeFileSync(resolve(scratch,'web.json'),JSON.stringify({summary,records},null,2));console.log(JSON.stringify(summary,null,2));
-  } finally {server.close();}
+    for(const mode of ['immediate','delayed'])for(const cache of ['cold','warm']) {
+      const samples=rows.filter(r=>r.mode===mode&&r.cache===cache);if(!samples.length)continue;
+      summary.push({mode,cache,markers:summarize(samples.map(r=>Object.fromEntries(markers.map(k=>[k,r[k]])))),resources:Object.fromEntries(['/app.wasm','/gpu.js','/gpu_bg.wasm'].map(name=>[name,summarize(samples.map(r=>{const v=r.resources.find(x=>x.name===name);return {transferBytes:v.transferBytes,encodedBytes:v.encodedBytes,bytes:v.bytes,durationMs:v.durationMs};}))]))});
+    }
+    save('web',{summary,rows});console.log(JSON.stringify(summary,null,2));
+  } finally {
+    server.close();
+    // Carrier close SIGKILLs its recorded group and awaits the browser's exit.
+    const leaked=children.filter(c=>c.exitCode===null&&c.signalCode===null).map(c=>c.pid);
+    save('web-processes',{recorded:children.map(c=>c.pid),leaked});
+    if(leaked.length)throw Error('leaked browser PIDs: '+leaked);
+    console.log('leaked browser PIDs: none');
+  }
 }

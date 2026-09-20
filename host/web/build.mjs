@@ -143,6 +143,7 @@ writeInstallPages(stage, app.manifest, {id:buildReceipt.binary.sha256, source:so
 const icon = webManifest.icons?.[0];
 const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
+  .replace('<html', app.manifest.game?.world === true ? '<html data-device-free-surfaces' : '<html')
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(
     '<script type="module" src="./glue.js"></script>',
