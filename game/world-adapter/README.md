@@ -71,8 +71,8 @@ start of the Rust host `run` entry (OS exec/dynamic-loader time excluded):
 
 | Event | Median ms | p95 ms |
 | --- | ---: | ---: |
-| First tick completed | 24.739 | 25.461 |
-| First publication accepted by Contract | 24.898 | 25.638 |
+| First tick completed | 24.703 | 25.461 |
+| First publication accepted by Contract | 24.863 | 25.638 |
 
 `EXACT_WORLD_TIMING=1` enables the opt-in host trace. The first-tick timestamp is
 captured immediately after binding, then verified with state; the verification

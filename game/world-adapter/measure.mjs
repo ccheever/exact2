@@ -9,7 +9,7 @@ import {Cdp} from '../../scripts/agent.mjs';
 import {serveStatic} from '../../host/web/serve.mjs';
 const root=resolve(import.meta.dir,'../..'), scratch=resolve(process.env.K2_SCRATCH ?? '/home/ccheever/lanes/gamenext/scratch/k2');
 const dist=resolve(root,'game/games/tally/dist');
-const median=a=>a.sort((a,b)=>a-b)[Math.floor(a.length/2)];
+const median=a=>{a.sort((a,b)=>a-b);const mid=Math.floor(a.length/2);return a.length%2?a[mid]:(a[mid-1]+a[mid])/2;};
 const sizes=dir=>Object.fromEntries(['app.wasm','gpu_bg.wasm','gpu.js'].map(name=>{const b=readFileSync(resolve(dir,name));return [name,{raw:b.length,gzip:gzipSync(b,{level:9}).length}];}));
 if(process.argv.includes('--sizes')) console.log(JSON.stringify({full:sizes(resolve(scratch,'full')),deviceFree:sizes(dist)},null,2));
 if(process.argv.includes('--linux')) {
