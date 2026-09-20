@@ -241,16 +241,16 @@ impl World {
         if message.len() > 4096 {
             return Err(DataError::new("session log exceeds 4096 bytes"));
         }
-        let mut events = self.session_journal.borrow_mut();
-        if events.len() == 4096 {
-            events.pop_front();
-        }
         let index = self.session_next.get();
         self.session_next.set(
             index
                 .checked_add(1)
                 .ok_or_else(|| DataError::new("session cursor exhausted"))?,
         );
+        let mut events = self.session_journal.borrow_mut();
+        if events.len() == 4096 {
+            events.pop_front();
+        }
         events.push_back((
             self.journal_next(),
             Event {
@@ -349,6 +349,21 @@ mod atomic_tests {
         drop(consumer);
         w.spawn(()).unwrap();
         assert!(w.changes.is_empty());
+    }
+    #[test]
+    fn session_cursor_refusal_does_not_drop_the_oldest_record() {
+        let mut w = World::new(60, 0);
+        for _ in 0..4096 {
+            w.session_log("kept").unwrap();
+        }
+        w.session_next.set(u64::MAX);
+        for (i, (_, event)) in w.session_journal.get_mut().iter_mut().enumerate() {
+            event.index = u64::MAX - 4096 + i as u64;
+        }
+        let before = w.logs(LogCursor::default()).unwrap();
+        assert!(w.session_log("refused").is_err());
+        assert_eq!(w.session_journal.borrow().len(), 4096);
+        assert_eq!(w.logs(LogCursor::default()).unwrap(), before);
     }
     #[test]
     fn adopt_cursor_exhaustion_preserves_both_journals() {
