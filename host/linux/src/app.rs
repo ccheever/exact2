@@ -410,6 +410,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     // — before anything reads it (LLP 1026 D11). The check follows when a
     // drive named an origin; a headless run has no user to wait for.
     let _ = p.frame();
+    crate::surface_startup::record(3, "first_frame");
     p.first_pixel();
     p.sync_surfaces();
     p.poll_development(D::default);

@@ -2,7 +2,12 @@
 use crate::{args, publication};
 use exact_gpu::{InputEvent, Lifecycle, PointerPhase, Restore, Surface, SurfaceError, Value};
 use exact_world::{json, Args, Data, DataError, Game, LogCursor, Paranoid, Sim, Writer};
-use serde_json::Value as Request;
+struct Request(Vec<(String, Value)>);
+impl Request {
+    fn get(&self, name: &str) -> Option<&Value> {
+        self.0.iter().find(|(key, _)| key == name).map(|(_, v)| v)
+    }
+}
 
 const MAGIC: &[u8] = b"EXSURF\0\x01";
 const MAX_REQUEST: usize = 16_384;
@@ -47,7 +52,7 @@ fn number(q: &Request, key: &str) -> Result<Option<f64>, DataError> {
     match q.get(key) {
         None => Ok(None),
         Some(v) => v
-            .as_f64()
+            .as_number()
             .filter(|n| n.is_finite() && *n >= 0.)
             .map(Some)
             .ok_or_else(|| invalid(format!("invalid {key}"))),
@@ -120,25 +125,25 @@ impl<G: Game> WorldSurface<G> {
         if text.len() > MAX_REQUEST {
             return Err(invalid("agent request exceeds 16384 bytes"));
         }
-        let q: Request = serde_json::from_str(text).map_err(invalid)?;
+        let q = Request(exact_gpu::json::parse_fields(text).map_err(invalid)?);
         let op = q
             .get("op")
-            .and_then(Request::as_str)
+            .and_then(Value::as_str)
             .ok_or_else(|| invalid("missing op"))?;
         if op == "clock" {
             if let Some(e) = &self.failed {
                 return Err(invalid(e));
             }
             let now = number(&q, "now")?;
-            if let Some(owner) = q.get("owner").and_then(Request::as_str) {
+            if let Some(owner) = q.get("owner").and_then(Value::as_str) {
                 if !matches!(owner, "agent" | "human") {
                     return Err(invalid("unknown clock owner"));
                 }
                 self.seekable = owner == "agent";
                 self.host = now;
-            } else if q.get("reload").and_then(Request::as_bool) == Some(true) {
+            } else if q.get("reload").and_then(Value::as_bool) == Some(true) {
                 self.host = now;
-            } else if q.get("settle").and_then(Request::as_bool) == Some(true) {
+            } else if q.get("settle").and_then(Value::as_bool) == Some(true) {
                 let before = self.sim_mut()?.world().tick();
                 let result = self.sim_mut()?.settle(3600);
                 if result.is_err() {
@@ -168,8 +173,8 @@ impl<G: Game> WorldSurface<G> {
         out.field("tick");
         world.tick().write(&mut out);
         match op {
-            "state" | "tree" if q.get("entity").and_then(Request::as_str).is_some() => {
-                let name = q["entity"].as_str().unwrap();
+            "state" | "tree" if q.get("entity").and_then(Value::as_str).is_some() => {
+                let name = q.get("entity").and_then(Value::as_str).unwrap();
                 if name != "*" {
                     let e = world
                         .resolve(name)
@@ -248,7 +253,7 @@ impl<G: Game> WorldSurface<G> {
                 world.quiescent().write(&mut out);
                 out.field("ownership");
                 self.ownership(&mut out);
-                if q.get("reload").and_then(Request::as_bool) == Some(true) {
+                if q.get("reload").and_then(Value::as_bool) == Some(true) {
                     out.field("reload");
                     out.begin_struct();
                     out.field("values");
@@ -347,6 +352,9 @@ impl<G: Game> Surface for WorldSurface<G> {
             .collect()
     }
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let started = (self.sim.is_none() && std::env::var_os("EXACT_WORLD_TIMING").is_some())
+            .then(std::time::Instant::now);
         let args = args::decode_args::<G::Args>(values).map_err(error)?;
         G::validate(&args).map_err(error)?;
         if let Some(sim) = &self.sim {
@@ -362,9 +370,19 @@ impl<G: Game> Surface for WorldSurface<G> {
             self.sim = Some(Sim::new(args).map_err(error)?.paranoid(paranoid()));
             self.host = at_ms;
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        let bound = started.map(|_| std::time::Instant::now());
         if self.sim.as_ref().unwrap().world().tick() == 0 {
             self.run((1_000_000. / G::HZ as f64).ceil() / 1000.)
                 .map_err(error)?;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if let (Some(started), Some(bound)) = (started, bound) {
+            let tick = bound.elapsed().as_secs_f64() * 1000.;
+            eprintln!(
+                "exact-world-binding: {{\"bind_ms\":{},\"first_tick_ms\":{tick}}}",
+                bound.duration_since(started).as_secs_f64() * 1000.
+            );
         }
         self.publish = true;
         Ok(())

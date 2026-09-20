@@ -260,67 +260,82 @@ pub fn text(v: &Value, what: &str) -> Result<String, crate::SurfaceError> {
     }
 }
 
-/// Parse a single device event; every refusal names the event or its field.
+/// Read a flat agent/input object: at most 16 KiB and 64 scalar fields.
+/// Duplicate names, nested containers and trailing data refuse before dispatch.
+pub fn parse_fields(text: &str) -> Result<Vec<(String, Value)>, String> {
+    if text.len() > 16_384 {
+        return Err("scalar request exceeds 16384 bytes".into());
+    }
+    let mut p = Parser {
+        s: text.as_bytes(),
+        i: 0,
+    };
+    p.ws();
+    if p.s.get(p.i) != Some(&b'{') {
+        return Err("expected an object".into());
+    }
+    p.i += 1;
+    p.ws();
+    let mut fields = Vec::new();
+    if p.s.get(p.i) != Some(&b'}') {
+        loop {
+            if p.s.get(p.i) != Some(&b'"') {
+                return Err("expected a field name".into());
+            }
+            let Value::Str(name) = p.value()? else {
+                unreachable!()
+            };
+            p.ws();
+            if p.s.get(p.i) != Some(&b':') {
+                return Err(format!("{name}: expected :"));
+            }
+            p.i += 1;
+            p.ws();
+            if matches!(p.s.get(p.i), Some(b'[' | b'{')) {
+                return Err(format!("{name}: expected a scalar"));
+            }
+            let value = p.value().map_err(|e| format!("{name}: {e}"))?;
+            if fields.iter().any(|(key, _)| key == name.as_ref()) {
+                return Err(format!("{name}: duplicate field"));
+            }
+            if fields.len() == 64 {
+                return Err("scalar request exceeds 64 fields".into());
+            }
+            fields.push((name.to_string(), value));
+            p.ws();
+            match p.s.get(p.i) {
+                Some(b',') => {
+                    p.i += 1;
+                    p.ws();
+                }
+                Some(b'}') => break,
+                _ => return Err("expected , or }".into()),
+            }
+        }
+    }
+    p.i += 1;
+    p.ws();
+    if p.i != p.s.len() {
+        return Err("trailing input".into());
+    }
+    Ok(fields)
+}
+
+/// Parse a bounded raw input event from the host.
 pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
     use crate::{InputEvent, PointerKind, PointerPhase};
     let parse = || -> Result<_, String> {
-        let mut p = Parser {
-            s: text.as_bytes(),
-            i: 0,
-        };
-        p.ws();
-        if p.s.get(p.i) != Some(&b'{') {
-            return Err("expected an object".into());
-        }
-        p.i += 1;
-        p.ws();
-        let mut fields = std::collections::HashMap::new();
-        if p.s.get(p.i) != Some(&b'}') {
-            loop {
-                if p.s.get(p.i) != Some(&b'"') {
-                    return Err("expected a field name".into());
-                }
-                let Value::Str(name) = p.value()? else {
-                    unreachable!()
-                };
-                p.ws();
-                if p.s.get(p.i) != Some(&b':') {
-                    return Err(format!("{name}: expected :"));
-                }
-                p.i += 1;
-                p.ws();
-                if matches!(p.s.get(p.i), Some(b'[' | b'{')) {
-                    return Err(format!("{name}: expected a scalar"));
-                }
-                let value = p.value().map_err(|e| format!("{name}: {e}"))?;
-                if fields.insert(name.to_string(), value).is_some() {
-                    return Err(format!("{name}: duplicate field"));
-                }
-                p.ws();
-                match p.s.get(p.i) {
-                    Some(b',') => {
-                        p.i += 1;
-                        p.ws();
-                    }
-                    Some(b'}') => break,
-                    _ => return Err("expected , or }".into()),
-                }
-            }
-        }
-        p.i += 1;
-        p.ws();
-        if p.i != p.s.len() {
-            return Err("trailing input".into());
-        }
-        let string = |name: &str| match fields.get(name) {
+        let fields = parse_fields(text)?;
+        let get = |name: &str| fields.iter().find(|(key, _)| key == name).map(|(_, v)| v);
+        let string = |name: &str| match get(name) {
             Some(Value::Str(s)) => Ok(s.to_string()),
             _ => Err(format!("{name}: expected a string")),
         };
-        let boolean = |name: &str| match fields.get(name) {
+        let boolean = |name: &str| match get(name) {
             Some(Value::Bool(b)) => Ok(*b),
             _ => Err(format!("{name}: expected a boolean")),
         };
-        let number = |name: &str| match fields.get(name) {
+        let number = |name: &str| match get(name) {
             Some(Value::Number(n)) if n.is_finite() => Ok(*n),
             _ => Err(format!("{name}: expected a finite number")),
         };

@@ -239,12 +239,15 @@ impl<D: DataSource> Presenter<D> {
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let t = std::time::Instant::now();
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        crate::surface_startup::record(0, "plan_ready");
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
+        crate::surface_startup::record(1, "fonts_ready");
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
+        crate::surface_startup::record(2, "painter_ready");
         let (mut host, error) = Host::boot_at(
             plan,
             data,
@@ -629,6 +632,7 @@ impl<D: DataSource> Presenter<D> {
     ) -> Result<Option<String>, HostError> {
         let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        crate::surface_startup::record(0, "plan_ready");
         // Preserve live font state until the candidate runner boots successfully.
         let candidate_text = TextEngine::shared_for_assets(&decoded, &self.assets);
         if let Some(reason) = self.assets.take_refusal() {

@@ -154,3 +154,54 @@ fn tick_failure_reports_once_and_remains_inspectable_until_restore() {
         .contains("error"));
     assert_eq!(s.sim().unwrap().world().tick(), 2);
 }
+
+#[test]
+fn shared_scalar_reader_admits_unicode_and_refuses_pressure_before_dispatch() {
+    use exact_gpu::json::parse_fields;
+    let text = r#"{"op":"state","entity":"escaped\n\"\uD83E\uDD8Aé","now":1.25e3,"reload":false,"extra":null}"#;
+    let expected: serde_json::Value = serde_json::from_str(text).unwrap();
+    let fields = parse_fields(text).unwrap();
+    assert_eq!(fields[1].1.as_str(), expected["entity"].as_str());
+    assert_eq!(fields[2].1.as_number(), Some(1250.));
+    let maximum = format!(
+        "{{{}}}",
+        (0..64)
+            .map(|i| format!(r#""k{i}":false"#))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    assert_eq!(parse_fields(&maximum).unwrap().len(), 64);
+    assert!(parse_fields(&maximum.replacen('{', "{\"overflow\":0,", 1))
+        .unwrap_err()
+        .contains("64 fields"));
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    let before = s.carry().unwrap();
+    for text in [
+        r#"{"op":"clock","ticks":1,"ticks":2}"#.into(),
+        r#"{"op":"clock","ticks":+1}"#.into(),
+        r#"{"op":"clock","ticks":01}"#.into(),
+        r#"{"op":"clock","ticks":1.}"#.into(),
+        r#"{"op":"clock","ticks":1}false"#.into(),
+        r#"{"op":"clock","ticks":1,"x":"\uD800"}"#.into(),
+        format!(
+            r#"{{"op":"clock","ticks":1,"x":{}{}}}"#,
+            "[".repeat(8000),
+            "]".repeat(8000)
+        ),
+        " ".repeat(16385),
+    ] {
+        assert!(s.agent(&text).unwrap().contains("error"), "{text}");
+        assert_eq!(s.carry().unwrap(), before);
+        assert!(s.take_error().is_none());
+    }
+    assert!(!s
+        .agent(r#"{"op":"clock","ticks":1}"#)
+        .unwrap()
+        .contains("error"));
+    assert_ne!(
+        s.carry().unwrap(),
+        before,
+        "negative control: accepted requests must drive"
+    );
+}

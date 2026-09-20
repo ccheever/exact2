@@ -15,3 +15,7 @@ bench/.feel-*/
 
 /games/*/.scene/
 /verification/*/.scene/
+
+/tests/world-failure/.shells/
+/tests/world-failure/dist/
+/tests/world-failure/dist.previous/

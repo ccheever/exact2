@@ -41,11 +41,13 @@ impl Abi {
     }
     fn open_path(path: &std::path::Path, compat: &Value) -> Result<Self, String> {
         verify_module(path, compat)?;
+        crate::surface_startup::record(4, "module_verified");
         // SAFETY: the app's own module, with the ABI checked before any call.
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
             output_error: Default::default(),
         };
+        crate::surface_startup::record(5, "module_dlopen");
         unsafe {
             for name in [
                 "gpu_load_headless",
@@ -75,6 +77,7 @@ impl Abi {
                     .map_err(|e| e.to_string())?;
             }
             abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
+            crate::surface_startup::record(6, "load_headless");
         }
         Ok(abi)
     }
@@ -332,6 +335,7 @@ impl Surfaces {
                         b"gpu_create_headless",
                     )(update.name.as_ptr(), update.name.len())
                 };
+                crate::surface_startup::record(7, "create");
                 if id == 0 {
                     self.error = abi.error();
                     continue;
@@ -362,6 +366,7 @@ impl Surfaces {
             }
             let c = self.canvases.get_mut(&update.view).unwrap();
             let values = update.arguments_json();
+            crate::surface_startup::record(8, "bind_start");
             let code = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, f64) -> u32>(
                     b"gpu_bind_at",
@@ -371,10 +376,7 @@ impl Surfaces {
                 self.error = abi.error();
                 continue;
             }
-            if crate::surface_startup::enabled() {
-                let at = std::time::Instant::now();
-                crate::surface_startup::tick(at, &abi.agent(c.id, &json!({"op":"state"})));
-            }
+            crate::surface_startup::record(9, "bind_done");
             if !self.restore_read {
                 self.restore_read = true;
                 self.restore = std::env::var_os("EXACT_WORLD").map(|path| {
