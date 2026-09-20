@@ -47,7 +47,7 @@ welcome document and says so for anything else.
 ## Smoothness continuation — 2026-09-19
 
 The overnight `lane/markdown-smooth` work is preserved and integrated with
-`origin/main` at `f61ff1c4`; the lower-hitch goal remains unproven. LLP 1044 is
+`origin/main` at `69e38720`; the lower-hitch goal remains unproven. LLP 1044 is
 the inherited investigation, not a new design authority. Retained work increases
 measurement memo capacity, settles measured rows within one native call, defers
 retirement-only passes, and permits AppKit responsive scrolling.
@@ -60,6 +60,47 @@ The native pinned-gap fixture and all ten web list tests pass. Offscreen text
 rasterization admits at most two outstanding jobs without a backlog, retries
 deferred paragraphs, and does not retain retired NodeViews. Integration also fixes
 completed worker-stage argument retention and a race in the Linux mailbox test.
+
+Further work reuses owned measurement specifications at new widths, resolves
+JSON text metrics in the same f32 precision as the measurement ABI, orders raster
+admission by distance from the viewport, and ignores a late worker result after
+an urgent paint has already supplied matching pixels. A 30 Hz admission-pump
+experiment did not improve the comparison and was reverted.
+
+The latest candidate, `4fce1bd4`, defers speculative text admission after a batch
+and uses the scroll document's clipped viewport to decide whether `updateLayer`
+must rasterize synchronously. AppKit can include offscreen overdraw in a child
+view's `visibleRect`; a native regression reproduced that unnecessary synchronous
+paint. Both changes have failing old-code controls and passing corrected runs;
+all 221 native tests pass. A separate diagnostic sample contained no main-thread
+text-raster rendering samples, but this does not establish a scrolling advantage.
+
+| Later comparison | Exact median hitch ms/s | Legend median hitch ms/s | Outcome |
+| --- | ---: | ---: | --- |
+| `a666d46f`, fixed 8 pairs, 120 input events/s | 5.83 | 5.42 | Goal not met |
+| `a666d46f`, fixed 4 pairs, 60 input events/s | 10.00 | 9.17 | Goal not met |
+| `122845a1`, 3-run publication-guard pilot | 5.83 | 2.50 | Reverted; retained-build median 5.00 |
+| `4fce1bd4`, 3-run offscreen-overdraw pilot | 3.33 | 1.67 | No win; retained-build median 2.50; only 2 Legend runs valid |
+
+The last pilot retained Legend's third attempt as a failure: its pre-input capture
+showed a blank document, so timing never started. All other pilot trials passed
+direct-focus and content-change checks. Cadence is now also reported by joining
+frame-lifetime display/swap/surface identifiers to this process's updates, then
+counting distinct presentation timestamps in the input interval. Display-wide
+cadence is reported separately; neither proves changed pixels. Some Exact trials
+fell well below 120 presentations/s, including 89.2 and 91.9 in the eight-pair
+confirmation and 103.2 in the latest pilot. Lower hitch time at a lower cadence
+is not accepted as a 120 fps improvement. Every trial remains in its
+`smooth/resume-confirm-a666d46f-*`, `smooth/resume-publication-122845a1-*`, or
+`smooth/resume-overdraw-4fce1bd4-*` directory.
+
+The frozen latest candidate passed forward/reverse scrolling, three widths,
+file switching, and full logical copy with the same 2,153,496-character hash.
+Its first agent launch timed out before readiness; the unchanged binary passed
+on retry. The preceding publication candidate had the same first-launch failure.
+These attempts are retained and their cause is unconfirmed. The latest complete
+five-check workspace pass remains `5ac9fa43`; later changes still need final
+workspace validation and a convincing comparison before delivery.
 
 The one-shot experiment (`3127234e`, now reverted) replaced display-link scheduling with
 coalesced one-shot callbacks, preserving the existing coverage thresholds and

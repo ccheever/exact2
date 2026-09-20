@@ -36,6 +36,11 @@ sits on that list carries the trade it would take.
   and validate partial blank/stale content during fast scrolling. Current
   identities, methods and limits are in `apps/markdown/README.md`.
 
+- **Native list prepend cost** (2026-09-19): `Presenter.apply` appends a new
+  first child, then remounts retained siblings to restore order. Insert directly
+  before the current first child for containers containing only NodeViews;
+  preserve mixed decoration ordering and verify retained rows never detach.
+
 - **Internal event/property ID collisions** (Charlie, 2026-09-19): investigate assignment and cross-branch collision detection after navigation and video independently claimed host dispatch kind 14 (merged as navigation 14, media 19).
   Audit the manually mirrored Rust/Swift/browser dispatch codes alongside generated kernel property IDs and plan event ordinals; determine how to keep assignments consistent and detect incompatible host/plan pairs without adding another declaration authority.
 
