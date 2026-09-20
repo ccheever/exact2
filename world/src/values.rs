@@ -21,6 +21,13 @@ impl Published {
         depth: usize,
     ) -> Result<Self, DataError> {
         charge(budget, 64)?;
+        Self::read_reserved(r, budget, depth)
+    }
+    fn read_reserved(
+        r: &mut bin::Decoder<'_>,
+        budget: &mut usize,
+        depth: usize,
+    ) -> Result<Self, DataError> {
         if depth > 80 {
             return Err(DataError::new("publication depth limit (80)"));
         }
@@ -64,10 +71,11 @@ impl Published {
                     if n > *budget / 64 {
                         return Err(DataError::new("publication child limit"));
                     }
+                    charge(budget, n * 64)?;
                     r.claim(n * 64)?;
                     let mut v = Vec::with_capacity(n);
                     while r.item()? {
-                        v.push(Self::read_bounded(r, budget, depth + 1)?);
+                        v.push(Self::read_reserved(r, budget, depth + 1)?);
                     }
                     if arm == "List" {
                         Self::List(v)

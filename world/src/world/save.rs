@@ -134,4 +134,40 @@ mod publication_tests {
         w.read_publications(&mut bin::Decoder::new(&bytes)).unwrap();
         assert_eq!(w.publications().len(), 1);
     }
+    #[test]
+    fn nested_reservation_chain_cannot_spend_outstanding_sibling_allowances() {
+        use crate::Published::{List, Unit};
+        for depth in [1, 8, 40, 80] {
+            let mut value = Unit;
+            for level in (0..depth).rev() {
+                let mut items = vec![Unit; 1023 - level];
+                items[0] = value;
+                value = List(items);
+            }
+            let mut out = bin::Encoder::default();
+            out.begin_struct();
+            out.key("x");
+            value.write(&mut out);
+            out.end_struct();
+            let bytes = out.finish().unwrap();
+            let mut world = World::new(60, 0);
+            let mut r = bin::Decoder::new(&bytes);
+            let (result, counts) = counting::measure(|| world.read_publications(&mut r));
+            println!("reservation chain depth={depth}: {counts:?}");
+            assert_eq!(result.is_ok(), depth == 1);
+            assert!(
+                counts.1 < 60_000,
+                "outstanding sibling reservations escaped: {counts:?}"
+            );
+        }
+        // Exactly 1,024 values, with a reserved child that has its own child.
+        let mut items = vec![Unit; 1022];
+        items[0] = List(vec![Unit]);
+        let source = World::new(60, 0);
+        source.publish("x", List(items)).unwrap();
+        let saved = source.save().unwrap();
+        let mut loaded = World::new(60, 0);
+        loaded.load(&saved).unwrap();
+        assert_eq!(loaded.save().unwrap(), saved);
+    }
 }
