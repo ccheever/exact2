@@ -128,10 +128,11 @@ sits on that list carries the trade it would take.
   Simulator contact backend (1035.003 §3; the backend is Charlie's call — the held-read gate now passes at two placements after common-mode agent scheduling, `/tmp/messages-held-inspection/`), 1035.001
   slice 1 (XCTest units for the navigation/modal rules, journal lines for
   refused intents, a session-scoped blur in the two-session host), 1035.004's
-  six symbol roles, 1035.005's `contract fmt` with the continuation rule
-  (2026-09-19: `fmt`/`symbols` are still absent from `origin/main` at `bac727ac`;
-  implementations exist on `lane/1035-merge` and `lane/game`, with later review
-  fixes. Integrate the authoring changes without dropping newer compiler features);
+  six symbol roles, 1035.005's symbols, source-aware diagnostics and development
+  map (2026-09-20: `contract fmt` and continuation recovered with source-preserving
+  formatting; D2/D3 remain on `lane/1035-merge` and `lane/game`, with unresolved
+  review findings. Recover those without dropping newer compiler features or
+  misattributing imported declarations);
   `dynamic` as a `layout <node>` source once a constant binding can be told
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
@@ -386,7 +387,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
 - **Plan / runner** (LLP 1005 §8): a deps table and dirty-set sweep; per-instance
   derives or resources inside `each`; asynchronous data settlement.
 - **Contract** (LLP 1006 §8): inlining budget; `contract` blocks as assertions;
-  `cursor`; per-instance state; LSP and formatter; `linear()`.
+  `cursor`; per-instance state; LSP; `linear()`.
 - **Web host** (LLP 1007 §9): a text-measurement bridge (the kernel's layout does not
   run on the web — and nothing today checks the kernel's layout against the
   browser's; a layout parity corpus would be the analog of `parity.mjs`); gradients,

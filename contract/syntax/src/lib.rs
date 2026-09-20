@@ -19,6 +19,7 @@
 #![deny(missing_docs)]
 
 pub mod ast;
+pub mod fmt;
 pub mod inline;
 pub mod lexer;
 pub mod parser;

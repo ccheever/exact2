@@ -38,6 +38,8 @@ pub struct Token {
     pub kind: TokenKind,
     /// Where.
     pub span: Span,
+    /// Exclusive byte column of a source token; structural tokens are empty.
+    pub end_col: u32,
 }
 
 /// A lexing failure.
@@ -89,6 +91,7 @@ impl Lexer {
                     indents.push(indent);
                     out.push(Token {
                         kind: TokenKind::Indent,
+                        end_col: 1,
                         span: Span {
                             line: line_no,
                             col: 1,
@@ -99,6 +102,7 @@ impl Lexer {
                         indents.pop();
                         out.push(Token {
                             kind: TokenKind::Dedent,
+                            end_col: 1,
                             span: Span {
                                 line: line_no,
                                 col: 1,
@@ -151,6 +155,7 @@ impl Lexer {
                     }
                     out.push(Token {
                         kind: TokenKind::Ident(trimmed[start..pos].to_string()),
+                        end_col: col_of(pos).col,
                         span,
                     });
                     continue;
@@ -170,6 +175,7 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
+                        end_col: col_of(pos).col,
                         span,
                     });
                     continue;
@@ -178,6 +184,7 @@ impl Lexer {
                     let (s, end) = Self::string(trimmed, pos, '"', span)?;
                     out.push(Token {
                         kind: TokenKind::Str(s),
+                        end_col: col_of(end).col,
                         span,
                     });
                     pos = end;
@@ -191,6 +198,7 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Template(trimmed[pos + 1..end].to_string()),
+                        end_col: col_of(end + 1).col,
                         span,
                     });
                     pos = end + 1;
@@ -215,6 +223,7 @@ impl Lexer {
                 }
                 out.push(Token {
                     kind: TokenKind::Punct(p),
+                    end_col: col_of(pos + p.len()).col,
                     span,
                 });
                 pos += p.len();
@@ -222,6 +231,7 @@ impl Lexer {
             if depth == 0 {
                 out.push(Token {
                     kind: TokenKind::Newline,
+                    end_col: col_of(bytes.len()).col,
                     span: col_of(bytes.len()),
                 });
             }
@@ -234,11 +244,13 @@ impl Lexer {
             indents.pop();
             out.push(Token {
                 kind: TokenKind::Dedent,
+                end_col: 1,
                 span: end,
             });
         }
         out.push(Token {
             kind: TokenKind::Eof,
+            end_col: 1,
             span: end,
         });
         Ok(out)

@@ -257,3 +257,60 @@ fn rejections_carry_stable_ids_and_spans() {
         assert_eq!(err.span.line, line, "{src:?} → {err}");
     }
 }
+
+#[test]
+fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals() {
+    // LLP 1035.005 D1: `name=` on a deeper line continues the attribute
+    // list; a child begins with a tag, so one-token lookahead decides.
+    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    button press=go\n      testId=\"go\" aria-label=\"Go\"\n      width=40\n      text \"a\"\n        font-size=12\n      text \"b\"\n";
+    let file = parse(src).unwrap();
+    let Node::Element {
+        attrs, children, ..
+    } = &file.components[0].view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(
+        attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["press", "testId", "aria-label", "width"]
+    );
+    assert_eq!(children.len(), 2);
+    let Node::Element { tag, attrs, .. } = &children[0] else {
+        panic!()
+    };
+    assert_eq!(tag, "text");
+    assert_eq!(attrs[0].name, "font-size");
+
+    // At the element's own depth (or shallower) `name=` is refused.
+    let e = parse("component A\n  view\n    column gap=8\n      text \"a\"\n    width=40\n")
+        .unwrap_err();
+    assert_eq!(e.id, "syntax-continuation-indent");
+    assert_eq!(e.span.line, 5);
+    // A continued line holds attributes only.
+    let e = parse("component A\n  view\n    text \"a\"\n      width=40 \"b\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-attr");
+    // A duplicate across lines is the same refusal as on one line.
+    let e = parse("component A\n  view\n    text \"a\" width=1\n      width=2\n").unwrap_err();
+    assert_eq!(e.id, "syntax-duplicate-attr");
+}
+
+#[test]
+fn a_component_uses_arguments_may_span_lines_inside_its_parentheses() {
+    let src = "component A\n  view\n    Row(\n      a=1,\n      b=\"x\",\n    )\n      text \"filled\"\ncomponent Row\n  props\n    a: number\n    b: string\n  slot\n  view\n    children\n";
+    let file = parse(src).unwrap();
+    let Node::Use {
+        name,
+        args,
+        children,
+        ..
+    } = &file.components[0].view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(name, "Row");
+    assert_eq!(
+        args.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["a", "b"]
+    );
+    assert_eq!(children.len(), 1);
+}

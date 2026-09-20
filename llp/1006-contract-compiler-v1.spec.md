@@ -222,6 +222,27 @@ against the generated schema vocabulary. Empty, unknown and platform-name
 sources are `lower-attr-value` with the available roles; dynamic sources remain
 host-checked. `tint-color` names the schema's colour row and accepts `light-dark()`.
 
+**Formatting and continuation** (LLP 1035.005 D1, recovered 2026-09-20):
+a view element's attributes may continue on deeper lines beginning with
+`name=` before its children. A continuation at the element's own depth is
+`syntax-continuation-indent`; repeated attributes are still refused across
+lines. Component arguments already span lines inside parentheses.
+`contract fmt [--check | --stdout] <file>` explicitly formats one file;
+`--check` prints a diff and exits 1 on changes, `--stdout` previews, and bare
+`fmt` writes only after parsing the result. Unknown flags and extra paths
+are refused. No development loop or blocking check invokes it.
+
+The source-preserving formatter uses the existing lexer's exact byte ranges
+and the parser's attribute/argument boundaries. It normalizes structural
+indentation to two spaces and token spacing, breaking long headers at
+100 columns. Existing line breaks, blank groups, comment attachment, literal
+spellings and opaque `contract` bodies survive; template interiors are kept
+verbatim. Long indivisible literals, comments and non-header expressions can
+exceed the preferred width; a prefix containing interleaved positional arguments
+also stays on the element's head. Re-lexing verifies unchanged ordinary tokens;
+fixtures additionally prove unchanged trees, idempotence and byte-identical
+plans across the corpus and every app. No checked-in app is reformatted.
+
 ## 3. Passes
 
 LLP 1039 adds `aria-orientation` as the string prop `accessibilityOrientation`, emitted as ARIA on the web. Bake answers `exactViewport` at 390 × 844 and refuses unknown fields as `bake-viewport-field`; TypeScript source declarations and executor requirements skip this reserved source as they skip `exactDelivery`.
@@ -380,7 +401,7 @@ values against their kernel rows~~ and ~~handler arity through a bare
 the root-region and the two layout refusals, and bake's layout lint (§3
 Driver); a total inlining budget beyond the
 depth guard; `@keyframes`, the `contract` block as
-executable assertions, `cursor`, per-instance state, LSP/formatter, `linear()`
+executable assertions, `cursor`, per-instance state, LSP (the formatter is implemented above), `linear()`
 and transition rows from Contract (the kernel has the row; the tag table does
 not yet expose `transition`). Each is a fixture away, never a speculation.
 

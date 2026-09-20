@@ -9,15 +9,18 @@
 
 use std::process::ExitCode;
 
+mod diff;
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&args[1..]),
+        Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("compat") => compat(&args[1..]),
         Some("types") => types(&args[1..]),
         _ => {
-            eprintln!("usage: contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+            eprintln!("usage: contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
             ExitCode::from(2)
         }
     }
@@ -154,4 +157,56 @@ fn build(args: &[String]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// Explicit formatting, with read-only preview and check modes.
+fn fmt(args: &[String]) -> ExitCode {
+    let (input, mode) = match args {
+        [input] if !input.starts_with('-') => (input, ""),
+        [flag, input]
+            if matches!(flag.as_str(), "--check" | "--stdout") && !input.starts_with('-') =>
+        {
+            (input, flag.as_str())
+        }
+        [input, flag]
+            if matches!(flag.as_str(), "--check" | "--stdout") && !input.starts_with('-') =>
+        {
+            (input, flag.as_str())
+        }
+        _ => {
+            eprintln!("usage: contract fmt [--check | --stdout] <file.contract>");
+            return ExitCode::from(2);
+        }
+    };
+    let result = std::fs::read_to_string(input)
+        .map_err(|e| e.to_string())
+        .and_then(|before| {
+            let after = contract_syntax::fmt::format(&before).map_err(|e| e.to_string())?;
+            Ok((before, after))
+        });
+    match result {
+        Ok((before, after)) => match mode {
+            "--stdout" => {
+                print!("{after}");
+                ExitCode::SUCCESS
+            }
+            "--check" if before != after => {
+                print!("{}", diff::unified(input, &before, &after));
+                ExitCode::from(1)
+            }
+            "--check" => ExitCode::SUCCESS,
+            _ if before == after => ExitCode::SUCCESS,
+            _ => match std::fs::write(input, after) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("{input}: {error}");
+                    ExitCode::from(1)
+                }
+            },
+        },
+        Err(error) => {
+            eprintln!("{input}:{error}");
+            ExitCode::from(1)
+        }
+    }
 }
