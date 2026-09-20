@@ -1119,3 +1119,20 @@ window, urgency, list/text alternation and two-worker cap are unchanged. The
 allowance also affects bounded retirement, so fewer reports alone would not
 establish a win. Diagnostic traces must first show reduced list/apply frequency
 without worse tails before another displayed-performance comparison is useful.
+
+The three-row allowance (`7832d926`) is not retained. Four alternating diagnostic
+traces recorded 247/245 baseline list calls and 242/241 candidate calls—about a
+2% reduction, without lower total list-pump cost. Candidate 1 and baseline 2
+failed the input screen; all four passed focus/content checks and remain in
+`smooth/tails/budget3-*`. This is a rejected mechanism test, not a physical
+smoothness comparison. Native 254 tests passed.
+
+A narrower refill-threshold combination is worth measuring: keep the two-row
+budget and list/text fairness, but schedule background refill after one quarter
+of overscan is used (`.soon` at .75 viewport). The previous `.75` rejection
+predates bounded admission: `2d8ba879` called unbudgeted `syncLists()` and could
+starve text work. The current continuation can spread the accumulated missing
+rows over bounded slices. The `.35` urgent threshold remains unchanged; the
+shorter runway still risks urgent bursts, especially on short rows and fast
+reversals. Normal/double-speed and dense-row controls plus diagnostic tails and
+physical timing must decide whether this combination earns its place.

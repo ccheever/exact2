@@ -415,7 +415,7 @@ final class Presenter {
         if listSyncPending && !(textTurn && textPending) {
             listSyncPending = false
             let post = Self.signposts.beginInterval("pump-list")
-            syncLists(limit: ExactEnv.agentMode ? 0 : 3)
+            syncLists(limit: ExactEnv.agentMode ? 0 : 2)
             textTurn = true
             Self.signposts.endInterval("pump-list", post)
             return
@@ -462,10 +462,9 @@ final class Presenter {
         }
     }
 
-    /// Whether a windowed list has scrolled to where the runner would mount
-    /// rows (its window is a scrollport either side), and whether it is close
-    /// to showing past the mounted ones — a jump, a scroller drag, a fling
-    /// faster than the pump. Then it fills now.
+    /// Replenish after a quarter of the overscan is used, so bounded reports
+    /// can admit several missing rows together. A jump, scroller drag or fling
+    /// close to showing past the mounted rows still fills immediately.
     private func listsNeed() -> ListNeed {
         var need = ListNeed.nothing
         for list in listViews.values {
@@ -474,7 +473,7 @@ final class Presenter {
             let visible = scroll.contentView.bounds, port = visible.height
             let first = cover.top + cover.origin, last = cover.bottom + cover.origin
             if (!cover.atEnd && visible.maxY + port * 0.35 > last) || (!cover.atStart && visible.minY - port * 0.35 < first) { return .now }
-            if (!cover.atEnd && visible.maxY + port + 1 > last) || (!cover.atStart && visible.minY - port - 1 < first) { need = .soon }
+            if (!cover.atEnd && visible.maxY + port * 0.75 + 1 > last) || (!cover.atStart && visible.minY - port * 0.75 - 1 < first) { need = .soon }
         }
         return need
     }
