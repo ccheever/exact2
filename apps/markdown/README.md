@@ -1198,3 +1198,10 @@ rechecked after a synchronous report callback. Existing legacy scheduling tests
 now use noncollection fixtures; a takeover regression covers both callback and
 between-report transitions. This integration still requires native and workspace
 validation and does not establish a displayed-performance improvement.
+
+A prepend candidate mounts a new leading child directly before its retained
+siblings when the container contains only Exact views. The baseline native
+regression records four add callbacks and three removals for one new child
+beside two retained children. The candidate should need one add and no removals;
+mixed native decorations keep the existing path. Reverse-scroll cost and reader
+behavior still need validation before making a performance claim.

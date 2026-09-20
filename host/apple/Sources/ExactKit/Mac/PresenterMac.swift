@@ -819,7 +819,12 @@ final class Presenter {
                 for (i, child) in want.enumerated() {
                     if child.superview !== container {
                         child.prepareToMount()
-                        container.addSubview(child)
+                        // Appending then moving the first child above nil puts
+                        // it last and needlessly remounts every retained sibling.
+                        if i == 0, let first = container.subviews.first,
+                           container.subviews.allSatisfy({ $0 is NodeView }) {
+                            container.addSubview(child, positioned: .below, relativeTo: first)
+                        } else { container.addSubview(child) }
                     }
                     if container.subviews.firstIndex(of: child) != i {
                         child.removeFromSuperview()

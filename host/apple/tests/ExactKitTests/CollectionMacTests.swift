@@ -369,5 +369,55 @@ final class CollectionMacTests: XCTestCase {
         }
     }
 
+    func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {
+        for decorated in [false, true] {
+            _ = NSApplication.shared
+            let p = Presenter()
+            defer { p.reset() }
+            p.apply(batch([
+                ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "view"],
+                ["op": "create", "id": 4, "kind": "text", "props": ["text": "new row"]]
+            ]))
+            let parent = try XCTUnwrap(p.views[1]), first = try XCTUnwrap(p.views[2])
+            let second = try XCTUnwrap(p.views[3]), added = try XCTUnwrap(p.views[4])
+            let container = MountObservedView()
+            try XCTUnwrap(parent.scroll).documentView = container
+            p.apply(batch([["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]]))
+            let decoration = NSView()
+            if decorated { container.addSubview(decoration, positioned: .below, relativeTo: second) }
+            container.added.removeAll(); container.removed.removeAll()
+            p.apply(batch([["op": "children", "id": 1, "ids": [4, 2, 3]]]))
+            XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, [4, 2, 3])
+            XCTAssertTrue(first.superview === container && second.superview === container)
+            XCTAssertTrue(added.wantsLayer, "inserting at the front still prepares native text backing")
+            if decorated {
+                XCTAssertTrue(container.subviews.first === decoration, "preserve the mixed native-decoration path")
+            } else {
+                XCTAssertEqual(container.added, [4], "mount only the new child")
+                XCTAssertEqual(container.removed, [], "retained rows must never detach during prepend")
+                container.added.removeAll()
+                p.apply(batch([["op": "children", "id": 1, "ids": [2, 3]]]))
+                XCTAssertEqual(container.removed, [4], "removing the inserted row leaves surviving siblings mounted")
+                XCTAssertEqual(container.added, [])
+                XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 3])
+            }
+        }
+    }
+
+}
+
+private final class MountObservedView: NSView {
+    var added: [UInt32] = []
+    var removed: [UInt32] = []
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if let node = subview as? NodeView { added.append(node.id) }
+    }
+    override func willRemoveSubview(_ subview: NSView) {
+        if let node = subview as? NodeView { removed.append(node.id) }
+        super.willRemoveSubview(subview)
+    }
 }
 #endif
