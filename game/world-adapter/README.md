@@ -51,54 +51,63 @@ log cursor is retained per surface and is not saved continuation state.
 
 ## Measure
 
-Build Tally through `host/web/build.mjs` with `EXACT_APP_DIR=game/games/tally` and
-`EXACT_WEB_DIST=game/games/tally/dist`. Build its native executable with
-`bun game/games/tally/proof.mjs linux --build-only`. Then run
-`bun game/world-adapter/measure.mjs --sizes --linux --web --compare-delay`.
-The Caltrain comparator needs a built `caltrain-linux` (matching build command in the diary).
-Set `CHROME` to Chromium, `CARGO_TARGET_DIR` to the shared build directory, and
-optionally `TALLY_LINUX`, `CALTRAIN_LINUX`, or `K3_SCRATCH` for artifact locations.
-`EXACT_WORLD_TIMING=1` enables native host boundaries and adapter bind/tick spans.
-The web numbers come from `state.world[].perf` through the ordinary agent carrier.
+Use the pinned Bun from `package.json`, Binaryen 131 and wasm-bindgen 0.2.127.
+Set `EXACT_UPDATE_TRUST=development`, `CARGO_TARGET_DIR` to one shared cache,
+`CHROME` to Chromium and `K4_SCRATCH` to the diagnostic output directory.
+Check `df -h ~` before cold builds; stop below 25 GiB free.
 
-Measured with Binaryen 131 `-Oz`, Bun gzip level 9:
+```sh
+EXACT_APP_DIR=$PWD/game/games/tally EXACT_WEB_DIST=$PWD/game/games/tally/dist \
+  bun host/web/build.mjs
+bun game/games/tally/proof.mjs linux --build-only
+bun game/world-adapter/measure.mjs --sizes --linux --web --compare-preload
+```
 
-| `gpu_bg.wasm` | Raw B | Gzip B |
+The Linux comparator also needs `caltrain-linux` with the matched `gpu-dev`
+settings in the [diary](../diaries/2026-09-20-device-free.md#k4-2026-09-20).
+`EXACT_WORLD_TIMING=1` enables native spans; the measurement command sets it.
+Web markers come from `state.world[].perf` through the normal agent carrier.
+Ten fresh profiles and ten reloads per policy use identical modules; only the
+preload links vary. The no-store server transfers full resources on warm reloads.
+Each sampled navigation must show exactly one resource transfer per module.
+
+## Current measurements (K4)
+
+Binaryen 131 `-Oz`; gzip level 9, normalized to K3's Bun 1.3.14 compressor:
+
+| Device-free module | Raw B | Gzip B |
 |---|---:|---:|
-| K2 device-free | 391,681 | 164,240 |
-| Fallible-contract baseline | 393,831 | 165,446 |
-| Shared scalar reader | 366,332 | 152,465 |
-| Final, including bounded diagnostics | 366,615 | 152,634 |
+| K3 `gpu_bg.wasm` | 366,615 | 152,634 |
+| K4 `gpu_bg.wasm` | 366,077 | 152,719 |
+| K4 `app.wasm` | 661,221 | 278,846 |
+| K4 `gpu.js` | 15,918 | 3,697 |
 
-Final `app.wasm`: 661,221 / 278,846 B raw/gzip; `gpu.js`: 15,918 / 3,697 B.
-The kernel accounts for 138,658 named body bytes; `alloc` containers add 76,394.
-`exact-plan` contributes 214; the second JSON parser is gone. Profiles already
-use size optimization, fat LTO, one codegen unit and aborting panics.
+The pinned Bun 1.3.12 compressor reports 153,138 / 280,487 / 3,664 gzip bytes
+for those three K4 files respectively. Raw bytes are identical. Construction,
+first tick and restore retain 91 / 6 / 159 allocations and 15,459 / 672 / 33,432
+requested bytes; the sampled Sim save is 3,623 bytes.
 
-| Chromium, ms (median / p95) | 10 cold | 10 warm reloads |
-|---|---:|---:|
-| FCP | 114 / 136 | 100 / 116 |
-| Module instantiated | 154.1 / 195.5 | 158.2 / 165.8 |
-| Bound | 159.0 / 208.0 | 158.85 / 166.5 |
-| First tick | 159.0 / 208.0 | 158.85 / 166.5 |
-| First publication accepted | 162.3 / 215.8 | 160.1 / 167.8 |
+| Chromium ms, median / p95 | Serial cold | Preload cold | Serial warm | Preload warm |
+|---|---:|---:|---:|---:|
+| FCP | 128 / 216 | 122 / 148 | 104 / 116 | 100 / 120 |
+| Module instantiated | 188.35 / 246.9 | 125.7 / 157.6 | 156.95 / 166.7 | 114.35 / 131.8 |
+| Bound / first tick | 199.90 / 258.5 | 130.50 / 167.0 | 157.55 / 167.3 | 114.95 / 132.4 |
+| Publication accepted | 207.35 / 265.5 | 133.60 / 173.4 | 158.95 / 168.8 | 116.15 / 133.4 |
 
-Cold uses fresh browser profiles; warm reloads follow one priming load. The server
-sends full resources on both. Immediate loading versus two rAFs has median FCP
-114/116 ms and publication 162.3/203.7 ms, so wholly device-free bakes start loading
-on the first surface operation. Other registrations retain the delay.
-
-| Linux, 20 launches, ms (median / p95) | Tally |
+| Linux, 20 launches, ms from host entry | Median / p95 |
 |---|---:|
-| Plan decoded | 0.128 / 0.134 |
-| First host frame | 13.114 / 13.307 |
-| Module verified / dlopen complete | 24.336 / 24.881; 24.559 / 25.126 |
-| First tick complete (bind returns) | 24.757 / 25.328 |
-| First publication accepted | 24.865 / 25.437 |
-| Create + bind + first tick, including ABI / trace | 0.165 / 0.169 |
+| Plan decoded | 0.125 / 0.142 |
+| Fonts ready | 6.924 / 6.975 |
+| Painter ready | 7.706 / 7.785 |
+| First host frame | 13.154 / 13.304 |
+| Module verified | 24.357 / 24.606 |
+| Module dlopen complete | 24.584 / 24.832 |
+| Bind work / first tick work | 0.056 / 0.060; 0.006 / 0.007 |
+| First tick complete | 24.780 / 25.044 |
+| Publication accepted | 24.893 / 25.175 |
+| Create + bind + first tick, including ABI / trace | 0.161 / 0.174 |
+| Caltrain first frame, assets loaded | 36.376 / 37.038 |
 
-Caltrain's same host reaches its first frame at 36.662 / 37.275 ms with assets
-loaded. Tally construction allocates 91 times / 15,459 requested bytes; first tick
-6 / 672; exact restore 159 / 33,432, for a 3,623-byte Sim save.
-Full attribution, top 40 functions, resource transfers, host spans, reproduction
-commands and validation history are in the [device-free diary](../diaries/2026-09-20-device-free.md).
+These browser measurements require no GPU; device attachment, shaders and pixels
+still need real WebGPU Chrome. API limits are above; experiment decisions, exact
+pin changes, the plain-surface audit and validation results are in the diary.

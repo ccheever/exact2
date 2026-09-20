@@ -387,3 +387,132 @@ on this box. Browser failure and startup are verified here; the old CDP timeout
 limitation is resolved by using the supported carrier. No pre-K2 no-device timing
 baseline exists because that path never constructs a world. No pins were moved
 to accommodate any failure; the existing unpinned Lanterns status is retained.
+
+## K4 (2026-09-20)
+
+Merged exactly `f20210f`; the sole conflict was `QUEUE.md`. No authored changes
+to `world/`, `world/derive/` or `motion/`. All eleven review inputs were considered:
+K3 already handled fallible callbacks and moved the receipt here; K4 handles the
+beacon, plain surfaces, canonical save/clock, children, preload and measurement.
+Native threaded loading stays deferred (0.161 ms activation; web is this brief's
+priority). Kernel size experiments stay with the kernel owner pending KL's verdict.
+
+The beacon and `gpuMs` again mean elapsed time from injection through device
+acquisition and shader installation, emitted once. `worldModuleMs` remains the
+navigation-relative ownership timestamp. Absent/rejected/pending devices emit no
+beacon. The delayed-shader fixture proves first plain render follows installation,
+with no headless clock or world stamps. Removing the beacon in a scratch copy
+makes the fixture fail. Plain recovery retains IDs/bindings; plan/swap fixtures
+check successful commits, failed-render rollback and a missing render ABI.
+
+Every changed line in the requested functions against `f418821` is listed below;
+all other lines in those functions match it. Numbers name `host/web/gpu-glue.js`.
+
+| Function / lines | Justification |
+|---|---|
+| `recoverDevice`, 182 | `!e.headless` selects attached targets. Plain attached IDs still recover together with replacement canvases and retained bindings. |
+| `validateStage`, 1022 | Refuse a headless stateless candidate, restoring plain surfaces' pre-device refusal. |
+| `validateStage`, 1023 | Skip render only for headless stateful worlds. Plain candidates still execute the original render/error check. |
+| `stagePlan`, 1119 | Ownership readiness permits device-free staging; plain pending candidates refuse in validation. The error names module readiness. |
+| `swap`, 1178–1179 | Choose ownership ABI: device modules still require `load/create/render` and every original shared export; headless modules require `load_headless/create_headless`. K2 dropped the device checks. |
+| `swap`, 1180–1181 | Await device load and mark membership for device-backed creation, or load ownership only. Plain shaders still install before candidate creation. |
+| `swap`, 1234 | Set ownership and derive device readiness separately; for plain modules `loaded` is true at the original commit boundary. |
+
+The rest of K2's diff was audited: headless clock and bind/publication/frame
+stamps are stateful-only; optional shader exports serve ownership-only modules;
+plain attachment/render stays behind shader installation. Existing fixtures cover
+asset pressure, rollback and overlapping reloads. The cosmetic-failure fixture
+needed its explicit stateful flag after this gating change.
+
+Surface checkpoints are now exactly `Sim::save()`, with input time from
+`Sim::clock_ms()`. A fractional-microsecond / 3,600-tick exhausted-settle fixture
+checks subsequent queued-input continuation. Tally's hand uses indexed children
+in slot order; its existing `Round.deck` retains shuffled draw order. The adverse
+fixture interleaves 12,000 unrelated Cards and reparents in reverse order, including
+remove/readd. Reads inspect at most thirteen children and explicitly refuse a
+thirteenth or a non-Card child; normal reads/holds visit at most twelve.
+
+The normal repin machinery compared Linux/Chromium continuous, Save and FreshGame,
+plus Linux release. Tick pins `1: 0x32a9f7776ceb5052` and
+`85: 0x3d943e409a0493be` are unchanged. Continuation SHA-256:
+
+- Old: `5e48162a4e3c959e83b205d74a78642b052de101033214e6099042026173f0de`
+- New: `694d95cceda9f88d5c9234ccdd2c53b01bcde155ff3f2ff87203e3bda44adb08`
+
+6,228 → 6,212 bytes; **old `[16..]` equals new exactly**. All seven repin runs
+agree. Subsequent Linux/web paranoid proofs pass all six pinned modes.
+
+The first, two-link preload improved publication but regressed median FCP
+102 → 120 ms cold, 100 → 120 ms warm. Resource timing showed warm `app.wasm`
+starting at 54.65 rather than 28.8 ms. Rejected it. The retained version also
+preloads `app.wasm` at high priority; GPU hints have low priority. Their warm
+starts are now 9.4 / 9.6 / 9.7 ms. Only manifest-declared game modules get hints.
+Ordinary HTML matches frozen K3 page bytes, including metadata escaping. The dev
+server strips static hints because its verified loader fetches JS as bytes with
+no-store, rather than importing it; a response fixture checks this separately.
+
+The retained comparison uses K3's carrier and 200 ms passive grace: ten cold and
+ten warm samples per policy, cold policies interleaved, identical modules with
+only the three hints removed for the serial control. Current median/p95 tables
+are in the [README](../world-adapter/README.md#current-measurements-k4). FCP is
+128/216 → 122/148 ms cold, 104/116 → 100/120 warm; the 4 ms warm p95 increase
+is within one frame. Median tick/publication is 199.90/207.35 → 130.50/133.60 cold,
+157.55/158.95 → 114.95/116.15 warm. K3 historical cold was 159.0/162.3 (warm
+158.85/160.1); shared-machine variation makes the interleaved control preferable.
+Ten observations do not establish statistical significance.
+
+All 42 navigations (including two discarded primes) show exactly one transfer per
+resource. Transfer/encoded bytes: app 661,521/661,221; GPU JS 16,218/15,918; GPU
+wasm 366,377/366,077. The no-store server transfers full bytes even when warm.
+Fetch hints use matching same-origin credentials. Each trial's 22 recorded browser
+groups was SIGKILLed and awaited; both PID inventories report zero leaks.
+
+Wasm is 366,077 raw / 152,719 gzip versus K3 366,615 / 152,634: −538 / +85 bytes.
+This comparison uses K3's Bun 1.3.14 compressor. Builds/checks use pinned 1.3.12,
+which reports 153,138 gzip on identical wasm. Unchanged app bytes control that
+tool difference: 278,846 versus 280,487 gzip. Linux's 20-launch first tick is
+24.780/25.044 ms and publication 24.893/25.175, versus K3 24.757/25.328 and
+24.865/25.437. Activation is 0.161/0.174; bind/tick work 0.056/0.006 median.
+The README has the complete breakdown; no native startup optimization was made.
+
+Reproduce with the K3 commands above, using `K4_SCRATCH`, pinned Bun 1.3.12,
+one `game/games/tally/target` cache, and `--compare-preload`. Measurements ran
+outside local builds. Disk stayed above 25 GiB. Evidence is in
+`scratch/k4/{web,linux,sizes,checkpoint-equality}.json`, `web-processes.json`,
+`preload-round1/` and per-command logs.
+
+| Validation | K4 result |
+|---|---|
+| Adapter | 15 passed |
+| Tally | Seven repin runs agree; six subsequent Linux/web paranoid modes pass |
+| Other Linux games | Seven pass; Lanterns executes with zero failures but remains unpinned / UNVERIFIED |
+| Independent wasm failure proof | 10 assertions pass; browser killed and awaited |
+| Game Rust | 758 passed, 18 GPU-required failures, 25 ignored |
+| Game Bun | 148 passed, one skipped; literal-digest scan failed, then passed after replacing the HTML hash with frozen page bytes (149 tests covered) |
+| Web JS | 160 passed, three skipped, four unchanged Swift-source assertion failures; final byte-fixture retest also passes |
+| Root world/GPU/web/Linux Rust | 334 passed, three GPU-required failures, three ignored |
+| Game and targeted root clippy | Pass, `-D warnings` |
+| Root/game formatting, caps, boot | Pass; two pre-pixel modules, one wasm reference |
+| Full root build/test/clippy | Blocked by absent lean Hermes producer for TypeScript app bakes |
+
+Real WebGPU Chrome must still verify device acquisition, WGSL, attachment/recovery
+and pixels. No Apple SDK or GPU residency result is claimed. On that machine:
+
+```sh
+export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH EXACT_UPDATE_TRUST=development
+export CHROME=/path/to/WebGPU-capable/Chrome
+bun host/web/build.mjs caltrain-web
+bun scripts/smoke.mjs web --shot /tmp/k4-caltrain.png
+```
+
+Smoke includes the beacon assertions and step 10's clock-zero canvas screenshot /
+crop comparison against `scripts/fixtures/canvas-sky.web.png`; do not repin that
+reference. For a retained diagnostic screenshot of the isolated canvas fixture:
+
+```sh
+cargo run -q --release -p contract -- build contract/corpus/canvas.contract -o /tmp/k4-canvas.plan
+bun scripts/agent.mjs web --plan /tmp/k4-canvas.plan "clock 0" "screenshot /tmp/k4-canvas.png"
+```
+
+The smoke's beacon-waited readback is the parity proof; the last screenshot alone
+is diagnostic.

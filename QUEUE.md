@@ -678,3 +678,4 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Kernel owner: review device-free wasm restore/code-generation weight (`Sim<Tally>::candidate` 35,297 body bytes; exact-world 138,658). K3 attribution and stop decision: `game/diaries/2026-09-20-device-free.md`.
 
+- K4: run real WebGPU Chrome's `bun scripts/smoke.mjs web --shot /tmp/k4-caltrain.png` (including the clock-zero canvas reference comparison). Device-free startup, shader/device-delay fixtures and the restored beacon are verified; real GPU attachment/recovery and pixel parity remain owed. Commands and audit: `game/diaries/2026-09-20-device-free.md#k4-2026-09-20`.
