@@ -548,6 +548,9 @@ final class TextEngine {
                   Double(height).bitPattern == Double(strutHeight).bitPattern else { return extents(run) }
             return minimum
         }
+        // Source spans stay ordered even when CoreText reorders bidi glyph runs.
+        // The interned identity owns the UTF-16 boundaries used by every layout.
+        let runEnds = shape.identity.runEnds
         let previous = spec.lineClamp == 0 ? shape.lastParagraph : nil
         var explicit = false
         var lineBottoms: [CGFloat] = []
@@ -611,14 +614,19 @@ final class TextEngine {
             }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
-                var offset = 0
+                var first = 0, last = runEnds.count
+                while first < last {
+                    let middle = first + (last - first) / 2
+                    if runEnds[middle] <= range.location { first = middle + 1 }
+                    else { last = middle }
+                }
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
-                for authored in spec.runs {
-                    let end = offset + (authored.text as NSString).length
-                    defer { offset = end }
-                    guard offset < range.location + range.length && end > range.location else { continue }
+                for index in first..<spec.runs.count {
+                    let offset = index == 0 ? 0 : runEnds[index - 1]
+                    if offset >= range.location + range.length { break }
+                    let authored = spec.runs[index]
                     matched = true
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink

@@ -9,6 +9,48 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testManyInlineLineBoxesMatchTheirIndependentLines() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let strut = Run(text: "", size: 16, weight: 400, family: 0, italic: false,
+                        lineHeight: 24, letterSpacing: 0)
+        for direction in [0, 1] {
+            var all: [Run] = [], baselines: [CGFloat] = [], bottoms: [CGFloat] = []
+            var height: CGFloat = 0
+            for i in 0..<32 {
+                var left = strut, right = strut, empty = strut
+                left.text = i % 2 == 0 ? "Latin e\u{301} " : "العربية "
+                right.text = i % 2 == 0 ? "👨‍👩‍👧‍👦 日本語\n" : "שלום Latin\n"
+                left.lineHeight = CGFloat(26 + i % 4) + 0.25
+                right.lineHeight = CGFloat(36 + i % 5) + 0.5
+                // Equal font attributes coalesce despite distinct authored boxes;
+                // other lines exercise multiple CoreText runs and bidi ordering.
+                right.weight = i % 3 == 0 ? 700 : 400
+                empty.lineHeight = 1000
+                let runs = [empty, left, right, empty]
+                let spec = Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255],
+                                direction: direction, strut: strut)
+                let line = engine.paragraph(spec, width: 1000)
+                XCTAssertEqual(line.lines.count, 1)
+                XCTAssertLessThan(line.height, 100, "empty runs at a line boundary have no glyph interval")
+                baselines.append(height + line.baselines[0])
+                height += line.height
+                bottoms.append(height)
+                all.append(contentsOf: runs)
+            }
+            let spec = Spec(runs: all, align: 0, lineClamp: 0, color: [0, 0, 0, 255],
+                            direction: direction, strut: strut)
+            let paragraph = engine.paragraph(spec, width: 1000)
+            XCTAssertEqual(paragraph.lines.count, 32)
+            XCTAssertEqual(paragraph.height, height, accuracy: 0.000001)
+            for (actual, expected) in zip(paragraph.baselines, baselines) {
+                XCTAssertEqual(actual, expected, accuracy: 0.000001)
+            }
+            for (actual, expected) in zip(paragraph.lineBottoms, bottoms) {
+                XCTAssertEqual(actual, expected, accuracy: 0.000001)
+            }
+        }
+    }
+
     func testWidthChangesReuseUnchangedLinesWithoutReusingPaintOrEllipses() {
         let engine = TextEngine(resolve: { _ in nil })
         let input = Spec(runs: [Run(text: "First line\nSecond line", size: 16, weight: 400,

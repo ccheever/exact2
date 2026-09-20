@@ -1514,7 +1514,12 @@ a true flag with zero is an explicit zero box. The style dictionary retains
 ratios as numbers, lengths as `"24px"`, and `"normal"`; Swift resolves each
 ratio using the receiving node's computed font, matching kernel projection.
 CoreText measurement and painting include the paragraph strut and the
-ascent/descent extrema of only the runs on each line. Normal line height
+ascent/descent extrema of only the runs on each line. Each interned text identity
+retains its ordered UTF-16 run boundaries, counted in the text cache's owned
+payload. Line layout binary-searches those boundaries for each CoreText glyph
+run, including when bidi reorders runs or CoreText coalesces adjacent authored
+boxes. It visits only overlapping spans instead of rescanning the paragraph.
+Normal line height
 includes the shaped fallback font's metrics; explicit lengths size the
 authored inline box while fallback glyph ink can overflow. Native textarea
 paragraph attributes receive the same resolved length; TextKit's zero

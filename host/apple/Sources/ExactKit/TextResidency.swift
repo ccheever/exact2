@@ -87,14 +87,20 @@ final class TextIdentity: Hashable {
     let catalog: TextCatalogIdentity
     let utf8Bytes: Int
     let utf16Count: Int
+    let runEnds: [Int]
     init(_ geometry: Spec, catalog: TextCatalogIdentity) {
         self.geometry = geometry; self.catalog = catalog
         utf8Bytes = geometry.runs.reduce(0) { $0 + $1.text.utf8.count }
-        utf16Count = geometry.runs.reduce(0) { $0 + $1.text.utf16.count }
+        var end = 0
+        runEnds = geometry.runs.map { run in
+            end += run.text.utf16.count
+            return end
+        }
+        utf16Count = end
     }
     static func == (lhs: TextIdentity, rhs: TextIdentity) -> Bool { lhs === rhs }
     func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
-    var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride }
+    var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
 }
 
 /// Text/font metrics are interned by exact Run equality, not a digest or ABI
