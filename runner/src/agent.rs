@@ -31,7 +31,26 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("state") => state(runner),
         Some("tags") => tags(runner),
         Some("node") => match field_num(request, "id") {
-            Some(n) if n >= 0.0 && n == n.trunc() => node(runner, n as u32),
+            Some(n) if n >= 0.0 && n == n.trunc() => {
+                let mut reply = node(runner, n as u32);
+                if field_bool(request, "plan") && !reply.starts_with("{\"error\"") {
+                    // The plan and site belong to this exact synchronous read.
+                    // Kernel incarnations can repeat across host replacements;
+                    // a separate query or latest file cannot prove this identity.
+                    // Only an explicit development inspection pays for encoding.
+                    let bytes = runner.plan().encode();
+                    const HEX: &[u8; 16] = b"0123456789abcdef";
+                    reply.pop();
+                    reply.reserve(bytes.len() * 2 + 11);
+                    reply.push_str(",\"plan\":\"");
+                    for byte in bytes {
+                        reply.push(HEX[(byte >> 4) as usize] as char);
+                        reply.push(HEX[(byte & 15) as usize] as char);
+                    }
+                    reply.push_str("\"}");
+                }
+                reply
+            }
             _ => error("node needs an id"),
         },
         Some("logs") => match (after_key(request, "since"), field_num(request, "since")) {

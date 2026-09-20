@@ -216,7 +216,8 @@ extension Agent {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
         guard let v = presenter.views[UInt32(id)] else { return ["error": "stale node #\(id)"] }
-        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
+        let includePlan = req["plan"] as? Bool == true
+        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         let host = v.paragraphOwner

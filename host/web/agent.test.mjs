@@ -85,6 +85,23 @@ function plain(reply) {
   expect(reply.then).toBeUndefined();
 }
 
+test('only an explicit targeted layout carries its same-reply accepted plan', () => {
+  const c = fixture(), requests = [];
+  c.ask = request => {
+    requests.push(request);
+    if (request.op === 'node') return {id: request.id, type: 'Text', props: {testId:'current'}, ...(request.plan ? {plan:'0102'} : {})};
+    return {epoch:2,incarnation:1,clock:0};
+  };
+  const initial = c.exact.agent({op:'layout',id:1});
+  plain(initial);
+  expect(initial.error).toBeUndefined();
+  expect(initial.node.plan).toBeUndefined();
+  const result = c.exact.agent({op:'layout',id:1,plan:true});
+  plain(result);
+  expect(result.node.plan).toBe('0102');
+  expect(requests.filter(r=>r.op==='node').map(r=>r.plan ?? false)).toEqual([false,true]);
+});
+
 test('ordinary reads and inputs are synchronous; the awaited entry returns the same reply', async () => {
   const f = fixture();
   for (const op of ['state', 'tree', 'logs', 'tags', 'layout', 'focus', 'tap', 'type', 'unknown']) {

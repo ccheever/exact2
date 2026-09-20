@@ -278,7 +278,7 @@ fn a_device_scale_paints_more_pixels_for_the_same_points() {
         let mut p = fixture("scroll", 2.0, choice);
         let frame = p.frame();
         assert_eq!((frame.width(), frame.height()), (780, 1688));
-        let l = p.layout_json(None);
+        let l = p.layout_json(None, false);
         assert!(
             l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
             "points, not pixels"

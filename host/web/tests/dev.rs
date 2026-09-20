@@ -333,6 +333,18 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
         let id_at = batch[..at].rfind(marker).unwrap() + marker.len();
         batch[id_at..].split(',').next().unwrap().parse().unwrap()
     };
+    let inspect = |bridge: &mut exact_web::abi::Bridge<NoData>, include: bool| {
+        let request = format!("{{\"op\":\"node\",\"id\":{inc},\"plan\":{include}}}");
+        let len = bridge.input_write(request.as_bytes());
+        let len = bridge.agent(len);
+        String::from_utf8(bridge.output_bytes(len as usize).to_vec()).unwrap()
+    };
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    assert!(exact_runner::agent::field_str(&inspect(&mut bridge, false), "plan").is_none());
+    assert_eq!(
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
+        Some(hex(&plan))
+    );
 
     // Establish state in the live Host, then offer bytes that cannot decode.
     bridge.dispatch(inc, 0, 0, 0.0);
@@ -349,4 +361,22 @@ fn a_refused_bridge_reload_keeps_the_running_host() {
     let after = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(!after.contains("not booted"), "{after}");
     assert!(after.contains("\"text\":\"3\""), "{after}");
+    assert_eq!(
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
+        Some(hex(&plan)),
+        "state changes and refused candidates keep the accepted plan identity"
+    );
+
+    let replacement = contract::compile(&COUNTER.replace("Inc", "Add"))
+        .unwrap()
+        .encode();
+    let len = bridge.input_write(&replacement);
+    let len = bridge.boot_plan(len, NoData, 390.0, 844.0, "/");
+    let response = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(exact_runner::agent::field_str(&response, "error").is_none(), "{response}");
+    assert_eq!(
+        exact_runner::agent::field_str(&inspect(&mut bridge, true), "plan"),
+        Some(hex(&replacement)),
+        "a replacement may reuse the same node id but must expose its own plan"
+    );
 }

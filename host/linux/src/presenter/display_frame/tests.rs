@@ -421,7 +421,7 @@ fn headless_boxes_and_agent_layout_keep_the_existing_eager_frame_semantics() {
     assert!(!p.boxes().is_empty());
     assert_eq!(paints.get(), 1);
     p.set_pointer(Some((12., 12.)));
-    p.layout_json(None);
+    p.layout_json(None, false);
     assert_eq!(paints.get(), 2);
     assert!(!p.dirty());
     p.first_pixel();

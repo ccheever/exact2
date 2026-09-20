@@ -990,7 +990,7 @@ impl<D: DataSource> Presenter<D> {
     /// what a painter knows — its painted box and a 1:1 capture; no window,
     /// no screen, nothing mounted, and the reply says so rather than
     /// guessing.
-    pub fn layout_json(&mut self, node: Option<u32>) -> String {
+    pub fn layout_json(&mut self, node: Option<u32>, include_plan: bool) -> String {
         let clock = self.host.now();
         let (vw, vh) = self.viewport;
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
@@ -1025,7 +1025,9 @@ impl<D: DataSource> Presenter<D> {
         }
         s.push(']');
         if let Some(id) = node {
-            let detail = self.host.agent(&format!("{{\"op\":\"node\",\"id\":{id}}}"));
+            let detail = self.host.agent(&format!(
+                "{{\"op\":\"node\",\"id\":{id},\"plan\":{include_plan}}}"
+            ));
             if detail.starts_with("{\"error\"") {
                 return detail;
             }

@@ -129,7 +129,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             s
         }
-        Some("layout") => p.layout_json(id()),
+        Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
             // LLP 1041 §8: optional input variant, never a ninth operation.
             // Parse this bounded pair strictly; the legacy wheel pair reader

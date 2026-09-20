@@ -108,7 +108,7 @@ fn damage_is_local_and_pixels_equal_a_fresh_full_repaint() {
         }
     }
     assert!(changed > 100);
-    let json = p.layout_json(Some(id(&p, "ball-prose")));
+    let json = p.layout_json(Some(id(&p, "ball-prose")), false);
     assert!(json.contains("\"fragments\":[{\"start\":0,"));
     assert!(p
         .host()
