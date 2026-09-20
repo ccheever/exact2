@@ -3,6 +3,14 @@
 use std::{fs, process::Command};
 #[test]
 fn generic_world_hash_and_data_are_identical_to_the_kernel() {
+    run_cross(false);
+}
+#[test]
+#[ignore = "comparative throughput; run explicitly in release"]
+fn dense_and_sparse_page_throughput() {
+    run_cross(true);
+}
+fn run_cross(benchmark: bool) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -60,9 +68,54 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
     let data = vec![bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] }), bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3])),bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str("x")]))];
     (history,data)
 }
+#[derive(Default, Component)] struct Throughput(u64, [u64;4]);
+pub fn throughput(label: &str, dense: bool) {
+    const N: usize = 200_000;
+    const REPEAT: usize = 100;
+    let mut w = World::new(60, 0);
+    w.register::<Throughput>();
+    let mut es: Vec<_> = (0..N).map(|_| w.spawn(())).collect();
+    for i in (0..N).step_by(11) { w.despawn(es[i]); es[i] = w.spawn(()); }
+    let mut expected = 0u64;
+    let mut rows = 0;
+    for i in (0..N).rev() {
+        if dense || i % 97 == 0 {
+            w.insert(es[i], Throughput(i as u64, [i as u64;4]));
+            expected += i as u64;
+            rows += 1;
+        }
+    }
+    assert!(rows > 2000);
+    let pages = w.pages::<Throughput>().iter().count();
+    let start = std::time::Instant::now();
+    for _ in 0..REPEAT {
+        let sum = std::hint::black_box(&w).query::<&Throughput>().iter().map(|(_,v)|v.0).sum::<u64>();
+        assert_eq!(std::hint::black_box(sum), expected);
+    }
+    let query = start.elapsed().as_secs_f64();
+    let start = std::time::Instant::now();
+    for _ in 0..REPEAT {
+        let mut sum = 0u64;
+        for page in std::hint::black_box(&w).pages::<Throughput>().iter() {
+            for (_, values) in page.runs() { for v in values { sum += v.0; } }
+        }
+        assert_eq!(std::hint::black_box(sum), expected);
+    }
+    let runs = start.elapsed().as_secs_f64();
+    println!("{label} dense={dense} slots={N} rows={rows} pages={pages} query_ns_per_row={:.3} runs_ns_per_row={:.3} query_ms={:.3} runs_ms={:.3}", query*1e9/(rows*REPEAT) as f64, runs*1e9/(rows*REPEAT) as f64, query*1000., runs*1000.);
+}
 "#;
     let fixture_new = fixture
         .replace("ENGINE", "exact_world")
+        .replace(
+            "register::<Throughput>()",
+            "register::<Throughput>().unwrap()",
+        )
+        .replace("w.spawn(())", "w.spawn(()).unwrap()")
+        .replace(
+            "Throughput(i as u64, [i as u64;4]))",
+            "Throughput(i as u64, [i as u64;4])).unwrap()",
+        )
         .replace("register::<Other>()", "register::<Other>().unwrap()")
         .replace("register::<Counter>()", "register::<Counter>().unwrap()")
         .replace(
@@ -105,16 +158,32 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
             "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")]))",
             "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")])).unwrap()",
         );
-    let source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);
+    let mut source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);
+    if benchmark {
+        source.push_str("\n#[test] fn throughput() { for dense in [true, false] { old::throughput(\"engine1024\", dense); new::throughput(\"kernel64\", dense); } }");
+    }
     fs::write(scratch.join("src/lib.rs"), source).unwrap();
-    let output = Command::new("cargo")
-        .args(["test", "--offline", "--manifest-path"])
+    let mut command = Command::new("cargo");
+    if benchmark {
+        command.arg("test").arg("--release");
+    } else {
+        command.arg("test");
+    }
+    let output = command
+        .args(["--offline", "--manifest-path"])
         .arg(scratch.join("Cargo.toml"))
-        .arg("--quiet")
+        .args(if benchmark {
+            vec!["throughput", "--", "--nocapture"]
+        } else {
+            vec!["--quiet"]
+        })
         .env("CARGO_TARGET_DIR", root.join("target"))
         .env("EXACT_UPDATE_TRUST", "development")
         .output()
         .unwrap();
+    if benchmark {
+        println!("{}", String::from_utf8_lossy(&output.stdout));
+    }
     fs::remove_dir_all(&scratch).unwrap();
     assert!(
         output.status.success(),

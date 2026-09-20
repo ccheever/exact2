@@ -50,12 +50,15 @@ fn construction_activation_restore_counts() {
     report("construction.empty", counts, (1, 24));
     assert!(empty.is_empty());
     let (mut sim, counts) = counting::measure(|| Sim::<Board<100>>::new(()).unwrap());
-    report("construction.100", counts, (28, 70848));
+    report("construction.100", counts, (21, 42400));
     assert_eq!(sim.world().len(), 100);
     let (ticks, counts) = counting::measure(|| sim.run(17.).unwrap());
     report("activation.first_tick", counts, (3, 640));
     assert_eq!(ticks, 1);
     assert_eq!(sim.world().get::<CellValue>("#99").unwrap().number, 100);
+    let (ticks, counts) = counting::measure(|| sim.run(1_000_000. / 60.).unwrap());
+    report("live.1000_publishing_ticks", counts, (1003, 204704));
+    assert_eq!(ticks, 1000);
     let mut sim = Sim::<Board<32>>::new(()).unwrap();
     sim.run(17.).unwrap();
     sim.world_mut().insert_resource(Blob::default()).unwrap();
@@ -281,7 +284,13 @@ fn live_ticks_never_visit_components_and_settle_samples_each_boundary_once() {
     }
     let mut sim = Sim::<Live>::new(()).unwrap();
     VISITS.set(0);
-    assert_eq!(sim.run(1_000_000. / 60.).unwrap(), 1000);
+    let (ticks, allocations) = counting::measure(|| sim.run(1_000_000. / 60.).unwrap());
+    assert_eq!(ticks, 1000);
+    report(
+        "live.1000_sparse_touches_200k_entities",
+        allocations,
+        (0, 0),
+    );
     assert_eq!(VISITS.get(), 0);
     assert_eq!(sim.world().observation(), None);
     assert!(!sim.world().quiescent());
@@ -397,4 +406,23 @@ fn inspection_refusal_stops_nested_traversal_and_later_growth() {
         counts.1 < 4096,
         "publication allocated before refusal: {counts:?}"
     );
+}
+
+#[test]
+fn unchanged_work_and_publications_do_not_allocate_or_invalidate() {
+    let w = World::new(60, 0);
+    w.work("assets", Work::Pending).unwrap();
+    w.publish("score", 7u32);
+    let before = (w.mutation_epoch(), w.journal_next());
+    let (_, counts) = counting::measure(|| {
+        for _ in 0..1000 {
+            w.work("assets", Work::Pending).unwrap();
+            w.publish("score", 7u32);
+        }
+    });
+    assert_eq!(counts, (0, 0));
+    assert_eq!(before, (w.mutation_epoch(), w.journal_next()));
+    w.work("assets", Work::Ready).unwrap();
+    w.publish("score", 8u32);
+    assert_ne!(before, (w.mutation_epoch(), w.journal_next()));
 }

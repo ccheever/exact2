@@ -26,16 +26,13 @@ pub fn wrap_angle(x: f32) -> f32 {
     }
 }
 
-fn approach_value(current: f32, target: f32, fraction: f32) -> f32 {
+fn approach(current: f32, target: f32, fraction: f32) -> f32 {
     let delta = target - current;
-    if delta.is_finite() {
+    let next = if delta.is_finite() {
         current + delta * fraction
     } else {
         (current as f64 + (target as f64 - current as f64) * fraction as f64) as f32
-    }
-}
-fn approach(current: f32, target: f32, fraction: f32) -> f32 {
-    let next = approach_value(current, target, fraction);
+    };
     if (target - next).abs() <= 1e-4 {
         target
     } else {

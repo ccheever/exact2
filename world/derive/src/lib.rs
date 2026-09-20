@@ -352,7 +352,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
         );
     }
     s += if named {
-        "_ => r.unknown().map_err(|e| e.at(&field))?, }"
+        "_ => r.unknown().map_err(|e| e.at(field))?, }"
     } else {
         "_ => r.unknown().map_err(|e| e.at(index))?, }"
     };

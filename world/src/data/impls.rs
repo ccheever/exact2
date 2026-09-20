@@ -249,7 +249,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
         self.clear();
         while let Some(k) = r.field()? {
             r.claim(64 + k.len() + std::mem::size_of::<T>())?;
-            let value = T::read_new(r).map_err(|e| e.at(&k))?;
+            let value = T::read_new(r).map_err(|e| e.at(k))?;
             self.insert(k.into(), value);
         }
         Ok(())

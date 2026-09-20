@@ -182,7 +182,7 @@ impl Writer for Encoder {
     fn string(&mut self, s: &str) {
         self.claim_decoded(s.len());
         self.append(&[6]);
-        self.text(&s);
+        self.text(s);
     }
     fn begin_seq(&mut self, len: usize) {
         self.enter();

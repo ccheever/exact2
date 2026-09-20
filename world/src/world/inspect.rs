@@ -70,6 +70,9 @@ impl World {
                 "work reason limit (64 reasons, 256 bytes each)",
             ));
         }
+        if work.get(key) == Some(&value) {
+            return Ok(());
+        }
         work.insert(key.into(), value);
         self.mutated();
         Ok(())

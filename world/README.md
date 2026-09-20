@@ -204,3 +204,16 @@ patching and commit validation, and bounded observation reports. The local patch
 and its public-API-only fixture are in `~/lanes/gamenext/scratch/K1b-2/external-seams.patch`.
 Moving the 125-line Contract record publication adapter (`RecordWriter` and
 `publish_record`) to a future adapter crate would fund it; this run preserves that API.
+
+Unchanged publications return before validation of the retained publication set;
+unchanged work entries return before allocation or replacement. A 1,000-iteration
+counting test records zero allocations and unchanged mutation/journal generations.
+The comparative throughput fixture is reproducible with
+`cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel dense_and_sparse_page_throughput -- --ignored --nocapture`.
+It builds its generated consumer in release and shares the root target directory.
+At 200,000 slots: dense query 1.202/1.754 ns per row (engine1024/kernel64), dense
+runs 1.027/0.923; sparse query 2.833/30.737, sparse runs 58.278/33.816. Sparse means
+2,062 rows spread at stride 97 after slot recycling; insertion is reversed. This
+compares complete storage implementations, not page size alone. For a workload
+dominated by bulk sparse queries I would choose 1,024 slots with the engine's flat
+mask lookup; 64 remains a startup trade, not a universal performance win.

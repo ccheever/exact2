@@ -615,9 +615,12 @@ impl World {
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
         assert!(key.len() <= 256, "publication key exceeds 256 bytes");
+        let mut p = self.published.borrow_mut();
+        if p.get(key) == Some(&value) {
+            return;
+        }
         let mut budget = crate::json::LIMIT;
         value.validate(&mut budget, 0).expect("publication bounds");
-        let mut p = self.published.borrow_mut();
         for (_, value) in p.iter().filter(|(other, _)| other.as_str() != key) {
             value.validate(&mut budget, 0).expect("publication bounds");
         }
@@ -626,9 +629,6 @@ impl World {
             "publication key limit (256)"
         );
         let stored = p.get_mut(key);
-        if stored.as_deref() == Some(&value) {
-            return;
-        }
         self.event(crate::EventKind::Published(key.into()));
         if let Some(stored) = stored {
             *stored = value;
@@ -860,7 +860,7 @@ impl World {
                         })?;
                         let resource = field == "resources";
                         let make = if resource {
-                            r.claim(reg.resource_size).map_err(|e| e.at(&name))?;
+                            r.claim(reg.resource_size).map_err(|e| e.at(name))?;
                             reg.make_resource
                         } else {
                             reg.make
@@ -879,7 +879,7 @@ impl World {
                                 self.contains(e)
                             }
                         })
-                        .map_err(|e| e.at(&name))?;
+                        .map_err(|e| e.at(name))?;
                         if resource && s.len() != 1 {
                             return Err(DataError::new("resource must contain one value").at(name));
                         }
