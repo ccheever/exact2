@@ -400,9 +400,16 @@ pub(crate) fn polygon_bands(
             ys[count] = ay;
             count += 1;
         }
+        let (ux, uy) = (bx - ax, by - ay);
+        // For 0 < t < 1, ay + t*uy lies between these evaluated endpoints.
+        // Use ay+uy rather than by to preserve that bound under cancellation.
+        let end_y = ay + uy;
+        if ay.max(end_y) <= top || ay.min(end_y) >= bottom {
+            continue;
+        }
         for j in i + 1..p.len() {
             let (cx, cy, dx, dy) = edge(j);
-            let (ux, uy, vx, vy) = (bx - ax, by - ay, dx - cx, dy - cy);
+            let (vx, vy) = (dx - cx, dy - cy);
             let det = ux * vy - uy * vx;
             if det == 0. {
                 continue;
