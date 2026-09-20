@@ -1072,3 +1072,19 @@ The `06149e8d` pilot above remains historical evidence (four valid matched
 pairs, 3.75 versus 5.00 ms/s). This layout-engine integration needs fresh
 validation and displayed-performance measurements before it supports a claim
 about the new candidate.
+
+The fixed ten-pair 120 Hz confirmation of `0a1a6011` did not establish a lead:
+all twenty trials passed the input/focus/content screen, but Exact's median
+hitch time was 7.50 ms/s versus Legend's 5.83, and means were 10.08 versus 6.50.
+The paired mean difference was +3.58 ms/s (bootstrap 95% interval −0.50 to
++8.50); two Exact trials also had reduced presentation cadence. Every trial
+is retained in `smooth/published-0a1a6011-confirm-120hz`. Native 254 tests,
+three Rust textflow tests, scroll/resize/file/copy controls and sampled rapid
+scroll captures passed; this is not a completed workspace validation.
+
+A six-pair frozen `06149e8d`/`0a1a6011` diagnostic did not isolate a clear
+integration regression. Active-scroll profiles show native layer commit work
+while publishing prepared text rasters. The next experiment groups publications
+within one refresh-local transaction, opened only before a potentially
+publishing ensure. It preserves each accepted surface and urgent readiness;
+its performance is unproven until separately measured.

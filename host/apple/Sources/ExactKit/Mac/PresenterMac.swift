@@ -285,12 +285,24 @@ final class Presenter {
         // hierarchy. Query its final geometry once the outermost batch ends.
         guard !applying else { return false }
         if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
+        // Publish this slice's surfaces together. Begin only when an ensure
+        // can publish, so idle refreshes do not commit AppKit's other work.
+        var publishing = false
+        func beginPublication() {
+            guard !publishing else { return }
+            CATransaction.begin()
+            publishing = true
+        }
+        defer { if publishing { CATransaction.commit() } }
         var next: [UInt32: NSRect] = [:]
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
         for node in textViewportIndex!.candidates(reach: Self.textRasterReach) where node.needsTextRaster && node.rastersText {
             // On screen without pixels: now. Otherwise nearest first, a few a slice.
-            if textIsVisible(node) { textRasters.ensure(node, urgent: true) }
+            if textIsVisible(node) {
+                beginPublication()
+                textRasters.ensure(node, urgent: true)
+            }
             else { rasters.append(node) }
         }
         var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count
@@ -298,6 +310,7 @@ final class Presenter {
         for node in rasters {
             guard rasterBudget > 0 else { rastersDeferred = true; break }
             rasterBudget -= 1
+            if node.textRasterReady && node.textRasterPending { beginPublication() }
             if !textRasters.ensure(node, urgent: false) { rastersDeferred = true }
         }
         for node in textViewportIndex!.candidates(reach: Self.textBandSlack) where node.needsTextRaster && !node.rastersText {

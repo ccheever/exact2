@@ -77,11 +77,13 @@ final class TextMetricsTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "second offscreen paragraph"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
         ], timers: false, motion: false, clock: nil, error: nil))
         let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
         let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
@@ -100,7 +102,15 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(offscreen.textRasterPending)
         XCTAssertTrue(offscreen.needsTextRaster)
         XCTAssertNil(offscreen.layer?.contents, "worker completion must not publish offscreen")
+        let second = try XCTUnwrap(presenter.views[4])
+        second.showTextRaster(late, for: prepare(second), deferOffscreen: true)
+        XCTAssertTrue(second.textRasterPending)
+        let actionsDisabled = CATransaction.disableActions()
         presenter.refreshVisibleText()
+        XCTAssertEqual(CATransaction.disableActions(), actionsDisabled)
+        XCTAssertTrue(second.textRasterReady)
+        XCTAssertFalse(second.textRasterPending)
+        XCTAssertTrue(second.layer?.contents as? IOSurface === late)
         XCTAssertFalse(offscreen.textRasterPending)
         XCTAssertFalse(offscreen.needsTextRaster)
         XCTAssertTrue(offscreen.layer?.contents as? IOSurface === pixels, "the pump publishes accepted pixels without rendering again")
