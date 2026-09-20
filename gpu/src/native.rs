@@ -19,8 +19,8 @@ thread_local! {
 }
 
 fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
-    MODULE.with(|m| {
-        m.borrow_mut().as_mut().map(|m| {
+    access(|slot| {
+        slot.as_mut().map(|m| {
             let result = f(m);
             if OWNED.get() {
                 crate::native_owned::bound_pending(m);
@@ -28,12 +28,35 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
             result
         })
     })
+    .flatten()
+}
+
+fn access<T>(f: impl FnOnce(&mut Option<Module>) -> T) -> Option<T> {
+    MODULE.with(|m| {
+        if OWNED.get() {
+            let Ok(mut m) = m.try_borrow_mut() else {
+                refuse("reentrant surface call");
+                return None;
+            };
+            Some(f(&mut m))
+        } else {
+            Some(f(&mut m.borrow_mut()))
+        }
+    })
 }
 
 /// Select the ownership-only admission boundary; device registrations never call this.
 pub fn load_owned(registry: &'static Registry) {
-    OWNED.set(true);
-    load_headless(registry);
+    MODULE.with(|m| {
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface call");
+            return;
+        };
+        OWNED.set(true);
+        let mut module = Module::new(registry);
+        module.set_seekable(true);
+        *m = Some(module);
+    });
 }
 
 /// Drain requested asset paths as JSON.
@@ -159,7 +182,7 @@ pub fn recover() -> String {
 pub fn load_headless(registry: &'static Registry) {
     let mut module = Module::new(registry);
     module.set_seekable(true);
-    MODULE.with(|m| *m.borrow_mut() = Some(module));
+    access(|m| *m = Some(module));
 }
 
 /// Advance owned state without rendering or agent inspection.
@@ -177,8 +200,10 @@ pub fn create_headless(name: &str) -> u32 {
 /// thread-locals may already be gone by then, and dropping a device without
 /// them aborts the process (found by the first test to load one off the main thread).
 pub fn unload() {
-    let module = MODULE.with(|m| m.borrow_mut().take());
-    drop(module);
+    if let Some(module) = access(|m| m.take()) {
+        drop(module);
+        OWNED.set(false);
+    }
 }
 
 /// Create a canvas's surface on a `CAMetalLayer`. Returns the canvas id,

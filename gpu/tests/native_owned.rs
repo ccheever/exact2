@@ -20,12 +20,19 @@ impl Surface for Probe {
         false
     }
     fn agent(&mut self, request: &str) -> Option<String> {
+        if request == "\"reenter-agent\"" {
+            exact_gpu::native::unload();
+        }
         self.mode = request.into();
         Some(match request {
             "\"large\"" => "x".repeat(65_537),
             "\"maximum\"" => "x".repeat(65_536),
             _ => "ok".into(),
         })
+    }
+    fn advance(&mut self, _: f64) -> bool {
+        exact_gpu::native::unload();
+        true
     }
     fn published(&mut self) -> Option<String> {
         (self.mode == "\"published\"").then(|| "x".repeat(65_537))
@@ -66,7 +73,16 @@ fn run(case: &str) {
         let id = gpu_create_headless(b"probe".as_ptr(), 5);
         assert_ne!(id, 0);
         assert_eq!(gpu_bind(id, b"[]".as_ptr(), 2), 0);
-        if case == "deep-bind" {
+        if case.starts_with("reenter-") {
+            if case == "reenter-tick" {
+                assert!(gpu_advance(id, 1.));
+            } else {
+                let text = b"\"reenter-agent\"";
+                assert_eq!(output(gpu_agent(id, text.as_ptr(), text.len())), "ok");
+            }
+            assert!(output(gpu_error()).contains("reentrant surface call"));
+            assert_ne!(gpu_create_headless(b"probe".as_ptr(), 5), 0);
+        } else if case == "deep-bind" {
             let text = format!("{}0{}", "[".repeat(100_000), "]".repeat(100_000));
             assert_eq!(gpu_bind(id, text.as_ptr(), text.len()), 1);
             assert!(output(gpu_error()).contains("16384"));
@@ -159,4 +175,29 @@ fn native_owned_exports_are_bounded_in_child_processes() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn native_owned_reentrancy_refuses_in_child_processes() {
+    if let Ok(case) = std::env::var("EXACT_REENTRANT_CASE") {
+        run(&case);
+        return;
+    }
+    for case in ["reenter-tick", "reenter-agent"] {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_owned_reentrancy_refuses_in_child_processes",
+                "--nocapture",
+            ])
+            .env("EXACT_REENTRANT_CASE", case)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{case}: {}\n{}",
+            out.status,
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
 }
