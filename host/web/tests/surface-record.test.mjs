@@ -10,12 +10,13 @@ export async function fixture(options = {}) {
   let next = 0, hud = null, expectedView = null;
   const checkpointMessages = [], storage = options.storage ?? new Map();
   const changed = new Map(), events = [], order = [], restored = new Set();
+  const beacons = [];
   const frames = new Map(), observers = new Set(); let frameId=0;
   class Observer { constructor(callback) { this.callback = callback; } observe() { observers.add(this); } disconnect() { observers.delete(this); } }
   let mutations = Promise.resolve(), frame;
   const window = new EventTarget();
   const document = { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
-  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: [],
+  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: options.devAssets === undefined ? [] : options.devAssets,
     stageCurrent: options.stageCurrent ?? (()=>({batch:{ops:[]},commit(){order.push('host commit');},abort(){order.push('host abort');},present(){}})),
     stageSurfaceRecord(name, json) { stagedRecords.push([name, json]); return options.stageSurfaceRecord?.(name, json) ?? {ops:[]}; },
     writeIn: text => text, wasm: { exact_surface_record(text) {
@@ -100,16 +101,16 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage',
-    source + `;exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)});
+    'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage', 'navigator', 'fetch',
+    source + `;exact.entries = () => [...surfaces.values()]; exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
+  )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: options.search ?? '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)}, {sendBeacon:url=>beacons.push(url)}, options.fetch ?? globalThis.fetch);
   await new Promise(resolve => setTimeout(resolve, 0));
   function create(id, name = 'world', values = []) {
     const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
     views.set(id, el); exact.gpu.surface(id, name, values); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, stagedRecords, observers, mutation: () => [...observers].forEach(o => o.callback([])),
+  return { window, document, exact, beacons, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, stagedRecords, observers, mutation: () => [...observers].forEach(o => o.callback([])),
     paint(at = performance.now()) { const callbacks=[...frames.values()]; frames.clear(); for(const cb of callbacks) cb(at); },
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }

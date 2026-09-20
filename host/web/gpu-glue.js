@@ -233,6 +233,7 @@ function render(entry, now) {
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
   if (entry.headless) {
+    if (!entry.stateful) { entry.wants = false; return; }
     const reply = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"clock", now:clockFor(now), width:w, height:h})) || "null");
     if (reply?.error) { entry.wants = false; exact.devError?.(reply.error); return; }
     entry.renderedAt = clockFor(now); entry.wants = true;
@@ -250,9 +251,9 @@ function render(entry, now) {
     return;
   }
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
-  const initial = entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed ? JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world : null;
+  const initial = entry.stateful && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed ? JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world : null;
   if (initial?.assets?.some(a => a.state === "Failed")) entry.firstFrameFailed = true;
-  if (r !== 2 && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed && !initial?.loading?.length) {
+  if (entry.stateful && r !== 2 && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed && !initial?.loading?.length) {
     entry.firstFrameSubmittedMs = performance.now();
     entry.inputMs = performance.getEntriesByName('exact-agent-input').at(-1)?.startTime ?? null;
     // A rendering opportunity after submission, not a GPU timestamp or scanout.
@@ -322,13 +323,13 @@ function create(entry, module, carry, mode = 1) {
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
   module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
-  entry.boundMs = performance.now();
   const initial = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
   entry.stateful = Boolean(initial);
   entry.deviceFree = initial?.presentation === "none";
   entry.headless ||= entry.deviceFree;
-  if (initial?.tick > 0) entry.firstTickMs = entry.boundMs;
   if (!entry.stateful) entry.stateful = module.gpu_carry(entry.id) !== undefined;
+  if (entry.stateful) entry.boundMs = performance.now();
+  if (initial?.tick > 0) entry.firstTickMs = entry.boundMs;
   if (exact.now && entry.stateful) {
     const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent",now:exact.now()})) || "null");
     entry.ownership = owner?.ownership ?? {unavailable:"module does not acknowledge clock owner"};
@@ -420,7 +421,8 @@ function messages(entry, drainAssets = true) {
   reportRestore(entry);
   const record = gpu.gpu_published(entry.id);
   if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) {
-    surfaceRecord(entry.name, record); entry.firstPublicationMs ??= performance.now();
+    surfaceRecord(entry.name, record);
+    if (entry.stateful) entry.firstPublicationMs ??= performance.now();
   }
   const texts = gpu.gpu_messages(entry.id);
   if (texts === undefined) return;
@@ -1016,6 +1018,7 @@ function validateStage(entry, module, at, releaseInput = true, assets = exact.de
     throw new Error(`surface ${entry.name}: stateful executor has no safe staging contract`);
   }
   supplyChildren(entry, module, true);
+  if (entry.headless && !entry.stateful) throw new Error(`surface ${entry.name}: device is not ready for candidate validation`);
   if (!entry.headless && module.gpu_render(entry.id, w, h, s, at) >= 2) throw new Error(`surface ${entry.name}: render: ${module.gpu_error()}`);
   const after = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
   if (after?.ready === false) throw new Error(`surface ${entry.name}: candidate not ready: ${JSON.stringify(after.readyReasons)}`);
@@ -1171,7 +1174,8 @@ async function swap(version, options) {
     reload.phase = "loading";
     next = await loadModule(version);
     assertCurrent();
-    for (const name of ["load_headless","create_headless","unload","destroy","bind_at","restore","carry","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
+    const ownership = next.gpu_load ? ["load", "create", "render"] : ["load_headless", "create_headless"];
+    for (const name of [...ownership,"unload","destroy","bind_at","restore","carry","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
     if (next.gpu_load) { await next.gpu_load(); deviceModules.add(next); }
     else next.gpu_load_headless();
     assertCurrent();
@@ -1276,7 +1280,6 @@ try {
   exact.gpu.version = version;
   reload.loaded = exact.gpuArtifacts?.get(version) ?? { version, identity:"unavailable: static host did not provide artifact receipt" };
 } catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
-if (owned) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 try {
   const waiting = [...surfaces.values()];
   const report = error => { exact.devError?.(String(error)); console.error("exact gpu:", error); };
@@ -1293,6 +1296,8 @@ if (owned && gpu.gpu_load) {
     replaceShaders(await loadShaders(module), module);
     if (module !== gpu) return;
     deviceModules.add(module); loaded = true;
+    exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
+    if (new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
     for (const entry of surfaces.values()) if (entry.id && entry.headless && !entry.deviceFree) {
       if (module.gpu_attach(entry.id, entry.el, entry.el.width, entry.el.height)) {
         entry.headless = false; entry.wants = true;
