@@ -1,13 +1,11 @@
-# Cluster LOD — L1 offline bake
+# Cluster LOD — offline bake and CPU reference renderer
 
 Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numerical
 oracles; GPU rendering, timing and the interactive camera demonstration belong to L2.
 The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
 
-**Status: implemented but unverified; L1 is not complete.** Native Cargo build-script
-executables stall before entering their code on this machine. Tests, Clippy, the
-Wasm build and real-asset bakes therefore have no successful results. The blocker,
-three attempted repairs and measurements are recorded below.
+**Status:** L1 verified on Linux and this Mac; CPU reference renderer in progress.
+The native executable startup fault cleared without changes to L1 code.
 
 ## Run
 
@@ -40,8 +38,7 @@ configuration, flags and SHA-256 of the primary source file's exact bytes.
 The reader borrows aligned bytes, returns errors on unaligned or malformed input,
 and checks all ranges, local indices, digests, group references and BVH reachability.
 The writer invokes the reader to validate its own output. No filesystem or native
-dependency in the format crate; its requested `wasm32-unknown-unknown` build is
-currently blocked by native dependency build-script startup, not yet verified.
+dependency in the format crate; its `wasm32-unknown-unknown` build passes.
 
 Each 128-byte cluster has its own sphere and normal cone (apex, axis, cutoff),
 20-byte simplified and refined bounds (float3 centre, radius, error), group IDs,
@@ -128,76 +125,44 @@ must be finite, nonnegative and less than `f32::MAX`.
     which is not a rigorous Hausdorff bound; print maximum/RMS and ratio regardless
     of success. This is cut-to-source sampling, not a bidirectional or pixel-error
     proof. No measured error claim is made until the oracle actually runs.
-11. Stop startup repairs after three attempts, as required. Do not alter system
-    security settings, restart system services or touch other worktrees to unblock
-    a local experiment. Retain complete source and honest blocked results.
+11. Reconstruct the naive source-resolution mesh once from ORIGINAL clusters,
+    weld identical complete vertex records, and run meshoptimizer vertex-cache and
+    vertex-fetch optimization. This keeps source geometry/attributes identical
+    while giving the baseline real indexed vertex buffers and instancing.
+12. Use flat, deterministic CPU selection with group error evaluated once per
+    instance, then independent cluster selection and sphere/frustum culling.
+    Uniform instance scale affects radius and error. No cone culling is needed
+    for this reference; raster backface culling handles backfaces.
+13. Submit one instanced draw per baked page per pass, including zero-instance
+    draws for empty pages. Each instance is one visible (cluster, scene instance)
+    pair. Short clusters emit coincident out-of-clip vertices; padding consumes
+    vertex invocations but produces no fragments. Report useful and padded counts.
 
 ## Results
 
-Measured on 2026-09-20, macOS 26.6.2, Apple arm64, Rust/Cargo 1.97.0, with the
-launch environment unchanged (debug info off, incremental off), one target directory.
+L1 verification, 2026-09-20, from cache `logs/L1-verify-{1,mac}.log`:
 
-| Command | Result | Seconds |
-| --- | --- | ---: |
-| `cargo fmt --all -- --check` | exit 0 | 0.089 |
-| `clang++ -std=c++17 -fsyntax-only -I vendor/meshoptimizer/src -I vendor/meshoptimizer/demo bake/src/shim.cpp` | exit 0; includes ABI static assertions | 0.564 |
-| `cargo test --workspace --no-fail-fast -- --nocapture` | stopped after build-script startup stalled; **0 tests executed** | 40.106 |
-| `cargo clippy --all-targets -- -D warnings` | stopped at the same startup stall; **no lint verdict** | 40.111 |
-| `cargo build -p clod-format --target wasm32-unknown-unknown` | stopped at native dependency build-script startup; **no Wasm artifact** | 40.134 |
+| Command / measurement | Linux | Apple Mac |
+| --- | ---: | ---: |
+| `cargo test --workspace --no-fail-fast -- --nocapture` | 3 tests passed, 16.424 s total | 3 tests passed, 23.573 s total |
+| numerical oracle | 6.033 s | 4.96 s |
+| `cargo clippy --all-targets -- -D warnings` | passed | passed, 5.71 s |
+| `cargo build -p clod-format --target wasm32-unknown-unknown` | — | passed, 3.27 s |
 
-The line-count check (Python `Path.rglob`, `splitlines`, excluding vendor/target)
-counted **17 source files**, maximum **372 lines** (`format/src/reader.rs`),
-**0 files over 1,500 lines**. Formatting was run again after subsequent source edits
-and returned exit 0. Timing above is the recorded timed run, not a claim about a
-subsequent run's duration.
+Linux numerical oracle: 524,288 source triangles, 15 uniform thresholds plus 240
+cameras, 29,338,902 triangles checked, 0 bad edges, 0 ancestor overlaps, edge use
+exactly 2. Camera cuts: 126–524,288 triangles, 120 distinct counts. Four sets of
+100,000 sampled points: maximum deviation / claimed error = 0.67745, 0.64592,
+0.54846, 0.33381 (thresholds .001, .01, .1, 1); maximum distances .00066282,
+.00593142, .04081806, .08612405; RMS .00008838, .00116135, .00830478, .02127320.
+26 malformed files rejected, 8 loader formats, 3 CLI commands passed.
 
-The original `cargo check --workspace` remained at build-script startup for more
-than five minutes. `sample 4930 1 1 -file .../out/build-stall.sample.txt` captured
-**893 samples**, all at `_dyld_start + 0`, with current and peak physical footprint
-**96 KiB**. No C++ compilation or Rust crate checking began in these processes.
-Dependency build scripts for proc-macro2, quote, serde, libc, generic-array and this
-crate showed the same idle startup state. The exact OS cause is not established.
+`target/release/clod-bake <assets>/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl <out>/gaul-1.clod`:
+4,000,020 triangles, 1,999,991 source vertices, 65,415 clusters, 4,006 groups,
+4,591 BVH nodes, depth 15, 4 pages, 138,273,088 bytes (34.56810 B/source triangle).
+First/repeat elapsed 9.03/9.33 s; peak RSS 670,662,656/666,861,568 bytes.
+First phases: load 1.32038 s, normals .05917 s, build 6.07353 s, encode .74801 s,
+write .01847 s. Terminal cut 114 triangles. Both outputs have SHA-256
+`879644077118ad27d0c777b988a36134b0be96e2e9f4f8fc475d07e515549eb0`.
 
-Three bounded repair rounds, confined to generated files in this target directory:
-
-1. Stop recorded owned PIDs, replace ad-hoc signatures with `codesign --force --sign -`,
-   restart Cargo: same stall.
-2. Stop recorded owned PIDs, remove `com.apple.provenance` from those generated
-   executables, restart Cargo: same stall. A direct PTY launch also stalled.
-3. Stop recorded owned PIDs, recreate those executable files from their own bytes
-   with executable permissions (fresh inode), restart Cargo: same stall.
-
-No more startup fixes were attempted. The three required Cargo commands above were
-then run individually with a 40-second observation window to record their own
-outcomes. Each supervisor recorded its child PIDs before stopping only those
-processes. Logs and PID records are in
-`~/Library/Caches/exact2-cluster-lod/out/{blocked-check-0.log,blocked-check-1.log,blocked-check-2.log,check-results.json}`;
-the independent check measurements are in `independent-check-results.json`.
-
-**Numerical results: none.** Zero completed bakes, zero executed manifold/camera
-checks, zero sampled distances, no measured bytes/source-triangle, no bake RSS,
-no bake phase timings and no output SHA-256. The assertions and JSON reporting are
-implemented in `bake/tests/oracles.rs` and `bake/tests/validation.rs`; their requested
-fixture/sample counts above are configuration, not results. The Rust implementation
-has not completed type checking, so compiler/lint/runtime defects may still exist.
-
-Two assets arrived during implementation (counts here are supplied asset metadata,
-not measurements by this lane): SMK Dying Gaul, 4,000,020 triangles / 1,999,991 welded
-vertices / 200,001,084 source bytes, and Smithsonian George Washington, 16,860,930
-triangles / 9,022,298 vertices / 3,037,309,675 source bytes. Neither was baked because
-the executable could not be built. No procedural fallback bake was substituted.
-When executable startup is repaired, run the checks above, then bake each source
-twice and compare the reported SHA-256 values:
-
-```sh
-target/debug/clod-bake \
-  ~/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl \
-  ~/Library/Caches/exact2-cluster-lod/out/gaul-1.clod
-target/debug/clod-bake \
-  ~/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-\(1840\)-master-geometry.obj \
-  ~/Library/Caches/exact2-cluster-lod/out/washington-1.clod
-# Repeat with -2 output names; keep all JSON and compare output_sha256.
-```
-
-Outstanding beyond this lane: L2's GPU/WebGPU reader integration, hardware draw,
-GPU versus naive timings, rendered error measurements and interactive demonstration.
+L2a measurements will be recorded below after running the image oracles.
