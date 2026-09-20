@@ -64,6 +64,14 @@ pub trait Data: Sized + Default + 'static {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError>;
 }
 
+// One native admission rule; portable declarations and allocating defaults stay intact.
+pub(crate) fn admit<T: Data>() -> usize {
+    T::default_size().max(std::mem::size_of::<T>())
+}
+pub(crate) fn admit_inline<T: Data>() -> usize {
+    T::inline_size().max(std::mem::size_of::<T>())
+}
+
 /// A codec failure with a path from the root value to the offending field.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DataError {

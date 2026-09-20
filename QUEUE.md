@@ -657,7 +657,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 ## world kernel
 
-- K1 native admission remains to close in this lane (`world/src/data/impls.rs:254`, `world/src/storage/raw.rs:96`): share native floors between encode/decode and reject invalid/over-budget page layouts at registration; system allocation failure keeps Rust's abort policy (JUDGE-7 K1).
 - Retired-slot reuse repeatedly scans up to 200,000 dead slots (`world/src/world/mod.rs:411`); derive a reusable-free index without changing the saved free union (R-K7-sol #10 / grok #7).
 - First high-slot insertion zeros its directory prefix (`world/src/storage/directory.rs:46`, `world/src/storage/raw.rs:197`); page metadata or define explicit warm-up for the retained capacity cost (R-K7-grok #7).
 - Sample/settle can perform 51.2M membership tests per sample (`world/src/world/inspect.rs:185`, `world/src/sim.rs:269`); merge column indices or charge misses to the observation budget (R-K7-grok #6).

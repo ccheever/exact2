@@ -288,7 +288,13 @@ its cumulative budget counts both.
 Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
 For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
 excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
-Native vector, component-chunk and directory layouts are admission floors beside portable units.
+Allocation claims on both encode and decode use `max(portable units, native size)`.
+Default-construction charges remain unchanged. Maps charge 64 + key bytes + twice
+that value allowance per entry for half-empty nodes, plus one initial 12-value
+node allowance for allocation before amortization; the 1 MiB long-key control
+exceeded budget + 8,192 by 212 bytes without that initial allowance.
+Component registration checks `Layout::array::<C>(64)` and refuses overflow or > 256 MiB.
+System out-of-memory may abort, as with ordinary Rust allocation.
 `bin::read_into` stages a saved copy and patch under one budget, preserving the destination on error.
 Publication decode additionally admits 65,536 shared units and depth 80 before child allocation.
 Requests beyond the following work/storage bounds return errors.
@@ -299,7 +305,11 @@ Requests beyond the following work/storage bounds return errors.
 | Huge string length | 58 | 58 |
 | Wide enum vector | 104 | 104 |
 | 4096-aligned struct vector | 104 | 104 |
-| 20,000 map keys | 660,520 | 3,741,120 |
+| 20,000 map keys | 658,369 | 3,741,120 |
+| 1,024 boxed 4096-aligned values | 1,024,104 | 4,202,560 |
+| 1,024 mapped 4096-aligned values (8-byte keys) | 1,007,376 | 8,606,888 |
+| 70,000 boxed / mapped padded values | 104 / 1,007,494 | 266,075,112 / 266,557,860 |
+| Refused boxed-resource replacement | 1,504 | 266,076,512 |
 | 200,000 entity slots | 744 | 10,622,040 |
 | Nested publications, depths 8 / 40 / 81 | 551 | 551 |
 | Sparse 1 KiB components, eight types | 1,216 | 253,205,256 |
