@@ -1,8 +1,8 @@
 //! Column cutting: the magazine (drag to resize; columns re-cut) and the
 //! editorial spread (obstacles the columns flow around, on three hosts, from
 //! the same walker the kernel runs).
-use crate::font::REGULAR;
-use crate::prose::ARTICLE;
+use crate::font::{ITALIC, REGULAR};
+use crate::prose::{ARTICLE, PULL_QUOTE};
 use crate::typeset::{columns, Type};
 use exact_plan::Value;
 use exact_textflow::{FlowShape, ShapeOutside};
@@ -73,9 +73,9 @@ const CAP: &str = "inset(0)";
 const QUOTE: &str = "inset(0 round 14px)";
 const DISC: &str = "circle()";
 
-/// `spread(width)`: one, two or three columns around a drop cap, a pull
+/// `spread(width, quote_size)`: one, two or three columns around a drop cap, a pull
 /// quote and a round picture, each column's text cut where its flow stops.
-pub fn spread(width: f32) -> Value {
+pub fn spread(width: f32, quote_size: f32) -> Value {
     let cols = if width >= 880.0 {
         3
     } else if width >= 580.0 {
@@ -94,13 +94,13 @@ pub fn spread(width: f32) -> Value {
         css: CAP,
         margin: 8.0,
     };
-    let (quote, disc) = match cols {
+    let (mut quote, mut disc) = match cols {
         3 => (
             Obstacle {
                 x: (column * 0.55).round(),
                 y: 250.0,
                 w: (column * 1.15).round(),
-                h: 176.0,
+                h: 0.0,
                 css: QUOTE,
                 margin: 16.0,
             },
@@ -118,7 +118,7 @@ pub fn spread(width: f32) -> Value {
                 x: (column * 0.62).round(),
                 y: 260.0,
                 w: (column * 0.92).round(),
-                h: 176.0,
+                h: 0.0,
                 css: QUOTE,
                 margin: 16.0,
             },
@@ -136,7 +136,7 @@ pub fn spread(width: f32) -> Value {
                 x: (width * 0.44).round(),
                 y: 300.0,
                 w: (width * 0.56).round(),
-                h: 176.0,
+                h: 0.0,
                 css: QUOTE,
                 margin: 14.0,
             },
@@ -150,6 +150,20 @@ pub fn spread(width: f32) -> Value {
             },
         ),
     };
+    let quote_padding = 20.0;
+    let quote_type = Type {
+        face: &ITALIC,
+        size: quote_size,
+        line_height: quote_size * 1.28,
+    };
+    // Measure before column cutting, so the painted box and the exclusion
+    // reserve the same space. As for cards, leave 2 px of width for host
+    // shaping differences; never clip text to hide an underestimated height.
+    let quote_lines = quote_type.lines(PULL_QUOTE, quote.w - 2.0 * quote_padding - 2.0);
+    quote.h = (quote_lines as f32 * quote_type.line_height + 2.0 * quote_padding).ceil();
+    disc.y = disc
+        .y
+        .max(quote.y + quote.h + quote.margin + disc.margin + BODY.line_height);
     let shapes = [cap.flow(), quote.flow(), disc.flow()];
     let bands: u32 = match cols {
         3 => 34,
@@ -200,6 +214,10 @@ pub fn spread(width: f32) -> Value {
         Value::str(DISC),
         num(disc.margin),
         Value::Number(leftover as f64),
+        Value::str(PULL_QUOTE),
+        num(quote_type.size),
+        num(quote_type.line_height),
+        num(quote_padding),
     ])
 }
 
@@ -238,7 +256,7 @@ mod tests {
     #[test]
     fn the_spread_flows_around_its_obstacles_on_every_column_count() {
         for (width, cols) in [(1000.0, 3.0), (700.0, 2.0), (390.0, 1.0)] {
-            let s = spread(width);
+            let s = spread(width, if width < 580.0 { 17.0 } else { 21.0 });
             let f = record(&s);
             assert_eq!(f[0].as_number(), Some(cols), "{width}");
             let Value::List(chunks) = &f[3] else { panic!() };

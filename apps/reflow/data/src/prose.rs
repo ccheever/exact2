@@ -81,3 +81,6 @@ pub const SENTENCES: [&str; 40] = [
     "The ruler stayed in the drawer, but she reached for it every day.",
     "It is enough.",
 ];
+
+/// The editorial pull quote, measured before its exclusion is placed.
+pub const PULL_QUOTE: &str = "“Every good page is a page that was measured first and drawn second; the ones that look wrong are the ones where somebody guessed.”";

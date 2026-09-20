@@ -44,7 +44,7 @@ impl DataSource for Reflow {
             "masonry" => "masonry(width, seed)",
             "wall" => "wall(width, scrollTop, viewportHeight, seed)",
             "magazine" => "magazine(width)",
-            "spread" => "spread(width)",
+            "spread" => "spread(width, quoteSize)",
             "ascii" => "ascii(elapsedMs, measured, width)",
             _ => return Err(DataError::UnknownSource(source.into())),
         };
@@ -66,7 +66,7 @@ impl DataSource for Reflow {
                 n(3)? as u64,
             ),
             "magazine" => columns::magazine(n(0)? as f32),
-            "spread" => columns::spread(n(0)? as f32),
+            "spread" => columns::spread(n(0)? as f32, n(1)? as f32),
             "ascii" => {
                 let measured = args[1].as_bool().ok_or_else(bad)?;
                 ascii::ascii(n(0)? as f32, measured, n(2)? as f32)
@@ -92,7 +92,7 @@ mod tests {
             .query("wall", &[n(900.0), n(0.0), n(800.0), n(1.0)])
             .is_ok());
         assert!(data.query("magazine", &[n(900.0)]).is_ok());
-        assert!(data.query("spread", &[n(900.0)]).is_ok());
+        assert!(data.query("spread", &[n(900.0), n(21.0)]).is_ok());
         assert!(data
             .query("ascii", &[n(0.0), Value::Bool(true), n(400.0)])
             .is_ok());

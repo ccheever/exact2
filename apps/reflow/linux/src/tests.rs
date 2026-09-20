@@ -144,7 +144,7 @@ fn magazine_columns_hold_exactly_the_lines_they_were_cut_to() {
 #[test]
 fn the_spread_flows_every_column_around_the_obstacles_without_clipping() {
     let p = boot("spread");
-    let spread = query("spread", &[INNER]);
+    let spread = query("spread", &[INNER, 21.]);
     assert_eq!(record(&spread)[0].as_number(), Some(2.));
     let mut shaped = 0;
     for (name, view) in ids(&p, "spread-") {
@@ -188,6 +188,41 @@ fn the_spread_flows_every_column_around_the_obstacles_without_clipping() {
         assert_eq!(end, source.len(), "{name}: trailing bytes lost");
     }
     assert!(shaped >= 2, "both columns meet an obstacle");
+}
+
+#[test]
+fn spread_quote_contains_its_painted_lines_across_resizes() {
+    let mut p = boot("spread");
+    let mut failures = Vec::new();
+    // The reported two-column failure, phone widths, both sides of the
+    // typography/column breakpoints, and a return to the original width.
+    for width in [
+        760., 360., 390., 699., 700., 733., 734., 1033., 1034., 1200., 760.,
+    ] {
+        assert!(p.resize(width, 900.).is_none());
+        p.frame();
+        let kernel = p.host().kernel();
+        let quote = kernel.node(id(&p, "spread-quote")).unwrap();
+        let text = kernel.node(quote.children()[0]).unwrap();
+        let painted_bottom = p
+            .paragraph(text.id)
+            .unwrap()
+            .layout_runs()
+            .map(|line| line.line_top + line.line_height)
+            .fold(0f32, f32::max)
+            + text.frame.y;
+        if painted_bottom > quote.frame.y + quote.frame.height - 20. + 0.1 {
+            failures.push(format!(
+                "width {width}: quote paint ends at {painted_bottom}, padded box ends at {}",
+                quote.frame.y + quote.frame.height - 20.
+            ));
+        }
+        let disc = kernel.node(id(&p, "spread-disc")).unwrap();
+        if disc.frame.y < quote.frame.y + quote.frame.height {
+            failures.push(format!("width {width}: illustration overlaps quote"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
