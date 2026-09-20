@@ -498,6 +498,8 @@ The core authoring APIs remain `spawn`, `spawn_named`, `insert`, `remove`,
 admission is explicit and fallible where declared; name/generation validation
 precedes structural commit. `entity_at` now provides checked page-index lookup.
 For shared state use resources; `derived<T>()` is unsaved and cleared on replacement.
+Its 64 lazily initialized cells borrow independently; lookup inspects at most 64
+type IDs. Reborrowing the same T exclusively still refuses.
 For delivery use kernel `publish`, borrowed `publications`, `take_published`,
 `emit` and `take_messages`. The redundant cloning `published(key)` getter was
 removed; borrow `publications().get(key)` instead. Contract `publish_record` and

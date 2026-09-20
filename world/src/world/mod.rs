@@ -179,7 +179,7 @@ pub struct World {
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     // Executor-owned derived data, populated only by linked callers; never saved.
-    derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
+    derived: [std::cell::OnceCell<(TypeId, RefCell<Box<dyn std::any::Any>>)>; 64],
     journal: RefCell<VecDeque<crate::Event>>,
     session_journal: RefCell<VecDeque<(u64, crate::Event)>>,
     session_next: std::cell::Cell<u64>,
@@ -226,7 +226,7 @@ impl World {
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
-            derived: RefCell::new(BTreeMap::new()),
+            derived: std::array::from_fn(|_| std::cell::OnceCell::new()),
             journal: RefCell::new(VecDeque::new()),
             session_journal: RefCell::new(VecDeque::new()),
             session_next: std::cell::Cell::new(0),

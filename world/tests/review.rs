@@ -440,3 +440,22 @@ fn sim_checkpoints_preserve_empty_pending_and_drained_publications() {
         }
     }
 }
+
+#[test]
+fn unrelated_derived_slots_borrow_independently_and_clear_on_replacement() {
+    let mut w = World::new(60, 0);
+    {
+        let mut a = w.derived::<u32>();
+        let mut b = w.derived::<String>();
+        *a = 42;
+        b.push_str("live");
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.derived::<u32>())).is_err()
+        );
+        assert_eq!((*a, b.as_str()), (42, "live"));
+    }
+    let bytes = w.save().unwrap();
+    w.load(&bytes).unwrap();
+    assert_eq!(*w.derived::<u32>(), 0);
+    assert!(w.derived::<String>().is_empty());
+}

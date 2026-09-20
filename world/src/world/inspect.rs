@@ -42,18 +42,17 @@ impl World {
         self.rng.insert(Rng::new(seed));
     }
     pub fn derived<T: Default + 'static>(&self) -> std::cell::RefMut<'_, T> {
-        std::cell::RefMut::map(self.derived.borrow_mut(), |slots| {
-            assert!(
-                slots.contains_key(&TypeId::of::<T>()) || slots.len() < 64,
-                "derived type limit (64)"
-            );
-            slots
-                .entry(TypeId::of::<T>())
-                .or_insert_with(|| Box::<T>::default())
-                .downcast_mut()
-                .unwrap()
-        })
+        let id = TypeId::of::<T>();
+        let slot = self
+            .derived
+            .iter()
+            .find(|s| s.get().is_some_and(|(t, _)| *t == id))
+            .or_else(|| self.derived.iter().find(|s| s.get().is_none()))
+            .expect("derived type limit (64)");
+        let (_, value) = slot.get_or_init(|| (id, RefCell::new(Box::<T>::default())));
+        std::cell::RefMut::map(value.borrow_mut(), |v| v.downcast_mut().unwrap())
     }
+
     pub fn try_query<Q: Query>(&self) -> Result<QueryBorrow<'_, Q>, String> {
         QueryBorrow::try_new(self)
     }
