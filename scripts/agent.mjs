@@ -1055,13 +1055,9 @@ function renderNode(n) {
  */
 export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
-  let bin = resolve(root, 'target/debug/contract');
-  if (!existsSync(bin)) {
-    const b = spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, encoding: 'utf8' });
-    if (b.status !== 0) throw new Error(`cargo build -p contract: ${b.stderr}`);
-  }
-  const c = spawnSync(bin, ['test', resolve(file)], { encoding: 'utf8' });
-  if (c.status !== 0) throw new Error(c.stderr.trim());
+  // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
+  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
+  if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
   // Every test starts from the first frame: a session of its own.

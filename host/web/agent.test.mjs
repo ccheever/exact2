@@ -1,9 +1,10 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
@@ -14,6 +15,52 @@ const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.co
   bindings: [{row:'color',origin:'class:Bubble'}, {row:'font-size',origin:'own'}]}]});
 const inspected = planDigest => ({id: 1, site: 0, planDigest, props: {testId:'bubble'}, type:'Text', style: {
   color: {value:'red',source:'dynamic'}, 'font-size': {value:14,source:'inherited',from:2}}});
+
+test('authored tests use the configured compiler target and preserve compiler and launch failures', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-test-compiler-')));
+  const root = new URL('../../', import.meta.url).pathname;
+  const target = join(dir, 'custom target'), tools = join(dir, 'tools');
+  const file = join(dir, 'suite.test.contract'), runner = join(dir, 'run.mjs');
+  mkdirSync(tools);
+  // A Cargo fixture materializes a compiler only in its configured target.
+  // It supports both build-then-execute and cargo run; no real Cargo lock is
+  // acquired from inside a test that may itself be running under Cargo.
+  const compiler = `#!${process.execPath}\nimport {readFileSync,writeFileSync} from 'node:fs';
+writeFileSync(process.env.COMPILER_TRACE, JSON.stringify(process.argv.slice(2)));
+if (readFileSync(process.argv[3], 'utf8') === 'refuse') { console.error('fixture.contract:7:3: invalid test step'); process.exit(2); }
+console.log('[]');\n`;
+  writeFileSync(join(tools, 'cargo'), `#!${process.execPath}\nimport {mkdirSync,writeFileSync} from 'node:fs';
+import {resolve,dirname} from 'node:path'; import {spawnSync} from 'node:child_process';
+const bin=resolve(process.env.CARGO_TARGET_DIR,'debug/contract'), args=process.argv.slice(2);
+mkdirSync(dirname(bin),{recursive:true}); writeFileSync(bin,${JSON.stringify(compiler)},{mode:0o755});
+if(args.includes('run')) { const r=spawnSync(bin,args.slice(args.indexOf('--')+1),{stdio:'inherit'}); process.exit(r.status ?? 1); }
+`, {mode: 0o755});
+  writeFileSync(runner, `import {runTests} from ${JSON.stringify(new URL('../../scripts/agent.mjs', import.meta.url).href)};
+try { console.log(JSON.stringify(await runTests({host:'linux',file:'suite.test.contract'}))); }
+catch(e) { console.error(e.message); process.exitCode=1; }
+`);
+  try {
+    for (const configured of [target, relative(root, target)]) {
+      const trace = join(dir, 'compiler.json');
+      const env = {...process.env, PATH: tools, CARGO_TARGET_DIR: configured, COMPILER_TRACE: trace};
+      writeFileSync(file, 'accept');
+      const good = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
+      expect(good.status).toBe(0);
+      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,results:[]});
+      expect(JSON.parse(readFileSync(trace, 'utf8'))).toEqual(['test', file]);
+      writeFileSync(file, 'refuse');
+      const bad = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain('fixture.contract:7:3: invalid test step');
+    }
+    const missing = spawnSync(process.execPath, [runner], {
+      cwd:dir, env:{...process.env,PATH:join(dir,'absent')}, encoding:'utf8',
+    });
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('cargo');
+    expect(missing.stderr).not.toContain('TypeError');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
 
 test('driver deadlines release their timer on success, rejection and timeout', async () => {
   const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
