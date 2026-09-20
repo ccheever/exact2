@@ -145,7 +145,7 @@ fn resource_revisions_are_local_and_candidates_invalidate_replacement() {
 }
 
 #[test]
-fn mostly_empty_maximal_world_refuses_excessive_observation_probes() {
+fn settle_at_max_entities_counts_only_live_components_and_slots() {
     #[derive(Default, Component)]
     struct A;
     #[derive(Default, Component)]
@@ -155,22 +155,50 @@ fn mostly_empty_maximal_world_refuses_excessive_observation_probes() {
     #[derive(Default, Component)]
     struct D;
     #[derive(Default, Component)]
-    struct E;
-    let mut w = World::new(60, 0);
-    w.register::<A>()
-        .unwrap()
-        .register::<B>()
-        .unwrap()
-        .register::<C>()
-        .unwrap()
-        .register::<D>()
-        .unwrap()
-        .register::<E>()
-        .unwrap();
-    w.spawn((A, B, C, D, E)).unwrap();
-    assert_eq!(w.sample().unwrap().components, 5);
-    for _ in 1..MAX_ENTITIES {
-        w.spawn(()).unwrap();
+    struct E(u32);
+    struct Maximal;
+    impl Game for Maximal {
+        const ID: &'static str = "maximal-observation";
+        type Args = ();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<A>()?
+                .register::<B>()?
+                .register::<C>()?
+                .register::<D>()?
+                .register::<E>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            for _ in 0..MAX_ENTITIES {
+                w.spawn(()).unwrap();
+            }
+            let e = w.entity_at(MAX_ENTITIES - 1).unwrap();
+            w.insert(e, A).unwrap();
+            w.insert(e, B).unwrap();
+            w.insert(e, C).unwrap();
+            w.insert(e, D).unwrap();
+            w.insert(e, E(7)).unwrap();
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    assert!(w.sample().unwrap_err().message.contains("probe budget"));
+    let mut sim = Sim::<Maximal>::new(()).unwrap();
+    assert_eq!(sim.world().sample().unwrap().components, 5);
+    assert_eq!(sim.settle(1).unwrap(), 1);
+    assert!(sim.world().quiescent());
+    let hash = sim.world().sample().unwrap().hash;
+    let e = sim.world().entity_at(MAX_ENTITIES - 1).unwrap();
+    sim.world().get_mut::<E>(e).unwrap().0 += 1;
+    assert_ne!(sim.world().sample().unwrap().hash, hash);
+    let w = sim.world_mut();
+    for slot in (0..MAX_ENTITIES - 1).rev() {
+        let e = w.entity_at(slot).unwrap();
+        w.insert(e, A).unwrap();
+        w.insert(e, B).unwrap();
+        w.insert(e, C).unwrap();
+        w.insert(e, D).unwrap();
+    }
+    assert!(w.sample().unwrap_err().message.contains("probe budget")); // 1,000,001
+    w.remove::<E>(e).unwrap();
+    assert_eq!(w.sample().unwrap().components, MAX_ENTITIES as u64 * 4); // exactly 1,000,000
+    assert_eq!(sim.settle(1).unwrap(), 1);
 }

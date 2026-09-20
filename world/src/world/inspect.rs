@@ -196,7 +196,7 @@ impl World {
             if w.stopped() {
                 break;
             }
-            probes += columns.len() + 1;
+            probes += 1;
             if probes > 1_000_000 {
                 return Err(DataError::new("observation probe budget exhausted"));
             }
@@ -204,6 +204,10 @@ impl World {
             self.state.slots[e.index() as usize].name.write(&mut w);
             for (name, s) in &columns {
                 if s.has(e.index() as usize) {
+                    probes += 1;
+                    if probes > 1_000_000 {
+                        return Err(DataError::new("observation probe budget exhausted"));
+                    }
                     w.key(name);
                     s.write_one(e.index() as usize, &mut w);
                     components += 1;

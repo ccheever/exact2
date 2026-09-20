@@ -141,7 +141,9 @@ publication value does not replace it or invalidate the world.
 
 `sample() -> Result<Sample, DataError>` explicitly reports the observation hash,
 hashed bytes and visited components. It admits at most 32 MiB of hashed Data and
-1,000,000 live-column/slot probes, refusing during traversal. This costs O(slots × storage
+1,000,000 live-component/slot probes, refusing during traversal. Missing
+memberships do not consume that allowance; at most 200,000 × 256 membership tests
+are possible under the entity/type bounds. This costs O(slots × storage
 nonempty types + admitted Data), even for mostly empty worlds. Built-in visitors stop at
 refusal; manual writers must honor `stopped()`. Empty retained columns do not consume probes or take part in traversal. Ordinary
 ticks never sample. `report(&mut dyn Writer) -> Result<(), DataError>` exposes
