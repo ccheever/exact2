@@ -449,6 +449,8 @@ marks and touches every logical descendant that does not set the row itself
 (text rows remeasure its paragraph, the rest repaint), stopping under an
 override. Attaching or moving a child propagates only rows whose computed
 value differs, including an orphan's own/default values before attachment.
+The transient before/after snapshot holds only the schema's inherited rows;
+it shares the ancestor walk with full computed styles and retains no cache.
 Ancestry changes still invalidate paragraph paint/source metadata and a moved
 text node's measure ownership. The receipt names what an inherited change
 reached; no host re-derives descendants per frame. A light/dark pair is

@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
-use crate::generated::{NodeType, PropId, StyleMask, StyleProps};
+use crate::generated::{InheritedStyle, NodeType, PropId, StyleMask};
 use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutTree;
 use crate::selector::SelectorIndex;
@@ -493,7 +493,7 @@ pub fn apply(
                     .iter()
                     .copied()
                     .filter(|o| !retained.contains(o))
-                    .map(|o| (o, arena.computed_style(o, StyleMask::INHERITED)))
+                    .map(|o| (o, arena.computed_inherited(o)))
                     .collect();
                 for o in &old {
                     if !retained.contains(o) {
@@ -504,12 +504,12 @@ pub fn apply(
                 // rows from its new ancestors: remember what it computed
                 // under the old ones, to propagate only what differs. Orphans
                 // and fresh nodes already compute their own/default rows too.
-                let moved: Vec<(u32, StyleProps)> = new
+                let moved: Vec<(u32, InheritedStyle)> = new
                     .iter()
                     .copied()
                     .filter(|n| arena.parent(*n) != Some(slot))
                     .map(|n| {
-                        let before = arena.computed_style(n, StyleMask::INHERITED);
+                        let before = arena.computed_inherited(n);
                         (n, before)
                     })
                     .collect();
@@ -617,7 +617,7 @@ fn inherited_after_move(
     arena: &mut NodeArena,
     layout: &mut LayoutTree,
     slot: u32,
-    before: StyleProps,
+    before: InheritedStyle,
     touched: &mut BTreeSet<u32>,
     receipt: &mut CommitReceipt,
 ) {
@@ -627,13 +627,8 @@ fn inherited_after_move(
         invalidate_text(arena, layout, slot);
     }
     invalidate_text_sources(arena, slot);
-    let after = arena.computed_style(slot, StyleMask::INHERITED);
-    let mut changed = StyleMask::EMPTY;
-    for id in StyleMask::INHERITED.iter() {
-        if before.get(id) != after.get(id) {
-            changed.set(id);
-        }
-    }
+    let after = arena.computed_inherited(slot);
+    let changed = before.changed_mask(&after);
     if !changed.is_empty() {
         inherited_changed(arena, layout, slot, changed, receipt);
         touched.insert(slot);

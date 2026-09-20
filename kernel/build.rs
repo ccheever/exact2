@@ -813,6 +813,69 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    /// Iterate the set rows in bit order.").unwrap();
     writeln!(w, "    pub fn iter(self) -> impl Iterator<Item = StyleId> {{ StyleId::ALL.into_iter().filter(move |id| self.has(*id)) }}").unwrap();
     writeln!(w, "}}").unwrap();
+    // Compact, transient before/after values for inheritance invalidation.
+    // Derive the field set from the same schema as StyleMask::INHERITED.
+    writeln!(w, "#[derive(Debug)]\npub(crate) struct InheritedStyle {{").unwrap();
+    for row in schema.styles.iter().filter(|r| r.inherited) {
+        writeln!(
+            w,
+            "    {}: {},",
+            row.field,
+            parse_codec(&row.codec).rust_type()
+        )
+        .unwrap();
+    }
+    writeln!(w, "}}\nimpl InheritedStyle {{").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn new(from: &StyleProps) -> Self {{ Self {{"
+    )
+    .unwrap();
+    for row in schema.styles.iter().filter(|r| r.inherited) {
+        let clone = if parse_codec(&row.codec).is_copy() {
+            ""
+        } else {
+            ".clone()"
+        };
+        writeln!(w, "        {f}: from.{f}{clone},", f = row.field).unwrap();
+    }
+    writeln!(w, "    }} }}").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn copy_rows(&mut self, from: &StyleProps, mask: StyleMask) {{"
+    )
+    .unwrap();
+    for row in schema.styles.iter().filter(|r| r.inherited) {
+        let id = pascal(&row.field);
+        let clone = if parse_codec(&row.codec).is_copy() {
+            ""
+        } else {
+            ".clone()"
+        };
+        writeln!(
+            w,
+            "        if mask.has(StyleId::{id}) {{ self.{f} = from.{f}{clone}; }}",
+            f = row.field
+        )
+        .unwrap();
+    }
+    writeln!(w, "    }}").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn changed_mask(&self, other: &Self) -> StyleMask {{"
+    )
+    .unwrap();
+    writeln!(w, "        let mut changed = StyleMask::EMPTY;").unwrap();
+    for row in schema.styles.iter().filter(|r| r.inherited) {
+        let id = pascal(&row.field);
+        writeln!(
+            w,
+            "        if self.{f} != other.{f} {{ changed.set(StyleId::{id}); }}",
+            f = row.field
+        )
+        .unwrap();
+    }
+    writeln!(w, "        changed\n    }}\n}}").unwrap();
     // ---- StyleProps ------------------------------------------------------
     writeln!(
         w,
