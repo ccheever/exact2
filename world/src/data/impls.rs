@@ -123,9 +123,13 @@ impl<T: Data> Data for Vec<T> {
         bulk!(u32, U32);
         bulk!(f32, F32);
         w.claim_decoded(
-            self.len()
-                .saturating_mul(T::default_size())
-                .saturating_mul(4),
+            if self.is_empty() {
+                0
+            } else {
+                self.len().max(4)
+            }
+            .saturating_mul(T::default_size())
+            .saturating_mul(2),
         );
         write_slice(self, w);
     }

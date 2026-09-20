@@ -20,7 +20,7 @@ fn run_cross(benchmark: bool) {
         .parent()
         .unwrap()
         .join("scratch")
-        .join("K1c")
+        .join("K1d")
         .join(format!("cross-{}", std::process::id()));
     fs::create_dir_all(scratch.join("src")).unwrap();
     fs::write(
