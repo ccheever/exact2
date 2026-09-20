@@ -132,7 +132,10 @@ fn scalar_facts_release_payload_and_final_same_tuple_requires_fresh_identity() {
         p.paint_artifact(key(&k, 4)).unwrap().payload::<u32>(),
         Some(&88)
     );
-    assert!(k.region_retention().accepted_facts > p.artifacts().len());
+    // Taffy 0.14 can finish this block with one offer. Every measured tuple
+    // remains a scalar fact even when only one final paint owner is needed.
+    assert_eq!(k.region_retention().accepted_facts, measurements.len());
+    assert!(!measurements.is_empty());
     drop(measurements);
     drop(final_q);
     k.set_content_region(None).unwrap();

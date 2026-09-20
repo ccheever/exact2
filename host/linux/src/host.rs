@@ -59,6 +59,7 @@ pub struct Host<D: DataSource> {
     viewport: (f32, f32),
     now_ms: f64,
     height_owner: Option<NodeKey>,
+    pub(crate) flow_damage: crate::paint::damage::Changes,
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -157,6 +158,7 @@ impl<D: DataSource> Host<D> {
             viewport: (width, height),
             now_ms: 0.0,
             height_owner: None,
+            flow_damage: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
             height_projection: None,
@@ -310,9 +312,10 @@ impl<D: DataSource> Host<D> {
         self.now_ms
     }
 
-    /// Whether the runner has timers (the presenter runs its clock).
-    pub fn has_timers(&self) -> bool {
-        self.runner.has_timers()
+    /// Next Contract timer deadline in the runner's clock domain.
+    /// @ref LLP 1043.000 §3 D8 — the display loop sleeps until useful work.
+    pub fn timer_due_ms(&self) -> Option<f64> {
+        self.runner.timer_due_ms()
     }
 
     /// Whether motion is running (the presenter runs frames).
@@ -669,6 +672,7 @@ impl<D: DataSource> Host<D> {
         let mut paint = error.is_some() || self.content_region.is_some();
         for t in receipts {
             let r = &t.receipt;
+            self.flow_damage.commit(self.runner.kernel(), r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()

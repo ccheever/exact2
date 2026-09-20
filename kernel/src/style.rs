@@ -12,8 +12,9 @@ use taffy::style::TrackSizingFunction;
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
-    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Display, FlexDirection, FlexWrap,
-    GridAutoFlow, JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleProps,
+    AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
+    FlexWrap, GridAutoFlow, JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleMask,
+    StyleProps,
 };
 
 /// Largest grid track list the closed grammar carries.
@@ -332,6 +333,17 @@ impl StyleValue {
     }
 
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        // @ref LLP 1043.000 §3 D1 — shape-margin is a nonnegative CSS length.
+        if style == StyleId::ShapeMargin {
+            let value = match self {
+                StyleValue::Number(n) => Some(*n as f32),
+                StyleValue::Text(s) => s.trim().strip_suffix("px").and_then(|s| s.parse().ok()),
+                _ => None,
+            };
+            return value.filter(|n| n.is_finite() && *n >= 0.0).ok_or(StyleValueError::WrongKind {
+                style, expected: "nonnegative finite length in points/px (percentage shape-margin is not implemented in exact2 v1)",
+            });
+        }
         match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(*n as f32),
             _ => Err(StyleValueError::WrongKind {
@@ -599,6 +611,8 @@ pub enum RowValue<'a> {
     LineHeight(LineHeight),
     /// A validated CSS clipping path.
     ClipPath(&'a crate::clip::ClipPath),
+    /// CSS shape-outside, resolved after layout (LLP 1043.000 D1).
+    ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -738,45 +752,45 @@ fn flex_wrap(v: FlexWrap) -> taffy::style::FlexWrap {
 
 fn justify_content(v: JustifyContent) -> taffy::style::JustifyContent {
     match v {
-        JustifyContent::FlexStart => taffy::style::JustifyContent::FlexStart,
-        JustifyContent::FlexEnd => taffy::style::JustifyContent::FlexEnd,
-        JustifyContent::Center => taffy::style::JustifyContent::Center,
-        JustifyContent::SpaceBetween => taffy::style::JustifyContent::SpaceBetween,
-        JustifyContent::SpaceAround => taffy::style::JustifyContent::SpaceAround,
-        JustifyContent::SpaceEvenly => taffy::style::JustifyContent::SpaceEvenly,
+        JustifyContent::FlexStart => taffy::style::JustifyContent::FLEX_START,
+        JustifyContent::FlexEnd => taffy::style::JustifyContent::FLEX_END,
+        JustifyContent::Center => taffy::style::JustifyContent::CENTER,
+        JustifyContent::SpaceBetween => taffy::style::JustifyContent::SPACE_BETWEEN,
+        JustifyContent::SpaceAround => taffy::style::JustifyContent::SPACE_AROUND,
+        JustifyContent::SpaceEvenly => taffy::style::JustifyContent::SPACE_EVENLY,
     }
 }
 
 fn align_items(v: AlignItems) -> taffy::style::AlignItems {
     match v {
-        AlignItems::FlexStart => taffy::style::AlignItems::FlexStart,
-        AlignItems::FlexEnd => taffy::style::AlignItems::FlexEnd,
-        AlignItems::Center => taffy::style::AlignItems::Center,
-        AlignItems::Baseline => taffy::style::AlignItems::Baseline,
-        AlignItems::Stretch => taffy::style::AlignItems::Stretch,
+        AlignItems::FlexStart => taffy::style::AlignItems::FLEX_START,
+        AlignItems::FlexEnd => taffy::style::AlignItems::FLEX_END,
+        AlignItems::Center => taffy::style::AlignItems::CENTER,
+        AlignItems::Baseline => taffy::style::AlignItems::BASELINE,
+        AlignItems::Stretch => taffy::style::AlignItems::STRETCH,
     }
 }
 
 fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
     match v {
         AlignSelf::Auto => None,
-        AlignSelf::FlexStart => Some(taffy::style::AlignSelf::FlexStart),
-        AlignSelf::FlexEnd => Some(taffy::style::AlignSelf::FlexEnd),
-        AlignSelf::Center => Some(taffy::style::AlignSelf::Center),
-        AlignSelf::Baseline => Some(taffy::style::AlignSelf::Baseline),
-        AlignSelf::Stretch => Some(taffy::style::AlignSelf::Stretch),
+        AlignSelf::FlexStart => Some(taffy::style::AlignSelf::FLEX_START),
+        AlignSelf::FlexEnd => Some(taffy::style::AlignSelf::FLEX_END),
+        AlignSelf::Center => Some(taffy::style::AlignSelf::CENTER),
+        AlignSelf::Baseline => Some(taffy::style::AlignSelf::BASELINE),
+        AlignSelf::Stretch => Some(taffy::style::AlignSelf::STRETCH),
     }
 }
 
 fn align_content(v: AlignContent) -> taffy::style::AlignContent {
     match v {
-        AlignContent::FlexStart => taffy::style::AlignContent::FlexStart,
-        AlignContent::FlexEnd => taffy::style::AlignContent::FlexEnd,
-        AlignContent::Center => taffy::style::AlignContent::Center,
-        AlignContent::Stretch => taffy::style::AlignContent::Stretch,
-        AlignContent::SpaceBetween => taffy::style::AlignContent::SpaceBetween,
-        AlignContent::SpaceAround => taffy::style::AlignContent::SpaceAround,
-        AlignContent::SpaceEvenly => taffy::style::AlignContent::SpaceEvenly,
+        AlignContent::FlexStart => taffy::style::AlignContent::FLEX_START,
+        AlignContent::FlexEnd => taffy::style::AlignContent::FLEX_END,
+        AlignContent::Center => taffy::style::AlignContent::CENTER,
+        AlignContent::Stretch => taffy::style::AlignContent::STRETCH,
+        AlignContent::SpaceBetween => taffy::style::AlignContent::SPACE_BETWEEN,
+        AlignContent::SpaceAround => taffy::style::AlignContent::SPACE_AROUND,
+        AlignContent::SpaceEvenly => taffy::style::AlignContent::SPACE_EVENLY,
     }
 }
 
@@ -842,6 +856,10 @@ impl StyleProps {
         };
         // Replaced pixels have ink overflow, never scrollable overflow (CSS
         // Overflow §2.1). This also identifies images for grid intrinsic sizing.
+        s.direction = match self.direction {
+            Direction::Ltr => taffy::style::Direction::Ltr,
+            Direction::Rtl => taffy::style::Direction::Rtl,
+        };
         s.item_is_replaced = node_type.is_replaced();
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
@@ -878,12 +896,12 @@ impl StyleProps {
             height: self.height.to_taffy(env),
         };
         s.min_size = taffy::geometry::Size {
-            width: self.min_width.to_taffy(env),
-            height: self.min_height.to_taffy(env),
+            width: self.min_width.to_lpa(env),
+            height: self.min_height.to_lpa(env),
         };
         s.max_size = taffy::geometry::Size {
-            width: self.max_width.to_taffy(env),
-            height: self.max_height.to_taffy(env),
+            width: self.max_width.to_lpa(env),
+            height: self.max_height.to_lpa(env),
         };
         s.aspect_ratio = if self.aspect_ratio > 0.0 && self.aspect_ratio.is_finite() {
             Some(self.aspect_ratio)
@@ -925,7 +943,10 @@ impl StyleProps {
         s.justify_content = Some(justify_content(self.justify_content));
         s.align_items = Some(align_items(self.align_items));
         s.align_self = align_self(self.align_self);
-        s.align_content = Some(align_content(self.align_content));
+        // CSS's initial `normal` behaves as stretch in flex/grid, but must
+        // not establish a new block formatting context (Taffy 0.14).
+        s.align_content = (self.display != Display::Block || self.mask.has(StyleId::AlignContent))
+            .then(|| align_content(self.align_content));
         s.justify_items = Some(align_items(self.justify_items));
         s.gap = taffy::geometry::Size {
             width: length(self.column_gap),
@@ -972,6 +993,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
+    s.direction = match arena.computed_style(slot, StyleMask::INHERITED).direction {
+        Direction::Ltr => taffy::style::Direction::Ltr,
+        Direction::Rtl => taffy::style::Direction::Rtl,
+    };
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
@@ -1072,7 +1097,7 @@ mod tests {
         assert_eq!(s.box_sizing, taffy::style::BoxSizing::ContentBox);
         assert_eq!(s.flex_direction, taffy::style::FlexDirection::Row);
         assert_eq!(s.flex_shrink, 1.0);
-        assert_eq!(s.align_items, Some(taffy::style::AlignItems::Stretch));
+        assert_eq!(s.align_items, Some(taffy::style::AlignItems::STRETCH));
         assert_eq!(s.position, taffy::style::Position::Relative);
         assert_eq!(s.overflow.y, taffy::style::Overflow::Visible);
     }

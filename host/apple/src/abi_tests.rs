@@ -773,3 +773,45 @@ fn identified_failed_fresh_boot_preserves_catalog_and_live_measurer() {
         .iter()
         .all(|catalog| *catalog == checkpoint));
 }
+
+#[test]
+fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
+    let bytes = contract::compile(
+        r#"component App
+  state x = 0
+  action move(dx: number, dy: number) writes x
+    x = x + dx + dy
+  view
+    box testId="pan" pan=move left=x
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("pan")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let len = bridge.input_write(b"120,-40");
+    let n = bridge.dispatch(view, 20, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge
+            .host
+            .as_ref()
+            .unwrap()
+            .runner()
+            .kernel()
+            .node(view)
+            .unwrap()
+            .frame
+            .x,
+        80.
+    );
+    let len = bridge.input_write(b"NaN,0");
+    let n = bridge.dispatch(view, 20, len, 0.);
+    assert!(std::str::from_utf8(bridge.output_bytes(n as usize))
+        .unwrap()
+        .contains("invalid pan deltas"));
+}

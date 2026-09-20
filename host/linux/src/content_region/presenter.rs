@@ -59,6 +59,15 @@ impl<D: DataSource> Presenter<D> {
         } else {
             BTreeMap::new()
         };
+        self.brush.flow_damage(
+            &self.host,
+            &self.boxes,
+            self.viewport,
+            self.page,
+            &self.scroll,
+            self.pointer,
+            self.focus,
+        );
         let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
@@ -153,7 +162,18 @@ impl<D: DataSource> Presenter<D> {
                 }
             }
         };
+        for key in self.brush.flow_failures().collect::<Vec<_>>() {
+            if let Some(node) = self.host.kernel().node_by_key(key) {
+                self.host.log(format!(
+                    "wrap-flow: text #{} is incomplete and uses ordinary layout",
+                    node.id
+                ));
+            }
+        }
         self.boxes = boxes;
+        if self.last_frame_succeeded {
+            self.host.flow_damage.clear();
+        }
         if self.last_frame_succeeded && !deferred {
             if let Some(region) = self.host.content_region() {
                 // Replay clamps against the selected picture BEFORE drawing.

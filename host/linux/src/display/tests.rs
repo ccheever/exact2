@@ -227,12 +227,21 @@ fn duplicate_event_does_not_release_a_new_submission() {
 
 #[test]
 fn pending_animation_does_not_spin_but_real_timer_deadlines_remain() {
-    assert_eq!(work_timeout(true, true, false, 0., 100.), -1);
-    assert_eq!(work_timeout(true, true, true, 0., 100.), 150);
-    assert_eq!(work_timeout(true, true, true, 0., 250.), 0);
-    assert_eq!(work_timeout(false, true, false, 0., 100.), 0);
-    assert_eq!(work_timeout(false, false, true, 0., 100.), 150);
-    assert_eq!(work_timeout(false, false, false, 0., 100.), -1);
+    assert_eq!(work_timeout(true, true, None, 0., 100., 1000. / 60.), -1);
+    assert_eq!(
+        work_timeout(true, true, Some(250.), 0., 100., 1000. / 60.),
+        150
+    );
+    assert_eq!(
+        work_timeout(true, true, Some(250.), 0., 250., 1000. / 60.),
+        0
+    );
+    assert_eq!(work_timeout(false, true, None, 0., 100., 1000. / 60.), 0);
+    assert_eq!(
+        work_timeout(false, false, Some(250.), 0., 100., 1000. / 60.),
+        150
+    );
+    assert_eq!(work_timeout(false, false, None, 0., 100., 1000. / 60.), -1);
 }
 
 #[test]

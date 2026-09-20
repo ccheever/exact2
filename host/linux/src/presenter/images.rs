@@ -2,6 +2,37 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// Loads that arrived since the last call: their sizes reach the kernel.
+    /// Whether anything changed.
+    pub fn poll_images(&mut self) -> bool {
+        let reports = self.images.poll();
+        self.apply_reports(reports)
+    }
+
+    /// Wait for every load in flight (bounded).
+    pub fn wait_images(&mut self, timeout: Duration) -> bool {
+        let reports = self.images.wait(timeout);
+        self.apply_reports(reports)
+    }
+
+    pub(super) fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
+        let any = !reports.is_empty();
+        for (view, size) in reports {
+            if let Some(e) = self.host.set_intrinsic(view, size) {
+                eprintln!("exact: {e}");
+            }
+        }
+        if any {
+            self.dirty = true;
+            self.clamp_scroll();
+            self.queue_collections();
+            if let Some(error) = self.refresh_transform_geometry() {
+                self.host.log(error);
+            }
+        }
+        any
+    }
+
     pub(super) fn sync_images(&mut self) -> Option<String> {
         let live = self.host.preorder();
         let host = &self.host;

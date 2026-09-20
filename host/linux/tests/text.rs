@@ -23,6 +23,48 @@ impl DataSource for NoData {
 }
 
 #[test]
+fn agent_layout_adds_fragment_fields_only_for_flowed_paragraphs() {
+    // @ref LLP 1043.000 §3 D7 — ordinary layout replies keep their old shape.
+    pin_font();
+    for wrap in ["auto", "both"] {
+        let source = format!(
+            "component App\n  view\n    view width=300 height=200\n      text \"one two three four five six seven eight nine ten\" width=300 height=200 testId=\"para\"\n      view position=\"absolute\" left=100 top=0 width=80 height=60 wrap-flow=\"{wrap}\"\n"
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 200.0),
+            1.0,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let kernel = p.host().kernel();
+        let id = kernel
+            .node_by_key(kernel.find_by_test_id("para")[0])
+            .unwrap()
+            .id;
+        let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id))).unwrap();
+        let node = &reply["node"];
+        assert_eq!(node["id"], id);
+        if wrap == "auto" {
+            assert!(node.get("fragments").is_none(), "{reply}");
+            assert!(node.get("flow").is_none(), "{reply}");
+            assert!(node.get("flow_shapes").is_none(), "{reply}");
+            assert!(node.get("flow_skipped").is_none(), "{reply}");
+        } else {
+            assert!(!node["fragments"].as_array().unwrap().is_empty(), "{reply}");
+            assert!(
+                !node["flow_shapes"].as_array().unwrap().is_empty(),
+                "{reply}"
+            );
+        }
+    }
+}
+
+#[test]
 fn emergency_wrapping_preserves_the_two_intrinsic_width_rules() {
     use exact_kernel::{AxisOffer, OverflowWrap, StyleProps};
     pin_font();
@@ -179,6 +221,8 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                 align: TextAlign::Left,
                 line_clamp: 0,
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
+                white_space: exact_kernel::WhiteSpace::Normal,
+                direction: exact_kernel::Direction::Ltr,
             },
             None,
         );

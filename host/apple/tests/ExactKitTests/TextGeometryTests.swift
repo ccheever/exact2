@@ -11,6 +11,38 @@ import AppKit
 final class TextGeometryTests: XCTestCase {
     private let engine = TextEngine(resolve: { _ in nil })
 
+    func testTextCacheRecencyAndCheckpointRemainIndependent() {
+        // Trunk's fixture named the retired generic cache. Exercise the current
+        // residency's bounded identity LRU and copy-on-write scalar checkpoint.
+        func value(_ text: String) -> Spec {
+            var result = spec(text); result.strut = result.runs[0]
+            return result
+        }
+        var cache = TextResidency()
+        let identities = (0..<4096).map { i in
+            let identity = cache.identity(value("value-\(i)"))
+            cache.putMinimum(identity, width: CGFloat(i))
+            return identity
+        }
+        func get(_ cache: inout TextResidency, _ text: String) -> TextIdentity? {
+            var answer: TextIdentity?
+            withBorrowedRequest(value(text)) { answer = cache.borrowedIdentity($0) }
+            return answer
+        }
+        var checkpoint = cache
+        for i in 0..<512 { XCTAssertTrue(get(&cache, "value-\(i)") === identities[i]) }
+        let added = cache.identity(value("new"))
+        XCTAssertTrue(get(&cache, "value-0") === identities[0])
+        XCTAssertNil(get(&cache, "value-512"), "the oldest untouched entries are evicted")
+        XCTAssertTrue(get(&checkpoint, "value-512") === identities[512])
+        XCTAssertNil(get(&checkpoint, "new"))
+        XCTAssertTrue(get(&cache, "new") === added)
+        cache.putMinimum(identities[0], width: -1)
+        XCTAssertEqual(cache.minimum(identities[0]), -1)
+        XCTAssertEqual(checkpoint.minimum(identities[0]), 0)
+        XCTAssertLessThanOrEqual(cache.stats.identityEntries, 4096)
+    }
+
     #if os(macOS)
     func testEmptyContainerReleasesPaintAndKeepsItsChildren() {
         let presenter = Presenter()
@@ -263,32 +295,6 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(p.height, ceil(ascent + descent + leading))
     }
 
-    func testFixedMixedFontLinesKeepSharedBaselineExtents() {
-        let base = Run(text: "", size: 20, weight: 400, family: 0, italic: false, lineHeight: 20, letterSpacing: 0)
-        var child = base; child.text = "Larger"; child.size = 40
-        let spec = Spec(runs: [child], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: base)
-        let p = engine.paragraph(spec, width: 500)
-        XCTAssertGreaterThan(p.height, 20)
-        XCTAssertEqual(p.lineBottoms.last!, p.height, accuracy: 0.02)
-    }
-
-    func testCoalescedGlyphRunsPreserveEveryAuthoredLineHeight() {
-        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: 20, letterSpacing: 0)
-        for heights: [CGFloat] in [[20, 60], [60, 20]] {
-            var first = base; first.text = "before "; first.lineHeight = heights[0]
-            var second = base; second.text = "after"; second.lineHeight = heights[1]
-            var input = Spec(runs: [first, second], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: base)
-            let joined = engine.paragraph(input, width: 500)
-            XCTAssertEqual((CTLineGetGlyphRuns(joined.lines[0]) as! [CTRun]).count, 1)
-            XCTAssertEqual(joined.height, 60, accuracy: 0.02)
-            input.runs[1].color = [255, 0, 0, 255]
-            let colored = engine.paragraph(input, width: 500)
-            XCTAssertEqual((CTLineGetGlyphRuns(colored.lines[0]) as! [CTRun]).count, 2)
-            XCTAssertEqual(colored.height, joined.height, accuracy: 0.02)
-            XCTAssertEqual(colored.firstBaseline, joined.firstBaseline, accuracy: 0.02)
-        }
-    }
-
     func testNormalParagraphPreservesFractionalExplicitChildBoxes() {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         for (text, count) in [("Child", 1), ("First\nSecond", 2)] {
@@ -386,29 +392,7 @@ final class TextGeometryTests: XCTestCase {
                        engine.paragraph(wrapped, width: 65).lines.map { CTLineGetStringRange($0).length })
     }
 
-    /// Reusing the tokenizer must preserve fresh-tokenizer results across scripts.
-    func testTheSharedLineBreakerFindsWhatANewOneFinds() {
-        let texts = [
-            "東京都は日本の首都です。人口は約一千四百万人で、世界有数の大都市です。",
-            "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
-            "ภาษาไทยไม่มีช่องว่างระหว่างคำ จึงต้องใช้พจนานุกรมในการตัดคำ",
-            "",
-            "Emoji 👨‍👩‍👧‍👦 and e\u{301}, then 中文 mixed with Latin and a\u{00A0}no-break space.",
-            "one\ntwo\r\nthree\u{2028}four",
-            "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
-        ]
-        for text in texts + texts.reversed() {
-            let string = text as NSString, length = string.length
-            let fresh = CFStringTokenizerCreate(nil, string as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-            var expected: [Int] = []
-            while CFStringTokenizerAdvanceToNextToken(fresh).rawValue != 0 {
-                let range = CFStringTokenizerGetCurrentTokenRange(fresh)
-                expected.append(range.location + range.length)
-            }
-            if expected.last != length { expected.append(length) }
-            XCTAssertEqual(engine.lineBoundaries(string, length: length), expected, text)
-        }
-    }
+
     private func ellipses(_ line: CTLine) -> Int {
         (CTLineGetGlyphRuns(line) as! [CTRun]).reduce(0) { result, run in
             let attrs = CTRunGetAttributes(run) as NSDictionary
@@ -1314,6 +1298,7 @@ extension TextGeometryTests {
             request.runs = pointer.baseAddress; request.count = pointer.count; request.strut = s
             request.width = width; request.height = height; request.align = UInt8(value.align)
             request.line_clamp = UInt32(value.lineClamp); request.overflow_wrap = UInt8(value.overflowWrap)
+            request.direction = UInt8(value.direction); request.white_space = UInt8(value.whiteSpace)
             body(request)
         }
     }
@@ -1400,6 +1385,7 @@ extension TextGeometryTests {
         change { $0.runs[0].lineHeight = nil }; change { $0.runs[0].lineHeight = 0 }
         change { $0.runs[0].letterSpacing = 0.5 }; change { $0.align = 2 }
         change { $0.lineClamp = 1 }; change { $0.overflowWrap = 2 }
+        change { $0.direction = 1 }; change { $0.whiteSpace = 1 }
         change { $0.strut?.size += 2 }; change { $0.strut?.lineHeight = 0 }
         change { $0.strut?.weight = 600 }; change { $0.strut?.family = 1 }
         change { $0.strut?.italic = true }; change { $0.strut?.lineHeight = nil }

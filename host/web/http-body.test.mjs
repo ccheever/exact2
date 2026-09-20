@@ -1,9 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-const source=readFileSync(new URL('./glue.js',import.meta.url),'utf8');
-const actual=source.match(/async function boundedHttpBody\(response, limit\) \{[\s\S]*?\n\}/)[0];
-const readBody=Function(`${actual}; return boundedHttpBody;`)();
+import {boundedHttpBody as readBody, waitForInflight} from './http-body.js';
 
 test('independent HTTP collects only a bounded complete response',async()=>{
   assert.deepEqual(await readBody(new Response('four'),4),new TextEncoder().encode('four'));
@@ -15,4 +12,13 @@ test('an over-limit stream is cancelled before its remainder is collected',async
   const stream=new ReadableStream({pull(c){c.enqueue(new Uint8Array(5));},cancel(){cancelled=true;}});
   await assert.rejects(readBody(new Response(stream),4),/exceeds limit/);
   assert.equal(cancelled,true);
+});
+
+test('settlement returns after completions and refuses a never-settling request at its deadline', async () => {
+  const pending = new Set();
+  const complete = Promise.resolve().then(() => pending.delete(complete));
+  pending.add(complete);
+  assert.equal(await waitForInflight(pending, performance.now() + 1000), true);
+  pending.add(new Promise(() => {}));
+  assert.equal(await waitForInflight(pending, performance.now()), false);
 });

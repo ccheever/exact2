@@ -4,30 +4,6 @@ use crate::style::AvailableSpace;
 use crate::style_helpers::TaffyMaxContent;
 use crate::util::sys::{f32_max, f32_min};
 
-// EXACT PATCH BEGIN (LLP 0440 D5): baseline-capable output for leaf measure
-// functions. Size-only callers convert with Point::NONE.
-/// The intrinsic size and optional first baselines returned by a leaf measure function.
-#[derive(Debug, Copy, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct MeasureOutput {
-    /// The measured content-box size of the leaf.
-    pub size: Size<f32>,
-    /// The first baseline of the measured content in each dimension, if any.
-    pub first_baselines: Point<Option<f32>>,
-}
-
-impl MeasureOutput {
-    /// A zero-sized measurement with no baselines.
-    pub const ZERO: Self = Self { size: Size::ZERO, first_baselines: Point::NONE };
-}
-
-impl From<Size<f32>> for MeasureOutput {
-    fn from(size: Size<f32>) -> Self {
-        Self { size, first_baselines: Point::NONE }
-    }
-}
-// END EXACT PATCH (LLP 0440 D5)
-
 /// Whether we are performing a full layout, or we merely need to size the node
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -133,7 +109,7 @@ impl TryFrom<RequestedAxis> for AbsoluteAxis {
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LayoutInput {
-    /// Whether we only need to know the Node's size, or whe
+    /// Whether we only need to know the Node's size, or whether we need to perform a full layout
     pub run_mode: RunMode,
     /// Whether a Node's style sizes should be taken into account or ignored
     pub sizing_mode: SizingMode,
@@ -150,6 +126,17 @@ pub struct LayoutInput {
     ///   "The exact size of this node is WIDTHxHEIGHT. Please lay out your children"
     ///
     pub known_dimensions: Size<Option<f32>>,
+    /// Whether each known dimension should be treated as a *definite* size when laying out the node's
+    /// own content (resolving percentage sizes of children, and collecting flex items into flex lines).
+    ///
+    /// This should be set to `false` for a dimension when a parent imposes a known dimension on a node
+    /// that is derived from the node's own content, and is therefore indefinite per CSS. For example,
+    /// the post-flexing main size of a flex item is indefinite if the flex container's main size is
+    /// indefinite and the item's used flex basis is not definite
+    /// (see <https://www.w3.org/TR/css-flexbox-1/#definite-sizes>).
+    ///
+    /// This flag is ignored (treated as `true`) for axes where the corresponding known dimension is `None`.
+    pub known_dimensions_are_definite: Size<bool>,
     /// Parent size dimensions are intended to be used for percentage resolution.
     pub parent_size: Size<Option<f32>>,
     /// Available space represents an amount of space to layout into, and is used as a soft constraint
@@ -166,6 +153,7 @@ impl LayoutInput {
         run_mode: RunMode::PerformHiddenLayout,
         // The rest will be ignored
         known_dimensions: Size::NONE,
+        known_dimensions_are_definite: Size { width: true, height: true },
         parent_size: Size::NONE,
         available_space: Size::MAX_CONTENT,
         sizing_mode: SizingMode::InherentSize,
@@ -174,22 +162,47 @@ impl LayoutInput {
     };
 }
 
+/// The first and last baselines of a node in the horizontal axis (i.e. baselines for horizontal text,
+/// measured as an offset from the top edge of the node's border box).
+///
+/// A baseline is the line on which text sits. See <https://www.w3.org/TR/css-writing-modes-3/#intro-baselines>
+/// for details.
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct Baselines {
+    /// The first baseline of the node, if any
+    pub first: Option<f32>,
+    /// The last baseline of the node, if any
+    pub last: Option<f32>,
+}
+
+impl Baselines {
+    /// A `Baselines` with neither a first nor a last baseline
+    pub const NONE: Self = Self { first: None, last: None };
+
+    /// Create a `Baselines` from just a first baseline
+    pub const fn from_first(first: Option<f32>) -> Self {
+        Self { first, last: None }
+    }
+}
+
 /// A struct containing the result of laying a single node, which is returned up to the parent node
 ///
 /// A baseline is the line on which text sits. Your node likely has a baseline if it is a text node, or contains
 /// children that may be text nodes. See <https://www.w3.org/TR/css-writing-modes-3/#intro-baselines> for details.
-/// If your node does not have a baseline (or you are unsure how to compute it), then simply return `Point::NONE`
-/// for the first_baselines field
+/// If your node does not have a baseline (or you are unsure how to compute it), then simply return `Baselines::NONE`
+/// for the baselines field
 #[derive(Debug, Copy, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LayoutOutput {
     /// The size of the node
     pub size: Size<f32>,
     #[cfg(feature = "content_size")]
-    /// The size of the content within the node
-    pub content_size: Size<f32>,
-    /// The first baseline of the node in each dimension, if any
-    pub first_baselines: Point<Option<f32>>,
+    /// The scrollable overflow rectangle of the node's content
+    /// (see [`Layout::scrollable_overflow_rect`] for the coordinate conventions)
+    pub scrollable_overflow_rect: Rect<f32>,
+    /// The first and last baselines of the node in the horizontal axis, if any
+    pub baselines: Baselines,
     /// Top margin that can be collapsed with. This is used for CSS block layout and can be set to
     /// `CollapsibleMarginSet::ZERO` for other layout modes that don't support margin collapsing
     pub top_margin: CollapsibleMarginSet,
@@ -206,8 +219,8 @@ impl LayoutOutput {
     pub const HIDDEN: Self = Self {
         size: Size::ZERO,
         #[cfg(feature = "content_size")]
-        content_size: Size::ZERO,
-        first_baselines: Point::NONE,
+        scrollable_overflow_rect: Rect::ZERO,
+        baselines: Baselines::NONE,
         top_margin: CollapsibleMarginSet::ZERO,
         bottom_margin: CollapsibleMarginSet::ZERO,
         margins_can_collapse_through: false,
@@ -216,31 +229,31 @@ impl LayoutOutput {
     /// A blank layout output
     pub const DEFAULT: Self = Self::HIDDEN;
 
-    /// Constructor to create a `LayoutOutput` from just the size and baselines
+    /// Constructor to create a `LayoutOutput` from just the size, scrollable overflow rectangle and baselines
     pub fn from_sizes_and_baselines(
         size: Size<f32>,
-        #[cfg_attr(not(feature = "content_size"), allow(unused_variables))] content_size: Size<f32>,
-        first_baselines: Point<Option<f32>>,
+        #[cfg_attr(not(feature = "content_size"), allow(unused_variables))] scrollable_overflow_rect: Rect<f32>,
+        baselines: Baselines,
     ) -> Self {
         Self {
             size,
             #[cfg(feature = "content_size")]
-            content_size,
-            first_baselines,
+            scrollable_overflow_rect,
+            baselines,
             top_margin: CollapsibleMarginSet::ZERO,
             bottom_margin: CollapsibleMarginSet::ZERO,
             margins_can_collapse_through: false,
         }
     }
 
-    /// Construct a `LayoutOutput` from just the container and content sizes
-    pub fn from_sizes(size: Size<f32>, content_size: Size<f32>) -> Self {
-        Self::from_sizes_and_baselines(size, content_size, Point::NONE)
+    /// Construct a `LayoutOutput` from just the container size and scrollable overflow rectangle
+    pub fn from_sizes(size: Size<f32>, scrollable_overflow_rect: Rect<f32>) -> Self {
+        Self::from_sizes_and_baselines(size, scrollable_overflow_rect, Baselines::NONE)
     }
 
     /// Construct a `LayoutOutput` from just the container's size.
     pub fn from_outer_size(size: Size<f32>) -> Self {
-        Self::from_sizes(size, Size::zero())
+        Self::from_sizes(size, Rect::ZERO)
     }
 }
 
@@ -258,9 +271,20 @@ pub struct Layout {
     /// The width and height of the node
     pub size: Size<f32>,
     #[cfg(feature = "content_size")]
-    /// The width and height of the content inside the node. This may be larger than the size of the node in the case of
-    /// overflowing content and is useful for computing a "scroll width/height" for scrollable nodes
-    pub content_size: Size<f32>,
+    /// The scrollable overflow rectangle of the node: the axis-aligned rectangle containing the
+    /// content of the node (the border boxes of its descendants plus their non-clipped overflow),
+    /// corresponding to the CSS "scrollable overflow rectangle"
+    /// (<https://www.w3.org/TR/css-overflow-3/#scrollable>), except that transforms are not
+    /// accounted for.
+    ///
+    /// Coordinates are measured from the node's *scroll origin*: the corner of the padding box at
+    /// the block-start/inline-start edge (the top-left corner in LTR, the top-*right* corner in
+    /// RTL), with `left`/`right` measuring along the inline axis in the direction of reachable
+    /// scrolling. The rectangle always contains the origin, so `left`/`top` are `<= 0.0` (negative
+    /// values represent overflow before the scroll origin, which is unreachable by scrolling) and
+    /// `right`/`bottom` are `>= 0.0` (representing the reachable extent of the content, which is
+    /// useful for computing a "scroll width/height" for scrollable nodes).
+    pub scrollable_overflow_rect: Rect<f32>,
     /// The size of the scrollbars in each dimension. If there is no scrollbar then the size will be zero.
     pub scrollbar_size: Size<f32>,
     /// The size of the borders of the node
@@ -290,7 +314,7 @@ impl Layout {
             location: Point::ZERO,
             size: Size::zero(),
             #[cfg(feature = "content_size")]
-            content_size: Size::zero(),
+            scrollable_overflow_rect: Rect::ZERO,
             scrollbar_size: Size::zero(),
             border: Rect::zero(),
             padding: Rect::zero(),
@@ -309,7 +333,7 @@ impl Layout {
             size: Size::zero(),
             location: Point::ZERO,
             #[cfg(feature = "content_size")]
-            content_size: Size::zero(),
+            scrollable_overflow_rect: Rect::ZERO,
             scrollbar_size: Size::zero(),
             border: Rect::zero(),
             padding: Rect::zero(),
@@ -348,22 +372,25 @@ impl Layout {
 
 #[cfg(feature = "content_size")]
 impl Layout {
-    /// Return the scroll width of the node.
-    /// The scroll width is the difference between the width and the content width, floored at zero
+    /// Return the maximum horizontal scroll offset of the node.
+    /// This is the reachable extent of the content less the width of the padding box, floored at zero.
     pub fn scroll_width(&self) -> f32 {
         f32_max(
             0.0,
-            self.content_size.width + f32_min(self.scrollbar_size.width, self.size.width) - self.size.width
+            self.scrollable_overflow_rect.right + f32_min(self.scrollbar_size.width, self.size.width) - self.size.width
+                + self.border.left
                 + self.border.right,
         )
     }
 
-    /// Return the scroll height of the node.
-    /// The scroll height is the difference between the height and the content height, floored at zero
+    /// Return the maximum vertical scroll offset of the node.
+    /// This is the reachable extent of the content less the height of the padding box, floored at zero.
     pub fn scroll_height(&self) -> f32 {
         f32_max(
             0.0,
-            self.content_size.height + f32_min(self.scrollbar_size.height, self.size.height) - self.size.height
+            self.scrollable_overflow_rect.bottom + f32_min(self.scrollbar_size.height, self.size.height)
+                - self.size.height
+                + self.border.top
                 + self.border.bottom,
         )
     }

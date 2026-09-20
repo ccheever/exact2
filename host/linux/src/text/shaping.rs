@@ -67,6 +67,7 @@ pub(super) struct ShapedSource {
     pub(super) catalog: catalog::Lease,
     pub(super) data: Arc<ShapeData>,
     pub(super) accessible_capacity_bytes: usize,
+    pub(super) flow: RefCell<Option<Rc<super::flow::FlowSource>>>,
 }
 // Only immutable arrays/scalars cross the thread boundary, never the UI lease.
 pub(super) struct ShapeData {
@@ -76,6 +77,23 @@ pub(super) struct ShapeData {
     run_metrics: Vec<FontMetrics>,
 }
 impl ShapedSource {
+    pub(super) fn flow_box<'a>(&self, glyphs: impl Iterator<Item = &'a LayoutGlyph>) -> (f32, f32) {
+        let (above, below, _) = line_box(
+            glyphs,
+            &self.spec,
+            &mut self.catalog.borrow_mut(),
+            self.data.strut,
+            &self.data.run_metrics,
+        );
+        (above, above + below)
+    }
+    pub(super) fn flow_capacity_bytes(&self) -> usize {
+        self.flow
+            .borrow()
+            .as_ref()
+            .map_or(0, |f| f.capacity_bytes())
+    }
+
     pub(super) fn new(lease: catalog::Lease, spec: Arc<Spec>) -> Self {
         let mut catalog = lease.borrow_mut();
         let minimum = catalog.line_height(&spec.strut);
@@ -169,6 +187,7 @@ impl ShapedSource {
                 run_metrics,
             }),
             accessible_capacity_bytes: 0,
+            flow: RefCell::new(None),
         };
         source.accessible_capacity_bytes = source.capacities();
         source
@@ -184,6 +203,7 @@ impl ShapedSource {
             catalog,
             data,
             accessible_capacity_bytes: bytes,
+            flow: RefCell::new(None),
         }
     }
     fn capacities(&self) -> usize {
@@ -201,6 +221,9 @@ impl ShapedSource {
             }
         }
         bytes
+    }
+    pub(super) fn layout_line_slots(&self) -> Vec<Vec<LayoutLine>> {
+        self.data.lines.iter().map(|_| Vec::new()).collect()
     }
     pub(super) fn layout(self: &Rc<Self>, width: Option<f32>, wrap: Option<Wrap>) -> Paragraph {
         let spec = &self.spec;
@@ -263,6 +286,7 @@ impl ShapedSource {
         let mut paragraph = Paragraph {
             source: self.clone(),
             layouts: Arc::new(layouts),
+            flow: None,
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
             width: 0.,
@@ -396,6 +420,7 @@ impl ShapedSource {
         let mut paragraph = Paragraph {
             source: self.clone(),
             layouts: Arc::new(layouts),
+            flow: None,
             #[cfg(test)]
             layout_lifetime: Arc::new(()),
             width: 0.,
@@ -415,42 +440,9 @@ impl ShapedSource {
         let mut explicit = false;
         for run in paragraph.layout_runs() {
             w = w.max(run.line_w);
-            let (mut above, mut below) = strut;
-            let mut above_explicit = spec.strut.line_height.is_some();
-            let mut below_explicit = above_explicit;
-            for glyph in run.glyphs {
-                if let Some(font) = catalog.fonts.get_font(glyph.font_id, glyph.font_weight) {
-                    let m = font.metrics();
-                    let scale = glyph.font_size / m.units_per_em as f32;
-                    // Explicit lengths size the authored inline box; only
-                    // normal expands to the actual fallback glyph font.
-                    let (ascent, descent, leading) =
-                        if spec.runs[glyph.metadata].line_height.is_some() {
-                            run_metrics[glyph.metadata]
-                        } else {
-                            (m.ascent * scale, m.descent.abs() * scale, m.leading * scale)
-                        };
-                    let height = spec.runs[glyph.metadata]
-                        .line_height
-                        .unwrap_or(ascent + descent + leading);
-                    let half = (height - ascent - descent - leading) / 2.0;
-                    let run_explicit = spec.runs[glyph.metadata].line_height.is_some();
-                    let (a, b) = (ascent + half, descent + leading + half);
-                    if a > above {
-                        above = a;
-                        above_explicit = run_explicit;
-                    } else if a == above {
-                        above_explicit &= run_explicit;
-                    }
-                    if b > below {
-                        below = b;
-                        below_explicit = run_explicit;
-                    } else if b == below {
-                        below_explicit &= run_explicit;
-                    }
-                }
-            }
-            explicit |= above_explicit || below_explicit;
+            let (above, below, is_explicit) =
+                line_box(run.glyphs.iter(), spec, &mut catalog, strut, run_metrics);
+            explicit |= is_explicit;
             baselines.push(h + above);
             h += above + below;
         }
@@ -463,21 +455,69 @@ impl ShapedSource {
     }
 }
 
+fn line_box<'a>(
+    glyphs: impl Iterator<Item = &'a LayoutGlyph>,
+    spec: &Spec,
+    catalog: &mut catalog::Catalog,
+    strut: (f32, f32),
+    run_metrics: &[FontMetrics],
+) -> (f32, f32, bool) {
+    let (mut above, mut below) = strut;
+    let mut above_explicit = spec.strut.line_height.is_some();
+    let mut below_explicit = above_explicit;
+    for glyph in glyphs {
+        if let Some(font) = catalog.fonts.get_font(glyph.font_id, glyph.font_weight) {
+            let m = font.metrics();
+            let scale = glyph.font_size / m.units_per_em as f32;
+            // Explicit lengths size the authored inline box; only
+            // normal expands to the actual fallback glyph font.
+            let (ascent, descent, leading) = if spec.runs[glyph.metadata].line_height.is_some() {
+                run_metrics[glyph.metadata]
+            } else {
+                (m.ascent * scale, m.descent.abs() * scale, m.leading * scale)
+            };
+            let height = spec.runs[glyph.metadata]
+                .line_height
+                .unwrap_or(ascent + descent + leading);
+            let half = (height - ascent - descent - leading) / 2.0;
+            let run_explicit = spec.runs[glyph.metadata].line_height.is_some();
+            let (a, b) = (ascent + half, descent + leading + half);
+            if a > above {
+                above = a;
+                above_explicit = run_explicit;
+            } else if a == above {
+                above_explicit &= run_explicit;
+            }
+            if b > below {
+                below = b;
+                below_explicit = run_explicit;
+            } else if b == below {
+                below_explicit &= run_explicit;
+            }
+        }
+    }
+    (above, below, above_explicit || below_explicit)
+}
+
 pub(super) struct Runs<'a> {
+    paragraph: &'a Paragraph,
     source: &'a ShapedSource,
     layouts: &'a [Vec<LayoutLine>],
     line: usize,
     wrapped: usize,
     top: f32,
+    index: usize,
 }
 impl<'a> Runs<'a> {
-    pub(super) fn new(source: &'a ShapedSource, layouts: &'a [Vec<LayoutLine>]) -> Self {
+    pub(super) fn new(paragraph: &'a Paragraph) -> Self {
         Self {
-            source,
-            layouts,
+            paragraph,
+            source: &paragraph.source,
+            layouts: &paragraph.layouts,
             line: 0,
             wrapped: 0,
             top: 0.,
+            index: 0,
         }
     }
 }
@@ -497,6 +537,17 @@ impl<'a> Iterator for Runs<'a> {
                 if line_y + layout.max_descent < 0. {
                     continue;
                 }
+                let (line_top, line_y, line_height) =
+                    if let Some(flow) = self.paragraph.flow.as_ref().filter(|f| !f.incomplete) {
+                        (
+                            flow.fragments[self.index].y,
+                            self.paragraph.baselines[self.index],
+                            flow.line_height,
+                        )
+                    } else {
+                        (line_top, line_y, line_height)
+                    };
+                self.index += 1;
                 return Some(LayoutRun {
                     line_i: self.line,
                     text: &line.text,

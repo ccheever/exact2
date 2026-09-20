@@ -352,6 +352,7 @@ final class Presenter {
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
+    var onPan: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var interacting: UInt32 = 0
@@ -433,6 +434,7 @@ final class Presenter {
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
+    func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
@@ -511,6 +513,8 @@ final class Presenter {
                 if v.kind == "list" { listViews[id] = v }
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
+            case "flow":
+                views[id]?.applyFlow(op["shapes"] as? [[String: Any]] ?? [])
             case "style":
                 views[id]?.applyStyle(op["style"] as? [String: Any] ?? [:])
             case "children":

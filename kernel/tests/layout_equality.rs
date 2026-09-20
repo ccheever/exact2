@@ -490,7 +490,7 @@ fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
             Style {
                 display: taffy::Display::Flex,
                 flex_wrap: FlexWrap::Wrap,
-                align_items: Some(taffy::AlignItems::Center),
+                align_items: Some(taffy::AlignItems::CENTER),
                 gap: Size {
                     width: length(10.0_f32),
                     height: length(0.0_f32),
@@ -510,28 +510,32 @@ fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
             &[row],
         )
         .unwrap();
-    let measure = |known: Size<Option<f32>>,
-                   space: Size<AvailableSpace>,
-                   _,
-                   context: Option<&mut bool>,
-                   _: &Style| {
-        let is_save = *context.unwrap();
-        let full = if is_save { 75.0 } else { 122.0 };
-        let narrow = if is_save { 41.0 } else { 65.0 };
-        let available = known.width.unwrap_or(match space.width {
-            AvailableSpace::MinContent => narrow,
-            AvailableSpace::MaxContent => full,
-            AvailableSpace::Definite(width) => width,
-        });
-        Size {
-            width: known
-                .width
-                .unwrap_or(if available < full { narrow } else { full }),
-            height: known
-                .height
-                .unwrap_or(if available < full { 38.0 } else { 19.0 }),
-        }
-    };
+    let measure =
+        |inputs: taffy::tree::LayoutInput, _, context: Option<&mut bool>, style: &Style| {
+            taffy::compute_leaf_layout(
+                inputs,
+                style,
+                |_, _| 0.0,
+                |known, space| {
+                    let is_save = *context.unwrap();
+                    let full = if is_save { 75.0 } else { 122.0 };
+                    let narrow = if is_save { 41.0 } else { 65.0 };
+                    let available = known.width.unwrap_or(match space.width {
+                        AvailableSpace::MinContent => narrow,
+                        AvailableSpace::MaxContent => full,
+                        AvailableSpace::Definite(width) => width,
+                    });
+                    Size {
+                        width: known
+                            .width
+                            .unwrap_or(if available < full { narrow } else { full }),
+                        height: known
+                            .height
+                            .unwrap_or(if available < full { 38.0 } else { 19.0 }),
+                    }
+                },
+            )
+        };
     let offer = Size {
         width: AvailableSpace::Definite(322.0),
         height: AvailableSpace::MaxContent,
@@ -656,4 +660,291 @@ fn reader_resize_replacement_and_recreation_equal_replay_and_rehydration() {
             }
         }
     }
+}
+
+// @ref LLP 1043.000 §3 D3/D4 — exclusions are pure derived geometry.
+#[test]
+fn moving_exclusions_equal_fresh_replay_and_rehydration() {
+    use exact_kernel::{FlowShape, ShapeOutside, WrapFlow};
+    let mut root = StyleProps::default();
+    root.width = Dimension::Points(600.);
+    root.height = Dimension::Points(400.);
+    root.mask.set(StyleId::Width);
+    root.mask.set(StyleId::Height);
+    let mut ball = root.clone();
+    ball.width = Dimension::Points(120.);
+    ball.height = Dimension::Points(120.);
+    ball.position_type = PositionType::Absolute;
+    ball.top = Dimension::Points(0.);
+    ball.mask.set(StyleId::Top);
+    ball.wrap_flow = WrapFlow::Both;
+    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    for row in [
+        StyleId::PositionType,
+        StyleId::WrapFlow,
+        StyleId::ShapeOutside,
+    ] {
+        ball.mask.set(row);
+    }
+    let mut log = vec![vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::Text,
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(root.clone()),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(root),
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: Box::new(ball),
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::Text,
+            value: exact_kernel::PropValue::Str("Flowing words".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+        Op::AttachRoot { id: 1 },
+    ]];
+    let mut incremental = Kernel::with_monospace();
+    incremental.apply(0, 0, &log[0]).unwrap();
+    let offer = Offer::definite(600., 400.);
+    for (i, x) in [0., 100., 250., 800., 75.].into_iter().enumerate() {
+        let mut s = StyleProps::default();
+        s.left = Dimension::Points(x);
+        s.mask.set(StyleId::Left);
+        log.push(vec![Op::SetStyle {
+            id: 3,
+            patch: Box::new(s),
+        }]);
+        incremental.apply(0, 0, log.last().unwrap()).unwrap();
+        incremental.compute_layout(1, offer).unwrap();
+        let expected: Vec<FlowShape> = incremental.node(2).unwrap().flow_shapes().to_vec();
+        assert_eq!(expected.len(), usize::from(i != 3));
+        let mut replay = Kernel::with_monospace();
+        for batch in &log {
+            replay.apply(0, 0, batch).unwrap();
+        }
+        replay.compute_layout(1, offer).unwrap();
+        let mut rehydrated = incremental.rehydrate(Box::new(MonospaceMeasurer::default()));
+        rehydrated.compute_layout(1, offer).unwrap();
+        for other in [&replay, &rehydrated] {
+            assert_eq!(other.node(2).unwrap().flow_shapes(), expected);
+            assert!(other
+                .node(2)
+                .unwrap()
+                .frame
+                .bits_eq(incremental.node(2).unwrap().frame));
+        }
+    }
+}
+
+#[test]
+fn upstream_leaf_keeps_border_box_compute_size_inputs() {
+    use taffy::{
+        compute_leaf_layout,
+        geometry::Size,
+        style::{Dimension as D, Style},
+        tree::{LayoutInput, RunMode, SizingMode},
+        AvailableSpace,
+    };
+    let mut seen = None;
+    let style: Style = Style {
+        size: Size {
+            width: D::length(300.),
+            height: D::auto(),
+        },
+        padding: taffy::geometry::Rect::length(50f32),
+        box_sizing: taffy::BoxSizing::ContentBox,
+        ..Default::default()
+    };
+    compute_leaf_layout(
+        LayoutInput {
+            known_dimensions: Size {
+                width: Some(400.),
+                height: None,
+            },
+            parent_size: Size {
+                width: Some(600.),
+                height: Some(500.),
+            },
+            available_space: Size {
+                width: AvailableSpace::Definite(600.),
+                height: AvailableSpace::MaxContent,
+            },
+            run_mode: RunMode::ComputeSize,
+            sizing_mode: SizingMode::InherentSize,
+            ..LayoutInput::HIDDEN
+        },
+        &style,
+        |_, _| 0.,
+        |known, _| {
+            seen = known.width;
+            Size::ZERO
+        },
+    );
+    assert_eq!(
+        seen,
+        Some(400.),
+        "ComputeSize must pass upstream border-box known dimensions unchanged"
+    );
+}
+
+#[test]
+fn measured_baselines_include_padding_and_inherited_direction_relayouts_boxes() {
+    use exact_kernel::{StyleValue, TextMeasureRequest, TextMeasurer, TextMetrics};
+    struct Measurer;
+    impl TextMeasurer for Measurer {
+        fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+            let h = r.paragraph.strut.font_size;
+            TextMetrics {
+                width: 20.,
+                height: h,
+                first_baseline: Some(h * 0.75),
+            }
+        }
+    }
+    let style = |id, rows: &[(StyleId, StyleValue)]| {
+        let mut patch = StyleProps::default();
+        for (row, value) in rows {
+            patch.set_dynamic(*row, value).unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let n = StyleValue::Number;
+    let t = |s: &str| StyleValue::Text(s.into());
+    let mut k = Kernel::new(Box::new(Measurer));
+    let ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::Text,
+        },
+        Op::CreateView {
+            id: 4,
+            node_type: NodeType::Text,
+        },
+        style(1, &[(StyleId::Width, n(200.))]),
+        style(
+            2,
+            &[
+                (StyleId::Display, t("flex")),
+                (StyleId::AlignItems, t("baseline")),
+            ],
+        ),
+        style(
+            3,
+            &[(StyleId::FontSize, n(20.)), (StyleId::PaddingTop, n(3.))],
+        ),
+        style(4, &[(StyleId::FontSize, n(40.))]),
+        Op::SetProp {
+            id: 3,
+            prop: PropId::Text,
+            value: "small".into(),
+        },
+        Op::SetProp {
+            id: 4,
+            prop: PropId::Text,
+            value: "large".into(),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    k.apply(0, 0, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(200., 500.)).unwrap();
+    assert_eq!(k.node(3).unwrap().frame.y, 12.);
+    assert_eq!(k.node(4).unwrap().frame.y, 0.);
+    assert_eq!(k.node(3).unwrap().frame.x, 0.);
+    k.apply(0, 0, &[style(1, &[(StyleId::Direction, t("rtl"))])])
+        .unwrap();
+    k.compute_layout(1, Offer::definite(200., 500.)).unwrap();
+    assert_eq!(k.node(3).unwrap().frame.x, 180.);
+    let mut fresh = k.rehydrate(Box::new(Measurer));
+    fresh
+        .compute_layout(1, Offer::definite(200., 500.))
+        .unwrap();
+    for id in 1..=4 {
+        assert!(k
+            .node(id)
+            .unwrap()
+            .frame
+            .bits_eq(fresh.node(id).unwrap().frame));
+    }
+}
+
+#[test]
+fn default_block_alignment_preserves_nested_collapsed_margins() {
+    use exact_kernel::StyleId::*;
+    use reader::{number as n, style};
+    let mut k = Kernel::with_monospace();
+    let mut ops: Vec<_> = (1..=4)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        })
+        .collect();
+    ops.extend([
+        style(1, &[(Width, n(200.)), (PaddingTop, n(1.))]),
+        style(2, &[(Height, n(50.)), (MarginBottom, n(40.))]),
+        style(3, &[(MarginTop, n(60.))]),
+        style(4, &[(Height, n(20.)), (MarginTop, n(100.))]),
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 0, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(200., 500.)).unwrap();
+    // CSS 2.1 §8.3.1: 1px padding + 50px sibling + max(40, 60, 100).
+    // An implicit align-content:stretch wrongly creates a BFC and gives 211.
+    assert_eq!(k.node(3).unwrap().frame.y, 151.);
+    assert_eq!(k.node(4).unwrap().frame.y, 151.);
+    assert_eq!(k.node(1).unwrap().frame.height, 171.);
+    // Negative control: explicitly non-normal alignment does establish a BFC.
+    k.apply(
+        0,
+        0,
+        &[style(3, &[(AlignContent, reader::text("stretch"))])],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(200., 500.)).unwrap();
+    assert_eq!(k.node(4).unwrap().frame.y, 211.);
 }

@@ -66,6 +66,19 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// @ref LLP 1043.000 §3 D4 — empty geometry clears a former flow.
+    pub fn flow(&mut self, id: u32, shapes: &[exact_kernel::FlowShape]) {
+        let mut s = format!("{{\"op\":\"flow\",\"id\":{id},\"shapes\":[");
+        for (i, shape) in shapes.iter().enumerate() {
+            if i != 0 {
+                s.push(',');
+            }
+            exact_runner::agent::flow_shape_json(shape, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// The caller has preflighted source/structural/wire bounds. Allocate the
     /// staging vector before encoding; appending moves complete ops only.
     pub(crate) fn staging(ops: usize) -> Result<Self, String> {
@@ -291,9 +304,17 @@ impl Batch {
         ));
     }
 
+    /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.
-    pub fn finish(self, timers: bool, motion: bool, clock_ms: f64, error: Option<&str>) -> String {
+    pub fn finish(
+        self,
+        timer_due_ms: Option<f64>,
+        motion: bool,
+        clock_ms: f64,
+        error: Option<&str>,
+    ) -> String {
+        let timers = timer_due_ms.is_some();
         let mut s = String::from("{\"ops\":[");
         for (i, op) in self.ops.iter().enumerate() {
             if i != 0 {
@@ -301,9 +322,13 @@ impl Batch {
             }
             s.push_str(op);
         }
+        s.push(']');
+        if let Some(due) = timer_due_ms {
+            let _ = write!(s, ",\"timer_due_ms\":{due}");
+        }
         let _ = write!(
             s,
-            "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+            ",\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
         );
         match error {
             Some(e) => quote(e, &mut s),
@@ -335,6 +360,19 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
             }
             out.push(']');
         }
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    #[test]
+    fn batches_carry_deadlines_and_omit_them_without_timers() {
+        let next = super::Batch::new().finish(Some(16.0), false, 0.0, None);
+        assert!(next.contains("\"timer_due_ms\":16,"), "{next}");
+        assert!(next.contains("\"timers\":true"), "{next}");
+        let empty = super::Batch::new().finish(None, false, 0.0, None);
+        assert!(!empty.contains("timer_due_ms"), "{empty}");
+        assert!(empty.contains("\"timers\":false"), "{empty}");
     }
 }
 
@@ -394,9 +432,17 @@ mod finish_bytes_tests {
                             batch.roots(&[1]);
                             batch.collections("[]");
                             batch.ops.truncate(count);
-                            let expected = old_finish(&batch, timers, motion, clock, error);
+                            let mut expected = old_finish(&batch, timers, motion, clock, error);
+                            let deadline = timers.then_some(16.0);
+                            if timers {
+                                expected = expected.replacen(
+                                    ",\"timers\":",
+                                    ",\"timer_due_ms\":16,\"timers\":",
+                                    1,
+                                );
+                            }
                             assert_eq!(
-                                batch.finish(timers, motion, clock, error).as_bytes(),
+                                batch.finish(deadline, motion, clock, error).as_bytes(),
                                 expected.as_bytes()
                             );
                         }

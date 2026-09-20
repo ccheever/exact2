@@ -81,8 +81,11 @@ impl Derived {
             width: taffy::style::Dimension::length(frame.width),
             height: taffy::style::Dimension::length(frame.height),
         };
-        style.min_size = style.size;
-        style.max_size = style.size;
+        style.min_size = taffy::geometry::Size {
+            width: taffy::style::LengthPercentageAuto::length(frame.width),
+            height: taffy::style::LengthPercentageAuto::length(frame.height),
+        };
+        style.max_size = style.min_size;
         style.margin = taffy::geometry::Rect {
             left: taffy::style::LengthPercentageAuto::length(0.),
             right: taffy::style::LengthPercentageAuto::length(0.),
@@ -103,7 +106,8 @@ impl Derived {
         m: &mut dyn TextMeasurer,
         offer: Offer,
     ) -> Result<(), LayoutError> {
-        self.tree.compute(self.root, offer, arena, m)
+        self.tree
+            .compute_mapped(self.root, offer, arena, m, |s| self.nodes.get(&s).copied())
     }
     pub fn paint_offers(&self, arena: &NodeArena) -> Vec<(u32, f32)> {
         self.slots
@@ -163,8 +167,8 @@ impl Derived {
                 frame.y,
                 frame.width,
                 frame.height,
-                l.content_size.width,
-                l.content_size.height,
+                l.scrollable_overflow_rect.right,
+                l.scrollable_overflow_rect.bottom,
             ]
             .into_iter()
             .all(f32::is_finite)
@@ -186,7 +190,11 @@ impl Derived {
                 frames.push(RegionFrame {
                     node: arena.key(s),
                     frame,
-                    content: (l.content_size.width, l.content_size.height),
+                    content: (
+                        l.scrollable_overflow_rect.right,
+                        l.scrollable_overflow_rect.bottom,
+                    ),
+                    height_measured: self.tree.height_measured(self.nodes[&s]),
                 });
                 offsets.push(RegionOffset {
                     parent,
@@ -250,8 +258,8 @@ pub(super) fn shell(
             frame.y,
             frame.width,
             frame.height,
-            l.content_size.width,
-            l.content_size.height,
+            l.scrollable_overflow_rect.right,
+            l.scrollable_overflow_rect.bottom,
         ]
         .into_iter()
         .all(f32::is_finite)
@@ -261,7 +269,11 @@ pub(super) fn shell(
         frames.push(RegionFrame {
             node: arena.key(s),
             frame,
-            content: (l.content_size.width, l.content_size.height),
+            content: (
+                l.scrollable_overflow_rect.right,
+                l.scrollable_overflow_rect.bottom,
+            ),
+            height_measured: tree.height_measured(n),
         });
         if s != cut {
             for &c in arena.children(s).iter().rev() {

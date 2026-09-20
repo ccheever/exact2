@@ -10,9 +10,8 @@ mod node;
 pub mod traits;
 
 pub use cache::{Cache, ClearState};
-// EXACT PATCH (LLP 0440 D5): re-export the additive measure result.
 pub use layout::{
-    CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, MeasureOutput, RequestedAxis, RunMode, SizingMode,
+    Baselines, CollapsibleMarginSet, Layout, LayoutInput, LayoutOutput, RequestedAxis, RunMode, SizingMode,
 };
 pub use node::NodeId;
 pub(crate) use traits::LayoutPartialTreeExt;

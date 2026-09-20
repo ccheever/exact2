@@ -1,0 +1,448 @@
+mod support;
+use exact_textflow::{Cursor, Options, OverflowWrap, Prepared};
+use support::{advance, lines, prepare, CORPUS};
+
+fn options(mode: OverflowWrap) -> Options {
+    Options {
+        white_space: exact_textflow::WhiteSpace::Normal,
+        overflow_wrap: mode,
+        hyphen_advance: 8.0,
+    }
+}
+fn ranges(text: &str, width: f32, mode: OverflowWrap) -> Vec<(String, f32)> {
+    lines(&prepare(text, options(mode)), width)
+        .iter()
+        .map(|l| (text[l.start.byte..l.end.byte].to_owned(), l.width))
+        .collect()
+}
+#[test]
+fn latin_hanging_and_multiple_spaces() {
+    assert_eq!(
+        ranges("one two three", 56.0, OverflowWrap::Normal),
+        [("one two ".into(), 56.0), ("three".into(), 40.0)]
+    );
+    assert_eq!(
+        ranges("one   two", 24.0, OverflowWrap::Normal),
+        [("one   ".into(), 24.0), ("two".into(), 24.0)]
+    );
+    assert_eq!(
+        ranges("one                  ", 24.0, OverflowWrap::Normal),
+        [("one                  ".into(), 24.0)]
+    );
+    assert_eq!(
+        ranges("  one   two  ", 56.0, OverflowWrap::Normal),
+        [("  one   two  ".into(), 56.0)]
+    );
+}
+#[test]
+fn hard_breaks_blank_lines_and_terminal_newline() {
+    let p = prepare(
+        "one\ntwo\u{2028}\nthree\r\n",
+        Options {
+            white_space: exact_textflow::WhiteSpace::PreWrap,
+            ..Options::default()
+        },
+    );
+    let ls = lines(&p, 1000.0);
+    assert_eq!(ls.len(), 4);
+    assert!(ls.iter().all(|l| l.hard_break));
+    assert_eq!(
+        ls.iter().map(|l| l.width).collect::<Vec<_>>(),
+        [24.0, 24.0, 0.0, 40.0]
+    );
+    assert_eq!(
+        ls.last().unwrap().end.byte,
+        "one\ntwo\u{2028}\nthree\r\n".len()
+    );
+    assert_eq!(
+        prepare(
+            "\n",
+            Options {
+                white_space: exact_textflow::WhiteSpace::PreWrap,
+                ..Options::default()
+            }
+        )
+        .line_stats(10.0),
+        (1, 0.0)
+    );
+}
+#[test]
+fn soft_hyphen_only_costs_width_when_selected() {
+    let text = "ab\u{ad}cdef";
+    let p = prepare(text, options(OverflowWrap::Normal));
+    let ls = lines(&p, 24.0);
+    assert_eq!(ls.len(), 2);
+    assert_eq!(ls[0].width, 24.0);
+    assert!(ls[0].hyphenated);
+    assert_eq!(&text[..ls[0].end.byte], "ab\u{ad}");
+    assert_eq!(ls[1].width, 32.0);
+    let wide = lines(&p, 48.0);
+    assert_eq!(wide.len(), 1);
+    assert_eq!(wide[0].width, 48.0);
+    assert!(!wide[0].hyphenated);
+    let terminal = lines(&prepare("ab\u{ad}", options(OverflowWrap::Normal)), 16.0);
+    assert_eq!(terminal[0].width, 16.0);
+    assert!(!terminal[0].hyphenated);
+    let retreat = lines(
+        &prepare("x ab\u{ad}cdef", options(OverflowWrap::Normal)),
+        32.0,
+    );
+    assert_eq!(retreat[0].end.byte, 2); // The visible hyphen would not fit after "x ab".
+}
+#[test]
+fn all_overflow_wrap_modes_and_min_content() {
+    for mode in [
+        OverflowWrap::Normal,
+        OverflowWrap::BreakWord,
+        OverflowWrap::Anywhere,
+    ] {
+        let p = prepare("abcdefgh", options(mode));
+        let ls = lines(&p, 24.0);
+        if mode == OverflowWrap::Normal {
+            assert_eq!(ls.len(), 1);
+            assert_eq!(ls[0].width, 64.0);
+        } else {
+            assert_eq!(
+                ls.iter()
+                    .map(|l| (l.start.byte, l.end.byte, l.width))
+                    .collect::<Vec<_>>(),
+                [(0, 3, 24.0), (3, 6, 24.0), (6, 8, 16.0)]
+            );
+        }
+        assert_eq!(p.natural_width(), 64.0);
+        assert_eq!(
+            p.min_content_width(),
+            if mode == OverflowWrap::Anywhere {
+                8.0
+            } else {
+                64.0
+            }
+        );
+    }
+    assert_eq!(
+        ranges("a abcdef", 24.0, OverflowWrap::Anywhere),
+        [
+            ("a ".into(), 8.0),
+            ("abc".into(), 24.0),
+            ("def".into(), 24.0)
+        ]
+    );
+}
+#[test]
+fn cjk_opener_closer_and_url_opportunities() {
+    assert_eq!(
+        ranges("中文日本", 32.0, OverflowWrap::Normal),
+        [("中文".into(), 32.0), ("日本".into(), 32.0)]
+    );
+    assert_eq!(
+        ranges("中「文」日", 32.0, OverflowWrap::Normal),
+        [
+            ("中".into(), 16.0),
+            ("「文」".into(), 48.0),
+            ("日".into(), 16.0)
+        ]
+    );
+    let url = "https://example.com/a/b?x=1&y=2";
+    let p = prepare(url, Options::default());
+    let ls = lines(&p, 80.0);
+    assert!(ls.len() > 1);
+    assert_eq!(&url[..ls[0].end.byte], "https://");
+    assert_eq!(ls.last().unwrap().end.byte, url.len());
+}
+#[test]
+fn logical_rtl_ranges_and_empty_inputs() {
+    let text = "مرحبا بالعالم שלום עולם";
+    let ls = lines(&prepare(text, Options::default()), 48.0);
+    assert_eq!(ls.len(), 4);
+    assert_eq!(&text[..ls[0].end.byte], "مرحبا ");
+    for pair in ls.windows(2) {
+        assert_eq!(pair[0].end, pair[1].start);
+    }
+    for empty in ["", " ", "\t  "] {
+        assert!(lines(&prepare(empty, Options::default()), 0.0).is_empty());
+    }
+}
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn cached_measurements_send_sync_and_invalid_advances() {
+    fn send_sync<T: Send + Sync>() {}
+    send_sync::<Prepared>();
+    let text = "first second third";
+    let mut calls = Vec::new();
+    let p = Prepared::new(text, Options::default(), &mut |r: std::ops::Range<
+        usize,
+    >| {
+        calls.push(r.clone());
+        advance(&text[r])
+    });
+    let before = calls.len();
+    assert_eq!(before, 5);
+    let unique: std::collections::HashSet<_> = calls.iter().map(|r| (r.start, r.end)).collect();
+    assert_eq!(unique.len(), before);
+    for width in [0.0, 24.0, 80.0, f32::INFINITY] {
+        p.line_stats(width);
+        p.natural_width();
+        p.min_content_width();
+    }
+    assert_eq!(calls.len(), before);
+    let p = Prepared::new(
+        "a b",
+        Options {
+            hyphen_advance: f32::NAN,
+            ..Options::default()
+        },
+        &mut |_| f32::NAN,
+    );
+    assert_eq!(p.line_stats(0.0), (1, 0.0));
+    let mut bad = Cursor::default();
+    bad.byte = 1;
+    assert!(p.next_line(bad, 10.0).is_none());
+}
+#[test]
+fn stats_and_coverage_for_the_corpus_at_many_widths() {
+    for text in CORPUS {
+        for mode in [
+            OverflowWrap::Normal,
+            OverflowWrap::BreakWord,
+            OverflowWrap::Anywhere,
+        ] {
+            let p = prepare(text, options(mode));
+            for width in [0.0, 8.0, 24.0, 64.0, 640.0, f32::INFINITY] {
+                let ls = lines(&p, width);
+                assert_eq!(
+                    p.line_stats(width),
+                    (ls.len(), ls.iter().map(|l| l.width).fold(0.0, f32::max))
+                );
+                let mut at = 0;
+                for l in &ls {
+                    assert_eq!(l.start.byte, at);
+                    assert!(text.is_char_boundary(l.end.byte));
+                    at = l.end.byte;
+                }
+                assert!(
+                    text[at..].chars().all(char::is_whitespace),
+                    "uncovered {text:?}"
+                );
+            }
+        }
+    }
+    let p = prepare("one two\nthree", Options::default());
+    assert_eq!(p.natural_width(), 104.0);
+    assert_eq!(p.min_content_width(), 40.0);
+    let p = prepare("ab\u{ad}cd", options(OverflowWrap::Normal));
+    assert_eq!(p.min_content_width(), 24.0);
+}
+
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn pretext_emergency_wrapping_preserves_complete_graphemes() {
+    for cluster in [
+        "e\u{301}",
+        "👩‍💻",
+        "👍🏽",
+        "क्ष",
+        "❤️",
+        "☀︎",
+        "🇺🇸",
+        "ب\u{650}",
+        "का",
+        "a\u{20dd}",
+        "a\u{f7f}",
+        "a\u{897}",
+        "a\u{113b8}",
+    ] {
+        let text = format!("a{cluster}b");
+        for mode in [OverflowWrap::BreakWord, OverflowWrap::Anywhere] {
+            let ls = lines(&prepare(&text, options(mode)), 1.0);
+            assert!(
+                ls.iter()
+                    .any(|l| &text[l.start.byte..l.end.byte] == cluster),
+                "split {cluster:?}: {ls:?}"
+            );
+        }
+    }
+}
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn pretext_empty_collapsed_whitespace_and_glue() {
+    assert!(lines(&prepare("  \t  ", Options::default()), 200.0).is_empty());
+    assert_eq!(
+        prepare("  Hello\t   World  ", Options::default()).natural_width(),
+        88.0
+    );
+    for text in [
+        "Hello\u{a0}world",
+        "10\u{202f}000",
+        "a\u{2007}\u{2007}b",
+        "foo\u{2060}bar",
+    ] {
+        assert_eq!(
+            lines(&prepare(text, Options::default()), 1.0).len(),
+            1,
+            "{text}"
+        );
+    }
+}
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn pretext_zero_width_space_and_overflowing_first_glyph() {
+    for text in ["\u{200b}", "\u{200b}\u{200b}"] {
+        let ls = lines(&prepare(text, Options::default()), 0.0);
+        assert_eq!(ls.len(), 1);
+        assert_eq!(ls[0].width, 0.0);
+        assert_eq!(ls[0].end.byte, text.len());
+    }
+    for separator in [" ", "\u{200b}"] {
+        let text = format!("字{separator}字");
+        let ls = lines(&prepare(&text, Options::default()), 5.0);
+        assert_eq!(ls.len(), 2);
+        assert_eq!(&text[..ls[0].end.byte], format!("字{separator}"));
+    }
+    assert_eq!(
+        prepare("alpha\u{200b}beta", Options::default()).line_stats(40.0),
+        (2, 40.0)
+    );
+}
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn pretext_negative_width_matches_zero_and_selected_shy_threshold() {
+    for tail in ["", " ab\u{ad}cd"] {
+        let text = format!("\u{200b}\u{200b}b{tail}");
+        let p = prepare(&text, options(OverflowWrap::Normal));
+        assert_eq!(lines(&p, -5.0), lines(&p, 0.0));
+    }
+    let text = "foo trans\u{ad}atlantic said \"hello\" to 世界 and waved.";
+    let p = prepare(text, options(OverflowWrap::BreakWord));
+    let ls = lines(&p, 88.0);
+    assert_eq!(&text[..ls[0].end.byte], "foo trans\u{ad}");
+    assert!(ls[0].hyphenated);
+    assert_eq!(ls[0].width, 80.0);
+}
+// Ported from Pretext (MIT, © Pretext contributors): src/layout.test.ts
+#[test]
+fn pretext_forward_combining_carry_and_run_of_openers() {
+    for text in ["「tail", "「「tail", "「「「「字"] {
+        assert_eq!(lines(&prepare(text, Options::default()), 1.0).len(), 1);
+    }
+    let text = "漢字\u{301}日本";
+    let ls = lines(&prepare(text, Options::default()), 16.0);
+    assert_eq!(&text[ls[1].start.byte..ls[1].end.byte], "字\u{301}");
+}
+#[test]
+fn worst_case_long_word_emergency_work_is_linear_in_cached_clusters() {
+    let text = "a".repeat(20_000);
+    let mut calls = 0;
+    let p = Prepared::new(
+        &text,
+        options(OverflowWrap::Anywhere),
+        &mut |r: std::ops::Range<usize>| {
+            calls += 1;
+            r.len() as f32
+        },
+    );
+    assert_eq!(calls, 20_001);
+    assert_eq!(p.line_stats(1.0), (20_000, 1.0));
+}
+
+#[test]
+fn internal_space_runs_collapse_even_after_an_opener() {
+    assert_eq!(
+        prepare("(   abc)", Options::default()).natural_width(),
+        48.0
+    );
+    let text = "a \u{301}b";
+    let p = prepare(text, options(OverflowWrap::Anywhere));
+    for l in lines(&p, 8.0) {
+        assert!(!text[l.start.byte..l.end.byte].starts_with('\u{301}'));
+    }
+}
+
+#[test]
+fn emergency_cuts_still_collapse_and_hang_internal_spaces() {
+    assert_eq!(
+        ranges("(   abc)", 8.0, OverflowWrap::Anywhere),
+        [
+            ("(   ".into(), 8.0),
+            ("a".into(), 8.0),
+            ("b".into(), 8.0),
+            ("c".into(), 8.0),
+            (")".into(), 8.0)
+        ]
+    );
+    assert_eq!(
+        ranges("(   abc)", 1.0, OverflowWrap::Anywhere),
+        [
+            ("(   ".into(), 8.0),
+            ("a".into(), 8.0),
+            ("b".into(), 8.0),
+            ("c".into(), 8.0),
+            (")".into(), 8.0)
+        ]
+    );
+}
+
+#[test]
+fn a_space_break_after_soft_hyphen_does_not_paint_the_hyphen() {
+    let text = "ab\u{ad}   cd";
+    let p = prepare(text, options(OverflowWrap::Normal));
+    let ls = lines(&p, 16.0);
+    assert_eq!(ls.len(), 2);
+    assert_eq!(&text[..ls[0].end.byte], "ab\u{ad}   ");
+    assert_eq!(ls[0].width, 16.0);
+    assert!(!ls[0].hyphenated);
+    assert_eq!(p.min_content_width(), 16.0);
+}
+
+#[test]
+fn css_normal_transforms_segment_breaks_and_collapses_runs() {
+    let text = "alpha\n \t\r\n\u{85}\u{2028}\u{2029}beta";
+    let p = Prepared::new(text, Options::default(), &mut |r: std::ops::Range<
+        usize,
+    >| {
+        if text[r.clone()].chars().all(char::is_whitespace) {
+            8.0
+        } else {
+            advance(&text[r])
+        }
+    });
+    let got = lines(&p, 1000.0);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].width, 80.0);
+    assert!(!got[0].hard_break);
+    assert_eq!(got[0].end.byte, text.len());
+}
+
+#[test]
+fn pre_wrap_preserves_spaces_tabs_and_hangs_trailing_space() {
+    let text = "  A    B\tC   \r\nD";
+    let p = Prepared::new(
+        text,
+        Options {
+            white_space: exact_textflow::WhiteSpace::PreWrap,
+            ..Options::default()
+        },
+        &mut |r: std::ops::Range<usize>| {
+            text[r]
+                .chars()
+                .map(|c| if c == '\t' { 32.0 } else { 8.0 })
+                .sum()
+        },
+    );
+    let got = lines(&p, 1000.0);
+    assert_eq!(got.len(), 2);
+    assert_eq!(got[0].width, 104.0);
+    assert!(got[0].hard_break);
+    assert_eq!(got[1].width, 8.0);
+    assert_eq!(p.paint_range(text, 0..got[0].end.byte), 0..text.len() - 6);
+    let hanging = prepare(
+        "A    B",
+        Options {
+            white_space: exact_textflow::WhiteSpace::PreWrap,
+            ..Options::default()
+        },
+    );
+    let split = lines(&hanging, 8.0);
+    assert_eq!(split.len(), 2);
+    assert_eq!(split[0].width, 8.0);
+    assert_eq!(split[0].end.byte, 5);
+}

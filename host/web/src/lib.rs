@@ -9,7 +9,9 @@
 //! kernel's receipt and emits a batch — create, props, style, children,
 //! destroy — that makes the page equal to the tree. CSS is computed here, in
 //! Rust, from the kernel's style rows ([`css`]), so the browser is the layout
-//! engine and the motion engine and this crate is neither. The JavaScript
+//! engine and the motion engine. CSS Exclusions is the one exception: the
+//! optional glue measures segments and places this crate's flowed fragments
+//! (@ref LLP 1043.000 §3 D7); browser frames feed Rust shape resolution. The JavaScript
 //! side (`glue.js`) is ~150 lines that apply batches, forward events, and
 //! tick the clock; it is host glue, not app code, and the plan is data baked
 //! into the wasm.
@@ -38,5 +40,6 @@ pub mod dev;
 pub mod host;
 pub mod motion;
 pub mod parity;
+pub mod textflow;
 
 pub use host::{Host, HostError};

@@ -119,13 +119,20 @@ impl From<Option<f32>> for Width {
 #[derive(Default)]
 struct Payloads {
     sources: HashSet<*const super::shaping::ShapeData>,
+    flows: HashSet<*const ShapedSource>,
     lines: HashSet<*const Vec<Vec<cosmic_text::LayoutLine>>>,
     baselines: HashSet<*const Vec<f32>>,
     indexes: HashSet<*const super::ink::Index>,
 }
 impl Payloads {
     fn source(&mut self, source: &ShapedSource) -> usize {
-        if self.sources.insert(Arc::as_ptr(&source.data)) {
+        let flow = source.flow_capacity_bytes();
+        let flow = if flow != 0 && self.flows.insert(source as *const _) {
+            flow
+        } else {
+            0
+        };
+        flow + if self.sources.insert(Arc::as_ptr(&source.data)) {
             source.accessible_capacity_bytes
         } else {
             0
@@ -190,7 +197,7 @@ impl Identity {
     fn source_bytes(&self) -> usize {
         self.source
             .as_ref()
-            .map_or(0, |s| s.accessible_capacity_bytes)
+            .map_or(0, |s| s.accessible_capacity_bytes + s.flow_capacity_bytes())
     }
     fn key_bytes(&self) -> usize {
         self.spec.runs.capacity() * size_of::<Run>()
@@ -778,6 +785,8 @@ fn fingerprint(spec: &Spec) -> u64 {
     let mut h = DefaultHasher::new();
     std::mem::discriminant(&spec.align).hash(&mut h);
     std::mem::discriminant(&spec.overflow_wrap).hash(&mut h);
+    std::mem::discriminant(&spec.white_space).hash(&mut h);
+    std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
     spec.runs.len().hash(&mut h);
     for run in std::iter::once(&spec.strut).chain(&spec.runs) {
@@ -796,6 +805,8 @@ fn fingerprint(spec: &Spec) -> u64 {
 fn equal(a: &Spec, b: &Spec) -> bool {
     a.align == b.align
         && a.overflow_wrap == b.overflow_wrap
+        && a.white_space == b.white_space
+        && a.direction == b.direction
         && a.line_clamp == b.line_clamp
         && a.runs.len() == b.runs.len()
         && std::iter::once(&a.strut)
@@ -818,7 +829,8 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     }
     let mut bytes = paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
-        + vector(&paragraph.layouts);
+        + vector(&paragraph.layouts)
+        + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes());
     for layouts in paragraph.layouts.iter() {
         bytes += vector(layouts);
         for line in layouts {

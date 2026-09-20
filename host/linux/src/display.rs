@@ -357,6 +357,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     let mut pointer = (viewport.0 / 2.0, viewport.1 / 2.0);
     p.set_pointer(Some(pointer));
     let mut last_tick = 0.0f64;
+    let frame_ms = 1000.0 / f64::from(display.refresh().max(1));
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
@@ -403,9 +404,10 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         let mut timeout = work_timeout(
             display.pending(),
             p.needs_animation_frame(),
-            p.host().has_timers(),
+            p.host().timer_due_ms(),
             last_tick,
             now,
+            frame_ms,
         );
         if config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
@@ -478,7 +480,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         }
 
         let now = wall();
-        if p.host().has_timers() && now - last_tick >= 250.0 {
+        if timer_wake_delay(p.host().timer_due_ms(), now, last_tick, frame_ms)
+            .is_some_and(|wait| wait <= 0.0)
+        {
             last_tick = now;
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
@@ -549,11 +553,18 @@ fn poll(fds: &[i32], display_fd: i32, timeout: i32) -> Result<bool, String> {
         .any(|fd| fd.fd == display_fd && fd.revents & libc::POLLIN != 0))
 }
 
-fn work_timeout(pending: bool, animation: bool, timers: bool, last_tick: f64, now: f64) -> i32 {
+fn work_timeout(
+    pending: bool,
+    animation: bool,
+    due: Option<f64>,
+    last_tick: f64,
+    now: f64,
+    frame_ms: f64,
+) -> i32 {
     if animation && !pending {
         0
-    } else if timers {
-        (last_tick + 250. - now).max(0.) as i32
+    } else if let Some(wait) = timer_wake_delay(due, now, last_tick, frame_ms) {
+        wait.ceil().min(f64::from(i32::MAX)) as i32
     } else {
         -1
     }
@@ -574,5 +585,41 @@ fn presented<D: DataSource>(
     if first.is_none() {
         *first = Some(Instant::now());
         *check_due = Some(Instant::now() + Duration::from_secs(2));
+    }
+}
+
+/// @ref LLP 1043.000 §3 D8 — KMS page flips pace repaints; even with no
+/// repaint or an input storm, advance at most once per display interval.
+/// Distant timers use poll's single deadline (input/executor fds may wake it).
+fn timer_wake_delay(due: Option<f64>, now: f64, last_frame: f64, frame_ms: f64) -> Option<f64> {
+    due.map(|due| {
+        if due - now <= 8.0 * frame_ms {
+            (last_frame + frame_ms - now).max(0.0)
+        } else {
+            due - now
+        }
+    })
+}
+
+#[cfg(test)]
+mod timer_tests {
+    use super::timer_wake_delay;
+
+    #[test]
+    fn timer_deadlines_sleep_or_follow_the_display_without_polling() {
+        let frame = 1000.0 / 60.0;
+        assert_eq!(timer_wake_delay(Some(16.0), 0.0, 0.0, frame), Some(frame));
+        assert_eq!(
+            timer_wake_delay(Some(1000.0), 0.0, 0.0, frame),
+            Some(1000.0)
+        );
+        assert_eq!(timer_wake_delay(None, 0.0, 0.0, frame), None);
+        assert_eq!(timer_wake_delay(Some(16.0), 500.0, 0.0, frame), Some(0.0));
+        // Input wakes during the same frame cannot cause a second advance.
+        assert!(timer_wake_delay(Some(16.0), 501.0, 500.0, frame).unwrap() > 15.0);
+        assert_eq!(
+            timer_wake_delay(Some(1000.0), 1000.0, 0.0, frame),
+            Some(0.0)
+        );
     }
 }

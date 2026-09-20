@@ -417,6 +417,24 @@ impl Backend for Gpu {
         self.scene.push_clip_layer(Fill::NonZero, a, &clip);
     }
 
+    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let mut b = BezPath::new();
+        for (op, v) in path.commands() {
+            let point = |i: usize| (v[i] as f64, v[i + 1] as f64);
+            match op {
+                'M' => b.move_to(point(0)),
+                'L' => b.line_to(point(0)),
+                'Q' => b.quad_to(point(0), point(2)),
+                'C' => b.curve_to(point(0), point(2), point(4)),
+                'Z' => b.close_path(),
+                _ => unreachable!("validated CSS path"),
+            }
+        }
+        self.scene
+            .push_clip_layer(Fill::NonZero, self.affine(ts), &b);
+        true
+    }
+
     fn pop_clip(&mut self) {
         self.scene.pop_layer();
     }

@@ -74,6 +74,8 @@ struct Spec: Hashable {
     var lineClamp: Int
     var color: [Double] // r g b a, 0–255
     var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
+    var direction: Int = 0 // CSS: ltr, rtl
+    var whiteSpace: Int = 0 // CSS: normal, pre-wrap
     var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
 }
 
@@ -82,6 +84,12 @@ final class Paragraph {
     let lines: [CTLine]
     /// Baseline of each line, measured from the top.
     let baselines: [CGFloat]
+    /// Flow origins already include interval alignment; empty for ordinary text.
+    let origins: [CGFloat]
+    /// Logical source ownership, including trimmed whitespace, one per fragment.
+    let fragments: [ExactFlowFragment]
+    var flowIncomplete = false
+    let flowLineHeight: CGFloat
     let width: CGFloat
     let height: CGFloat
     let lineBottoms: [CGFloat]
@@ -90,7 +98,8 @@ final class Paragraph {
     let coreTextEstimateBytes: Int
     var ownedPayloadBytes: Int {
         lines.count * MemoryLayout<CTLine>.stride
-            + (baselines.count + lineBottoms.count) * MemoryLayout<CGFloat>.stride
+            + (baselines.count + lineBottoms.count + origins.count) * MemoryLayout<CGFloat>.stride
+            + fragments.count * MemoryLayout<ExactFlowFragment>.stride
             + (cachedInk?.storageBytes ?? 0)
     }
     /// Admission reserves the known lazy array shape, without constructing ink.
@@ -102,7 +111,9 @@ final class Paragraph {
     private(set) var cachedInk: ParagraphInkIndex?
     var firstBaseline: CGFloat { baselines.first ?? 0 }
     init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = [],
-         shape: TextShape? = nil, offeredWidth: CGFloat? = nil, glyphCount: Int = 0) {
+         shape: TextShape? = nil, offeredWidth: CGFloat? = nil, glyphCount: Int = 0,
+         origins: [CGFloat] = [], fragments: [ExactFlowFragment] = [], flowLineHeight: CGFloat = 0) {
+        self.origins = origins; self.fragments = fragments; self.flowLineHeight = flowLineHeight
         self.shape = shape
         residencyKey = shape.flatMap { shape in offeredWidth.map { TextParagraphKey(shape: shape.key, width: $0) } }
         coreTextEstimateBytes = glyphCount * 64 + lines.count * 256
@@ -496,6 +507,16 @@ final class TextEngine {
         return p
     }
 
+    // @ref LLP 1043.000 §3 D4–D7 — only the view retains a flowed width.
+    func paragraph(_ spec: Spec, width: CGFloat, flow: [TextFlowShape]) -> Paragraph {
+        guard !flow.isEmpty else { return paragraph(spec, width: width) }
+        let identity = residency.identity(spec)
+        let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
+        let result = layoutFlow(source, width: width, flow: flow)
+        residency.refresh(source)
+        return result
+    }
+
     private func shape(_ key: TextShapeKey, identity: TextIdentity) -> TextShape {
         if let cached = residency.shape(key) { return cached }
         residency.prepare(estimatedBytes: identity.ownedBytes + identity.utf16Count * 32)
@@ -504,7 +525,7 @@ final class TextEngine {
         return shape
     }
 
-    private func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
+    func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
         let spec = shape.spec, typesetter = shape.typesetter
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
@@ -656,8 +677,8 @@ final class TextEngine {
         return boundaries
     }
 
-    private func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double) -> CTLine? {
-        let source = attributed(spec)
+    func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {
+        let source = source ?? attributed(spec)
         let string = source.string as NSString
         var end = NSMaxRange(range)
         // A wrapped line already fits. Include the ellipsis before asking
@@ -725,10 +746,9 @@ final class TextEngine {
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         ctx.saveGState()
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
         func paint(_ index: Int) {
             let line = p.lines[index], baseline = p.baselines[index]
-            let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+            let x = p.origin(index, align: spec.align, width: bounds.width)
             ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
             CTLineDraw(line, ctx)
         }
@@ -751,7 +771,7 @@ final class TextEngine {
         let intrinsic = request.width < 0
         let kind: TextScalarKind = request.width == EXACT_MIN_CONTENT ? .minContent
             : intrinsic ? .maxContent : .definite(Double(request.width == 0 ? 0 : request.width).bitPattern)
-        if let identity = knownIdentity {
+        if request.exclusion_count == 0, let identity = knownIdentity {
             if let metrics = residency.scalar(identity, kind: kind) {
                 measureHits += 1
                 measureSeconds += CACurrentMediaTime() - lookupStarted
@@ -778,9 +798,16 @@ final class TextEngine {
         } else {
             let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
             // Metric-only keys match the geometry used by the colored presenter.
-            spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), strut: run(request.strut))
+            spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         }
         let started = CACurrentMediaTime()
+        if request.exclusion_count > 0, let shapes = request.exclusions {
+            let flow = UnsafeBufferPointer(start: shapes, count: request.exclusion_count).map(TextFlowShape.init)
+            let width = request.width >= 0 ? CGFloat(request.width) : request.width == EXACT_MIN_CONTENT ? minContentWidth(spec) : paragraph(spec, width: .infinity).width
+            let p = paragraph(spec, width: width, flow: flow)
+            measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
+            return ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+        }
         let identity = knownIdentity ?? residency.identityAfterBorrowedMiss(spec)
         if knownIdentity == nil, let metrics = residency.scalar(identity, kind: kind) {
             measureHits += 1

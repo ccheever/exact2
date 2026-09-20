@@ -53,7 +53,7 @@ fn percentage_reader_matches_browser_and_has_no_phantom_scroll_range() {
 /// Taffy used to make that probe for every item and discard it where it was
 /// not needed — the scroller included, which is how the reader itself came to
 /// exercise the cache rule below. It is measured only where it is used now
-/// (vendor/taffy, patch 7), so these regressions ask for it. `max-width` still
+/// (vendor/taffy, patch 8), so these regressions ask for it. `max-width` still
 /// clamps the column, and every length asserted below is unchanged.
 fn probed(mut ops: Vec<exact_kernel::Op>) -> Vec<exact_kernel::Op> {
     ops.push(reader::style(
@@ -102,6 +102,81 @@ fn intrinsic_probe_is_remeasured_at_the_definite_content_width() {
     );
 }
 
+// @ref LLP 1043.000 §3 D3 — final measure dimensions must not clip content.
+#[test]
+fn resolved_measure_dimensions_preserve_reader_and_shrunk_text_bits() {
+    use exact_kernel::{NodeType, Op, PropId, StyleId::*};
+    use reader::{number as n, style, text as t};
+    fn geometry(k: &exact_kernel::Kernel, id: u32) -> [u32; 6] {
+        let node = k.node(id).unwrap();
+        let f = node.frame;
+        [f.x, f.y, f.width, f.height, node.content.0, node.content.1].map(f32::to_bits)
+    }
+    let mut k = reader::kernel();
+    k.apply(0, 1, &reader::initial(false, true, true)).unwrap();
+    k.compute_layout(1, Offer::definite(720.0, 800.0)).unwrap();
+    // Literal reader.html Chrome dimensions: 720 - 64 - 28 = 628;
+    // 18 lines * 26 = 468, 12 * (468 + 28) + 11 * 2 = 5974.
+    for (id, expected) in [
+        (205, [46.0, 38.0, 628.0, 468.0, 1200.0, 468.0]),
+        // CSS Overflow: the non-scrolling column contributes the child's
+        // overflow end (32 + 14 + 1200), not another 32px end padding.
+        // The HTML fixture pins heights, not this old implementation value.
+        (4, [0.0, 24.0, 720.0, 5974.0, 1246.0, 5974.0]),
+    ] {
+        assert_eq!(geometry(&k, id), expected.map(f32::to_bits), "node {id}");
+    }
+    let mut k = reader::kernel();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::Text,
+            },
+            style(
+                1,
+                &[
+                    (Display, t("flex")),
+                    (FlexDirection, t("column")),
+                    (Width, n(628.0)),
+                    (Height, n(52.0)),
+                    (FontSize, n(16.0)),
+                    (LineHeight, t("26px")),
+                ],
+            ),
+            style(2, &[(MinHeight, n(0.0))]),
+            Op::SetProp {
+                id: 2,
+                prop: PropId::Text,
+                value: reader::LONG_TEXT.repeat(6).into(),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(628.0, 52.0)).unwrap();
+    // The same 18-line source flex-shrinks to two lines of box height;
+    // its natural overflowing content still has all 18 lines.
+    assert_eq!(
+        geometry(&k, 2),
+        [0.0, 0.0, 628.0, 52.0, 1200.0, 468.0].map(f32::to_bits)
+    );
+    assert_eq!(
+        geometry(&k, 1),
+        [0.0, 0.0, 628.0, 52.0, 1200.0, 468.0].map(f32::to_bits)
+    );
+}
+
 #[test]
 fn matching_paragraph_offers_do_not_cross_the_measurer_twice() {
     use exact_kernel::{
@@ -145,7 +220,7 @@ fn matching_paragraph_offers_do_not_cross_the_measurer_twice() {
 
 #[test]
 fn a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use() {
-    // vendor/taffy patch 7. A scroll container's automatic minimum size is
+    // vendor/taffy patch 8 (trunk 0.9.2 patch 7). A scroll container's automatic minimum size is
     // zero, so the flex row holding the reader owes it no min-content pass.
     // Taffy made one anyway and discarded it: the scroller's whole content
     // laid out at no width, every paragraph wrapped a word to a line, on

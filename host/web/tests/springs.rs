@@ -165,7 +165,7 @@ fn translate_frames_are_pairs() {
         true,
     );
     b.animate(7, "opacity", 0.0, 0.0, &[], false);
-    let s = b.finish(false, 0.0, None);
+    let s = b.finish(None, 0.0, None);
     assert!(s.contains(
         "{\"op\":\"animate\",\"id\":7,\"property\":\"translate\",\"delay\":0,\"duration\":250,\"values\":[[0,0],[10.5,-2]]}"
     ), "{s}");

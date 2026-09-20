@@ -13,7 +13,8 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-motion = { path = "../motion" }
-taffy = "0.9"
+exact-textflow = { path = "../textflow" }
+taffy = { version = "0.14", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size"] }
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }

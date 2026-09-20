@@ -1057,3 +1057,18 @@ are not independent elapsed costs.
 The retained source passed `cargo build --workspace` in 42m10s. The subsequent
 workspace tests/Clippy were still running when upstream integration began;
 this is not a completed whole-workspace validation of the merged source.
+
+### Textflow and Taffy integration — 2026-09-19
+
+The next validation baseline integrates upstream `b3d12c3e`: text exclusions,
+Taffy 0.14, and deadline-based app timers. Ordinary Markdown retains its bounded
+CADisplayLink list pump, two raster workers, and sixteen leaf-measure offers.
+Flowed paragraphs use fragment-aware native painting; changing or clearing
+exclusions retires ordinary raster results. The shared tokenizer keeps its
+bounded single-space reset, and the clean published Ibex dependency keeps
+`ureq` 3.4.0. Transform replies preserve timer deadlines.
+
+The `06149e8d` pilot above remains historical evidence (four valid matched
+pairs, 3.75 versus 5.00 ms/s). This layout-engine integration needs fresh
+validation and displayed-performance measurements before it supports a claim
+about the new candidate.

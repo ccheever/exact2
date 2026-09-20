@@ -323,7 +323,7 @@ impl<D: DataSource> Host<D> {
             }
             return Ok(format!("{{\"accepted\":true,\"runtime\":\"{}\",\"geometrySequence\":\"{}\",\"translateToken\":\"{}\",\"scaleToken\":\"{}\",\"value\":[{},{},{}],\"batch\":{}}}",
                 input.runtime,input.sequence,held.translate().token.serial(),held.scale().token.serial(),held.translate().value.x,held.translate().value.y,held.scale().value.x,
-                batch.finish(self.runner.has_timers(),self.runner.now_ms(),None)));
+                batch.finish(self.runner.timer_due_ms(),self.runner.now_ms(),None)));
         }
         let active = active.expect("paired operation");
         if !self
@@ -381,7 +381,7 @@ impl<D: DataSource> Host<D> {
                 || input.op == 14 && !previous.ready
             {
                 return Ok(accepted(Batch::new().finish(
-                    self.runner.has_timers(),
+                    self.runner.timer_due_ms(),
                     self.runner.now_ms(),
                     None,
                 )));
@@ -446,7 +446,7 @@ impl<D: DataSource> Host<D> {
         } else {
             Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
             Ok(accepted(batch.finish(
-                self.runner.has_timers(),
+                self.runner.timer_due_ms(),
                 self.runner.now_ms(),
                 None,
             )))
@@ -563,7 +563,7 @@ impl<D: DataSource> Host<D> {
         Self::emit_lowered(&mut batch, lowered);
         format!(
             "{{\"accepted\":false,\"batch\":{}}}",
-            batch.finish(self.runner.has_timers(), self.runner.now_ms(), None)
+            batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
         )
     }
 

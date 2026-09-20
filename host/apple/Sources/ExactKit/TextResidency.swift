@@ -31,6 +31,7 @@ enum TextMetricKey {
         h.combine(spec.strut != nil)
         if let strut = spec.strut { fields(strut, &h) }
         h.combine(spec.align); h.combine(spec.lineClamp); h.combine(spec.overflowWrap)
+        h.combine(spec.direction); h.combine(spec.whiteSpace)
         return h.finalize()
     }
     static func hash(_ request: ExactMeasureRequest) -> Int {
@@ -43,6 +44,7 @@ enum TextMetricKey {
         h.combine(true) // The callback always constructs a strut, even for empty text.
         fields(request.strut, &h)
         h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
+        h.combine(Int(request.direction)); h.combine(Int(request.white_space))
         return h.finalize()
     }
     private static func equalFields(_ raw: ExactTextRun, _ owned: Run) -> Bool {
@@ -54,6 +56,7 @@ enum TextMetricKey {
     static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
+              Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,
               let strut = geometry.strut, equalFields(request.strut, strut) else { return false }
         let runs = UnsafeBufferPointer(start: request.runs, count: request.count)
         for i in runs.indices {
@@ -150,20 +153,30 @@ final class TextShape {
     let identity: TextIdentity
     let spec: Spec
     let typesetter: CTTypesetter
+    let attributed: NSAttributedString
+    private(set) var flow: TextFlowSource?
+    private(set) var prepareCount = 0
+    func preparedFlow() -> TextFlowSource {
+        if let flow { return flow }
+        let prepared = TextFlowSource(self)
+        flow = prepared; prepareCount += 1
+        return prepared
+    }
     init(key: TextShapeKey, identity: TextIdentity, attributed: NSAttributedString) {
+        self.attributed = attributed
         self.key = key; self.identity = identity; spec = key.paint.applying(to: identity)
         typesetter = CTTypesetterCreateWithAttributedString(attributed)
     }
     // Policy estimate, not measurement of opaque CoreText allocations. Source
     // String payload is accounted once separately; paint key payload is owned.
     var ownedBytes: Int {
-        spec.runs.count * MemoryLayout<Run>.stride
+        (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
             $0 + MemoryLayout<TextPaint.Inline>.stride + ($1.color?.count ?? 0) * MemoryLayout<Double>.stride
                 + $1.decoration.utf8.count + $1.href.utf8.count
         }
     }
-    var opaqueEstimate: Int { identity.utf16Count * 32 + spec.runs.count * 512 }
+    var opaqueEstimate: Int { identity.utf16Count * 32 + spec.runs.count * 512 + (flow == nil ? 0 : identity.utf16Count * 64 + 256) }
 }
 
 private final class WeakTextIdentity {
@@ -433,6 +446,16 @@ struct TextResidency {
         charge(value, adding: true)
         trim(incoming: 0, keeping: key)
         while entries.count > Self.maxLookupEntries, let oldest = first { removeEntry(oldest) }
+    }
+    /// Lazy walker storage becomes part of the resident shape's existing charge.
+    mutating func refresh(_ shape: TextShape) {
+        let key = ObjectIdentifier(shape)
+        if let old = coldShapes[key] {
+            ownedBudget += shape.ownedBytes - old.owned
+            opaqueBudget += shape.opaqueEstimate - old.opaque
+            coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
+        }
+        trim(incoming: 0, keeping: .shape(shape.key))
     }
     mutating func prepare(estimatedBytes: Int) {
         maintain(); trim(incoming: estimatedBytes, keeping: nil)

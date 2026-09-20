@@ -34,6 +34,29 @@ impl Catalog {
         if let Some(name) = monospace_family(fonts.db()) {
             fonts.db_mut().set_monospace_family(name);
         }
+        // cosmic-text defaults to DejaVu Serif even on systems without it.
+        // Keep an installed generic; otherwise select an installed system serif.
+        let installed = |name: &str| {
+            fonts
+                .db()
+                .faces()
+                .any(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
+        };
+        if !installed(fonts.db().family_name(&fontdb::Family::Serif)) {
+            if let Some(name) = [
+                "Times New Roman",
+                "Noto Serif",
+                "DejaVu Serif",
+                "Liberation Serif",
+                "Times",
+                "Georgia",
+            ]
+            .into_iter()
+            .find(|n| installed(n))
+            {
+                fonts.db_mut().set_serif_family(name);
+            }
+        }
         catalog.sans = sans.unwrap_or_default();
         catalog
     }

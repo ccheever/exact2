@@ -1,0 +1,45 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Textflow",
+  "short_name": "Textflow",
+  "id": "com.exact.textflow",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#254c47",
+  "background_color": "#edece5",
+  "app": {
+    "id": "com.exact.textflow",
+    "name": "Textflow"
+  },
+  "rust": {
+    "mode": "off"
+  },
+  "host": {
+    "web": {},
+    "linux": {},
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 960,
+        "height": 900,
+        "minWidth": 360,
+        "minHeight": 640
+      }
+    },
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    }
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

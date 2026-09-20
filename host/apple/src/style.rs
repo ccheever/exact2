@@ -36,7 +36,12 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
     let mut first = true;
     for id in style.mask.iter() {
         let name = id.name();
+        // LLP 1043.000 M3: the presenter will use resolved shapes.
+        if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
+            continue;
+        }
         let value = match style.get(id) {
+            RowValue::ShapeOutside(_) => continue, // LLP 1043.000 M3
             RowValue::Dimension(d) => match d.resolve(env) {
                 Dimension::Auto => "\"auto\"".to_string(),
                 Dimension::Points(p) => num(p),
@@ -215,5 +220,22 @@ pub fn num(n: f32) -> String {
         format!("{}", n as i64)
     } else {
         format!("{n}")
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+    #[test]
+    fn exclusion_rows_wait_for_resolved_shape_batches() {
+        let mut s = StyleProps::default();
+        for (id, value) in [
+            (StyleId::WrapFlow, "both"),
+            (StyleId::ShapeOutside, "circle()"),
+            (StyleId::ShapeMargin, "8px"),
+        ] {
+            s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
+        }
+        assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
     }
 }

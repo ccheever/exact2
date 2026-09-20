@@ -1,4 +1,5 @@
 //! Style types for Block layout
+use crate::style::AlignContent;
 use crate::{CoreStyle, Style};
 
 /// The set of styles required for a Block layout container
@@ -8,6 +9,12 @@ pub trait BlockContainerStyle: CoreStyle {
     fn text_align(&self) -> TextAlign {
         Style::<Self::CustomIdent>::DEFAULT.text_align
     }
+
+    /// How children of this block container are aligned in the block (cross) axis
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        Style::<Self::CustomIdent>::DEFAULT.align_content
+    }
 }
 
 /// The set of styles required for a Block layout item (child of a Block container)
@@ -16,6 +23,20 @@ pub trait BlockItemStyle: CoreStyle {
     #[inline(always)]
     fn is_table(&self) -> bool {
         false
+    }
+
+    /// Whether the item is a floated
+    #[cfg(feature = "float_layout")]
+    #[inline(always)]
+    fn float(&self) -> super::Float {
+        super::Float::None
+    }
+
+    /// Whether the item is a floated
+    #[cfg(feature = "float_layout")]
+    #[inline(always)]
+    fn clear(&self) -> super::Clear {
+        super::Clear::None
     }
 }
 
@@ -33,3 +54,11 @@ pub enum TextAlign {
     /// Corresponds to `-webkit-center` or `-moz-center` in browsers
     LegacyCenter,
 }
+
+#[cfg(feature = "parse")]
+crate::util::parse::impl_parse_for_keyword_enum!(TextAlign,
+    "auto" => Auto,
+    "-webkit-left" => LegacyLeft,
+    "-webkit-right" => LegacyRight,
+    "-webkit-center" => LegacyCenter,
+);

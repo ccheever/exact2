@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v6 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v8 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 6
+#define EXACT_ABI_VERSION 8
 
 #ifdef __cplusplus
 extern "C" {
@@ -90,6 +90,34 @@ typedef struct ExactTextRun {
     float letter_spacing;  /* points per glyph */
 } ExactTextRun;
 
+/* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
+ * Non-null buffers must be aligned and valid for their stated counts. */
+typedef struct ExactFlowPair { float x, y; } ExactFlowPair;
+typedef struct ExactFlowShape {
+    uint32_t kind; /* 0 circle, 1 ellipse, 2 round-rect, 3 nonzero polygon, 4 spans, 5 evenodd polygon */
+    float x, y, a, b, radius;
+    const ExactFlowPair *pairs;
+    size_t count;
+} ExactFlowShape;
+typedef struct ExactFlowFragment {
+    size_t start, end, utf16_start, utf16_end, paint_start, paint_end;
+    float x, y, width, available;
+    uint8_t hyphenated;
+    uint32_t line;
+} ExactFlowFragment;
+typedef struct ExactFlowResult { size_t count; float height; size_t bytes; uint8_t complete, clamped; } ExactFlowResult;
+/* Advances: one per UTF-16 unit; cluster advance at its lowest string index. */
+uint64_t exact_textflow_prepare(const uint8_t *utf8, size_t len,
+    const float *advances, size_t count, uint32_t overflow_wrap, uint32_t white_space, float hyphen_advance);
+/* Returns required count, height, and completion. Writes min(count,cap); null output
+ * is a query. max_lines counts bands (0 = no line clamp). Reject incomplete output
+ * unless clamped is set; guard exhaustion requires ordinary paragraph fallback. */
+ExactFlowResult exact_textflow_flow(uint64_t handle, const ExactFlowShape *shapes, size_t count,
+    float width, float line_height, float font_size, uint32_t max_lines, uint32_t direction,
+    ExactFlowFragment *out, size_t cap);
+/* Zero, stale, and repeated free are harmless. */
+void exact_textflow_free(uint64_t handle);
+
 typedef struct ExactMeasureRequest {
     const ExactTextRun *runs;
     size_t count;
@@ -99,6 +127,10 @@ typedef struct ExactMeasureRequest {
     uint8_t align;         /* 0 left, 1 center, 2 right, 3 justify */
     uint32_t line_clamp;   /* 0 = unlimited */
     uint8_t overflow_wrap; /* 0 normal, 1 break-word, 2 anywhere */
+    uint8_t white_space;   /* 0 normal, 1 pre-wrap */
+    uint8_t direction;     /* 0 ltr, 1 rtl */
+    const ExactFlowShape *exclusions;
+    size_t exclusion_count;
 } ExactMeasureRequest;
 
 typedef struct ExactMetrics {
@@ -182,6 +214,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
  * 14 = navigate (UTF-8 location; navigation root only, LLP 1038 D8),
+ * 15 = heightrelease, 16 = transformgeometry, 17 = transformrelease,
+ * 18 = reorder (collection move payload),
+ * 20 = pan (UTF-8 dx,dy; incremental viewport CSS pixels, LLP 1043.000 D8),
  * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds).
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */

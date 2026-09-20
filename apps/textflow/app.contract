@@ -1,0 +1,150 @@
+fn abs(n: number): number = n < 0 ? -n : n
+// @ref LLP 1043.000 §3 D1/D8, §6.5 — shapes move by commits, never transforms.
+// Original prose; system serif. Fixed boxes deliberately leave font-metric slack.
+shape Viewport
+  width: number
+  height: number
+shape Part
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  outline: string
+  clip: string
+  color: string
+component Textflow
+  resource viewport = exactViewport() as shape Viewport
+  state scene = "drag"
+  state running = true
+  state dark = false
+  state largeType = false
+  state elapsed = 0
+  state x1 = 140
+  state y1 = 52
+  state x2 = 414
+  state y2 = 161
+  state x3 = 245
+  state y3 = 302
+  derive narrow = viewport.width < 700
+  derive pageWidth = min(736, max(280, viewport.width - (viewport.width < 700 ? 24 : 80)))
+  derive inset = viewport.width < 700 ? 20 : 40
+  derive proseWidth = pageWidth - inset * 2
+  derive scale = proseWidth / 656
+  derive bodySize = largeType ? 18.975 : 16.5
+  derive bodyHeight = viewport.width < 700 ? 450 : 480
+  derive logicalHeight = bodyHeight / scale
+  resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape list<Part>
+  action choose(value: string) writes scene, elapsed
+    scene = value
+    elapsed = 0
+  action appearance writes dark
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  action typeSize writes largeType
+    largeType = not largeType
+  action pause writes running
+    running = not running
+  action step writes elapsed
+    if running
+      elapsed = elapsed + 16
+  action moveOrb(which: number, dx: number, dy: number) writes x1, y1, x2, y2, x3, y3
+    if which == 1
+      x1 = min(552, max(0, x1 + dx / scale))
+      y1 = min(logicalHeight - 104, max(0, min(y1, logicalHeight - 104) + dy / scale))
+    if which == 2
+      x2 = min(578, max(0, x2 + dx / scale))
+      y2 = min(logicalHeight - 78, max(0, min(y2, logicalHeight - 78) + dy / scale))
+    if which == 3
+      x3 = min(600, max(0, x3 + dx / scale))
+      y3 = min(logicalHeight - 56, max(0, min(y3, logicalHeight - 56) + dy / scale))
+  task motion mount
+    every(16, step)
+  view
+    main testId="textflow" width="100%" min-height="100%" background-color="light-dark(#eeeae2, #172324)" color="light-dark(#283f3c, #e7e5da)"
+      column width="100%" align-items="center" padding-top=(narrow ? 18 : 28) padding-bottom=18 gap=18 box-sizing="border-box"
+        row width=pageWidth justify-content="space-between" align-items="center"
+          column gap=3
+            text "EXACT / STUDIES IN TYPE" font-size=10 letter-spacing=2 color="light-dark(#657b72, #adc1b8)"
+            text "Textflow" font-family="serif" font-size=30 line-height=1.1
+          button testId="appearance" press=appearance padding=10 border-width=0 border-radius=20 background-color="light-dark(#e0e1d5, #30413c)" color="light-dark(#3d5752, #d3dfd6)"
+            text (dark ? "Light paper" : "Dark paper") font-size=11
+        row width=pageWidth flex-wrap="wrap" gap=6
+          button press=choose("drag") testId="scene-drag" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "drag" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "drag" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "01 Drag" font-size=12
+          button press=choose("orbs") testId="scene-orbs" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "orbs" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "orbs" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "02 Orbs" font-size=12
+          button press=choose("dancer") testId="scene-dancer" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "dancer" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "dancer" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "03 Dancer" font-size=12
+          button press=choose("ball") testId="scene-ball" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "ball" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "ball" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "04 Ball" font-size=12
+          button press=choose("editorial") testId="scene-editorial" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "editorial" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "editorial" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "05 Editorial" font-size=12
+          button press=choose("polygon") testId="scene-polygon" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "polygon" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "polygon" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "06 Polygon" font-size=12
+        column width=pageWidth padding=inset padding-top=(narrow ? 20 : 24) padding-bottom=20 box-sizing="border-box" gap=24 background-color="light-dark(#fcfaf3, #213032)" border-radius=6
+          when scene == "drag"
+            column gap=9
+              text "01 / A PAGE YOU CAN TOUCH" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "A little give." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "Take a circle for a walk. The words will make room." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
+              text (narrow ? "A stone moves through shallow water. The current opens around your hand, closes behind it, and carries on. Nothing is lost.\n\nA page can have that kind of generosity. Take a circle for a walk between the words. Watch the paragraph breathe.\n\nThe story stays whole. It has room for a little weather." : "There is a particular pleasure in moving a stone through shallow water. The current opens around your hand, closes behind it, and carries on. Nothing is lost. The river has simply found another way to tell the same story.\n\nA page can have that kind of generosity. Bring something new into the middle of a sentence and the words draw closer, then open out again. They make a small clearing. They leave a path on either side. Try moving the terracotta circle between two thoughts. Watch the edges of the paragraph breathe.\n\nWe tend to imagine reading as a straight line. But our eyes wander; a sound at the window changes the rhythm, a remembered voice gives a familiar word another meaning. The story stays whole through all of this. It has room for a little weather.") testId="drag-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              box testId="orb-1" pan=moveOrb(1) touch-action="none" position="absolute" left=(x1 * scale) top=(min(y1, logicalHeight - 104) * scale) width=(104 * scale) height=(104 * scale) border-radius=100 background-color="light-dark(#bd7053, #dfa184)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
+              box testId="orb-2" pan=moveOrb(2) touch-action="none" position="absolute" left=(x2 * scale) top=(min(y2, logicalHeight - 78) * scale) width=(78 * scale) height=(78 * scale) border-radius=100 background-color="light-dark(#779685, #a0b5a0)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
+              box testId="orb-3" pan=moveOrb(3) touch-action="none" position="absolute" left=(x3 * scale) top=(min(y3, logicalHeight - 56) * scale) width=(56 * scale) height=(56 * scale) border-radius=100 background-color="light-dark(#c2a769, #cbb87e)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
+          when scene == "orbs"
+            column gap=9
+              text "02 / SMALL CELESTIAL MECHANICS" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "Nothing stands still." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "Six wandering bodies. One unbroken story." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
+              text (narrow ? "The square fills with people. A bicycle circles the fountain; flowers pass through a gap that was not there a moment ago.\n\nEvery journey follows a private errand. Together they draw a pattern no one has planned. Two paths meet, turn, and begin again.\n\nEven the space between things has a rhythm." : "By the time the square filled with people, the pigeons had already worked out its invisible paths. A bicycle made a wide arc around the fountain. Someone carried flowers through a gap that had not been there a moment before. The whole place seemed to be thinking with its feet.\n\nFrom a window above, these journeys would look like a quiet system of stars. Each person follows a private errand. Together they draw a pattern no one has planned. When two paths meet, there is a pause, a turn, a small exchange of momentum. Then the pattern begins again.\n\nWe sat at a table beside the door and watched the afternoon pass through itself. Nothing repeated exactly. Yet everything belonged. Even the space between things had a rhythm, and for a while we could see it.") testId="orbs-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              each part in parts key=part.id
+                box testId=part.id position="absolute" left=part.x top=part.y width=part.w height=part.h border-radius=(part.outline == "circle()" ? 100 : 0) background-color=part.color clip-path=part.clip wrap-flow="both" shape-outside=part.outline shape-margin=8
+          when scene == "dancer"
+            column gap=9
+              text "03 / A STUDY IN COUNTERPOINT" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "The space she leaves." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "A gesture becomes a silhouette. A sentence learns to bend." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
+              text (narrow ? "Before the music begins, she lifts her chin and finds the floor with one foot. Even the light has stopped to listen.\n\nA shoulder turns. A hand describes a curve. The wrist remembers the elbow; the hip answers the foot.\n\nWhat stays is the passage between poses, and the empty air she leaves behind." : "Before the music begins there is a moment of perfect attention. She lifts her chin, finds the floor with the ball of one foot, and lets the weight of her arms settle. The room seems to lean toward her. Even the light has stopped to listen.\n\nThe first movement is hardly a movement at all. A shoulder turns. A hand describes a curve that the eye wants to finish. Then the knees soften and the whole figure opens, as if a breath could be seen from the other side of the room. Nothing happens alone: the wrist remembers the elbow, the hip answers the foot.\n\nWhat stays with us is not a pose but the passage between poses. A little hesitation before the turn. The arm that arrives a fraction later. The empty air she leaves behind, still holding the shape of someone who has just moved on.") testId="dancer-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              each part in parts key=part.id
+                box testId=part.id position="absolute" left=part.x top=part.y width=part.w height=part.h border-radius=(part.outline == "circle()" ? 100 : 0) background-color=part.color clip-path=part.clip wrap-flow="both" shape-outside=part.outline shape-margin=8
+          when scene == "ball"
+            column gap=9
+              text "04 / A LITTLE GRAVITY" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "Make room for wonder." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "A moving thought, a page that listens." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
+              text (narrow ? "The river was the first thing we heard in the morning: water moving over stone. We stood beside it with our coffee.\n\nA red ball rolled across the square. Two friends stepped apart, laughing. For a moment the crowd was a living paragraph, opening a path for one bright word.\n\nThe streets seemed wider on the walk home." : "The river was the first thing we heard in the morning. Before the street had opened its windows, there was water moving over stone. We went down with our coffee and stood for a while without finding anything that needed to be said.\n\nA city is full of small agreements. A tree leans over a footpath and the people passing underneath make room. A table appears outside a cafe and the conversation flows around it. Nothing has to disappear for something new to arrive.\n\nBy noon a red ball had escaped from a child's hands and rolled across the square. A man lifted his bag. Two friends stepped apart, laughing. For a moment the crowd was a single living paragraph, opening a path for one bright, improbable word.\n\nOn the walk home the streets seemed wider, as though paying attention had made a little more room in the world.") testId="ball-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              box testId="ball" position="absolute" left=((40 + abs((elapsed / 10 % 970) - 485)) * scale) top=((30 + abs((elapsed / 18 % 520) - 260)) * scale) width=(112 * scale) height=(112 * scale) border-radius=100 background-color="light-dark(#cd7953, #e3a279)" wrap-flow="both" shape-outside="circle()" shape-margin=10
+          when scene == "polygon"
+            column gap=9
+              text "06 / NEW DIRECTIONS" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "Follow a different edge." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "Straight lines. Unexpected possibilities." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
+              text (narrow ? "The map showed a road that ended at the sea. We followed it anyway. Every bend revealed a little more sky.\n\nThe best edges are invitations: the margin of a page, the line of a shore, a door left open. They give a direction to what we have not discovered.\n\nWe came home by a different path. Neither of us mentioned the map." : "The map showed a road that ended at the sea. We followed it anyway. There were orchards on either side and low hills beyond them. Every bend revealed a little more sky. It was a journey that asked nothing except that we keep looking.\n\nNear the coast the road narrowed to a path. Someone had painted an arrow on a stone. It pointed toward a gap in the grass where the wind had laid everything flat. We could hear the water, though we could not yet see it.\n\nAn edge tells you where one place ends and another begins. But the best edges are invitations: the margin of a page, the line of a shore, the threshold of a door left open. They give a shape to what we know and a direction to what we have not discovered.\n\nOn the way back we found a different path. It was longer, and we arrived home late. Neither of us mentioned the map.") testId="polygon-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              box testId="triangle" position="absolute" left=((100 + abs((elapsed / 24 % 480) - 240)) * scale) top=(95 * scale) width=(170 * scale) height=(210 * scale) background-color="light-dark(#648f83, #92b8a5)" clip-path=`path('M 0 0 L ${170 * scale} ${105 * scale} L 0 ${210 * scale} Z')` wrap-flow="both" shape-outside="polygon(0% 0%, 100% 50%, 0% 100%)" shape-margin=10
+          when scene == "editorial"
+            column gap=9
+              text "05 / THE FIELD JOURNAL" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "The shape of a quiet day" font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "OBSERVATIONS FROM THE RIVERBANK" font-size=10 letter-spacing=1
+            box width=proseWidth height=(narrow ? 992 : 530) position="relative" overflow="hidden"
+              text "here is an hour when the garden belongs to neither day nor night. The visitors have gone, but the birds have not yet settled. Every leaf holds a different green.\n\nI used to think a garden was a collection of things. Now I think it is mostly a collection of spaces: the pause between two branches, the warmth beside a wall.\n\nA bench invites us to stop measuring distance." testId="editorial-left" position="absolute" left=0 top=0 width=(narrow ? proseWidth : (proseWidth - 32) / 2) height=(narrow ? 510 : 530) font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              text "Across the path, lavender keeps the day's warmth. The bees have left, but their work remains. Beyond it lies an open patch of earth. Nothing grows there yet.\n\nThat empty patch is my favorite part. There is something generous about leaving room for what comes next.\n\nThe gardener says planting is only half the work. The rest is knowing when to step back. You can prepare the ground, but you cannot hurry the weather." testId="editorial-right" position="absolute" left=(narrow ? 0 : (proseWidth + 32) / 2) top=(narrow ? 542 : 0) width=(narrow ? proseWidth : (proseWidth - 32) / 2) height=(narrow ? 450 : 530) font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              box position="absolute" left=0 top=0 width=48 height=61 wrap-flow="both" shape-outside="inset(0)" shape-margin=7
+                text "T" font-family="serif" font-size=65 line-height=1 color="light-dark(#a15d40, #e2aa88)"
+              box testId="pull-quote" position="absolute" left=(narrow ? 165 : 234) top=(narrow ? 188 : 190) width=(narrow ? 100 : 188) height=(narrow ? 112 : 115) padding=12 box-sizing="border-box" border-radius=8 background-color="light-dark(#e4e8d7, #344943)" wrap-flow="both" shape-outside="inset(0 round 8px)" shape-margin=10
+                text "Leave a little space for what comes next." font-family="serif" font-style="italic" font-size=(narrow ? 16 : 21) line-height=1.22 text-align="center"
+              box position="absolute" left=(narrow ? 192 : 510) top=24 width=(68 * scale) height=(68 * scale) border-radius=40 background-color="light-dark(#cf8459, #cc946f)" wrap-flow="both" shape-outside="circle()" shape-margin=10
+              box position="absolute" left=(narrow ? 26 : 92) top=(narrow ? 650 : 356) width=(60 * scale) height=(60 * scale) border-radius=40 background-color="light-dark(#8faaa0, #7d9f8b)" wrap-flow="both" shape-outside="circle()" shape-margin=9
+        row width=pageWidth justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
+          text "After Cheng Lou's Pretext demos." font-family="serif" font-style="italic" font-size=12 color="light-dark(#65766b, #b2c3b5)"
+          row gap=6
+            button testId="type-size" press=typeSize padding=8 border-width=0 border-radius=6 background-color="light-dark(#e0e3d8, #2c4039)" color="light-dark(#3d5752, #d3dfd6)"
+              text (largeType ? "Type 115%" : "Type 100%") font-size=11
+            button testId="pause" press=pause padding=8 border-width=0 border-radius=6 background-color="light-dark(#e0e3d8, #2c4039)" color="light-dark(#3d5752, #d3dfd6)"
+              text (running ? "Pause" : "Play") font-size=11

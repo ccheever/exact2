@@ -254,13 +254,16 @@ mod split_facts {
         let a = finish(&mut r, 980., &mut prior, false);
         assert_eq!(r.collections()[0].rows.len(), 16);
         assert_eq!(paragraphs(&r).len(), 64);
-        assert_eq!(r.kernel().region_retention().accepted_facts, 288);
+        // @ref LLP 1043.000 §8 — Taffy 0.14 discovers 19 scalar offers per
+        // row here (0.9 discovered 18); final owners and the 768-fact cap stay
+        // unchanged. Keep an exact count so lost reuse cannot hide in the cap.
+        assert_eq!(r.kernel().region_retention().accepted_facts, 304);
         feedback(&mut r, &a, false);
         drop(a);
         let tail = finish(&mut r, 980., &mut prior, false);
         assert_eq!(r.collections()[0].rows.len(), 33);
         assert_eq!(paragraphs(&r).len(), 132);
-        assert_eq!(r.kernel().region_retention().accepted_facts, 594);
+        assert_eq!(r.kernel().region_retention().accepted_facts, 627);
         feedback(&mut r, &tail, false);
         drop(tail);
         let settled = finish(&mut r, 980., &mut prior, false);

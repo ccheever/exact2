@@ -347,6 +347,9 @@ impl RegionState {
         let mut changed = Vec::new();
         publish(arena, &shell_frames, true, &mut changed);
         publish(arena, &frames, current || selected.is_none(), &mut changed);
+        // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
+        let (flow_changed, flow_skipped) =
+            crate::flow::resolve_region(arena, root, &shell_frames, &frames);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
             self.clear_candidate();
@@ -356,6 +359,8 @@ impl RegionState {
                 epoch,
                 root: arena.key(root),
                 changed,
+                flow_changed,
+                flow_skipped,
             },
             origin,
             selection,
@@ -407,6 +412,7 @@ impl RegionState {
                         .paragraph_stamp(slot)
                         .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
                     let request = TextMeasureRequest {
+                        exclusions: &[],
                         runs: &runs,
                         paragraph: Paragraph::from_style(
                             &arena.computed_style(slot, StyleMask::INHERITED),

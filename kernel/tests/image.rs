@@ -260,10 +260,8 @@ fn an_unknown_view_is_refused() {
 }
 
 #[test]
-fn in_a_block_parent_an_auto_width_image_fills_it_a_declared_deviation() {
-    // CSS gives a replaced element in block flow its intrinsic width; Taffy's
-    // block layout stretches an auto-width child to the container. Declared
-    // in LLP 1001 §1 until the kernel special-cases it; the ratio still holds.
+fn in_a_block_parent_an_auto_width_image_keeps_its_intrinsic_size() {
+    // CSS replaced block sizing: an auto width uses the natural bitmap width.
     let mut kernel = Kernel::with_monospace();
     let ops = vec![
         Op::CreateView {
@@ -286,8 +284,8 @@ fn in_a_block_parent_an_auto_width_image_fills_it_a_declared_deviation() {
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
     let f = kernel.node(2).unwrap().frame;
-    // 390 × (120/320) = 146.25; layout preserves the fractional ratio.
-    assert_eq!((f.width, f.height), (390.0, 146.25));
+    // Upstream 0.14 removes the old block-stretch deviation.
+    assert_eq!((f.width, f.height), (320.0, 120.0));
 }
 
 #[test]

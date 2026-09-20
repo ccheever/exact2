@@ -75,6 +75,7 @@ pub(crate) struct Mirror {
     children: Vec<ViewId>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
+    flow: Vec<exact_kernel::FlowShape>,
 }
 
 /// One runner, one presenter.
@@ -373,7 +374,7 @@ impl<D: DataSource> Host<D> {
         // point on a dev reload.
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
-        let timers = host.runner.has_timers();
+        let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
@@ -848,7 +849,7 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&self, batch: Batch, error: Option<String>) -> String {
         batch.finish(
-            self.runner.has_timers(),
+            self.runner.timer_due_ms(),
             !self.engine.quiescent(),
             self.runner.now_ms(),
             error.as_deref(),
@@ -972,10 +973,13 @@ impl<D: DataSource> Host<D> {
             if self.content_region.is_some() {
                 self.region_layout(root, Offer::definite(w, h), batch)?;
             } else {
-                self.runner
+                let receipt = self
+                    .runner
                     .kernel_mut()
                     .compute_layout_presented(root, Offer::definite(w, h), projection)
                     .map_err(|e| format!("layout: {e:?}"))?;
+                // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
+                self.runner.report_flow_skipped(&receipt.flow_skipped);
             }
         }
         self.height_projection = sample;
@@ -1004,19 +1008,29 @@ impl<D: DataSource> Host<D> {
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
         for id in self.preorder() {
-            if self.native_protected_id(id) {
-                continue;
-            }
+            let native_protected = self.native_protected_id(id);
             let kernel = self.runner.kernel();
             let Some(node) = kernel.node(id) else {
                 continue;
             };
+            let m = self.mirror.entry(id).or_default();
+            // Silent list settling already updated kernel flow. Compare final
+            // shapes with what the presenter saw, just like frames; destroyed
+            // views drop this state with their mirror, and [] clears old ink.
+            // Region-owned views still receive flow invalidation even when
+            // their frames come from the selected native artifact below.
+            if m.flow != node.flow_shapes() {
+                batch.flow(id, node.flow_shapes());
+                m.flow = node.flow_shapes().to_vec();
+            }
+            if native_protected {
+                continue;
+            }
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
             let content = (style::effective_overflow(&node)
                 != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
-            let m = self.mirror.entry(id).or_default();
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
             // restore the platform default when the last declaration disappears.

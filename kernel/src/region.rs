@@ -220,6 +220,7 @@ impl RegionTextRequest {
             })
             .collect();
         f(&TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: self.0.source.paragraph,
             width: self.offer().width,
@@ -261,6 +262,8 @@ pub struct RegionFrame {
     pub frame: Frame,
     /// Local scrollable content extent from the same pass.
     pub content: (f32, f32),
+    // LLP 1043.000 D3: proof from the engine that produced this frame.
+    pub(crate) height_measured: bool,
 }
 
 // A bounded coordinate witness, not retained layout-engine state. Parent is an
@@ -323,6 +326,7 @@ impl RegionGeometry {
                 node: local.node,
                 frame: offset.project(local.frame, parent)?,
                 content: local.content,
+                height_measured: local.height_measured,
             });
         }
         Ok(projected)
@@ -502,12 +506,12 @@ mod split_storage_tests {
         assert!(facts.entries.capacity() * std::mem::size_of::<ScalarFact>() <= 36 * 1024);
         facts.sources.reserve_exact(SPLIT_PAINTS);
         assert_eq!(facts.sources.capacity(), 192);
-        assert_eq!(std::mem::size_of::<RegionFrame>(), 32);
+        assert_eq!(std::mem::size_of::<RegionFrame>(), 36);
         assert_eq!(std::mem::size_of::<RegionOffset>(), 16);
         assert_eq!(
             REGION_NODES
                 * (std::mem::size_of::<RegionFrame>() + std::mem::size_of::<RegionOffset>()),
-            196_608
+            212_992
         );
         let mut final_owners: Vec<RegionArtifact> = Vec::new();
         final_owners.reserve_exact(SPLIT_PAINTS);

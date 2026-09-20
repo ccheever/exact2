@@ -23,7 +23,7 @@ struct TransformDragReply {
         self.batch = Batch(ops: batch["ops"] as? [[String: Any]] ?? [],
             timers: batch["timers"] as? Bool ?? false, motion: batch["motion"] as? Bool ?? false,
             clock: batch["clock"] as? Double, error: batch["error"] as? String,
-            pending: batch["pending"] as? Bool ?? false)
+            timerDueMs: batch["timer_due_ms"] as? Double, pending: batch["pending"] as? Bool ?? false)
     }
 }
 

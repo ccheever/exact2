@@ -31,6 +31,7 @@ pub mod arena;
 pub mod clip;
 pub mod error;
 pub mod export;
+mod flow;
 pub mod generated;
 pub mod id;
 pub mod kernel;
@@ -71,3 +72,6 @@ pub use region::{
     ContentRegion, RegionArtifact, RegionFrame, RegionInputs, RegionLayoutReceipt,
     RegionPublication, RegionSelection, RegionTextRequest, RegionTextSource, RegionTicket,
 };
+
+/// CSS authored and resolved exclusion geometry (LLP 1043.000).
+pub use exact_textflow::{FlowShape, ShapeOutside};

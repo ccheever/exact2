@@ -137,6 +137,40 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertFalse(offscreen.textRasterPending)
     }
 
+    func testFlowChangesRetireOrdinaryRasterAndRejectItsLateWorker() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "flow-raster")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        presenter.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "A paragraph around a shape"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let node = try XCTUnwrap(presenter.views[1])
+        XCTAssertTrue(node.rastersText)
+        let key = try XCTUnwrap(node.textRasterKey), pixels = try XCTUnwrap(node.textRaster)
+        node.textRasterPending = true
+        node.applyFlow([["kind": "Circle", "cx": 150.0, "cy": 40.0, "r": 25.0]])
+        XCTAssertFalse(node.rastersText)
+        XCTAssertNil(node.textRaster)
+        XCTAssertNil(node.textRasterKey)
+        XCTAssertFalse(node.textRasterPending)
+        node.showTextRaster(pixels, for: key)
+        XCTAssertNil(node.textRaster, "ordinary worker completion cannot replace flowed ink")
+        XCTAssertFalse(try XCTUnwrap(node.paragraphLayout()).fragments.isEmpty)
+        node.applyFlow([])
+        XCTAssertTrue(node.rastersText)
+        XCTAssertNil(node.cachedTextLayout)
+        XCTAssertNil(node.textRasterKey)
+        XCTAssertFalse(node.textRasterPending)
+        XCTAssertTrue(try XCTUnwrap(node.paragraphLayout()).fragments.isEmpty)
+    }
+
     func testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes() throws {
         let presenter = Presenter()
         let node = NodeView(id: 1, kind: "text", presenter: presenter)

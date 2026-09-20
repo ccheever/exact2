@@ -94,6 +94,7 @@ struct NodePaint {
     payload: Payload,
     opacity: f32,
     clips: bool,
+    css_clip: exact_kernel::clip::ClipPath,
     scroll: Option<(f32, f32)>,
     action: ActionNode,
 }
@@ -273,6 +274,7 @@ impl Picture {
                 };
                 cost += 2 * usize::from(opacity < 1.)
                     + 2 * usize::from(clips)
+                    + 2 * usize::from(!node.style.clip_path.commands().is_empty())
                     + 2 * usize::from(scroll_offset.is_some());
             }
             command_cost = command_cost
@@ -347,6 +349,7 @@ impl Picture {
                 payload,
                 opacity,
                 clips,
+                css_clip: node.style.clip_path.clone(),
                 scroll: scroll_offset,
                 action,
             });
@@ -669,6 +672,7 @@ impl<'a> Replay<'a> {
     ) {
         let mut clip = outer_clip;
         let mut clips = Vec::new();
+        let mut css_clips = Vec::new();
         for command in &self.picture.commands {
             match *command {
                 Command::Enter(i) => {
@@ -690,6 +694,14 @@ impl<'a> Replay<'a> {
                     }
                     if n.opacity < 1. {
                         painter.backend.push_opacity(n.opacity);
+                    }
+                    // @ref LLP 1043.000 §3 D7 — retain the same CSS outline
+                    // through trunk's parent-first projection and replay.
+                    if !n.css_clip.commands().is_empty() {
+                        css_clips.push(painter.backend.push_css_clip(
+                            &n.css_clip,
+                            parent.pre_translate(g.outer.rect.0, g.outer.rect.1),
+                        ));
                     }
                     n.paint.paint(painter.backend.as_mut(), g, parent);
                     match &n.payload {
@@ -730,6 +742,9 @@ impl<'a> Replay<'a> {
                     if n.clips {
                         painter.backend.pop_clip();
                         clip = clips.pop().unwrap();
+                    }
+                    if !n.css_clip.commands().is_empty() && css_clips.pop().unwrap() {
+                        painter.backend.pop_clip();
                     }
                     if n.opacity < 1. {
                         painter.backend.pop_opacity();

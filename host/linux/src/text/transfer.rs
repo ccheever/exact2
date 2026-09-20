@@ -441,6 +441,7 @@ pub(crate) fn adopt(
             )),
             layouts: l.lines.clone(),
             baselines: l.baselines.clone(),
+            flow: None,
             #[cfg(test)]
             layout_lifetime: l.lifetime.clone(),
             width: metrics.width,

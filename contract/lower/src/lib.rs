@@ -86,6 +86,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
         StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`".into(),
+        StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
@@ -539,6 +540,26 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
+                if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
+                    if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
+                        let position = expanded.iter().find(|a| a.name == "position");
+                        let absolute = t
+                            .fixed_styles
+                            .iter()
+                            .any(|(id, v)| *id == StyleId::PositionType && *v == "absolute");
+                        if position.map_or(
+                            !absolute,
+                            |a| matches!(&a.value, Expr::Str(v, _) if v != "absolute"),
+                        ) {
+                            return err(
+                                "lower-attr-value",
+                                "`wrap-flow: both` requires `position: absolute` in exact2 v1",
+                                wrap.span,
+                            );
+                        }
+                    }
+                }
                 tags::validate_list(tag, &expanded, children, *span)?;
                 self.check_collection(tag, &expanded, children, *span)?;
                 let has =
@@ -915,17 +936,30 @@ impl<'a> Lowerer<'a> {
         scope: &Scope,
         font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
+        // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
+        if let Expr::Str(v, _) = &a.value {
+            if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
+                return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", a.span);
+            }
+            if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
+                return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", a.span);
+            }
+        }
         let literal = match &a.value {
             expr if numeric_literal(expr).is_some() => {
                 Some(StyleValue::Number(numeric_literal(expr).unwrap()))
             }
-            Expr::Str(s, _) => Some(if s == "auto" {
-                StyleValue::Auto
-            } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
-                StyleValue::Percent(pct)
-            } else {
-                StyleValue::Text(s.clone())
-            }),
+            Expr::Str(s, _) => Some(
+                // @ref LLP 1043.000 §3 D1 — leave existing properties' lowering
+                // and diagnostics unchanged; only wrap-flow adds this enum literal.
+                if s == "auto" && !rows.contains(&StyleId::WrapFlow) {
+                    StyleValue::Auto
+                } else if let Some(pct) = s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok()) {
+                    StyleValue::Percent(pct)
+                } else {
+                    StyleValue::Text(s.clone())
+                },
+            ),
             Expr::Bool(b, _) => {
                 return err(
                     "lower-attr-value",
@@ -1265,7 +1299,7 @@ impl<'a> Lowerer<'a> {
                     4
                 } else if event == "transformrelease" {
                     6
-                } else if matches!(event, "scroll" | "heightrelease" | "reorderdrop") {
+                } else if matches!(event, "scroll" | "pan" | "heightrelease" | "reorderdrop") {
                     2
                 } else {
                     usize::from(matches!(
@@ -1320,7 +1354,7 @@ impl<'a> Lowerer<'a> {
                 }
                 if matches!(
                     event,
-                    "heightrelease" | "transformgeometry" | "transformrelease"
+                    "pan" | "heightrelease" | "transformgeometry" | "transformrelease"
                 ) && self.types.components[0].actions[ai][args.len()..]
                     .iter()
                     .any(|ty| *ty != Ty::Number)

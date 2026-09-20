@@ -836,6 +836,18 @@
         "solid"
       ],
       "default": "none"
+    },
+    "WrapFlow": {
+      "values": [
+        "auto",
+        "both",
+        "start",
+        "end",
+        "minimum",
+        "maximum",
+        "clear"
+      ],
+      "default": "auto"
     }
   },
   "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
@@ -1483,6 +1495,27 @@
       "bit": 94,
       "field": "border_style_left",
       "codec": "enum:BorderStyle",
+      "layout": true
+    },
+    {
+      "bit": 95,
+      "field": "wrap_flow",
+      "codec": "enum:WrapFlow",
+      "layout": true,
+      "_comment": "@ref LLP 1043.000 \u00a73 D1: only absolute + both excludes. Ignored on non-absolute nodes; other wire values behave as auto."
+    },
+    {
+      "bit": 96,
+      "field": "shape_outside",
+      "codec": "shape-outside",
+      "default": "none",
+      "layout": true
+    },
+    {
+      "bit": 97,
+      "field": "shape_margin",
+      "codec": "f32",
+      "default": 0,
       "layout": true
     }
   ],

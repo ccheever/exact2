@@ -89,6 +89,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     weak var textParent: NodeView?
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
+    var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -97,6 +98,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         didSet {
             updateContextGestures()
             updateSwipeGesture()
+            updateLayoutPan()
             updateMaterial()
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
@@ -110,6 +112,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             }
         }
     }
+    var layoutPanRecognizer: UIPanGestureRecognizer?
+    var layoutPanOrigin = CGPoint.zero
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed = false
     var swipeHold: SwipeHold?
@@ -145,6 +149,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
         if gesture === transformRecognizer {
             return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
         }

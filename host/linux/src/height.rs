@@ -118,6 +118,9 @@ impl<D: DataSource> Host<D> {
             region.collection_context(self.runner.kernel(), &self.runner.collections())?;
             let changed =
                 region.layout(self.runner.kernel_mut(), roots[0], Offer::definite(w, h))?;
+            if let Some(receipt) = region.receipt() {
+                self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+            }
             self.height_projection = None;
             self.height_layout_valid = true;
             return Ok(changed);
@@ -129,7 +132,10 @@ impl<D: DataSource> Host<D> {
                 .kernel_mut()
                 .compute_layout_presented(root, Offer::definite(w, h), projection)
                 .map_err(|e| format!("layout: {e:?}"))?;
-            changed |= !receipt.changed.is_empty();
+            // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
+            self.runner.report_flow_skipped(&receipt.flow_skipped);
+            self.flow_damage.layout(&receipt);
+            changed |= !receipt.changed.is_empty() || !receipt.flow_changed.is_empty();
         }
         self.height_projection = projection;
         self.height_layout_valid = true;

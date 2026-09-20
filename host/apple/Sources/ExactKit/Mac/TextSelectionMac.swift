@@ -227,13 +227,9 @@ final class TextSelection {
     private func line(_ node: NodeView, at point: NSPoint) -> (Paragraph, Spec, Int)? {
         guard let paragraph = node.paragraphLayout() else { return nil }
         let spec = node.paragraphSpec()
-        guard !paragraph.lines.isEmpty else { return nil }
-        var i = paragraph.lines.count - 1
-        var bottom: CGFloat = 0
-        for n in paragraph.lines.indices {
-            bottom = n < paragraph.lineBottoms.count ? paragraph.lineBottoms[n] : paragraph.height
-            if point.y - node.contentBox().minY < bottom { i = n; break }
-        }
+        let box = node.contentBox()
+        guard let i = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY),
+                                          align: spec.align, width: box.width) else { return nil }
         return (paragraph, spec, i)
     }
 
@@ -242,10 +238,8 @@ final class TextSelection {
         if point.y < content.minY { return 0 }
         if point.y > content.maxY { return length(node) }
         guard let (p, spec, i) = line(node, at: point) else { return 0 }
-        let row = p.lines[i]
-        let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        let x = content.minX + CGFloat(CTLineGetPenOffsetForFlush(row, flush, Double(content.width)))
-        let offset = CTLineGetStringIndexForPosition(row, CGPoint(x: point.x - x, y: 0))
+        let x = content.minX + p.origin(i, align: spec.align, width: content.width)
+        let offset = p.stringIndex(in: i, at: point.x - x)
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
     }
 
@@ -254,8 +248,7 @@ final class TextSelection {
         guard content.contains(point), let (p, spec, i) = line(node, at: point) else { return nil }
         // Clicking blank space after a line must not open its last link.
         let width = CGFloat(CTLineGetTypographicBounds(p.lines[i], nil, nil, nil))
-        let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        let x = content.minX + CGFloat(CTLineGetPenOffsetForFlush(p.lines[i], flush, Double(content.width)))
+        let x = content.minX + p.origin(i, align: spec.align, width: content.width)
         guard point.x >= x && point.x <= x + width else { return nil }
         let offset = index(node, at: point)
         var start = 0
@@ -270,20 +263,8 @@ final class TextSelection {
     func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }
         NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).setFill()
-        let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
-        let content = node.contentBox()
-        for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
-            let r = CTLineGetStringRange(line)
-            let lo = max(selection.location, r.location), hi = min(NSMaxRange(selection), r.location + r.length)
-            guard hi > lo else { continue }
-            var ascent: CGFloat = 0, descent: CGFloat = 0
-            _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
-            let y = content.minY + baseline.rounded()
-            guard y + descent >= dirty.minY && y - ascent <= dirty.maxY else { continue }
-            let flushX = content.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(content.width)))
-            let x0 = CTLineGetOffsetForStringIndex(line, lo, nil)
-            let x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            NSRect(x: flushX + min(x0, x1), y: y - ascent, width: max(1, abs(x1 - x0)), height: ascent + descent).fill()
+        for rect in paragraph.selectionRects(selection, align: spec.align, in: node.contentBox(), dirty: dirty) {
+            rect.fill()
         }
     }
 }

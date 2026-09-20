@@ -128,6 +128,8 @@ pub struct Paragraph {
     pub text_overflow: TextOverflow,
     /// Whether otherwise unbreakable text may wrap.
     pub overflow_wrap: OverflowWrap,
+    /// CSS whitespace preservation/collapsing.
+    pub white_space: crate::WhiteSpace,
 }
 
 impl Paragraph {
@@ -140,6 +142,7 @@ impl Paragraph {
             line_clamp: s.line_clamp,
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
+            white_space: s.white_space,
         }
     }
 }
@@ -164,6 +167,9 @@ pub struct TextMeasureRequest<'a> {
     pub width: AxisOffer,
     /// Vertical offer.
     pub height: AxisOffer,
+    /// Resolved exclusions in content coordinates; empty during box layout.
+    /// @ref LLP 1043.000 §3 D5 — hosts answer from their flowed layout.
+    pub exclusions: &'a [exact_textflow::FlowShape],
 }
 
 /// A measurement.
@@ -380,6 +386,7 @@ mod tests {
             line_clamp: 0,
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
+            white_space: crate::WhiteSpace::Normal,
         }
     }
 
@@ -391,6 +398,7 @@ mod tests {
         let mut p = paragraph();
         p.line_clamp = lines;
         MonospaceMeasurer::default().measure(&TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: p,
             width,
@@ -453,6 +461,7 @@ mod tests {
             },
         ];
         let m = MonospaceMeasurer::default().measure(&TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: paragraph(),
             width: AxisOffer::MaxContent,
@@ -469,6 +478,7 @@ mod tests {
             style: style(10.0),
         }];
         let mut request = TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: paragraph(),
             width: AxisOffer::Definite(30.0),

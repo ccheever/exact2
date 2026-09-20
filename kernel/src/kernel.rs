@@ -74,6 +74,17 @@ pub struct NodeRef<'a> {
 }
 
 impl<'a> NodeRef<'a> {
+    /// Resolved exclusions in leaf border-box coordinates, in document order.
+    /// @ref LLP 1043.000 §3 D4 — derived geometry, never paragraph inputs.
+    pub fn flow_shapes(&self) -> &'a [exact_textflow::FlowShape] {
+        self.arena.flow_shapes(self.slot)
+    }
+
+    /// Intersecting exclusions were skipped because Taffy measured this height.
+    pub fn flow_skipped(&self) -> bool {
+        self.arena.flow_skipped(self.slot)
+    }
+
     /// Current input identity for an independent Text/TextInput paragraph.
     /// Inline children return None; use the owner's runs and stamp together.
     /// This is not a layout-offer, catalog, attachment or publication proof.
@@ -464,8 +475,8 @@ impl Kernel {
             }
             Err(e) => Err(e),
         };
-        let changed = match result {
-            Ok(changed) => changed,
+        let mut receipt = match result {
+            Ok(receipt) => receipt,
             Err(e) => {
                 // Taffy may have cached the safe zero used to contain the bad
                 // callback result. Rebuild derived state so the next valid
@@ -474,11 +485,8 @@ impl Kernel {
                 return Err(e.into());
             }
         };
-        Ok(LayoutReceipt {
-            epoch: self.epoch,
-            root: self.arena.key(slot),
-            changed: changed.iter().map(|s| self.arena.key(*s)).collect(),
-        })
+        receipt.epoch = self.epoch;
+        Ok(receipt)
     }
 
     fn validate_presented_height(

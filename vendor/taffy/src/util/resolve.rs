@@ -61,10 +61,15 @@ impl MaybeResolve<Option<f32>, Option<f32>> for Dimension {
     fn maybe_resolve(self, context: Option<f32>, calc: impl Fn(*const (), f32) -> f32) -> Option<f32> {
         match self.0.tag() {
             CompactLength::AUTO_TAG => None,
+            // The content keyword is only valid for flex-basis. In any other context it behaves as auto.
+            CompactLength::CONTENT_TAG => None,
             CompactLength::LENGTH_TAG => Some(self.0.value()),
             CompactLength::PERCENT_TAG => context.map(|dim| dim * self.0.value()),
             #[cfg(feature = "calc")]
             _ if self.0.is_calc() => context.map(|dim| calc(self.0.calc_value(), dim)),
+            // Intrinsic sizing keywords cannot be resolved to a definite size out of context.
+            // Layout algorithms that support them must handle them explicitly.
+            _ if self.0.is_sizing_keyword() => None,
             _ => unreachable!(),
         }
     }
@@ -140,6 +145,19 @@ impl<In: Copy, Out: TaffyZero, T: ResolveOrZero<In, Out>> ResolveOrZero<Size<In>
 impl<Out: TaffyZero, T: ResolveOrZero<Option<f32>, Out>> ResolveOrZero<Option<f32>, Rect<Out>> for Rect<T> {
     /// Converts any `parent`-relative values for Rect into an absolute Rect
     fn resolve_or_zero(self, context: Option<f32>, calc: impl Fn(*const (), f32) -> f32) -> Rect<Out> {
+        Rect {
+            left: self.left.resolve_or_zero(context, &calc),
+            right: self.right.resolve_or_zero(context, &calc),
+            top: self.top.resolve_or_zero(context, &calc),
+            bottom: self.bottom.resolve_or_zero(context, &calc),
+        }
+    }
+}
+
+// Generic ResolveOrZero for resolving Rect against f32
+impl<Out: TaffyZero, T: ResolveOrZero<f32, Out>> ResolveOrZero<f32, Rect<Out>> for Rect<T> {
+    /// Converts any `parent`-relative values for Rect into an absolute Rect
+    fn resolve_or_zero(self, context: f32, calc: impl Fn(*const (), f32) -> f32) -> Rect<Out> {
         Rect {
             left: self.left.resolve_or_zero(context, &calc),
             right: self.right.resolve_or_zero(context, &calc),
