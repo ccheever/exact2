@@ -320,19 +320,13 @@ pressed, released and scalar axis state. Axis declarations still require a key
 pair; all declared keys share the runtime 128-byte bound. An analog-only declaration is deferred. `stick_axis` uses the
 60-point contact-offset rule; contact ownership belongs to a module.
 
-`Spring` and `Tween` are saved scalar motion over exact-motion. Tween uses its
-cubic easing; Spring state is private and rejects nonfinite scalar input. Tween, Spring and
-SpringConfig writers refuse invalid values using `Writer::reject`; successful
-built-in saves survive their corresponding reader. Scalar
-math re-exports libm's f32 functions directly. Angles are radians; `round` rounds
-halfway away from zero. `lerp` permits extrapolation, `smoothstep` clamps between
-distinct increasing edges, and `wrap_angle` returns [-pi, pi). `ease` uses a
-nonnegative time constant and snaps within 1e-4; zero lag arrives immediately.
-`Rng::next_u32` and `next_f32` are the deterministic RNG primitives.
-Spring settlement uses exact-motion’s decreasing energy bound; slow crossings
-and undamped oscillations cannot appear permanently settled. Config validation
-admits frequency squared in [1e-12, 1e12] and damping rate in [0, 1e6]. Presentation
-snaps at 10 seconds; World Spring reports no deadline if that cap is not at rest.
+Scalar math re-exports libm's f32 functions directly. Angles are radians;
+`round` rounds halfway away from zero. `lerp` permits extrapolation and
+`wrap_angle` returns [-pi, pi). `ease` uses a nonnegative time constant and
+snaps within 1e-4; zero lag arrives immediately. `Rng::next_u32` and `next_f32`
+are the deterministic RNG primitives. Saved Spring/Tween and smoothstep live
+in the optional `game/world-motion` module; core has no motion dependency or
+per-value settlement hook. Modules declare animation work with `Work::Deadline`.
 Derived caches use 64 independent lazy cells, with at most 64 type-ID comparisons;
 replacement clears them. Reborrowing the same T exclusively still refuses.
 

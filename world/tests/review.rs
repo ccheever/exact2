@@ -135,69 +135,6 @@ fn extreme_rebased_clocks_refuse_without_mutation() {
 }
 
 #[test]
-fn built_in_motion_values_cannot_save_bytes_they_refuse() {
-    for (start_value, target, duration) in [
-        (0., 1., -1.),
-        (f32::NAN, 1., 1.),
-        (0., f32::INFINITY, 1.),
-        (0., 1., f32::NAN),
-    ] {
-        let value = Tween {
-            start_value,
-            target,
-            duration,
-            start_tick: 0,
-        };
-        assert!(bin::to_vec(&value).is_err(), "invalid Tween was encoded");
-    }
-    for value in [
-        SpringConfig {
-            mass: 0.,
-            ..Default::default()
-        },
-        SpringConfig {
-            damping: f64::NAN,
-            ..Default::default()
-        },
-    ] {
-        assert!(
-            bin::to_vec(&value).is_err(),
-            "invalid SpringConfig was encoded"
-        );
-    }
-    #[derive(Default, Component)]
-    struct Motion(Tween);
-    let mut world = World::new(60, 0);
-    world.register::<Motion>().unwrap();
-    world
-        .spawn(Motion(Tween {
-            duration: -1.,
-            ..Default::default()
-        }))
-        .unwrap();
-    assert!(world.save().is_err());
-    assert!(world.sample().is_err());
-    let value = Tween::new(5.);
-    let bytes = bin::to_vec(&value).unwrap();
-    assert_eq!(
-        bin::to_vec(&bin::from_slice::<Tween>(&bytes).unwrap()).unwrap(),
-        bytes
-    );
-    let value = SpringConfig::default();
-    let bytes = bin::to_vec(&value).unwrap();
-    assert_eq!(
-        bin::to_vec(&bin::from_slice::<SpringConfig>(&bytes).unwrap()).unwrap(),
-        bytes
-    );
-}
-
-#[test]
-fn smoothstep_preserves_nan_with_distinct_increasing_edges() {
-    assert!(math::smoothstep(0., 1., f32::NAN).is_nan());
-    assert_eq!(math::smoothstep(0., 1., 0.5), 0.5);
-}
-
-#[test]
 fn panicking_tick_cannot_be_saved_through_the_underlying_world() {
     struct Panics;
     impl Game for Panics {
@@ -618,21 +555,7 @@ fn generated_simulations_round_trip_exact_bytes_and_hashes() {
 }
 
 #[test]
-fn hash_refuses_invalid_motion_and_excessive_nesting_without_panicking() {
-    #[derive(Default, Component)]
-    struct Motion(Tween);
-    let mut w = World::new(60, 0);
-    w.register::<Motion>().unwrap();
-    w.spawn(Motion(Tween {
-        duration: -1.,
-        ..Default::default()
-    }))
-    .unwrap();
-    assert!(
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.hash()))
-            .unwrap()
-            .is_err()
-    );
+fn hash_refuses_excessive_nesting_without_panicking() {
     #[derive(Default, Data)]
     enum Node {
         #[default]

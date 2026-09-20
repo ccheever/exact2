@@ -1,11 +1,11 @@
-use crate::{Data, DataError, Now, Reader, Writer};
+use exact_world::{Data, DataError, Now, Reader, Writer};
 
 #[derive(Clone, Debug, Default)]
 pub struct Tween {
-    pub start_value: f32,
-    pub target: f32,
-    pub start_tick: u64,
-    pub duration: f32,
+    start_value: f32,
+    target: f32,
+    start_tick: u64,
+    duration: f32,
 }
 impl Tween {
     fn valid(&self) -> bool {
@@ -60,8 +60,8 @@ impl Tween {
         (self.start_value as f64 + (self.target as f64 - self.start_value as f64) * t) as f32
     }
 }
-impl Data for Tween {
-    fn settle_tick(&self, now: Now) -> Option<u64> {
+impl Tween {
+    pub fn settle_tick(&self, now: Now) -> Option<u64> {
         Some(
             if self.start_value != self.target && now.tick < self.deadline(now) {
                 self.deadline(now)
@@ -70,6 +70,8 @@ impl Data for Tween {
             },
         )
     }
+}
+impl Data for Tween {
     fn write(&self, w: &mut dyn Writer) {
         if !self.valid() {
             w.reject("Tween requires finite endpoints and nonnegative duration");
@@ -103,5 +105,92 @@ impl Data for Tween {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::SpringConfig;
+    use exact_world::{bin, Component, World};
+    #[test]
+    fn built_in_motion_values_cannot_save_bytes_they_refuse() {
+        for (start_value, target, duration) in [
+            (0., 1., -1.),
+            (f32::NAN, 1., 1.),
+            (0., f32::INFINITY, 1.),
+            (0., 1., f32::NAN),
+        ] {
+            let value = Tween {
+                start_value,
+                target,
+                duration,
+                start_tick: 0,
+            };
+            assert!(bin::to_vec(&value).is_err(), "invalid Tween was encoded");
+        }
+        for value in [
+            SpringConfig {
+                mass: 0.,
+                ..Default::default()
+            },
+            SpringConfig {
+                damping: f64::NAN,
+                ..Default::default()
+            },
+        ] {
+            assert!(
+                bin::to_vec(&value).is_err(),
+                "invalid SpringConfig was encoded"
+            );
+        }
+        #[derive(Default, Component)]
+        struct Motion(Tween);
+        let mut world = World::new(60, 0);
+        world.register::<Motion>().unwrap();
+        world
+            .spawn(Motion(Tween {
+                duration: -1.,
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(world.save().is_err());
+        assert!(world.sample().is_err());
+        let value = Tween::new(5.);
+        let bytes = bin::to_vec(&value).unwrap();
+        assert_eq!(
+            bin::to_vec(&bin::from_slice::<Tween>(&bytes).unwrap()).unwrap(),
+            bytes
+        );
+        let value = SpringConfig::default();
+        let bytes = bin::to_vec(&value).unwrap();
+        assert_eq!(
+            bin::to_vec(&bin::from_slice::<SpringConfig>(&bytes).unwrap()).unwrap(),
+            bytes
+        );
+    }
+
+    #[test]
+    fn smoothstep_preserves_nan_with_distinct_increasing_edges() {
+        assert!(crate::smoothstep(0., 1., f32::NAN).is_nan());
+        assert_eq!(crate::smoothstep(0., 1., 0.5), 0.5);
+    }
+
+    #[test]
+    fn invalid_motion_hash_refuses() {
+        #[derive(Default, Component)]
+        struct Motion(Tween);
+        let mut w = World::new(60, 0);
+        w.register::<Motion>().unwrap();
+        w.spawn(Motion(Tween {
+            duration: -1.,
+            ..Default::default()
+        }))
+        .unwrap();
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.hash()))
+                .unwrap()
+                .is_err()
+        );
     }
 }

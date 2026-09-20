@@ -898,7 +898,6 @@ dependencies = [
 name = "exact-world"
 version = "0.1.0"
 dependencies = [
- "exact-motion",
  "exact-world-derive",
  "libm",
  "ryu",

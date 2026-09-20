@@ -102,10 +102,6 @@ impl<T: Data> Data for Vec<T> {
     fn default_size() -> usize {
         24
     }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        self.iter()
-            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
-    }
     fn write(&self, w: &mut dyn Writer) {
         // Stable Rust has no specialization: downcasts select the four closed
         // bulk types without unsafe layout casts or changing other Vec<T> values.
@@ -178,9 +174,6 @@ impl<T: Data> Data for Option<T> {
     fn default_size() -> usize {
         8usize.saturating_add(T::default_size())
     }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        self.as_ref().map_or(Some(now.tick), |v| v.settle_tick(now))
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.option(self.is_some());
         if let Some(v) = self {
@@ -203,10 +196,6 @@ where
 {
     fn default_size() -> usize {
         N.saturating_mul(T::default_size())
-    }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        self.iter()
-            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
         w.claim_decoded(Self::default_size().saturating_mul(2));
@@ -254,9 +243,6 @@ impl<T: Data> Data for Box<T> {
         r.claim(T::default_size())?;
         Ok(Box::new(T::read_new(r)?))
     }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        (**self).settle_tick(now)
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.claim_decoded(Self::default_size().saturating_mul(2));
         (**self).write(w);
@@ -268,10 +254,6 @@ impl<T: Data> Data for Box<T> {
 impl<K: Data + Ord + AsRef<str> + for<'a> From<&'a str>, T: Data> Data for BTreeMap<K, T> {
     fn default_size() -> usize {
         24
-    }
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        self.values()
-            .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
@@ -300,8 +282,7 @@ macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
             fn default_size() -> usize { 16usize $(.saturating_add($T::default_size()))* }
-            fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
-            fn write(&self, w: &mut dyn Writer) {
+                    fn write(&self, w: &mut dyn Writer) {
                 w.claim_decoded(Self::default_size().saturating_mul(2));
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }

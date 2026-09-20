@@ -2,7 +2,6 @@
 #![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 extern crate self as exact_world;
-pub use exact_motion::SpringConfig;
 pub use exact_world_derive::{Args, Component, Data, Resource};
 pub mod data;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
@@ -23,10 +22,6 @@ pub use values::Published;
 pub mod math;
 mod rng;
 pub use rng::Rng;
-mod spring;
-pub use spring::Spring;
-mod tween;
-pub use tween::Tween;
 mod input;
 pub use input::{stick_axis, Action, Input, InputEvent};
 mod sim;

@@ -171,19 +171,7 @@ impl World {
             })
             .max()
             .unwrap_or(self.tick());
-        self.components
-            .values()
-            .filter(|s| s.len() != 0)
-            .map(|s| (s, self.storage::<Ambient>()))
-            .chain(
-                self.resources
-                    .iter()
-                    .filter(|(n, _)| !self.registry[*n].ambient)
-                    .map(|(_, s)| (s, None)),
-            )
-            .try_fold(deadline.max(self.tick()), |at, (s, skip)| {
-                Some(at.max(s.settle_tick(self.now(), skip)?))
-            })
+        Some(deadline.max(self.tick()))
     }
     /// None means this boundary is unobserved; false means observed change.
     pub fn observation(&self) -> Option<bool> {

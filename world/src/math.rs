@@ -9,10 +9,6 @@ pub use libm::{
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
-pub fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
-    let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
 pub fn wrap_angle(x: f32) -> f32 {
     let pi = std::f32::consts::PI;
     let tau = std::f32::consts::TAU;

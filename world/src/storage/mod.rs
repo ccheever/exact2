@@ -144,7 +144,6 @@ impl<C: Data> Storage<C> {
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
-    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
     fn edit(&mut self, index: usize, r: &mut dyn Reader) -> Result<(), DataError>;
     fn any(&self) -> &dyn Any;
@@ -194,8 +193,5 @@ impl<C: Data> Erased for Storage<C> {
         valid: &dyn Fn(Entity) -> bool,
     ) -> Result<(), DataError> {
         self.raw.read(r, valid)
-    }
-    fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64> {
-        self.raw.settle_tick(now, skip)
     }
 }

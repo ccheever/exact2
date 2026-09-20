@@ -1,5 +1,44 @@
-use crate::{Data, DataError, Now, Reader, SpringConfig, Writer};
 use exact_motion::spring::SpringSample;
+use exact_world::{Data, DataError, Now, Reader, Writer};
+
+#[derive(Clone, Copy, Debug)]
+pub struct SpringConfig {
+    pub stiffness: f64,
+    pub damping: f64,
+    pub mass: f64,
+}
+impl Default for SpringConfig {
+    fn default() -> Self {
+        Self {
+            stiffness: 100.,
+            damping: 10.,
+            mass: 1.,
+        }
+    }
+}
+impl SpringConfig {
+    fn core(self) -> exact_motion::SpringConfig {
+        exact_motion::SpringConfig {
+            stiffness: self.stiffness,
+            damping: self.damping,
+            mass: self.mass,
+        }
+    }
+    pub fn validate(&self) -> Result<(), DataError> {
+        self.core()
+            .validate()
+            .map_err(|e| DataError::new(format!("invalid spring config: {e:?}")))?;
+        let alpha = self.damping / (2. * self.mass);
+        let omega_squared = self.stiffness / self.mass;
+        if !(1e-12..=1e12).contains(&omega_squared)
+            || !(0.0..=1e6).contains(&alpha)
+            || !(2. * self.mass).is_finite()
+        {
+            return Err(DataError::new("spring numerical range"));
+        }
+        Ok(())
+    }
+}
 
 impl Data for SpringConfig {
     fn write(&self, w: &mut dyn Writer) {
@@ -64,7 +103,7 @@ impl Spring {
     }
     fn sample(&self, Now { tick, hz }: Now) -> SpringSample {
         assert!(hz > 0, "spring hz must be positive");
-        self.config.sample(
+        self.config.core().sample(
             self.start_value - self.target,
             self.start_velocity,
             tick.saturating_sub(self.start_tick) as f64 / hz as f64,
@@ -93,29 +132,33 @@ impl Spring {
     }
     /// Whether all future displacement and speed stay below the rest threshold.
     pub fn at_rest(&self, now: Now) -> bool {
-        self.config.rest_after(
-            self.start_value - self.target,
-            self.start_velocity,
-            now.tick.saturating_sub(self.start_tick) as f64 / now.hz as f64,
-        )
+        let sample = self.sample(now);
+        let omega = exact_motion::math::sqrt(self.config.stiffness / self.config.mass);
+        let amplitude = exact_motion::math::sqrt(
+            sample.displacement * sample.displacement
+                + (sample.velocity / omega) * (sample.velocity / omega),
+        );
+        amplitude < exact_motion::spring::REST_THRESHOLD
+            && amplitude * omega < exact_motion::spring::REST_THRESHOLD
     }
 }
 
-impl Data for Spring {
-    fn settle_tick(&self, now: Now) -> Option<u64> {
+impl Spring {
+    pub fn settle_tick(&self, now: Now) -> Option<u64> {
         if self.at_rest(now) {
             return Some(now.tick);
         }
-        let seconds = self
-            .config
-            .settle_time(self.start_value - self.target, self.start_velocity);
-        let tick = self
-            .start_tick
-            .saturating_add((seconds * now.hz as f64).ceil() as u64);
-        // exact-motion caps its search at ten seconds; an oscillator still moving
-        // there has no known deadline. Do not claim the cap is a resting state.
-        (tick > now.tick && self.at_rest(Now { tick, ..now })).then_some(tick)
+        // Bound the module's search to the core presentation horizon, without
+        // treating its ten-second snap as permanent rest.
+        (1..=2400).find_map(|n| {
+            let tick = self
+                .start_tick
+                .saturating_add((n as f64 / 240. * now.hz as f64).ceil() as u64);
+            (tick > now.tick && self.at_rest(Now { tick, ..now })).then_some(tick)
+        })
     }
+}
+impl Data for Spring {
     fn write(&self, w: &mut dyn Writer) {
         if ![self.target, self.start_value, self.start_velocity]
             .into_iter()

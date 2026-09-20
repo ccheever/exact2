@@ -522,7 +522,6 @@ dependencies = [
 name = "exact-world"
 version = "0.1.0"
 dependencies = [
- "exact-motion",
  "exact-world-derive",
  "libm",
  "ryu",
@@ -540,6 +539,14 @@ dependencies = [
 [[package]]
 name = "exact-world-derive"
 version = "0.1.0"
+
+[[package]]
+name = "exact-world-motion"
+version = "0.1.0"
+dependencies = [
+ "exact-motion",
+ "exact-world",
+]
 
 [[package]]
 name = "fdeflate"

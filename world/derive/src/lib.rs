@@ -182,18 +182,14 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     }
     let mut read_new = String::new();
     let mut enum_size = String::from("64usize");
-    let (write, read, settle) = if kind == "struct" {
+    let (write, read) = if kind == "struct" {
         let b = body(tokens.get(2))?;
         let access: Vec<_> = b
             .fields
             .iter()
             .map(|f| format!("self.{}", f.name))
             .collect();
-        (
-            write_body(&b, &access),
-            read_body(&b, &access),
-            settle_body(&b, &access),
-        )
+        (write_body(&b, &access), read_body(&b, &access))
     } else {
         let Some(TokenTree::Group(g)) = tokens.get(2) else {
             return Err("expected enum body".into());
@@ -230,7 +226,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             }
         }
         let mut write = String::from("match self {");
-        let mut settle = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm {");
         read_new = String::from("fn read_new(r: &mut dyn ::exact_world::Reader) -> Result<Self, ::exact_world::DataError> { let arm = r.variant()?; let value = match arm {");
         for (index, arm) in arms.iter().enumerate() {
@@ -244,7 +239,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .map(|(v, f)| if f.skip { "_".into() } else { v.clone() })
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
-            settle += &format!("{write_pat} => {},", settle_body(b, &refs));
             write += &format!(
                 "{write_pat} => {{ w.claim_decoded({}); w.variant({:?}, {index}); {} w.end_variant(); }},",
                 default_size(b),
@@ -269,16 +263,15 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         }
         write += "}";
         read += "_ => return ::core::result::Result::Err(::exact_world::DataError::new(\"unknown variant\").at(arm)), } r.end_variant()?;";
-        settle += "}";
         read_new += "_ => return Err(::exact_world::DataError::new(\"unknown variant\")), }; r.end_variant()?; Ok(value) }";
-        (write, read, settle)
+        (write, read)
     };
     let default_size = if kind == "struct" {
         default_size(&body(tokens.get(2))?)
     } else {
         enum_size
     };
-    let mut out = format!("impl ::exact_world::Data for {name} {{ {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_world::Data for {name} {{ {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -393,17 +386,6 @@ fn read_body(b: &Body, access: &[String]) -> String {
     }
     s += "}";
     s
-}
-
-fn settle_body(b: &Body, access: &[String]) -> String {
-    let maxes = b
-        .fields
-        .iter()
-        .zip(access)
-        .filter(|(f, _)| !f.skip)
-        .map(|(_, a)| format!(".max(::exact_world::Data::settle_tick(&{a}, now)?)"))
-        .collect::<String>();
-    format!("::core::option::Option::Some(now.tick{maxes})")
 }
 
 /// Decode ordered, typed canvas arguments; fields are setup unless marked live.

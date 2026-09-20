@@ -1,6 +1,6 @@
 //! Singleton resources use one initialized value, with the same leases and Data
 //! wire representation as storage's former slot zero. No component page or masks.
-use super::{Erased, Lease, Ref, RefMut, Storage};
+use super::{Erased, Lease, Ref, RefMut};
 use crate::{Data, DataError, Entity, Reader, Writer};
 use std::{
     any::Any,
@@ -139,9 +139,6 @@ impl<C: Data> Erased for Singleton<C> {
         }
         self.insert(value);
         Ok(())
-    }
-    fn settle_tick(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> Option<u64> {
-        self.get().map_or(Some(now.tick), |v| v.settle_tick(now))
     }
 }
 

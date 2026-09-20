@@ -401,3 +401,33 @@ fn reset_slot_reuse_cannot_inherit_retained_motion_state() {
         Some(Value::scalar(0.25))
     );
 }
+
+#[test]
+fn safe_low_frequency_springs_admit_structured_and_f32_wire_values() {
+    for stiffness in [1e-14, 1e-12] {
+        let ops = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: transition(Transition::new(
+                    TransitionProperty::All,
+                    0.,
+                    TimingFunction::Spring(SpringConfig {
+                        stiffness,
+                        damping: 0.,
+                        mass: 1.,
+                    }),
+                )),
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        let mut structured = Kernel::with_monospace();
+        structured.apply(0, 1, &ops).unwrap();
+        let mut encoded = Kernel::with_monospace();
+        encoded.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
+        assert_eq!(encoded.live_count(), 1);
+    }
+}

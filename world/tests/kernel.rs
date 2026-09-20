@@ -448,22 +448,15 @@ fn bounded_inspection_refuses_large_values_and_reading_is_passive() {
     );
 }
 #[test]
-fn ambient_motion_deadlines_and_same_value_leases_do_not_hide_changes() {
+fn explicit_deadlines_and_same_value_leases_do_not_hide_changes() {
     let mut s = Sim::<Still>::new(()).unwrap();
-    #[derive(Default, Component)]
-    struct Motion(Tween);
-    let mut tween = Tween::new(0.);
-    tween.to(Now { tick: 0, hz: 60 }, 1., 1.);
-    s.world_mut().register::<Motion>().unwrap();
-    s.world_mut().register::<Ambient>().unwrap();
-    let e = s.world_mut().spawn(Motion(tween)).unwrap();
+    s.world_mut().register::<Count>().unwrap();
+    let e = s.world_mut().spawn(Count(0)).unwrap();
+    s.world_mut().work("motion", Work::Deadline(60)).unwrap();
     assert_eq!(s.world().settle_tick(), Some(60));
-    s.world_mut().insert(e, Ambient).unwrap();
-    assert_eq!(s.settle(2).unwrap(), 1);
-    s.world_mut().remove::<Ambient>(e);
-    assert_eq!(s.settle(100).unwrap(), 59);
+    assert_eq!(s.settle(100).unwrap(), 60);
     assert!(s.world().quiescent());
-    drop(s.world().get_mut::<Motion>(e));
+    drop(s.world().get_mut::<Count>(e));
     assert!(!s.world().quiescent());
 }
 

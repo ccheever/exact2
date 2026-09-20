@@ -46,8 +46,6 @@ pub enum SpringError {
     NegativeDamping,
     /// Mass must be positive.
     NonPositiveMass,
-    /// Derived frequency or damping lies outside the finite evaluation range.
-    NumericalRange,
 }
 
 /// Below this displacement and speed, the spring is at rest. Absolute, in the
@@ -91,14 +89,6 @@ impl SpringConfig {
         if self.mass <= 0.0 {
             return Err(SpringError::NonPositiveMass);
         }
-        let alpha = self.damping / (2.0 * self.mass);
-        let omega_squared = self.stiffness / self.mass;
-        if !(1e-12..=1e12).contains(&omega_squared)
-            || !(0.0..=1e6).contains(&alpha)
-            || !(2.0 * self.mass).is_finite()
-        {
-            return Err(SpringError::NumericalRange);
-        }
         Ok(())
     }
 
@@ -114,12 +104,6 @@ impl SpringConfig {
         let omega_squared = self.stiffness / self.mass;
         let discriminant = alpha * alpha - omega_squared;
         let epsilon = omega_squared * 1.0e-12;
-        if elapsed == 0.0 {
-            return SpringSample {
-                displacement,
-                velocity,
-            };
-        }
         let decay = math::exp(-alpha * elapsed);
         let (x, v) = if discriminant < -epsilon {
             let omega_d = math::sqrt(-discriminant);
@@ -141,7 +125,7 @@ impl SpringConfig {
             )
         } else {
             let root = math::sqrt(discriminant);
-            let r1 = -omega_squared / (alpha + root);
+            let r1 = -alpha + root;
             let r2 = -alpha - root;
             let c1 = (velocity - r2 * displacement) / (r1 - r2);
             let c2 = displacement - c1;
@@ -155,19 +139,8 @@ impl SpringConfig {
         }
     }
 
-    /// Energy bounds all future displacement and speed, including undamped motion.
-    /// Unlike an instantaneous sample this cannot declare a slow crossing settled.
-    pub fn rest_after(&self, displacement: f64, velocity: f64, elapsed: f64) -> bool {
-        let sample = self.sample(displacement, velocity, elapsed);
-        let omega = math::sqrt(self.stiffness / self.mass);
-        let x = sample.displacement.abs();
-        let v = sample.velocity.abs() / omega;
-        let amplitude = math::sqrt(x * x + v * v);
-        amplitude < REST_THRESHOLD && amplitude * omega < REST_THRESHOLD
-    }
-
     /// Seconds until the spring released at `displacement` with `velocity`
-    /// first has a permanently resting energy bound on the [`SAMPLE_RATE`] grid, capped at
+    /// first samples at rest on the [`SAMPLE_RATE`] grid, capped at
     /// [`MAX_DURATION`]. Zero when it is already at rest.
     pub fn settle_time(&self, displacement: f64, velocity: f64) -> f64 {
         let mut n = 0u32;
@@ -176,7 +149,7 @@ impl SpringConfig {
             if t >= MAX_DURATION {
                 return MAX_DURATION;
             }
-            if self.rest_after(displacement, velocity, t) {
+            if self.sample(displacement, velocity, t).at_rest() {
                 return t;
             }
             n += 1;

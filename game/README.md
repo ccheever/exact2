@@ -704,3 +704,15 @@ incoming state. `bin::read_into` stages patches and preserves values on decode e
 Optional-kernel `World::hash`, `hash::of` and `Hasher::finish` now return
 `Result<u64, DataError>` for invalid Data and excessive nesting. Derived skipped
 fields require `Data + Default` so allocation admission includes their defaults.
+
+`exact-world-motion` is a separate module in this workspace. It exports saved
+`Spring`, `SpringConfig` and `Tween` Data, plus `smoothstep`. Tween anchors are
+private; use `new` and `to`. `Spring::settle_tick(Now)` and
+`Tween::settle_tick(Now)` return `Option<u64>`; the caller declares
+`world.work("animation", Work::Deadline(tick))`. With no spring deadline, declare
+`Work::Pending` until the module has a finite deadline. Ambient presentation can
+omit this work declaration. The kernel never traverses component motion.
+Spring uses the core evaluator's public API, with module-local config admission
+(frequency squared 1e-12–1e12, damping rate 0–1e6) and a permanent-rest energy
+bound. Deadline search has at most 2,400 samples, returning `None` if no permanent
+rest is found within ten seconds. Core `exact-motion` retains its app behavior.

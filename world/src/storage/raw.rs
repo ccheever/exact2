@@ -1,7 +1,7 @@
 //! Layout and Data operations are fixed once per type. Typed wrappers never cast
 //! between descriptors. Presence bits own values; all access holds a column lease.
-use super::{Lease, Storage, PAGE};
-use crate::{Data, DataError, Entity, Now, Reader, Writer};
+use super::{Lease, PAGE};
+use crate::{Data, DataError, Entity, Reader, Writer};
 use std::{
     alloc::{alloc, dealloc, handle_alloc_error, Layout},
     cell::Cell,
@@ -17,7 +17,6 @@ struct Descriptor {
     drop_in_place: unsafe fn(*mut u8),
     write: unsafe fn(*mut u8, &mut dyn Writer),
     read_new: unsafe fn(*mut u8, &mut dyn Reader) -> Result<(), DataError>,
-    settle: unsafe fn(*mut u8, Now) -> Option<u64>,
 }
 impl Descriptor {
     const fn of<C: Data>() -> Self {
@@ -38,7 +37,6 @@ impl Descriptor {
                 unsafe { p.cast::<C>().write(value) };
                 Ok(())
             },
-            settle: |p, now| unsafe { &*p.cast::<C>() }.settle_tick(now),
         }
     }
 }
@@ -234,19 +232,6 @@ impl RawStorage {
         // SAFETY: presence and shared lease protect the value.
         unsafe { (self.desc.write)(self.ptr(index), w) };
         true
-    }
-    pub(super) fn settle_tick(
-        &self,
-        now: crate::Now,
-        skip: Option<&Storage<crate::Ambient>>,
-    ) -> Option<u64> {
-        let _lease = self.lease(false);
-        let mut at = now.tick;
-        for i in self.indices(skip.map(|s| &s.raw)) {
-            // SAFETY: presence proves initialization; the shared lease excludes writers.
-            at = at.max(unsafe { (self.desc.settle)(self.ptr(i), now) }?);
-        }
-        Some(at)
     }
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);

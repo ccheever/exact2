@@ -52,11 +52,6 @@ pub trait Data: Sized + Default + 'static {
         value.read(r)?;
         Ok(value)
     }
-    /// First resting world tick, or None for unsettled work without a deadline.
-    /// Derives combine nested deadlines; this is inspected only on agent reads.
-    fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        Some(now.tick)
-    }
     /// Write fields in declaration order, omitting transient fields.
     fn write(&self, w: &mut dyn Writer);
     /// Read according to the record-patch and container-replacement rule above.
