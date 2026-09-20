@@ -20,7 +20,7 @@ impl Data for Entity {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
         while let Some(field) = r.field()? {
-            match field.as_str() {
+            match field {
                 "index" => self.index.read(r)?,
                 "generation" => self.generation.read(r)?,
                 _ => r.unknown()?,
@@ -768,7 +768,6 @@ impl World {
         let mut r = bin::Decoder::for_load(payload, budget);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
-        next.validate_ownership()?;
         let changed = next.save()? != bytes;
         if changed && !adapt {
             return Err(DataError::new(
@@ -825,14 +824,14 @@ impl World {
         r.begin_struct()?;
         let mut seen = 0u8;
         while let Some(field) = r.field()? {
-            seen |= match field.as_str() {
+            seen |= match field {
                 "state" => 1,
                 "rng" => 2,
                 "components" => 4,
                 "resources" => 8,
                 _ => 0,
             };
-            match field.as_str() {
+            match field {
                 "state" => {
                     self.state.read(r)?;
                     self.validate_state()?;
@@ -866,8 +865,8 @@ impl World {
                     }
                     r.begin_struct()?;
                     while let Some(name) = r.field()? {
-                        if !self.registry.contains_key(name.as_str()) {
-                            match name.as_str() {
+                        if !self.registry.contains_key(name) {
+                            match name {
                                 "Parent" => {
                                     self.register::<Parent>()?;
                                 }
@@ -877,12 +876,11 @@ impl World {
                                 _ => {}
                             }
                         }
-                        let (&key, reg) =
-                            self.registry.get_key_value(name.as_str()).ok_or_else(|| {
-                                DataError::new(format!(
-                                    "unregistered storage `{name}`; declare it in Game::register"
-                                ))
-                            })?;
+                        let (&key, reg) = self.registry.get_key_value(name).ok_or_else(|| {
+                            DataError::new(format!(
+                                "unregistered storage `{name}`; declare it in Game::register"
+                            ))
+                        })?;
                         let resource = field == "resources";
                         let make = if resource {
                             r.claim(reg.resource_size).map_err(|e| e.at(&name))?;

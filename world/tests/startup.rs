@@ -73,7 +73,7 @@ fn construction_activation_restore_counts() {
     let bytes = sim.save().unwrap();
     assert_eq!(bytes.len(), 10240);
     let (restored, counts) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
-    report("restore.10KiB", counts, (1038, 106671));
+    report("restore.10KiB", counts, (80, 47297));
     assert_eq!(restored.world().hash(), sim.world().hash());
     assert_eq!(restored.save().unwrap(), bytes);
     let (_, again) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());

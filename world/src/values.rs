@@ -96,7 +96,7 @@ impl Stored {
             Self::Object(fields) => {
                 w.begin_struct();
                 for (k, v) in fields {
-                    w.field(k);
+                    w.key(k);
                     v.inspect(w);
                 }
                 w.end_struct();
@@ -360,13 +360,16 @@ impl Writer for RecordWriter {
     fn begin_struct(&mut self) {
         self.stack.push(Stored::Object(Default::default()));
     }
-    fn field(&mut self, name: &str) {
+    fn field(&mut self, name: &'static str) {
+        self.key(name);
+    }
+    fn key(&mut self, name: &str) {
         self.fields.push(name.into());
     }
     fn end_struct(&mut self) {
         self.end();
     }
-    fn variant(&mut self, _: &str, _: u32) {
+    fn variant(&mut self, _: &'static str, _: u32) {
         panic!("publish_record expects ordinary records, not enum variants");
     }
     fn end_variant(&mut self) {}

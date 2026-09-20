@@ -116,13 +116,10 @@ pub(crate) fn read_vec<T: Data>(
     if r.sequence_len().is_some_and(|n| n > limit) {
         return Err(DataError::new("sequence count exceeds load limit"));
     }
-    if let Some(n) = r.sequence_len() {
-        r.check_allocation(
-            n.checked_mul(std::mem::size_of::<T>())
-                .ok_or_else(|| DataError::new("allocation size overflow"))?,
-        )?;
-    }
     v.clear();
+    if let Some(n) = r.sequence_len() {
+        reserve(r, v, n)?;
+    }
     while r.item()? {
         if v.len() == limit {
             return Err(DataError::new("sequence count exceeds load limit"));

@@ -145,3 +145,13 @@ slot walk and allocate nothing. Changed boundaries reuse one byte per slot of
 scratch; each edge is followed at most twice through the Parent query (a page
 lookup costs O(log allocated pages)). Validation shares that scratch. A reversed
 chain at slot 199,999 and generation recycling exercise the destructive case.
+
+Restore now borrows field/variant names from the input through `Reader<'data>`.
+Duplicate tracking reuses a stack and per-name depth marks; nested records restore
+outer marks, including hostile repeated literal name definitions. Encoder field
+and variant names are static; dynamic map names use `Writer::key`. Sequences
+reserve their admitted length once. The exact 10 KiB restore costs **80 allocations /
+47,297 requested bytes**, down from 1,038 / 106,671 (13× fewer calls). Remaining
+allocations are saved state/storage/journal strings, codec metadata and canonical
+re-encoding. Byte requests are not 10× smaller: decoded storage and the 10 KiB
+canonical comparison buffer are still owned. No wire/hash tags changed.

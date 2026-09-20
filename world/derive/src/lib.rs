@@ -213,7 +213,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         }
         let mut write = String::from("match self {");
         let mut settle = String::from("match self {");
-        let mut read = String::from("let arm = r.variant()?; match arm.as_str() {");
+        let mut read = String::from("let arm = r.variant()?; match arm {");
         for (index, arm) in arms.iter().enumerate() {
             let b = &arm.body;
             let vars: Vec<_> = (0..b.fields.len()).map(|i| format!("v{i}")).collect();
@@ -330,7 +330,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
         s += &format!("{a} = ::core::default::Default::default();");
     }
     s += if named {
-        "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"
+        "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field {"
     } else {
         "r.begin_seq()?; let mut index = 0usize; while r.item()? { match index {"
     };

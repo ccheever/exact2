@@ -63,7 +63,7 @@ impl Data for State {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
         while let Some(field) = r.field()? {
-            match field.as_str() {
+            match field {
                 "tick" => self.tick.read(r),
                 "hz" => self.hz.read(r),
                 "seed" => self.seed.read(r),

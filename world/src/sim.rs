@@ -362,7 +362,6 @@ impl<G: Game> Sim<G> {
         G::register(&mut world, SetupArgs(&args))?;
         item(&mut r)?;
         world.read(&mut r)?;
-        world.validate_ownership()?;
         item(&mut r)?;
         let mut world_us = 0i64;
         world_us.read(&mut r)?;
@@ -416,7 +415,8 @@ impl<G: Game> Sim<G> {
             tick_failed: false,
             game: PhantomData,
         };
-        if !adapt && next.save()? != bytes {
+        let canonical = next.save()?;
+        if !adapt && canonical != bytes {
             return Err(DataError::new(
                 "exact save identity differs; use carry for schema adaptation",
             ));

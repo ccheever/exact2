@@ -210,3 +210,31 @@ fn unit_and_empty_nonbulk_sequences_keep_the_existing_data_grammar() {
     assert_ne!(unit, bin::to_vec(&vec![String::new()]).unwrap());
     assert_ne!(hash::of(&()), hash::of(&vec![String::new()]));
 }
+
+#[test]
+fn borrowed_identities_reject_duplicate_literals_and_restore_outer_marks() {
+    use exact_world::{Reader, Writer};
+    // A hostile encoder repeats a name definition rather than its table index.
+    let bytes = [8, 1, 0, 1, b'x', 2, 0, 1, 0, 1, b'x', 2, 0, 0];
+    let mut r = exact_world::bin::Decoder::new(&bytes);
+    assert!(r.skip().unwrap_err().message.contains("duplicate field"));
+    for duplicate in [false, true] {
+        let mut w = exact_world::bin::Encoder::default();
+        w.begin_struct();
+        w.field("x");
+        w.begin_struct();
+        w.field("x");
+        w.boolean(true);
+        w.end_struct();
+        w.field(if duplicate { "x" } else { "y" });
+        w.boolean(false);
+        w.end_struct();
+        let bytes = w.finish().unwrap();
+        let mut r = exact_world::bin::Decoder::new(&bytes);
+        let result = r.skip();
+        assert_eq!(result.is_err(), duplicate);
+        if !duplicate {
+            r.finish().unwrap();
+        }
+    }
+}

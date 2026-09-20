@@ -64,10 +64,7 @@ impl DataError {
         }
     }
     /// Prepend a field, type, or sequence index to the path.
-    pub fn at(self, path: impl fmt::Display) -> Self {
-        self.at_args(format_args!("{path}"))
-    }
-    fn at_args(mut self, path: fmt::Arguments<'_>) -> Self {
+    pub fn at(mut self, path: impl fmt::Display) -> Self {
         self.path = if self.path.is_empty() {
             path.to_string()
         } else {
@@ -144,18 +141,16 @@ pub trait Writer {
     fn item(&mut self);
     fn end_seq(&mut self);
     fn begin_struct(&mut self);
-    fn field(&mut self, name: &str);
-    fn key(&mut self, name: &str) {
-        self.field(name);
-    }
+    fn field(&mut self, name: &'static str);
+    fn key(&mut self, name: &str);
     fn end_struct(&mut self);
-    fn variant(&mut self, name: &str, index: u32);
+    fn variant(&mut self, name: &'static str, index: u32);
     fn end_variant(&mut self);
     fn option(&mut self, some: bool);
     fn end_option(&mut self);
 }
 
-pub trait Reader {
+pub trait Reader<'data> {
     fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {
         Ok(())
     }
@@ -194,8 +189,8 @@ pub trait Reader {
     fn begin_seq(&mut self) -> Result<(), DataError>;
     fn item(&mut self) -> Result<bool, DataError>;
     fn begin_struct(&mut self) -> Result<(), DataError>;
-    fn field(&mut self) -> Result<Option<String>, DataError>;
-    fn variant(&mut self) -> Result<String, DataError>;
+    fn field(&mut self) -> Result<Option<&'data str>, DataError>;
+    fn variant(&mut self) -> Result<&'data str, DataError>;
     fn end_variant(&mut self) -> Result<(), DataError>;
     fn option(&mut self) -> Result<bool, DataError>;
     fn end_option(&mut self) -> Result<(), DataError>;

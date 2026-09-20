@@ -210,7 +210,7 @@ impl World {
         let mut w = crate::json::Encoder::default();
         w.begin_struct();
         for (key, value) in self.published.borrow().iter() {
-            w.field(key);
+            w.key(key);
             value.inspect(&mut w);
         }
         w.end_struct();

@@ -146,7 +146,10 @@ impl Writer for Encoder {
     fn begin_struct(&mut self) {
         self.begin("{");
     }
-    fn field(&mut self, name: &str) {
+    fn field(&mut self, name: &'static str) {
+        self.key(name);
+    }
+    fn key(&mut self, name: &str) {
         self.item();
         self.quote(name);
         self.push(":");
@@ -154,7 +157,7 @@ impl Writer for Encoder {
     fn end_struct(&mut self) {
         self.end("}");
     }
-    fn variant(&mut self, name: &str, _: u32) {
+    fn variant(&mut self, name: &'static str, _: u32) {
         self.begin_struct();
         self.field(name);
     }

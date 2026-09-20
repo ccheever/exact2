@@ -260,9 +260,9 @@ impl<T: Data> Data for BTreeMap<String, T> {
         r.begin_struct()?;
         self.clear();
         while let Some(k) = r.field()? {
-            r.claim(64 + std::mem::size_of::<T>())?;
+            r.claim(64 + k.len() + std::mem::size_of::<T>())?;
             let value = T::read_new(r).map_err(|e| e.at(&k))?;
-            self.insert(k, value);
+            self.insert(k.into(), value);
         }
         Ok(())
     }

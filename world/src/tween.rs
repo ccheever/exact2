@@ -88,7 +88,7 @@ impl Data for Tween {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
         while let Some(field) = r.field()? {
-            match field.as_str() {
+            match field {
                 "start_value" => self.start_value.read(r)?,
                 "target" => self.target.read(r)?,
                 "start_tick" => self.start_tick.read(r)?,

@@ -15,7 +15,7 @@ impl Data for SpringConfig {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
         while let Some(f) = r.field()? {
-            match f.as_str() {
+            match f {
                 "stiffness" => self.stiffness.read(r).map_err(|e| e.at(f))?,
                 "damping" => self.damping.read(r).map_err(|e| e.at(f))?,
                 "mass" => self.mass.read(r).map_err(|e| e.at(f))?,
@@ -125,7 +125,7 @@ impl Data for Spring {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
         while let Some(f) = r.field()? {
-            match f.as_str() {
+            match f {
                 "target" => self.target.read(r).map_err(|e| e.at(f))?,
                 "start_value" => self.start_value.read(r).map_err(|e| e.at(f))?,
                 "start_velocity" => self.start_velocity.read(r).map_err(|e| e.at(f))?,

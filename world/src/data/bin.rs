@@ -3,7 +3,7 @@
 use super::limits::{Budget, LoadBudget, MAX_LOAD_BYTES, MAX_LOAD_STRING};
 use super::BulkKind;
 use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Encode one value, canonicalizing all NaNs while preserving negative zero.
 pub fn to_vec<T: Data>(value: &T) -> Result<Vec<u8>, DataError> {
@@ -34,7 +34,7 @@ pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> 
 /// A binary stream sink, usable for a world whose component types are erased.
 pub struct Encoder {
     bytes: Vec<u8>,
-    names: BTreeMap<String, u64>,
+    names: BTreeMap<std::borrow::Cow<'static, str>, u64>,
     limit: usize,
     decoded: usize,
     depth: usize,
@@ -114,18 +114,18 @@ impl Encoder {
         self.var(s.len() as u64);
         self.append(s.as_bytes());
     }
-    fn name(&mut self, s: &str) {
+    fn name(&mut self, s: std::borrow::Cow<'static, str>) {
         if self.stopped() {
             return;
         }
-        if let Some(&i) = self.names.get(s) {
+        if let Some(&i) = self.names.get(s.as_ref()) {
             self.var(i + 1);
         } else {
             self.claim_decoded(64);
             self.var(0);
-            self.text(s);
+            self.text(&s);
             if !self.stopped() {
-                self.names.insert(s.into(), self.names.len() as u64);
+                self.names.insert(s, self.names.len() as u64);
             }
         }
     }
@@ -178,7 +178,7 @@ impl Writer for Encoder {
     fn string(&mut self, s: &str) {
         self.claim_decoded(s.len());
         self.append(&[6]);
-        self.text(s);
+        self.text(&s);
     }
     fn begin_seq(&mut self, len: usize) {
         self.enter();
@@ -193,21 +193,26 @@ impl Writer for Encoder {
         self.enter();
         self.append(&[8]);
     }
-    fn field(&mut self, name: &str) {
+    fn field(&mut self, name: &'static str) {
         self.claim_decoded(64 + name.len());
         self.append(&[1]);
-        self.name(name);
+        self.name(name.into());
+    }
+    fn key(&mut self, name: &str) {
+        self.claim_decoded(64 + name.len());
+        self.append(&[1]);
+        self.name(name.to_owned().into());
     }
     fn end_struct(&mut self) {
         self.leave();
         self.append(&[0]);
     }
-    fn variant(&mut self, name: &str, index: u32) {
+    fn variant(&mut self, name: &'static str, index: u32) {
         self.claim_decoded(name.len());
         self.enter();
         self.append(&[9]);
         self.var(index.into());
-        self.name(name);
+        self.name(name.into());
     }
     fn end_variant(&mut self) {
         self.leave();
@@ -226,12 +231,14 @@ pub struct Decoder<'a> {
     bytes: &'a [u8],
     pos: usize,
     names: Vec<&'a str>,
-    frames: Vec<Frame<'a>>,
+    frames: Vec<Frame>,
+    marks: BTreeMap<&'a str, usize>,
+    fields: Vec<(&'a str, usize)>,
     budget: Budget,
 }
-enum Frame<'a> {
+enum Frame {
     Seq(u64),
-    Struct(BTreeSet<&'a str>),
+    Struct(usize),
     Variant,
     Option,
 }
@@ -242,6 +249,8 @@ impl<'a> Decoder<'a> {
             pos: 0,
             names: vec![],
             frames: vec![],
+            marks: BTreeMap::new(),
+            fields: vec![],
             budget: Budget::default(),
         }
     }
@@ -321,6 +330,8 @@ impl<'a> Decoder<'a> {
         let n = self.var()?;
         if n == 0 {
             let s = self.text()?;
+            self.budget
+                .claim(64 + std::mem::size_of::<(&str, usize)>())?;
             self.budget.reserve(&mut self.names)?;
             self.names.push(s);
             Ok(s)
@@ -331,7 +342,7 @@ impl<'a> Decoder<'a> {
                 .ok_or_else(|| self.err("unknown name index"))
         }
     }
-    fn push(&mut self, f: Frame<'a>) -> Result<(), DataError> {
+    fn push(&mut self, f: Frame) -> Result<(), DataError> {
         if self.frames.len() >= 256 {
             return Err(self.err("nesting exceeds 256"));
         }
@@ -340,7 +351,7 @@ impl<'a> Decoder<'a> {
         Ok(())
     }
 }
-impl Reader for Decoder<'_> {
+impl<'a> Reader<'a> for Decoder<'a> {
     fn check_allocation(&self, bytes: usize) -> Result<(), DataError> {
         self.budget.check(bytes)
     }
@@ -389,19 +400,11 @@ impl Reader for Decoder<'_> {
                 Number::Signed(((n >> 1) as i64) ^ -((n & 1) as i64))
             }
             4 => {
-                let n = f32::from_le_bytes(
-                    self.take(4)?
-                        .try_into()
-                        .map_err(|_| self.err("invalid f32 bytes"))?,
-                );
+                let n = f32::from_le_bytes(self.take(4)?.try_into().unwrap());
                 Number::F32(f32::from_bits(f32_bits(n)))
             }
             5 => {
-                let n = f64::from_le_bytes(
-                    self.take(8)?
-                        .try_into()
-                        .map_err(|_| self.err("invalid f64 bytes"))?,
-                );
+                let n = f64::from_le_bytes(self.take(8)?.try_into().unwrap());
                 Number::F64(f64::from_bits(f64_bits(n)))
             }
             _ => return Err(self.err("expected a number")),
@@ -435,38 +438,40 @@ impl Reader for Decoder<'_> {
     }
     fn begin_struct(&mut self) -> Result<(), DataError> {
         self.tag(8, "expected a record")?;
-        self.push(Frame::Struct(BTreeSet::new()))
+        self.push(Frame::Struct(self.fields.len()))
     }
-    fn field(&mut self) -> Result<Option<String>, DataError> {
-        if !matches!(self.frames.last(), Some(Frame::Struct(_))) {
+    fn field(&mut self) -> Result<Option<&'a str>, DataError> {
+        let Some(&Frame::Struct(start)) = self.frames.last() else {
             return Err(self.err("not inside a record"));
-        }
+        };
         match self.byte()? {
             0 => {
+                for (name, previous) in self.fields.drain(start..) {
+                    *self.marks.get_mut(name).unwrap() = previous;
+                }
                 self.frames.pop();
                 Ok(None)
             }
             1 => {
                 let name = self.name()?;
-                let Some(Frame::Struct(seen)) = self.frames.last_mut() else {
-                    unreachable!()
-                };
-                if seen.contains(name) {
+                let mark = self.marks.entry(name).or_insert(0);
+                if *mark == self.frames.len() {
                     return Err(DataError::new("duplicate field").at(name));
                 }
-                self.budget.claim(64)?;
-                seen.insert(name);
-                Ok(Some(self.budget.text(name)?))
+                self.budget.reserve(&mut self.fields)?;
+                self.fields.push((name, *mark));
+                *mark = self.frames.len();
+                Ok(Some(name))
             }
             _ => Err(self.err("expected a field")),
         }
     }
-    fn variant(&mut self) -> Result<String, DataError> {
+    fn variant(&mut self) -> Result<&'a str, DataError> {
         self.tag(9, "expected an enum")?;
         self.var()?;
         let name = self.name()?;
         self.push(Frame::Variant)?;
-        self.budget.text(name)
+        Ok(name)
     }
     fn end_variant(&mut self) -> Result<(), DataError> {
         if matches!(self.frames.pop(), Some(Frame::Variant)) {

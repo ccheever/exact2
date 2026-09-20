@@ -111,14 +111,14 @@ impl Writer for Hasher {
     fn begin_struct(&mut self) {
         self.raw(&[8]);
     }
-    fn field(&mut self, _: &str) {}
+    fn field(&mut self, _: &'static str) {}
     fn key(&mut self, key: &str) {
         self.string(key);
     }
     fn end_struct(&mut self) {
         self.raw(&[13]);
     }
-    fn variant(&mut self, _: &str, index: u32) {
+    fn variant(&mut self, _: &'static str, index: u32) {
         self.raw(&[9]);
         self.raw(&index.to_le_bytes());
     }
