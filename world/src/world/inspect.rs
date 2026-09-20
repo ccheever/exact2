@@ -116,6 +116,44 @@ impl World {
             Readiness::Pending(pending)
         }
     }
+    /// Bounded generic report: observation, eight busy/work reasons, and truncation.
+    /// At most 64 entries are inspected; text is bounded at admission to 256 bytes.
+    pub fn report(&self, w: &mut dyn Writer) -> Result<(), DataError> {
+        self.healthy()?;
+        let busy = self.state.busy.borrow();
+        let work = self.state.work.borrow();
+        w.begin_struct();
+        w.field("observation");
+        self.observation().write(w);
+        w.field("busy");
+        w.begin_seq(busy.len().min(8));
+        for reason in busy.iter().take(8) {
+            if w.stopped() {
+                break;
+            }
+            w.item();
+            reason.write(w);
+        }
+        w.end_seq();
+        w.field("work");
+        w.begin_struct();
+        for (name, value) in work.iter().take(8) {
+            if w.stopped() {
+                break;
+            }
+            w.key(name);
+            value.write(w);
+        }
+        w.end_struct();
+        w.field("truncated");
+        (busy.len() > 8 || work.len() > 8).write(w);
+        w.end_struct();
+        if w.stopped() {
+            Err(DataError::new("report visitor refused"))
+        } else {
+            Ok(())
+        }
+    }
     pub fn settle_tick(&self) -> Option<u64> {
         if !self.state.busy.borrow().is_empty() || self.readiness() != Readiness::Ready {
             return None;
