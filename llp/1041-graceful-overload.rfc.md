@@ -8568,3 +8568,105 @@ MAIN`target/mac-messages-current-execution-v1` retains capture`c27b618e`, binary
 correction`64dd2fdd`. This is the pinned product, not later origin`b3d12c3`.
 The next discriminator is the setup delivery path; no smaller workload or
 historical timing substitutes for the failed baseline.
+
+### 8.156 Current stock Linux baseline: qualified offline pointer-turn closure
+
+One fresh optimized actual-Linux build at `b3d12c3` uses registry tiny-skia0.12,
+the current layout/text-flow/deadline changes and the existing diagnostic observer.
+The private lock changes only ureq3.4.2 to3.4.0, as required by the actual local
+ibex dependency; MAIN's lock is unchanged. Locked offline metadata passes after
+that explicit compatibility correction. Build time is103.717s, exit0. The captured
+12,392,408-byte ELF is`8180d113`, in28 files/16,098,089B, manifest`80bdc8fd`.
+The receipt's crate-name map selected an opt0 build-dependency Runner; actual
+verbose exact_linux rustc arguments select the separate opt3 runtime Runner.
+The retained profile addendum records that distinction without rebuilding.
+
+The one native run captures all three fixed2s phases, full10,000 rows/batch32,
+36 input offers and a2s command-free producer interval, then fails acceptance
+with `pointer interleaved work`. Its stale `tail-setup` report label does not
+describe the actual failure stage. The original outer/driver exit1, failed report
+and24-file/23,606,229B capture remain unchanged. Native SIGTERM/−15 is deliberate
+post-observation cleanup; all recorded Mac/guest groups retire and5941 is free.
+
+Raw input1347 explains the refusal. Offered picture167 is superseded by a real
+producer timer and fully installed picture168 before the pointer packets. The
+first Absolute input/done lands in turn760, followed by its closed ui_turn; the
+second Absolute and wheel land in turn761. There is no intervening timer, paint
+or state change. Both pointer states exactly equal clean ACK168, including Host
+clock. Picture169 subsequently moves−40. The reader incorrectly assumed that
+these separate transport packets must always occupy one input batch.
+
+A private reader correction admits only this two-adjacent-turn pattern while
+preserving the old same-turn path. Both turns, dispatch parents, flush linkage,
+coordinates, clean state, complete current picture, fixed fixture certificate,
+packet order and causal wheel movement remain required. Unexpected pre-wheel
+work, a third turn, pending content, changed state or clock still refuse. The
+same49 tests produce48 controls plus one intended old-reader behavioral RED,
+then49 candidate PASS. All34 new adversarial controls assert their intended
+refusal, alongside the actual saved positive and14 unchanged controls.
+
+One separate offline replay passes full acceptance, including the original
+deferred setup validation, three phase proofs, fixed-prefix silence, full
+History9 snapshots, RGB checkpoints, final fence and recorded cleanup. This is
+a versioned reinterpretation, not a replacement native PASS or a runtime rerun.
+All36 handlers/18 signed40 wheels qualify. Eight silent timers advance without
+drain credit; full histories are revision0/16 with10,000 rows and final32 changes.
+Final frame193 closes through event4755 with923 UI turns/193 picture chains and
+no pending picture or unfinished input. The final observer flush is unmeasured.
+
+| Fixed phase | Complete UI turns | Whole maximum, ms | Turns above8.333333ms |
+|---|---:|---:|---:|
+|Idle|94|7.794487|0|
+|Loaded|99|12.357211|6|
+|Recovery|92|7.533652|0|
+
+These are instrumented elapsed baseline observations, not an A/B improvement,
+CPU time or physical120Hz. Loaded timers include8 advancing and26 no-change
+callbacks; counting all34 as producer progress or using all-turn medians as
+frame cost would be wrong. Workload and caps are unchanged. Build evidence is
+MAIN`target/messages-stock-observer-b3d12c3-build-v1`; private stock-observer
+worktree runtime manifest`7679d9d9` and cleanup`8b514e42` remain immutable.
+The separate `target/messages-stock-observer-b3d12c3-split-reader-v1` seal
+`a418a48a` binds the corrected reader`97b74663`, pure tests and full offline replay.
+
+### 8.157 Deliver the agent's own queued AppKit mouse release
+
+AppKit can return a queued NSEvent through a different Swift object wrapper.
+Agent.tap previously posted its release, sent mouseDown, then required the
+peeked release to be object-identical before sending mouseUp. A standalone real
+queue probe observes different posted/peeked/dequeued objects with matching
+event fields; Double timestamps also differ by sub-nanosecond representation.
+
+The agent now allocates a negative event number and qualifies its release by
+type, number, window and preserved CG nanoseconds. It peeks before taking and
+revalidates the dequeued event, restoring a foreign event without dispatching
+it. If tracking already consumed this click's release, no second release is
+fabricated. Only synthetic agent input changes; no ordinary pointer, keyboard,
+Runner, app or performance scheduling policy changes.
+
+Three standalone real-AppKit controls pass: queued release delivered once,
+foreign release preserved, and consumed release not duplicated. Six XCTest
+methods are added to the existing target but remain UNRUN on this CLT-only
+machine: the current ExactKit module compiles, then the test target stops at
+`no such module 'XCTest'`. The failed test build and unused later commands are
+retained. This is not a six-test pass or whole-workspace validation.
+
+A separate coherent1bc/ABI6 Swift app links the unchanged captured Rust archive;
+it is not the current ABI8 app. Compile and capture exit0. Its first diagnostic
+stops after7 requests because a new guard omitted the existing `t=0` log prefix,
+although windowing had already succeeded. That failure remains intact. A narrow
+predicate correction passes20 offline controls, then one separately authorized
+29-request diagnostic completes. The first click synchronously accepts windowing
+at epoch2. Subsequent Count/Batch mouse and Enter inputs all reach completed
+Runner dispatch, but return`Poisoned`; count100/batch8 remain. Those four refusals
+are an unresolved runtime failure, not missing input delivery or a full10k32
+setup pass. The poison trigger and current-ABI behavior remain to be diagnosed.
+
+The helper and integrated source are byte-identical to the validated candidate.
+The new app binary is`d82e2c6d`; the Rust archive remains`8906e5e6`. Original
+evidence is under MAIN`target/mac-messages-current-execution-v1`, including
+`owned-mouse-up-source-v1`, `owned-mouse-up-module-validation-v1`,
+`owned-mouse-up-app-control-v1` and separate `owned-mouse-up-app-control-runtime2-v1`.
+All owned groups retire, no retry or recompile occurs in the corrected runtime
+relay, and host free space stays above76.37GB. No measured resize phase, native
+performance benefit or120Hz claim follows from this setup repair.
