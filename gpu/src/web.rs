@@ -486,8 +486,10 @@ macro_rules! module {
     };
     (headless $registry:expr) => { $crate::module!(@owned $registry, web_owned); };
     (@owned $registry:expr, $backend:ident) => {
+        /// Take ownership of the registry without acquiring a device.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_load_headless() { $crate::$backend::load_headless(&$registry); }
+        /// Create a surface with no presentation target. `0` on failure.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_create_headless(name: &str) -> u32 { $crate::$backend::create_headless(name) }
         /// Bind inputs (a JSON array). `true` on success.
