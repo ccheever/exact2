@@ -171,8 +171,26 @@ questions; none of this was the parser, JSON or view creation):
    | Wheel path, inputs later than 8.33 ms | 5, 6, 5, 3 | 3, 7, 5, 4 | 4, 6, 7, 7 |
 
    The wheel path's late inputs did not move: about half of them in every run
-   are the one AppKit wait described below. A paint costs 2.1 to 2.6 times as
+   were the one AppKit wait of cause 9. A paint costs 2.1 to 2.6 times as
    much at two pixels a point, which these 1× displays do not show.
+9. **AppKit saved the application's state mid-scroll.** Some fifteen seconds
+   after launch it encodes the application's restorable state, and to do that it
+   asks the window server for the order of the app's windows and waits for the
+   reply on the main thread: 20 to 34 ms while a scroll keeps the server busy,
+   in every run, the longest wait left. A `sample` shows the blocked stack, which
+   a time profile does not, and an earlier reading of this as Launch Services
+   was wrong. Encoding nothing in an `NSApplication` subclass moves the wait to
+   the next private caller of the same question. `ApplePersistence`, AppKit's own
+   switch, registered as a default before the application is made, removes all
+   of it; the window's frame is saved as before. Three interleaved rounds:
+
+   | 2,400 inputs or 1,200 frames a run | Before | Persistence off |
+   | --- | ---: | ---: |
+   | Wheel path, inputs later than 8.33 ms | 5, 5, 4 | 2, 2, 1 |
+   | Wheel path, inputs later than 16.67 ms | 3, 2, 1 | 0, 0, 0 |
+   | Wheel path, longest wait, ms | 34.5, 24.0, 19.5 | 11.4, 10.8, 10.9 |
+   | Trackpad path, longest busy period, ms | 30.8, 78.4, 12.4 | 13.9, 11.6, 11.1 |
+   | Main-thread periods over 16.67 ms, both paths | 1, 1, 1, 1, 3, 0 | none |
 
 Zero refreshes showed uncovered space in any run, including a reversal, a
 250,000-point jump and 48,000 points a second. A jump still builds the rows it
@@ -180,11 +198,8 @@ lands on synchronously (one stall of 30–55 ms).
 
 **Not established:** anything at 120 Hz; anything with HID input; responsive
 scrolling (an opt-in was tried and cannot be driven from inside the process);
-iOS, where the same presenter changes were not made. One 20–30 ms main-thread
-wait remains about sixteen seconds after launch — AppKit's first persistent-state
-flush, asking Launch Services about the app — and four attempts at it changed
-nothing; Legend does not show it. Sources, raw runs and the probe are under
-`target/markdown-comparison/scroll-smoothness-20260919/`.
+iOS, where the same presenter changes were not made. Sources, raw runs and the
+probe are under `target/markdown-comparison/scroll-smoothness-20260919/`.
 
 ### Startup and memory — 2026-09-18
 

@@ -27,6 +27,16 @@ let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 let smoke = ExactEnv.smoke
 let agentMode = ExactEnv.agentMode
 setvbuf(stdout, nil, _IOLBF, 0)
+// Nothing restores this app: a session boots its plan, and the window below is
+// not restorable. AppKit would still save the application's own state some
+// fifteen seconds after launch, and to do that it asks the window server for
+// the order of its windows and waits for the reply on the main thread: 20 ms
+// while a scroll kept the server busy, a dropped frame, and the longest wait
+// left in a scroll. Encoding nothing in an `NSApplication` subclass only moves
+// the wait to the next private caller of the same question. `ApplePersistence`
+// is AppKit's own switch for all of it, read when the application is made; a
+// registered default, so a user's `defaults write` still wins.
+UserDefaults.standard.register(defaults: ["ApplePersistence": false])
 let app = NSApplication.shared
 ExactEnv.stamp("NSApplication.shared")
 // Under a script (LLP 1012) the app is an accessory — no Dock tile, no

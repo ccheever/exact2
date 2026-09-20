@@ -47,7 +47,8 @@ sits on that list carries the trade it would take.
 - **Markdown scrolling, on the 120 Hz machine** (2026-09-19): scrolling now measures
   ahead of Legend on an M4 Pro at 60 Hz with input synthesized in-process
   (`apps/markdown/README.md`: inputs committed later than one 120 Hz frame, of
-  2,400 — 624 before, 6 now, 84 for Legend). Owed, all needing HID and Instruments
+  2,400 — 624 before, 6 against Legend's 84 in the same sitting, 2 since AppKit's
+  persistence was switched off). Owed, all needing HID and Instruments
   permission: the same comparison at 120 Hz with real wheel and trackpad input
   under the Hitches instrument, which at 60 Hz no longer separates the two (0, 2, 1
   hitches against Legend's 1, 0, 0, three of the four being the scroll's first
@@ -63,13 +64,6 @@ sits on that list carries the trade it would take.
   99th percentile against 2.6 at the median, about 0.5 ms in the runner and kernel
   and 0.35 ms in the presenter per created view, and every inline run is a
   `NodeView` that is never mounted.
-- **AppKit's first persistent-state flush** (2026-09-19): about sixteen seconds after
-  launch the main thread waits 20–30 ms on Launch Services inside
-  `-[NSPersistentUIManager flushAllChanges]`; mid-scroll it is a dropped frame.
-  `isRestorable = false` removed the later flushes, not this one. An
-  `NSApplication` that encodes and invalidates nothing, registering
-  `ApplePersistenceIgnoreState`, and asking Launch Services first off the main
-  thread each changed nothing. Legend does not show it.
 - **Rationed list reports on iOS** (2026-09-19; LLP 1010 §6): UIKit also scrolls on
   the thread that lays out; `PresenterIOS` still reports a whole window inside the
   scroll callback and paints text when first seen. The runner and host halves are
