@@ -53,6 +53,21 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
         "{}",
         String::from_utf8_lossy(&positive.stderr)
     );
+    // Presence is unsafe initialization evidence, never caller-replaceable.
+    let mask = compile(
+        r#"use exact_world::*;
+#[derive(Default, Component)] struct Item(String);
+fn replace(w: &World) {
+    let pages = w.pages::<Item>();
+    let mut page = pages.iter().next().unwrap();
+    page.mask = &[u64::MAX];
+}"#,
+    );
+    assert!(
+        !mask.status.success(),
+        "Page presence was publicly replaceable"
+    );
+    assert!(String::from_utf8_lossy(&mask.stderr).contains("private"));
     let cases = [
         r###"fn main() {
 use exact_world::{World, Component};

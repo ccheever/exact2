@@ -39,11 +39,14 @@ pub struct Page<'a, C> {
     /// inserted or removed. Compare only within one world presentation generation.
     pub generation: u64,
     /// PAGE / 64 presence words; bit zero corresponds to `first`.
-    pub mask: &'a [u64],
+    mask: &'a [u64],
     slots: *const C,
     _life: PhantomData<&'a C>,
 }
 impl<C> Page<'_, C> {
+    pub fn mask(&self) -> &[u64] {
+        self.mask
+    }
     /// Present contiguous runs, with absolute first-slot indices. A run never
     /// crosses an absent slot, so its values need no MaybeUninit or unsafe caller.
     pub fn runs(&self) -> impl Iterator<Item = (u32, &[C])> {

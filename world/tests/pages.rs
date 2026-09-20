@@ -76,3 +76,54 @@ fn membership_union_is_ordered_and_does_not_require_both_columns() {
         .collect();
     assert_eq!(found, [es[0], es[17], es[PAGE + 9], es[PAGE * 2]]);
 }
+
+// Safety audit (Miri-style reasoning; Miri is unavailable on this builder):
+// Page's only public fields, first/generation, are reporting metadata. slots,
+// mask, PhantomData, leases, descriptors and every constructor used to obtain
+// references are private or crate-private. Query is sealed; its public raw fetch
+// entry points are unsafe. The compile-refusal harness locks mask and lifetimes.
+// ZST references cover zero bytes, so equal aligned nonnull addresses do not
+// imply overlapping memory. Safe std slice::IterMut has the same property.
+// Presence still owns one Drop per logical slot; leases still forbid reborrows.
+#[test]
+fn zst_rows_retain_leases_after_iterator_drop_and_unwind() {
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    thread_local! { static DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    #[repr(align(128))]
+    #[derive(Default, Component)]
+    struct Flag;
+    impl Drop for Flag {
+        fn drop(&mut self) {
+            DROPS.set(DROPS.get() + 1);
+        }
+    }
+    let mut plain = [Flag, Flag];
+    let refs: Vec<_> = plain.iter_mut().collect();
+    assert!(std::ptr::eq(refs[0], refs[1]), "safe std ZST control");
+    let mut w = World::new(60, 0);
+    let es: Vec<_> = (0..PAGE * 3 + 1).map(|_| w.spawn(Flag)).collect();
+    let mut rows = w.query::<Option<&mut Flag>>().into_iter();
+    let mut first = rows.next().unwrap().unwrap();
+    let last = rows.last().unwrap().unwrap(); // iterator has now dropped
+    assert_eq!((&*first as *const Flag as usize) % 128, 0);
+    assert!(w.try_query::<&Flag>().is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        let _borrow = &mut *first;
+        panic!("unwind with a retained row");
+    }))
+    .is_err());
+    drop(first);
+    assert!(w.try_query::<&mut Flag>().is_err());
+    drop(last);
+    assert_eq!(w.query::<&mut Flag>().iter().count(), es.len());
+    DROPS.set(0);
+    for &e in &es {
+        assert!(w.despawn(e));
+    }
+    assert_eq!(DROPS.get(), es.len());
+    let reused = w.spawn(Flag);
+    assert_eq!(reused.index(), es[0].index());
+    assert_ne!(reused, es[0]);
+    drop(w);
+    assert_eq!(DROPS.get(), es.len() + 1);
+}
