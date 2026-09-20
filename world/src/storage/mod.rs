@@ -18,7 +18,6 @@ pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 
 /// Number of entity-indexed slots in each component page.
 pub const PAGE: usize = 64;
-const WORDS: usize = PAGE / 64;
 
 struct Lease<'a> {
     count: &'a Cell<isize>,
@@ -108,9 +107,8 @@ impl<C> Deref for Storage<C> {
 impl<C> Storage<C> {
     #[inline]
     fn ptr(&self, index: usize) -> *mut C {
-        self.raw.pages[index / PAGE]
-            .as_ref()
-            .unwrap()
+        self.raw.pages[&(index / PAGE)]
+            .bytes
             .get()
             .cast::<C>()
             .wrapping_add(index % PAGE)

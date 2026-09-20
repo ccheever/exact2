@@ -1,10 +1,11 @@
 //! Layout and Data operations are fixed once per type. Typed wrappers never cast
 //! between descriptors. Presence bits own values; all access holds a column lease.
-use super::{Lease, Storage, PAGE, WORDS};
+use super::{Lease, Storage, PAGE};
 use crate::{Data, DataError, Entity, Now, Reader, Writer};
 use std::{
     alloc::{alloc, dealloc, handle_alloc_error, Layout},
     cell::Cell,
+    collections::BTreeMap,
     ptr::NonNull,
     rc::Rc,
 };
@@ -83,14 +84,17 @@ impl Drop for Value {
     }
 }
 
+pub(super) struct PageData {
+    pub(super) bytes: Bytes,
+    pub(super) mask: u64,
+    pub(super) generation: Cell<u64>,
+}
+
 pub(crate) struct RawStorage {
     name: &'static str,
     desc: &'static Descriptor,
     page_layout: Layout,
-    pub(super) pages: Vec<Option<Bytes>>,
-    counts: Vec<usize>,
-    pub(super) generations: Vec<Cell<u64>>,
-    pub(super) mask: Vec<u64>,
+    pub(super) pages: BTreeMap<usize, PageData>,
     len: usize,
     borrowed: Cell<isize>,
     revision: Cell<u64>,
@@ -103,10 +107,7 @@ impl RawStorage {
             name,
             desc: &const { Descriptor::of::<C>() },
             page_layout: Layout::array::<C>(PAGE).expect("component page layout"),
-            pages: vec![],
-            counts: vec![],
-            generations: vec![],
-            mask: vec![],
+            pages: BTreeMap::new(),
             len: 0,
             borrowed: Cell::new(0),
             revision: Cell::new(0),
@@ -122,30 +123,32 @@ impl RawStorage {
     }
     #[inline]
     fn ptr(&self, index: usize) -> *mut u8 {
-        self.pages[index / PAGE]
-            .as_ref()
-            .unwrap()
+        self.pages[&(index / PAGE)]
+            .bytes
             .get()
             .wrapping_add(index % PAGE * self.desc.layout.size())
     }
+    pub(super) fn words(&self) -> usize {
+        self.pages.last_key_value().map_or(0, |(i, _)| i + 1)
+    }
+    pub(super) fn word(&self, word: usize) -> u64 {
+        self.pages.get(&word).map_or(0, |p| p.mask)
+    }
     #[inline]
     pub(crate) fn has(&self, index: usize) -> bool {
-        self.mask
-            .get(index / 64)
-            .is_some_and(|word| word & (1 << (index % 64)) != 0)
+        self.word(index / PAGE) & (1 << (index % PAGE)) != 0
     }
-    // Membership alone takes no value lease; callers can mutate a yielded row.
     pub(crate) fn indices<'a>(
         &'a self,
         skip: Option<&'a RawStorage>,
     ) -> impl Iterator<Item = usize> + 'a {
-        self.mask.iter().enumerate().flat_map(move |(word, &bits)| {
-            let mut bits = bits & !skip.and_then(|s| s.mask.get(word)).copied().unwrap_or(0);
+        self.pages.iter().flat_map(move |(&word, page)| {
+            let mut bits = page.mask & !skip.map_or(0, |s| s.word(word));
             std::iter::from_fn(move || {
                 if bits == 0 {
                     return None;
                 }
-                let index = word * 64 + bits.trailing_zeros() as usize;
+                let index = word * PAGE + bits.trailing_zeros() as usize;
                 bits &= bits - 1;
                 Some(index)
             })
@@ -165,8 +168,8 @@ impl RawStorage {
         }
     }
     pub(super) fn mark_page(&self, page: usize) {
-        if let Some(generation) = self.generations.get(page) {
-            generation.set(self.revision.get());
+        if let Some(p) = self.pages.get(&page) {
+            p.generation.set(self.revision.get());
         }
     }
     pub(super) fn mark_slot(&self, index: usize) {
@@ -198,32 +201,28 @@ impl RawStorage {
         }
         self.membership = self.membership.wrapping_add(1);
         let page = index / PAGE;
-        if page >= self.pages.len() {
-            self.pages.resize_with(page + 1, || None);
-            self.counts.resize(page + 1, 0);
-            self.generations.resize_with(page + 1, || Cell::new(0));
-            self.mask.resize((page + 1) * WORDS, 0);
-        }
+        self.pages.entry(page).or_insert_with(|| PageData {
+            bytes: Bytes::new(self.page_layout),
+            mask: 0,
+            generation: Cell::new(0),
+        });
         self.mark_slot(index);
-        self.pages[page].get_or_insert_with(|| Bytes::new(self.page_layout));
         // SAFETY: exclusive vacant aligned slot, matching size; transfers ownership
         // including any owned fields, without interpreting potentially padded bytes.
         unsafe { (self.desc.move_to)(value, self.ptr(index)) };
-        self.mask[index / 64] |= 1 << (index % 64);
-        self.counts[page] += 1;
+        self.pages.get_mut(&page).unwrap().mask |= 1 << (index % PAGE);
         self.len += 1;
     }
     fn removed(&mut self, index: usize) {
         self.edited();
         self.membership = self.membership.wrapping_add(1);
         self.mark_slot(index);
-        self.mask[index / 64] &= !(1 << (index % 64));
+        self.pages.get_mut(&(index / PAGE)).unwrap().mask &= !(1 << (index % PAGE));
         self.len -= 1;
-        self.counts[index / PAGE] -= 1;
     }
     fn clear_slot(&mut self, index: usize) {
-        if self.counts[index / PAGE] == 0 {
-            self.pages[index / PAGE] = None;
+        if self.word(index / PAGE) == 0 {
+            self.pages.remove(&(index / PAGE));
         }
     }
     pub(super) unsafe fn remove_into(&mut self, index: usize, out: *mut u8) -> bool {
@@ -317,7 +316,7 @@ impl RawStorage {
                 return Err(DataError::new("missing component"));
             }
             let page = e.index() as usize / PAGE;
-            if self.pages.get(page).is_none_or(Option::is_none) {
+            if !self.pages.contains_key(&page) {
                 r.check_allocation(self.page_layout.size())?;
             }
             // SAFETY: correctly aligned scratch, initialized only on success.
@@ -332,17 +331,9 @@ impl RawStorage {
             }
             last = Some(e.index());
             let page = e.index() as usize / PAGE;
-            if page >= self.pages.len() {
-                let pages = page + 1 - self.pages.len();
-                let counts = page + 1 - self.counts.len();
-                let words = (page + 1) * WORDS - self.mask.len();
-                crate::data::limits::reserve(r, &mut self.pages, pages)?;
-                crate::data::limits::reserve(r, &mut self.counts, counts)?;
-                crate::data::limits::reserve(r, &mut self.generations, pages)?;
-                crate::data::limits::reserve(r, &mut self.mask, words)?;
-            }
-            if self.pages.get(page).is_none_or(Option::is_none) {
-                r.claim(self.page_layout.size())?;
+            if !self.pages.contains_key(&page) {
+                // A B-tree node and one component page, independent of slot index.
+                r.claim(1024 + self.page_layout.size())?;
             }
             value.live = false;
             // SAFETY: read_new initialized the matching descriptor's type.

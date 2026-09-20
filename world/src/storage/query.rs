@@ -1,4 +1,4 @@
-use super::{Lease, Ref, RefMut, Storage};
+use super::{raw::RawStorage, Lease, Ref, RefMut, Storage};
 use crate::{Component, Entity, World};
 use std::any::TypeId;
 use std::cell::Cell;
@@ -84,17 +84,14 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         if O {
             usize::MAX
         } else {
-            self.storage.map_or(0, |s| s.mask.len())
+            self.storage.map_or(0, |s| s.words())
         }
     }
     fn required_word(&self, word: usize) -> u64 {
         if O {
             u64::MAX
         } else {
-            self.storage
-                .and_then(|s| s.mask.get(word))
-                .copied()
-                .unwrap_or(0)
+            self.storage.map_or(0, |s| s.word(word))
         }
     }
     fn ptr(&self, index: usize) -> *mut C {
@@ -159,9 +156,8 @@ macro_rules! reference {
                     }
                     self.page.set(
                         s.pages
-                            .get(page)
-                            .and_then(Option::as_ref)
-                            .map_or(std::ptr::null_mut(), |slots| slots.get().cast::<C>()),
+                            .get(&page)
+                            .map_or(std::ptr::null_mut(), |p| p.bytes.get().cast::<C>()),
                     );
                 }
             }
@@ -275,7 +271,7 @@ tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
 pub struct QueryBorrow<'w, Q: Query> {
     world: &'w World,
     state: Q::State<'w>,
-    filters: [(&'w [u64], &'w [u64], bool); 4],
+    filters: [(Option<&'w RawStorage>, Option<&'w RawStorage>, bool); 4],
     filter_count: usize,
     words: usize,
 }
@@ -296,7 +292,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         Self {
             world,
             state,
-            filters: [(&[], &[], false); 4],
+            filters: [(None, None, false); 4],
             filter_count: 0,
             words,
         }
@@ -318,33 +314,35 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
     /// Keep entities carrying C, without borrowing its values.
     pub fn with<C: Component>(mut self) -> Self {
-        let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);
-        self.words = self.words.min(mask.len());
+        let mask = self.world.storage::<C>().map(|s| &s.raw);
+        self.words = self.words.min(mask.map_or(0, |s| s.words()));
         self.filter::<C>(mask, true);
         self
     }
     /// Keep the union of A/B membership, without borrowing their values.
     pub fn with_any<A: Component, B: Component>(mut self) -> Self {
-        let a = self.world.storage::<A>().map_or(&[][..], |s| &s.mask);
-        let b = self.world.storage::<B>().map_or(&[][..], |s| &s.mask);
-        self.words = self.words.min(a.len().max(b.len()));
+        let a = self.world.storage::<A>().map(|s| &s.raw);
+        let b = self.world.storage::<B>().map(|s| &s.raw);
+        self.words = self
+            .words
+            .min(a.map_or(0, |s| s.words()).max(b.map_or(0, |s| s.words())));
         self.filter::<A>(a, true);
         self.filters[self.filter_count - 1].1 = b;
         self
     }
     /// Keep entities without C, without borrowing its values.
     pub fn without<C: Component>(mut self) -> Self {
-        let mask = self.world.storage::<C>().map_or(&[][..], |s| &s.mask);
+        let mask = self.world.storage::<C>().map(|s| &s.raw);
         self.filter::<C>(mask, false);
         self
     }
-    fn filter<C: Component>(&mut self, mask: &'w [u64], with: bool) {
+    fn filter<C: Component>(&mut self, mask: Option<&'w RawStorage>, with: bool) {
         assert!(
             self.filter_count < 4,
             "query exceeds 4 filters at {}",
             C::NAME
         );
-        self.filters[self.filter_count] = (mask, &[], with);
+        self.filters[self.filter_count] = (mask, None, with);
         self.filter_count += 1;
     }
     /// Fetch one joined row. Its borrow prevents a second overlapping fetch.
@@ -358,7 +356,7 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             return None;
         }
         for &(a, b, with) in &self.filters[..self.filter_count] {
-            let bits = a.get(word).copied().unwrap_or(0) | b.get(word).copied().unwrap_or(0);
+            let bits = a.map_or(0, |s| s.word(word)) | b.map_or(0, |s| s.word(word));
             if (bits & (1 << (i % 64)) != 0) != with {
                 return None;
             }
@@ -443,12 +441,12 @@ fn next_index<Q: Query>(
         *word += 1;
         *bits = query.world.alive_mask[i] & query.state.word(i);
         for &(mask, other, with) in &query.filters[..query.filter_count] {
-            let filter = mask.get(i).copied().unwrap_or(0) | other.get(i).copied().unwrap_or(0);
+            let filter = mask.map_or(0, |s| s.word(i)) | other.map_or(0, |s| s.word(i));
             *bits &= if with { filter } else { !filter };
         }
         // Once per visited page, outside the row loop. Optional columns may mark
         // conservatively; acquiring the query still bumps the world lease epoch.
-        let next_page = i / super::WORDS;
+        let next_page = i;
         if *bits != 0 && *page != next_page {
             query.state.mark_page(next_page);
             *page = next_page;

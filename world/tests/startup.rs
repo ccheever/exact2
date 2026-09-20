@@ -48,7 +48,7 @@ fn construction_activation_restore_counts() {
     report("construction.empty", counts, (1, 24));
     assert!(empty.is_empty());
     let (mut sim, counts) = counting::measure(|| Sim::<Board<100>>::new(()).unwrap());
-    report("construction.100", counts, (31, 70568));
+    report("construction.100", counts, (28, 70848));
     assert_eq!(sim.world().len(), 100);
     let (ticks, counts) = counting::measure(|| sim.run(17.).unwrap());
     report("activation.first_tick", counts, (3, 640));
@@ -69,9 +69,31 @@ fn construction_activation_restore_counts() {
     let bytes = sim.save().unwrap();
     assert_eq!(bytes.len(), 10240);
     let (restored, counts) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
-    report("restore.10KiB", counts, (1000, 77986));
+    report("restore.10KiB", counts, (997, 78262));
     assert_eq!(restored.world().hash(), sim.world().hash());
     assert_eq!(restored.save().unwrap(), bytes);
     let (_, again) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
     assert_eq!(again, counts, "counts are deterministic, not time samples");
+}
+
+#[test]
+fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
+    let mut w = World::new(60, 0);
+    w.register::<CellValue>();
+    for _ in 0..MAX_ENTITIES {
+        w.spawn(());
+    }
+    let e = w.resolve("#199999").unwrap();
+    let (_, counts) = counting::measure(|| w.insert(e, CellValue::default()));
+    report("insert.slot199999", counts, (8, 8192));
+    assert_eq!(
+        w.query::<&CellValue>()
+            .iter()
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
+        [e]
+    );
+    assert_eq!(w.pages::<CellValue>().iter().count(), 1);
+    w.remove::<CellValue>(e);
+    assert_eq!(w.pages::<CellValue>().iter().count(), 0);
 }

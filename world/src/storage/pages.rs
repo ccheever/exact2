@@ -1,4 +1,4 @@
-use super::{Lease, Storage, PAGE, WORDS};
+use super::{Lease, Storage, PAGE};
 use crate::Component;
 use std::marker::PhantomData;
 
@@ -18,14 +18,12 @@ impl<'w, C: Component> Pages<'w, C> {
     /// Allocated pages in ascending entity-index order, skipping freed pages.
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {
         self.storage.into_iter().flat_map(|s| {
-            s.pages.iter().enumerate().filter_map(|(i, slots)| {
-                slots.as_ref().map(|slots| Page {
-                    first: (i * PAGE) as u32,
-                    generation: s.generations[i].get(),
-                    mask: &s.mask[i * WORDS..(i + 1) * WORDS],
-                    slots: slots.get().cast::<C>(),
-                    _life: PhantomData,
-                })
+            s.pages.iter().map(|(&i, p)| Page {
+                first: (i * PAGE) as u32,
+                generation: p.generation.get(),
+                mask: &p.mask,
+                slots: p.bytes.get().cast::<C>(),
+                _life: PhantomData,
             })
         })
     }
@@ -39,20 +37,20 @@ pub struct Page<'a, C> {
     /// inserted or removed. Compare only within one world presentation generation.
     pub generation: u64,
     /// PAGE / 64 presence words; bit zero corresponds to `first`.
-    mask: &'a [u64],
+    mask: &'a u64,
     slots: *const C,
     _life: PhantomData<&'a C>,
 }
 impl<C> Page<'_, C> {
     pub fn mask(&self) -> &[u64] {
-        self.mask
+        std::slice::from_ref(self.mask)
     }
     /// Present contiguous runs, with absolute first-slot indices. A run never
     /// crosses an absent slot, so its values need no MaybeUninit or unsafe caller.
     pub fn runs(&self) -> impl Iterator<Item = (u32, &[C])> {
         let mut at = 0;
         std::iter::from_fn(move || {
-            let present = |i: usize| self.mask[i / 64] & (1 << (i % 64)) != 0;
+            let present = |i: usize| *self.mask & (1 << (i % 64)) != 0;
             while at < PAGE && !present(at) {
                 at += 1;
             }
