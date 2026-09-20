@@ -27,7 +27,7 @@ export async function fixture(options = {}) {
     } }, send: batch => applyBatch(batch),
   };
   const gpu = { default() {}, gpu_unload() { order.push("old unload"); }, gpu_load() { if (options.loadFail) throw new Error("initial load failed"); }, gpu_seekable() {}, gpu_shader_names: () => '[]', gpu_shaders_clear() {},
-    gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
+    gpu_load_headless() {}, gpu_create_headless: () => ++next, gpu_attach: () => true, gpu_create: () => ++next, gpu_bind_at(id) { if (options.initialBindFail === id) return false; changed.set(id, JSON.stringify({ value: id })); return true; },
     gpu_published(id) { const r = changed.get(id); changed.delete(id); return r; },
     gpu_messages: () => undefined, gpu_wants_input: () => Boolean(options.input), gpu_destroy() { order.push("old destroy"); },
     gpu_carry: () => new Uint8Array([1]), gpu_restore(id, bytes, mode) { order.push(`restore mode ${mode}`); if (options.refuse?.(id)) return false; if (!options.deferredRestore) restored.add(id); return true; },
@@ -103,6 +103,7 @@ export async function fixture(options = {}) {
     'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage',
     source + `;exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
   )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)});
+  await new Promise(resolve => setTimeout(resolve, 0));
   function create(id, name = 'world', values = []) {
     const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
     views.set(id, el); exact.gpu.surface(id, name, values); return el;
@@ -221,7 +222,7 @@ test('bootstrap restores pending bytes before staging its first render', async (
 });
 test('a failed later staged surface does not consume a pending file carry', async () => {
   let count = 0;
-  const f = await fixture({loadFail:true, nextGpu:{gpu_create:()=>++count===2 ? 0 : count}});
+  const f = await fixture({gpu:{gpu_load_headless(){throw new Error("ownership unavailable");}}, nextGpu:{gpu_create:()=>++count===2 ? 0 : count}});
   f.exact.worldCarry = new Uint8Array([7]); f.create(1); f.create(2,'other');
   await assert.rejects(f.exact.gpu.swap(1), /create/);
   assert.deepEqual(f.exact.worldCarry,new Uint8Array([7]));

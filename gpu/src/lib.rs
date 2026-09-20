@@ -1480,6 +1480,9 @@ pub mod fixture;
 pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub mod web_owned;
 
 mod asset_name;
 pub use asset_name::asset_name;

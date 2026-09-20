@@ -9,7 +9,9 @@ pub use {exact_gpu, exact_world};
 /// Register a nonspatial game as the ordinary `world` surface.
 #[macro_export]
 macro_rules! module {
-    ($game:ty) => {
+    ($game:ty) => { $crate::module!(@register $game, headless); };
+    ($game:ty, device) => { $crate::module!(@register $game, device); };
+    (@register $game:ty, $mode:ident) => {
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
             surfaces: &[(
                 "world",
@@ -19,6 +21,13 @@ macro_rules! module {
             )],
             shaders: &[],
         };
+        $crate::module!(@abi $mode);
+    };
+    (@abi device) => { $crate::exact_gpu::module!(REGISTRY); };
+    (@abi headless) => {
+        #[cfg(target_arch = "wasm32")]
+        $crate::exact_gpu::module!(headless REGISTRY);
+        #[cfg(not(target_arch = "wasm32"))]
         $crate::exact_gpu::module!(REGISTRY);
     };
 }

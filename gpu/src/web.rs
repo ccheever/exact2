@@ -47,6 +47,63 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
     with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
 }
 
+/// Own surfaces immediately, before adapter/device acquisition.
+pub fn load_headless(registry: &'static Registry) {
+    MODULE.with(|m| {
+        m.borrow_mut().get_or_insert_with(|| Module::new(registry));
+    });
+}
+
+/// Create surface ownership without a canvas or device.
+pub fn create_headless(name: &str) -> u32 {
+    with(|m| m.create_headless(name)).flatten().unwrap_or(0)
+}
+
+/// Attach presentation to existing ownership; never construct or bind a surface.
+pub fn attach(id: u32, canvas: web_sys::HtmlCanvasElement, width: u32, height: u32) -> bool {
+    with(|m| {
+        let result = (|| -> Result<(), String> {
+            let gpu = m.gpu.as_ref().ok_or("no device")?;
+            let inst = m.instances.get_mut(&id).ok_or("unknown surface")?;
+            if let Some(why) = crate::shaders::missing(m.registry.shaders) {
+                return Err(why);
+            }
+            let target = gpu
+                .instance
+                .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                .map_err(|e| e.to_string())?;
+            let mut config = target
+                .get_default_config(&gpu.adapter, width.max(1), height.max(1))
+                .ok_or("adapter cannot present to target")?;
+            if let Some(format) = target
+                .get_capabilities(&gpu.adapter)
+                .formats
+                .into_iter()
+                .find(|f| !f.is_srgb())
+            {
+                config.format = format;
+                config.view_formats.clear();
+            }
+            config.present_mode = wgpu::PresentMode::AutoVsync;
+            target.configure(&gpu.device, &config);
+            inst.surface.device_ready();
+            inst.surface
+                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+            inst.presentation = Some(target);
+            inst.config = Some(config);
+            inst.dirty = true;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            m.error = error;
+            false
+        } else {
+            true
+        }
+    })
+    .unwrap_or(false)
+}
+
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -364,6 +421,12 @@ pub fn error() -> String {
 #[macro_export]
 macro_rules! module {
     ($registry:expr) => {
+        $crate::module!(@owned $registry, web);
+        /// Attach a device to an existing surface ID.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_attach(id: u32, canvas: ::web_sys::HtmlCanvasElement, width: u32, height: u32) -> bool {
+            $crate::web::attach(id, canvas, width, height)
+        }
         /// Create the device.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub async fn gpu_load() -> Result<(), ::wasm_bindgen::JsValue> {
@@ -414,28 +477,35 @@ macro_rules! module {
             $crate::web::shader_names()
         }
 
-        /// Bind inputs (a JSON array). `true` on success.
-        #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_bind(id: u32, values: &str) -> bool {
-            $crate::web::bind(id, values)
-        }
-
-        /// Bind inputs at an optional host commit clock.
-        #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
-            $crate::web::bind_at(id, values, at_ms)
-        }
-
         /// Render one frame: 1 = wants another, 0 = done, 2 = failed.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::web::render(id, width, height, scale, now_ms)
         }
 
+    };
+    (headless $registry:expr) => { $crate::module!(@owned $registry, web_owned); };
+    (@owned $registry:expr, $backend:ident) => {
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_load_headless() { $crate::$backend::load_headless(&$registry); }
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_create_headless(name: &str) -> u32 { $crate::$backend::create_headless(name) }
+        /// Bind inputs (a JSON array). `true` on success.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_bind(id: u32, values: &str) -> bool {
+            $crate::$backend::bind(id, values)
+        }
+
+        /// Bind inputs at an optional host commit clock.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
+            $crate::$backend::bind_at(id, values, at_ms)
+        }
+
         /// Supply child frames when requested; the browser composites their elements.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_children_mode(id: u32) -> u32 {
-            $crate::web::children_mode(id)
+            $crate::$backend::children_mode(id)
         }
         /// Supply one direct child frame for browser composition.
         #[::wasm_bindgen::prelude::wasm_bindgen]
@@ -448,116 +518,116 @@ macro_rules! module {
             w: f32,
             h: f32,
         ) -> bool {
-            $crate::web::child(id, index, name, [x, y, w, h])
+            $crate::$backend::child(id, index, name, [x, y, w, h])
         }
         /// Retire direct child frames past the new count.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_children_count(id: u32, count: u32) -> bool {
-            $crate::web::children_count(id, count)
+            $crate::$backend::children_count(id, count)
         }
         /// 0 kernel frame, 1 homography/depth, 2 hidden with out untouched.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
-            $crate::web::placement(id, index, out)
+            $crate::$backend::placement(id, index, out)
         }
 
         /// Whether a canvas wants raw input.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_wants_input(id: u32) -> bool {
-            $crate::web::wants_input(id)
+            $crate::$backend::wants_input(id)
         }
 
         /// Deliver one JSON event; true on success.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_input(id: u32, event_json: &str) -> bool {
-            $crate::web::input(id, event_json)
+            $crate::$backend::input(id, event_json)
         }
 
         /// Drain requested asset paths as JSON.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_assets(id: u32) -> String {
-            $crate::web::assets(id)
+            $crate::$backend::assets(id)
         }
         /// Deliver one requested asset, or null/undefined for a missing file.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_asset(id: u32, name: &str, bytes: Option<Vec<u8>>) -> bool {
-            $crate::web::asset(id, name, bytes.as_deref())
+            $crate::$backend::asset(id, name, bytes.as_deref())
         }
         /// Deliver a terminal host transport failure.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_asset_failed(id: u32, name: &str, reason: &str) -> bool {
-            $crate::web::asset_failed(id, name, reason)
+            $crate::$backend::asset_failed(id, name, reason)
         }
 
         /// Capture state, or undefined when this surface carries nothing.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_carry(id: u32) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
-            $crate::web::carry(id)
+            $crate::$backend::carry(id)
         }
 
         /// Restore state, reporting a refusal through gpu_error.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_restore(id: u32, bytes: &[u8], mode: u32) -> bool {
-            $crate::web::restore(id, bytes, mode)
+            $crate::$backend::restore(id, bytes, mode)
         }
 
         /// Release every surface and the device before replacing this module.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_unload() {
-            $crate::web::unload();
+            $crate::$backend::unload();
         }
 
         /// Take the changed public record, if any.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_published(id: u32) -> Option<String> {
-            $crate::web::published(id)
+            $crate::$backend::published(id)
         }
 
         /// Drain messages as a JSON array.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_messages(id: u32) -> Option<String> {
-            $crate::web::messages(id)
+            $crate::$backend::messages(id)
         }
 
         /// Ask the surface; empty when it has no answer.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_agent(id: u32, request_json: &str) -> String {
-            $crate::web::agent(id, request_json)
+            $crate::$backend::agent(id, request_json)
         }
 
         /// Host lifecycle code; unknown codes are ignored.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_lifecycle(id: u32, code: u32) {
-            $crate::web::lifecycle(id, code);
+            $crate::$backend::lifecycle(id, code);
         }
         /// Set the host clock ownership.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_seekable(on: bool) {
-            $crate::web::seekable(on)
+            $crate::$backend::seekable(on)
         }
 
         /// The display's frame period in milliseconds, 0 while unknown.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_period(period_ms: f64) {
-            $crate::web::period(period_ms)
+            $crate::$backend::period(period_ms)
         }
 
         /// Whether a canvas has unrendered inputs.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_dirty(id: u32) -> bool {
-            $crate::web::dirty(id)
+            $crate::$backend::dirty(id)
         }
 
         /// Drop a canvas's surface.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_destroy(id: u32) {
-            $crate::web::destroy(id)
+            $crate::$backend::destroy(id)
         }
 
         /// The last failure's text.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_error() -> String {
-            $crate::web::error()
+            $crate::$backend::error()
         }
     };
 }

@@ -59,7 +59,7 @@ fn paranoid() -> Paranoid {
     };
     match mode.as_str() {
         "1" => Paranoid::Save,
-        "2" => Paranoid::FreshGame,
+        "fresh-game" => Paranoid::FreshGame,
         _ => Paranoid::Off,
     }
 }
