@@ -33,9 +33,13 @@ fn projected(base:u32,model:mat4x4<f32>,scale:f32)->f32 {
     let distance=max(stable_length(center-cfg.eye.xyz)-f(base+3u)*scale,cfg.projection.z);
     return max(error*scale/distance*(cfg.projection.y*0.5*cfg.projection.x),positive);
 }
+fn finite(v:f32)->bool { return (bitcast<u32>(v)&0x7f800000u)!=0x7f800000u; }
+fn culling_scale(model:mat4x4<f32>,scale:f32)->f32 {
+    return max(scale,max(stable_length(model[1].xyz),stable_length(model[2].xyz)))*1.00004;
+}
 fn sphere_visible(sphere:vec4<f32>,model:mat4x4<f32>,scale:f32)->bool {
     let center=(model*vec4(sphere.xyz,1.0)).xyz;
-    let radius=sphere.w*scale;
+    let radius=sphere.w*culling_scale(model,scale);
     for(var i=0u;i<6u;i++) {
         let p=cfg.planes[i];
         if dot(p.xyz,center)+p.w < -radius-1e-5 { return false; }
@@ -74,19 +78,28 @@ fn choose(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index
         if cfg.options.x!=0u && !sphere_visible(cfg.sphere,model,scale) { end=0u; }
         if end>0u && cfg.options.y==0u && cfg.threshold.x>0.0 {
             let center=(model*vec4(cfg.sphere.xyz,1.0)).xyz;
-            let radius=cfg.sphere.w*scale;
-            let distance=length(center-cfg.eye.xyz);
-            var low=cfg.threshold.x*max(distance-radius,cfg.projection.z)/(scale*(cfg.projection.y*0.5*cfg.projection.x));
-            var high=cfg.threshold.x*max(distance+radius,cfg.projection.z)/(scale*(cfg.projection.y*0.5*cfg.projection.x));
+            let radius=cfg.sphere.w*culling_scale(model,scale);
+            let distance=stable_length(center-cfg.eye.xyz);
+            let focal=cfg.projection.y*0.5*cfg.projection.x;
+            var denominator=scale*focal;
+            var near_distance=max(distance-radius,cfg.projection.z);
+            var far_distance=max(distance+radius,cfg.projection.z);
             if cfg.projection.w>0.0 {
-                low=cfg.threshold.x*cfg.projection.w/(scale*cfg.projection.x); high=low;
+                denominator=scale*cfg.projection.x;
+                near_distance=cfg.projection.w; far_distance=near_distance;
             }
-            low=low*(1.0-1e-5); high=high*(1.0+1e-5);
-            var a=0u; var b=cfg.sizes.x;
-            while a<b { let m=(a+b)/2u; if envelopes[m].x==bitcast<f32>(0x7f7fffffu) || envelopes[m].x>low { a=m+1u; } else { b=m; } }
-            end=a; a=0u; b=end;
-            while a<b { let m=(a+b)/2u; if envelopes[m].y>high { a=m+1u; } else { b=m; } }
-            first=a;
+            let numerator_low=cfg.threshold.x*near_distance;
+            let numerator_high=cfg.threshold.x*far_distance;
+            let low=numerator_low/denominator*(1.0-1e-5);
+            let high=numerator_high/denominator*(1.0+1e-5);
+            // A range is an optimization only: every intermediate must be finite.
+            if all(vec3(finite(center.x),finite(center.y),finite(center.z))) && finite(radius) && finite(distance) && finite(focal) && finite(denominator) && denominator>0.0 && finite(distance-radius) && finite(distance+radius) && finite(near_distance) && finite(far_distance) && finite(numerator_low) && finite(numerator_high) && finite(low) && finite(high) {
+                var a=0u; var b=cfg.sizes.x;
+                while a<b { let m=(a+b)/2u; if envelopes[m].x==bitcast<f32>(0x7f7fffffu) || envelopes[m].x>low { a=m+1u; } else { b=m; } }
+                end=a; a=0u; b=end;
+                while a<b { let m=(a+b)/2u; if envelopes[m].y>high { a=m+1u; } else { b=m; } }
+                first=a;
+            }
         }
         atomicStore(&counts[stat],end-first);
     }

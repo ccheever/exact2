@@ -479,7 +479,7 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(!overdraw),
+                    depth_write_enabled: Some(!overdraw && vertex != "background"),
                     depth_compare: Some(if overdraw {
                         wgpu::CompareFunction::Always
                     } else if fragment.is_some() {

@@ -397,6 +397,13 @@ orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
 
+F3: Keep the renderer's accepted transform tolerance; bound sphere stretch by max
+column length × 1.00004 (Gershgorin bound plus outward rounding). Mirror this in
+CPU/WGSL, including instance and shadow spheres. Range pruning uses stable length
+and falls back to the full range on any nonfinite intermediate; it is never a
+correctness requirement. Disable only backdrop depth writes. AO uses a relative
+triangle degeneracy test. Regression logs are in `<cache>/out/f3-*-before.log`.
+
 L4 host choices: Gaul is the default to bound ordinary tab memory. Washington is
 query-selected and its naive toggle is declined; only Gaul lazily fetches the
 native-optimized indexed baseline. Rebind instance/selection buffers for layout

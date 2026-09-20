@@ -32,6 +32,11 @@ fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
             }
         }
     }
+    let mut small = mesh.clone();
+    for p in &mut small.positions {
+        *p = p.map(|x| x * 1e-9);
+    }
+    let (small_ao, _) = ao::bake(&small).unwrap();
     let (crease, proxy) = ao::bake(&mesh).unwrap();
     let mut bump = procedural::octasphere(3).unwrap();
     // Convex reference with radial normals, removing the procedural relief.
@@ -40,6 +45,11 @@ fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
     }
     bump.normals = bump.positions.clone();
     let (convex, _) = ao::bake(&bump).unwrap();
+    let small_value = small_ao[20 * 41 + 1];
+    println!("ao_scaled_crease={small_value}");
+    if small_value >= 250 {
+        failures.push("1e-9 crease lost occlusion");
+    }
     let crease_value = crease[20 * 41 + 1];
     let convex_mean = convex.iter().map(|&v| v as u64).sum::<u64>() as f64 / convex.len() as f64;
     if crease_value as f64 >= convex_mean {

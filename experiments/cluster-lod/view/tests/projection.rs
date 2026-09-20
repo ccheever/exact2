@@ -88,3 +88,109 @@ fn planar_threshold_zero_survives_underflow() {
     println!("projection_cases=9 failures={failures:?}");
     assert!(failures.is_empty(), "{failures:?}");
 }
+
+#[test]
+fn positive_threshold_extreme_ranges_match_reference() {
+    let mut mesh = clod_bake::procedural::octasphere(5).unwrap();
+    let baked = clod_bake::bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+    let reader = Reader::new(&baked.bytes).unwrap();
+    let (device, queue, _) = pollster::block_on(clod_view::request_device(false)).unwrap();
+    let mut failures = Vec::new();
+    let cases = [
+        (1e20, 1e21, 0.5),
+        (1.0, 1e19, 1e-20),
+        (1e20, 1e21, 1.0),
+        (1e20, 1e21, 1e20),
+    ];
+    for (scale, distance, threshold) in cases {
+        let mut scene = Scene::layout(&reader, "single").unwrap();
+        scene.instances = vec![Instance::new(Vec3::ZERO, Quat::IDENTITY, scale)];
+        let camera = Camera {
+            eye: Vec3::splat(distance),
+            matrix: Mat4::from_scale(Vec3::splat(1.0 / distance)),
+            near: 0.002,
+            cot: 1.0,
+            orthographic_span: None,
+        };
+        let cpu = select::select_culled(&reader, &scene.instances, &camera, 100, threshold, false);
+        let index = select::CandidateIndex::new(&reader);
+        let range = index.range(
+            scene.instances[0].transform(),
+            scale,
+            &camera,
+            100,
+            threshold,
+        );
+        if cpu
+            .pages
+            .iter()
+            .flatten()
+            .any(|p| !range.contains(&(p[0] as usize)))
+        {
+            failures.push(format!("CPU range pruned selected cluster {range:?}"));
+        }
+
+        let mut renderer = Renderer::new(
+            device.clone(),
+            queue.clone(),
+            &reader,
+            None,
+            &scene,
+            [100, 100],
+            Mode::Cluster,
+        )
+        .unwrap();
+        renderer.shadows = false;
+        renderer.enable_gpu_selection(&reader, None).unwrap();
+        for brute in [false, true] {
+            renderer
+                .render_gpu(&scene, &camera, View::Coverage, threshold, false, brute)
+                .unwrap();
+            let buffers = renderer.selection_readback(true).unwrap();
+            buffers[0].slice(..).map_async(wgpu::MapMode::Read, |_| {});
+            device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+            let mapped = buffers[0].slice(..).get_mapped_range().unwrap();
+            let words: &[u32] = bytemuck::cast_slice(&mapped);
+            let count = words[reader.pages.len() * 8] as usize;
+            let pairs: Vec<[u32; 2]> = words[reader.pages.len() * 8 + 4..][..count * 2]
+                .chunks_exact(2)
+                .map(|p| [p[0], p[1]])
+                .collect();
+            let expected: Vec<_> = cpu.pages.iter().flatten().copied().collect();
+            println!(
+                "range scale={scale} distance={distance} threshold={threshold} brute={brute} cpu={} gpu={count}",
+                expected.len()
+            );
+            if pairs != expected {
+                failures.push(format!(
+                    "scale={scale} distance={distance} threshold={threshold} brute={brute}"
+                ));
+            }
+        }
+    }
+    println!("range_cases={} failures={failures:?}", cases.len() * 2);
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn admitted_stretch_keeps_intersecting_sphere() {
+    let mut mesh = clod_bake::procedural::octasphere(1).unwrap();
+    let baked = clod_bake::bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+    let reader = Reader::new(&baked.bytes).unwrap();
+    let mut scene = Scene::layout(&reader, "single").unwrap();
+    let model = Mat4::from_scale_rotation_translation(
+        Vec3::new(1.0, 1.000009, 1.0),
+        Quat::IDENTITY,
+        Vec3::new(0.0, -10.00005, 0.0),
+    );
+    scene.instances = vec![Instance {
+        matrix: model.to_cols_array(),
+    }];
+    scene.validate().unwrap();
+    let visible = select::sphere_visible([0.0, 0.0, 0.0, 10.0], model, 1.0, &[glam::Vec4::Y; 6]);
+    println!(
+        "stretch_cases=1 accepted=1 transformed_tip_y={} visible={visible}",
+        model.transform_point3(Vec3::new(0.0, 9.999995, 0.0)).y
+    );
+    assert!(visible);
+}

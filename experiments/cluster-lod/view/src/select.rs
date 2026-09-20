@@ -18,6 +18,64 @@ pub struct CandidateIndex {
     pub sphere: [f32; 4],
 }
 impl CandidateIndex {
+    /// Conservative candidate interval, mirrored in WGSL. Nonfinite arithmetic
+    /// disables pruning; the final predicate remains the authority.
+    pub fn range(
+        &self,
+        model: Mat4,
+        scale: f32,
+        camera: &Camera,
+        height: u32,
+        threshold: f32,
+    ) -> std::ops::Range<usize> {
+        let full = 0..self.envelopes.len();
+        if threshold <= 0.0 {
+            return full;
+        }
+        let center = model.transform_point3(Vec3::from_slice(&self.sphere));
+        let radius = self.sphere[3] * culling_scale(model, scale);
+        let distance = clod_format::projection::length((center - camera.eye).to_array());
+        let focal = camera.cot * 0.5 * height as f32;
+        let (denominator, near, far) = if let Some(span) = camera.orthographic_span {
+            (scale * height as f32, span, span)
+        } else {
+            (
+                scale * focal,
+                (distance - radius).max(camera.near),
+                (distance + radius).max(camera.near),
+            )
+        };
+        let a = threshold * near;
+        let b = threshold * far;
+        let low = a / denominator * (1.0 - 1e-5);
+        let high = b / denominator * (1.0 + 1e-5);
+        if !center.is_finite()
+            || denominator <= 0.0
+            || [
+                radius,
+                distance,
+                focal,
+                denominator,
+                distance - radius,
+                distance + radius,
+                near,
+                far,
+                a,
+                b,
+                low,
+                high,
+            ]
+            .iter()
+            .any(|v| !v.is_finite())
+        {
+            return full;
+        }
+        let end = self
+            .envelopes
+            .partition_point(|e| e[0] == f32::MAX || e[0] > low);
+        let first = self.envelopes[..end].partition_point(|e| e[1] > high);
+        first..end
+    }
     pub fn new(reader: &Reader<'_>) -> Self {
         let mut lo = Vec3::splat(f32::INFINITY);
         let mut hi = Vec3::splat(f32::NEG_INFINITY);
@@ -36,7 +94,7 @@ impl CandidateIndex {
         }
         let center = (lo + hi) * 0.5;
         // Outward rounding covers both bounds and arithmetic differences in range pruning.
-        let radius = (hi - lo).length() * 0.50001;
+        let radius = clod_format::projection::length((hi - lo).to_array()) * 0.50001;
         let mut envelopes = vec![[0.0; 2]; reader.clusters.len()];
         let mut suffix = 0.0f32;
         for (c, e) in reader.clusters.iter().zip(&mut envelopes).rev() {
@@ -70,9 +128,21 @@ pub fn projected(b: &Bounds, model: Mat4, scale: f32, camera: &Camera, height: u
     }
     .projected(b, center.to_array(), scale)
 }
+/// Gershgorin bound on M^T M: normalized cross terms are at most 2e-5
+/// under Scene::validate; max column length times 1.00004 rounds outward.
+pub fn culling_scale(model: Mat4, scale: f32) -> f32 {
+    scale
+        .max(clod_format::projection::length(
+            model.y_axis.truncate().to_array(),
+        ))
+        .max(clod_format::projection::length(
+            model.z_axis.truncate().to_array(),
+        ))
+        * 1.00004
+}
 pub fn sphere_visible(sphere: [f32; 4], model: Mat4, scale: f32, planes: &[Vec4; 6]) -> bool {
     let center = model.transform_point3(Vec3::from_slice(&sphere));
-    let radius = sphere[3] * scale;
+    let radius = sphere[3] * culling_scale(model, scale);
     !planes
         .iter()
         .any(|p| p.truncate().dot(center) + p.w < -radius - 1e-5)

@@ -45,7 +45,10 @@ struct Bvh {
         for(uint32_t i=n.start;i<n.start+n.count;i++) {
             const auto& t=tri[order[i]]; V e=t.b-t.a,f=t.c-t.a,h=cross(d,f); float det=dot(e,h);
             // Ignore exits from the proxy: source vertices may lie inside a simplified face.
-            if(det<1e-20f) continue;
+            // Divide edges by their largest component before the area test: source units
+            // cancel without squaring tiny coordinates into underflow.
+            float edge=std::max({std::abs(e.x),std::abs(e.y),std::abs(e.z),std::abs(f.x),std::abs(f.y),std::abs(f.z)});
+            if(edge==0 || det<=0 || dot(e*(1.f/edge),cross(d,f*(1.f/edge)))<1e-12f) continue;
             float inverse=1.f/det; V s=o-t.a; float u=dot(s,h)*inverse; if(u<0||u>1) continue;
             V q=cross(s,e); float v=dot(d,q)*inverse; if(v<0||u+v>1) continue;
             float distance=dot(f,q)*inverse; if(distance>0&&distance<radius) return true;
