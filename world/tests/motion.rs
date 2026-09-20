@@ -3,14 +3,13 @@ use exact_world::{bin, hash, math, Now, Rng, Spring, SpringConfig};
 #[test]
 fn spring_seeks_have_no_sampling_history() {
     for damping in [3.0, 20.0, 40.0] {
-        let mut spring = Spring {
-            config: SpringConfig {
+        let mut spring = Spring::new(3.0)
+            .with_config(SpringConfig {
                 stiffness: 100.0,
                 damping,
                 mass: 1.0,
-            },
-            ..Spring::new(3.0)
-        };
+            })
+            .unwrap();
         spring.set_target(Now { tick: 0, hz: 60 }, 15.0);
         let direct = spring.value(Now { tick: 120, hz: 60 });
         let before = hash::of(&spring);
@@ -92,4 +91,34 @@ fn tween_uses_exact_motion_and_saved_deadline() {
     }
     assert_eq!(t.settle_tick(Now { tick: 4, hz: 60 }), Some(34));
     assert_eq!(t.value(Now { tick: 34, hz: 60 }), 3.);
+}
+
+#[test]
+fn spring_refuses_nonfinite_scalar_state() {
+    use exact_world::{Data, DataError, Reader, Writer};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    #[derive(Default)]
+    struct Forged;
+    impl Data for Forged {
+        fn write(&self, w: &mut dyn Writer) {
+            w.begin_struct();
+            w.field("start_velocity");
+            f64::INFINITY.write(w);
+            w.end_struct();
+        }
+        fn read(&mut self, _: &mut dyn Reader) -> Result<(), DataError> {
+            unreachable!()
+        }
+    }
+    assert!(bin::from_slice::<Spring>(&bin::to_vec(&Forged)).is_err());
+    for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(catch_unwind(|| Spring::new(value)).is_err());
+        let mut s = Spring::new(1.);
+        let before = bin::to_vec(&s);
+        assert!(catch_unwind(AssertUnwindSafe(
+            || s.set_target(Now { tick: 0, hz: 60 }, value)
+        ))
+        .is_err());
+        assert_eq!(bin::to_vec(&s), before);
+    }
 }

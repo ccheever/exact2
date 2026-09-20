@@ -31,24 +31,32 @@ impl Data for SpringConfig {
 #[derive(Clone, Debug, Default)]
 pub struct Spring {
     /// Desired resting value.
-    pub target: f64,
+    target: f64,
     /// Value at the last target change.
-    pub start_value: f64,
+    start_value: f64,
     /// Velocity per second at the last target change.
-    pub start_velocity: f64,
+    start_velocity: f64,
     /// Tick of the last target change.
-    pub start_tick: u64,
+    start_tick: u64,
     /// The exact-motion closed-form oscillator parameters.
-    pub config: SpringConfig,
+    config: SpringConfig,
 }
 impl Spring {
     /// A motionless spring at value.
     pub fn new(value: f32) -> Self {
+        assert!(value.is_finite(), "non-finite spring value");
         Self {
             target: value as f64,
             start_value: value as f64,
             ..Self::default()
         }
+    }
+    pub fn with_config(mut self, config: SpringConfig) -> Result<Self, DataError> {
+        config
+            .validate()
+            .map_err(|e| DataError::new(format!("invalid spring config: {e:?}")))?;
+        self.config = config;
+        Ok(self)
     }
     fn sample(&self, Now { tick, hz }: Now) -> SpringSample {
         assert!(hz > 0, "spring hz must be positive");
@@ -60,6 +68,7 @@ impl Spring {
     }
     /// Retarget continuously at now, preserving the old value and velocity.
     pub fn set_target(&mut self, now: Now, target: f32) {
+        assert!(target.is_finite(), "non-finite spring target");
         assert!(
             now.tick >= self.start_tick,
             "spring retarget precedes its anchor"
@@ -127,6 +136,12 @@ impl Data for Spring {
                 "config" => self.config.read(r).map_err(|e| e.at(f))?,
                 _ => r.skip()?,
             }
+        }
+        if ![self.target, self.start_value, self.start_velocity]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            return Err(DataError::new("non-finite spring state"));
         }
         Ok(())
     }

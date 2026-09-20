@@ -399,3 +399,18 @@ fn large_churn_has_history_independent_order_hash_and_save() {
     assert_eq!(left.hash(), right.hash());
     assert_eq!(left.save(), right.save());
 }
+
+#[test]
+fn names_do_not_shadow_index_selectors() {
+    let mut w = World::new(60, 0);
+    let shadow = w.spawn_named("fox#12", ());
+    w.spawn_named("#12", ());
+    for _ in 2..12 {
+        w.spawn(());
+    }
+    let fox = w.spawn_named("fox", ());
+    assert_eq!(w.resolve("fox#12"), Some(fox));
+    assert_eq!(w.resolve("#12"), Some(fox));
+    assert_eq!(w.named("fox#12"), Some(shadow));
+    assert_eq!(w.resolve("wrong#12"), None);
+}

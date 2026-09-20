@@ -397,10 +397,9 @@ impl World {
     }
     /// Resolve fox, fox#12, or #12; an explicit name must agree with the slot.
     pub fn resolve(&self, target: &str) -> Option<Entity> {
-        if let Some(e) = self.named(target) {
-            return Some(e);
-        }
-        let (name, index) = target.rsplit_once('#')?;
+        let Some((name, index)) = target.rsplit_once('#') else {
+            return self.named(target);
+        };
         let index: u32 = index.parse().ok()?;
         let s = self.state.slots.get(index as usize)?;
         let e = Entity {
