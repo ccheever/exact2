@@ -169,10 +169,7 @@ fn image_oracles() {
         "{}",
         json!({"oracle":"threshold_zero","source_triangles":reader.header.source_triangles,"cluster_triangles":s0.triangles,"pages":reader.pages.len(),"draws":s0.draws,"max_byte":d.max,"mean_abs":d.mean,"fraction_gt_2":d.fraction})
     );
-    check(
-        d.max <= 1 && d.mean < 0.000001,
-        "threshold-zero exceeds 1/255 max or .000001 mean bound",
-    );
+    check(d.max == 0, "threshold-zero must be pixel-exact");
     let (repeat, _) = draw(&mut cluster, 0.0, View::Lit);
     let png_a = readback::png_bytes(&c0, size, size).expect("png");
     let png_b = readback::png_bytes(&repeat, size, size).expect("png");
@@ -386,4 +383,68 @@ fn baseline_limits_precede_gpu_allocation() {
         std::mem::size_of_val(baseline[0].indices.as_slice())
     );
     assert!(accepted && rejected && gpu_error.is_none());
+}
+
+#[test]
+fn timestamped_passes_with_and_without_shadows() {
+    let mut mesh = clod_bake::procedural::octasphere(3).unwrap();
+    let baked = clod_bake::bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+    let reader = Reader::new(&baked.bytes).unwrap();
+    let scene = Scene::layout(&reader, "single").unwrap();
+    let camera = scene.camera(0.0, 1.0, 1.0);
+    let baseline = prepare::baseline(&reader);
+    let (device, queue, _) = match pollster::block_on(clod_view::request_device(true)) {
+        Ok(gpu) => gpu,
+        Err(e) if e.starts_with("NO ADAPTER:") => {
+            eprintln!("SKIP timestamp GPU test: {e}; cases=0");
+            return;
+        }
+        Err(e) => panic!("{e}"),
+    };
+    let mut failures = Vec::new();
+    for mode in [Mode::Cluster, Mode::Naive] {
+        let mut renderer = Renderer::new(
+            device.clone(),
+            queue.clone(),
+            &reader,
+            Some(&baseline),
+            &scene,
+            [64, 64],
+            mode,
+        )
+        .unwrap();
+        if mode == Mode::Cluster {
+            renderer.enable_gpu_selection(&reader, None).unwrap();
+        }
+        for shadows in [true, false, true, false] {
+            renderer.shadows = shadows;
+            let f = if mode == Mode::Cluster {
+                renderer.render_gpu(&scene, &camera, View::Lit, 1.0, true, false)
+            } else {
+                renderer.render(
+                    &scene,
+                    &camera,
+                    View::Lit,
+                    &Selection::default(),
+                    &Selection::default(),
+                )
+            }
+            .unwrap();
+            match readback::read(&renderer, &f) {
+                Ok((_, Some(times))) => {
+                    println!("timestamp_render mode={mode:?} shadows={shadows} times_ms={times:?}");
+                    if !shadows && (times[0] != 0.0 || times[3] != 0.0 || f.stats.shadow_draws != 0)
+                    {
+                        failures.push(format!("disabled shadow timing {mode:?}"));
+                    }
+                }
+                other => failures.push(format!(
+                    "{mode:?} shadows={shadows}: {}",
+                    other.err().unwrap_or("missing timestamps".into())
+                )),
+            }
+        }
+    }
+    println!("timestamp_render_cases=8 failures={failures:?}");
+    assert!(failures.is_empty(), "{failures:?}");
 }

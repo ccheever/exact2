@@ -78,19 +78,17 @@ pub fn sphere_visible(sphere: [f32; 4], model: Mat4, scale: f32, planes: &[Vec4;
         .any(|p| p.truncate().dot(center) + p.w < -radius - 1e-5)
 }
 pub fn cone_visible(c: &Cluster, model: Mat4, scale: f32, camera: &Camera) -> bool {
-    if c.cone_cutoff >= 1.0 {
+    // Object-space cones rejected a rasterized scan shadow texel in the grid
+    // regression. Orthographic passes retain sphere culling and hardware backfaces.
+    if c.cone_cutoff >= 1.0 || camera.orthographic_span.is_some() {
         return true;
     }
     let axis = model.transform_vector3(Vec3::from_array(c.cone_axis)) / scale;
-    let view = if camera.orthographic_span.is_some() {
-        camera.matrix.transpose().z_axis.truncate().normalize()
-    } else {
-        let delta = model.transform_point3(Vec3::from_array(c.cone_apex)) - camera.eye;
-        if delta.length_squared() < 1e-20 {
-            return true;
-        }
-        delta.normalize()
-    };
+    let delta = model.transform_point3(Vec3::from_array(c.cone_apex)) - camera.eye;
+    if delta.length_squared() < 1e-20 {
+        return true;
+    }
+    let view = delta.normalize();
     view.dot(axis) < c.cone_cutoff + 1e-5
 }
 pub fn select(

@@ -1,5 +1,5 @@
 struct Config {
-    planes: array<vec4<f32>,6>, eye: vec4<f32>, direction: vec4<f32>, sphere: vec4<f32>,
+    planes: array<vec4<f32>,6>, eye: vec4<f32>, sphere: vec4<f32>,
     projection: vec4<f32>, // height, cot, near, ortho span (zero means perspective)
     sizes: vec4<u32>, // clusters, instances, pages, quota
     options: vec4<u32>, // culling, brute force, max triangles, unused
@@ -43,14 +43,11 @@ fn sphere_visible(sphere:vec4<f32>,model:mat4x4<f32>,scale:f32)->bool {
 }
 fn cone_visible(base:u32,model:mat4x4<f32>,scale:f32)->bool {
     let cutoff=f(base+17u);
-    if cutoff>=1.0 { return true; }
+    if cutoff>=1.0 || cfg.projection.w!=0.0 { return true; }
     let axis=(model*vec4(v3(base+18u),0.0)).xyz/scale;
-    var view=cfg.direction.xyz;
-    if cfg.projection.w==0.0 {
-        let delta=(model*vec4(v3(base+14u),1.0)).xyz-cfg.eye.xyz;
-        if dot(delta,delta)<1e-20 { return true; }
-        view=normalize(delta);
-    }
+    let delta=(model*vec4(v3(base+14u),1.0)).xyz-cfg.eye.xyz;
+    if dot(delta,delta)<1e-20 { return true; }
+    let view=normalize(delta);
     return dot(view,axis)<cutoff+1e-5;
 }
 fn selected(id:u32,model:mat4x4<f32>,scale:f32)->bool {

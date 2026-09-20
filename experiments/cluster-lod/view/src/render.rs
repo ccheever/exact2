@@ -273,8 +273,20 @@ impl Renderer {
                     stencil_ops: None,
                 }),
                 timestamp_writes: writes(
-                    if gpu.is_some() { 6 } else { 2 },
-                    if gpu.is_some() { 7 } else { 3 },
+                    if shadows {
+                        if gpu.is_some() { 6 } else { 2 }
+                    } else if gpu.is_some() {
+                        2
+                    } else {
+                        0
+                    },
+                    if shadows {
+                        if gpu.is_some() { 7 } else { 3 }
+                    } else if gpu.is_some() {
+                        3
+                    } else {
+                        1
+                    },
                 ),
                 ..Default::default()
             });
@@ -327,21 +339,13 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        let timestamps = if let (Some(query), Some(resolve)) = (&self.query, &self.query_resolve) {
+        let timestamps = if self.query.is_some() {
             let read = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamps"),
                 size: 64,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            encoder.resolve_query_set(query, 0..if gpu.is_some() { 8 } else { 4 }, resolve, 0);
-            encoder.copy_buffer_to_buffer(
-                resolve,
-                0,
-                &read,
-                0,
-                if gpu.is_some() { 64 } else { 32 },
-            );
             Some(read)
         } else {
             None
@@ -403,6 +407,23 @@ impl Renderer {
             shadows,
             stats,
         })
+    }
+    /// Timing hosts call this after GPU completion and before submitting another frame.
+    /// Resolving counters after completion avoids Metal's stale end-of-fragment samples.
+    pub fn resolve_timestamps(&self, frame: &Frame) {
+        if let (Some(query), Some(resolve), Some(read)) =
+            (&self.query, &self.query_resolve, &frame.timestamps)
+        {
+            let count = match (frame.gpu_selected, frame.shadows) {
+                (true, true) => 8,
+                (true, false) | (false, true) => 4,
+                (false, false) => 2,
+            };
+            let mut encoder = self.device.create_command_encoder(&Default::default());
+            encoder.resolve_query_set(query, 0..count, resolve, 0);
+            encoder.copy_buffer_to_buffer(resolve, 0, read, 0, count as u64 * 8);
+            self.queue.submit([encoder.finish()]);
+        }
     }
     fn draw(
         &self,

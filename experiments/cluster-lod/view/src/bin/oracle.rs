@@ -58,12 +58,11 @@ fn boundary(
     {
         return true;
     }
+    if camera.orthographic_span.is_some() {
+        return false;
+    }
     let axis = m.transform_vector3(Vec3::from_array(c.cone_axis)) / scale;
-    let direction = if camera.orthographic_span.is_some() {
-        camera.matrix.transpose().z_axis.truncate().normalize()
-    } else {
-        (m.transform_point3(Vec3::from_array(c.cone_apex)) - camera.eye).normalize()
-    };
+    let direction = (m.transform_point3(Vec3::from_array(c.cone_apex)) - camera.eye).normalize();
     (direction.dot(axis) - c.cone_cutoff - 1e-5).abs() <= 1e-5
 }
 fn pair_set(cut: &Selection) -> BTreeSet<[u32; 2]> {
@@ -188,7 +187,15 @@ pub fn run(
             )
         };
         let mut gpu = create()?;
-        gpu.enable_gpu_selection(reader, None)?;
+        // Equality checks require a complete cut; the default performance quota
+        // can truncate the topology-preserving scan bakes. Exercise the full core
+        // binding budget here, and test quota truncation separately below.
+        let quota = (128 * 1024 * 1024 / 8 / scene.instances.len()) as u32;
+        gpu.enable_gpu_selection(reader, Some(quota))?;
+        println!(
+            "{}",
+            json!({"oracle":"oracle_capacity","layout":layout,"capacity_per_instance":gpu.gpu_capacity_per_instance()})
+        );
         let mut cpu = create()?;
         let light = scene.light_camera();
         let shadow = select::select(reader, &scene.instances, &light, 2048, 2.0);
@@ -219,9 +226,10 @@ pub fn run(
                     cuts[0].overflow, cuts[1].overflow
                 ));
             }
-            let equal = near + bad + shadow_near + shadow_bad == 0;
             let mut image_bytes = 0;
-            if equal {
+            // Even a permitted floating-point boundary difference must preserve
+            // the image. Open scans cannot use closed-edge topology as a fallback.
+            if bad + shadow_bad == 0 {
                 let frame = cpu.render(&scene, &camera, View::Lit, &reference, &shadow)?;
                 let (expected, _) = readback::read(&cpu, &frame)?;
                 image_bytes = pixels.iter().zip(&expected).filter(|(a, b)| a != b).count();
@@ -267,7 +275,7 @@ pub fn run(
                         failures.push(format!("{layout}/{step}: culling changed {cull_bytes} color and {shadow_bytes} shadow bytes"));
                     }
                 }
-                if (closed && layout == "single") || near + shadow_near > 0 {
+                if closed && (layout == "single" || near + shadow_near > 0) {
                     // L1's same decoded-edge oracle, with culling disabled.
                     let ref_unculled = select::select_culled(
                         reader,
@@ -299,7 +307,7 @@ pub fn run(
                     }
                 }
             }
-            if shadow_near > 0 {
+            if closed && shadow_near > 0 {
                 let (_, full) = gpu_frame(&mut gpu, reader, &scene, &camera, false)?;
                 let reference_light =
                     select::select_culled(reader, &scene.instances, &light, 2048, 2.0, false);

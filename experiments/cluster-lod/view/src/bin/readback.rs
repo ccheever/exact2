@@ -8,13 +8,6 @@ pub fn read(renderer: &Renderer, frame: &Frame) -> Result<(Vec<u8>, Option<[f64;
                 eprintln!("pixel map failed: {e}");
             }
         });
-    if let Some(buffer) = &frame.timestamps {
-        buffer.slice(..).map_async(wgpu::MapMode::Read, |result| {
-            if let Err(e) = result {
-                eprintln!("timestamp map failed: {e}");
-            }
-        });
-    }
     renderer
         .device
         .poll(wgpu::PollType::wait_indefinitely())
@@ -34,6 +27,16 @@ pub fn read(renderer: &Renderer, frame: &Frame) -> Result<(Vec<u8>, Option<[f64;
         .timestamps
         .as_ref()
         .map(|buffer| {
+            renderer.resolve_timestamps(frame);
+            buffer.slice(..).map_async(wgpu::MapMode::Read, |result| {
+                if let Err(e) = result {
+                    eprintln!("timestamp map failed: {e}");
+                }
+            });
+            renderer
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .map_err(|e| e.to_string())?;
             let mapped = buffer
                 .slice(..)
                 .get_mapped_range()
@@ -50,7 +53,13 @@ pub fn read(renderer: &Renderer, frame: &Frame) -> Result<(Vec<u8>, Option<[f64;
             };
             let times = [
                 if frame.shadows { elapsed(offset)? } else { 0.0 },
-                elapsed(offset + 2)?,
+                elapsed(if frame.shadows {
+                    offset + 2
+                } else if frame.gpu_selected {
+                    2
+                } else {
+                    0
+                })?,
                 if frame.gpu_selected { elapsed(0)? } else { 0.0 },
                 if frame.gpu_selected && frame.shadows {
                     elapsed(2)?

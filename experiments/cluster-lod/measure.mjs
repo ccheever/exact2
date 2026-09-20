@@ -28,6 +28,11 @@ if(mode==='verify') {
         commands.push([name,command]);
       }
     }
+    const [layout,capacity]=asset==='gaul'?['field:5000,1',3000]:['grid:400',12000];
+    for(const shadows of ['on','off']) {
+      const name=[asset,layout.replaceAll(/[:,]/g,'-'),'gpu',`capacity-${capacity}`,`shadows-${shadows}`].join('-');
+      commands.push([name,['target/debug/clod-view','time',source,'--layout',layout,'--capacity',String(capacity),'--frames','7','--size','2560x1440','--threshold-px','1','--shadows',shadows,'--out',join(out,`${name}.png`)]]);
+    }
   }
 } else {
   console.error('usage: bun measure.mjs verify|sweep|oracles');

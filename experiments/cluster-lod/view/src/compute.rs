@@ -30,7 +30,6 @@ impl Selector {
 struct Config {
     planes: [[f32; 4]; 6],
     eye: [f32; 4],
-    direction: [f32; 4],
     sphere: [f32; 4],
     projection: [f32; 4],
     sizes: [u32; 4],
@@ -214,14 +213,6 @@ impl Compute {
         let config = Config {
             planes: camera.planes().map(|p| p.to_array()),
             eye: camera.eye.extend(1.0).to_array(),
-            direction: camera
-                .matrix
-                .transpose()
-                .z_axis
-                .truncate()
-                .normalize()
-                .extend(0.0)
-                .to_array(),
             sphere: self.sphere,
             projection: [
                 height as f32,

@@ -129,11 +129,7 @@ fn real_asset_raster_oracles() {
                 let d = readback::difference(&cp, &p);
                 comparisons += 1;
                 let different_pixels = (d.fraction * 2560.0 * 1440.0).round() as u64;
-                let ok = if name == "same_triangle_order" {
-                    d.max == 0
-                } else {
-                    d.max <= 20 && d.mean < 1e-7 && different_pixels <= 8
-                };
+                let ok = d.max == 0;
                 if !ok {
                     failures.push(format!(
                         "{asset} t={t} {name}: max={}, mean={}, >2 pixels={different_pixels}",
