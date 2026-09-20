@@ -170,7 +170,6 @@ impl Eq for WorldId {}
 pub struct World {
     id: WorldId,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
-    hash_cache: std::cell::Cell<Option<(u64, u64)>>,
     state: State,
     // Derived lookup only; never serialized, hashed or observed.
     names: BTreeMap<String, BTreeSet<Entity>>,
@@ -215,7 +214,6 @@ impl World {
         Self {
             id: WorldId(epoch.clone()),
             epoch,
-            hash_cache: std::cell::Cell::new(None),
             state: State {
                 hz,
                 seed,
@@ -710,16 +708,9 @@ impl World {
     }
     pub fn hash(&self) -> u64 {
         self.healthy().expect("cannot hash poisoned world");
-        if let Some((epoch, hash)) = self.hash_cache.get() {
-            if epoch == self.mutation_epoch() {
-                return hash;
-            }
-        }
         let mut w = hash::Hasher::default();
         self.write(&mut w, false);
-        let hash = w.finish();
-        self.hash_cache.set(Some((self.mutation_epoch(), hash)));
-        hash
+        w.finish()
     }
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.validate()?;

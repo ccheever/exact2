@@ -268,3 +268,29 @@ fn natural_ownership_chains_refuse_at_a_bounded_walk() {
     assert_eq!(w.save().unwrap(), before);
     assert_eq!(w.query::<&Parent>().iter().count(), 256);
 }
+
+#[test]
+fn manual_data_shared_mutation_cannot_return_a_stale_hash() {
+    #[derive(Default)]
+    struct Manual(std::cell::Cell<u32>);
+    impl Data for Manual {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0.get().write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            let mut n = 0;
+            n.read(r)?;
+            self.0.set(n);
+            Ok(())
+        }
+    }
+    impl Component for Manual {
+        const NAME: &'static str = "Manual";
+    }
+    let mut w = World::new(60, 0);
+    w.register::<Manual>().unwrap();
+    let e = w.spawn(Manual::default()).unwrap();
+    let before = w.hash();
+    w.get::<Manual>(e).unwrap().0.set(5);
+    assert_ne!(w.hash(), before);
+}
