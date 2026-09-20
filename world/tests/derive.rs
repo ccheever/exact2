@@ -127,6 +127,8 @@ fn replace(w: &World) {
     );
     for source in [
         r#"use exact_world::Data;
+#[derive(Default, Data)] struct Node { #[data(skip)] next: [Box<Node>; 0] }"#,
+        r#"use exact_world::Data;
 type Alias = Box<Node>;
 #[derive(Default, Data)] struct Node { #[data(skip)] next: Alias }"#,
         r#"use exact_world::Data;

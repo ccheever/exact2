@@ -97,6 +97,7 @@ both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
 including recursive registration. A returned hook error restores all type
 declarations made by that call and its dependencies; retry runs the hook again.
+Hooks declare types only; arbitrary gameplay effects are not rolled back.
 Rollback uses a fixed 256-byte snapshot per nested hook; type count bounds recursion
 and registry work. Panics still poison. `Game::register` receives borrowed setup/restart
 arguments, without formatting them. Insertion never registers types implicitly.
@@ -351,13 +352,13 @@ Use the existing Cargo cache and shared target directory. Before a cold build,
 check `df -h ~`; stop below 25 GiB free. These counts are allocator calls and
 cumulative requested bytes, not resident memory, latency or first pixel.
 
-| Operation | K1d calls / bytes | K1e calls / bytes |
+| Operation | Starting `8d24068` calls / bytes | K1f calls / bytes |
 |---|---:|---:|
 | Empty World | 1 / 24 | 1 / 24 |
 | 100-entity construction | 21 / 41,880 | 21 / 41,880 |
 | First tick with publication | 2 / 568 | 2 / 568 |
 | 1,000 changing-publication ticks | 3 / 200,704 | 3 / 200,704 |
-| Exact 10 KiB restore | 80 / 46,764 | 80 / 46,760 |
+| Exact 10 KiB restore | 80 / 46,760 | 80 / 46,760 |
 | First 32-byte component at slot 199,999 | 4 / 77,536 | 4 / 77,536 |
 | 1,000 high-slot remove/reinsert cycles | 0 / 0 | 0 / 0 |
 | 1,000 sparse-edit ticks in 200k entities | 0 / 0 | 0 / 0 |
@@ -368,8 +369,9 @@ they assert press/release edges and movement while assets remain pending. Ordina
 ticks perform zero Data writes; three explicit settle ticks perform 800,000 writes
 across four boundaries. The 200k owner-removal control reaps interleaved descendants
 without visiting ownership scratch, even after recycling the owner's slot.
-Hostile nested publications refused after 527–542 requested bytes, versus the
-reproduced 3,201,238 bytes for 100,000 Unit children before the fix.
+The nested reservation-chain control at depths 8, 40 and 80 now refuses after
+33,391 requested bytes; depth 8 previously allocated 262,430 bytes. A valid flat
+boundary still loads, including 1,023 siblings plus a nested 1,024th value.
 
 First high-slot insertion deliberately initializes at most 25,000 bytes of
 presence and 50,000 bytes of directory on this 64-bit host, plus one value chunk.
@@ -381,16 +383,18 @@ implementations over 100 traversals and seven samples, checking every sum.
 
 Final quiet-run medians (ns/row) are diagnostic, not a significance claim:
 
-| Operation | K1d kernel | K1e engine | K1e kernel |
+| Operation | Starting kernel | K1f engine | K1f kernel |
 |---|---:|---:|---:|
-| Dense query | 1.312 | 1.124 | 1.316 |
-| Sparse query | 2.770 | 2.815 | 2.754 |
-| Dense runs | 0.695 | 1.025 | 0.697 |
-| Sparse runs | 2.933 | 55.953 | 2.937 |
+| Dense query | 1.303 | 1.204 | 1.309 |
+| Sparse query | 3.263 | 2.801 | 3.007 |
+| Dense runs | 0.693 | 1.029 | 0.694 |
+| Sparse runs | 2.937 | 57.809 | 2.932 |
 
-Counts do not regress. Dense query/runs differ +0.3%, sparse runs +0.1%, and sparse
-query -0.6%; these timings do not establish a statistically significant change.
-A prior run concurrent with other checks was slower (dense query 1.371).
+Counts do not regress. Dense query/runs differ +0.5%/+0.1%, sparse runs -0.2%, and
+sparse query -7.8%; these timings do not establish a statistically significant
+change. Both runs used the existing benchmark and shared target directory; the
+starting kernel was copied from `8d24068`, with its dependency version relabeled
+only to distinguish the two path packages. No traversal optimization was added.
 
 ```sh
 export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH EXACT_UPDATE_TRUST=development
@@ -420,12 +424,16 @@ cargo +nightly miri test -p exact-world --lib storage -- --test-threads=1 --skip
 cargo +nightly miri test -p exact-world --test pages --test ecs -- --test-threads=1 --skip resource_and_non_state_outputs
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
+cargo +nightly miri test -p exact-world --test admission -- --test-threads=1
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test admission -- --test-threads=1
 ```
 
-K1e Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage and 1 i686 admission
-executions passed, with no UB detected. A real wasm32 build executed through Bun
+K1f Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage, 1 i686 portable-boundary
+and 12 x86-64/i686 admission executions passed, with no UB detected (42 total).
+A real wasm32 build executed through Bun
 passes all five frozen continuation boundaries and the 2,232-accept/2,231-refuse
-admission boundary. Generated simulations compare 2,048 complete save/load/save
+admission boundary, skipped finite recursion and oversized 32-bit page admission.
+Generated simulations compare 2,048 complete save/load/save
 boundaries and hashes. These finite controls do not prove arbitrary manual Data.
 
 The temporary cross-engine consumer compares common Data/hash content and world
@@ -436,18 +444,28 @@ nonspatial app startup/artifact evidence, deployed old-save cutover and owner/ju
 approval remain separate, unfinished admission work. This host has no GPU adapter,
 Chrome or Apple SDK; browser/Apple rendering and first pixel are unverified.
 
-Final kernel/derive/motion tests: 184 passed, two large controls passed separately;
-clippy denies warnings and formatting passes. Cross-engine and all six adapter
-tests pass. Game workspace: 740 passed, 25 ignored, 18 missing-GPU failures.
+Kernel/derive/core-motion tests: 185 passed, two large controls passed separately
+after every commit; clippy denies warnings and formatting passes. The 18 reviewed
+root motion-dependent tests plus a low-frequency compatibility control pass.
+Cross-engine and all six adapter tests pass. Game workspace: 749 passed, 25 ignored,
+18 missing-GPU failures; the optional motion module contributes nine passing tests.
 Authored-game workspaces: 48 passed, one ignored, three missing-GPU failures.
-Bun: 145 passed initially, one skipped, four failures; the lane's long-name literal
-false positive was fixed and its check passes, leaving three Chrome failures.
+Bun's full run reached 83 passes and two Chrome failures before an open server
+prevented exit. Excluding those two tests completed with 146 passes, one skip and
+one further Chrome failure (generated-game web proof): three unavailable checks.
 Seven Linux game proofs pass; both Lanterns fixtures execute but lack pins. Cubes
-requires Chrome and timed out. Root build/test/clippy require the absent lean
+is browser-only, failed process inventory and timed out. Root build/test/clippy require the absent lean
 Hermes producer. Caps passes; boot stays at 88,699 JS bytes, 3,468 page bytes,
 two pre-pixel modules and one Wasm reference. No game pins changed.
 
-K1e totals 7,479 lines: 6,989 Rust + 466 README + 24 manifests.
+EXGAME v4 and EXSIM v10 are unchanged by K1f. `git diff land/game-next -- motion/`
+is empty. Core dependencies are exact-world-derive, libm and ryu; optional
+exact-world-motion depends on exact-world and exact-motion. The root workspace
+does not include game, and Caltrain's normal dependency tree does not include world.
+
+K1f totals 7,254 lines: 6,738 Rust + 493 README + 23 manifests, down from 7,479.
+The extracted optional motion module adds 335 separate lines (326 Rust + 9 manifest)
+under the same exclusions; kernel plus module totals 7,589, up 110 from old core alone.
 The production ceiling is 7,500 handwritten lines: all production Rust under
 world/ including derive, this README and both manifests. Comments and blank lines
 count. Only tests and test-only allocator support are excluded. Reproduce with:
