@@ -18,6 +18,10 @@ Pretext has two halves and this app shows both without the library.
   receives text already cut to the lines the arithmetic found. No font is
   parsed at runtime; the wasm carries a table, not a font.
 
+The spread measures its pull quote in the italic face at the current font size
+and padded width before cutting the article columns. Its painted box and
+exclusion share that height, and the picture moves down if the quote needs room.
+
 | Tab / stable id | What to try |
 | --- | --- |
 | 01 Balls — `scene-balls` (opens first) | Three spheres (`ball-1..3`) cross `balls-prose`; the words part on both sides. Positions are arithmetic on the clock, committed every 16 ms. |

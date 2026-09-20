@@ -107,6 +107,10 @@ shape Spread
   discShape: string
   discMargin: number
   leftover: number
+  quoteText: string
+  quoteSize: number
+  quoteLineHeight: number
+  quotePadding: number
 shape Row
   id: string
   text: string
@@ -176,7 +180,7 @@ component Reflow
   resource masonryScene = masonry(contentWidth, seed) as shape Masonry
   resource wallScene = wall(contentWidth, scrollTop, wallHeight, seed) as shape Wall
   resource magazineScene = magazine(magazineInner) as shape Magazine
-  resource spreadScene = spread(pageInner) as shape Spread
+  resource spreadScene = spread(pageInner, viewport.width < 700 ? 17 : 21) as shape Spread
   resource asciiScene = ascii(asciiClock, measured, asciiWidth) as shape Ascii
   action choose(value: string) writes scene, elapsed, scrollTop
     scene = value
@@ -303,8 +307,8 @@ component Reflow
                   text col.text testId=col.id position="absolute" left=col.x top=0 width=spreadScene.colWidth height=spreadScene.height class=Article
                 box testId="spread-cap" position="absolute" left=0 top=0 width=spreadScene.capW height=spreadScene.capH wrap-flow="both" shape-outside=spreadScene.capShape shape-margin=spreadScene.capMargin
                   text "T" font-weight=700 font-size=80 line-height="64px" color="light-dark(#b4462d, #e39a77)"
-                box testId="spread-quote" position="absolute" left=spreadScene.quoteX top=spreadScene.quoteY width=spreadScene.quoteW height=spreadScene.quoteH padding=20 box-sizing="border-box" border-radius=14 background-color="light-dark(#efe4cf, #3a3126)" wrap-flow="both" shape-outside=spreadScene.quoteShape shape-margin=spreadScene.quoteMargin
-                  text "“Every good page is a page that was measured first and drawn second; the ones that look wrong are the ones where somebody guessed.”" font-style="italic" font-size=(viewport.width < 700 ? 17 : 21) line-height=1.28 color="light-dark(#5a3a2a, #e8c9a8)"
+                box testId="spread-quote" position="absolute" left=spreadScene.quoteX top=spreadScene.quoteY width=spreadScene.quoteW height=spreadScene.quoteH padding=spreadScene.quotePadding box-sizing="border-box" border-radius=14 background-color="light-dark(#efe4cf, #3a3126)" wrap-flow="both" shape-outside=spreadScene.quoteShape shape-margin=spreadScene.quoteMargin
+                  text spreadScene.quoteText testId="spread-quote-text" font-style="italic" font-size=spreadScene.quoteSize line-height=`${spreadScene.quoteLineHeight}px` white-space="pre-wrap" color="light-dark(#5a3a2a, #e8c9a8)"
                 box testId="spread-disc" position="absolute" left=spreadScene.discX top=spreadScene.discY width=spreadScene.discW height=spreadScene.discW border-radius=200 background-color="light-dark(#4f7d6a, #93bda6)" wrap-flow="both" shape-outside=spreadScene.discShape shape-margin=spreadScene.discMargin
                   box position="absolute" left="18%" top="18%" width="64%" height="64%" border-radius=200 background-color="light-dark(#c2603f, #e39a77)"
                   box position="absolute" left="36%" top="36%" width="28%" height="28%" border-radius=200 background-color="light-dark(#f2c14e, #ffd166)"
