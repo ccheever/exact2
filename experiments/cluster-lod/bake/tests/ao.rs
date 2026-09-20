@@ -23,8 +23,12 @@ fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
         for j in 0..40 {
             for i in 0..40 {
                 let a = base + j * 41 + i;
-                mesh.indices
-                    .extend_from_slice(&[a, a + 1, a + 41, a + 1, a + 42, a + 41]);
+                let triangles = if wall {
+                    [a, a + 41, a + 1, a + 1, a + 41, a + 42]
+                } else {
+                    [a, a + 1, a + 41, a + 1, a + 42, a + 41]
+                };
+                mesh.indices.extend_from_slice(&triangles);
             }
         }
     }

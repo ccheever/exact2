@@ -233,7 +233,7 @@ impl Scene {
         let distance = self.minimum_distance(fov).max(0.38);
         let close = self.hero
             + if self.avenue {
-                Vec3::new(0.85, -0.35, 0.28).normalize() * (distance + 0.18)
+                Vec3::new(0.85, -0.35, 0.28).normalize() * (distance + 0.40)
             } else {
                 self.hero_direction * distance
             };

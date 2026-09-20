@@ -3,8 +3,10 @@
 Standalone experiment for LLP 1041.011 O1 / §5 Q2: bake a cluster-LOD DAG, select
 and cull on the GPU, then draw through ordinary hardware rasterization. No software
 rasterizer, 64-bit atomics, optional rendering features, or vendor modifications.
-The native CLI renders the two scanned statues and a continuous far-to-detail
-camera path, including cluster-colour views. It is an offscreen demo, not a player.
+The native CLI renders the two scanned statues and a continuous avenue-to-detail
+camera path, including lit cluster colours, baked AO, and a 40-second 60fps H.264
+reel. It is an offscreen demo, not an interactive player. L3a uses format v4;
+the F2 performance tables below remain historical v3 measurements.
 
 F1 found four-incident edges in regular vendor simplification, including uniform
 cuts. F2 establishes that these are balanced pinches (net winding zero), not holes
@@ -16,7 +18,7 @@ cut of a closed mesh is closed; not guaranteed manifold: 503 pinched edges acros
 501 cuts, worst incidence 4. These are edge-cut occurrences in the 21-fixture sweep;
 this statement does not promise absence of geometric self-intersection.
 
-At 400 instances, 2560×1440 and 1 px, main-pass medians are **1.490 vs 78.622 ms
+In the historical F2 run, at 400 instances, 2560×1440 and 1 px, main-pass medians are **1.490 vs 78.622 ms
 (Gaul)** and **3.852 vs 365.483 ms (Washington)**, GPU cluster vs indexed naive
 with the same instance-frustum cull. All four rows have zero overflow. Both
 cluster rows use 10,485 slots per instance. Shadows, measured separately, are
@@ -49,11 +51,14 @@ bun measure.mjs images # both scans: comparison, 240-frame path, lit/cluster vie
 command failures and source-file lengths. `sweep` runs 48 default-quota timing
 configurations plus four larger-quota comparison runs; any overflow fails the sweep.
 `oracles` checks 64 cameras × three layouts per real asset. The scripts record
-commands, PIDs, exit codes and elapsed times in `<cache>/out/F2/`.
+commands, PIDs, exit codes and elapsed times in `<cache>/out/L3a/`.
 
 ```sh
-asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-3.clod"
-out="$HOME/Library/Caches/exact2-cluster-lod/out/F2/demo"
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-4.clod"
+out="$HOME/Library/Caches/exact2-cluster-lod/out/reel"
+# This Mac's ffmpeg needs the cache-local ABI-215 library (see Decisions).
+export DYLD_LIBRARY_PATH="$out/encoder-lib"
+target/debug/clod-view reel "$asset" --out "$out" --seconds 40 --fps 60 --size 2560x1440
 target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 1
 target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 1
 target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --capacity 12000 --frames 7
@@ -66,7 +71,7 @@ cargo test -p clod-view --test coverage -- --nocapture
 
 Defaults: `--mode cluster --select gpu --cull on --shadows on --view lit`,
 1 px, 2560×1440, vertical FOV 45°, hero t=0. Selectors: `gpu|cpu|brute`;
-`brute` scans all clusters of surviving instances. Layouts: `single|ring:N|grid:N|field:N,seed`,
+`brute` scans all clusters of surviving instances. Layouts: `single|avenue:N|ring:N|grid:N|field:N,seed`,
 N=1..10,000. Views: `lit|clusters|depth|triangles|instances|overdraw|coverage`.
 `depth` is DAG depth. `coverage` has white geometry, magenta background, no ground
 or shadows. Cameras accept `--eye x,y,z --target x,y,z --fov degrees`; size caps
@@ -74,8 +79,8 @@ at 8192². `--capacity N` is a per-instance GPU quota, not a total budget.
 
 The library accepts byte slices and caller-owned wgpu devices. Native I/O, PNG
 encoding, blocking readback and meshoptimizer baseline optimization stay in the
-binary. A browser supplies its own optimized baseline buffers. Only `time`
-requires `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
+binary. A browser supplies its own optimized baseline buffers. `time` and `reel`
+require `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
 `Limits::default()` and no required features. Bake emits one JSON record; view
 commands emit JSON lines, including errors with exit 1. `compare` and `pop` are
 measurement reports; the permanent quality gates are the cargo tests.
@@ -145,9 +150,13 @@ orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
 
-L3a (2026-09-20): use 25 monuments in an avenue, shared-derivative quintic Hermite
+L3a (2026-09-20; supersedes decisions 15–16): use 25 monuments in an avenue, shared-derivative quintic Hermite
 camera segments, a static final hold, and a median-edge-derived 1440p distance
-floor. Keep the existing single/ring/grid/field layouts for measurement. `--path
+floor. Closest framing adds 0.40 world units to that floor to clear the raised
+hand during the orbit; an outward waypoint precedes the descent. `reel` measures
+closest original-triangle distance at 2,401 path samples and rejects a median-edge
+projection above 2.1 px at 1440p. This samples motion; it is not a continuous
+collision proof or a bound on the longest source edge. Keep the existing single/ring/grid/field layouts for measurement. `--path
 hero` and `reel` choose the avenue unless `--layout` is explicit. One 4096² shadow
 map uses 25 weighted PCF taps; its crop follows the hero and retains the scene's
 full light depth, with a soft crop-edge fade. No cascade is needed for this reel.
@@ -301,6 +310,62 @@ comparison. Bake with the release baker, matching the previous bake measurements
     the real scans use image equality and localized coverage.
 
 ## Results
+
+### L3a museum reel (format v4)
+
+Commands: `bun measure.mjs bake`, `bun measure.mjs verify`, `bun measure.mjs oracles`,
+and the `reel` command above. Logs and media are in `<cache>/out/reel/`; command
+runner logs are in `<cache>/out/L3a/`. The previous v3 tables start below.
+
+AO uses 16 rays/vertex, a 250k-triangle target proxy, 3.5%-extent radius and up to
+16 workers. `cargo test -p clod-bake --test ao -- --nocapture` checks 3,362 corner
+vertices / 6,400 proxy triangles: crease 248/255 < convex bump mean 255/255;
+109,776 baked bytes repeat exactly, zero failures. Saved and opened
+`reel/ao-on.png` and `reel/ao-off.png` at hero t=.75: the former reveals the neck,
+fingers and cloth recesses; the latter fills those creases with sky light.
+
+| Asset | Vertices | Source triangles | AO proxy triangles | AO rays | AO seconds, first / repeat | File bytes | Mean AO /255 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Gaul | 1,999,991 | 4,000,020 | 249,998 | 31,999,856 | 12.990291 / 18.732870 | 138,247,344 | 214.679651 |
+| Washington | 9,022,298 | 16,860,930 | 249,990 | 144,356,768 | 12.107022 / 13.116628 | 626,622,224 | 195.170646 |
+
+Both AO minima are 0/255. Washington total process wall time was 55.939556 /
+57.376931 seconds; the first run's load/build/encode/write were 14.503294 /
+24.069113 / 2.563524 / 0.226996 seconds. Peak RSS was 2,782,674,944 bytes.
+Both assets were baked twice, then independently SHA-256 checked from disk:
+
+- `gaul-4.clod` and `gaul-4-repeat.clod`:
+  `8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004`.
+- `washington-4.clod` and `washington-4-repeat.clod`:
+  `431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4`.
+
+Washington has 280,965 clusters / 17,147 groups / 18 pages / 26,998 terminal
+triangles; 17,132 topology transitions checked, six direct rejects and seven total
+stops. AO changes the accepted simplified geometry; the historical F2 counts
+are not reused for v4. Low-level frozen topology fixtures still use neutral AO.
+
+Camera preflight: median source edge **0.00102409895** world units; derived
+minimum distance **0.890061677** at 1440p/45°/2 px. At **2,401** sampled times,
+closest original triangle **0.905398488**, worst t **0.632083356**, projected
+median edge **1.966121435 px**. Neither this statistic nor the bake error claims
+bounds every source triangle; the scan has variable density.
+
+Real-asset GPU oracle commands each test 64 cameras × three layouts. Combined:
+384 exact CPU/GPU image pairs, 384 deterministic repeats, 192 culling-image pairs,
+25,165,824 pixels, zero failures. Real-asset oracles also retain deliberate quota
+overflow tests; these are separate from the zero-overflow reel.
+
+`clod-view compare <washington-4.clod> --path hero --t 0,0.45,0.75,1
+--threshold-px 1 --out <cache>/out/reel/comparison`:
+
+| t | Drawn triangles | Naive visible triangles | Mean absolute RGB /255 | Max byte | Fraction >2/255 |
+|---|---:|---:|---:|---:|---:|
+| 0 | 1,498,330 | 286,635,810 | 0.001223758 | 113 | 0.037222493 |
+| .45 | 617,769 | 50,582,790 | 0.000812995 | 72 | 0.030031738 |
+| .75 | 488,844 | 33,721,860 | 0.000498463 | 65 | 0.014690484 |
+| 1 | 758,433 | 16,860,930 | 0.001762086 | 78 | 0.050848796 |
+
+### Historical F2 results (format v3)
 
 Apple M5 Max / Metal, wgpu 30.0.1. Viewer/test opt-level=2; release baker;
 debug info and incremental compilation disabled. `<out>` means `<cache>/out/F2/`.

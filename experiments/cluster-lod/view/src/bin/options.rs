@@ -164,6 +164,9 @@ impl Options {
         {
             errors.push("reel seconds must be 1..600 and fps 1..120");
         }
+        if result.command == "reel" && (result.seconds * result.fps as f32).round() < 2.0 {
+            errors.push("reel requires at least two frames");
+        }
         if result.command == "reel"
             && (!result.width.is_multiple_of(2) || !result.height.is_multiple_of(2))
         {
