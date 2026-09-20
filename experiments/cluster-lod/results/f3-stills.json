@@ -1,0 +1,16 @@
+[
+  {
+    "t": 0,
+    "pixels": 3686400,
+    "differing_bytes": 0,
+    "before_sha256": "58598d3a1afa4aec3abbf92dcfbafc58599a1a79ddc13b08295d2c530fb9bb10",
+    "after_sha256": "58598d3a1afa4aec3abbf92dcfbafc58599a1a79ddc13b08295d2c530fb9bb10"
+  },
+  {
+    "t": 1,
+    "pixels": 3686400,
+    "differing_bytes": 0,
+    "before_sha256": "b8846006b410763e8fffe782ef16abf0ca7fe04ab5bd228f29c438426eb574ab",
+    "after_sha256": "b8846006b410763e8fffe782ef16abf0ca7fe04ab5bd228f29c438426eb574ab"
+  }
+]

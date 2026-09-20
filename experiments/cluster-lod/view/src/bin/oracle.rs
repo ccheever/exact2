@@ -430,6 +430,9 @@ pub fn run(
             json!({"oracle":"overflow","layout":layout,"capacity_per_instance":1,"dropped":overflow,"drawn":cuts[0].clusters+cuts[1].clusters,"matches_selected_subset_and_pixels":correct})
         );
     }
+    if let Err(e) = grazing(reader, device, queue, size) {
+        failures.push(e);
+    }
     println!(
         "{}",
         json!({"oracle":"gpu_summary","cameras_per_layout":cameras,"checked":checked,"identical_images":identical,"pixels_checked":pixels_checked,"near_boundary_differences":near_total,"culling_image_pairs":cull_images,"deterministic_png_pairs":deterministic,"edge_triangles":edge_triangles,"overflow_dropped":overflow_total,"failures":failures})
@@ -437,6 +440,104 @@ pub fn run(
     if checked == 0 {
         failures.push("no cameras checked".into());
     }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+fn grazing(
+    reader: &Reader<'_>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    size: [u32; 2],
+) -> Result<()> {
+    let scene = Scene::layout(reader, "avenue:25")?;
+    let mut renderer = Renderer::new(
+        device.clone(),
+        queue.clone(),
+        reader,
+        None,
+        &scene,
+        size,
+        Mode::Cluster,
+    )?;
+    renderer.shadows = false;
+    renderer.enable_gpu_selection(
+        reader,
+        Some((128 * 1024 * 1024 / 8 / scene.instances.len()) as u32),
+    )?;
+    let model = scene.instances[0].transform();
+    let scale = scene.instances[0].scale();
+    let eligible: Vec<_> = reader
+        .clusters
+        .iter()
+        .filter(|c| c.cone_cutoff < 1.0 && c.sphere[3] > 0.0)
+        .collect();
+    if eligible.is_empty() {
+        return Err("no tangent-plane camera fixtures".into());
+    }
+    let mut failures = vec![];
+    let mut nonempty = 0;
+    let mut changed = 0usize;
+    let mut overflow = 0;
+    for step in 0..256usize {
+        let c = eligible[step * eligible.len() / 256];
+        let axis = model
+            .transform_vector3(Vec3::from_array(c.cone_axis))
+            .normalize();
+        let tangent = axis
+            .cross(if axis.z.abs() < 0.9 { Vec3::Z } else { Vec3::Y })
+            .normalize();
+        let apex = model.transform_point3(Vec3::from_array(c.cone_apex));
+        let radius = (c.sphere[3] * scale).max(0.01);
+        let eye = apex
+            + tangent * radius * 2.0
+            + axis * radius * if step % 2 == 0 { 0.001 } else { -0.001 };
+        let target = model.transform_point3(Vec3::from_slice(&c.sphere));
+        let camera = Camera::perspective(
+            eye,
+            target,
+            size[0] as f32 / size[1] as f32,
+            65f32.to_radians(),
+            0.002,
+            scene.radius * 12.0 + 10.0,
+        );
+        let mut reference = vec![];
+        for cull in [false, true] {
+            let frame = renderer.render_gpu(&scene, &camera, View::Coverage, 1.0, cull, false)?;
+            let (pixels, _) = readback::read(&renderer, &frame)?;
+            let cuts = selection_readback::selections(
+                &renderer,
+                reader.pages.len(),
+                reader.header.config.max_triangles,
+                false,
+            )?;
+            overflow += cuts[0].overflow;
+            if !cull {
+                nonempty += usize::from(pixels.chunks_exact(4).any(|p| p[1] > 0));
+                reference = pixels;
+            } else {
+                let count = pixels
+                    .chunks_exact(4)
+                    .zip(reference.chunks_exact(4))
+                    .filter(|(a, b)| a != b)
+                    .count();
+                changed += count;
+                if count > 0 {
+                    failures.push(format!("grazing camera {step}: {count} pixels"));
+                }
+            }
+        }
+    }
+    if nonempty < 128 || overflow > 0 {
+        failures.push(format!("grazing nonempty={nonempty} overflow={overflow}"));
+    }
+    println!(
+        "{}",
+        json!({"oracle":"grazing_cones","cameras":256,"nonempty":nonempty,"changed_pixels":changed,"overflow":overflow,"failures":failures})
+    );
     if failures.is_empty() {
         Ok(())
     } else {

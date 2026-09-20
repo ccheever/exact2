@@ -8,6 +8,8 @@ use std::path::PathBuf;
 pub struct Options {
     pub command: String,
     pub exit: bool,
+    pub stats: bool,
+    pub intervals_only: bool,
     pub file: PathBuf,
     pub out: PathBuf,
     pub width: u32,
@@ -71,6 +73,8 @@ impl Options {
                 out
             },
             exit: false,
+            stats: false,
+            intervals_only: false,
             command,
             file,
             width: 2560,
@@ -90,6 +94,14 @@ impl Options {
         while let Some(arg) = args.next() {
             if arg == "--exit" {
                 result.exit = true;
+                continue;
+            }
+            if arg == "--stats" {
+                result.stats = true;
+                continue;
+            }
+            if arg == "--intervals-only" {
+                result.intervals_only = true;
                 continue;
             }
             let value = args
@@ -183,6 +195,11 @@ impl Options {
         {
             errors.push("reel dimensions must be even for yuv420p");
         }
+        if result.command == "reel" && (result.eye.is_some() || result.target.is_some()) {
+            errors.push(
+                "reel does not accept eye/target overrides: clearance certifies the authored path",
+            );
+        }
         if result.steps < 2 || result.steps > 10000 {
             errors.push("steps must be 2..10000");
         }
@@ -206,6 +223,9 @@ impl Options {
             return Err(errors.join("; "));
         }
         Ok(result)
+    }
+    pub fn timing(&self) -> bool {
+        (self.exit || self.stats) && !self.intervals_only
     }
     pub fn camera(&self, scene: &Scene, t: f32) -> Camera {
         if let (Some(eye), Some(target)) = (self.eye, self.target) {

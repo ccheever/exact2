@@ -30,7 +30,7 @@ fn resident_cuts_preserve_chains_and_scan_coverage() {
     };
     cpu_chains(&bake.bytes);
     let cache = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Library/Caches/exact2-cluster-lod/out/gaul-4.clod");
+        .join("Library/Caches/exact2-cluster-lod/out/gaul-5.clod");
     let mut failures = Vec::new();
     let mut total_frames = 0;
     for (name, bytes) in [

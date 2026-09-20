@@ -9,9 +9,17 @@ unsafe extern "C" {
         index_count: usize,
         output: *mut u8,
         proxy_count: *mut u32,
+        workers: u32,
     ) -> bool;
 }
 pub fn bake(mesh: &Mesh) -> Result<(Vec<u8>, u32)> {
+    bake_with_workers(mesh, 0)
+}
+/// Explicit worker count for deterministic bake validation; zero uses up to 16 host workers.
+pub fn bake_with_workers(mesh: &Mesh, workers: u32) -> Result<(Vec<u8>, u32)> {
+    if workers > 16 {
+        return Err("AO workers must be 0..16".into());
+    }
     mesh.validate()?;
     if mesh.normals.len() != mesh.positions.len() {
         return Err("AO needs normalized vertex normals".into());
@@ -28,6 +36,7 @@ pub fn bake(mesh: &Mesh) -> Result<(Vec<u8>, u32)> {
             mesh.indices.len(),
             output.as_mut_ptr(),
             &mut proxy_count,
+            workers,
         )
     };
     if !ok {

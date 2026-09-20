@@ -104,12 +104,11 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
         source_sha256,
         source_vertices: mesh.positions.len() as u32,
         source_triangles: (mesh.indices.len() / 3) as u32,
-        flags: u32::from(
-            pages
-                .iter()
-                .flat_map(|p| &p.vertices)
-                .any(|v| v.color & 0x00ff_ffff != 0x00ff_ffff),
-        ),
+        flags: pages.iter().flat_map(|p| &p.vertices).fold(0, |flags, v| {
+            flags
+                | (u32::from(v.color & 0x00ff_ffff != 0x00ff_ffff) * clod_format::HAS_COLOR)
+                | (u32::from(v.color >> 24 != 255) * clod_format::HAS_AO)
+        }),
         root_count: groups.iter().map(|g| g.depth).max().unwrap_or(0) + 1,
         config,
         ..Header::zeroed()

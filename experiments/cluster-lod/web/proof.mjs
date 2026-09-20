@@ -75,7 +75,7 @@ try {
           const png=await cdp.evaluate(`clod.frame(${t},${JSON.stringify(view)})`);
           const web=join(cache,`${name}-web.png`),native=join(cache,`${name}-native.png`);
           await Bun.write(web,Buffer.from(png.split(',')[1],'base64'));
-          await run([join(root,'target/debug/clod-view'),'render',join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/gaul-4.clod'),'--out',native,'--size','1280x720','--path','hero','--layout','avenue:25','--t',String(t),'--threshold-px','1','--view',view]);
+          await run([join(root,'target/debug/clod-view'),'render',join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/gaul-5.clod'),'--out',native,'--size','1280x720','--path','hero','--layout','avenue:25','--t',String(t),'--threshold-px','1','--view',view]);
           const compare=Bun.spawn([join(root,'target/debug/examples/web_compare'),web,native],{stdout:'pipe',stderr:'inherit'});
           console.log(JSON.stringify({compare_pid:compare.pid}));
           const comparison=JSON.parse(await new Response(compare.stdout).text());

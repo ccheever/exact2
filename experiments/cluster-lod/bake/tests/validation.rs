@@ -121,6 +121,13 @@ fn malformed_files_are_errors_not_panics() {
     corrupt("culling_sphere_excludes_vertices", &|b| {
         patch::<Cluster>(b, h.clusters_offset as usize, |c| c.sphere[3] = 0.0);
     });
+    corrupt("ao_without_flag", &|b| {
+        patch::<clod_format::Vertex>(b, p.offset as usize, |v| v.color = 0x7fff_ffff);
+        rehash(b, h.pages_offset as usize);
+    });
+    corrupt("flag_without_ao", &|b| {
+        patch::<Header>(b, 0, |h| h.flags = 2);
+    });
     corrupt("color_without_flag", &|b| {
         patch::<clod_format::Vertex>(b, p.offset as usize, |v| v.color = 0);
         rehash(b, h.pages_offset as usize);

@@ -18,8 +18,8 @@ pub fn run(
             let result = (|| -> Result<()> {
                 let mut samples = [Vec::new(), Vec::new()];
                 let mut pixels = [Vec::new(), Vec::new()];
-                for (index, renderer) in [&mut *cluster, &mut *naive].into_iter().enumerate() {
-                    for frame in 0..=o.frames {
+                for frame in 0..=o.frames {
+                    for (index, renderer) in [&mut *cluster, &mut *naive].into_iter().enumerate() {
                         let s = sample(renderer, reader, scene, o, t, threshold)?;
                         if s.report["overflow"] != 0 || s.report["shadow_overflow"] != 0 {
                             return Err(format!("overflow in mode {index}"));
@@ -63,7 +63,7 @@ pub fn run(
                 let baseline = median(1, "gpu_main_ms")?;
                 println!(
                     "{}",
-                    json!({"command":"bench","asset":o.file.file_stem().map(|s|s.to_string_lossy()),"layout":o.layout,"size":[o.width,o.height],"t":t,"threshold_px":threshold,"measured_frames":o.frames,"warmup_frames":1,"source_triangles":reader.header.source_triangles,"instances":scene.instances.len(),"source_triangles_times_instances":reader.header.source_triangles as u64*scene.instances.len() as u64,"triangles_drawn":samples[0][0]["triangles_drawn"],"naive_triangles_drawn":samples[1][0]["triangles_drawn"],"gpu_main_ms":main,"gpu_shadow_ms":median(0,"gpu_shadow_ms")?,"gpu_select_ms":median(0,"gpu_select_ms")?,"gpu_select_main_ms":median(0,"gpu_select_main_ms")?,"gpu_select_shadow_ms":median(0,"gpu_select_shadow_ms")?,"gpu_ms":median(0,"gpu_ms")?,"cpu_ms":median(0,"cpu_ms")?,"naive_gpu_main_ms":baseline,"ratio":baseline/main,"bytes_resident_cluster":samples[0][0]["bytes_resident_gpu"],"bytes_resident_naive":samples[1][0]["bytes_resident_gpu"],"image_mean":error.mean,"image_p999":p999 as f64/255.0,"coverage_interior_pixels":interior,"coverage_cracks":cracks,"overflow":0})
+                    json!({"command":"bench","asset":o.file.file_stem().map(|s|s.to_string_lossy()),"layout":o.layout,"size":[o.width,o.height],"t":t,"threshold_px":threshold,"measured_frames":o.frames,"warmup_frames":1,"source_triangles":reader.header.source_triangles,"instances":scene.instances.len(),"source_triangles_times_instances":reader.header.source_triangles as u64*scene.instances.len() as u64,"triangles_drawn":samples[0][0]["triangles_drawn"],"naive_triangles_drawn":samples[1][0]["triangles_drawn"],"gpu_main_ms":main,"gpu_shadow_ms":median(0,"gpu_shadow_ms")?,"gpu_select_ms":median(0,"gpu_select_ms")?,"gpu_select_main_ms":median(0,"gpu_select_main_ms")?,"gpu_select_shadow_ms":median(0,"gpu_select_shadow_ms")?,"gpu_ms":median(0,"gpu_ms")?,"cpu_ms":median(0,"cpu_ms")?,"naive_gpu_main_ms":baseline,"naive_gpu_ms":median(1,"gpu_ms")?,"naive_gpu_shadow_ms":median(1,"gpu_shadow_ms")?,"naive_gpu_select_ms":median(1,"gpu_select_ms")?,"measurement_order":"ABAB","main_ratio":baseline/main,"ratio":median(1,"gpu_ms")?/median(0,"gpu_ms")?,"bytes_resident_cluster":samples[0][0]["bytes_resident_gpu"],"bytes_resident_naive":samples[1][0]["bytes_resident_gpu"],"image_mean":error.mean,"image_p999":p999 as f64/255.0,"coverage_interior_pixels":interior,"coverage_cracks":cracks,"overflow":0})
                 );
                 rows += 1;
                 Ok(())

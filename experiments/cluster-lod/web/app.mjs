@@ -94,7 +94,7 @@ try {
   const url=`/asset.clod?asset=${asset}`;
   const header=await fetch_range(url,0,191);
   const hv=new DataView(header.buffer,header.byteOffset,header.byteLength);
-  if(new TextDecoder().decode(header.subarray(0,8))!=='CLOD0004') throw new Error('Unsupported CLOD format');
+  if(new TextDecoder().decode(header.subarray(0,8))!=='CLOD0005') throw new Error('Unsupported CLOD format');
   const geometry=Number(hv.getBigUint64(168,true));
   const tables=await fetch_range(url,0,geometry-1);
   const tv=new DataView(tables.buffer,tables.byteOffset,tables.byteLength);

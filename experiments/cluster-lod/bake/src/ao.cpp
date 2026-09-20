@@ -57,7 +57,7 @@ struct Bvh {
     }
 };
 }
-extern "C" bool exact_clod_ao(const float* positions,const float* normals,size_t vertex_count,const uint32_t* indices,size_t index_count,uint8_t* output,uint32_t* proxy_count) {
+extern "C" bool exact_clod_ao(const float* positions,const float* normals,size_t vertex_count,const uint32_t* indices,size_t index_count,uint8_t* output,uint32_t* proxy_count,unsigned worker_count) {
     try {
         std::vector<uint32_t> proxy(index_count);
         size_t count=index_count;
@@ -73,7 +73,7 @@ extern "C" bool exact_clod_ao(const float* positions,const float* normals,size_t
         const float bias=extent*std::max(0.00008f,error*1.2f), radius=extent*0.035f;
         std::array<V,16> samples;
         for(unsigned i=0;i<samples.size();i++) { float r=std::sqrt((i+0.5f)/samples.size()),phi=i*2.39996323f; samples[i]={r*std::cos(phi),r*std::sin(phi),std::sqrt(1-r*r)}; }
-        unsigned workers=std::max(1u,std::min(16u,std::thread::hardware_concurrency()));
+        unsigned workers=worker_count ? worker_count : std::max(1u,std::min(16u,std::thread::hardware_concurrency()));
         std::vector<std::thread> threads;
         for(unsigned worker=0;worker<workers;worker++) threads.emplace_back([&,worker] {
             for(size_t i=vertex_count*worker/workers;i<vertex_count*(worker+1)/workers;i++) {

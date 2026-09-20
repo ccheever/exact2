@@ -7,10 +7,12 @@ use bytemuck::{Pod, Zeroable};
 pub use reader::{Error, Reader};
 pub use writer::{PageData, encode};
 
-pub const MAGIC: [u8; 8] = *b"CLOD0004";
-pub const VERSION: u32 = 4;
+pub const MAGIC: [u8; 8] = *b"CLOD0005";
+pub const VERSION: u32 = 5;
 pub const ORIGINAL: u32 = u32::MAX;
 pub const HAS_COLOR: u32 = 1;
+/// Canonical nonneutral occlusion channel; unflagged vertices must contain AO 255.
+pub const HAS_AO: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable, PartialEq)]

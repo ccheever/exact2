@@ -50,7 +50,7 @@ fn real_scan_localized_coverage() {
     let mut assets = 0;
     let size = 512;
     for asset in ["gaul", "washington"] {
-        let path = out.join(format!("{asset}-4.clod"));
+        let path = out.join(format!("{asset}-5.clod"));
         if !path.exists() {
             eprintln!("SKIP coverage {asset}: asset absent; cameras=0");
             continue;

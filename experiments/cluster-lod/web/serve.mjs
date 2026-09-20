@@ -9,7 +9,7 @@ async function prepare(asset, naive = false) {
     const out = join(cache, asset);
     await mkdir(out, { recursive: true });
     // Recompute camera companions per server run: shared scene code may have changed.
-    await run([join(root, 'target/debug/examples/web_prepare'), join(assets, `${asset}-4.clod`), out, ...(naive ? ['--naive'] : [])]);
+    await run([join(root, 'target/debug/examples/web_prepare'), join(assets, `${asset}-5.clod`), out, ...(naive ? ['--naive'] : [])]);
   })());
   return prepared.get(key);
 }
@@ -21,7 +21,7 @@ export async function startServer(port = 8765) {
       const asset = url.searchParams.get('asset') === 'washington' ? 'washington' : 'gaul';
       let path;
       let mime;
-      if (url.pathname === '/asset.clod') { path = join(assets, `${asset}-4.clod`); mime = 'application/octet-stream'; }
+      if (url.pathname === '/asset.clod') { path = join(assets, `${asset}-5.clod`); mime = 'application/octet-stream'; }
       else if (url.pathname === '/scenes.json') { await prepare(asset); path = join(cache,asset,'scenes.json'); mime = 'application/json'; }
       else if (url.pathname === '/naive.bin') {
         if (asset !== 'gaul') return new Response('Naive mode is available for Gaul only (tab memory budget).', {status: 413});

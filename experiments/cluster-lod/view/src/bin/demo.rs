@@ -1,5 +1,7 @@
 //! Native window and input only. The renderer remains usable from wasm with caller-owned devices.
 use super::{Options, Result, prepare, readback};
+#[path = "telemetry.rs"]
+mod telemetry;
 use clod_format::Reader;
 use clod_view::{
     Mode, Renderer, View,
@@ -9,6 +11,7 @@ use clod_view::{
 use glam::{Quat, Vec3};
 use serde_json::json;
 use std::{sync::Arc, time::Instant};
+use telemetry::{Counters, retain};
 use winit::{
     application::ApplicationHandler,
     event::{ElementState, MouseButton, WindowEvent},
@@ -70,6 +73,8 @@ struct State {
     last_title: Instant,
     reported: bool,
     timeouts: u32,
+    counters: Counters,
+    hud_counters: Counters,
 }
 impl App {
     fn initialize(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
@@ -97,9 +102,10 @@ impl App {
             ..Default::default()
         }))
         .map_err(|e| e.to_string())?;
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&clod_view::device_descriptor(true)))
-                .map_err(|e| e.to_string())?;
+        let (device, queue) = pollster::block_on(
+            adapter.request_device(&clod_view::device_descriptor(self.options.timing())),
+        )
+        .map_err(|e| e.to_string())?;
         let size = window.inner_size();
         self.options.width = size.width;
         self.options.height = size.height;
@@ -153,7 +159,11 @@ impl App {
             json!({"command":"demo_start","adapter":adapter.get_info().name,"refresh_hz":refresh_hz,"present_mode":"Fifo","size":[size.width,size.height],"layout":self.options.layout,"mode":format!("{:?}",self.options.mode),"path_sampling":if self.options.exit {"uniform full path by frame"} else {"wall clock ping-pong"},"warmup_frames":10})
         );
         let blit = wgpu::util::TextureBlitter::new(&device, config.format);
+        let counters = Counters::new(&device, self.options.frames);
+        let hud_counters = Counters::new(&device, 1);
         self.state = Some(State {
+            counters,
+            hud_counters,
             window,
             surface,
             config,
@@ -203,9 +213,9 @@ impl App {
             }
         }
         let t = s.t;
-        let mut scene = self.scene.clone();
+        let scene = &mut self.scene;
         scene.fit_shadow(t);
-        let mut camera = self.options.camera(&scene, t);
+        let mut camera = self.options.camera(scene, t);
         if s.paused && s.orbit != [0.0; 2] {
             let forward = camera
                 .matrix
@@ -249,7 +259,7 @@ impl App {
             &mut s.naive
         };
         let frame = renderer.render_present(
-            &scene,
+            scene,
             &camera,
             self.options.view,
             self.options.thresholds[0],
@@ -261,37 +271,76 @@ impl App {
             &renderer.color_view(),
             &output.texture.create_view(&Default::default()),
         );
+        if self.options.exit && s.warmup == 0 {
+            s.counters.encode(renderer, &mut encoder, s.frames);
+        }
+        s.hud_counters.collect(&renderer.device, false, 1)?;
+        let hud_copy = !s.hud_counters.pending();
+        if hud_copy {
+            s.hud_counters.encode(renderer, &mut encoder, 0);
+        }
         renderer.queue.submit([encoder.finish()]);
+        if hud_copy {
+            s.hud_counters.map();
+        }
         let cpu = start.elapsed().as_secs_f64() * 1000.0;
         s.window.pre_present_notify();
         renderer.queue.present(output);
         let presented = Instant::now();
-        // Counter resolve must follow completed Metal fragment samples; no image copy or PNG occurs.
-        renderer
-            .device
-            .poll(wgpu::PollType::wait_indefinitely())
-            .map_err(|e| e.to_string())?;
-        let times = readback::timestamps(renderer, &frame)?.ok_or("no GPU timestamps")?;
+        let times = if self.options.timing() {
+            // Instrumented mode resolves only after Metal fragment samples complete.
+            renderer
+                .device
+                .poll(wgpu::PollType::wait_indefinitely())
+                .map_err(|e| e.to_string())?;
+            readback::timestamps(renderer, &frame)?
+                .ok_or("no GPU timestamps")
+                .map(Some)?
+        } else {
+            None
+        };
         if s.warmup > 0 {
             s.warmup -= 1;
             s.last_present = Some(presented);
         } else {
             if let Some(last) = s.last_present {
-                s.intervals
-                    .push(presented.duration_since(last).as_secs_f64() * 1000.0);
+                retain(
+                    &mut s.intervals,
+                    presented.duration_since(last).as_secs_f64() * 1000.0,
+                );
             }
             s.last_present = Some(presented);
-            s.gpu.push(times);
-            s.cpu.push(cpu);
+            if let Some(times) = times {
+                retain(&mut s.gpu, times);
+            }
+            retain(&mut s.cpu, cpu);
             s.frames += 1;
         }
         if s.last_title.elapsed().as_secs_f32() > 0.25 {
-            s.window.set_title(&format!("Cluster LOD | {:?} {:?} | {} | t {:.3} | {:.2} px | GPU {:.2} ms (select {:.2}) | CPU {:.2} ms | {:.0} Hz{}",self.options.mode,self.options.view,self.options.layout,t,self.options.thresholds[0],times.iter().sum::<f64>(),times[2]+times[3],cpu,s.refresh_hz,if s.paused {" | PAUSED"}else{""}));
+            let timing = times
+                .map(|t| {
+                    format!(
+                        "GPU {:.2} ms (select {:.2})",
+                        t.iter().sum::<f64>(),
+                        t[2] + t[3]
+                    )
+                })
+                .unwrap_or_else(|| "GPU timing off".into());
+            s.window.set_title(&format!("Cluster LOD | {:?} {:?} | {} | t {:.3} | {:.2} px | {} | CPU {:.2} ms | overflow main/shadow {}/{} | {:.0} Hz{}",self.options.mode,self.options.view,self.options.layout,t,self.options.thresholds[0],timing,cpu,s.hud_counters.latest[0],s.hud_counters.latest[1],s.refresh_hz,if s.paused {" | PAUSED"}else{""}));
             s.last_title = Instant::now();
         }
         if self.options.exit && s.frames >= self.options.frames {
+            s.counters.map();
+            s.counters.collect(&renderer.device, true, s.frames)?;
+            let overflow = s.counters.totals;
             self.report();
             event_loop.exit();
+            if overflow != [0; 2] {
+                return Err(format!(
+                    "demo dropped geometry: main={} shadow={}",
+                    overflow[0], overflow[1]
+                ));
+            }
         } else {
             s.window.request_redraw();
         }
@@ -314,7 +363,7 @@ impl App {
             let select: Vec<_> = s.gpu.iter().map(|t| t[2] + t[3]).collect();
             println!(
                 "{}",
-                json!({"command":"demo","asset":self.options.file.file_stem().map(|s|s.to_string_lossy()),"mode":format!("{:?}",self.options.mode).to_lowercase(),"layout":self.options.layout,"size":[self.options.width,self.options.height],"frames":s.frames,"intervals":s.intervals.len(),"refresh_hz":s.refresh_hz,"refresh_period_ms":period,"frame_interval_ms":distribution(&s.intervals),"dropped_frames":dropped,"late_intervals":late,"surface_timeouts":s.timeouts,"gpu_ms":distribution(&gpu),"gpu_select_ms":distribution(&select),"cpu_ms":distribution(&s.cpu),"pixel_readbacks":0,"png_encodes":0})
+                json!({"command":"demo","instrumented":self.options.timing(),"overflow":s.counters.totals[0],"shadow_overflow":s.counters.totals[1],"overflow_frames_checked":s.counters.samples,"retained_sample_limit":1000,"asset":self.options.file.file_stem().map(|s|s.to_string_lossy()),"mode":format!("{:?}",self.options.mode).to_lowercase(),"layout":self.options.layout,"size":[self.options.width,self.options.height],"frames":s.frames,"intervals":s.intervals.len(),"refresh_hz":s.refresh_hz,"refresh_period_ms":period,"frame_interval_ms":distribution(&s.intervals),"dropped_frames":dropped,"late_intervals":late,"surface_timeouts":s.timeouts,"gpu_ms":distribution(&gpu),"gpu_select_ms":distribution(&select),"cpu_ms":distribution(&s.cpu),"pixel_readbacks":0,"png_encodes":0})
             );
         }
     }

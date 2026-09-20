@@ -38,7 +38,7 @@ fn selection_oracles() {
 fn scan_shadow_culling_preserves_depth() {
     use clod_view::{Mode, Renderer, View, scene::Scene, select};
     let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Library/Caches/exact2-cluster-lod/out/washington-4.clod");
+        .join("Library/Caches/exact2-cluster-lod/out/washington-5.clod");
     if !path.exists() {
         eprintln!("SKIP scan shadow culling: asset absent; comparisons=0");
         return;

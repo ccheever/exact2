@@ -269,12 +269,12 @@ impl Renderer {
                 &shadow_instances,
             );
         }
-        let color_view = self.color.create_view(&Default::default());
+        let color_view = &self.color_view;
         {
             let attachments = [Some(wgpu::RenderPassColorAttachment {
                 view: &self.msaa,
                 depth_slice: None,
-                resolve_target: Some(&color_view),
+                resolve_target: Some(color_view),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(if view == View::Coverage {
                         wgpu::Color {
@@ -351,16 +351,20 @@ impl Renderer {
             );
         }
         let row_bytes = (self.width * 4).div_ceil(256) * 256;
-        let pixels = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("frame readback"),
-            size: if read_pixels {
-                row_bytes as u64 * self.height as u64
-            } else {
-                4
-            },
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let pixels = if !read_pixels {
+            self.present_pixels.clone()
+        } else {
+            self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("frame readback"),
+                size: if read_pixels {
+                    row_bytes as u64 * self.height as u64
+                } else {
+                    4
+                },
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
         if read_pixels {
             encoder.copy_texture_to_buffer(
                 wgpu::TexelCopyTextureInfo {
@@ -384,7 +388,9 @@ impl Renderer {
                 },
             );
         }
-        let timestamps = if self.query.is_some() {
+        let timestamps = if !read_pixels {
+            self.present_timestamps.clone()
+        } else if self.query.is_some() {
             let read = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamps"),
                 size: 64,

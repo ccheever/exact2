@@ -55,21 +55,71 @@ pub(crate) struct Compute {
     readiness: wgpu::Buffer,
     partial: bool,
 }
+fn allocation_limits(
+    limits: &wgpu::Limits,
+    instances: u32,
+    clusters: usize,
+    pages: usize,
+    groups: usize,
+    capacity: Option<u32>,
+) -> Result<u32> {
+    if instances as u64 * clusters as u64 > u32::MAX as u64 {
+        return Err("scene exceeds the u32 candidate counter limit".into());
+    }
+    let quota = capacity
+        .unwrap_or(4_194_304 / instances)
+        .min(clusters as u32)
+        .max(1);
+    let slots = instances as u64 * quota as u64;
+    if slots * 8 > 128 * 1024 * 1024 {
+        return Err("visible capacity exceeds 128 MiB core binding".into());
+    }
+    let mut errors = Vec::new();
+    let sizes = [
+        ("clusters", clusters as u64 * 128),
+        ("instances", instances as u64 * 64),
+        ("envelopes", clusters as u64 * 8),
+        ("readiness", groups as u64 * 4),
+        ("scratch", slots * 4),
+        ("visible", slots * 8),
+        ("draws", (pages as u64 * 8 + 4) * 4),
+        (
+            "counts",
+            (instances as u64 * pages as u64 * 3 + instances as u64 * 4) * 4,
+        ),
+    ];
+    for (name, bytes) in sizes {
+        if bytes > limits.max_storage_buffer_binding_size || bytes > limits.max_buffer_size {
+            errors.push(format!(
+                "{name}: {bytes} bytes exceeds device buffer/binding limit"
+            ));
+        }
+    }
+    for (name, count) in [("instances", instances as u64), ("pages", pages as u64)] {
+        if count > u64::from(limits.max_compute_workgroups_per_dimension) {
+            errors.push(format!(
+                "{name}: {count} workgroups exceeds device dispatch limit"
+            ));
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors.join("; "));
+    }
+    Ok(quota)
+}
 impl Compute {
     pub fn new(renderer: &Renderer, reader: &Reader<'_>, capacity: Option<u32>) -> Result<Self> {
         let device = &renderer.device;
         let instances = renderer.instance_count;
-        if instances as u64 * reader.clusters.len() as u64 > u32::MAX as u64 {
-            return Err("scene exceeds the u32 candidate counter limit".into());
-        }
-        let quota = capacity
-            .unwrap_or(4_194_304 / instances)
-            .min(reader.clusters.len() as u32)
-            .max(1);
+        let quota = allocation_limits(
+            &device.limits(),
+            instances,
+            reader.clusters.len(),
+            reader.pages.len(),
+            reader.groups.len(),
+            capacity,
+        )?;
         let slots = instances as u64 * quota as u64;
-        if slots * 8 > 128 * 1024 * 1024 {
-            return Err("visible capacity exceeds 128 MiB core binding".into());
-        }
         let index = CandidateIndex::new(reader);
         let envelope = buffer(
             device,
@@ -317,6 +367,27 @@ impl Renderer {
     pub fn gpu_capacity_per_instance(&self) -> Option<u32> {
         self.compute.as_ref().map(|c| c.quota)
     }
+    /// Copy the two 16-byte counter records into host-owned staging, without mapping.
+    pub fn copy_selection_totals(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        destination: &wgpu::Buffer,
+        offset: u64,
+    ) {
+        if let Some(compute) = &self.compute {
+            for (i, pass) in compute.passes.iter().enumerate() {
+                encoder.copy_buffer_to_buffer(
+                    &pass.draws,
+                    compute.page_count as u64 * 32,
+                    destination,
+                    offset + i as u64 * 16,
+                    16,
+                );
+            }
+        } else {
+            encoder.clear_buffer(destination, offset, Some(32));
+        }
+    }
     /// Test/CLI-only copy, invoked after rendering. No frame depends on its contents.
     pub fn selection_readback(&self, lists: bool) -> Result<[wgpu::Buffer; 2]> {
         let compute = self.compute.as_ref().ok_or("GPU selection not enabled")?;
@@ -373,5 +444,31 @@ impl Renderer {
         );
         self.queue.submit([encoder.finish()]);
         read
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn reject_page_dependent_limits() {
+        let limits = wgpu::Limits::default();
+        let mut failures = vec![];
+        for (instances, clusters, pages, expected) in [
+            (10_000, 20_000, 2_000, true),
+            (1, 65_536, 65_536, true),
+            (25, 100_000, 20, false),
+        ] {
+            let result =
+                super::allocation_limits(&limits, instances, clusters, pages, clusters, None);
+            println!(
+                "allocation instances={instances} clusters={clusters} pages={pages} count_bytes={} result={result:?}",
+                (instances as u64 * pages as u64 * 3 + instances as u64 * 4) * 4
+            );
+            if result.is_err() != expected {
+                failures.push((instances, pages));
+            }
+        }
+        println!("allocation_cases=3 failures={failures:?}");
+        assert!(failures.is_empty(), "{failures:?}");
     }
 }

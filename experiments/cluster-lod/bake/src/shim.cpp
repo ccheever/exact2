@@ -27,6 +27,14 @@ struct Group {
     clodBounds simplified;
     uint32_t depth, first_cluster, cluster_count;
 };
+template<class G> constexpr size_t hierarchyLevels(const G* groups, size_t count) {
+    size_t levels=0;
+    for(size_t i=0;i<count;i++) levels=std::max(levels,size_t(groups[i].depth)+1);
+    return levels;
+}
+struct DepthFixture { uint32_t depth; };
+constexpr DepthFixture stoppedDepths[] = {{0},{4},{1}};
+static_assert(hierarchyLevels(stoppedDepths,3)==5, "topology can leave depths out of order");
 static_assert(sizeof(Cluster) == 128, "cluster ABI");
 static_assert(sizeof(Group) == 32, "group ABI");
 static_assert(sizeof(clodNode) == 32, "node ABI");
@@ -99,7 +107,7 @@ extern "C" bool exact_clod_build(const float* positions, size_t vertex_count, co
         preserveTopology(*output);
         output->mesh = {}; // All input pointers were borrowed only for synchronous construction.
         if (output->groups.empty()) return false;
-        size_t levels = output->groups.back().depth + 1;
+        size_t levels = hierarchyLevels(output->groups.data(), output->groups.size());
         output->nodes.resize(narrow(clodBuildHierarchyBound(output->groups.size(), 8, levels)));
         output->nodes.resize(clodBuildHierarchy(output->nodes.data(), output->vendor_groups.data(), output->groups.size(), 8, levels));
         *view = {output->clusters.data(), output->clusters.size(), output->groups.data(), output->groups.size(), output->nodes.data(), output->nodes.size(), output->vertices.data(), output->vertices.size(), output->indices.data(), output->indices.size(), output->transitions_checked, output->transitions_rejected, output->transitions_stopped, output.get()};

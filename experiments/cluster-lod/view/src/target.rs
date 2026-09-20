@@ -5,7 +5,7 @@ use crate::{
 };
 impl Renderer {
     pub fn color_view(&self) -> wgpu::TextureView {
-        self.color.create_view(&Default::default())
+        self.color_view.clone()
     }
     pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
@@ -24,6 +24,7 @@ impl Renderer {
                 | wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::TEXTURE_BINDING,
         );
+        self.color_view = self.color.create_view(&Default::default());
         self.msaa = texture(
             &self.device,
             width,

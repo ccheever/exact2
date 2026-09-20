@@ -111,7 +111,7 @@ impl<'a> Reader<'a> {
             "empty mesh",
         )?;
         require(
-            h.flags & !HAS_COLOR == 0 && h.reserved == [0; 2],
+            h.flags & !(HAS_COLOR | HAS_AO) == 0 && h.reserved == [0; 2],
             "unknown flags or reserved words",
         )?;
         let cfg = &h.config;
@@ -177,7 +177,7 @@ impl<'a> Reader<'a> {
     }
     fn validate(&self, mut next: usize, metadata: bool) -> Result<(), Error> {
         let mut cluster_cursor = 0usize;
-        let mut has_color = false;
+        let mut flags = 0;
         for (pi, p) in self.pages.iter().enumerate() {
             require(
                 p.offset == next as u64
@@ -245,7 +245,7 @@ impl<'a> Reader<'a> {
                 "unclaimed geometry",
             )?;
             if !metadata {
-                has_color |= self.validate_page(pi, &self.bytes[p.offset as usize..next])?;
+                flags |= self.validate_page(pi, &self.bytes[p.offset as usize..next])?;
             }
             cluster_cursor = end;
         }
@@ -254,8 +254,8 @@ impl<'a> Reader<'a> {
             "unclaimed bytes or clusters",
         )?;
         require(
-            metadata || has_color == (self.header.flags & HAS_COLOR != 0),
-            "color flag disagrees with vertex data",
+            metadata || flags == self.header.flags,
+            "color/AO flags disagree with vertex data",
         )?;
         let mut group_use = vec![false; self.clusters.len()];
         let mut referenced = vec![false; self.groups.len()];
@@ -344,8 +344,8 @@ impl<'a> Reader<'a> {
         )?;
         self.validate_nodes()
     }
-    /// Validate a separately downloaded page before it becomes resident. Returns its colour flag.
-    pub fn validate_page(&self, pi: usize, data: &[u8]) -> Result<bool, Error> {
+    /// Validate a separately downloaded page before it becomes resident. Returns its colour/AO flags.
+    pub fn validate_page(&self, pi: usize, data: &[u8]) -> Result<u32, Error> {
         let p = self
             .pages
             .get(pi)
@@ -423,7 +423,13 @@ impl<'a> Reader<'a> {
             vc == vertices.len() && tc == indices.len(),
             "unclaimed page geometry",
         )?;
-        Ok(has_color)
+        let has_ao = vertices.iter().any(|v| v.color >> 24 != 255);
+        let flags = (u32::from(has_color) * HAS_COLOR) | (u32::from(has_ao) * HAS_AO);
+        require(
+            flags & !self.header.flags == 0,
+            "unflagged color/AO channel",
+        )?;
+        Ok(flags)
     }
     fn validate_nodes(&self) -> Result<(), Error> {
         if self.nodes.is_empty() {

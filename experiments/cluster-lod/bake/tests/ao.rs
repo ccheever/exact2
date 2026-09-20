@@ -3,35 +3,7 @@ use clod_format::Config;
 #[test]
 fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
     let mut failures = Vec::new();
-    let mut mesh = Mesh::default();
-    // A tessellated inside corner: a floor at z=0 and wall at x=0.
-    for wall in [false, true] {
-        let base = mesh.positions.len() as u32;
-        for j in 0..=40 {
-            for i in 0..=40 {
-                let u = i as f32 / 40.0;
-                let v = j as f32 / 40.0;
-                mesh.positions
-                    .push(if wall { [0.0, v, u] } else { [u, v, 0.0] });
-                mesh.normals.push(if wall {
-                    [1.0, 0.0, 0.0]
-                } else {
-                    [0.0, 0.0, 1.0]
-                });
-            }
-        }
-        for j in 0..40 {
-            for i in 0..40 {
-                let a = base + j * 41 + i;
-                let triangles = if wall {
-                    [a, a + 41, a + 1, a + 1, a + 41, a + 42]
-                } else {
-                    [a, a + 1, a + 41, a + 1, a + 42, a + 41]
-                };
-                mesh.indices.extend_from_slice(&triangles);
-            }
-        }
-    }
+    let mut mesh = corner(40);
     let mut small = mesh.clone();
     for p in &mut small.positions {
         *p = p.map(|x| x * 1e-9);
@@ -74,5 +46,94 @@ fn crease_is_darker_than_convex_bump_and_bytes_repeat() {
         convex_mean,
         a.bytes.len()
     );
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+fn corner(resolution: u32) -> Mesh {
+    let mut mesh = Mesh::default();
+    // A tessellated inside corner: a floor at z=0 and wall at x=0.
+    for wall in [false, true] {
+        let base = mesh.positions.len() as u32;
+        for j in 0..=resolution {
+            for i in 0..=resolution {
+                let u = i as f32 / resolution as f32;
+                let v = j as f32 / resolution as f32;
+                mesh.positions
+                    .push(if wall { [0.0, v, u] } else { [u, v, 0.0] });
+                mesh.normals.push(if wall {
+                    [1.0, 0.0, 0.0]
+                } else {
+                    [0.0, 0.0, 1.0]
+                });
+            }
+        }
+        for j in 0..resolution {
+            for i in 0..resolution {
+                let a = base + j * (resolution + 1) + i;
+                let triangles = if wall {
+                    [
+                        a,
+                        a + (resolution + 1),
+                        a + 1,
+                        a + 1,
+                        a + (resolution + 1),
+                        a + (resolution + 2),
+                    ]
+                } else {
+                    [
+                        a,
+                        a + 1,
+                        a + (resolution + 1),
+                        a + 1,
+                        a + (resolution + 2),
+                        a + (resolution + 1),
+                    ]
+                };
+                mesh.indices.extend_from_slice(&triangles);
+            }
+        }
+    }
+    mesh
+}
+
+#[test]
+fn proxy_crease_is_deterministic_across_workers() {
+    let mut mesh = corner(256);
+    let mut failures = vec![];
+    let mut previous = None;
+    for workers in [1, 1, 4] {
+        let (values, proxy) = ao::bake_with_workers(&mesh, workers).unwrap();
+        let crease = values[128 * 257 + 1];
+        if proxy >= mesh.indices.len() as u32 / 3 || crease >= 250 {
+            failures.push(format!("proxy={proxy} crease={crease}"));
+        }
+        mesh.colors = Some(values.iter().map(|&a| [255, 255, 255, a]).collect());
+        let bytes = bake(&mut mesh, Config::default(), [2; 32]).unwrap().bytes;
+        if let Some((prior_values, prior_bytes)) = &previous
+            && (*prior_values != values || *prior_bytes != bytes)
+        {
+            failures.push(format!("worker {workers} changed bytes"));
+        }
+        println!(
+            "ao_proxy workers={workers} source_triangles={} proxy_triangles={proxy} crease={crease} baked_bytes={}",
+            mesh.indices.len() / 3,
+            bytes.len()
+        );
+        previous = Some((values, bytes));
+    }
+    let mut bump = procedural::octasphere(8).unwrap();
+    for p in &mut bump.positions {
+        *p = clod_bake::normalize(*p);
+    }
+    bump.normals = bump.positions.clone();
+    let (values, proxy) = ao::bake_with_workers(&bump, 4).unwrap();
+    let mean = values.iter().map(|&v| v as f64).sum::<f64>() / values.len() as f64;
+    println!(
+        "ao_proxy convex_source={} convex_proxy={proxy} convex_mean={mean} repeat_runs=3 failures={failures:?}",
+        bump.indices.len() / 3
+    );
+    if mean < 250.0 {
+        failures.push(format!("convex_mean={mean}"));
+    }
     assert!(failures.is_empty(), "{failures:?}");
 }

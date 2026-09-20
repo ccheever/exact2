@@ -1,0 +1,18 @@
+[
+  {
+    "asset": "gaul",
+    "bytes": 138247344,
+    "sha256": "65dce583862e07481f20ab2cc3df23fe6bccfce2052ba2610e52478e67890dbe",
+    "repeat_identical": true,
+    "changed_bytes_from_v4": 3,
+    "payload_identical_v4": true
+  },
+  {
+    "asset": "washington",
+    "bytes": 626622224,
+    "sha256": "3d4f20c19307bc72c39fa5c3ef460842966594fe7df60f3e006e06c718ac0af6",
+    "repeat_identical": true,
+    "changed_bytes_from_v4": 3,
+    "payload_identical_v4": true
+  }
+]

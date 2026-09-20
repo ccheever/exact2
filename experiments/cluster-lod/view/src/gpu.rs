@@ -123,6 +123,9 @@ pub struct Renderer {
     pub(crate) page_layout: wgpu::BindGroupLayout,
     pub(crate) shadow_bind: wgpu::BindGroup,
     pub(crate) color: wgpu::Texture,
+    pub(crate) color_view: wgpu::TextureView,
+    pub(crate) present_pixels: wgpu::Buffer,
+    pub(crate) present_timestamps: Option<wgpu::Buffer>,
     pub(crate) msaa: wgpu::TextureView,
     pub(crate) depth: wgpu::TextureView,
     pub(crate) shadow: wgpu::TextureView,
@@ -617,7 +620,21 @@ impl Renderer {
                 )
             })
             .collect();
+        let color_view = color.create_view(&Default::default());
+        let read = |label, size| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
+        let present_pixels = read("present placeholder", 4);
+        let present_timestamps = query.as_ref().map(|_| read("present timestamps", 64));
         Ok(Self {
+            color_view,
+            present_pixels,
+            present_timestamps,
             device,
             queue,
             width,
