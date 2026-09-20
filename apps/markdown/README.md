@@ -1155,3 +1155,21 @@ batch's navigation work to these lookups on ordinary text and wrapper nodes.
 Ancestor inert/hidden checks, unconditional AX restoration, focus clearing and
 actual native editor-state comparisons remain. Existing availability tests cover
 external native-state changes; a displayed-performance benefit is unproven.
+
+The guarded-control candidate (`c7f8ee22`) is not retained. Its four alternating
+diagnostic traces all passed input/focus/content checks and carried the same
+21,452 apply operations. Baseline apply totals were 157/166 ms and candidate
+173/159 ms; list-pump tails also showed no consistent improvement. Assembly
+confirmed that the guards skipped dictionary lookups on ordinary nodes, but
+that did not establish lower measured cost. Native 254 tests, reader/appearance
+controls and normal/double-speed sampled captures passed. No physical-hitch
+pilot was run; evidence remains in `smooth/tails/control-lookup-*`.
+
+Older completed `diag1`, `diag2`, `diag4`–`diag6`, `flat`, `lean`, `single` and
+`extent` runs are now compressed under `smooth/archives/`. Each archive's files
+were SHA-256 verified before deleting the uncompressed copy;
+`verified-archives-20260919.json` records the original paths and hashes. A full
+workspace validation at `799bf1ba` passed build and the separate 14 web tests,
+but test compilation exhausted available disk and was interrupted. It is not a
+verified gate. The task-owned debug cache was removed; subsequent workspace
+checks disable debug symbols and incremental caching to bound disk consumption.
