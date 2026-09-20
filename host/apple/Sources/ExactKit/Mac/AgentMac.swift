@@ -9,6 +9,45 @@
 #if os(macOS)
 import AppKit
 
+// A queued NSEvent can be returned through a different wrapper. The agent's
+// negative event number marks this click; window and preserved CG nanoseconds
+// bind the release without relying on object identity or Double round trips.
+struct AgentMouseRelease {
+    nonisolated(unsafe) private static var sequence: Int32 = 0
+    private let number: Int
+    private let window: Int
+    private let timestamp: CGEventTimestamp
+
+    static func nextEventNumber() -> Int {
+        precondition(Thread.isMainThread)
+        sequence = sequence == Int32.max ? 1 : sequence + 1
+        return -Int(sequence)
+    }
+    init?(_ event: NSEvent) {
+        guard event.type == .leftMouseUp, event.eventNumber < 0,
+              let cg = event.cgEvent else { return nil }
+        number = event.eventNumber
+        window = event.windowNumber
+        timestamp = cg.timestamp
+    }
+    func matches(_ event: NSEvent) -> Bool {
+        event.type == .leftMouseUp && event.eventNumber == number
+            && event.windowNumber == window && event.cgEvent?.timestamp == timestamp
+    }
+    func takeQueued(from app: NSApplication) -> NSEvent? {
+        precondition(Thread.isMainThread)
+        guard let pending = app.nextEvent(matching: .leftMouseUp, until: .distantPast,
+                                          inMode: .default, dequeue: false),
+              matches(pending) else { return nil }
+        guard let taken = app.nextEvent(matching: .leftMouseUp, until: .distantPast,
+                                        inMode: .default, dequeue: true) else { return nil }
+        // Revalidate the dequeued wrapper too. If the queue changed between
+        // reads, restore that event without sending a foreign release.
+        guard matches(taken) else { app.postEvent(taken, atStart: true); return nil }
+        return taken
+    }
+}
+
 extension Agent {
     /// Read requests off stdin on a thread; answer each on the main thread,
     /// in order, before reading the next. Stdin closing ends the process.
@@ -404,16 +443,17 @@ extension Agent {
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
         let t = ProcessInfo.processInfo.systemUptime
-        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1),
-              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 0)
+        let eventNumber = AgentMouseRelease.nextEventNumber()
+        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
+              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0),
+              let release = AgentMouseRelease(up)
         else { return ["error": "no mouse event"] }
         // NSTextView and AVKit controls may track synchronously inside mouseDown.
         // Put this click's release in the queue before entering that loop.
         NSApp.postEvent(up, atStart: true)
         win.sendEvent(down)
-        if let pending = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: false), pending === up {
-            _ = NSApp.nextEvent(matching: .leftMouseUp, until: .distantPast, inMode: .default, dequeue: true)
-            win.sendEvent(up)
+        if let queued = release.takeQueued(from: NSApp) {
+            win.sendEvent(queued)
         }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
