@@ -8778,3 +8778,70 @@ resolution uses the existing Ibex-compatible ureq3.4.0 lock; MAIN's lock is not
 changed. Pre-Cargo lock/helper-path preparation failures also remain recorded.
 No current-app speedup, frame-budget success or physical120Hz claim follows;
 a fresh optimized native comparison remains necessary.
+
+### 8.160 Glyph-envelope reuse in two fresh Linux orders
+
+The §8.159 cache now has two fresh native comparisons, C→T then T→C, using
+the same separately captured control `8180d113` and treatment `dcaa47d3`.
+Both are pinned to `b3d12c3` plus the same twelve stock observer/dependency
+overlays; treatment adds only `text/ink.rs` and `text/catalog.rs`. All 2,065
+source paths, including23 links, are checked, with those exact two differences.
+Generated Reusable entry, plan, compatibility data, fonts, external inputs and
+stock tiny-skia match. The later MAIN textflow change is outside this pair.
+The treatment's one cold optimized build exits0 in103.751s; actual runtime
+Runner opt3 is joined through exact-linux's `--extern`, separately from the
+opt0 build dependency. Its immutable29-file capture is16,097,214 bytes,
+manifest `71348e9c`; no new observation hooks were added.
+
+The existing4CPU/4GiB aarch64 Linux VM, kernel6.8.0-139, uses VKMS1024×768
+and the unchanged2.5GiB address-space cap. Each run preserves ordinary
+Reusable/windowed10,000 rows and batch32, two-second idle/load/recovery prefixes,
+command-free producer observation,36 scheduled handlers and18 signed40-unit
+wheels. Setup20s, native60s, recorder quotas and the qualified split-turn reader
+`97b74663` remain fixed. All four fresh runs pass full acceptance once; each
+capture and process/group/5941-listener release precedes its successor.
+Native SIGTERM/-15 is intentional cleanup after observations, not a failed
+workload. The historical stock reader refusal remains unchanged.
+
+The table gives control→treatment columns even for the reversed launch order.
+Each row contains eight advancing timer turns per arm, fully enclosed by its
+saved collector prefix, with no advancing-turn boundary exclusions. Text is
+the aggregate of calls in each turn, not an individual glyph/call median.
+
+| Launch order / cohort | Whole-turn median ms C→T | Whole-turn max ms C→T | Whole turns >8.333ms C→T | Text aggregate median ms C→T |
+|---|---:|---:|---:|---:|
+| C→T loaded, mixed paint work | 9.218→8.897 | 10.925→11.670 | 7/8→5/8 | 1.827→1.234 |
+| C→T command-free | 8.913→9.920 | 10.021→14.785 | 6/8→8/8 | 1.796→1.419 |
+| T→C loaded | 8.904→8.761 | 10.040→9.530 | 8/8→5/8 | 1.746→1.229 |
+| T→C command-free | 9.366→8.967 | 10.723→11.664 | 6/8→5/8 | 2.014→1.290 |
+
+The first loaded comparison has8 versus7 same-turn Paint parents and392 versus
+343 Text calls; one control producer turn also contains input. Treatment
+turn822 commits revision14 while an earlier picture is pending: it paints in
+turn824 after ACK, then receives its own ACK. Its unpainted producer turn is
+retained in the table, including its zero Text cost, rather than discarded.
+Thus its lower producer-only sum is not an equal-paint-work result. Both silent
+cohorts and the reversed loaded cohort have eight Paint parents and392 Text
+calls per arm. On the reversed pair, loaded Paint median falls3.470→3.037ms
+and command-free Paint4.026→3.109ms. Lower Text medians recur, but the first
+command-free whole-turn worsening and all tails remain material negatives.
+
+Whole fixed-prefix idle/load/recovery sums are88.082→89.993,
+144.533→142.027 and81.660→78.656ms in the first pair; reversed-order sums are
+86.104→66.598,152.631→138.654 and78.362→76.051ms. Turn counts and batching
+differ, so these are observed totals, not equal-work CPU savings. Idle and
+recovery have no recorded whole-turn misses in any of the four runs. In the
+reversed loaded treatment, Paint/Tick/observer-union/KMS-copy medians are
+3.037/2.282/1.966/1.044ms; nested spans and these medians must not be added.
+Observer cost is included, not subtracted into an unmeasured production result.
+
+The measured result is repeated lower Text cost in these small native cohorts,
+with mixed whole-turn behavior and continuing frame-budget misses. It does not
+establish stable120Hz, continuous-resize performance, a Markdown/Storm benefit,
+or physical presentation. Linux evidence remains under the owned
+`exact2-linux-invisible-fill/target/messages-glyph-envelope-{control,treatment}-runtime-v1`
+and corresponding `messages-glyph-envelope-reverse-*` roots; MAIN's build and
+binding captures remain separate. Independent direct timing arithmetic is in
+`/tmp/exact2-glyph-envelope-{pair,reverse}-lead-timing.json`. Further work must
+reduce the remaining complete-turn costs; the current coherent Mac baseline
+and continuous-resize workload also remain to be measured.
