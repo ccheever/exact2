@@ -38,7 +38,7 @@ fn generations_names_and_order_under_churn() {
     assert!(!w.despawn(first));
     let mut rng = Rng::new(13);
     let mut entities = vec![recycled, third];
-    for _ in 0..2000 {
+    for _ in 0..if cfg!(miri) { 64 } else { 2000 } {
         if !entities.is_empty() && rng.next_f32() < 0.45 {
             let i = rng.next_u32() as usize % entities.len();
             w.despawn(entities.remove(i));

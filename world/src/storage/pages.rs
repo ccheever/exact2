@@ -15,14 +15,14 @@ impl<'w, C: Component> Pages<'w, C> {
             _lease: storage.map(|s| s.lease(false)),
         }
     }
-    /// Allocated pages in ascending entity-index order, skipping freed pages.
+    /// Allocated pages in ascending entity-index order, skipping empty pages.
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {
         self.storage.into_iter().flat_map(|s| {
             s.pages
                 .chunks()
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| !p.ptr.is_null())
+                .filter(|(i, _)| s.pages.mask()[*i] != 0)
                 .map(|(i, p)| Page {
                     first: (i * PAGE) as u32,
                     generation: p.generation.get(),

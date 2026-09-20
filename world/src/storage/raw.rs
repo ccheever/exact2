@@ -467,10 +467,11 @@ mod tests {
         }
         let mut w = World::new(60, 0);
         w.register::<Aligned>().unwrap();
-        for n in 0..1030 {
+        let count: usize = if cfg!(miri) { 130 } else { 1030 };
+        for n in 0..count {
             w.spawn(Aligned {
                 text: "owned".into(),
-                n,
+                n: n as u32,
             })
             .unwrap();
         }
@@ -484,7 +485,7 @@ mod tests {
         }
         assert_eq!(
             w.pages::<Aligned>().iter().count(),
-            1030usize.div_ceil(super::PAGE)
+            count.div_ceil(super::PAGE)
         );
     }
 
