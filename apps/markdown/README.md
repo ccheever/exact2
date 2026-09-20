@@ -1199,9 +1199,21 @@ now use noncollection fixtures; a takeover regression covers both callback and
 between-report transitions. This integration still requires native and workspace
 validation and does not establish a displayed-performance improvement.
 
-A prepend candidate mounts a new leading child directly before its retained
-siblings when the container contains only Exact views. The baseline native
-regression records four add callbacks and three removals for one new child
-beside two retained children. The candidate should need one add and no removals;
-mixed native decorations keep the existing path. Reverse-scroll cost and reader
-behavior still need validation before making a performance claim.
+The prepend change at `7442359c` is retained. A new leading child mounts directly
+before retained siblings in an Exact-only container: the native regression falls
+from four add callbacks and three removals to one add and no removals. Mixed
+native decorations retain their ordering. All 263 native tests and the reader's
+forward/reverse, resize, selection/copy and file-switch controls pass.
+
+Four physical reversal diagnostics (`smooth/tails/prepend-reversal-*`, baseline
+`56add02e`, candidate `7442359c`, ABBA order) all pass input/focus/content checks:
+six seconds forward, four reverse, 1,200 events at 120 Hz. In the reverse phase,
+each run applies 7,087 operations in 74 batches. Presenter time is 169.3/166.0 ms
+for baseline and 42.5/49.8 ms for candidate; enclosing list-pump time is
+206.7/202.5 and 79.2/91.5 ms respectively (nested times are not additive).
+Eight sampled reversal controls on the corpus and dense rows, at normal and
+double speed, all pass input/focus/content checks; none shows an inkless band
+over 250 pt (`smooth/prepend-blank-7442359c/`). The captures sample about 20 fps,
+not every display frame. These establish reduced reverse-scroll presenter work,
+not a fixed-protocol displayed-hitch win over Legend. The previous corrected
+120 Hz confirmation still fails that comparison.

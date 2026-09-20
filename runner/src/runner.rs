@@ -334,6 +334,7 @@ impl<D: DataSource> Runner<D> {
                     s.as_ref().map(|s| {
                         (
                             self.plan.str(r.name).to_string(),
+                            self.plan.str(r.source).to_string(),
                             s.args.clone(),
                             s.value.clone(),
                         )
@@ -346,7 +347,12 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| self.store_readers[*i])
-                .map(|(_, resource)| self.plan.str(resource.name).to_string())
+                .map(|(_, resource)| {
+                    (
+                        self.plan.str(resource.name).to_string(),
+                        self.plan.str(resource.source).to_string(),
+                    )
+                })
                 .collect(),
             now_ms: self.now_ms,
             store: self.store.snapshot(),
@@ -413,7 +419,27 @@ impl<D: DataSource> Runner<D> {
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
-        let store = Store::new(data.grants(), snapshot);
+        let mut store = Store::new(data.grants(), snapshot);
+        if let Some(carried) = carried {
+            // Forget incompatible seeds, not just their first use: a pending
+            // replacement must not relabel an old answer on the next reload.
+            for (name, _) in &carried.store {
+                let Some(resource) = name.strip_prefix(Store::KEPT) else {
+                    continue;
+                };
+                let compatible = same_logic
+                    && plan.resources.iter().any(|r| {
+                        plan.str(r.name) == resource
+                            && carried
+                                .store_readers
+                                .iter()
+                                .any(|(n, s)| n == resource && s == plan.str(r.source))
+                    });
+                if !compatible {
+                    store.forget_kept(name);
+                }
+            }
+        }
         let store_readers = plan
             .resources
             .iter()
@@ -424,7 +450,11 @@ impl<D: DataSource> Runner<D> {
                     || (same_logic
                         && carried.is_some_and(|carried| {
                             let name = plan.str(resource.name);
-                            carried.store_readers.iter().any(|reader| reader == name)
+                            let source = plan.str(resource.source);
+                            carried
+                                .store_readers
+                                .iter()
+                                .any(|(reader, origin)| reader == name && origin == source)
                         }))
             })
             .collect();
@@ -468,16 +498,21 @@ impl<D: DataSource> Runner<D> {
         };
         runner.init_slots(carried, launch)?;
         runner.derives = vec![None; runner.plan.derives.len()];
-        // Resources: carried where the name is still declared and the value
-        // still fits the declared shape; a carried value can refuse nothing.
+        // Resources: carry only the same named source and a value that still
+        // fits the declared shape; a carried value can refuse nothing.
         runner.resources = (0..runner.plan.resources.len())
             .map(|i| {
                 let name = runner.plan.str(runner.plan.resources[i].name);
+                let source = runner.plan.str(runner.plan.resources[i].source);
                 carried
                     .filter(|_| same_logic)
-                    .and_then(|c| c.resources.iter().find(|(n, _, _)| n == name))
-                    .filter(|(_, _, value)| runner.check_shape(i, value).is_ok())
-                    .map(|(_, args, value)| ResourceState {
+                    .and_then(|c| {
+                        c.resources
+                            .iter()
+                            .find(|(n, s, _, _)| n == name && s == source)
+                    })
+                    .filter(|(_, _, _, value)| runner.check_shape(i, value).is_ok())
+                    .map(|(_, _, args, value)| ResourceState {
                         args: args.clone(),
                         value: value.clone(),
                         store_revision: runner.store.revision(),

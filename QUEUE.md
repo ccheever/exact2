@@ -36,11 +36,6 @@ sits on that list carries the trade it would take.
   and validate partial blank/stale content during fast scrolling. Current
   identities, methods and limits are in `apps/markdown/README.md`.
 
-- **Native list prepend cost** (2026-09-19): `Presenter.apply` appends a new
-  first child, then remounts retained siblings to restore order. Insert directly
-  before the current first child for containers containing only NodeViews;
-  preserve mixed decoration ordering and verify retained rows never detach.
-
 - **Text around shapes** (LLP 1043.000 §8, as built 2026-09-19): `wrap-flow` / `shape-outside` exclusions flowed on
   both sides per frame on Linux, Apple and web through one shared walker (`textflow/`), demo `apps/textflow` (six
   scenes); vendored Taffy is upstream 0.14 (patches 3, 4, 5 retained). Owed: **auto-height flow** — M8's probe found
@@ -166,9 +161,6 @@ sits on that list carries the trade it would take.
 - **ibex host SDK during iOS bake** (2026-09-07): its host `darwin_http.mm`
   compile inherits the iPhone SDK; target-specific macOS CXXFLAGS unblocked this run.
   Fix SDK selection in the sibling build script rather than relying on that override.
-- **Resource carry source identity** (2026-09-07): carry checks name, arguments,
-  value shape and module hash, but not a Contract edit redirecting that resource
-  to another source in unchanged logic. Include the source in compatibility.
 
 - **macOS cover viewport smoke** (2026-09-06): `smoke.mjs macos` reports
   420×853 for the cover fixture versus Caltrain's 420×821, a 32-point

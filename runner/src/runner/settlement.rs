@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(changed.resource("rows"), Some(&strings));
 
         // Carried is public input, not a certificate from an earlier Runner.
-        carried.resources[0].2 = Value::Unit;
+        carried.resources[0].3 = Value::Unit;
         let mut repaired = reload(original.plan().clone(), Data::new(records(1)), &carried);
         assert_eq!(checks(), 2);
         assert_eq!(repaired.data().queries, 1);

@@ -395,9 +395,14 @@ a full teardown of the page and a boot of the new plan **carrying the old
 runner's state** (`Runner::carry` / `Runner::boot_carrying`, `Host::boot_with`):
 each slot by name where its carried value conforms to the slot's — possibly
 new — type, else its initializer; each settled resource by name where its
-value still fits the declared shape, reused only where its arguments still
-match (a carried `stationId` gets its own board, and the plan's baked boot
-values are never taken over carried state); the clock, so timers continue.
+value still fits the declared shape, reused only where its source name,
+arguments and data-module identity still match (a carried `stationId` gets its
+own board, and the plan's baked boot values are never taken over carried state);
+the clock, so timers continue. Carried store dependencies are source-qualified too;
+kept answers for removed or redirected resources (or changed data logic) are
+forgotten during reload, including their persisted entries, so a pending answer
+cannot restore a previous source's seed on a later reload. Cold-launch kept-answer
+matching remains the name/arguments/shape rule of LLP 1027 D4.
 Carried state is never why a boot fails: what no longer fits starts fresh.
 The tree, ids, derives, and the DOM are rebuilt — five screens deep stays
 five screens deep, but scroll, focus, and a spring in flight do not survive

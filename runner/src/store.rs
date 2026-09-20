@@ -165,6 +165,17 @@ impl Store {
         });
     }
 
+    /// Discard an incompatible runner-owned answer without dirtying app secrets.
+    pub(crate) fn forget_kept(&mut self, name: &str) {
+        debug_assert!(Store::is_kept(name));
+        if self.values.remove(name).is_some() {
+            self.writes.push(StoreWrite {
+                name: name.to_string(),
+                value: None,
+            });
+        }
+    }
+
     /// The kept value under `name` — `None` when nothing is kept, or when
     /// `name` is not granted (the same fact, as `process.env` has it).
     pub fn get(&self, name: &str) -> Option<&str> {

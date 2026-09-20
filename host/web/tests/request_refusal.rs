@@ -101,6 +101,7 @@ fn direct_sources_refuse_at_boot_and_dispatch_without_converting_tokens_and_sett
             let carried = exact_runner::Carried {
                 resources: vec![(
                     "reply".into(),
+                    "bad".into(),
                     vec![Value::Bool(false)],
                     Value::record(vec![Value::Bool(false)]),
                 )],
