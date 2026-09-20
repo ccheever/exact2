@@ -773,3 +773,50 @@ fn emitted_message_limits_refuse_without_panicking_or_changing_delivery() {
         w.validate().unwrap();
     }
 }
+
+#[test]
+fn signed_zero_publications_change_scalar_and_nested_delivery() {
+    use Published::*;
+    for nested in [false, true] {
+        let value = |n| {
+            if nested {
+                Object(std::collections::BTreeMap::from([(
+                    "zero".into(),
+                    Record(vec![List(vec![Option(Some(Box::new(Number(n))))])]),
+                )]))
+            } else {
+                Number(n)
+            }
+        };
+        let s = Sim::<Board>::new(()).unwrap();
+        s.world().publish("value", value(0.)).unwrap();
+        s.world().take_published().unwrap();
+        let before = s.save().unwrap();
+        let cursor = s.world().journal_next();
+        if nested {
+            s.world()
+                .publish_batch(std::collections::BTreeMap::from([(
+                    "value".into(),
+                    value(-0.),
+                )]))
+                .unwrap();
+        } else {
+            s.world().publish("value", value(-0.)).unwrap();
+        }
+        assert_eq!(s.world().journal_next(), cursor + 1);
+        assert!(s.world().take_published().is_some());
+        assert_eq!(
+            bin::to_vec(&s.world().publications()["value"]).unwrap(),
+            bin::to_vec(&value(-0.)).unwrap()
+        );
+        assert_ne!(s.save().unwrap(), before);
+        let after = s.save().unwrap();
+        assert_eq!(
+            Sim::<Board>::from_save(&after).unwrap().save().unwrap(),
+            after
+        );
+        s.world().publish("value", value(-0.)).unwrap();
+        assert_eq!(s.world().journal_next(), cursor + 1);
+        assert!(s.world().take_published().is_none());
+    }
+}
