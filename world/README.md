@@ -104,8 +104,8 @@ both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
 including recursive registration. A returned hook error restores all type
 declarations made by that call and its dependencies; retry runs the hook again.
 Hooks declare types only; arbitrary gameplay effects are not rolled back.
-Rollback uses a fixed 256-byte snapshot per nested hook; type count bounds recursion
-and registry work. Panics still poison. `Game::register` receives borrowed setup/restart
+Rollback takes a fixed 256-byte snapshot only when a hook declares a dependency;
+empty hooks do no snapshot scan or allocation. Type count bounds nested work. Panics still poison. `Game::register` receives borrowed setup/restart
 arguments, without formatting them. Insertion never registers types implicitly.
 Registration and setup must not keep hidden continuation state.
 
