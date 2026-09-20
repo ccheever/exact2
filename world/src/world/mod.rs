@@ -7,6 +7,8 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+pub(crate) const CURSOR_LIMIT: u64 = 1 << 62;
+
 /// A slot and its incarnation; a recycled index never revives a stale entity.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Entity {

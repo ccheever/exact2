@@ -75,7 +75,7 @@ impl Data for State {
             }
             .map_err(|e| e.at(field))?;
         }
-        if self.tick > 1 << 62 {
+        if self.tick > CURSOR_LIMIT {
             return Err(DataError::new("cursor beyond supported range"));
         }
         Ok(())

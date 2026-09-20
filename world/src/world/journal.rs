@@ -76,7 +76,7 @@ impl World {
                 .journal_next
                 .get()
                 .checked_add(count as u64)
-                .is_none_or(|n| n == u64::MAX)
+                .is_none_or(|n| n > CURSOR_LIMIT)
         {
             return Err(DataError::new("journal cursor exhausted"));
         }
@@ -167,7 +167,7 @@ impl World {
         let index = self.journal_next.get();
         let next = index
             .checked_add(1)
-            .filter(|n| *n != u64::MAX)
+            .filter(|n| *n <= CURSOR_LIMIT)
             .ok_or_else(|| DataError::new("journal cursor exhausted"))?;
         let mut journal = self.journal.borrow_mut();
         if journal.len() == 4096 {
@@ -289,7 +289,7 @@ impl World {
     pub(crate) fn read_journal(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.required_item("missing journal cursor")?;
         self.journal_next.get_mut().read(r)?;
-        if self.journal_next() > 1 << 62 {
+        if self.journal_next() > CURSOR_LIMIT {
             return Err(DataError::new("cursor beyond supported range"));
         }
         r.required_item("missing journal entries")?;
@@ -565,7 +565,7 @@ mod supported_cursor_tests {
     #[test]
     fn saved_cursor_limit_refuses_atomically_on_every_open_path_and_boundary_continues() {
         const LIMIT: u64 = 1 << 62;
-        for cursor in [LIMIT + 1, LIMIT] {
+        for cursor in [LIMIT + 1, LIMIT - 2] {
             let mut source = Sim::<G>::new(()).unwrap();
             let w = source.world_mut();
             w.journal_next.set(cursor);
@@ -598,12 +598,22 @@ mod supported_cursor_tests {
                     assert_eq!(dest.save().unwrap(), bytes);
                     assert_eq!(dest.run(17.).unwrap(), 1);
                     assert!(dest.world().is_empty(), "tick and orphan reap continue");
-                    assert_eq!(dest.world().journal_next(), LIMIT + 2);
+                    assert_eq!(dest.world().journal_next(), LIMIT);
+                    let continued = dest.save().unwrap();
+                    assert_eq!(
+                        Sim::<G>::from_save(&continued).unwrap().save().unwrap(),
+                        continued
+                    );
+                    let epoch = dest.world().mutation_epoch();
+                    assert!(dest.world_mut().spawn(()).is_err());
+                    assert!(dest.world().log("past boundary").is_err());
+                    assert_eq!(dest.world().mutation_epoch(), epoch);
+                    assert_eq!(dest.save().unwrap(), continued);
                     dest.world().validate().unwrap();
                 }
             }
             let fresh = Sim::<G>::from_save(&bytes);
-            assert_eq!(fresh.is_ok(), cursor == LIMIT);
+            assert_eq!(fresh.is_ok(), cursor == LIMIT - 2);
             if let Err(error) = fresh {
                 assert!(error.message.contains("cursor beyond supported range"));
             }
@@ -634,7 +644,9 @@ mod supported_cursor_tests {
                     result.unwrap();
                     assert_eq!(dest.save().unwrap(), bytes);
                     dest.step_clock();
-                    assert_eq!(dest.tick(), LIMIT + 1);
+                    assert_eq!(dest.tick(), LIMIT - 1);
+                    let continued = dest.save().unwrap();
+                    dest.load(&continued).unwrap();
                     dest.spawn(()).unwrap();
                 }
             }
@@ -647,13 +659,12 @@ mod supported_cursor_tests {
         let mut w = World::new(60, 0);
         w.register::<C>().unwrap();
         let e = w.spawn(C).unwrap();
-        // Unreachable runtime belt: does not admit this cursor through a save.
-        w.journal_next.set(u64::MAX - 2);
+        w.journal_next.set((1 << 62) - 1);
         assert!(w.remove::<C>(e).unwrap().is_some());
-        assert_eq!(w.journal_next(), u64::MAX - 1);
+        assert_eq!(w.journal_next(), 1 << 62);
         let epoch = w.mutation_epoch();
         w.set_parent(e, None).unwrap();
         assert_eq!(w.mutation_epoch(), epoch);
-        assert_eq!(w.journal_next(), u64::MAX - 1);
+        assert_eq!(w.journal_next(), 1 << 62);
     }
 }
