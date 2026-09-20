@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/K1f")
+        .join("scratch/K8")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {
@@ -53,6 +53,30 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
         "{}",
         String::from_utf8_lossy(&positive.stderr)
     );
+    for marker in ["Data", "Component", "Resource"] {
+        for alignment in [16, 32, 64, 4096] {
+            let result = compile(&format!(
+                "use exact_world::*; #[repr(align({alignment}))] #[derive(Default, {marker})] struct Padded(u8); #[derive(Default, Data)] struct Containers {{ #[data(skip)] padded: Box<Padded>, array: [Padded; 32], pair: (Padded, Padded) }}"
+            ));
+            let error = String::from_utf8_lossy(&result.stderr);
+            if alignment == 4096 {
+                assert!(!result.status.success(), "over-aligned {marker} compiled");
+                assert!(
+                    error.contains("native size 4096 exceeds 4× its saved size 17 + 64"),
+                    "{error}"
+                );
+                assert!(
+                    error.contains("implement Data by hand with an honest default_size"),
+                    "{error}"
+                );
+            } else {
+                assert!(
+                    result.status.success(),
+                    "{marker}, align({alignment}): {error}"
+                );
+            }
+        }
+    }
     let raw = compile(
         r#"use exact_world::*;
 use exact_world::storage::query::Fetch;

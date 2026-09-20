@@ -590,7 +590,7 @@ fn paranoid_preserves_drained_delivery() {
 fn input_refusal_preserves_the_entire_tick_boundary() {
     let mut s = Sim::<Counter>::new(Options::default()).unwrap();
     s.world().busy("keep").unwrap();
-    for i in 0..17 {
+    for i in 0..1024 {
         s.input(InputEvent::Key {
             code: format!("Key{i}"),
             down: true,
@@ -600,7 +600,11 @@ fn input_refusal_preserves_the_entire_tick_boundary() {
     }
     let before = s.save().unwrap();
     for _ in 0..2 {
-        assert!(s.run(17.).unwrap_err().message.contains("held input limit"));
+        assert!(s
+            .input(InputEvent::Blur { at_ms: 0. })
+            .unwrap_err()
+            .message
+            .contains("queue limit"));
         assert_eq!(s.save().unwrap(), before);
         assert_eq!(s.world().tick(), 0);
     }
@@ -690,7 +694,7 @@ fn reconcile_input_is_atomic_and_never_simulates() {
         .map(|i| InputEvent::Key {
             code: format!("{i}"),
             down: true,
-            at_ms: 0.,
+            at_ms: if i == 16 { f64::NAN } else { 0. },
         })
         .collect();
     assert!(s.reconcile_input(5000., &bad).is_err());

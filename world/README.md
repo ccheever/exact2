@@ -136,11 +136,11 @@ successful ticks remain committed if a later tick in the request is refused.
 An ordinary tick performs **zero component visitor/hash calls**. Its kernel cost
 is O(game-touched work + bounded input bookkeeping), independent of untouched
 component values and world size. Input holds at most 16 keys, with 64 action/button/axis entries, and the
-pending queue at most 1,024 events. Due batches are preflighted against a stack
-array of 16 borrowed key names, then consumed by moving event ownership. No held
-strings, maps or edge buffers are cloned per tick. Admission is O(events × (actions + held keys)); edge derivation is
+pending queue at most 1,024 events. Due batches are validated before being
+consumed by moving event ownership. No held
+strings, maps or edge buffers are cloned per tick. Admission is O(events × actions); edge derivation is
 O(events × actions × (actions + buttons + bindings × held keys)).
-A 17th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
+When 16 keys are held, additional key-downs are dropped deterministically and their later key-ups do nothing. Mutable queries still cost their chosen query
 traversal; this is work the game requested. Changing publications also creates
 saved journal events. `Paranoid::Save` and `FreshGame` explicitly add full saves,
 validation and reconstruction, and do not have the ordinary-tick cost.
@@ -281,15 +281,16 @@ remain unchanged. Numeric decoding still owns both raw and converted buffers;
 its cumulative budget counts both.
 
 1. A `Data` writer emits fields in declaration order and stops container loops on `Writer::stopped()`.
-2. Declare conservative portable `inline_size`/`default_size` units, including allocating
+2. Declare conservative portable `INLINE_SIZE`/`default_size` units, including allocating
    defaults and skipped-field resets; custom allocating `read_new` must claim before allocating.
 3. Read through `Reader`, propagate errors, and respect its allocation and nesting checks.
 
-Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
+Derive requires native size ≤ 4 × `Data::INLINE_SIZE` + 64 at compile time (including skipped fields); remove excess alignment/padding, box the large part, or implement `Data` with honest allocation declarations.
+`INLINE_SIZE: usize` replaces `inline_size()` so portable inline units are available to the const assertion; `default_size() -> usize` still includes allocating defaults.
 For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
 excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
 Allocation claims on both encode and decode use `max(portable units, native size)`.
-Default-construction charges remain unchanged. Maps charge 64 + key bytes + twice
+Default construction, array/tuple resets and derived fields use that same native floor; hidden allocations in dishonest manual defaults remain outside the bound. Maps charge 64 + key bytes + twice
 that value allowance per entry for half-empty nodes, plus one initial 12-value
 node allowance for allocation before amortization; the 1 MiB long-key control
 exceeded budget + 8,192 by 212 bytes without that initial allowance.
@@ -323,7 +324,7 @@ Requests beyond the following work/storage bounds return errors.
 | Game and session log retention | 4,096 each; loss/reset is reported |
 | Inspection output / log page | 65,536 bytes/visits / at most 512 records |
 | Work / busy / derived slots | 64 each; reasons 256 bytes, at most 8 reported |
-| Held keys / bindings per action / actions | 16 / 8 / 64; excess refuses before applying input |
+| Held keys / bindings per action / actions | 16 / 8 / 64; excess key-downs drop, excess declarations refuse |
 | Input edge work per batch | ≤ 16,777,216 binding/key comparisons (2 × 1,024 × 64 × 8 × 16); including action/button/axis/edge scans < 60M string comparisons, each ≤ 128 bytes |
 | Input / emitted messages | 1,024 queued each; messages 4,096 bytes |
 | Clock advance / settle | 216,000 / 3,600 ticks per request |
@@ -488,6 +489,7 @@ is browser-only, failed process inventory and timed out. Root build/test/clippy 
 Hermes producer. Caps passes; boot stays at 88,699 JS bytes, 3,468 page bytes,
 two pre-pixel modules and one Wasm reference. No game pins changed.
 
+Saves written before the 16-held-key/eight-binding limits that exceed those limits are refused; none are deployed, and EXSIM v10 remains unchanged.
 EXGAME v4 and EXSIM v10 are unchanged by K1f. `git diff land/game-next -- motion/`
 is empty. Core dependencies are exact-world-derive, libm and ryu; optional
 exact-world-motion depends on exact-world and exact-motion. The root workspace

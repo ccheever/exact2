@@ -73,6 +73,10 @@ pub struct Input {
 }
 impl Data for Input {
     fn write(&self, w: &mut dyn Writer) {
+        if self.keys.len() > 16 {
+            w.reject("held input limit (16)");
+            return;
+        }
         w.begin_struct();
         w.field("keys");
         self.keys.write(w);
@@ -188,38 +192,13 @@ impl Input {
         self.pressed.clear();
         self.released.clear();
     }
-    /// Sim admission guarantees at most 16 keys; preflight borrows their names.
-    /// Buttons and axes are already bounded by the 64 unique declarations.
+    /// Validate the whole batch before consuming events; rollover is applied in order.
     pub(crate) fn preflight<'a>(
-        &'a self,
+        &self,
         events: impl Iterator<Item = &'a InputEvent>,
     ) -> Result<(), DataError> {
-        let mut keys = [None; 16];
-        for (slot, key) in keys.iter_mut().zip(&self.keys) {
-            *slot = Some(key.as_str());
-        }
         for event in events {
             self.validate_event(event)?;
-            match event {
-                InputEvent::Blur { .. } => keys.fill(None),
-                InputEvent::Key { code, down, .. } => {
-                    match (
-                        keys.iter_mut().find(|key| **key == Some(code.as_str())),
-                        down,
-                    ) {
-                        (Some(key), false) => *key = None,
-                        (None, true) => {
-                            *keys
-                                .iter_mut()
-                                .find(|key| key.is_none())
-                                .ok_or_else(|| DataError::new("held input limit (16)"))? =
-                                Some(code)
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
         }
         Ok(())
     }
@@ -229,7 +208,11 @@ impl Input {
             bits | (u64::from(self.held(a.name)) << i)
         });
         match event {
-            InputEvent::Key { code, down, .. } => set(&mut self.keys, code, down),
+            InputEvent::Key { code, down, .. } => {
+                if !down || self.keys.len() < 16 {
+                    set(&mut self.keys, code, down);
+                }
+            }
             InputEvent::Action { name, down, .. } => set(&mut self.buttons, name, down),
             InputEvent::Axis { name, value, .. } => {
                 self.axes.insert(name, value);
@@ -322,7 +305,7 @@ pub fn stick_axis(origin: [f32; 2], position: [f32; 2]) -> Result<[f32; 2], Data
 mod admission_tests {
     use super::*;
     #[test]
-    fn hardware_input_limits_refuse_before_applying_or_restoring() {
+    fn hardware_input_rollover_and_saved_limits() {
         const BAD: &[Action] = &[Action::button("too-many", &["a"; 9])];
         assert!(Input::new(BAD).is_err());
         const GOOD: &[Action] = &[Action::button("ok", &["a"; 8])];
@@ -335,19 +318,14 @@ mod admission_tests {
             })
             .collect();
         input.preflight(events[..16].iter()).unwrap();
-        assert!(input
-            .preflight(events.iter())
-            .unwrap_err()
-            .message
-            .contains("16"));
+        input.preflight(events.iter()).unwrap();
         assert!(input.keys.is_empty());
         let mut hostile = Input {
             keys: (0..17).map(|i| format!("key{i:02}")).collect(),
             ..Input::default()
         };
         assert!(hostile.validate_saved(&[]).is_err());
-        let bytes = crate::bin::to_vec(&hostile).unwrap();
-        assert!(crate::bin::from_slice::<Input>(&bytes).is_err());
+        assert!(crate::bin::to_vec(&hostile).is_err());
     }
     #[test]
     #[ignore = "worst admitted input batch timing"]
