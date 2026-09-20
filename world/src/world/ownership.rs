@@ -131,9 +131,6 @@ impl World {
         let mut at = 0;
         while let Some(&e) = todo.get(at) {
             at += 1;
-            if self.state.slots[e.index as usize].generation == u32::MAX {
-                return Err(DataError::new("entity generation exhausted"));
-            }
             if !self.contains(e) || remove.contains(&e) {
                 continue;
             }
@@ -142,6 +139,9 @@ impl World {
                 .is_some_and(|p| !self.contains(p.entity()) || remove.contains(&p.entity()));
             if !orphan {
                 continue;
+            }
+            if self.state.slots[e.index as usize].generation == u32::MAX {
+                return Err(DataError::new("entity generation exhausted"));
             }
             remove.insert(e);
             if let Some(children) = self.owners.get(&e) {
@@ -243,6 +243,7 @@ mod budget_tests {
         w.state.slots[last.index() as usize].generation = u32::MAX;
         let last = w.entity_at(last.index() as usize).unwrap();
         w.despawn(parent);
+        w.orphans.insert(last);
         let cursor = w.journal_next();
         let result = catch_unwind(AssertUnwindSafe(|| w.reap_orphans()));
         assert!(
@@ -252,6 +253,38 @@ mod budget_tests {
         assert!(w.contains(last));
         assert_eq!(w.journal_next(), cursor);
         assert!(result.unwrap().unwrap_err().message.contains("generation"));
+    }
+    #[test]
+    fn queued_retired_orphans_are_ignored_before_and_after_exact_restore() {
+        let mut fixture = World::new(60, 0);
+        fixture.spawn(()).unwrap();
+        fixture.spawn(()).unwrap();
+        fixture.state.slots[1].generation = u32::MAX - 1;
+        let initial = fixture.save().unwrap();
+        let mut w = World::new(60, 0);
+        w.load(&initial).unwrap(); // Start from a canonical, admitted boundary.
+        let parent = w.entity_at(0).unwrap();
+        let child = w.entity_at(1).unwrap();
+        w.set_parent(child, Some(parent)).unwrap();
+        assert!(w.despawn(parent));
+        assert!(w.despawn(child));
+        w.validate().unwrap();
+        assert!(w.is_empty());
+        let retired = w.save().unwrap();
+        let mut restored = World::new(60, 0);
+        restored.register::<Parent>().unwrap();
+        restored.load(&retired).unwrap();
+        restored.reap_orphans().unwrap();
+        w.reap_orphans().unwrap();
+        assert_eq!(w.save().unwrap(), restored.save().unwrap());
+        // A stale retired entry must not prevent the remaining live subtree's removal.
+        let owner = w.spawn(()).unwrap();
+        let live = w.spawn(()).unwrap();
+        w.set_parent(live, Some(owner)).unwrap();
+        w.despawn(owner);
+        w.orphans.insert(child);
+        w.reap_orphans().unwrap();
+        assert!(!w.contains(live));
     }
     #[test]
     fn ownership_scratch_does_not_consume_the_state_decode_allowance() {
