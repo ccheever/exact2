@@ -1,5 +1,35 @@
 # Cluster LOD on core WebGPU
 
+<!-- L3B_BENCHMARK_START -->
+Apple M5 Max / Metal, format v4, 2560×1440, 4× MSAA, 4096² shadows, 1 px. Regenerate with `bun measure.mjs benchmark` (from this directory). Seven measured frames after one warmup per renderer. Single/ring/grid/field use t=0; avenue uses t=.45. Both renderers use the same instance-frustum cull. Times are medians in milliseconds; ratio is naive main / cluster main.
+
+| Asset · layout | Source triangles × instances | Drawn triangles | GPU main / shadow / select ms | CPU ms | Naive main ms | Ratio | Resident bytes cluster / naive | RGB mean / p99.9 | Coverage cracks / interior |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| gaul · single | 4,000,020 × 1 | 137,746 | 0.660 / 0.109 / 0.340 | 0.786 | 1.564 | 2.37× | 339,624,572 / 287,819,852 | 0.0005351 / 0.0588235 | 0 / 293,493 |
+| gaul · ring:12 | 4,000,020 × 12 | 100,315 | 0.982 / 0.152 / 0.121 | 0.969 | 3.014 | 3.07× | 354,015,784 / 287,820,556 | 0.0003434 / 0.0823529 | 0 / 47,515 |
+| gaul · avenue:25 | 4,000,020 × 25 | 156,824 | 0.867 / 0.094 / 0.543 | 0.499 | 2.625 | 3.03× | 371,023,580 / 287,821,388 | 0.0006029 / 0.0588235 | 0 / 404,734 |
+| gaul · grid:400 | 4,000,020 × 400 | 430,640 | 1.087 / 0.356 / 0.712 | 0.500 | 83.297 | 76.66× | 422,273,080 / 287,845,388 | 0.0019165 / 0.2196078 | 0 / 58,354 |
+| gaul · field:5000,1 | 4,000,020 × 5000 | 653,612 | 0.656 / 0.229 / 5.614 | 0.481 | 1541.310 | 2349.56× | 423,076,280 / 288,139,788 | 0.0018336 / 0.2235294 | 0 / 2,273 |
+| washington · single | 16,860,930 × 1 | 447,833 | 0.718 / 0.183 / 1.675 | 0.873 | 2.753 | 3.83× | 833,133,164 / 584,434,272 | 0.0004996 / 0.0549020 | 0 / 314,134 |
+| washington · ring:12 | 16,860,930 × 12 | 956,523 | 2.045 / 0.539 / 0.314 | 0.940 | 12.341 | 6.04× | 894,951,272 / 584,434,976 | 0.0004760 / 0.0941176 | 0 / 78,345 |
+| washington · avenue:25 | 16,860,930 × 25 | 618,793 | 1.027 / 0.181 / 3.000 | 0.686 | 5.230 | 5.09× | 911,412,536 / 584,435,808 | 0.0006926 / 0.0588235 | 0 / 550,697 |
+| washington · grid:400 | 16,860,930 × 400 | 15,031,084 | 4.814 / 3.388 / 0.673 | 0.853 | 474.580 | 98.59× | 911,604,536 / 584,459,808 | 0.0018355 / 0.1725490 | 0 / 99,979 |
+| washington · field:5000,1 | 16,860,930 × 5000 | 135,558,443 | 40.063 / 27.360 / 7.209 | 0.831 | 5675.272 | 141.66× | 913,953,336 / 584,754,208 | 0.0021291 / 0.2156863 | 0 / 13,198 |
+
+Hero quality dial, Washington avenue t=.75, same settings:
+
+| Threshold px | Drawn triangles | GPU total / main / shadow / select ms | RGB mean / p99.9 | Coverage cracks / interior |
+|---:|---:|---:|---:|---:|
+| 0.5 | 1,251,764 | 5.376 / 1.506 / 0.281 / 3.592 | 0.0006175 / 0.0313725 | 0 / 939,636 |
+| 1 | 737,305 | 3.905 / 1.004 / 0.167 / 2.731 | 0.0009652 / 0.0509804 | 0 / 939,636 |
+| 2 | 415,617 | 3.315 / 0.718 / 0.107 / 2.482 | 0.0014353 / 0.0745098 | 0 / 939,636 |
+| 4 | 228,140 | 2.953 / 0.520 / 0.076 / 2.356 | 0.0020722 / 0.1098039 | 0 / 939,636 |
+
+RGB mean is the mean absolute sRGB channel difference, normalized to 0–1; p99.9 is the nearest-rank percentile of the maximum RGB-channel difference per pixel. Lit comparisons include each renderer’s own shadows. Coverage counts completely missing pixels inside the fully covered naive mask after one-pixel erosion; silhouettes and partial MSAA samples are excluded. These image metrics are measured errors, not a proof that quadric bake error bounds screen pixels. Resident bytes count each renderer separately, including its allocated geometry, selection buffers and attachments, excluding driver overhead and diagnostic readbacks. GPU select includes main and shadow selection. Raw measurements: [L3b benchmark records](results/l3b-benchmark.json).
+
+Measured rows: 10 + 4 sweep; failures: 0.
+<!-- L3B_BENCHMARK_END -->
+
 Standalone experiment for LLP 1041.011 O1 / §5 Q2: bake a cluster-LOD DAG, select
 and cull on the GPU, then draw through ordinary hardware rasterization. No software
 rasterizer, 64-bit atomics, optional rendering features, or vendor modifications.
@@ -176,6 +206,31 @@ does not enter the distance formula; the multi-fixture test applies random rigid
 orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
+
+L3b selection decision: retain the existing exact selector. At the revised
+Washington portrait t=.75, the 1 px benchmark measures 2.355000 ms main selection
+and 0.375958 ms shadow selection (combined median 2.731209 ms), versus 1.003666 ms
+main raster. Main selection barely changes from 2.390125 to 2.257334 ms across
+0.5–4 px even as triangles drop 1,251,764→228,140. A trial of conservative bounds
+for aligned 256-cluster blocks plus skipping empty-block compaction scans measured
+3.632501 ms combined selection, 1.135375 ms main and 0.246334 ms shadow at the
+revised portrait; it did not meet 1.5 ms and was removed. It allocated 913,677,824
+GPU bytes (2,265,288 more than the retained selector). This trial was not retained
+or certified by equality oracles. Commands were `clod-view time <washington-4.clod>
+--path hero --t 0.75 --frames 7 --out <cache>/out/L3b/after.png` and the final
+benchmark command. Its counters were 317,358 main candidates / 110,862 shadow
+candidates, 6,611 selected main clusters, 737,305 drawn triangles, zero overflow.
+The earlier pre-polish baseline was 2.717833 ms selection / 0.626791 ms main,
+488,844 triangles; its different framing prevents a direct performance comparison.
+Raw trial logs remain in `<cache>/out/L3b/{before,after}.log`.
+
+The ≤1.5 ms every-frame selection target is **not achieved**. The retained code
+still serializes each instance's range through one workgroup. The next experiment
+would dispatch per-instance × bounded group/page ranges, reject their bounds
+first, then prefix their counts in original cluster order before scatter; that
+must preserve the existing deterministic quota/overflow semantics and pass the
+full set/image equality oracles. That compaction redesign is left outside this
+lane rather than committing a slower unverified selector.
 
 L3b implementation decisions: use native-only winit 0.30 with raw-window-handle
 and X11 (the latter permits Linux CPU-only builds); retain wgpu 30 and core
@@ -370,6 +425,40 @@ comparison. Bake with the release baker, matching the previous bake measurements
     the real scans use image equality and localized coverage.
 
 ## Results
+
+### L3b native pacing (format v4)
+
+Verification: `bun measure.mjs verify` exits 0: **22 test functions**, **14
+nonempty test suites**, zero failed suites; tests 109.712506 s, clippy 0.851824 s,
+fmt 0.152197 s, wasm-format 0.134167 s, wasm-view 1.575179 s. It checks **55 source
+files**, maximum **715 lines**, zero cap failures. Coverage checks two real assets
+and 96 cameras; real zero-threshold checks 12 image comparisons. The later
+addition of two timing-median fields passes clippy again in 0.80 s. All rendering
+checks use the final scene/light changes; the selector trial is absent.
+
+
+`bun measure.mjs pacing`: all four runs exit 0, each with 600 measured intervals,
+ten warmups, 2560×1440, avenue:25, 1 px, shadows on, full-path frame sampling.
+The monitor reports **120 Hz** (8.333333 ms). Zero pixel readbacks and zero PNG
+encodes in every run. [Exact pacing records](results/l3b-pacing.json).
+
+| Asset / mode | Frame interval p50 / p95 / p99 / max ms | Missed refreshes / late intervals | GPU p50 / p95 / p99 / max ms | Select p50 / max ms | CPU p50 / p95 / p99 / max ms | Surface timeouts |
+|---|---:|---:|---:|---:|---:|---:|
+| gaul-4 / cluster | 8.332584 / 8.543709 / 8.855458 / 49.834042 | 8 / 4 | 4.729918 / 6.050086 / 6.258874 / 6.725457 | 2.188000 / 3.336292 | 0.556959 / 0.643500 / 0.679417 / 0.754917 | 4 |
+| gaul-4 / naive | 8.372834 / 9.661333 / 10.448083 / 41.500125 | 4 / 1 | 6.004292 / 8.768916 / 8.999000 / 9.802708 | 0.000000 / 0.000000 | 0.282625 / 0.374250 / 0.416625 / 0.522417 | 1 |
+| washington-4 / cluster | 8.331125 / 9.357500 / 17.322000 / 18.970667 | 25 / 25 | 4.373792 / 6.079874 / 6.450958 / 8.579749 | 2.945167 / 4.967458 | 0.700334 / 0.881458 / 0.965458 / 1.139833 | 1 |
+| washington-4 / naive | 15.438000 / 48.732459 / 95.323666 / 131.512125 | 1147 / 448 | 13.859542 / 47.462250 / 92.857125 / 130.406708 | 0.000000 / 0.000000 | 0.419291 / 0.536458 / 0.732416 / 0.868625 | 1 |
+
+Washington cluster presentation meets an 8.33 ms median but misses 25 refreshes;
+it is not perfect 120 Hz. Naive misses 1,147. The old 91.639 ms reel GPU spike
+was not reproduced: Washington cluster's native maximum is 8.579749 ms GPU and
+18.970667 ms frame interval. Gaul's 49.834042 ms interval maximum occurs with GPU
+maximum 6.725457 ms, so GPU raster/selection alone does not account for that stall.
+FIFO acquisition timeouts and host presentation scheduling remain visible. These
+are host present intervals, not a claim of measured compositor scanout timing.
+GPU query spans exclude CPU PNG work, so the old GPU spike cannot honestly be
+attributed to PNG encoding solely because the native run did not reproduce it.
+
 
 ### L3a museum reel (format v4)
 

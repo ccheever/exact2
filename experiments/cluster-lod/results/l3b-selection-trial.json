@@ -1,0 +1,160 @@
+{
+  "before": [
+    {
+      "baseline_chunks": 0,
+      "baseline_vertices": null,
+      "camera_hero": [
+        -0.2921488583087921,
+        -0.1359274536371231,
+        1.7582166194915771
+      ],
+      "instances": 25,
+      "median_source_edge_world": 0.0010240989504382014,
+      "minimum_distance_1440p_2px": 0.8900616765022278,
+      "pages": 18,
+      "seconds": 2.087050625,
+      "source_triangles": 16860930,
+      "stage": "load"
+    },
+    {
+      "adapter": "Apple M5 Max",
+      "backend": "Metal",
+      "features": "Features { features_wgpu: FeaturesWGPU(0x0), features_webgpu: FeaturesWebGPU(TIMESTAMP_QUERY) }",
+      "limits": "wgpu::Limits::default()"
+    },
+    {
+      "bytes_resident_gpu": 911412536,
+      "candidates_tested": 317358,
+      "capacity_per_instance": 167772,
+      "command": "time",
+      "cpu_ms": 1.241208,
+      "culling": true,
+      "draws": 18,
+      "encode_ms": 1.241125,
+      "eye": [
+        0.9574759602546692,
+        -0.4578680992126465,
+        2.2077879905700684
+      ],
+      "frame_completion_ms": 7.756875,
+      "gpu_main_ms": 0.626791,
+      "gpu_ms": 3.5249159999999997,
+      "gpu_select_ms": 2.717833,
+      "gpu_shadow_ms": 0.16875,
+      "ground_draws": 1,
+      "layout": "avenue:25",
+      "measured_frames": 7,
+      "mode": "cluster",
+      "out": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/L3b/before.png",
+      "overflow": 0,
+      "padding_triangles": 74484,
+      "readback_bytes": 14745664,
+      "selected_clusters": 4401,
+      "selection_ms": 0.0,
+      "selector": "gpu",
+      "shadow_candidates_tested": 110862,
+      "shadow_clusters": 5787,
+      "shadow_draws": 18,
+      "shadow_overflow": 0,
+      "shadow_padding": 111722,
+      "shadow_selection_ms": 4.2e-05,
+      "shadow_triangles": 629014,
+      "shadows": true,
+      "size": [
+        2560,
+        1440
+      ],
+      "submitted_vertices_or_indices": 1689984,
+      "t": 0.75,
+      "threshold_px": 1.0,
+      "triangles_drawn": 488844,
+      "valid_timestamp_samples": {
+        "gpu_main_ms": 7,
+        "gpu_ms": 7,
+        "gpu_select_ms": 7,
+        "gpu_shadow_ms": 7
+      },
+      "view": "lit",
+      "warmup_frames": 1
+    }
+  ],
+  "after": [
+    {
+      "baseline_chunks": 0,
+      "baseline_vertices": null,
+      "camera_hero": [
+        -0.2921488583087921,
+        -0.1359274536371231,
+        1.7582166194915771
+      ],
+      "instances": 25,
+      "median_source_edge_world": 0.0010240989504382014,
+      "minimum_distance_1440p_2px": 0.8900616765022278,
+      "pages": 18,
+      "seconds": 1.471090583,
+      "source_triangles": 16860930,
+      "stage": "load"
+    },
+    {
+      "adapter": "Apple M5 Max",
+      "backend": "Metal",
+      "features": "Features { features_wgpu: FeaturesWGPU(0x0), features_webgpu: FeaturesWebGPU(TIMESTAMP_QUERY) }",
+      "limits": "wgpu::Limits::default()"
+    },
+    {
+      "bytes_resident_gpu": 913677824,
+      "candidates_tested": 317358,
+      "capacity_per_instance": 167772,
+      "command": "time",
+      "cpu_ms": 0.486791,
+      "culling": true,
+      "draws": 18,
+      "encode_ms": 0.486708,
+      "eye": [
+        0.9574759602546692,
+        -0.4578680992126465,
+        2.2077879905700684
+      ],
+      "frame_completion_ms": 6.952083,
+      "gpu_main_ms": 1.135375,
+      "gpu_ms": 5.014543,
+      "gpu_select_ms": 3.632501,
+      "gpu_shadow_ms": 0.246334,
+      "ground_draws": 1,
+      "layout": "avenue:25",
+      "measured_frames": 7,
+      "mode": "cluster",
+      "out": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/L3b/after.png",
+      "overflow": 0,
+      "padding_triangles": 108903,
+      "readback_bytes": 14745664,
+      "selected_clusters": 6611,
+      "selection_ms": 4.2e-05,
+      "selector": "gpu",
+      "shadow_candidates_tested": 110862,
+      "shadow_clusters": 5787,
+      "shadow_draws": 18,
+      "shadow_overflow": 0,
+      "shadow_padding": 111722,
+      "shadow_selection_ms": 0.0,
+      "shadow_triangles": 629014,
+      "shadows": true,
+      "size": [
+        2560,
+        1440
+      ],
+      "submitted_vertices_or_indices": 2538624,
+      "t": 0.75,
+      "threshold_px": 1.0,
+      "triangles_drawn": 737305,
+      "valid_timestamp_samples": {
+        "gpu_main_ms": 7,
+        "gpu_ms": 7,
+        "gpu_select_ms": 7,
+        "gpu_shadow_ms": 7
+      },
+      "view": "lit",
+      "warmup_frames": 1
+    }
+  ]
+}

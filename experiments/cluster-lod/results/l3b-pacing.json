@@ -1,0 +1,177 @@
+{
+  "pacing": [
+    {
+      "asset": "gaul-4",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 0.7549170000000001,
+        "p50": 0.556959,
+        "p95": 0.6435,
+        "p99": 0.6794169999999999
+      },
+      "dropped_frames": 8,
+      "frame_interval_ms": {
+        "max": 49.834042000000004,
+        "p50": 8.332584,
+        "p95": 8.543709,
+        "p99": 8.855458
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 6.7254570000000005,
+        "p50": 4.729918,
+        "p95": 6.050086,
+        "p99": 6.258874
+      },
+      "gpu_select_ms": {
+        "max": 3.3362920000000003,
+        "p50": 2.188,
+        "p95": 3.1509579999999997,
+        "p99": 3.220541
+      },
+      "intervals": 600,
+      "late_intervals": 4,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 4
+    },
+    {
+      "asset": "gaul-4",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 0.5224169999999999,
+        "p50": 0.282625,
+        "p95": 0.37425,
+        "p99": 0.416625
+      },
+      "dropped_frames": 4,
+      "frame_interval_ms": {
+        "max": 41.500125,
+        "p50": 8.372834,
+        "p95": 9.661332999999999,
+        "p99": 10.448083
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 9.802707999999999,
+        "p50": 6.0042919999999995,
+        "p95": 8.768916,
+        "p99": 8.998999999999999
+      },
+      "gpu_select_ms": {
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "intervals": 600,
+      "late_intervals": 1,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "washington-4",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 1.139833,
+        "p50": 0.700334,
+        "p95": 0.881458,
+        "p99": 0.965458
+      },
+      "dropped_frames": 25,
+      "frame_interval_ms": {
+        "max": 18.970667,
+        "p50": 8.331125,
+        "p95": 9.3575,
+        "p99": 17.322
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 8.579749000000001,
+        "p50": 4.373792,
+        "p95": 6.079874,
+        "p99": 6.450958000000001
+      },
+      "gpu_select_ms": {
+        "max": 4.967458,
+        "p50": 2.945167,
+        "p95": 4.485707,
+        "p99": 4.620917
+      },
+      "intervals": 600,
+      "late_intervals": 25,
+      "layout": "avenue:25",
+      "mode": "cluster",
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    },
+    {
+      "asset": "washington-4",
+      "command": "demo",
+      "cpu_ms": {
+        "max": 0.8686250000000001,
+        "p50": 0.419291,
+        "p95": 0.536458,
+        "p99": 0.732416
+      },
+      "dropped_frames": 1147,
+      "frame_interval_ms": {
+        "max": 131.512125,
+        "p50": 15.438,
+        "p95": 48.732459,
+        "p99": 95.323666
+      },
+      "frames": 600,
+      "gpu_ms": {
+        "max": 130.40670799999998,
+        "p50": 13.859542,
+        "p95": 47.462250000000004,
+        "p99": 92.857125
+      },
+      "gpu_select_ms": {
+        "max": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0
+      },
+      "intervals": 600,
+      "late_intervals": 448,
+      "layout": "avenue:25",
+      "mode": "naive",
+      "pixel_readbacks": 0,
+      "png_encodes": 0,
+      "refresh_hz": 120,
+      "refresh_period_ms": 8.333333333333334,
+      "size": [
+        2560,
+        1440
+      ],
+      "surface_timeouts": 1
+    }
+  ],
+  "failures": []
+}

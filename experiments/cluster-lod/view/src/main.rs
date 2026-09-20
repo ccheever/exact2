@@ -130,6 +130,8 @@ fn run() -> Result<()> {
                 "encode_ms",
                 "gpu_ms",
                 "gpu_select_ms",
+                "gpu_select_main_ms",
+                "gpu_select_shadow_ms",
                 "cpu_ms",
                 "frame_completion_ms",
                 "gpu_main_ms",
