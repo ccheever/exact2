@@ -1,4 +1,5 @@
 //! Deterministic, nonspatial state and fixed ticks under a caller-owned clock.
+#![doc = include_str!("../README.md")]
 #![deny(unsafe_code)]
 extern crate self as exact_world;
 pub use exact_motion::SpringConfig;
