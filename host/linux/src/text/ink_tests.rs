@@ -3,6 +3,10 @@ use super::*;
 use exact_kernel::StyleProps;
 use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 
+#[allow(dead_code)]
+#[path = "../../../../apps/messages-stress/data/src/model.rs"]
+mod messages_envelope_model;
+
 fn engine() -> TextEngine {
     let engine = TextEngine::new();
     engine
@@ -975,6 +979,210 @@ mod cached_placements {
     }
 
     #[test]
+    fn messages_32_body_revisions_reuse_missing_phase_envelopes() {
+        use super::messages_envelope_model::{history, Controls};
+
+        const COUNT: usize = 10_000;
+        const BATCH: usize = 32;
+        let rows_a = history(Controls::new(COUNT, 1, BATCH).unwrap(), "").unwrap();
+        let rows_b = history(Controls::new(COUNT, 2, BATCH).unwrap(), "").unwrap();
+        assert_eq!((rows_a.len(), rows_b.len()), (COUNT, COUNT));
+        assert_eq!(rows_a[..COUNT - BATCH], rows_b[..COUNT - BATCH]);
+        for (a, b) in rows_a[COUNT - BATCH..].iter().zip(&rows_b[COUNT - BATCH..]) {
+            assert_eq!(a.id, b.id);
+            assert_ne!(a.body, b.body);
+        }
+        let mut engine = engine();
+        let mut make = |rows: &[super::messages_envelope_model::Row]| {
+            rows[COUNT - BATCH..]
+                .iter()
+                .map(|row| {
+                    let mut s = spec(&row.body);
+                    s.strut.size = 14.0;
+                    s.strut.line_height = Some(14.0 * 1.45);
+                    s.runs[0].size = 14.0;
+                    s.runs[0].line_height = s.strut.line_height;
+                    s.white_space = exact_kernel::WhiteSpace::PreWrap;
+                    engine.paragraph(&s, Some(280.0))
+                })
+                .collect::<Vec<_>>()
+        };
+        let a = make(&rows_a);
+        let b = make(&rows_b);
+        assert_eq!((a.len(), b.len()), (BATCH, BATCH));
+        for (a, b) in a.iter().zip(&b) {
+            assert!(!Rc::ptr_eq(&a.source, &b.source));
+            assert!(Rc::ptr_eq(&a.source.catalog, &b.source.catalog));
+        }
+        // Keep the real paragraph cache: equal bodies may share one paragraph.
+        // Thirty-two rows must not be turned into 32 artificial index builds.
+        let distinct_b = b.iter().map(Rc::as_ptr).collect::<BTreeSet<_>>().len();
+        let keys_a = a.iter().flat_map(|p| keys(p, 1.0)).collect::<BTreeSet<_>>();
+        let keys_b = b.iter().flat_map(|p| keys(p, 1.0)).collect::<BTreeSet<_>>();
+        let canonical = keys_a
+            .union(&keys_b)
+            .map(|key| {
+                let mut key = *key;
+                key.x_bin = SubpixelBin::Zero;
+                key
+            })
+            .collect::<BTreeSet<_>>();
+        assert!(
+            canonical.len() <= 256,
+            "fixture exceeds proposed envelope bound"
+        );
+        let mut mask = Mask::new(320, 128).unwrap();
+        let path = PathBuilder::from_rect(Rect::from_xywh(10.125, 7.25, 275.5, 110.5).unwrap());
+        mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+        let views = |paragraphs: &[Rc<Paragraph>]| {
+            paragraphs
+                .iter()
+                .enumerate()
+                .map(|(i, p)| View::at([-0.625, -37.875, -p.height + 70.125][i % 3], 1.0))
+                .collect::<Vec<_>>()
+        };
+        let views_a = views(&a);
+        let views_b = views(&b);
+        let metrics = |paragraphs: &[Rc<Paragraph>]| {
+            paragraphs
+                .iter()
+                .map(|p| {
+                    (
+                        p.width.to_bits(),
+                        p.height.to_bits(),
+                        p.first_baseline.to_bits(),
+                        p.baselines.iter().map(|n| n.to_bits()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        let before_metrics = (metrics(&a), metrics(&b));
+        let paint_batch =
+            |engine: &mut TextEngine, paragraphs: &[Rc<Paragraph>], views: &[View]| {
+                paragraphs
+                    .iter()
+                    .zip(views)
+                    .map(|(p, view)| {
+                        let mut pixmap = Pixmap::new(320, 128).unwrap();
+                        pixmap.fill(Color::WHITE);
+                        engine.paint(
+                            &mut pixmap,
+                            p,
+                            &palette(),
+                            view.origin,
+                            view.scale,
+                            view.transform,
+                            Some(&mask),
+                        );
+                        pixmap
+                    })
+                    .collect::<Vec<_>>()
+            };
+        let pixels_a = paint_batch(&mut engine, &a, &views_a);
+        let warmed = cache_card(&a[0]);
+        let shared_missing = keys_b
+            .intersection(&keys_a)
+            .filter(|key| !warmed.contains_key(*key))
+            .count();
+        assert!(
+            shared_missing > 0,
+            "STOP: ordinary A drawing already cached every shared phase; no new target"
+        );
+        // Landed placement reuse already covers every key in `warmed`.
+        // New work is permitted for B-only phases, never for A's numeric envelopes.
+        let new_missing = keys_b
+            .difference(&keys_a)
+            .filter(|key| !warmed.contains_key(*key))
+            .count();
+        let start = ink::build_work();
+        let pixels_b = paint_batch(&mut engine, &b, &views_b);
+        let work = delta(start);
+        assert_eq!(work.attempts, distinct_b, "actual lazy index builds only");
+        assert_eq!((pixels_a.len(), pixels_b.len()), (BATCH, BATCH));
+
+        // Only now may the independent full-glyph oracle warm additional images.
+        // Every one of the 64 full RGBA buffers is checked before the work RED.
+        for (paragraphs, views, captured) in [(&a, &views_a, &pixels_a), (&b, &views_b, &pixels_b)]
+        {
+            for ((p, view), actual) in paragraphs.iter().zip(views).zip(captured) {
+                let expected = full(&mut engine, p, &palette(), *view, Some(&mask));
+                assert_eq!(actual.data(), expected.data(), "full RGBA changed");
+            }
+        }
+        let mut checked = BTreeSet::new();
+        for p in a.iter().chain(&b) {
+            if checked.insert(Rc::as_ptr(p)) {
+                // Existing oracle also checks numeric bounds, fractional queries,
+                // transformed selection/order and no image-cache owner mutation.
+                let (index, _) = checked_index(p, 1.0);
+                pixels(&mut engine, p, index, 1.0);
+            }
+        }
+        assert_eq!((metrics(&a), metrics(&b)), before_metrics);
+        assert!(
+            work.uncached_calls <= new_missing,
+            "shared missing phases recomputed: shared_missing={shared_missing}, new_missing={new_missing}, actual_uncached={}",
+            work.uncached_calls
+        );
+    }
+
+    #[test]
+    fn numeric_envelopes_bound_generation_and_clear_on_cap() {
+        let mut engine = engine();
+        let p = engine.layout(&spec("f"), Some(100.0));
+        let (first, cold) = checked_index(&p, 1.0);
+        assert_eq!(cold.uncached_calls, 4);
+        let (again, hot) = checked_index(&p, 1.0);
+        first.assert_same_numeric(&again);
+        assert_eq!(hot.raster_phases, 0);
+        assert_eq!(hot.uncached_calls, 0);
+        let old = Rc::downgrade(&p.source.catalog.borrow().ink_catalog);
+        p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
+        assert!(
+            old.upgrade().is_none(),
+            "numeric cache must not own generation"
+        );
+        let (fresh, reset) = checked_index(&p, 1.0);
+        first.assert_same_numeric(&fresh);
+        assert_eq!(reset.uncached_calls, cold.uncached_calls);
+        p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
+        let mut first_key = None;
+        for i in 0..257 {
+            let mut s = spec("f");
+            s.runs[0].size = 14.0 + i as f32 / 1024.0;
+            let next = engine.layout(&s, Some(100.0));
+            let (_, work) = checked_index(&next, 1.0);
+            assert_eq!(work.uncached_calls, 4, "full font-size key at {i}");
+            let c = next.source.catalog.borrow();
+            let entries = &c.envelopes.entries;
+            assert_eq!(entries.len(), i % 256 + 1);
+            assert_eq!(entries.capacity(), 256);
+            assert!(entries
+                .iter()
+                .all(|(k, _)| k.x_bin == SubpixelBin::Zero && k.y_bin == SubpixelBin::Zero));
+            if i == 0 {
+                first_key = Some(entries[0].0);
+            }
+            if i == 256 {
+                assert!(entries.iter().all(|(k, _)| Some(*k) != first_key));
+            }
+        }
+        let mut s = spec("f");
+        s.runs[0].size = 14.0;
+        let evicted = engine.layout(&s, Some(100.0));
+        assert_eq!(checked_index(&evicted, 1.0).1.uncached_calls, 4);
+        assert_eq!(checked_index(&evicted, 1.0).1.uncached_calls, 0);
+        let c = p.source.catalog.borrow();
+        eprintln!(
+            "numeric envelope bytes: struct={} entry={} capacity={} payload={}",
+            std::mem::size_of::<ink::Envelopes>(),
+            std::mem::size_of::<(CacheKey, ink::Bounds)>(),
+            c.envelopes.entries.capacity(),
+            c.envelopes.entries.capacity() * std::mem::size_of::<(CacheKey, ink::Bounds)>()
+        );
+    }
+
+    #[test]
     fn warm_accepted_a_different_source_b_reuses_existing_phase_placements() {
         let mut engine = engine();
         let a = Rc::new(engine.layout(&spec(&"fj café repeat\n".repeat(8)), Some(190.0)));
@@ -1019,6 +1227,8 @@ mod cached_placements {
             let required = keys(&p, scale);
             assert!(!required.is_empty());
             for regime in 0..3 {
+                // Each placement-count regime starts with cold numeric envelopes.
+                p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
                 p.source.catalog.borrow_mut().swash.image_cache.clear();
                 match regime {
                     0 => {}
@@ -1062,6 +1272,7 @@ mod cached_placements {
             cache_card(&p).values().all(Option::is_none),
             "actual missing-glyph fixture"
         );
+        p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
         let (index, cached) = checked_index(&p, 1.0);
         assert_eq!(cached.uncached_calls, 0);
         assert_eq!(cached.cached_placements, required.len());
@@ -1080,6 +1291,7 @@ mod cached_placements {
                 .image_cache
                 .insert(*key, Some(empty));
         }
+        p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
         let (zero, work) = checked_index(&p, 1.0);
         assert_eq!(work.uncached_calls, 0);
         assert_eq!(work.cached_placements, required.len());

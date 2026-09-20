@@ -79,6 +79,29 @@ impl Bounds {
     }
 }
 
+// Numeric canonical-key envelopes shared by index builds in this catalog only.
+// The weak generation never pins fonts, glyph images, sources, or old indices.
+#[derive(Default)]
+pub(super) struct Envelopes {
+    catalog: Weak<()>,
+    pub(super) entries: Vec<(CacheKey, Bounds)>,
+}
+impl Envelopes {
+    fn prepare(&mut self, catalog: &Rc<()>) -> Option<()> {
+        let token = Rc::downgrade(catalog);
+        if !self.catalog.ptr_eq(&token) {
+            self.entries.clear();
+            self.catalog = token;
+        }
+        if self.entries.capacity() < ENVELOPES {
+            self.entries
+                .try_reserve_exact(ENVELOPES - self.entries.len())
+                .ok()?;
+        }
+        Some(())
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Cache {
     catalog: Weak<()>,
@@ -185,9 +208,7 @@ impl Index {
             return None;
         }
         result.spans.resize(nodes, Bounds::EMPTY);
-        // Bounded build scratch; no image/font ownership survives an envelope.
-        let mut envelopes: Vec<(CacheKey, Bounds)> = Vec::new();
-        envelopes.try_reserve_exact(ENVELOPES).ok()?;
+        engine.envelopes.prepare(&engine.ink_catalog)?;
         for (source, line) in p.layouts.iter().enumerate() {
             for (wrapped, layout) in line.iter().enumerate() {
                 let n = result.lines.len();
@@ -211,10 +232,15 @@ impl Index {
                     let mut key = glyph.physical((0.0, 0.0), scale).cache_key;
                     key.x_bin = SubpixelBin::Zero;
                     key.y_bin = SubpixelBin::Zero;
-                    let envelope = match envelopes.binary_search_by_key(&key, |(k, _)| *k) {
-                        Ok(i) => envelopes[i].1,
+                    let envelope = match engine
+                        .envelopes
+                        .entries
+                        .binary_search_by_key(&key, |(k, _)| *k)
+                    {
+                        Ok(i) => engine.envelopes.entries[i].1,
                         Err(_) => {
                             let bound = envelope(engine, key);
+                            let envelopes = &mut engine.envelopes.entries;
                             if envelopes.len() == ENVELOPES {
                                 envelopes.clear();
                             }

@@ -4,6 +4,14 @@ use crate::finite;
 use std::ops::Range;
 use unicode_linebreak::{break_property, linebreaks, BreakClass};
 
+/// Fit tolerance added to a requested width before comparing advances.
+///
+/// Canvas and engine advances are rounded to fractions of a pixel, so a line
+/// whose advances sum to at most this far past the offer still fits — the same
+/// `lineFitEpsilon` Pretext's engine profile applies (`@chenglou/pretext`
+/// `measurement.ts` / `line-break.ts`: 0.005, Safari 1/64).
+const FIT_EPSILON: f64 = 0.005;
+
 /// Measure a UTF-8 byte range in the original paragraph, shaped in its context.
 /// The caller includes letter spacing and returns a nonnegative finite advance.
 /// Collapsible ASCII whitespace is measured as a space, including a tab range;
@@ -265,7 +273,7 @@ impl Prepared {
         if !self.valid_cursor(start) {
             return None;
         }
-        let limit = if width.is_nan() { 0.0 } else { width.max(0.0) } as f64;
+        let fit = (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON;
         let mut total = 0.0;
         let mut visible = false;
         let mut best = None;
@@ -292,7 +300,7 @@ impl Prepared {
                 hard_break: segment.hard,
                 hyphenated: false,
             };
-            if paint > limit && (visible || segment.visible) {
+            if paint > fit && (visible || segment.visible) {
                 if let Some(best) = best {
                     return Some(best);
                 }
@@ -315,7 +323,7 @@ impl Prepared {
                         } else {
                             self.atoms[j].prefix - base
                         };
-                        if j > first && !self.atoms[j].space && candidate > limit {
+                        if j > first && !self.atoms[j].space && candidate > fit {
                             break;
                         }
                         last = j;
@@ -378,7 +386,7 @@ impl Prepared {
             };
             if visible {
                 fallback = Some(candidate);
-                if candidate.width as f64 <= limit {
+                if candidate.width as f64 <= fit {
                     best = Some(candidate);
                 }
             }
@@ -388,7 +396,15 @@ impl Prepared {
     }
 
     /// Count lines and their largest advance using exactly the streaming walker.
+    ///
+    /// Under `overflow-wrap: normal` no grapheme atoms exist, so every line
+    /// starts and ends on a segment boundary; the arithmetic below then makes
+    /// the same break decisions as [`Prepared::next_line`] without cursor or
+    /// range bookkeeping — the hot path Pretext's `layout()` optimizes for.
     pub fn line_stats(&self, width: f32) -> (usize, f32) {
+        if self.options.overflow_wrap == OverflowWrap::Normal {
+            return self.count_and_max(width);
+        }
         let mut cursor = Cursor::default();
         let mut count = 0;
         let mut max: f32 = 0.0;
@@ -396,6 +412,69 @@ impl Prepared {
             count += 1;
             max = max.max(line.width);
             cursor = line.end;
+        }
+        (count, max)
+    }
+
+    /// Count wrapped lines at `width`, mirroring Pretext's `layout()` helper.
+    pub fn count_lines(&self, width: f32) -> usize {
+        self.line_stats(width).0
+    }
+
+    /// Segment-boundary fast path behind [`Prepared::line_stats`].
+    ///
+    /// Break decisions match [`Prepared::next_line`] exactly (same fit
+    /// tolerance, same best/fallback rule, same hyphen and hard-break handling);
+    /// `tests/walker.rs` checks both agree over the corpus and fuzz text.
+    fn count_and_max(&self, width: f32) -> (usize, f32) {
+        let fit = (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON;
+        let hyphen = self.options.hyphen_advance as f64;
+        let n = self.segments.len();
+        let mut start = 0;
+        let mut count = 0;
+        let mut max: f32 = 0.0;
+        while start < n {
+            let mut total = 0.0;
+            let mut visible = false;
+            let mut best: Option<(usize, f32)> = None;
+            let mut fallback: Option<(usize, f32)> = None;
+            let mut i = start;
+            // Every arm ends past `start` or ends the walk, so this terminates.
+            let line: Option<(usize, f32)> = loop {
+                let segment = &self.segments[i];
+                let paint = total + segment.width as f64;
+                if paint > fit && (visible || segment.visible) {
+                    if let Some(found) = best {
+                        break Some(found);
+                    }
+                    if let Some(found) = fallback {
+                        break Some(found);
+                    }
+                    break Some((i + 1, hyphenated(paint, segment.hyphen, hyphen)));
+                }
+                visible |= segment.visible;
+                if segment.hard {
+                    break Some((i + 1, finite(paint)));
+                }
+                if i + 1 == n {
+                    break visible.then_some((n, finite(paint)));
+                }
+                let candidate = hyphenated(paint, segment.hyphen, hyphen);
+                if visible {
+                    fallback = Some((i + 1, candidate));
+                    if candidate as f64 <= fit {
+                        best = Some((i + 1, candidate));
+                    }
+                }
+                total = paint + if visible { segment.space as f64 } else { 0.0 };
+                i += 1;
+            };
+            let Some((end, w)) = line else {
+                break;
+            };
+            count += 1;
+            max = max.max(w);
+            start = end;
         }
         (count, max)
     }
@@ -506,6 +585,11 @@ fn advance(n: f32) -> f32 {
     } else {
         0.0
     }
+}
+/// A candidate line width, adding the visible hyphen when a soft-hyphen
+/// opportunity ends the line — shared by both walk paths.
+fn hyphenated(paint: f64, hyphen: bool, hyphen_advance: f64) -> f32 {
+    finite(paint + if hyphen { hyphen_advance } else { 0.0 })
 }
 fn space(ch: char) -> bool {
     matches!(ch, ' ' | '\t')
