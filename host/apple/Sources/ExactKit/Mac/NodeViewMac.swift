@@ -198,6 +198,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textRasterScale: CGFloat = 2
     var textRasterKey: TextRasterKey?
     var textRasterReady = false
+    var textRasterPending = false
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:]
     var style: [String: Any] = [:]
@@ -1104,7 +1105,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        if textRaster != nil { textRasterKey = nil; needsDisplay = true }
+        if textRaster != nil { textRasterKey = nil; textRasterPending = false; needsDisplay = true }
     }
 
     override func layout() {

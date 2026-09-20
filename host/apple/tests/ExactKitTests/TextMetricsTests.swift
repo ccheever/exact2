@@ -49,6 +49,79 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
     }
 
+    func testWorkerPublicationDefersOnlyOffscreenCurrentPixels() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-publication")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        presenter.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
+        let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        let late = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        func prepare(_ node: NodeView) -> TextRasterKey {
+            node.dropTextRaster()
+            let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
+                                    box: node.contentBox(), scale: window.backingScaleFactor)
+            node.textRasterKey = key
+            return key
+        }
+        var key = prepare(offscreen)
+        XCTAssertFalse(presenter.textIsVisible(offscreen))
+        offscreen.showTextRaster(pixels, for: key, deferOffscreen: true)
+        XCTAssertTrue(offscreen.textRasterReady)
+        XCTAssertTrue(offscreen.textRasterPending)
+        XCTAssertTrue(offscreen.needsTextRaster)
+        XCTAssertNil(offscreen.layer?.contents, "worker completion must not publish offscreen")
+        presenter.refreshVisibleText()
+        XCTAssertFalse(offscreen.textRasterPending)
+        XCTAssertFalse(offscreen.needsTextRaster)
+        XCTAssertTrue(offscreen.layer?.contents as? IOSurface === pixels, "the pump publishes accepted pixels without rendering again")
+
+        let visibleKey = prepare(visible)
+        visible.showTextRaster(pixels, for: visibleKey, deferOffscreen: true)
+        XCTAssertFalse(visible.textRasterPending)
+        XCTAssertTrue(visible.layer?.contents as? IOSurface === pixels)
+        visible.showTextRaster(late, for: visibleKey, deferOffscreen: true)
+        XCTAssertTrue(visible.textRaster === pixels, "a late worker cannot replace urgent pixels")
+
+        key = prepare(offscreen)
+        offscreen.showTextRaster(pixels, for: key, deferOffscreen: true)
+        offscreen.frame.origin.y = 80
+        XCTAssertTrue(presenter.textIsVisible(offscreen))
+        presenter.textRasters.ensure(offscreen, urgent: true)
+        XCTAssertFalse(offscreen.textRasterPending)
+        XCTAssertTrue(offscreen.layer?.contents as? IOSurface === pixels, "visible takeover must reuse pending pixels")
+
+        offscreen.frame.origin.y = 800
+        key = prepare(offscreen)
+        offscreen.showTextRaster(pixels, for: key, deferOffscreen: true)
+        offscreen.invalidateText()
+        XCTAssertFalse(offscreen.textRasterPending)
+        offscreen.showTextRaster(late, for: key, deferOffscreen: true)
+        XCTAssertNil(offscreen.textRasterKey)
+        XCTAssertFalse(offscreen.textRasterPending)
+        key = prepare(offscreen)
+        offscreen.showTextRaster(pixels, for: key, deferOffscreen: true)
+        offscreen.forget()
+        offscreen.showTextRaster(late, for: key, deferOffscreen: true)
+        XCTAssertNil(offscreen.textRaster)
+        XCTAssertNil(offscreen.textRasterKey)
+        XCTAssertFalse(offscreen.textRasterPending)
+    }
+
     func testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes() throws {
         let presenter = Presenter()
         let node = NodeView(id: 1, kind: "text", presenter: presenter)

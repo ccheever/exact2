@@ -62,7 +62,10 @@ final class TextRasterizer {
         let spec = node.paragraphSpec()
         let scale = node.window?.backingScaleFactor ?? 2
         let key = TextRasterKey(spec: spec, size: node.bounds.size, box: node.contentBox(), scale: scale)
-        if node.textRasterKey == key, node.textRasterReady || !urgent { return true }
+        if node.textRasterKey == key, node.textRasterReady || !urgent {
+            if node.textRasterReady && node.textRasterPending { node.presentTextRaster() }
+            return true
+        }
         guard urgent || active < Self.maxConcurrent else { return false }
         // The breaks the kernel measured at this width, when they are still
         // resident: the worker typesets its own lines, so the painted
@@ -74,6 +77,7 @@ final class TextRasterizer {
         }
         node.textRasterKey = key
         node.textRasterReady = false
+        node.textRasterPending = false
         let job = Job(source: engine.attributed(spec).copy() as! NSAttributedString,
                       ranges: ranges, baselines: baselines,
                       flush: spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0,
@@ -87,7 +91,7 @@ final class TextRasterizer {
             let image = Self.render(job)
             DispatchQueue.main.async { [weak self, weak node] in
                 self?.active -= 1
-                node?.showTextRaster(image, for: key)
+                node?.showTextRaster(image, for: key, deferOffscreen: true)
             }
         }
         return true
@@ -141,16 +145,20 @@ extension NodeView {
     }
 
     /// Whether the pump still owes this paragraph pixels.
-    var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil }
+    var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil || textRasterPending }
 
-    func showTextRaster(_ image: IOSurface?, for key: TextRasterKey) {
+    func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, deferOffscreen: Bool = false) {
         // An urgent paint can overtake its worker. Keep the accepted surface
         // instead of committing identical pixels again when that worker ends.
         guard textRasterKey == key, !textRasterReady, let image else { return }
         textRaster = image
         textRasterScale = key.scale
         textRasterReady = true
-        if rastersText { presentTextRaster() }
+        guard rastersText else { return }
+        if deferOffscreen, let presenter, !presenter.textIsVisible(self) {
+            textRasterPending = true
+            presenter.requestTextPublication()
+        } else { presentTextRaster() }
     }
 
     /// The surface is the view's own layer contents — no sublayer to commit,
@@ -163,6 +171,7 @@ extension NodeView {
         layer.contentsScale = textRasterScale
         layer.contentsGravity = .resize
         layer.contents = surface
+        textRasterPending = false
         CATransaction.commit()
     }
 
@@ -171,6 +180,7 @@ extension NodeView {
         textRaster = nil
         textRasterKey = nil
         textRasterReady = false
+        textRasterPending = false
     }
 }
 #endif

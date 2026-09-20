@@ -102,6 +102,13 @@ failed before input. Both are retained in `smooth/resume-mainthread-9df53eae-120
 The control was reverted. Its 221 native tests and unchanged-binary functional
 retry passed; the first agent launch again timed out before readiness.
 
+The next isolated candidate defers offscreen worker-result publication to the
+existing text pump. Visible completions still publish immediately, and a pending
+surface can be published on visible takeover without rerendering. Invalidation
+and retirement discard pending publication. All 222 native tests pass; restoring
+the old immediate-publication behavior fails three assertions in the new
+regression. Comparative timing is still pending.
+
 The frozen latest candidate passed forward/reverse scrolling, three widths,
 file switching, and full logical copy with the same 2,153,496-character hash.
 Its first agent launch timed out before readiness; the unchanged binary passed

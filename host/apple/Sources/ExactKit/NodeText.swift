@@ -56,6 +56,7 @@ extension NodeView {
         #if os(macOS)
         // The old pixels stay up until the new ones replace them.
         textRasterKey = nil
+        textRasterPending = false
         #endif
     }
 

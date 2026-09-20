@@ -318,6 +318,12 @@ final class Presenter {
         if refreshVisibleText(limit: 0) { textPending = true; startPump() }
     }
 
+    /// An offscreen worker supplied pixels; publish them with the next text slice.
+    func requestTextPublication() {
+        textPending = true
+        startPump()
+    }
+
     private func startPump() {
         guard pumpLink == nil else { return }
         // A display link, not a timer: a slice's commit must keep one phase
