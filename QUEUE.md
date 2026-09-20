@@ -621,12 +621,3 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - Hermes incremental rebuild inputs (2026-09-19): `js/build.rs` captures macOS/Linux engine archives in OUT_DIR but only watches iOS archives; replacing the external compiler/VM can leave a warm native build stale. Add upgrade invalidation together with `scripts/app.mjs` receipt identity support for external SDK inputs; simply adding external rerun-if-changed paths currently makes bake receipt capture refuse them. Until then, clean exact-js when provisioning a new compiler/engine.
 
 - Linux baseline failures found during dependency verification (2026-09-19): `exact-gpu` references Apple-only `SurfaceTargetUnsafe::CoreAnimationLayer` on Linux; Hermes ICU `DateTimeFormat.formatToParts` returns timestamp text (same with old 6badada and new e3371863); Ibex loader-case fixture expects a case-insensitive filesystem. Repair separately from the dependency upgrade; current Linux full-workspace checks are not green.
-
-- **Web Messages swipe capture transfer** (2026-09-20): fresh headless Chrome
-  contact on `bubble-m10` delivers down/moves/up, but never opens replies at
-  parent `5dba3fcd` or the byte-identical shared-bubble extraction. The trace
-  shows implicit capture on the text child, then child `lostpointercapture`
-  when the button takes capture, followed by button capture loss. Inspect
-  `motionController.attachSwipe`'s bubbling loss handler before changing CSS
-  direction or thresholds. Baseline/candidate receipts and pointer events:
-  `/tmp/exact-shared-bubble/`; context-menu Reply works on both.
