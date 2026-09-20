@@ -309,7 +309,9 @@ final class Presenter {
     private func batchApplied() {
         syncLists()
         coverLists()
-        if refreshVisibleText(limit: Self.textBandsPerSlice) { textPending = true; startPump() }
+        // Mounting and layout already spent this frame's main-thread time.
+        // Keep visible pixels urgent; prepare offscreen text in a later slice.
+        if refreshVisibleText(limit: 0) { textPending = true; startPump() }
     }
 
     private func startPump() {

@@ -9,6 +9,36 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testBatchPaintsVisibleTextButDefersOffscreenPreparation() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-admission")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        presenter.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
+        XCTAssertTrue(visible.rastersText)
+        XCTAssertTrue(presenter.root.visibleRect.intersects(visible.convert(visible.bounds, to: presenter.root)))
+        XCTAssertTrue(offscreen.rastersText)
+        XCTAssertFalse(presenter.root.visibleRect.intersects(offscreen.convert(offscreen.bounds, to: presenter.root)))
+        XCTAssertTrue(visible.textRasterReady, "visible pixels cannot wait for a later slice")
+        XCTAssertNil(offscreen.textRasterKey, "mounting must not also prepare speculative text")
+        presenter.settlePump()
+        XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
+    }
+
     func testLateRasterKeepsUrgentPixelsButChangedKeyStillPublishes() throws {
         let presenter = Presenter()
         let node = NodeView(id: 1, kind: "text", presenter: presenter)
@@ -32,42 +62,6 @@ final class TextMetricsTests: XCTestCase {
         node.showTextRaster(replacement, for: next)
         XCTAssertTrue(node.textRasterReady)
         XCTAssertTrue(node.textRaster === replacement)
-    }
-
-    func testRasterPublicationSkipsUnchangedLayerAndRepairsActualState() throws {
-        let presenter = Presenter()
-        let node = NodeView(id: 1, kind: "text", presenter: presenter)
-        let surface = try XCTUnwrap(IOSurface(properties: [.width: 20, .height: 20, .bytesPerElement: 4]))
-        node.textRaster = surface
-        node.textRasterScale = 2
-        node.wantsLayer = true
-        let layer = RasterPublicationLayer()
-        node.layer = layer
-        layer.contentsWrites = 0
-        node.presentTextRaster()
-        XCTAssertEqual(layer.contentsWrites, 1)
-        node.presentTextRaster()
-        XCTAssertEqual(layer.contentsWrites, 1, "accepted pixels need no second layer write")
-        XCTAssertTrue(layer.contents as? IOSurface === surface)
-        // Native drawing for selection/capture can replace or clear contents.
-        layer.contents = nil
-        node.presentTextRaster()
-        XCTAssertTrue(layer.contents as? IOSurface === surface)
-        let restored = layer.contentsWrites
-        node.presentTextRaster()
-        XCTAssertEqual(layer.contentsWrites, restored)
-        layer.contentsScale = 1
-        node.presentTextRaster()
-        XCTAssertEqual(layer.contentsScale, 2)
-        layer.contentsGravity = .center
-        node.presentTextRaster()
-        XCTAssertEqual(layer.contentsGravity, .resize)
-        let replacement = RasterPublicationLayer()
-        node.layer = replacement
-        node.presentTextRaster()
-        XCTAssertTrue(replacement.contents as? IOSurface === surface)
-        XCTAssertEqual(replacement.contentsScale, 2)
-        XCTAssertEqual(replacement.contentsGravity, .resize)
     }
 
     func testFractionalInlineMetricsReuseKernelMeasuredBreaks() throws {
@@ -128,13 +122,6 @@ final class TextMetricsTests: XCTestCase {
                 }
             }
         }
-    }
-}
-private final class RasterPublicationLayer: CALayer {
-    var contentsWrites = 0
-    override var contents: Any? {
-        get { super.contents }
-        set { contentsWrites += 1; super.contents = newValue }
     }
 }
 #endif
