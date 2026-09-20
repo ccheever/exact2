@@ -14,19 +14,15 @@ mod sealed {
 
 /// The built-in reference, optional-reference and tuple query forms.
 /// Sealed so every mutable query can prove its references are disjoint.
+#[allow(private_bounds)]
 pub trait Query: sealed::Sealed {
     /// Plain references bounded by the query borrow, not the world's lifetime.
     type Item<'a>;
     /// Guarded rows from consuming iteration; each guard keeps its column leased.
     type Owned<'w>;
-    /// # Safety
-    /// Acquire the state’s leases and mark its page first. The index must match, and may be yielded only once
-    /// while this state lives.
-    #[doc(hidden)]
-    unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w>;
     /// Prepared column references, leased once at query construction.
     #[doc(hidden)]
-    type State<'w>: for<'a> Fetch<Item<'a> = Self::Item<'a>>;
+    type State<'w>: for<'a> Fetch<Item<'a> = Self::Item<'a>, Owned = Self::Owned<'w>>;
     /// Resolve columns and reject duplicate component types before acquiring leases.
     #[doc(hidden)]
     fn prepare<'w>(
@@ -37,7 +33,10 @@ pub trait Query: sealed::Sealed {
 
 /// Internal query operations, exposed only as an associated bound.
 #[doc(hidden)]
-pub trait Fetch {
+pub(crate) trait Fetch {
+    type Owned;
+    /// Same fresh-index and lease obligations as fetch; splits the retained lease.
+    unsafe fn owned(&self, index: usize) -> Self::Owned;
     type Item<'a>;
     fn words(&self) -> usize;
     fn acquire(&mut self);
@@ -122,14 +121,6 @@ macro_rules! reference {
         impl<'q, C: Component> Query for $form {
             type Item<'a> = $item;
             type Owned<'w> = $owned;
-            unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
-                let make = || $guard {
-                    ptr: state.ptr(index),
-                    _lease: state._lease.as_ref().unwrap().split(),
-                    _life: PhantomData,
-                };
-                owned_row!($o, state, index, make)
-            }
             type State<'w> = ComponentBorrow<'w, C, $m, $o>;
             fn prepare<'w>(
                 w: &'w World,
@@ -138,7 +129,18 @@ macro_rules! reference {
                 ComponentBorrow::new(w, seen)
             }
         }
-        impl<C: Component> Fetch for ComponentBorrow<'_, C, $m, $o> {
+        impl<'w, C: Component> Fetch for ComponentBorrow<'w, C, $m, $o> {
+            type Owned = $owned;
+            unsafe fn owned(&self, index: usize) -> Self::Owned {
+                let state = self;
+                let make = || $guard {
+                    ptr: state.ptr(index),
+                    _lease: state._lease.as_ref().unwrap().split(),
+                    _life: PhantomData,
+                };
+                owned_row!($o, state, index, make)
+            }
+
             type Item<'a> = $item;
             fn acquire(&mut self) {
                 self._lease = self.storage.map(|s| s.lease($m));
@@ -227,16 +229,17 @@ macro_rules! tuples {
         impl<$($T: Query),+> Query for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
             type Owned<'w> = ($($T::Owned<'w>,)+);
-            unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
-                // SAFETY: the caller yields each matched index once; construction rejects aliases.
-                unsafe { ($($T::owned(&state.$i, index),)+) }
-            }
             type State<'w> = ($($T::State<'w>,)+);
             fn prepare<'w>(w: &'w World, seen: &mut [Option<TypeId>; 8]) -> Result<Self::State<'w>, String> {
                 Ok(($($T::prepare(w, seen)?,)+))
             }
         }
         impl<$($T: Fetch),+> Fetch for ($($T,)+) {
+            type Owned = ($($T::Owned,)+);
+            unsafe fn owned(&self, index: usize) -> Self::Owned {
+                // SAFETY: each matched index is fresh and tuple construction rejects aliases.
+                unsafe { ($(self.$i.owned(index),)+) }
+            }
             type Item<'a> = ($($T::Item<'a>,)+);
             fn acquire(&mut self) { $(self.$i.acquire();)+ }
             fn conflict(&self) -> Option<(&'static str, &'static str)> {
@@ -402,7 +405,7 @@ impl<'w, Q: Query> QueryRows<'w, Q> {
         // SAFETY: the mask proves presence and next_index never repeats a slot.
         // Each returned guard splits the lease, so dropping this iterator is safe.
         Some((self.query.world.live_entity(index), unsafe {
-            Q::owned(&self.query.state, index)
+            self.query.state.owned(index)
         }))
     }
 }

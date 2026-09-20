@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/K1c")
+        .join("scratch/K1d")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {
@@ -52,6 +52,34 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
         positive.status.success(),
         "{}",
         String::from_utf8_lossy(&positive.stderr)
+    );
+    let raw = compile(
+        r#"use exact_world::*;
+#[derive(Default, Component)] struct C(u32);
+fn escape(w: &World) -> RefMut<'_, C> {
+    let state = <&mut C as Query>::prepare(w, &mut [None; 8]).unwrap();
+    unsafe { <&mut C as Query>::owned(&state, 0) }
+}"#,
+    );
+    assert!(
+        !raw.status.success(),
+        "raw query construction escaped the private boundary"
+    );
+    let raw = compile(
+        r#"use exact_world::*;
+fn escape<Q: Query>(w: &World) -> Q::Item<'static> {
+    let state = Q::prepare(w, &mut [None; 8]).unwrap();
+    unsafe { state.fetch(0) }
+}"#,
+    );
+    assert!(
+        !raw.status.success(),
+        "raw fetch escaped through an associated bound"
+    );
+    assert!(
+        String::from_utf8_lossy(&raw.stderr).contains("fetch"),
+        "{}",
+        String::from_utf8_lossy(&raw.stderr)
     );
     // Presence is unsafe initialization evidence, never caller-replaceable.
     let mask = compile(
