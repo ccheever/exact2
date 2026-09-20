@@ -762,17 +762,11 @@ fn calls_in(e: &Expr, out: &mut Vec<String>) {
     }
 }
 
-/// Check a file: shapes, then every component.
-pub fn check(file: &File) -> Result<Types, TypeError> {
+/// Check shared shapes and functions, including a module without a root component.
+/// Navigation uses the same declaration rules as executable compilation.
+pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
     routes::declare(file, &mut shapes)?;
-    if file.components.is_empty() {
-        return err(
-            "analyze-no-component",
-            "a file needs a component",
-            Span::point(1, 1),
-        );
-    }
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
             return err(
@@ -891,6 +885,19 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
             }
         }
     }
+    Ok(shapes)
+}
+
+/// Check a file: shared declarations, then every component.
+pub fn check(file: &File) -> Result<Types, TypeError> {
+    if file.components.is_empty() {
+        return err(
+            "analyze-no-component",
+            "a file needs a component",
+            Span::point(1, 1),
+        );
+    }
+    let shapes = check_declarations(file)?;
     let mut types = Types {
         shapes,
         components: Vec::new(),

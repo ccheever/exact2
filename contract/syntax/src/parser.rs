@@ -53,13 +53,18 @@ pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
             ..Span::point(1, 1)
         },
     )?;
-    let mut p = Parser { tokens, pos: 0 };
+    let mut p = Parser {
+        tokens,
+        pos: 0,
+        names: NameSpans::default(),
+    };
     p.file()
 }
 
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    names: NameSpans,
 }
 
 type R<T> = Result<T, SyntaxError>;
@@ -73,6 +78,18 @@ fn duplicate<T>(what: &str, name: &str, span: Span, first: Span) -> R<T> {
 }
 
 impl Parser {
+    fn named_ident(&mut self, owner: Span) -> R<String> {
+        let (name, span) = self.ident()?;
+        self.names.names.insert(owner, span);
+        Ok(name)
+    }
+
+    fn source_ident(&mut self, owner: Span) -> R<String> {
+        let (name, span) = self.ident()?;
+        self.names.sources.insert(owner, span);
+        Ok(name)
+    }
+
     fn peek(&self) -> &Token {
         &self.tokens[self.pos.min(self.tokens.len() - 1)]
     }
@@ -216,7 +233,7 @@ impl Parser {
         let mut file = File::default();
         loop {
             match self.peek_kind() {
-                TokenKind::Eof => return Ok(file),
+                TokenKind::Eof => { file.names = std::mem::take(&mut self.names); return Ok(file); },
                 TokenKind::Newline => {
                     self.next();
                 }
@@ -262,7 +279,7 @@ impl Parser {
     /// or a `fn` (LLP 1004 D4).
     fn use_decl(&mut self) -> R<UseDecl> {
         let span = self.expect_word("use")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.expect_word("from")?;
         let path = match self.peek_kind().clone() {
             TokenKind::Str(s) => {
@@ -290,7 +307,7 @@ impl Parser {
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
     fn fn_decl(&mut self) -> R<FnDecl> {
         let span = self.expect_word("fn")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.expect_punct("(")?;
         let mut params = Vec::new();
         while !self.at_punct(")") {
@@ -327,7 +344,7 @@ impl Parser {
     /// `style Name` then lines of `attr=literal` (LLP 1017 P6).
     fn style(&mut self) -> R<StyleDecl> {
         let span = self.expect_word("style")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.newline()?;
         let lines = self.block(|p| {
             let mut attrs = Vec::new();
@@ -374,7 +391,7 @@ impl Parser {
 
     fn shape(&mut self) -> R<ShapeDecl> {
         let span = self.expect_word("shape")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.newline()?;
         let fields = self.block(|p| {
             let (name, span) = p.ident()?;
@@ -419,7 +436,7 @@ impl Parser {
 
     fn component(&mut self) -> R<Component> {
         let span = self.expect_word("component")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.newline()?;
         let mut c = Component {
             name,
@@ -489,7 +506,7 @@ impl Parser {
                         }
                         "state" | "derive" => {
                             let t = self.next();
-                            let (name, _) = self.ident()?;
+                            let name = self.named_ident(t.span)?;
                             self.expect_punct("=")?;
                             let expr = self.expr()?;
                             self.newline()?;
@@ -553,9 +570,9 @@ impl Parser {
 
     fn resource(&mut self) -> R<ResourceDecl> {
         let span = self.expect_word("resource")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.expect_punct("=")?;
-        let (source, _) = self.ident()?;
+        let source = self.source_ident(span)?;
         self.expect_punct("(")?;
         let args = self.call_args()?;
         self.expect_word("as")?;
@@ -573,7 +590,7 @@ impl Parser {
 
     fn mutation(&mut self) -> R<MutationDecl> {
         let span = self.expect_word("mutation")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
@@ -583,7 +600,7 @@ impl Parser {
 
     fn action(&mut self) -> R<Action> {
         let span = self.expect_word("action")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         let mut params = Vec::new();
         if self.eat_punct("(") {
             while !self.at_punct(")") {
@@ -661,7 +678,7 @@ impl Parser {
                     }
                     p.next();
                     p.expect_punct("(")?;
-                    let (var, _) = p.ident()?;
+                    let var = p.named_ident(span)?;
                     p.expect_punct(")")?;
                     p.newline()?;
                     some = Some((var, p.block(|q| q.stmt())?));
@@ -694,9 +711,9 @@ impl Parser {
         }
         if self.at_ident("send") {
             let span = self.expect_word("send")?;
-            let (target, _) = self.ident()?;
+            let target = self.named_ident(span)?;
             self.expect_punct("=")?;
-            let (source, _) = self.ident()?;
+            let source = self.source_ident(span)?;
             self.expect_punct("(")?;
             let args = self.call_args()?;
             self.newline()?;
@@ -709,7 +726,7 @@ impl Parser {
         }
         if self.at_ident("refresh") {
             let span = self.expect_word("refresh")?;
-            let (target, _) = self.ident()?;
+            let target = self.named_ident(span)?;
             self.newline()?;
             return Ok(Stmt::Refresh { target, span });
         }
@@ -736,7 +753,7 @@ impl Parser {
 
     fn task(&mut self) -> R<Task> {
         let span = self.expect_word("task")?;
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         self.expect_word("mount")?;
         self.newline()?;
         let mut every = None;
@@ -751,7 +768,7 @@ impl Parser {
             p.expect_punct("(")?;
             let ms = p.expr()?;
             p.expect_punct(",")?;
-            let (action, _) = p.ident()?;
+            let action = p.named_ident(fspan)?;
             p.expect_punct(")")?;
             p.newline()?;
             if every.is_some() {
@@ -791,7 +808,7 @@ impl Parser {
         match word.as_str() {
             "provide" => {
                 self.next();
-                let (name, _) = self.ident()?;
+                let name = self.named_ident(span)?;
                 self.expect_punct("=")?;
                 let expr = self.expr()?;
                 self.newline()?;
@@ -828,7 +845,7 @@ impl Parser {
             }
             "each" => {
                 self.next();
-                let (var, _) = self.ident()?;
+                let var = self.named_ident(span)?;
                 self.expect_word("in")?;
                 let list = self.expr()?;
                 self.expect_word("key")?;
@@ -859,7 +876,7 @@ impl Parser {
                         }
                         p.next();
                         p.expect_punct("(")?;
-                        let (var, _) = p.ident()?;
+                        let var = p.named_ident(span)?;
                         p.expect_punct(")")?;
                         p.newline()?;
                         some = Some((var, p.block(|q| q.node())?));
@@ -1135,7 +1152,7 @@ impl Parser {
                     self.expect_word("case")?;
                     self.expect_word("some")?;
                     self.expect_punct("(")?;
-                    let (var, _) = self.ident()?;
+                    let var = self.named_ident(span)?;
                     self.expect_punct(")")?;
                     self.expect_punct("=>")?;
                     let some = self.expr()?;
@@ -1208,11 +1225,17 @@ impl Parser {
                 source_id: span.source_id,
                 ..Span::point(span.line, col + inner.len() as u32)
             };
-            let mut sub = Parser { tokens, pos: 0 };
+            let mut sub = Parser {
+                tokens,
+                pos: 0,
+                names: NameSpans::default(),
+            };
             let e = sub.expr()?;
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");
             }
+            self.names.names.extend(sub.names.names);
+            self.names.sources.extend(sub.names.sources);
             parts.push(TemplatePart::Expr(e));
             rest = &after[end + 1..];
         }

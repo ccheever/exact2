@@ -47,6 +47,19 @@ impl<A: VisitSpans, B: VisitSpans, C: VisitSpans> VisitSpans for (A, B, C) {
     }
 }
 
+impl<K: VisitSpans + Ord, V: VisitSpans> VisitSpans for std::collections::BTreeMap<K, V> {
+    fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
+        *self = std::mem::take(self)
+            .into_iter()
+            .map(|(mut key, mut value)| {
+                key.visit_spans(visit);
+                value.visit_spans(visit);
+                (key, value)
+            })
+            .collect();
+    }
+}
+
 macro_rules! leaves {
     ($($ty:ty),* $(,)?) => { $(
         impl VisitSpans for $ty {
@@ -67,7 +80,8 @@ macro_rules! structs {
     )* };
 }
 structs! {
-    File { routes, uses, fonts, shapes, styles, fns, tests, components }
+    NameSpans { names, sources }
+    File { names, routes, uses, fonts, shapes, styles, fns, tests, components }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, span }
     FontDecl { name, faces, span }

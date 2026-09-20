@@ -16,6 +16,7 @@ pub mod compat;
 mod logic;
 mod receipt;
 mod sources;
+mod symbols;
 mod typescript;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
@@ -24,6 +25,7 @@ pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
 pub use exact_runner::DataSource;
 pub use logic::rust_entry;
 pub use receipt::write_development_artifacts;
+pub use symbols::symbols_json;
 pub use typescript::typescript;
 
 use contract_syntax::{Expr, File, Span, Step, TestDecl};

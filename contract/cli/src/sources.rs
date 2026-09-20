@@ -10,8 +10,12 @@ use std::{
 
 pub(crate) struct Sources {
     paths: Vec<PathBuf>,
+    pub(crate) imports: Vec<UseDecl>,
 }
 impl Sources {
+    pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
+        &self.paths[span.source_id as usize]
+    }
     pub(crate) fn resolve(&self, mut error: CompileError) -> CompileError {
         error.file = Some(self.paths[error.span.source_id as usize].clone());
         error
@@ -32,6 +36,7 @@ pub(crate) fn load(
         app_root,
         sources: Sources {
             paths: vec![path.to_path_buf()],
+            imports: Vec::new(),
         },
         active: vec![root_key],
         cache: HashMap::new(),
@@ -59,6 +64,7 @@ impl Loader<'_> {
         source_id: u32,
     ) -> Result<File, CompileError> {
         let file = contract_syntax::parse_source(src, source_id)?;
+        self.sources.imports.extend(file.uses.iter().cloned());
         self.load_file(path, file)
     }
 
@@ -129,6 +135,7 @@ impl Loader<'_> {
                 let source_id = self.sources.paths.len() as u32;
                 self.sources.paths.push(key.clone());
                 let used = contract_syntax::parse_source(&used_src, source_id)?;
+                self.sources.imports.extend(used.uses.iter().cloned());
                 self.cache.insert(key.clone(), used.clone());
                 used
             };
@@ -195,6 +202,8 @@ fn validate_use_path(u: &UseDecl) -> Result<(), CompileError> {
 }
 
 fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
+    into.names.names.extend(from.names.names);
+    into.names.sources.extend(from.names.sources);
     let dup = |what: &str, name: &str| {
         use_error(
             "contract-use-duplicate",

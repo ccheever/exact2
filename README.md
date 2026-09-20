@@ -53,6 +53,26 @@ never to block. Its design documents are imported under `llp/research/`.
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
 
+## Inspect and format Contract
+
+```sh
+cargo run -q -p contract -- symbols apps/messages/app.contract
+cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
+cargo run -q -p contract -- fmt --check apps/messages/app.contract
+```
+
+`symbols` prints JSON with `definitions` and `references`. Each reference's
+`to` is an index into `definitions`; locations include the original file,
+1-based line and byte column, and an exclusive `end_col`. Component interfaces,
+local bindings, parameters, typed shape fields and literal IDs are navigable.
+Shared shape/function/style files can be queried directly. The query uses the
+compiler's import and type rules and writes no files. Repeated literal IDs have
+an edge to each matching declaration; dynamic IDs have no static target.
+
+`fmt --stdout` previews source-preserving formatting; `--check` prints a diff
+and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
+explicitly. Formatting never runs automatically on save.
+
 ## Run an app from a terminal on macOS
 
 ```sh

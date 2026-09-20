@@ -5,7 +5,7 @@ use super::*;
 impl Parser {
     pub(super) fn routes_decl(&mut self) -> R<RoutesDecl> {
         let span = self.expect_word("routes")?;
-        let (slot, _) = self.ident()?;
+        let slot = self.named_ident(span)?;
         self.newline()?;
         let mut rows = Vec::new();
         self.block(|p| p.route_line(None, &mut rows))?;
@@ -18,7 +18,7 @@ impl Parser {
         if tab {
             self.next();
         }
-        let (name, _) = self.ident()?;
+        let name = self.named_ident(span)?;
         let notfound = name == "notfound" && !tab;
         let pattern = if notfound {
             String::new()

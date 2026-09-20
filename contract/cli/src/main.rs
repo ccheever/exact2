@@ -15,13 +15,35 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("build") => build(&args[1..]),
+        Some("symbols") => symbols(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("compat") => compat(&args[1..]),
         Some("types") => types(&args[1..]),
         _ => {
-            eprintln!("usage: contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+            eprintln!("usage: contract symbols <file.contract> | contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn symbols(args: &[String]) -> ExitCode {
+    let [input] = args else {
+        eprintln!("usage: contract symbols <file.contract>");
+        return ExitCode::from(2);
+    };
+    if input.starts_with('-') {
+        eprintln!("usage: contract symbols <file.contract>");
+        return ExitCode::from(2);
+    }
+    match contract::symbols_json(std::path::Path::new(input)) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
         }
     }
 }
