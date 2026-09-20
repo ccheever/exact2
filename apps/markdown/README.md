@@ -94,6 +94,14 @@ is not accepted as a 120 fps improvement. Every trial remains in its
 `smooth/resume-confirm-a666d46f-*`, `smooth/resume-publication-122845a1-*`, or
 `smooth/resume-overdraw-4fce1bd4-*` directory.
 
+A subsequent control (`9df53eae`) disabled responsive scrolling on the contained
+panes. It regressed: median hitch time was 7.92 ms/s across four valid trials,
+versus 4.17 for the retained build (five) and 3.33 for Legend (four). One candidate
+attempt had no trace because Instruments could not attach; one Legend attempt
+failed before input. Both are retained in `smooth/resume-mainthread-9df53eae-120hz`.
+The control was reverted. Its 221 native tests and unchanged-binary functional
+retry passed; the first agent launch again timed out before readiness.
+
 The frozen latest candidate passed forward/reverse scrolling, three widths,
 file switching, and full logical copy with the same 2,153,496-character hash.
 Its first agent launch timed out before readiness; the unchanged binary passed
