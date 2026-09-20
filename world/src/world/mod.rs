@@ -192,7 +192,7 @@ pub struct World {
     replacement: u64,
     changes: VecDeque<crate::Change>,
     change_next: u64,
-    observed: Option<(u64, u64)>,
+    observed: Option<(u64, bool)>,
     poisoned: bool,
 }
 const SINGLETON: Entity = Entity {

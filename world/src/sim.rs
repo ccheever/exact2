@@ -178,7 +178,6 @@ impl<G: Game> Sim<G> {
             });
             // Preflight the bounded batch before any boundary state changes.
             let input = self.staged_input(due)?;
-            let before = self.world.observation_hash();
             self.world.begin_tick();
             self.input = input;
             self.queue.drain(..due);
@@ -208,7 +207,6 @@ impl<G: Game> Sim<G> {
                     self.world.tick()
                 );
             }
-            self.world.observe(before);
         }
         self.world_us = simulation_us;
         self.caller_us = target_us;
@@ -250,6 +248,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("settle limit is 3600 ticks"));
         }
         let start = self.world.tick();
+        let mut before = None;
         for _ in 0..max_ticks {
             match self.world.readiness() {
                 crate::Readiness::Ready => {}
@@ -262,7 +261,9 @@ impl<G: Game> Sim<G> {
                 return Err(DataError::new("paused simulation cannot settle"));
             }
             let next = ((self.world.tick() as u128 + 1) * 1_000_000).div_ceil(G::HZ as u128) as i64;
+            let sample = before.unwrap_or_else(|| self.world.observation_hash());
             self.advance_us(next + self.caller_us - self.world_us)?;
+            before = Some(self.world.observe(sample));
         }
         if self.world.quiescent() && self.queue.is_empty() {
             Ok(self.world.tick() - start)

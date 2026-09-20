@@ -139,10 +139,14 @@ impl World {
                 Some(at.max(s.settle_tick(self.now(), skip)?))
             })
     }
-    pub fn quiescent(&self) -> bool {
+    /// None means this boundary is unobserved; false means observed change.
+    pub fn observation(&self) -> Option<bool> {
         self.observed
-            .is_some_and(|(epoch, _)| epoch == self.mutation_epoch())
-            && self.settle_tick() == Some(self.tick())
+            .filter(|(epoch, _)| *epoch == self.mutation_epoch())
+            .map(|(_, stable)| stable)
+    }
+    pub fn quiescent(&self) -> bool {
+        self.observation() == Some(true) && self.settle_tick() == Some(self.tick())
     }
     pub(crate) fn observation_hash(&self) -> u64 {
         let mut w = hash::Hasher::default();
@@ -170,9 +174,10 @@ impl World {
         self.mutated();
         self.state.busy.get_mut().clear();
     }
-    pub(crate) fn observe(&mut self, before: u64) {
+    pub(crate) fn observe(&mut self, before: u64) -> u64 {
         let after = self.observation_hash();
-        self.observed = (before == after).then_some((self.mutation_epoch(), after));
+        self.observed = Some((self.mutation_epoch(), before == after));
+        after
     }
     pub fn state(&self, entity: Entity) -> Result<String, DataError> {
         if !self.contains(entity) {

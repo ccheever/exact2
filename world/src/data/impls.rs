@@ -108,15 +108,7 @@ impl<T: Data> Data for Vec<T> {
                 .saturating_mul(std::mem::size_of::<T>())
                 .saturating_mul(4),
         );
-        w.begin_seq(self.len());
-        for v in self {
-            if w.stopped() {
-                break;
-            }
-            w.item();
-            v.write(w);
-        }
-        w.end_seq();
+        write_slice(self, w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let any = self as &mut dyn Any;

@@ -131,3 +131,11 @@ First insertion at slot 199,999 requests four allocations / 3,064 bytes (previou
 seven / 152,592); page metadata work is O(log allocated pages), with one page
 allocated. Ordinary observation/reaping, streaming numeric payloads, journal
 consumer ownership and metadata allocation on restore remain lane 2 work.
+
+Live ticks do not observe Data. `World::observation() -> Option<bool>` returns
+`None` at an unobserved boundary, `Some(false)` after observed change, and
+`Some(true)` after an observed unchanged tick. `settle` samples its initial
+boundary and each subsequent boundary once. Ordinary ticks visit zero component
+values except those gameplay touches; ownership work is addressed separately.
+The 200,000-entity startup regression counts zero writes across 1,000 live ticks
+and 800,000 writes across three explicitly observed ticks (four boundaries).

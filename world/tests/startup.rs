@@ -241,3 +241,58 @@ fn omitted_box_fields_and_container_resets_claim_defaults_before_allocation() {
     assert!(array.read(&mut r).is_err());
     assert_eq!(DEFAULTS.get(), 0, "array reset allocated before admission");
 }
+
+#[test]
+fn live_ticks_never_visit_components_and_settle_samples_each_boundary_once() {
+    thread_local! { static VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default)]
+    struct Counted(u32);
+    impl Component for Counted {
+        const NAME: &'static str = "Counted";
+    }
+    impl Data for Counted {
+        fn write(&self, w: &mut dyn Writer) {
+            VISITS.set(VISITS.get() + 1);
+            self.0.write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0.read(r)
+        }
+    }
+    struct Live;
+    impl Game for Live {
+        type Args = ();
+        const ID: &'static str = "live-counted";
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<Counted>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            for i in 0..200_000 {
+                w.spawn(Counted(i)).unwrap();
+            }
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            // Sparse touching in a maximal world, with a controller still active.
+            if w.tick() < 1002 {
+                w.get_mut::<Counted>("#199999").unwrap().0 += 1;
+            }
+        }
+    }
+    let mut sim = Sim::<Live>::new(()).unwrap();
+    VISITS.set(0);
+    assert_eq!(sim.run(1_000_000. / 60.).unwrap(), 1000);
+    assert_eq!(VISITS.get(), 0);
+    assert_eq!(sim.world().observation(), None);
+    assert!(!sim.world().quiescent());
+    assert_eq!(sim.settle(4).unwrap(), 3);
+    assert_eq!(
+        VISITS.get(),
+        4 * 200_000,
+        "initial boundary plus three ticks"
+    );
+    assert_eq!(sim.world().observation(), Some(true));
+    sim.run(17.).unwrap();
+    assert_eq!(sim.world().observation(), None);
+    assert_eq!(VISITS.get(), 800_000);
+}
