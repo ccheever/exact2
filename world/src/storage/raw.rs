@@ -279,7 +279,7 @@ impl RawStorage {
             )?;
         }
         let mut last = None;
-        r.claim((self.desc.wire_size)())?;
+        r.claim((self.desc.wire_size)().max(self.desc.layout.size()))?;
         let mut value = Value {
             bytes: Bytes::new(self.desc.layout),
             desc: self.desc,
@@ -303,6 +303,7 @@ impl RawStorage {
                     .is_none_or(|p| p.ptr.is_null())
                 {
                     PAGE.saturating_mul((self.desc.wire_size)())
+                        .max(self.pages.layout.size())
                 } else {
                     0
                 },

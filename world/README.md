@@ -280,32 +280,31 @@ hashing, saving or inspection. Tags, little-endian order and float normalization
 remain unchanged. Numeric decoding still owns both raw and converted buffers;
 its cumulative budget counts both.
 
-Inspection and binary writers expose `stopped()`. Container loops stop after
-refusal and `finish()` propagates the error. Record publication admits sequence
-backing, strings, numeric vectors and nesting before allocation. Custom Data
-writers must honor `stopped` and claim owned decode storage. Allocating defaults,
-including skipped fields, must declare `default_size` or implement an admitted
-`read_new`; a codec cannot bound arbitrary user code. Derive requires Data + Default
-on skipped fields and charges every reset. Enum read_new constructs the selected
-variant without invoking an unrelated manual enum Default. Manual enum defaults
-charge the largest variant's defaults; unit-default enums charge their largest
-inline variant. `Data::inline_size()` separates portable inline storage from
-allocating defaults. Box contributes eight inline units; an empty Option does
-not recurse into its payload's default. Derive's constant default check refuses
-cyclic default-construction dependencies, including aliases and indirect cycles;
-recursive enums use a derived unit Default or manual Data admission. Rust expands cfg and
-cfg_attr before derive; retained, absent and conditionally skipped fields are tested.
-Parser diagnostics still use invocation spans.
+1. A `Data` writer emits fields in declaration order and stops container loops on `Writer::stopped()`.
+2. Declare conservative portable `inline_size`/`default_size` units, including allocating
+   defaults and skipped-field resets; custom allocating `read_new` must claim before allocating.
+3. Read through `Reader`, propagate errors, and respect its allocation and nesting checks.
 
-Publication decode charges one shared 65,536-unit allowance before children,
-strings and object keys allocate; declared sequence lengths preflight it. Logical
-depth is 80, leaving room within the 256 codec frames. Root keys separately have
-the fixed 256 × 256-byte bound. Error paths truncate at 256 UTF-8 bytes; the small
-diagnostic reserve stays bounded independently of rejected payload size.
-`bin::read_into` stages a saved copy plus patch under one 256 MiB decode budget;
-it costs a complete encode/decode and preserves the destination on decode error.
-`World::hash`, `hash::of` and `Hasher::finish` return Result and refuse invalid
-values, excessive strings, decode claims and nesting beyond 256 frames.
+Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
+For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
+excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
+Native vector, component-chunk and directory layouts are admission floors beside portable units.
+`bin::read_into` stages a saved copy and patch under one budget, preserving the destination on error.
+Publication decode additionally admits 65,536 shared units and depth 80 before child allocation.
+Requests beyond the following work/storage bounds return errors.
+
+| Measured hostile shape | Peak at 1 MiB | Peak at 256 MiB |
+|---|---:|---:|
+| Huge sequence count / tiny input | 112 | 112 |
+| Huge string length | 58 | 58 |
+| Wide enum vector | 104 | 104 |
+| 4096-aligned struct vector | 104 | 104 |
+| 20,000 map keys | 660,520 | 3,741,120 |
+| 200,000 entity slots | 744 | 10,622,040 |
+| Nested publications, depths 8 / 40 / 81 | 551 | 551 |
+| Sparse 1 KiB components, eight types | 1,216 | 253,205,256 |
+| Sparse 4096-aligned chunks | 1,216 | 253,394,856 |
+| 100,000 allocating skipped defaults | 105 | 4,000,096 |
 
 | Admission | Bound and refusal |
 |---|---|
@@ -319,13 +318,9 @@ values, excessive strings, decode claims and nesting beyond 256 frames.
 | Binary/world/simulation output | Generic 256 MiB; World and Sim 128 MiB |
 | Decoder allocation / string / nesting | Cumulative 256 MiB / 1 MiB / 256 |
 
-Admission uses architecture-independent wire units, not `size_of`: scalar widths,
-24 units for text/container headers, 16 plus fields for derived records, and fixed
-metadata/chunk accounting. `Data::default_size()` declares those units, including
-allocating defaults; manual implementations must supply conservative fixed values.
-Overflow saturates to refusal; registration rejects a declaration above 256 MiB.
-This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
-layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
+Portable admission units remain architecture-independent: scalar widths, 24-unit container
+headers and derived record/enum declarations. Overflow saturates to refusal; registration
+rejects declarations above 256 MiB. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations
 (such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Saved tick and game-journal cursors above 2^62 refuse decode with
 `cursor beyond supported range`; 2^62 is accepted. Structural, session and replacement

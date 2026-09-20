@@ -195,3 +195,6 @@ impl<C: Data> Erased for Storage<C> {
         self.raw.read(r, valid)
     }
 }
+
+#[cfg(test)]
+mod resident;

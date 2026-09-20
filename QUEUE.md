@@ -657,7 +657,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 ## world kernel
 
-- Native alignment/padding is outside portable wire admission (`world/src/storage/raw.rs:101`, `world/src/storage/raw.rs:49`); bound resident layouts separately and make page allocation fallible before large aligned Data can panic or abort (R-K6-sol #1).
+- Native vector/chunk/directory layouts now have measured admission floors; make page allocation fallible for system allocation failure and overflowing registration layouts (`world/src/storage/raw.rs`, R-K6-sol #1).
 - Sample/settle membership checks are not charged (`world/src/world/inspect.rs:185`, `world/src/sim.rs:271`); replace the slots-by-columns scan with an entity-ordered merge so admitted sparse worlds cannot trigger 51.2 million checks per sample (R-K6-sol #4, grok #13).
 - Input apply recomputes every action before and after each event (`world/src/input.rs:225`); cache held-action bits and key/button masks to avoid the admitted half-billion-comparison batch (R-K6-sol #5).
 - Spawn scans retired low slots on every reuse (`world/src/world/mod.rs:409`); maintain a derived reusable-free set while preserving the serialized free union (R-K6-sol #7, grok #11).
