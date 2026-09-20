@@ -136,3 +136,29 @@ fn encoder_refuses_small_wire_values_with_excessive_decoded_backing() {
         small
     );
 }
+
+#[test]
+fn bulk_hash_and_encoder_share_the_decoded_allowance_boundary() {
+    use exact_world::{
+        data::{Bulk, MAX_LOAD_BYTES},
+        Writer,
+    };
+    for value in [
+        Bulk::U8(&[1, 2, 3]),
+        Bulk::U16(&[1, 2, 3]),
+        Bulk::U32(&[1, 2, 3]),
+        Bulk::F32(&[1., 2., 3.]),
+    ] {
+        let (_, len) = value.shape();
+        for remaining in [len * 2 - 1, len * 2] {
+            let mut encoder = bin::Encoder::default();
+            let mut hasher = hash::Hasher::default();
+            encoder.claim_decoded(MAX_LOAD_BYTES - remaining);
+            hasher.claim_decoded(MAX_LOAD_BYTES - remaining);
+            encoder.bytes(value);
+            hasher.bytes(value);
+            assert_eq!(encoder.finish().is_ok(), remaining == len * 2);
+            assert_eq!(hasher.finish().is_ok(), remaining == len * 2);
+        }
+    }
+}

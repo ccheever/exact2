@@ -122,6 +122,7 @@ impl Writer for Hasher {
 
     fn bytes(&mut self, value: super::Bulk<'_>) {
         let (kind, len) = value.shape();
+        self.claim_decoded(len.saturating_mul(2));
         if !self.allow(len.saturating_add(9)) {
             return;
         }
