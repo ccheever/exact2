@@ -451,3 +451,26 @@ fn line_height_preserves_kinds_through_dynamic_changes_wire_and_refusal() {
         assert_eq!(style, before);
     }
 }
+
+#[test]
+fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically() {
+    let mut style = StyleProps::default();
+    for (text, expected) in [("0px", 0.), ("12.5PX", 12.5), (" -2e1px ", -20.), ("0", 0.)] {
+        style
+            .set_dynamic(StyleId::Height, &StyleValue::Text(text.into()))
+            .unwrap();
+        assert_eq!(style.height, Dimension::Points(expected));
+    }
+    for text in [
+        "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10em", "0px 1px",
+    ] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(StyleId::Height, &StyleValue::Text(text.into()))
+                .is_err(),
+            "{text}"
+        );
+        assert_eq!(style, before);
+    }
+}

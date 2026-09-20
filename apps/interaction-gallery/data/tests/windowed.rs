@@ -66,7 +66,11 @@ fn settle_at(
             px,
         });
         r.kernel_mut()
-            .compute_layout_presented(root, Offer::definite(width as f32, height), projection)
+            .compute_layout_presented(
+                root,
+                Offer::definite(width as f32, height),
+                projection.as_slice(),
+            )
             .unwrap();
         let c = r.collections().remove(0);
         let port = r.kernel().node(c.view).unwrap().frame;

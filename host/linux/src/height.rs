@@ -130,7 +130,7 @@ impl<D: DataSource> Host<D> {
             let receipt = self
                 .runner
                 .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), projection)
+                .compute_layout_presented(root, Offer::definite(w, h), projection.as_slice())
                 .map_err(|e| format!("layout: {e:?}"))?;
             // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
             self.runner.report_flow_skipped(&receipt.flow_skipped);

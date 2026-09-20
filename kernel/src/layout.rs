@@ -19,6 +19,7 @@ use crate::arena::NodeArena;
 use crate::error::LayoutError;
 use crate::generated::{FieldSizing, NodeType, StyleMask};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
+use crate::kernel::PresentedHeight;
 use crate::style::taffy_style;
 use crate::text::{Paragraph, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
 
@@ -79,8 +80,8 @@ pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
     pass: u64,
     fault: Option<String>,
-    // One derived height, not an authored target or a second style graph.
-    presented_height: Option<(NodeKey, NodeId, f32)>,
+    // Derived heights only. Retain capacity across frames and owner changes.
+    presented_heights: Vec<(NodeKey, NodeId, f32)>,
 }
 
 impl Default for LayoutTree {
@@ -100,7 +101,7 @@ impl LayoutTree {
             taffy,
             pass: 0,
             fault: None,
-            presented_height: None,
+            presented_heights: Vec::new(),
         }
     }
 
@@ -148,12 +149,8 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
-        if self
-            .presented_height
-            .is_some_and(|(_, active, _)| active == node)
-        {
-            self.presented_height = None;
-        }
+        self.presented_heights
+            .retain(|(_, active, _)| *active != node);
         let r = self.taffy.remove(node);
         self.note("remove", r);
     }
@@ -162,10 +159,12 @@ impl LayoutTree {
     /// Dirty only when the resulting full derived style changes. This is also
     /// the path for environment/intrinsic updates that do not bump the epoch.
     pub fn set_style(&mut self, node: NodeId, mut style: taffy::style::Style) {
-        if let Some((_, active, px)) = self.presented_height {
-            if active == node {
-                style.size.height = taffy::style::Dimension::length(px);
-            }
+        if let Some((_, _, px)) = self
+            .presented_heights
+            .iter()
+            .find(|(_, active, _)| *active == node)
+        {
+            style.size.height = taffy::style::Dimension::length(*px);
         }
         self.write_style(node, style);
     }
@@ -179,44 +178,65 @@ impl LayoutTree {
         self.note("set_style", r);
     }
 
-    /// Install a preflighted sample, or restore current authored lowering.
-    /// The caller validates generation, membership and eligibility before any
-    /// change here; epochs belong to requests, not to this derived cache.
-    pub(crate) fn present_height(&mut self, arena: &NodeArena, sample: Option<(u32, f32)>) {
-        let next = match sample {
-            Some((slot, px)) => {
-                let Some(node) = arena.taffy(slot) else {
-                    self.fault
-                        .get_or_insert_with(|| "presented height has no engine node".into());
-                    return;
-                };
-                Some((arena.key(slot), node, px))
-            }
-            None => None,
-        };
-        if self.presented_height == next {
+    /// Snapshot only the active numeric projections for a nonpublishing
+    /// authored-target pass. This allocation is outside the motion-frame path.
+    pub(crate) fn height_samples(&self, epoch: u64) -> Vec<PresentedHeight> {
+        self.presented_heights
+            .iter()
+            .map(|(node, _, px)| PresentedHeight {
+                node: *node,
+                epoch,
+                px: *px,
+            })
+            .collect()
+    }
+
+    /// Install preflighted samples, restoring current authored lowering for
+    /// retired owners. Requests own epochs; this derived cache owns no targets.
+    pub(crate) fn present_heights(&mut self, arena: &NodeArena, samples: &[PresentedHeight]) {
+        // Resolve every engine node before changing any projection. A missing
+        // derived node takes the ordinary rebuild path with the complete set.
+        if samples.iter().any(|p| arena.taffy(p.node.index).is_none()) {
+            self.fault
+                .get_or_insert_with(|| "presented height has no engine node".into());
             return;
         }
-        if let Some((key, node, _)) = self.presented_height.take() {
-            // Same-node samples can replace height directly. Restoring first
-            // would dirty twice and momentarily reinstall an obsolete target.
-            if next.is_none_or(|(next_key, _, _)| next_key != key) {
+        for i in 0..self.presented_heights.len() {
+            let (key, node, _) = self.presented_heights[i];
+            if !samples.iter().any(|p| p.node == key) {
                 if let Some(slot) = arena.resolve(key) {
                     self.write_style(node, taffy_style(arena, slot));
                 }
             }
         }
-        if let Some((key, node, px)) = next {
-            let mut style = taffy_style(arena, key.index);
-            style.size.height = taffy::style::Dimension::length(px);
+        self.presented_heights
+            .retain(|(key, _, _)| samples.iter().any(|p| p.node == *key));
+        for p in samples {
+            let node = arena.taffy(p.node.index).expect("preflighted engine node");
+            let next = (p.node, node, p.px);
+            let existing = self
+                .presented_heights
+                .iter()
+                .position(|(key, _, _)| *key == p.node);
+            if existing.is_some_and(|i| self.presented_heights[i] == next) {
+                continue;
+            }
+            // Replace directly: restoring first would dirty twice and could
+            // momentarily reinstall an obsolete authored target.
+            let mut style = taffy_style(arena, p.node.index);
+            style.size.height = taffy::style::Dimension::length(p.px);
             self.write_style(node, style);
+            if let Some(i) = existing {
+                self.presented_heights[i] = next;
+            } else {
+                self.presented_heights.push(next);
+            }
         }
-        self.presented_height = next;
     }
 
-    /// A content region trial does not compose with a height projection yet.
+    /// A content region trial does not compose with height projections yet.
     pub(crate) fn has_presented_height(&self) -> bool {
-        self.presented_height.is_some()
+        !self.presented_heights.is_empty()
     }
 
     /// Keep a registered region's content out of shell sizing. No-op when

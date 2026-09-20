@@ -14,7 +14,9 @@
 //! generation-checked [`NodeKey`] packed into a `u64` ([`motion_node`]), so a
 //! reused slot never inherits its predecessor's motion.
 
-use crate::generated::{BoxSizing, Display, PropId, StyleProps};
+use crate::generated::{
+    BoxSizing, Display, InterpolateSize, PropId, StyleId, StyleMask, StyleProps,
+};
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
 use crate::style::Dimension;
@@ -123,6 +125,40 @@ impl Kernel {
         }
         self.height_target(target)?;
         Some(target)
+    }
+
+    /// Shape and inherited opt-in for native content-height transitions.
+    /// The host decides admission/lifetime; numeric-only preserves the existing
+    /// explicit-owner path. Auto is measured separately, never read from the
+    /// current presented frame. Inert boxes remain eligible while collapsing.
+    pub fn height_transition_target(&self, owner: NodeKey) -> Option<(Dimension, bool)> {
+        let node = self.node_by_key(owner)?;
+        if node.style.box_sizing != BoxSizing::BorderBox
+            || node.style.transition.matching(Property::Height).is_none()
+            || self.arena().is_inline_run(owner.index)
+        {
+            return None;
+        }
+        let height = node.style.height;
+        match height {
+            Dimension::Points(px) if px.is_finite() && px >= 0.0 => {}
+            Dimension::Auto => {}
+            _ => return None,
+        }
+        let mut mask = StyleMask::EMPTY;
+        mask.set(StyleId::InterpolateSize);
+        let allowed = node.computed_style(mask).interpolate_size == InterpolateSize::AllowKeywords;
+        let arena = self.arena();
+        let mut slot = owner.index;
+        loop {
+            if arena.style(slot).display == Display::None {
+                return None;
+            }
+            if arena.is_root(slot) {
+                return Some((height, allowed));
+            }
+            slot = arena.parent(slot)?;
+        }
     }
 
     /// The numeric CSS height of one explicitly registered host owner.

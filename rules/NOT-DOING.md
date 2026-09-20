@@ -213,6 +213,12 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   campaign, 2026-09-17). Take: other animated layout properties and decorative
   effects wait behind that sheet and its nested collection. This is not a
   general layout-animation system or evidence of physical 120 Hz.
+  **Expanded (Charlie, Shop fidelity goal, 2026-09-19):** overlapping product
+  accordion heights are admitted for the Shop clone. Their shared layout must
+  move following content together when another section is tapped mid-animation.
+  Take: other animated layout properties and decorative effects remain behind
+  that consumer. The first increment accepts several numeric samples; automatic
+  content-height measurement and host adoption remain unfinished.
 - **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
   velocity; nothing else needs a driver.
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

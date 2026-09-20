@@ -98,7 +98,14 @@ pub struct Host<D: DataSource> {
     /// (a registered content region publishes as it lays out, so a report is
     /// one round there): the window wants another report.
     list_unsettled: BTreeSet<ViewId>,
-    height_projection: Option<(NodeKey, f32)>,
+    height_projection: Vec<(NodeKey, f32)>,
+    height_sampling: Vec<(NodeKey, f32)>,
+    height_presented: Vec<exact_kernel::PresentedHeight>,
+    height_transitions: BTreeMap<NodeKey, Option<exact_kernel::Dimension>>,
+    height_transition_epoch: Option<u64>,
+    height_targets_dirty: bool,
+    #[cfg(test)]
+    height_target_passes: usize,
     #[cfg(test)]
     layout_calls: usize,
     viewport: (f32, f32),
@@ -318,7 +325,14 @@ impl<D: DataSource> Host<D> {
             transform_drags: TransformDrags::new()?,
             content_region,
             list_unsettled: BTreeSet::new(),
-            height_projection: None,
+            height_projection: Vec::new(),
+            height_sampling: Vec::new(),
+            height_presented: Vec::new(),
+            height_transitions: BTreeMap::new(),
+            height_transition_epoch: None,
+            height_targets_dirty: true,
+            #[cfg(test)]
+            height_target_passes: 0,
             #[cfg(test)]
             layout_calls: 0,
             viewport: (width, height),
@@ -662,6 +676,7 @@ impl<D: DataSource> Host<D> {
     /// or was cleared). Lays out again; the batch carries the frames that
     /// moved — the image's, and everything its size pushed.
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> String {
+        self.height_targets_dirty = true;
         let mut batch = Batch::new();
         let error = match self.runner.kernel_mut().set_intrinsic_size(view, size) {
             Ok(()) => self.layout(&mut batch).err(),
@@ -679,6 +694,7 @@ impl<D: DataSource> Host<D> {
             Err(e) => return self.finish(Batch::new(), Some(format!("viewport: {e:?}"))),
         };
         self.viewport = (width, height);
+        self.height_targets_dirty = true;
         if let Some(receipt) = receipt {
             return self.commit(
                 &[Timed {
@@ -820,6 +836,7 @@ impl<D: DataSource> Host<D> {
         {
             Ok(false) => None,
             Ok(true) => {
+                self.height_targets_dirty = true;
                 for id in self.preorder() {
                     self.update(id, &mut batch);
                 }
@@ -911,6 +928,7 @@ impl<D: DataSource> Host<D> {
             self.roots = roots.clone();
             batch.roots(&roots);
         }
+        let mut height_target_error = None;
         // Runner receipts retain due-time order. Unobserved motion starts at
         // that due time; a late receipt cannot rewind an already presented
         // frame/hold. Match Web's floor at the engine's current presentation
@@ -929,6 +947,9 @@ impl<D: DataSource> Host<D> {
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
+            if let Err(error) = self.sync_height_transitions() {
+                height_target_error.get_or_insert(error);
+            }
             // Latest target/declaration must reach the held slot before an
             // invalidated header cancels it (negative delays sample at once).
             self.cancel_invalid_height_drag();
@@ -936,7 +957,9 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        let layout_error = if receipts.is_empty() {
+        let layout_error = if height_target_error.is_some() {
+            height_target_error
+        } else if receipts.is_empty() {
             self.height_layout_if_needed(&mut batch).err()
         } else {
             self.layout(&mut batch).err()
@@ -966,8 +989,20 @@ impl<D: DataSource> Host<D> {
             self.layout_calls += 1;
         }
         self.sync_height_owner()?;
-        let sample = self.height_sample()?;
-        let projection = self.presented_height(sample);
+        self.sync_height_transitions()?;
+        self.collect_height_samples()?;
+        self.height_presented.clear();
+        let epoch = self.runner.kernel().epoch();
+        self.height_presented
+            .extend(
+                self.height_sampling
+                    .iter()
+                    .map(|(node, px)| exact_kernel::PresentedHeight {
+                        node: *node,
+                        px: *px,
+                        epoch,
+                    }),
+            );
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
             if self.content_region.is_some() {
@@ -976,13 +1011,15 @@ impl<D: DataSource> Host<D> {
                 let receipt = self
                     .runner
                     .kernel_mut()
-                    .compute_layout_presented(root, Offer::definite(w, h), projection)
+                    .compute_layout_presented(root, Offer::definite(w, h), &self.height_presented)
                     .map_err(|e| format!("layout: {e:?}"))?;
                 // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
                 self.runner.report_flow_skipped(&receipt.flow_skipped);
             }
         }
-        self.height_projection = sample;
+        self.height_projection.clear();
+        self.height_projection
+            .extend_from_slice(&self.height_sampling);
         self.emit_layout(batch)
     }
 
@@ -992,13 +1029,24 @@ impl<D: DataSource> Host<D> {
     fn compute_layout(&mut self) -> Result<(), String> {
         // Motion is synced per receipt by the commit that follows; this pass
         // only needs row heights, under the height already being presented.
-        let sample = self.height_sample()?;
-        let projection = self.presented_height(sample);
+        self.collect_height_samples()?;
+        self.height_presented.clear();
+        let epoch = self.runner.kernel().epoch();
+        self.height_presented
+            .extend(
+                self.height_sampling
+                    .iter()
+                    .map(|(node, px)| exact_kernel::PresentedHeight {
+                        node: *node,
+                        px: *px,
+                        epoch,
+                    }),
+            );
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
             self.runner
                 .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), projection)
+                .compute_layout_presented(root, Offer::definite(w, h), &self.height_presented)
                 .map_err(|e| format!("layout: {e:?}"))?;
         }
         Ok(())
@@ -1118,6 +1166,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn create(&mut self, id: ViewId, batch: &mut Batch) {
+        self.track_height_transition(id);
         if self.native_protected_id(id) {
             if let Some(node) = self.runner.kernel().node(id) {
                 self.keys.insert(node.key, id);
@@ -1162,6 +1211,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        self.track_height_transition(id);
         if self.native_protected_id(id) {
             return;
         }

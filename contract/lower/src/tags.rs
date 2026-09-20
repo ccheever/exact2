@@ -448,6 +448,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&["overscroll_behavior_y"]),
         "z-index" => styles(&["z_index"]),
         "transition" => styles(&["transition"]),
+        "interpolate-size" => styles(&["interpolate_size"]),
         "translate" => styles(&["translate"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
