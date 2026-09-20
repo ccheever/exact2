@@ -626,13 +626,6 @@ impl World {
     pub fn hz(&self) -> u32 {
         self.state.hz
     }
-    /// End of the step being authored, in the same units as `now()`.
-    pub fn tick_end(&self) -> crate::Now {
-        crate::Now {
-            tick: self.tick().checked_add(1).expect("world clock exhausted"),
-            hz: self.hz(),
-        }
-    }
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
         self.rng.get_mut().unwrap()

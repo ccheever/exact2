@@ -101,6 +101,13 @@ impl World {
             return Ok(());
         }
         let status = self.ownership_status()?;
+        if status
+            .iter()
+            .enumerate()
+            .any(|(i, &s)| s == 3 && self.state.slots[i].generation == u32::MAX)
+        {
+            return Err(DataError::new("entity generation exhausted"));
+        }
         self.change_room(status.iter().filter(|&&s| s == 3).count())?;
         for (index, state) in status.into_iter().enumerate() {
             if state == 3 {
@@ -114,6 +121,30 @@ impl World {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    #[test]
+    fn orphan_generation_exhaustion_refuses_before_removing_any_child() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+        let mut w = World::new(60, 0);
+        let parent = w.spawn(()).unwrap();
+        let first = w.spawn(()).unwrap();
+        let last = w.spawn(()).unwrap();
+        w.set_parent(first, Some(parent)).unwrap();
+        w.set_parent(last, Some(parent)).unwrap();
+        // A valid loaded generation can reach this boundary; no billions of
+        // churn operations are necessary to exercise the unfavourable suffix.
+        w.state.slots[last.index() as usize].generation = u32::MAX;
+        let last = w.entity_at(last.index() as usize);
+        w.despawn(parent);
+        let cursor = w.change_cursor();
+        let result = catch_unwind(AssertUnwindSafe(|| w.reap_orphans()));
+        assert!(
+            w.contains(first),
+            "earlier orphan was removed before refusal"
+        );
+        assert!(w.contains(last));
+        assert_eq!(w.change_cursor(), cursor);
+        assert!(result.unwrap().unwrap_err().message.contains("generation"));
+    }
     #[test]
     fn ownership_scratch_does_not_consume_the_state_decode_allowance() {
         let mut w = World::new(60, 0);
