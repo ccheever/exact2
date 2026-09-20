@@ -8,6 +8,12 @@ pub struct Tween {
     pub duration: f32,
 }
 impl Tween {
+    fn valid(&self) -> bool {
+        self.start_value.is_finite()
+            && self.target.is_finite()
+            && self.duration.is_finite()
+            && self.duration >= 0.
+    }
     pub fn new(value: f32) -> Self {
         assert!(value.is_finite());
         Self {
@@ -65,6 +71,10 @@ impl Data for Tween {
         )
     }
     fn write(&self, w: &mut dyn Writer) {
+        if !self.valid() {
+            w.reject("Tween requires finite endpoints and nonnegative duration");
+            return;
+        }
         w.begin_struct();
         w.field("start_value");
         self.start_value.write(w);
@@ -87,11 +97,7 @@ impl Data for Tween {
                 _ => r.skip()?,
             }
         }
-        if !self.start_value.is_finite()
-            || !self.target.is_finite()
-            || !self.duration.is_finite()
-            || self.duration < 0.0
-        {
+        if !self.valid() {
             return Err(DataError::new(
                 "Tween requires finite endpoints and nonnegative duration",
             ));

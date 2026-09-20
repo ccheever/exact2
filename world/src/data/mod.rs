@@ -108,6 +108,10 @@ impl BulkKind {
 }
 
 pub trait Writer {
+    /// Refuse a value whose semantic invariants cannot survive its reader.
+    fn reject(&mut self, message: &str) {
+        panic!("{message}");
+    }
     /// Conservative decode-allocation admission; hashes and inspection ignore it.
     fn claim_decoded(&mut self, _bytes: usize) {}
     fn stopped(&self) -> bool {

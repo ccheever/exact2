@@ -3,6 +3,10 @@ use exact_motion::spring::SpringSample;
 
 impl Data for SpringConfig {
     fn write(&self, w: &mut dyn Writer) {
+        if self.validate().is_err() {
+            w.reject("invalid spring config");
+            return;
+        }
         w.begin_struct();
         w.field("stiffness");
         self.stiffness.write(w);
@@ -109,6 +113,13 @@ impl Data for Spring {
         (tick > now.tick && self.at_rest(Now { tick, ..now })).then_some(tick)
     }
     fn write(&self, w: &mut dyn Writer) {
+        if ![self.target, self.start_value, self.start_velocity]
+            .into_iter()
+            .all(f64::is_finite)
+        {
+            w.reject("non-finite spring state");
+            return;
+        }
         w.begin_struct();
         w.field("target");
         self.target.write(w);

@@ -134,6 +134,9 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn reject(&mut self, message: &str) {
+        self.fail(message);
+    }
     fn claim_decoded(&mut self, bytes: usize) {
         self.decoded = self.decoded.saturating_add(bytes);
         if self.decoded > MAX_LOAD_BYTES {

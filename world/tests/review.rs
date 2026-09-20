@@ -133,3 +133,54 @@ fn extreme_rebased_clocks_refuse_without_mutation() {
     assert_eq!(s.save().unwrap(), before);
     assert_eq!(s.world().observation(), None);
 }
+
+#[test]
+fn built_in_motion_values_cannot_save_bytes_they_refuse() {
+    for (start_value, target, duration) in [
+        (0., 1., -1.),
+        (f32::NAN, 1., 1.),
+        (0., f32::INFINITY, 1.),
+        (0., 1., f32::NAN),
+    ] {
+        let value = Tween {
+            start_value,
+            target,
+            duration,
+            start_tick: 0,
+        };
+        assert!(bin::to_vec(&value).is_err(), "invalid Tween was encoded");
+    }
+    for value in [
+        SpringConfig {
+            mass: 0.,
+            ..Default::default()
+        },
+        SpringConfig {
+            damping: f64::NAN,
+            ..Default::default()
+        },
+    ] {
+        assert!(
+            bin::to_vec(&value).is_err(),
+            "invalid SpringConfig was encoded"
+        );
+    }
+    let value = Tween::new(5.);
+    let bytes = bin::to_vec(&value).unwrap();
+    assert_eq!(
+        bin::to_vec(&bin::from_slice::<Tween>(&bytes).unwrap()).unwrap(),
+        bytes
+    );
+    let value = SpringConfig::default();
+    let bytes = bin::to_vec(&value).unwrap();
+    assert_eq!(
+        bin::to_vec(&bin::from_slice::<SpringConfig>(&bytes).unwrap()).unwrap(),
+        bytes
+    );
+}
+
+#[test]
+fn smoothstep_preserves_nan_input() {
+    assert!(math::smoothstep(0., 1., f32::NAN).is_nan());
+    assert_eq!(math::smoothstep(0., 1., 0.5), 0.5);
+}

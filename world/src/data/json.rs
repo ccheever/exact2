@@ -79,6 +79,9 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn reject(&mut self, message: &str) {
+        self.fail(message);
+    }
     fn stopped(&self) -> bool {
         self.error.is_some()
     }
