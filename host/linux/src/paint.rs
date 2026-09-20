@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+pub(crate) mod damage;
 mod region;
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 
@@ -286,6 +287,10 @@ pub trait Backend {
     fn name(&self) -> &'static str;
     /// A new frame of this size in points at this scale, cleared to white.
     fn begin(&mut self, width: f32, height: f32, scale: f32);
+    /// Seed a clipped repaint from an accepted frame; false means full repaint.
+    fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
+        false
+    }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
     /// Stroke a shape's outline, centred on it.
@@ -303,6 +308,11 @@ pub trait Backend {
     );
     /// Clip everything until the matching pop to a shape.
     fn push_clip(&mut self, shape: &Shape, ts: Transform);
+    /// Push the kernel's validated CSS path in border-box coordinates.
+    /// Returns whether a clip was pushed (recording/custom backends may opt out).
+    fn push_css_clip(&mut self, _path: &exact_kernel::clip::ClipPath, _ts: Transform) -> bool {
+        false
+    }
     /// End a clip.
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
@@ -338,6 +348,7 @@ pub struct Painter {
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     region_picture: Option<Rc<region::Picture>>,
     region_frame: Option<region::Published>,
+    damage: damage::Retained,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -388,6 +399,7 @@ impl Painter {
             arrange_lift: None,
             region_picture: None,
             region_frame: None,
+            damage: Default::default(),
         }
     }
 
@@ -405,6 +417,13 @@ impl Painter {
     /// The last frame's (encode + render, readback) milliseconds, on the GPU.
     pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
         self.backend.last_frame_ms()
+    }
+
+    /// Accepted leaves that fell back after an incomplete bounded walk.
+    pub fn flow_failures(&self) -> impl Iterator<Item = exact_kernel::NodeKey> + '_ {
+        self.accepted_text
+            .iter()
+            .filter_map(|(key, p)| p.flow_incomplete().then_some(*key))
     }
 
     /// Accepted leases outside the current text catalog, deduplicated by Rc.
@@ -508,6 +527,15 @@ impl Painter {
         replay: Option<&region::Replay<'_>>,
     ) -> Result<Frame, String> {
         self.backend.begin(viewport.0, viewport.1, self.scale);
+        if let Some(previous) = &self.damage.pixels {
+            if !self.damage.next.is_empty() && self.backend.damage(previous, &self.damage.next) {
+                self.damage.last = self.damage.next.clone();
+            } else {
+                self.damage.last.clear();
+            }
+        }
+        self.damage.next.clear();
+        self.damage.unsupported = false;
         let mut walk = Walk {
             scene,
             boxes: Vec::new(),
@@ -532,6 +560,12 @@ impl Painter {
         // Pending measurements end with every paint attempt, including failure.
         self.text.borrow_mut().finish_text_frame();
         let pixmap = finished?;
+        self.damage.pixels = self
+            .accepted_text
+            .values()
+            .any(|p| !p.fragments().is_empty())
+            .then(|| pixmap.clone());
+        self.damage.dark = self.dark;
         Ok(Frame {
             pixmap,
             boxes: walk.boxes,
@@ -571,6 +605,10 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        // @ref LLP 1043.000 §3 D7 — collect damage eligibility during the
+        // existing paint walk, not an extra whole-document walk per flow tick.
+        self.damage.unsupported |=
+            p.moves() || p.opacity != 1.0 || node.node_type == NodeType::Image;
         let ts = if p.moves() {
             let (cx, cy) = (x + w / 2.0, y + h / 2.0);
             ts.pre_concat(
@@ -599,7 +637,15 @@ impl Painter {
         if opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
+        let path_clip = !node.style.clip_path.commands().is_empty()
+            && self
+                .backend
+                .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
+        if path_clip {
+            self.backend.pop_clip();
+        }
         if opacity < 1.0 {
             self.backend.pop_opacity();
         }
@@ -642,9 +688,19 @@ impl Painter {
                     spec
                 };
                 let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                    self.text
-                        .borrow_mut()
-                        .paragraph_identified(&stamp, Some(content.2), build)
+                    // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
+                    // retained identity path; flow only adds exclusion geometry.
+                    self.text.borrow_mut().flow_identified(
+                        &stamp,
+                        content.2,
+                        &node
+                            .flow_shapes()
+                            .iter()
+                            .map(|s| s.translate(-(content.0 - rect.0), -(content.1 - rect.1)))
+                            .collect::<Vec<_>>(),
+                        self.accepted_text.get(&node.key),
+                        build,
+                    )
                 } else {
                     let spec = build();
                     (!spec.is_empty())
@@ -808,6 +864,8 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         align: s.text_align,
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
+        white_space: s.white_space,
+        direction: s.direction,
     }
 }
 

@@ -27,6 +27,9 @@ pub(crate) mod leaf;
 #[cfg(feature = "block_layout")]
 pub(crate) mod block;
 
+#[cfg(feature = "float_layout")]
+pub(crate) mod float;
+
 #[cfg(feature = "flexbox")]
 pub(crate) mod flexbox;
 
@@ -34,17 +37,18 @@ pub(crate) mod flexbox;
 pub(crate) mod grid;
 
 pub use leaf::compute_leaf_layout;
-// EXACT PATCH (LLP 0440 D5): additive baseline-capable leaf entry point.
-pub use leaf::compute_leaf_layout_with_baselines;
 
 #[cfg(feature = "block_layout")]
-pub use self::block::compute_block_layout;
+pub use self::block::{compute_block_layout, BlockContext, BlockFormattingContext};
 
 #[cfg(feature = "flexbox")]
 pub use self::flexbox::compute_flexbox_layout;
 
 #[cfg(feature = "grid")]
 pub use self::grid::compute_grid_layout;
+
+#[cfg(feature = "float_layout")]
+pub use self::float::{BfcSlot, ContentSlot, FloatContext, FloatIntrinsicWidthCalculator};
 
 use crate::geometry::{Line, Point, Size};
 use crate::style::{AvailableSpace, CoreStyle, Overflow};
@@ -125,7 +129,6 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
         SizingMode::InherentSize,
         Line::FALSE,
     );
-
     let style = tree.get_core_container_style(root);
     let padding =
         style.padding().resolve_or_zero(available_space.width.into_option(), |val, basis| tree.calc(val, basis));
@@ -137,16 +140,24 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
         width: if style.overflow().y == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
         height: if style.overflow().x == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
     };
+    let location = Point {
+        x: if style.direction().is_rtl() {
+            available_space.width.into_option().map_or(0.0, |available_width| available_width - output.size.width)
+        } else {
+            0.0
+        },
+        y: 0.0,
+    };
     drop(style);
 
     tree.set_unrounded_layout(
         root,
         &Layout {
             order: 0,
-            location: Point::ZERO,
+            location,
             size: output.size,
             #[cfg(feature = "content_size")]
-            content_size: output.content_size,
+            scrollable_overflow_rect: output.scrollable_overflow_rect,
             scrollbar_size,
             padding,
             border,
@@ -164,29 +175,28 @@ pub fn compute_cached_layout<Tree: CacheTree + ?Sized, ComputeFunction>(
     tree: &mut Tree,
     node: NodeId,
     inputs: LayoutInput,
-    mut compute_uncached: ComputeFunction,
+    compute_uncached: ComputeFunction,
 ) -> LayoutOutput
 where
-    ComputeFunction: FnMut(&mut Tree, NodeId, LayoutInput) -> LayoutOutput,
+    ComputeFunction: FnOnce(&mut Tree, NodeId, LayoutInput) -> LayoutOutput,
 {
     debug_push_node!(node);
-    let LayoutInput { known_dimensions, available_space, run_mode, .. } = inputs;
 
     // First we check if we have a cached result for the given input
-    let cache_entry = tree.cache_get(node, known_dimensions, available_space, run_mode);
+    let cache_entry = tree.cache_get(node, &inputs);
     if let Some(cached_size_and_baselines) = cache_entry {
-        debug_log_node!(known_dimensions, inputs.parent_size, available_space, run_mode, inputs.sizing_mode);
+        debug_log_node!(inputs);
         debug_log!("RESULT (CACHED)", dbg:cached_size_and_baselines.size);
         debug_pop_node!();
         return cached_size_and_baselines;
     }
 
-    debug_log_node!(known_dimensions, inputs.parent_size, available_space, run_mode, inputs.sizing_mode);
+    debug_log_node!(inputs);
 
     let computed_size_and_baselines = compute_uncached(tree, node, inputs);
 
     // Cache result
-    tree.cache_store(node, known_dimensions, available_space, run_mode, computed_size_and_baselines);
+    tree.cache_store(node, &inputs, computed_size_and_baselines);
 
     debug_log!("RESULT", dbg:computed_size_and_baselines.size);
     debug_pop_node!();
@@ -237,7 +247,12 @@ pub fn round_layout(tree: &mut impl RoundTree, node_id: NodeId) {
             - round(cumulative_y + unrounded_layout.size.height - unrounded_layout.padding.bottom);
 
         #[cfg(feature = "content_size")]
-        round_content_size(&mut layout, unrounded_layout.content_size, cumulative_x, cumulative_y);
+        round_scrollable_overflow_rect(
+            &mut layout,
+            unrounded_layout.scrollable_overflow_rect,
+            cumulative_x,
+            cumulative_y,
+        );
 
         tree.set_final_layout(node_id, &layout);
 
@@ -250,16 +265,18 @@ pub fn round_layout(tree: &mut impl RoundTree, node_id: NodeId) {
 
     #[cfg(feature = "content_size")]
     #[inline(always)]
-    /// Round content size variables.
+    /// Round the scrollable overflow rect.
     /// This is split into a separate function to make it easier to feature flag.
-    fn round_content_size(
+    fn round_scrollable_overflow_rect(
         layout: &mut Layout,
-        unrounded_content_size: Size<f32>,
+        unrounded_rect: crate::geometry::Rect<f32>,
         cumulative_x: f32,
         cumulative_y: f32,
     ) {
-        layout.content_size.width = round(cumulative_x + unrounded_content_size.width) - round(cumulative_x);
-        layout.content_size.height = round(cumulative_y + unrounded_content_size.height) - round(cumulative_y);
+        layout.scrollable_overflow_rect.left = round(cumulative_x + unrounded_rect.left) - round(cumulative_x);
+        layout.scrollable_overflow_rect.right = round(cumulative_x + unrounded_rect.right) - round(cumulative_x);
+        layout.scrollable_overflow_rect.top = round(cumulative_y + unrounded_rect.top) - round(cumulative_y);
+        layout.scrollable_overflow_rect.bottom = round(cumulative_y + unrounded_rect.bottom) - round(cumulative_y);
     }
 }
 
@@ -283,7 +300,9 @@ pub fn compute_hidden_layout(tree: &mut (impl LayoutPartialTree + CacheTree), no
 #[cfg(feature = "detailed_layout_info")]
 pub mod detailed_info {
     #[cfg(feature = "grid")]
-    pub use super::grid::{DetailedGridInfo, DetailedGridTracksInfo};
+    pub use super::grid::{
+        DetailedGridInfo, DetailedGridItemsInfo, DetailedGridTracksInfo, GridLineNames, GridLineNamesIter,
+    };
 }
 
 #[cfg(test)]

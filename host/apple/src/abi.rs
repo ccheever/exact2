@@ -2,25 +2,17 @@
 //!
 //! @ref LLP 1008 §4; `host/apple/include/exact.h` (the header)
 //!
-//! The web host's buffer discipline over `extern "C"`: the app never hands
-//! the host a pointer the host did not give out. `exact_in(len)` resizes a
-//! host-owned input buffer and returns its address; the app writes a payload
-//! there; every call returns the length of the output buffer, whose address
-//! `exact_out()` reports; the app reads a UTF-8 JSON batch from it. Text
-//! measurement and the plan font catalog are the calls the other way:
-//! functions the app registers when it creates a runtime
-//! ([`crate::measure`]).
+//! The host owns the buffers: `exact_in(len)` resizes input and returns its
+//! address; each call returns the output length, read via `exact_out()`.
+//! Text measurement and the plan font catalog call registered host functions
+//! the other way ([`crate::measure`]).
 //!
-//! **Every export takes a runtime handle** (LLP 1031 D2): `exact_create`
-//! hands out a `u32` into a thread-local [`Registry`] — never a pointer, so
-//! nothing here is `unsafe` and a destroyed or invented handle is refused by
-//! name instead of being undefined — and `exact_destroy` frees everything
-//! attributable to it. Handles are never reused. All calls for one runtime
-//! are on one thread (the presenter's main thread); a re-entrant call — one
-//! made while another is in progress on the same runtime, from a callback —
-//! is refused with a `busy` batch rather than trapping. [`host!`]
-//! instantiates the exports for one app: its data source and its baked plan
-//! bytes; one app archive per process, since the C names are fixed.
+//! Every export takes a runtime handle (LLP 1031 D2): `exact_create` returns
+//! a never-reused `u32` from the thread-local [`Registry`], never a pointer.
+//! Invalid/destroyed handles are refused; `exact_destroy` frees the session.
+//! Calls stay on the presenter's main thread. Re-entrant calls return a `busy`
+//! batch instead of trapping. [`host!`] exports one app's source and baked plan;
+//! each process links one app archive because the C names are fixed.
 
 #[path = "abi_lists.rs"]
 mod lists;
@@ -759,7 +751,7 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            // @ref LLP 1042 §3 — media keeps its own dispatch kind.
             19 => {
                 let Some(event) = Event::media_payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
@@ -788,6 +780,12 @@ impl<D: DataSource> Bridge<D> {
                         .as_ref()
                         .map_or_else(not_booted, |h| h.hold_refusal("invalid transform event"));
                     return self.emit(out);
+                };
+                event
+            }
+            18 => {
+                let Some(event) = Event::pan_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid pan deltas"}"#.into());
                 };
                 event
             }
@@ -1164,6 +1162,7 @@ macro_rules! host {
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::raster_exports!();
+        $crate::textflow_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }

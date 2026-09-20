@@ -41,6 +41,8 @@ pub enum DecodeError {
     BadMagic,
     /// Invalid or unsupported CSS clipping path.
     BadClipPath,
+    /// Invalid CSS shape-outside value.
+    BadShapeOutside,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -368,6 +370,9 @@ pub enum StyleValueError {
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {
+        style: StyleId,
+    },
+    BadShapeOutside {
         style: StyleId,
     },
     BadClipPath {

@@ -336,6 +336,7 @@ public final class ExactSession {
     let webviews: WebViews
     let frames: Frames
     var clockTimer: Timer?
+    private var timerTrace = SessionTimerTrace()
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
     public var clock: Double?
@@ -416,6 +417,7 @@ public final class ExactSession {
         presenter.onKey = { [unowned self] id, name in apply(runtime.key(id, name, now: now())) }
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
+        presenter.onPan = { [unowned self] id, dx, dy in apply(runtime.pan(id, dx: dx, dy: dy, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
         presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction, limit in
             let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction, limit: limit)
@@ -588,13 +590,10 @@ public final class ExactSession {
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
-        if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
-        frames.run(batch.motion || canvases.wantsFrames)
-        if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
-            clockTimer = SessionClockTimer.schedule { [weak self] _ in
-                guard let self else { return }
-                apply(runtime.advance(now: now()))
-            }
+        if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
+        scheduleClock(due: batch.timerDueMs)
+        if ExactEnv.environment["EXACT_TIMER_TRACE"] == "1", !ExactEnv.agentMode {
+            if let line = timerTrace.record(batch, at: ExactEnv.wall()) { fputs(line + "\n", stderr) }
         }
         if outermost {
             presenter.collections.flush()
@@ -667,8 +666,25 @@ public final class ExactSession {
                 app.firstPixel(token)
             }
             canvases.loadIfNeeded()
-            frames.run(frames.motion || canvases.wantsFrames)
+            frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
         }
+    }
+
+    // @ref LLP 1043.000 §3 D8, §6 ruling 5 — one advance per display frame,
+    // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
+    func scheduleClock(due: Double?) {
+        clockTimer?.invalidate()
+        clockTimer = nil
+        let wake = SessionClockTimer.wake(due: due, now: now(), agent: ExactEnv.agentMode || clock != nil)
+        frames.timerSoon = wake == .frame
+        if case .timeout(let delay) = wake {
+            clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
+                guard let self, state != .destroyed else { return }
+                clockTimer = nil
+                apply(runtime.advance(now: now()))
+            }
+        }
+        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
 
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
@@ -724,10 +740,10 @@ public final class ExactSession {
         #if os(macOS)
         canvases.occlusionChanged()
         #endif
-        frames.run(frames.motion || canvases.wantsFrames)
+        frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
     /// The scene became active (iOS): the canvases follow.
-    public func becameActive() { frames.run(frames.motion || canvases.wantsFrames) }
+    public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
     #if canImport(UIKit)
     /// EXACT_FPS (iOS): the measure's report line, once a second.
     public var onFrameReport: ((String) -> Void)? {
@@ -756,13 +772,43 @@ public final class ExactSession {
     }
 }
 
-/// The coarse resource clock keeps advancing during native event tracking.
+/// @ref LLP 1043.000 §3 D8 — deadlines, in milliseconds, never a repeating poll.
 enum SessionClockTimer {
-    static func schedule(_ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
+    enum Wake: Equatable { case none, frame, timeout(Double) }
+    static func wake(due: Double?, now: Double, agent: Bool = false) -> Wake {
+        guard !agent, let due else { return .none }
+        let delay = max(0, due - now)
+        return delay <= 8 * 1000 / 60 ? .frame : .timeout(delay)
+    }
+    static func schedule(after seconds: TimeInterval, _ fire: @escaping @Sendable (Timer) -> Void) -> Timer {
         precondition(Thread.isMainThread)
-        let timer = Timer(timeInterval: 0.25, repeats: true, block: fire)
+        let timer = Timer(timeInterval: seconds, repeats: false, block: fire)
         RunLoop.main.add(timer, forMode: .common)
         return timer
+    }
+}
+
+/// Wall-clock observation of actual presenter applies, never the agent clock.
+/// Flow applies (not ops in one catch-up burst) are the animation cadence oracle.
+struct SessionTimerTrace {
+    private var started: Double?
+    private var lastFlow: Double?
+    private var applies = 0, flowApplies = 0, flowOps = 0
+    private var maxGap = 0.0
+    mutating func record(_ batch: Batch, at now: Double) -> String? {
+        if started == nil { started = now }
+        if !batch.ops.isEmpty { applies += 1 }
+        let count = batch.ops.filter { $0["op"] as? String == "flow" }.count
+        if count > 0 {
+            if let lastFlow { maxGap = max(maxGap, now - lastFlow) }
+            lastFlow = now
+            flowApplies += 1; flowOps += count
+        }
+        let elapsed = now - started!
+        guard elapsed >= 1000 else { return nil }
+        let line = String(format: "exact timer trace: elapsed_ms=%.1f applies=%d flow_applies=%d flow_ops=%d max_gap_ms=%.2f", elapsed, applies, flowApplies, flowOps, maxGap)
+        started = now; applies = 0; flowApplies = 0; flowOps = 0; maxGap = 0
+        return line
     }
 }
 
@@ -772,6 +818,7 @@ final class Frames: NSObject {
     weak var session: ExactSession?
     var link: CADisplayLink?
     var motion = false
+    var timerSoon = false
     #if canImport(UIKit)
     /// EXACT_FPS=1 (iOS): the display link runs always and the measure
     /// reports once a second (`main.swift` prints it).
@@ -788,9 +835,11 @@ final class Frames: NSObject {
         #if canImport(UIKit)
         if fpsMode { measure(link.timestamp) }
         #endif
-        if motion { s.apply(s.runtime.tick(now: s.now())) }
+        let now = s.now()
+        if timerSoon, !ExactEnv.agentMode, s.clock == nil { s.apply(s.runtime.advance(now: now)) }
+        if motion { s.apply(s.runtime.tick(now: now)) }
         let more = s.canvases.tick(now: s.now())
-        run(motion || more || s.canvases.wantsFrames)
+        run(motion || timerSoon || more || s.canvases.wantsFrames)
     }
 
     #if canImport(UIKit)

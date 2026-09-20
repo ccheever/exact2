@@ -298,6 +298,10 @@ extension Agent {
             return reply
         }
         let host = v.paragraphOwner
+        // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
+        if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
+            node["flow"] = paragraph.flowFacts
+        }
         let vp = presenter.viewport
         let rect = { (r: CGRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
         let b = box(host)

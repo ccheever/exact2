@@ -8,7 +8,7 @@
 //! The arena is the authored truth. Frames and Taffy handles are derived
 //! columns: rehydration is columns-plus-rebuild, never serialized engine state.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use taffy::NodeId;
 
@@ -33,6 +33,9 @@ pub struct NodeArena {
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
     frames: Vec<Frame>,
+    // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
+    pub(crate) flow: HashMap<u32, crate::flow::FlowState>,
+    pub(crate) exclusion_slots: BTreeSet<u32>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -67,6 +70,8 @@ impl Clone for NodeArena {
             props: self.props.clone(),
             flags: self.flags.clone(),
             frames: self.frames.clone(),
+            flow: self.flow.clone(),
+            exclusion_slots: self.exclusion_slots.clone(),
             contents: self.contents.clone(),
             intrinsic: self.intrinsic.clone(),
             taffy: self.taffy.clone(),
@@ -112,6 +117,8 @@ impl NodeArena {
     /// [`alloc`](Self::alloc) advances identity exactly as ordinary reuse does.
     pub(crate) fn reset(&mut self) {
         self.renew_text_namespace();
+        self.flow.clear();
+        self.exclusion_slots.clear();
         for slot in 0..self.generations.len() {
             self.live[slot] = false;
             self.parents[slot] = None;
@@ -201,6 +208,21 @@ impl NodeArena {
     /// Dirty flags.
     pub fn flags(&self, slot: u32) -> NodeFlags {
         self.flags[slot as usize]
+    }
+
+    /// Resolved exclusions in this leaf's border-box coordinates.
+    pub fn flow_shapes(&self, slot: u32) -> &[exact_textflow::FlowShape] {
+        self.flow.get(&slot).map_or(&[], |s| s.shapes.as_slice())
+    }
+
+    /// Whether intersecting exclusions were skipped because height was measured.
+    pub fn flow_skipped(&self, slot: u32) -> bool {
+        self.flow.get(&slot).is_some_and(|s| s.skipped)
+    }
+
+    /// Number of entries in the sparse derived flow column (including skips).
+    pub fn flow_entry_count(&self) -> usize {
+        self.flow.len()
     }
 
     /// Absolute frame from the last layout.
@@ -474,6 +496,8 @@ impl NodeArena {
     }
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
+        self.exclusion_slots.remove(&slot);
+        self.flow.remove(&slot);
         let s = slot as usize;
         debug_assert!(self.live[s], "free of a dead slot");
         self.by_local.remove(&self.local_ids[s]);
@@ -506,6 +530,14 @@ impl NodeArena {
 
     pub(crate) fn children_mut(&mut self, slot: u32) -> &mut Vec<u32> {
         &mut self.children[slot as usize]
+    }
+
+    pub(crate) fn update_exclusion_count(&mut self, slot: u32, _was: bool) {
+        if crate::flow::is_exclusion(self, slot) {
+            self.exclusion_slots.insert(slot);
+        } else {
+            self.exclusion_slots.remove(&slot);
+        }
     }
 
     pub(crate) fn style_mut(&mut self, slot: u32) -> &mut StyleProps {

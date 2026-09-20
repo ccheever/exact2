@@ -108,6 +108,7 @@ fn request(k: &Kernel, engine: Shared, id: u32, width: AxisOffer) -> TextMetrics
     let n = k.node(id).unwrap();
     let runs = n.text_runs();
     let req = TextMeasureRequest {
+        exclusions: &[],
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(
             &n.computed_style(exact_kernel::StyleMask::INHERITED),
@@ -184,6 +185,7 @@ fn identified_exact_offers_share_anonymous_geometry_without_hot_source_work() {
         let n = k.node(2).unwrap();
         let runs = n.text_runs();
         let req = TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: exact_kernel::text::Paragraph::from_style(
                 &n.computed_style(exact_kernel::StyleMask::INHERITED),
@@ -553,6 +555,8 @@ mod owned_spec {
             align: TextAlign::Left,
             line_clamp: 0,
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
+            white_space: exact_kernel::WhiteSpace::Normal,
+            direction: exact_kernel::Direction::Ltr,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {
@@ -635,6 +639,7 @@ mod owned_spec {
         let stamp = n.paragraph_stamp().unwrap();
         let runs = n.text_runs();
         let req = TextMeasureRequest {
+            exclusions: &[],
             runs: &runs,
             paragraph: exact_kernel::text::Paragraph::from_style(
                 &n.computed_style(exact_kernel::StyleMask::INHERITED),

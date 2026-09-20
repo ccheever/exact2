@@ -1,8 +1,10 @@
 //! Computes size using styles and measure functions
 
-use crate::geometry::{Point, Size};
+#[cfg(feature = "content_size")]
+use crate::geometry::Rect;
+use crate::geometry::Size;
 use crate::style::{AvailableSpace, Overflow, Position};
-use crate::tree::{CollapsibleMarginSet, MeasureOutput, RunMode};
+use crate::tree::{Baselines, CollapsibleMarginSet, RunMode};
 use crate::tree::{LayoutInput, LayoutOutput, SizingMode};
 use crate::util::debug::debug_log;
 use crate::util::sys::{f32_max, f32_min};
@@ -20,23 +22,6 @@ pub fn compute_leaf_layout<MeasureFunction>(
 ) -> LayoutOutput
 where
     MeasureFunction: FnOnce(Size<Option<f32>>, Size<AvailableSpace>) -> Size<f32>,
-{
-    // EXACT PATCH BEGIN (LLP 0440 D5): preserve the original public
-    // signature and baseline-less behavior through the additive sibling.
-    compute_leaf_layout_with_baselines(inputs, style, resolve_calc_value, |known_dimensions, available_space| {
-        MeasureOutput::from(measure_function(known_dimensions, available_space))
-    })
-}
-
-/// Compute a leaf size while preserving optional first baselines.
-pub fn compute_leaf_layout_with_baselines<MeasureFunction>(
-    inputs: LayoutInput,
-    style: &impl CoreStyle,
-    resolve_calc_value: impl Fn(*const (), f32) -> f32,
-    measure_function: MeasureFunction,
-) -> LayoutOutput
-where
-    MeasureFunction: FnOnce(Size<Option<f32>>, Size<AvailableSpace>) -> MeasureOutput,
 {
     let LayoutInput { known_dimensions, parent_size, available_space, sizing_mode, run_mode, .. } = inputs;
 
@@ -56,9 +41,6 @@ where
             let node_size = known_dimensions;
             let node_min_size = Size::NONE;
             let node_max_size = Size::NONE;
-            // EXACT PATCH (LLP 1011 §1): the ratio is part of the content —
-            // a replaced element's content size follows its cross size by
-            // ratio (css-flexbox §9.2 rule B) even when the rows are ignored.
             (node_size, node_min_size, node_max_size, style.aspect_ratio())
         }
         SizingMode::InherentSize => {
@@ -97,6 +79,7 @@ where
         || style.overflow().x.is_scroll_container()
         || style.overflow().y.is_scroll_container()
         || style.position() == Position::Absolute
+        || style.contain().establishes_independent_formatting_context()
         || padding.top > 0.0
         || padding.bottom > 0.0
         || border.top > 0.0
@@ -118,8 +101,8 @@ where
             return LayoutOutput {
                 size,
                 #[cfg(feature = "content_size")]
-                content_size: Size::ZERO,
-                first_baselines: Point::NONE,
+                scrollable_overflow_rect: Rect::ZERO,
+                baselines: Baselines::NONE,
                 top_margin: CollapsibleMarginSet::ZERO,
                 bottom_margin: CollapsibleMarginSet::ZERO,
                 margins_can_collapse_through: false,
@@ -152,7 +135,7 @@ where
     };
 
     // Measure node
-    let measured_output = measure_function(
+    let measured_size = measure_function(
         match run_mode {
             RunMode::ComputeSize => known_dimensions,
             RunMode::PerformLayout => Size::NONE,
@@ -160,7 +143,6 @@ where
         },
         available_space,
     );
-    let measured_size = measured_output.size;
     let clamped_size = known_dimensions
         .or(node_size)
         .unwrap_or(measured_size + content_box_inset.sum_axes())
@@ -188,21 +170,32 @@ where
     };
     let size = size.maybe_max(padding_border.sum_axes().map(Some));
 
+    // A scroll container's own padding at the end of the content is part of its scrollable
+    // overflow region, so it is included in the overflow rect. Boxes that are not scroll
+    // containers do not extend their overflow region by their own padding.
+    #[cfg(feature = "content_size")]
+    let scrollable_overflow_rect = {
+        let is_scroll_container = style.overflow().x.is_scroll_container() || style.overflow().y.is_scroll_container();
+        let is_rtl = style.direction().is_rtl();
+        let start_padding = if is_rtl { padding.right } else { padding.left };
+        let end_padding = if is_rtl { padding.left } else { padding.right };
+        // EXACT PATCH 5: replaced pixels do not enlarge scrollable overflow.
+        if style.is_compressible_replaced() {
+            let padding_box = size - border.sum_axes();
+            Rect { left: 0.0, top: 0.0, right: padding_box.width, bottom: padding_box.height }
+        } else { Rect {
+            left: 0.0,
+            right: start_padding + measured_size.width + if is_scroll_container { end_padding } else { 0.0 },
+            top: 0.0,
+            bottom: padding.top + measured_size.height + if is_scroll_container { padding.bottom } else { 0.0 },
+        } }
+    };
+
     LayoutOutput {
         size,
         #[cfg(feature = "content_size")]
-        // EXACT PATCH (LLP 1011 §1): intrinsic image pixels determine an
-        // unknown size, but do not extend a replaced element's scrollable
-        // overflow after CSS has sized its box (CSS Overflow §2.1).
-        content_size: if style.is_compressible_replaced() {
-            size - border.sum_axes()
-        } else {
-            measured_size + padding.sum_axes()
-        },
-        first_baselines: Point {
-            x: measured_output.first_baselines.x.map(|baseline| baseline + content_box_inset.left),
-            y: measured_output.first_baselines.y.map(|baseline| baseline + content_box_inset.top),
-        },
+        scrollable_overflow_rect,
+        baselines: Baselines::NONE,
         top_margin: CollapsibleMarginSet::ZERO,
         bottom_margin: CollapsibleMarginSet::ZERO,
         margins_can_collapse_through: !has_styles_preventing_being_collapsed_through
@@ -210,7 +203,6 @@ where
             && measured_size.height == 0.0,
     }
 }
-// END EXACT PATCH (LLP 0440 D5)
 
 // EXACT PATCH (LLP 1011 §1): CSS 2.1 §10.4, the min/max constraint table for
 // replaced elements with an intrinsic ratio. `w`/`h` are the tentative size.

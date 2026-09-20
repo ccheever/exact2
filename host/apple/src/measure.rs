@@ -67,6 +67,14 @@ pub struct CRequest {
     pub line_clamp: u32,
     /// CSS overflow-wrap: normal, break-word, anywhere.
     pub overflow_wrap: u8,
+    /// CSS white-space: normal, pre-wrap.
+    pub white_space: u8,
+    /// CSS direction: ltr, rtl.
+    pub direction: u8,
+    /// Resolved exclusions, borrowed for this callback.
+    pub exclusions: *const crate::textflow::Shape,
+    /// Exclusion count.
+    pub exclusion_count: usize,
 }
 
 /// What the callback returns.
@@ -209,6 +217,7 @@ impl CallbackMeasurer {
                 .collect::<Vec<CRun>>();
             &owned
         };
+        let shapes = crate::textflow::Shapes::new(request.exclusions);
         let c = CRequest {
             runs: runs.as_ptr(),
             count: runs.len(),
@@ -223,6 +232,10 @@ impl CallbackMeasurer {
             },
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap as u8,
+            white_space: request.paragraph.white_space as u8,
+            direction: request.paragraph.direction as u8,
+            exclusions: shapes.flat.as_ptr(),
+            exclusion_count: shapes.flat.len(),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
@@ -256,6 +269,10 @@ impl TextMeasurer for CallbackMeasurer {
         stamp: &ParagraphStamp,
         request: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
+        // @ref LLP 1043.000 §3 D4 — moving geometry is not a paragraph identity.
+        if !request.exclusions.is_empty() {
+            return self.measure(request);
+        }
         if let Some(metrics) = self.memo.get(stamp, request.width, request.height) {
             return metrics;
         }

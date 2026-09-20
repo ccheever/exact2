@@ -454,7 +454,9 @@ pub fn apply(
                 if changed.is_empty() {
                     continue;
                 }
+                let excluded = crate::flow::is_exclusion(arena, slot);
                 arena.style_mut(slot).apply_patch(patch);
+                arena.update_exclusion_count(slot, excluded);
                 style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
                 propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
@@ -465,7 +467,9 @@ pub fn apply(
                 if changed.is_empty() {
                     continue;
                 }
+                let excluded = crate::flow::is_exclusion(arena, slot);
                 arena.style_mut(slot).clear(*mask);
+                arena.update_exclusion_count(slot, excluded);
                 style_changed(arena, layout, slot, changed, &mut receipt);
                 touched.insert(slot);
                 propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
@@ -710,8 +714,8 @@ fn propagate_inherited(
 }
 
 /// What a changed inherited value does at a node: text rows remeasure its
-/// paragraph (the nearest measure owner); the rest repaint. No inherited
-/// row shapes a box, so box layout is untouched.
+/// paragraph (the nearest measure owner); layout rows such as direction
+/// also rederive the engine style of containers.
 fn inherited_changed(
     arena: &mut NodeArena,
     layout: &mut LayoutTree,
@@ -719,6 +723,12 @@ fn inherited_changed(
     rows: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
+    if rows.intersects(StyleMask::LAYOUT) {
+        if let Some(node) = arena.taffy(slot) {
+            layout.set_style(node, taffy_style(arena, slot));
+        }
+        receipt.layout_invalidated = true;
+    }
     if rows.intersects(StyleMask::TEXT)
         && matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput)
     {

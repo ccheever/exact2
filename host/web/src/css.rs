@@ -212,6 +212,7 @@ fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
         RowValue::LineHeight(v) => v.css(),
         RowValue::Enum(e) => e.to_string(),
         RowValue::ClipPath(p) => p.css(),
+        RowValue::ShapeOutside(p) => p.css(),
         RowValue::Vec2(v) => match name {
             "translate" => format!("{}px {}px", num(v.x), num(v.y)),
             _ => return None,
@@ -336,5 +337,27 @@ pub fn num(n: f32) -> String {
     } else {
         let s = format!("{n}");
         s
+    }
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+    #[test]
+    fn exclusion_rows_keep_authored_css_visible() {
+        let mut s = StyleProps::default();
+        for (id, value) in [
+            (StyleId::WrapFlow, "both"),
+            (StyleId::ShapeOutside, "circle()"),
+            (StyleId::ShapeMargin, "8px"),
+        ] {
+            s.set_dynamic(id, &exact_kernel::StyleValue::Text(value.into()))
+                .unwrap();
+        }
+        let (css, skipped) = css_text(&s, &[]);
+        assert!(css.contains("shape-outside:circle(closest-side at 50% 50%);"));
+        assert!(css.contains("shape-margin:8px;"));
+        assert!(css.contains("wrap-flow:both;"));
+        assert!(skipped.is_empty());
     }
 }

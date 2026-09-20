@@ -1148,6 +1148,9 @@ fn app_identity_gate() {
     .is_ok());
 }
 
+#[path = "now_screen/timer.rs"]
+mod timer;
+
 // The saved baseline exercised generic dispatch and exposed stale-curry delivery.
 // Generated Messages replyTo compatibility is retained diagnostic evidence, not
 // an environment-optional test that silently passes without the real plan.

@@ -217,6 +217,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "pan" => AttrTarget::Handler("pan"),
         "navigate" => AttrTarget::Handler("navigate"),
         "heightrelease" => AttrTarget::Handler("heightrelease"),
         "transformgeometry" => AttrTarget::Handler("transformgeometry"),
@@ -342,6 +343,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollbar-width" => styles(&["scrollbar_width"]),
         "touch-action" => styles(&["touch_action"]),
         "clip-path" => styles(&["clip_path"]),
+        // @ref LLP 1043.000 §3 D1
+        "wrap-flow" => styles(&["wrap_flow"]),
+        "shape-outside" => styles(&["shape_outside"]),
+        "shape-margin" => styles(&["shape_margin"]),
         "scroll-snap-align" => styles(&["scroll_snap_align"]),
         "line-clamp" => styles(&["line_clamp"]),
         "text-overflow" => styles(&["text_overflow"]),

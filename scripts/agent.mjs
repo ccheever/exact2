@@ -26,7 +26,7 @@
 // protocol on a pipe (no port, no dependency): `tap` and `type` are CDP
 // input events — Chrome's own hit-testing and dispatch, the path a click
 // takes — `screenshot` is Page.captureScreenshot, and the rest is
-// `exact.agent(…)` in the page (`host/web/glue.js`). The macOS app and the
+// `exact.agentSettled(…)` in the page (`host/web/glue.js`). The macOS app and the
 // Linux host run with EXACT_AGENT=1 and answer JSON lines on stdio
 // (`Agent.swift`; `host/linux/src/agent.rs` — the Linux binary runs headless
 // on any machine, macOS included, so `linux` works wherever it was built);
@@ -189,7 +189,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
     let contact = null;
-    const ask = async (req) => JSON.parse(await evaluate(`Promise.resolve(exact.agent(${JSON.stringify(req)})).then((r) => JSON.stringify(r))`));
+    const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
       host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
       ask,
@@ -909,6 +909,12 @@ function renderNode(n) {
   // depend on which host answered.
   const sorted = (o) => Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''})`);
+  // @ref LLP 1043.000 §3 D4, D7 — web geometry is paragraph-content-local.
+  const flowSpace = n.flow?.coordinate_space === 'content' ? 'leaf content box' : 'leaf border box';
+  for (const { kind, ...values } of n.flow_shapes ?? []) out.push(`  flow ${kind} ${Object.entries(values).map(([k, v]) => `${k}=${q(v)}`).join(' ')} (${flowSpace})`);
+  if (n.flow_skipped ?? n.flow?.skipped) out.push(`  flow skipped: ${n.flow_skipped ?? n.flow.skipped}`);
+  // @ref LLP 1043.000 §3 D6 — painted fragments retain logical byte ranges.
+  for (const f of n.fragments ?? n.flow?.fragments ?? []) out.push(`  fragment bytes ${f.start}..${f.end} · band ${f.band ?? f.line} · ${f.x},${f.y} ${f.width}×${f.height ?? n.flow?.line_height} (leaf content box)`);
   const sp = n.space ?? {};
   out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
   if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);

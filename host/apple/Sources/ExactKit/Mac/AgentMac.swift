@@ -181,6 +181,10 @@ extension Agent {
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         if let e = node["error"] { return ["error": e] }
         let host = v.paragraphOwner
+        // @ref LLP 1043.000 §3 D7 — diagnose actual painted fragments, not a replay.
+        if !host.flowShapes.isEmpty, let paragraph = host.paragraphLayout() {
+            node["flow"] = paragraph.flowFacts
+        }
         let clipView = presenter.viewport.contentView
         let rect = { (r: NSRect) -> [String: Any] in ["x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)] }
         let b = box(host)

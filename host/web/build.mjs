@@ -65,6 +65,11 @@ copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
 copyFileSync(resolve(root, 'host/web/navigation.js'), resolve(stage, 'navigation.js'));
+// Optional script module: copied as a host artifact, fetched only by flow plans.
+copyFileSync(resolve(root, 'host/web/textflow-glue.js'), resolve(stage, 'textflow-glue.js'));
+copyFileSync(resolve(root, 'host/web/timer-glue.js'), resolve(stage, 'timer-glue.js'));
+copyFileSync(resolve(root, 'host/web/input-glue.js'), resolve(stage, 'input-glue.js'));
+copyFileSync(resolve(root, 'host/web/http-body.js'), resolve(stage, 'http-body.js'));
 copyFileSync(resolve(root, 'host/web/media-glue.js'), resolve(stage, 'media-glue.js'));
 copyFileSync(resolve(root, 'host/web/list-selection.js'), resolve(stage, 'list-selection.js'));
 

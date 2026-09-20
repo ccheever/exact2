@@ -122,7 +122,7 @@ impl ContentRegionState {
         let receipt = kernel
             .compute_region_layout(root, offer, self.inputs)
             .map_err(|e| format!("content region layout: {e:?}"))?;
-        let changed = !receipt.shell.changed.is_empty();
+        let changed = !receipt.shell.changed.is_empty() || !receipt.shell.flow_changed.is_empty();
         self.receipt = Some(receipt);
         // Compute already published a coherent receipt. Work admission failure
         // is explicit status, NOT an Err after mutating published geometry.

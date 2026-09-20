@@ -182,6 +182,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     weak var textParent: NodeView?
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
+    var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     /// Every write reaches the presenter's chrome index, whoever makes it.
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
@@ -1246,6 +1247,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // same (a click on the page's ground).
     override func mouseDown(with event: NSEvent) {
         presenter?.collections.pointerDown(id, event: event)
+        if presenter?.mouseLayoutPan.down(self, event: event) == true { return }
         presenter?.mouseHeightDrag.down(self, event: event)
         presenter?.mouseTransformDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
@@ -1272,6 +1274,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        if presenter?.mouseLayoutPan.drag(event) == true { return }
         if presenter?.mouseTransformDrag.drag(event) == true { return }
         if presenter?.mouseHeightDrag.drag(event) == true { return }
         if presenter?.mouseSwipe.drag(event) == true { return }
@@ -1283,6 +1286,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        if presenter?.mouseLayoutPan.up(event) == true { return }
         if presenter?.mouseTransformDrag.up(event) == true { return }
         if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }

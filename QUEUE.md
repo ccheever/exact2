@@ -17,6 +17,19 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Text around shapes** (LLP 1043.000 §8, as built 2026-09-19): `wrap-flow` / `shape-outside` exclusions flowed on
+  both sides per frame on Linux, Apple and web through one shared walker (`textflow/`), demo `apps/textflow` (six
+  scenes); vendored Taffy is upstream 0.14 (patches 3, 4, 5 retained). Owed: **auto-height flow** — M8's probe found
+  `BlockContext` offsets are provisional at measure time (sibling margin collapse y=100 → 90, auto margins x=0 → 50,
+  descendant collapse y=110 → 150), so stable offsets and wrapping-context identity must be settled before measurement
+  sees them, or bounded re-layout used instead (Charlie's call; LLP 1043.000 §8 "Stage 0"); the wasm cost is ~+77 KiB against the ruled ~64 KB;
+  Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments; iOS hit-testing and any iOS run at all;
+  Safari/Firefox; `shape-outside: <image>`; the 2,000-paragraph worst case regressed 5 → 54 ms a pass in the fix round.
+
+- **Apple text: keep the line-break boundaries in `TextShape`** (2026-09-18; LLP 1043 F7): under
+  `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over the whole paragraph at
+  every width (25–31 µs on a 79–120 µs snapshot, probe only); the boundaries depend on the text alone.
+  Confirm in a Markdown resize trace first.
 - **Internal event/property ID collisions** (Charlie, 2026-09-19): investigate assignment and cross-branch collision detection after navigation and video independently claimed host dispatch kind 14 (merged as navigation 14, media 19).
   Audit the manually mirrored Rust/Swift/browser dispatch codes alongside generated kernel property IDs and plan event ordinals; determine how to keep assignments consistent and detect incompatible host/plan pairs without adding another declaration authority.
 
@@ -585,6 +598,11 @@ Keep module placement under LLP 1027.002; automatic windowing/image pressure and
 physical-display native sweeps remain follow-ups; the first slice drives AppKit
 and the Linux headless CPU renderer without claiming display frame timing.
 
+- Linux textflow follow-up (LLP 1043.000 M3): carry resolved exclusions in immutable content-region worker requests and their accepted artifact identity. Ordinary definite-height text now flows; the opt-in content-region publication still owns its original unflowed geometry. Linux has no native text-selection UI, decoration painter or inline-link hit geometry yet; future consumers must use the accepted paragraph's fragments and original run metadata. Add discretionary-hyphen ink and clamp ellipsis to the flowed path (M3 clips at the band cap); justify currently uses start.
+
+- Apple textflow follow-up (LLP 1043.000 M4): the shared walker now paints native paragraphs on macOS/iOS. A resolved flowed leaf retires an opt-in opaque content-region raster and returns the whole registration to native views, until a new registration. Carry exclusions and fragment geometry through the worker artifact before retaining region rastering for moving shapes; the current fallback trades that worker scheduling for correct fresh ink.
+
+- Web textflow size review (LLP 1043.000 §6.2, M5): optimized textflow-web grew from the observed pre-M5 834,019 bytes to 905,398 bytes (+71,379), above the approximate 64 KB revisit threshold. Caltrain is currently 1,022,149 bytes; the orchestrator has the pre-program comparison. Review code/data size while preserving the ruling that the shared crate stays linked. Evidence: `target/textflow-scratch/m5/size-baseline.json`, `wasm-probe.json`.
 - Public UI coverage (LLP 1035.006): select the first settings slice (labels, buttons, switches, checkboxes, radio groups, and text entry), choose each platform's disposition, then implement and hand-check the concrete examples. The ordered catalog distinguishes accepted support from reviewed deferrals; drafting it does not admit every excluded capability.
 
 - Tooling follow-up (2026-09-19): `bun scripts/caps.test.mjs` still passes 59/61 after the Snapback 0.2.30 recovery. The absent-root watcher misses deletion (`created=true, deleted=false, recreated=true`), and diagnostic source/output isolation and failure cleanup fails. These match the saved 2026-09-17 findings; Apple packaging checks pass.

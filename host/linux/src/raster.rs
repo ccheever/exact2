@@ -258,6 +258,50 @@ impl Backend for Raster {
         self.target = Some(pixmap);
     }
 
+    fn damage(&mut self, previous: &Pixmap, rects: &[Rect4]) -> bool {
+        if previous.width() != self.width || previous.height() != self.height {
+            return false;
+        }
+        let Some(mut mask) = Mask::new(self.width, self.height) else {
+            return false;
+        };
+        let mut bounds = (f32::INFINITY, f32::INFINITY, 0.0_f32, 0.0_f32);
+        for &(x, y, w, h) in rects {
+            let Some(rect) = Rect::from_xywh(x, y, w, h) else {
+                continue;
+            };
+            mask.fill_path(
+                &PathBuilder::from_rect(rect),
+                FillRule::Winding,
+                false,
+                self.device(Transform::identity()),
+            );
+            bounds.0 = bounds.0.min(x);
+            bounds.1 = bounds.1.min(y);
+            bounds.2 = bounds.2.max(x + w);
+            bounds.3 = bounds.3.max(y + h);
+        }
+        self.target = Some(previous.clone());
+        self.clips.push(Rc::new(mask));
+        self.text_clips.push((
+            bounds.0 * self.scale,
+            bounds.1 * self.scale,
+            (bounds.2 - bounds.0) * self.scale,
+            (bounds.3 - bounds.1) * self.scale,
+        ));
+        self.fill(
+            &Shape::rect((
+                0.,
+                0.,
+                self.width as f32 / self.scale,
+                self.height as f32 / self.scale,
+            )),
+            [255; 4],
+            Transform::identity(),
+        );
+        true
+    }
+
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform) {
         let Some(path) = rounded_rect(shape) else {
             return;
@@ -377,6 +421,41 @@ impl Backend for Raster {
                 }
             }
         }
+    }
+
+    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let mut b = PathBuilder::new();
+        for (op, v) in path.commands() {
+            match op {
+                'M' => b.move_to(v[0], v[1]),
+                'L' => b.line_to(v[0], v[1]),
+                'Q' => b.quad_to(v[0], v[1], v[2], v[3]),
+                'C' => b.cubic_to(v[0], v[1], v[2], v[3], v[4], v[5]),
+                'Z' => b.close(),
+                _ => unreachable!("validated CSS path"),
+            }
+        }
+        let Some(path) = b.finish() else {
+            return false;
+        };
+        let Some(mut mask) = Mask::new(self.width, self.height) else {
+            return false;
+        };
+        mask.fill_path(&path, FillRule::Winding, true, self.device(ts));
+        if let Some(parent) = self.clips.last() {
+            for (a, b) in mask.data_mut().iter_mut().zip(parent.data()) {
+                *a = (u16::from(*a) * u16::from(*b) / 255) as u8;
+            }
+        }
+        self.clips.push(Rc::new(mask));
+        self.text_clips
+            .push(self.text_clips.last().copied().unwrap_or((
+                0.,
+                0.,
+                self.width as f32,
+                self.height as f32,
+            )));
+        true
     }
 
     fn pop_clip(&mut self) {

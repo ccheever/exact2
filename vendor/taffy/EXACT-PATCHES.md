@@ -1,285 +1,292 @@
 # Vendored Taffy — Exact patches
 
-- **Upstream:** `taffy` 0.9.2 from crates.io
-  (`https://github.com/DioxusLabs/taffy`, tag `v0.9.2`).
-- **Why vendored:** seven behavioral/API/performance patches (below) that the high-level
-  `TaffyTree` API gives us no way to apply from the outside. Wired in via
-  `[patch.crates-io]` in the root `Cargo.toml`, so `kernel/Cargo.toml` still
-  declares a normal `taffy = "0.9"` dependency.
+- **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
+  `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
+  Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
+- **Why vendored:** patches 3, 4 and 5 below remain. `[patch.crates-io]`
+  selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
-- **Replacement plan:** upstream the patch to DioxusLabs/taffy; drop this
-  vendored copy and return to the crates.io release once a version containing
-  the fix ships. Re-evaluate at the 2026-09-09 checkpoint (LLP 0151 cadence).
+- **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
+  `BlockContext` belongs to block_layout; float_layout is unnecessary and
+  disabled. No float row is exposed. Upstream's other newly default features
+  (flexbox_balance, calc, detailed_layout_info) are unnecessary here too.
+- **Replacement plan:** upstream the remaining fixes; remove each divergence
+  when a published version provides it. The numbered inventory retains the
+  history so a refresh cannot silently lose an Exact correction.
 
-## Patch 1: used cross sizes and intrinsic cache entries (ENG-22727, LLP 1035.000.001)
+All upstream evidence below refers to the supplied, unmodified 0.14.0 source,
+not to a moving network branch. The package's source is copied in full; examples,
+Cargo.lock, Cargo.toml.orig and packaging receipts are omitted as before.
 
-`src/compute/flexbox.rs`, `determine_flex_base_size`: the resolved style
-cross-size that seeds `child_known_dimensions` is now clamped by the item's
-resolved min/max cross size before the content-based flex basis is measured.
+## Patch 1: used cross sizes and intrinsic cache entries — upstream
 
-Without the clamp, a flex item whose used cross size is bounded by a
-min/max constraint has its content-based flex basis measured at the
-*unclamped* cross size, while the final layout pass lays it out at the
-*clamped* cross size. Any wrapping content (text) then reflows taller than
-the frozen basis, and descendants overflow the item — scroll surfaces
-computed from node frames stop short of the true content bottom.
+`src/compute/flexbox.rs::determine_flex_base_size` clamps
+`child_known_dimensions` using `transferred_min_size`/`transferred_max_size`
+before measuring the flex basis. `src/tree/cache.rs::CacheKey` encodes
+known dimensions/available space, parent size and definiteness;
+`Cache::get(&LayoutInput)` compares keys, never promotes a result's size
+into an input dimension. Both parts of the old patch are therefore removed.
 
-Both directions of the mismatch are real:
+The 24 literal-Chrome reader cases in `kernel/tests/reader.rs` retain their
+expectations, including both width spellings, both box-sizing modes and the
+long-token overflow case. Incremental/fresh/rehydrated reader equality stays.
 
-- `width: 100%; max-width: 680` on a wide viewport (macOS window): basis
-  measured at the full percent-resolved width, final clamped to 680.
-- `width: 680; max-width: 100%` on a narrow viewport (iPhone): basis
-  measured at 680, final clamped to the viewport.
+## Patch 2: first baseline from measured leaves — upstream API, kernel adapter
 
-CSS sizing resolves used sizes through min/max clamping before content is
-laid out against them (CSS 2.1 §10.4; css-flexbox-1 §9.2.3 sizes the item
-"into the available space" with its used cross size), and browsers agree —
-this patch matches browser behavior for the reduced test cases.
+`src/tree/taffy_tree.rs::compute_layout_with_measure` now accepts
+`FnMut(LayoutInput, NodeId, Option<&mut NodeContext>, &Style) -> LayoutOutput`.
+`LayoutOutput.baselines` is `Baselines { first, last }`. The kernel calls
+upstream's `compute_leaf_layout` for the ordinary size rules, captures the
+host's first baseline, adds top border/padding, and writes `output.baselines`.
+The custom MeasureOutput type and additive baseline entry points disappear.
+No vendor baseline patch is needed. Region baseline-dependency regressions
+and the 512-tree fresh-layout comparison remain consumers.
 
-**Intrinsic-cache extension (2026-09-12).** `src/tree/cache.rs` no longer
-promotes an intrinsic result to a known dimension merely because its returned
-size equals that dimension. A percentage column containing a code token wider
-than its maximum is measured with unresolved descendant percentages during a
-min-content probe. Its clamped width can equal the final width while its height
-still describes the intrinsic probe. Reusing that height gave LLP 1032 a
-67,333-point column around 30,049 points of blocks. Exact-input hits and
-promotion from definite available-space offers remain cached; both measurement
-and final-layout entries follow the rule. There is no global invalidation.
+The style adapter also lowers an implicit block align-content to None (CSS
+normal). 0.14's block algorithm establishes a BFC for Some(align-content),
+so blindly carrying the flex/grid stretch default into blocks would stop
+nested margins collapsing. `default_block_alignment_preserves_nested_collapsed_margins`
+pins 151px for both nested border tops, rather than the incorrect 211px
+paragraph top. Authored block alignment and flex/grid stretch are retained.
+`measured_baselines_include_padding_and_inherited_direction_relayouts_boxes`
+checks a literal padded baseline and inherited RTL placement/replay.
 
-`kernel/tests/reader.rs` holds 24 literal-Chrome cases for both width spellings,
-both box-sizing modes, three viewport widths, and ordinary/overwide-token text
-inside padded blocks. `kernel/tests/fixtures/reader.html` regenerates their
-geometry without Exact lowering. The measured intrinsic text height is 1,716;
-at the final 628-point content width it is 468. `layout_equality.rs` holds the
-resize, text replacement, maximum change, and subtree recreation sequence,
-including scroll overflow, against fresh replay and rehydration. The focused
-reader tests exercise the original cross-size clamp as well as this cache fix.
-The upstream generated suite below predates this extension.
+## Patch 3: allocation-free unfrozen set — re-applied
 
-Validation: the full upstream test suite at `v0.9.2` passes with this patch
-applied — 89 unit tests, **2060 generated conformance fixtures**
-(`tests/fixtures.rs`), measure/caching/relayout/rounding suites. (The
-generated fixtures live only in the git repo, not the crates.io package;
-they were run against a patched clone of the tag.)
+`src/compute/flexbox.rs::resolve_flexible_lengths` still collects a
+`Vec<&mut FlexItem>` in upstream. Retain lazy forward iteration at every use.
+Order and floating-point accumulation order are unchanged. Each item only
+mutates its own frozen flag, so lazy filtering selects the same set.
 
-Local changes beyond the patch: removed `Cargo.lock`, `Cargo.toml.orig`,
-`.cargo-ok`, and `examples/` from the crates.io package copy. Grep for
-`EXACT PATCH` in `src/` to find every divergence from upstream.
+## Patch 4: pooled FlexItem scratch buffer — re-applied
 
-## Patch 2: optional first baseline from measure-function leaves (LLP 0440 D5)
+Upstream `generate_anonymous_flex_items` still returns a fresh Vec. Retain
+the caller-supplied buffer and thread-local stack of at most 32 buffers.
+The iterator body is upstream 0.14's, including its new definiteness logic.
+Buffers are cleared before reuse; capacity is the only retained state.
+More than 32 concurrent/returned buffers fall back to allocation/drop;
+no_std retains upstream's allocate-per-container behavior. FlexLine allocation
+remains unchanged. The 512-tree regression checks cached versus fresh layouts.
 
-**What:** `MeasureOutput` adds an optional first-baseline channel alongside a
-leaf's measured `Size`. Additive `compute_leaf_layout_with_baselines` and
-`TaffyTree::compute_layout_with_measure_and_baselines` entry points carry it
-into `LayoutOutput.first_baselines`. The incumbent size-only entry points keep
-their original signatures and behavior by supplying `Point::NONE`.
-Content-box baselines are translated through the leaf's border and padding
-before flexbox consumes them.
+## Patch 5: replaced-element ratio constraints and overflow — re-applied
 
-**Why:** Taffy 0.9.2 already implements flex-row baseline positioning, but its
-public measure-function contract returns only `Size` and
-`compute_leaf_layout` hard-codes `first_baselines: Point::NONE`. Exact text
-leaves therefore fell back to bottom-edge alignment even when CoreText knew
-the paragraph's first baseline. LLP 0440 D5 requires `row align="baseline"`
-to align different-sized text by that platform-measured baseline.
+`src/compute/leaf.rs` still independently clamps axes and then floors height
+from the ratio; ContentSize still discards the ratio. Port the CSS 2.1 §10.4
+`replaced_constraints` table and retain the ratio in ContentSize. Retain the
+replaced-element overflow correction, now expressed as
+`scrollable_overflow_rect` covering the used padding box. Natural bitmap size
+must not enlarge an explicitly sized image's scrollable extent.
 
-**Upstream status:** Exact-local; not yet submitted upstream. The additive
-shape intentionally leaves Taffy's existing public APIs intact so the patch
-can be proposed independently and removed when an upstream baseline-capable
-measure contract ships.
+`kernel/tests/image.rs` covers the constraint table and stretching flex column;
+`review_fixes.rs` covers intrinsic item contributions. The new upstream block
+algorithm itself respects an image's natural width: the former declared
+block-stretch deviation no longer exists.
 
-The integration path is exercised by `kernel/src/layout.rs` using
-`compute_layout_with_measure_and_baselines`, and `kernel/src/text.rs` covers
-the emitted baseline metric. The focused flex-row test names formerly listed
-here no longer exist; the next patch refresh must restore that coverage.
+## Patch 6: intrinsic items exclude their container's inset — upstream
 
-Authority: LLP 0440 D5.
+`src/compute/flexbox.rs::determine_container_main_size` adds the container's
+inset after the item contributions. Neither item contribution is floored by
+`main_content_box_inset`; the two old deletions need no port.
+`intrinsic_flex_items_do_not_include_their_containers_padding` is unchanged.
 
-## Patch 3: allocation-free unfrozen set in `resolve_flexible_lengths` (RFC 0491 WS-A)
+## Patch 7: final-measure height proof — dropped, replaced by upstream input
 
-**What:** `src/compute/flexbox.rs`, `resolve_flexible_lengths`: the unfrozen
-item set was materialized on every iteration of the freeze loop as
-`let mut unfrozen: Vec<&mut FlexItem> = line.items.iter_mut().filter(...).collect()`.
-Each of its six uses is a single forward pass that never needs two items
-borrowed at once, so the set is now expressed as a lazy
-`line.items.iter().filter(|child| !child.frozen)` at each use site. No
-allocation, no pool, no unsafe.
+The full LayoutInput above supplies run_mode, known_dimensions, parent_size
+and sizing_mode. The kernel records the effective height proof separately;
+upstream `compute_leaf_layout` preserves the ordinary callback contract:
+ComputeSize receives border-box known dimensions, PerformLayout receives
+Size::NONE. No proof metadata influences ordinary returned metrics.
+`upstream_leaf_keeps_border_box_compute_size_inputs` keeps the 400px offer
+for a 300px content-box text leaf with 50px side padding.
 
-**Why:** one heap allocation per flex line per freeze round. Measured on
-Exact's pinned 1,000-node fixture: **395 of 1,643 allocator calls** per
-steady-state full relayout.
+The old emulated-callback differential is removed. There were no recorded
+old-frame fixture files. Its 512 seeded trees now compare incremental against
+fresh 0.14 layouts (49,152 node layouts, including overflow and insets).
+Literal browser fixtures, not two copies of the old callback, remain the
+behavior oracle. The measurement-count assertion is the negative control.
 
-**Behavioral equivalence:** iteration order over `line.items` is unchanged, so
-every floating-point accumulation (`sum_flex_grow`, `sum_flex_shrink`,
-`sum_scaled_shrink_factor`, `total_violation`) sums the same values in the same
-order and produces the same bits. Step (e) mutates `frozen` while iterating,
-but each item's predicate is evaluated before its own body runs and no item
-mutates another, so lazy filtering selects exactly the eagerly collected set.
+## Patch 8: the automatic minimum is measured only where used — upstream
 
-**Upstream status:** Exact-local; a clean candidate for upstreaming — it is a
-pure de-allocation with no API change and no behavior change.
+**Original implementer:** Claude (Fable 5.1), 2026-09-19, owner commit
+`9d282bcd` (patch 7 on trunk's 0.9.2). Reconciled with 0.14 in M15.
 
-## Patch 4: pooled `FlexItem` scratch buffer (RFC 0491 WS-A)
+The supplied upstream 0.14.0 `src/compute/flexbox.rs`,
+`determine_flex_base_size`, already uses
+`style_min_main_size.unwrap_or_else(|| { ... measure_child_size ... })`.
+The option includes an authored minimum or the scroll container's zero
+`Overflow::maybe_into_automatic_min_size`. Its closure therefore runs only
+when the automatic minimum actually needs min-content. No port or additional
+vendor source change is needed: **zero lines** beyond retained patches 3–5.
 
-**What:** `src/compute/flexbox.rs`: `generate_anonymous_flex_items` fills a
-caller-supplied `&mut Vec<FlexItem>` instead of returning a freshly allocated
-one, and `compute_preliminary` checks that buffer out of a thread-local pool
-(`mod flex_item_scratch`) that reclaims it on `Drop`. The pool is a *stack* of
-buffers because flexbox recurses — a container measures children that may
-themselves be flex containers holding a live borrow of their own buffer — and
-is capped at 32 retained buffers. Under `not(feature = "std")` there is no
-thread-local storage, so the scratch type degrades to the incumbent
-allocate-per-container behavior.
+The owner's rationale still applies: 0.9.2's eager `unwrap_or` discarded
+this measurement when a minimum was already known. A flex reader list laid
+out its entire mounted content at zero width on every window change, evicting
+row layouts before measuring again at the real width. His 2.3 MB document,
+three seconds at 3,600 px/s, went from 59,682 to 614 measure calls, unchanged
+row calls 57,793 to 9, and CoreText measurements 694 to 455. These are his
+0.9.2 measurements, not a new 0.14 timing claim.
 
-**Why:** the single largest allocation site in the engine. Measured on Exact's
-pinned 1,000-node fixture: **600 allocator calls and 537,600 bytes** per
-steady-state full relayout — 74% of all bytes a layout pass allocates.
+**Held by** his unchanged `kernel/tests/reader.rs` regression
+`a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use`
+(only 628px text offers; 5974px column), and the two adjacent intrinsic-cache
+regressions, now with an ordinary non-scrolling box that requires the probe.
+His `text_measurement_cache.rs::a_padded_text_that_flexes_wraps_in_its_content_box`
+also retains its 260px border box / 244px content box / 56px height assertions.
+The 0.14 kernel adapter now takes both text offers from content space while
+keeping `LayoutInput`'s independent height proof and `LayoutOutput` baselines.
 
-**Behavioral equivalence:** the buffer's contents are fully overwritten on
-every use (`clear()` then `extend` of the identical iterator), so retaining its
-capacity between passes cannot change a computed value; only allocator traffic
-changes. `FlexItem` owns no heap data, so a pooled buffer retains capacity
-only.
+The owner's 0.9.2 upstream suite report was 2,181 passed, 6 failed, 4 ignored
+both with and without his patch. Those results are historical, not results
+for this 0.14 package. M15 validation: all 8 tests in the owner's reader and
+text-measurement-cache suites pass with their expectations unchanged; the
+source-identical 0.14 scratch copy passes 130 unit tests and 5 doctests using
+M8's offline setup (unused uncached roxmltree dev dependency omitted).
+The generated browser conformance corpus is absent from the supplied package.
 
-**Measured effect of patches 3 and 4 together**, pinned 1K fixture, steady
-state, gross alloc/alloc_zeroed/realloc requests:
+## Changed expectations in the upgrade
 
-| axis | before | after | signed 0.5x target |
-| --- | --- | --- | --- |
-| allocator calls | 1,643 | 648 | 822 |
-| allocated bytes | 722,956 | 172,716 | 361,390 |
+- `image.rs`: auto-width block image 390×146.25 becomes intrinsic 320×120,
+  as CSS replaced-element sizing requires. The old test explicitly pinned a
+  deviation; the replacement tests its removal.
+- `reader.rs`: remove the requirement to execute a 1716px MinContent probe.
+  0.14 avoids that probe. The final 628px offer/468px measured height,
+  5974px column and no-remeasurement cache assertion are unchanged.
+- `reader.rs`: column's propagated horizontal overflow 1278 becomes 1246
+  (32px start padding + 14px child inset + 1200px word). Upstream's
+  `compute/common/scrollable_overflow.rs` and flexbox final layout implement
+  CSS Overflow's end-padding contribution only for scroll containers. The
+  prior value added 32px end padding to an overflow-visible column; the
+  literal HTML fixture never recorded this value. Its 24 browser-backed
+  geometry/scroll-height cases all remain unchanged. Chrome confirmation of
+  this horizontal extent is owed outside the sandbox.
 
-**Upstream status:** Exact-local. Patch 3 is straightforwardly upstreamable.
-Patch 4 introduces a thread-local pool, which upstream may prefer to express as
-a buffer owned by the `LayoutPartialTree` implementor; if such a scratch seam
-lands upstream this patch should be rewritten onto it rather than carried.
+## M8 Part B investigation — no new patch shipped
 
-**Remaining known site, deliberately not patched here:** the per-container
-`Vec<FlexLine>` from `collect_flex_lines` (`src/util/sys.rs:47`,
-`new_vec_with_capacity`) is a further 600 calls but only 14,400 bytes. It
-borrows `&'a mut [FlexItem]`, so pooling it needs either lifetime erasure or
-an inline small-vector; both signed targets are met without it. Tracked in
-`issues/20260826-taffy-flexline-vec-per-container.md`.
+`BlockContext` exists without float_layout, but its private `y_offset` and
+`insets` are provisional, not always the final child border-box origin.
+An instrumented source copy under ignored `target/textflow-scratch/m8/`
+ran these cases; it is not linked into Exact:
 
-Authority: RFC 0491 WS-A; W0-A signed precommitment axes
-`allocation-full-relayout-1k-{calls,bytes}`.
+- A 50px preceding block with 40px bottom margin followed by a paragraph
+  with 10px top margin: context y=100, final y=90.
+- The same paragraph at width 100 in a 200px parent, with auto side margins:
+  context x=0, final x=50.
+- A scratch correction uses the collapsed sibling margin and resolved auto
+  side margins. These two cases pass, but a nested block with 60px top
+  margin and first paragraph with 100px top margin still measures at y=110
+  and is ultimately placed at y=150 (the paragraph is at local y=0).
 
-## Patch 5: replaced-element constraints for leaves with an aspect ratio (LLP 1011 §1)
+`compute/block.rs::perform_final_layout` calls the child before it knows
+`item_layout.top_margin`, then resolves `y_margin_offset` and final location.
+It also resolves relative insets after measurement. Forwarding this context
+alone is therefore insufficient for the requested arbitrary block parent
+chain. A sound continuation needs settled margin-strut/position semantics
+and the wrapping context's identity within the BFC, as well as the leaf
+callback parameter and cache treatment. No relayout loop or partial offset
+API was introduced. The Part B vendor diff is **zero lines**.
 
-**Files:** `src/compute/leaf.rs` (`compute_leaf_layout_with_baselines`, the
-final size; `replaced_constraints`; the `SizingMode::ContentSize` arm).
+Auto-height exclusions, pre-resolving absolute boxes, auto-height replay
+coverage, web height publication and the seventh article scene remain undone.
+The existing definite-height demo path and skip/journal behavior are retained.
 
-**Why.** An `Image` is a measure-function leaf with a Taffy `aspect_ratio`
-(its natural ratio, LLP 1011 §1). Upstream sizes such a leaf by clamping each
-axis independently against min/max and then only flooring the height from the
-width, so a 320×120 image with `max-width: 100` became 100×120 and one with
-`max-height: 40` stayed 320×120 — where CSS (2.1 §10.4, the constraint table
-for replaced elements with an intrinsic ratio) gives 100×37.5 and 106.67×40.
-Upstream also dropped the ratio entirely under `SizingMode::ContentSize`, so a
-flex container measuring the item's content-based flex basis at a stretched
-cross size (css-flexbox §9.2 rule B) got the natural height (390×120 in a
-stretching column) instead of the height by ratio (390×146.25).
+## M8 validation and handoff
 
-**What.** With a ratio, the leaf's tentative size is the known/set dimension
-and the other by ratio (both when both are known; the measured natural size
-when neither is), resolved against min/max by the §10.4 table
-(`replaced_constraints`), never axis-by-axis. `ContentSize` mode keeps the
-style's ratio (rows and min/max are still ignored). Leaves without a ratio are
-untouched (`_ =>` is the upstream code verbatim).
+All Cargo commands ran offline with EXACT_UPDATE_TRUST=development. Bun's
+frozen offline install passed. Exact's public measure API and native ABI are
+unchanged; this is an engine adapter change, not a new exclusion interface.
 
-**Held by** `kernel/tests/image.rs` (`the_css_replaced_element_constraint_table`,
-`in_a_stretching_flex_column_an_auto_width_image_fills_it_too`) and
-`kernel/tests/layout_equality.rs` unchanged.
+The five checks on the final source:
 
-**Upstream status:** Exact-local; upstreamable as a correctness fix.
+| Check | Result |
+| --- | --- |
+| cargo build --workspace --offline | Pass, 377.817s |
+| cargo test --workspace --no-fail-fast --offline, three allowed exclusions | Fail: results below |
+| cargo clippy --workspace --offline --all-targets -- -D warnings; cargo fmt --all -- --check | Both pass |
+| bun scripts/caps.mjs | Pass: 715 source files, 93 vendored files excluded |
+| bun scripts/boot.mjs | Pass: 2 modules, 1 wasm reference, 138248 reachable JS bytes |
 
-## Updating this vendor copy
+The final workspace suite, with the brief's three exclusions (exact-js,
+exact-js-bake, exact-js-web), completed in 2670.502s: **1632 passed, 2 failed,
+9 ignored, 283 targets**. It is not a green workspace result:
 
-Every Taffy refresh must review the fork against the selected upstream tag,
-reconcile the numbered inventory with every `EXACT PATCH` marker, and verify
-that every cited Exact test still exists. Run the upstream suite for the
-patched tag and Exact's five checks before changing the pinned copy. Record
-any intentionally missing focused regression here instead of retaining a
-stale path.
+- Apple `fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit`
+  fails at abi_tests.rs:260 because Keychain returns Operation not permitted.
+- Linux `full_undrained_session_does_not_block_another_sessions_native_workers`
+  fails at image/control_tests.rs:180: delivery_cells is 1 instead of 0.
+  It passed the first workspace run; two isolated retries failed too (2 and 1
+  cells). Stop after those three failures. The test and worker implementation
+  are untouched, and its fixture does not compute layout. This remains an
+  investigation for the orchestrator, not a claimed resolved flake.
 
-**Scrollable content extension (Codex, 2026-09-11).** Exact now sets Taffy's
-existing `item_is_replaced` marker for `Image`. A replaced leaf's
-`LayoutOutput.content_size` is its used padding box, not its measured natural
-bitmap plus padding. A 132×132 bitmap displayed at 32×32 must not contribute
-132×132 to an ancestor's scrollable overflow (CSS Overflow §2.1). The marker
-also enables Taffy's existing compressible grid-minimum behavior for images.
-The kernel image regressions cover source replacement, up/down scaling,
-padding/borders, all `object-fit` values and a percentage-constrained grid image;
-independent browser cases and the Messages focused reply are under
-`/tmp/messages-reply-overflow/`. Ordinary measured text still reports its content.
+The first workspace suite had 1632 passes and only the Keychain failure,
+before the final block-default regression test was added. An earlier focused
+host run also hit Apple's process-wide worker cap in
+`byte_budget_and_illegal_opt_ins_refuse_before_transport`; it passed alone
+and did not recur in either workspace suite.
 
-## Patch 6: intrinsic item contributions exclude the container's inset (LLP 1001 §5)
+Additional results:
 
-**Implementer:** Codex, 2026-09-11.
+- Kernel: 242 passed. All 24 literal-Chrome reader cases, the 512-tree
+  differential, layout equality, scrolling/list and review fixes pass.
+- Textflow app: all 9 Linux tests and the data test pass; the all-scenes
+  larger-font/shape-avoidance test also passes in release mode.
+- Available Taffy tests: 130 unit tests and 5 doctests pass in a source-identical
+  scratch copy, before offset instrumentation. Its unused roxmltree dev dependency
+  was omitted because that version is not cached. Generated upstream browser
+  conformance fixtures are absent from the supplied package and were not run.
+- Web glue: 21 tests pass. `bun host/web/build.mjs textflow-web` passes.
+- `bun host/apple/build.mjs --app textflow` passes with the supplied Swift shim
+  first on PATH. Swift XCTest: 159 of 163 tests pass; ten assertions fail in the
+  same four untouched MacShortcut/MacToolbar window/sheet tests recorded by M9.
+- Release Linux screenshots: all six scenes, 100% and 115%, at 960x900 and
+  clock zero, captured and visually inspected. Every 100% image is pixel-identical
+  to the requested M9 reference; all twelve match the debug captures. Explicit
+  EXACT_PAINTER=cpu is required here: default GPU discovery never became ready
+  in three attempts (including a 120s probe).
 
-`src/compute/flexbox.rs`, `determine_container_main_size`: remove the two
-`max(main_content_box_inset)` floors from the row/column item's intrinsic
-contribution. The container adds its inset after summing the contributions;
-using it to floor every item first counts parent padding twice for small content.
-The item's own measured size and min/max constraints remain in force.
+The 10,000-ordinary-leaf test still checks no unchanged remeasurement and
+at most eight measurements after the small side context's exclusion moves.
+The 2,000-paragraph/32-exclusion stress case checks 64,000 candidate leaf visits
+per pass. This upgrade adds no exclusion traversal or relayout loop. Patch 4
+retains at most 32 scratch buffers per thread; excess buffers are dropped,
+with capacities proportional to encountered container sizes. The padded
+baseline and explicit block-BFC cases are additional negative controls.
 
-Messages demonstrates the row case: a nested text column inside a flex bubble
-with 14-point horizontal padding makes `min-width: 48px` resolve to 56px. The
-browser resolves it to 48px. A column container can likewise overstate height.
-The high-level kernel regression
-`intrinsic_flex_items_do_not_include_their_containers_padding` fails before the
-repair and passes after it across 48 parent/child direction and padding cases.
-A separate 24-case browser matrix confirms their width/height expectations.
-Artifacts: `/tmp/messages-short-width/`. The full kernel suite passes; the full
-upstream generated conformance corpus has not been rerun for this patch.
+Logs, timing samples, offset probes, and inspected linux-cpu-*.png captures
+are under target/textflow-scratch/m8/. Outside the sandbox, rerun the full
+workspace suite including the three JS packages, the Swift suite, and drive
+all six scenes in macOS and Chrome at both font sizes. Confirm reader.html's
+horizontal overflow interpretation in Chrome. B/C remain pending; no seventh
+scene or fixed-height-slack removal has been claimed. QUEUE.md also records
+LLP 1001's now-obsolete block-image deviation for a governing-doc follow-up.
 
-The current [upstream implementation](https://github.com/DioxusLabs/taffy/blob/main/src/compute/flexbox.rs)
-also omits these floors (checked 2026-09-11). This is the bounded correction to
-our 0.9.2 copy, not an import of upstream's other intrinsic-sizing changes.
+### Layout timings
 
-## Patch 7: the automatic minimum is measured only where it is used (LLP 1010 §6, LLP 1044 F6)
+Five paired serial runs of the existing kernel flow tests, alternating the
+retained pre-upgrade executable and final 0.14 executable, after local builds
+finished. One warm-up per executable is excluded; no measured sample is dropped.
+Medians are milliseconds, not per-frame numbers:
 
-**Implementer:** Claude (Fable 5.1), 2026-09-19.
+| Existing workload | 0.9.2 + seven patches | 0.14 + retained patches |
+| --- | ---: | ---: |
+| 10,000 ordinary leaves, 30 cached passes | 53.126 | 52.980 |
+| Same plus a small side wrapping context | 51.701 | 53.537 |
+| 2,000 paragraphs, 10 passes, no exclusions | 3.253 | 3.546 |
+| Same with 32 exclusions and one moving source | 453.706 | 477.922 |
 
-`src/compute/flexbox.rs`, `determine_flex_base_size`: the block that measures a
-flex item's min-content main size is passed to `unwrap_or_else` rather than
-`unwrap_or`. Upstream's `style_min_main_size.unwrap_or({ … measure_child_size … })`
-evaluates its argument before the call, so every flex item was laid out once
-more under min-content and the answer discarded whenever the item already had a
-minimum: an authored `min-width`/`min-height`, or the zero automatic minimum of
-a scroll container (css-flexbox-1 §4.5). Layout results are unchanged; one
-layout of the item's subtree per pass is not made.
+Moving-exclusion medians are 5.3% slower in this sample; ranges overlap
+(old 442.864–504.126ms, new 458.443–621.273ms). The loaded shared machine
+also produced one failed 5% side-context timing gate: new run 3 measured
+75.123ms plain versus 172.381ms with the small context. All five old runs and
+the other four new runs passed all eight tests. The failure is retained in
+paired-final-new-3.log and paired-final-timings.json. Earlier samples during
+builds varied substantially too. No speedup or resolved performance result is
+claimed: rerun the unchanged timing gate and paired comparison on an idle
+machine. The measure-count and sparse-work assertions remain unchanged.
 
-For a scroll container that discarded pass is its whole content laid out with
-no width. The Markdown reader is a `list` with `flex: 1` in a row: on every
-layout — every scroll-driven window change — every mounted row was laid out at
-width zero, each paragraph wrapped a word to a line, and then, because the
-zero-width and real-width requests share one cache slot per node, every row was
-laid out again at its real width. Measured on a 2.3 MB document, three seconds
-of scrolling at 3,600 px/s: measure-function calls 59,682 → 614, of which calls
-on rows that had not changed 57,793 → 9; text measurements that reached
-CoreText 694 → 455. Busy periods of the main thread over 8.33 ms fell by about
-half in interleaved runs.
+## Updating this copy
 
-**Held by** `kernel/tests/reader.rs`,
-`a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use`: the
-reader fixture offers its text only the column's content width. It fails on the
-upstream form, which also offers min-content. The two intrinsic-cache
-regressions beside it (patch 1) took their probe from this discarded pass; they
-now run the fixture with its scroller made an ordinary box, which owes the probe
-under CSS, and assert the same lengths. `intrinsic_probe_is_remeasured_at_the_definite_content_width`
-still fails with patch 1's cache rule removed (checked 2026-09-19).
-
-The upstream suite at `v0.9.2`, run over this `src/` with and without the
-patch (2026-09-19, `cargo test --release --no-fail-fast`), gives the same
-result both ways: 2,181 passed, 6 failed, 4 ignored, the same six names.
-2,056 of the 2,060 generated fixtures pass. The six predate this patch:
-`caching::measure_count_flexbox` and `measure_count_grid` count 7 leaf
-measurements where upstream expects 4 (patch 1's cache rule declines the
-intrinsic promotion they were counting), and the border-box and content-box
-forms of `block_aspect_ratio_fill_max_height` and
-`absolute_aspect_ratio_fill_max_width` follow patch 5's replaced-element
-constraints. Patch 1's note that the full suite passes is older than both.
-
-**Upstream status:** Exact-local; upstreamable as a performance fix with no
-behavioral change.
+Reconcile every `EXACT PATCH` marker with this inventory, compare against the
+selected upstream package, and run the available upstream tests and Exact's
+five checks. The crates.io package does not include the generated browser
+conformance corpus. Do not describe those absent fixtures as tested.

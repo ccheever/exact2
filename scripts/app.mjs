@@ -338,15 +338,15 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
       for(const resource of unit.resources??[])add(resolve(packageRoot,resource.path));
       if(unit.type==='system-target')add(resolve(packageRoot,unit.path));pending.push(...(unit.target_dependencies??[]));
     }
-    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'build.mjs'));
+    add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/textflow-glue.js','host/web/timer-glue.js','host/web/input-glue.js','host/web/http-body.js','host/web/media-glue.js','host/web/list-selection.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
       add(storageTypes);
-      for (const path of ['host/web/module-glue.js', 'js/src/prelude.js']) add(resolve(ROOT, path));
+      for (const path of ['host/web/module-glue.js', 'host/web/module-worker.js', 'js/src/prelude.js']) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {
       for (const path of ['host/web/storage-request.js', 'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',

@@ -6,7 +6,7 @@ use crate::{CheapCloneStr, GridItemStyle};
 use core::cmp::{max, min};
 
 use super::types::TrackCounts;
-use super::OriginZeroLine;
+use super::{OriginZeroLine, MAX_OZ_LINE, MIN_OZ_LINE};
 
 /// Estimate the number of rows and columns in the grid
 /// This is used as a performance optimisation to pre-size vectors and reduce allocations. It also forms a necessary step
@@ -69,12 +69,16 @@ fn get_known_child_positions<'a, S: GridItemStyle + 'a>(
     let (mut col_min, mut col_max, mut col_max_span) = (OriginZeroLine(0), OriginZeroLine(0), 0);
     let (mut row_min, mut row_max, mut row_max_span) = (OriginZeroLine(0), OriginZeroLine(0), 0);
     children_iter.for_each(|child_style| {
+        let col_line = child_style.grid_column();
+        let row_line = child_style.grid_row();
+
         // Note: that the children reference the lines in between (and around) the tracks not tracks themselves,
         // and thus we must subtract 1 to get an accurate estimate of the number of tracks
         let (child_col_min, child_col_max, child_col_span) =
-            child_min_line_max_line_span::<S::CustomIdent>(child_style.grid_column(), explicit_col_count);
+            child_min_line_max_line_span::<S::CustomIdent>(col_line, explicit_col_count);
         let (child_row_min, child_row_max, child_row_span) =
-            child_min_line_max_line_span::<S::CustomIdent>(child_style.grid_row(), explicit_row_count);
+            child_min_line_max_line_span::<S::CustomIdent>(row_line, explicit_row_count);
+
         col_min = min(col_min, child_col_min);
         col_max = max(col_max, child_col_max);
         col_max_span = max(col_max_span, child_col_span);
@@ -162,7 +166,13 @@ fn child_min_line_max_line_span<S: CheapCloneStr>(
         _ => 1,
     };
 
-    (min, max, span)
+    // Clamp the min and max lines into the limited grid so that the estimated implicit track counts
+    // stay within the maximum track limit (https://www.w3.org/TR/css-grid-1/#overlarge-grids).
+    // This matches the clamping of the actual item placements performed during placement.
+    let clamped_min = OriginZeroLine(min.0.max(MIN_OZ_LINE));
+    let clamped_max = OriginZeroLine(max.0.min(MAX_OZ_LINE));
+
+    (clamped_min, clamped_max, span)
 }
 
 #[allow(clippy::bool_assert_comparison)]
@@ -201,7 +211,7 @@ mod tests {
         fn explicit_grid_sizing_with_children() {
             let explicit_col_count = 6;
             let explicit_row_count = 8;
-            let child_styles = vec![
+            let child_styles = [
                 (line(1), span(2), line(2), auto()).into_grid_child(),
                 (line(-4), auto(), line(-2), auto()).into_grid_child(),
             ];
@@ -219,7 +229,7 @@ mod tests {
         fn negative_implicit_grid_sizing() {
             let explicit_col_count = 4;
             let explicit_row_count = 4;
-            let child_styles = vec![
+            let child_styles = [
                 (line(-6), span(2), line(-8), auto()).into_grid_child(),
                 (line(4), auto(), line(3), auto()).into_grid_child(),
             ];

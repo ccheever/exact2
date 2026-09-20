@@ -70,6 +70,7 @@ fn request<'a>(
     height: AxisOffer,
 ) -> TextMeasureRequest<'a> {
     TextMeasureRequest {
+        exclusions: &[],
         runs,
         paragraph: exact_kernel::text::Paragraph::from_style(&StyleProps::default()),
         width,
@@ -416,4 +417,35 @@ fn owner_capacity_and_revision_replacement_do_not_keep_history() {
     let n = state.borrow().calls;
     m.measure_identified(&k.node(5).unwrap().paragraph_stamp().unwrap(), &req);
     assert_eq!(state.borrow().calls, n);
+}
+
+// @ref LLP 1043.000 §3 D5 — shape motion cannot hit geometry-blind metric memo.
+#[test]
+fn exclusions_cross_the_c_callback_and_bypass_identified_memo() {
+    #[allow(unsafe_code)]
+    extern "C" fn measured(_: *mut c_void, request: *const CRequest) -> CMetrics {
+        let r = unsafe { &*request };
+        assert_eq!(r.exclusion_count, 1);
+        let shape = unsafe { *r.exclusions };
+        assert_eq!(shape.kind, 3);
+        assert_eq!(shape.count, 3);
+        let p = unsafe { *shape.pairs };
+        CMetrics {
+            width: p.x,
+            height: 100.,
+            baseline: 10.,
+        }
+    }
+    let k = fixture("source");
+    let runs = [run("source")];
+
+    let mut callback = CallbackMeasurer::new(measured, std::ptr::null_mut());
+    for x in [10., 20., 30.] {
+        let shapes = [exact_kernel::FlowShape::Polygon(
+            vec![(x, 0.), (100., 0.), (50., 80.)].into(),
+        )];
+        let mut r = request(&runs, AxisOffer::Definite(400.), AxisOffer::Definite(300.));
+        r.exclusions = &shapes;
+        assert_eq!(callback.measure_identified(&stamp(&k), &r).width, x);
+    }
 }

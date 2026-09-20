@@ -377,6 +377,25 @@ fn real_two_axis_offers_share_one_definite_layout_and_index() {
     let mut engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (mut kernel, _) = large_request(recipe.catalog_label());
+    // A block now needs only one offer in Taffy 0.14. A definite-height flex
+    // column still exercises intrinsic and constrained height at one width.
+    let mut column = StyleProps::default();
+    for id in [StyleId::Display, StyleId::FlexDirection, StyleId::Height] {
+        column.mask.set(id);
+    }
+    column.display = exact_kernel::Display::Flex;
+    column.flex_direction = exact_kernel::FlexDirection::Column;
+    column.height = Dimension::Points(300.);
+    kernel
+        .apply(
+            0,
+            0,
+            &[Op::SetStyle {
+                id: 3,
+                patch: Box::new(column),
+            }],
+        )
+        .unwrap();
     let catalog = recipe.catalog_label();
     let q = next_request(&mut kernel, catalog, 600.);
     assert!(q.source().bytes() >= 65536);

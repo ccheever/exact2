@@ -113,6 +113,42 @@ impl<D: DataSource> Host<D> {
                 },
             )
             .map_err(|e| format!("region layout: {e:?}"))?;
+        self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+        // @ref LLP 1043.000 §3 D7 — the opt-in worker surface is opaque and
+        // has a separate paragraph artifact. Retire it before any flowed ink:
+        // ordinary native views own the region until its next registration.
+        // This costs a normal O(tree) layout once, never stale cached pixels.
+        if receipt.shell.flow_changed.iter().any(|key| {
+            self.runner
+                .kernel()
+                .node_by_key(*key)
+                .is_some_and(|n| !n.flow_shapes().is_empty())
+        }) {
+            self.runner
+                .kernel_mut()
+                .set_content_region(None)
+                .map_err(|e| format!("region flow fallback: {e:?}"))?;
+            self.content_region = None;
+            batch.region("{\"op\":\"region\",\"disabled\":\"flowed text uses native fragments\"}");
+            self.runner
+                .kernel_mut()
+                .compute_layout(root, offer)
+                .map_err(|e| format!("region flow layout: {e:?}"))?;
+            for id in self.preorder() {
+                if let Some(node) = self.runner.kernel().node(id) {
+                    if node.node_type == exact_kernel::NodeType::Text {
+                        batch.flow(id, node.flow_shapes());
+                    }
+                }
+            }
+            return Ok(());
+        }
+        // @ref LLP 1043.000 §3 D4 — publish shell and accepted leaf flow changes.
+        for key in &receipt.shell.flow_changed {
+            if let Some(node) = self.runner.kernel().node_by_key(*key) {
+                batch.flow(node.id, node.flow_shapes());
+            }
+        }
         region.observe(self.runner.kernel(), receipt)?;
         if let Some(native) = &mut region.native {
             if let (Some(candidate), Some(pending)) = (&mut native.candidate, &region.pending) {
@@ -843,7 +879,7 @@ mod selected_current_tests {
         }
         let mut batch = Batch::new();
         host.present(&mut batch, false);
-        let raw = batch.finish(false, false, 0., None);
+        let raw = batch.finish(None, false, 0., None);
         assert!(
             !raw.contains(&format!("\"op\":\"present\",\"id\":{body},")),
             "{raw}"
@@ -872,7 +908,7 @@ mod selected_current_tests {
         let mut batch = Batch::new();
         host.present(&mut batch, false);
         assert!(batch
-            .finish(false, false, 0., None)
+            .finish(None, false, 0., None)
             .contains(&format!("\"op\":\"present\",\"id\":{body},")));
         // Origin and dirty-input negatives must qualify both consumers as well.
         host.content_region

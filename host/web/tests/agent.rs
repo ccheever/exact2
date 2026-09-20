@@ -164,7 +164,7 @@ fn an_advance_batch_marks_each_timers_time_and_says_where_the_clock_landed() {
     let back = host.advance(1000.0);
     assert_eq!(
         back,
-        "{\"ops\":[],\"timers\":true,\"clock\":2500,\"error\":null}"
+        "{\"ops\":[],\"timer_due_ms\":3000,\"timers\":true,\"clock\":2500,\"error\":null}"
     );
 }
 

@@ -30,6 +30,7 @@ pub struct Bridge<D: DataSource> {
     compat: Option<&'static str>,
     input: Vec<u8>,
     output: Vec<u8>,
+    textflow: crate::textflow::TextFlow,
 }
 
 impl<D: DataSource> Bridge<D> {
@@ -41,6 +42,7 @@ impl<D: DataSource> Bridge<D> {
             compat: None,
             input: Vec::new(),
             output: Vec::new(),
+            textflow: crate::textflow::TextFlow::new(),
         }
     }
 
@@ -217,6 +219,7 @@ impl<D: DataSource> Bridge<D> {
         ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.textflow = Default::default();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -244,6 +247,7 @@ impl<D: DataSource> Bridge<D> {
         ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
+                self.textflow = Default::default();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -390,7 +394,7 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            // @ref LLP 1038 D8 — the next ABI kind after scroll.
+            // @ref LLP 1042 §3 — media keeps its own dispatch kind.
             19 => {
                 let Some(event) = Event::media_payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
@@ -422,11 +426,30 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            // @ref LLP 1043.000 §3 D8 — 18 is reorder, 19 is media.
+            20 => {
+                let Some(event) = Event::pan_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid pan deltas"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
+    /// Browser segment measurement, retained preparation, and resolved flow.
+    /// See [`crate::textflow`] for the little-endian protocol and work bounds.
+    pub fn textflow(&mut self, op: u32, id: u32, len: usize) -> u32 {
+        let out = match (self.host.as_ref(), self.input.get(..len)) {
+            (Some(host), Some(bytes)) => {
+                self.textflow.request(op, id, bytes, host.runner().kernel())
+            }
+            _ => exact_runner::agent::error("textflow input is absent or host is not booted"),
         };
         self.emit(out)
     }
@@ -469,12 +492,12 @@ impl<D: DataSource> Bridge<D> {
     pub fn collection_feedback(&mut self, len: usize) -> u32 {
         let out = match (self.host.as_mut(), self.input.get(..len)) {
             (Some(host), None) => crate::batch::Batch::new().finish(
-                host.runner().has_timers(),
+                host.runner().timer_due_ms(),
                 host.runner().now_ms(),
                 Some("collection input length"),
             ),
             (Some(host), Some(bytes)) => host.collection_feedback(bytes),
-            (None, _) => crate::batch::Batch::new().finish(false, 0.0, Some("not booted")),
+            (None, _) => crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
         };
         self.emit(out)
     }
@@ -793,7 +816,13 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
         }
 
-        /// Move the clock; returns the batch's length.
+        /// Segment, prepare, resolve/flow or free a browser paragraph.
+        #[no_mangle]
+        pub extern "C" fn exact_textflow(op: u32, id: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().textflow(op, id, len as usize))
+        }
+
+        /// Advance the runner clock.
         #[no_mangle]
         pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms))

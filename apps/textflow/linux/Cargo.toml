@@ -1,0 +1,30 @@
+# The Interaction gallery app on Linux: one executable with the runner, the kernel, the
+# data crate, the baked plan (written by build.rs, never committed), and the
+# host's painter.
+[package]
+name = "textflow-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Interaction gallery on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "textflow-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+textflow-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+
+[build-dependencies]
+textflow-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+
+[dev-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-kernel = { path = "../../../kernel" }
+exact-textflow = { path = "../../../textflow" }

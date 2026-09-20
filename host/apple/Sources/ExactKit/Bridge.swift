@@ -1,6 +1,6 @@
-// The Swift face of the C ABI (host/apple/include/exact.h, v6): one
+// The Swift face of the C ABI (host/apple/include/exact.h, v7): one
 // `Runtime` per handle — created by `exact_create`, freed by
-// `exact_destroy` — and one typed batch per call. Every export takes the
+// `exact_destroy` — and one typed batch per call. Runtime exports take the
 // handle (LLP 1031 D2), so a session that owns a runtime owns everything
 // the library attributes to it, and nothing here is process-global but the
 // buffer discipline: the app never hands the library a pointer it did not
@@ -17,6 +17,8 @@ public struct Batch {
     /// The runner's clock after the call, milliseconds (LLP 1012 `clock`).
     public let clock: Double?
     public let error: String?
+    /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
+    public var timerDueMs: Double? = nil
     public var pending = false
 }
 
@@ -51,7 +53,7 @@ final class Runtime {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
         }
-        return Batch(ops: obj["ops"] as? [[String: Any]] ?? [], timers: obj["timers"] as? Bool ?? false, motion: obj["motion"] as? Bool ?? false, clock: obj["clock"] as? Double, error: obj["error"] as? String, pending: obj["pending"] as? Bool ?? false)
+        return Batch(ops: obj["ops"] as? [[String: Any]] ?? [], timers: obj["timers"] as? Bool ?? false, motion: obj["motion"] as? Bool ?? false, clock: obj["clock"] as? Double, error: obj["error"] as? String, timerDueMs: obj["timer_due_ms"] as? Double, pending: obj["pending"] as? Bool ?? false)
     }
     /// A payload into the runtime's input buffer; its length. An empty
     /// payload clears the buffer without dereferencing anything.
@@ -116,6 +118,9 @@ final class Runtime {
         read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
     }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
+    func pan(_ view: UInt32, dx: Double, dy: Double, now: Double) -> Batch {
+        read(exact_dispatch(rt, view, 18, write("\(dx),\(dy)"), now))
+    }
     func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
         let n = write("\(left),\(top)")
         return read(exact_dispatch(rt, view, 13, n, now))

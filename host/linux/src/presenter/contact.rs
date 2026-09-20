@@ -7,6 +7,7 @@ use exact_motion::{HoldEnd, HoldStart, Value, VelocityTracker};
 pub(super) enum Candidate {
     Arrange(exact_runner::ReorderBinding),
     Swipe(NodeKey),
+    Pan(NodeKey),
     Transform(TransformDragBinding),
     Height { handle: NodeKey, target: NodeKey },
 }
@@ -38,6 +39,7 @@ pub(super) struct Contact {
     position: (f32, f32),
     last_ms: f64,
     pub(super) hold: Option<Hold>,
+    panning: bool,
     retained: Option<super::retained_action::RetainedContact>,
 }
 impl<D: DataSource> Presenter<D> {
@@ -90,7 +92,21 @@ impl<D: DataSource> Presenter<D> {
                         }
                     }
             }
-            None => self.input_live(contact.hit),
+            None => {
+                self.input_live(contact.hit)
+                    && match contact.candidate {
+                        Some(Candidate::Pan(key)) => {
+                            self.input_live(key)
+                                && self.host.kernel().node_by_key(key).is_some_and(|n| {
+                                    self.host
+                                        .runner()
+                                        .handlers_of(n.id)
+                                        .contains(&EventKind::Pan)
+                                })
+                        }
+                        _ => true,
+                    }
+            }
         }
     }
     fn pointer_sample(&self, x: f32, y: f32, now_ms: f64) -> Result<(), String> {
@@ -155,6 +171,23 @@ impl<D: DataSource> Presenter<D> {
         self.contact.as_ref().map(|c| c.position)
     }
 
+    // @ref LLP 1043.000 §3 D8 — ordinary commits move layout, not a motion hold.
+    // Nearest explicit pan handler owns one contact; editor/press boundaries stop it.
+    fn pan_candidate(&self, hit: NodeKey) -> Option<Candidate> {
+        let mut at = self.host.kernel().node_by_key(hit).map(|n| n.id);
+        while let Some(id) = at {
+            let n = self.host.kernel().node(id)?;
+            let handlers = self.host.runner().handlers_of(id);
+            if self.input_live(n.key) && handlers.contains(&EventKind::Pan) {
+                return Some(Candidate::Pan(n.key));
+            }
+            if n.node_type == NodeType::TextInput || handlers.contains(&EventKind::Press) {
+                return None;
+            }
+            at = n.parent;
+        }
+        None
+    }
     /// Primary down shared by evdev, VNC, and explicitly labeled agent synthesis.
     pub fn pointer_down(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.pointer_sample(x, y, now_ms)?;
@@ -184,6 +217,7 @@ impl<D: DataSource> Presenter<D> {
                     last_ms: now_ms,
                     hold: None,
                     retained: Some(retained),
+                    panning: false,
                 });
                 self.set_collection_interaction(Some(view));
                 return Ok(true);
@@ -201,6 +235,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let candidate = self
             .arrange_candidate(hit)
+            .or_else(|| self.pan_candidate(hit))
             .or_else(|| self.transform_candidate(hit))
             .or_else(|| self.height_candidate(hit))
             .or_else(|| self.swipe_candidate(hit).map(Candidate::Swipe));
@@ -215,6 +250,7 @@ impl<D: DataSource> Presenter<D> {
             position: (x, y),
             last_ms: now_ms,
             hold: None,
+            panning: false,
             retained: None,
         });
         self.set_collection_interaction(Some(view));
@@ -229,6 +265,36 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        if let Some(Candidate::Pan(key)) = contact.candidate {
+            let from = if contact.panning {
+                contact.position
+            } else {
+                contact.origin
+            };
+            let dx = x as f64 - from.0 as f64;
+            let dy = y as f64 - from.1 as f64;
+            contact.position = (x, y);
+            if contact.panning || dx.abs().max(dy.abs()) > 4. {
+                contact.panning = true;
+                let view = self.host.kernel().node_by_key(key).unwrap().id;
+                let error = if dx != 0. || dy != 0. {
+                    self.host
+                        .dispatch_at(view, Event::Pan(dx, dy), now_ms)
+                        .or(self.after_commit())
+                } else {
+                    None
+                };
+                self.dirty = true;
+                if self.contact_live(&contact) {
+                    self.contact = Some(contact);
+                } else {
+                    self.set_collection_interaction(None);
+                }
+                return error.map_or(Ok(true), Err);
+            }
+            self.contact = Some(contact);
+            return Ok(false);
+        }
         contact.position = (x, y);
         if contact.hold.is_none() {
             let dx = x as f64 - contact.origin.0 as f64;
@@ -392,6 +458,8 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
             }
+        } else if contact.panning {
+            Ok(true)
         } else {
             let at = self
                 .hit(x, y)

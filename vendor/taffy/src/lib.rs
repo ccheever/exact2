@@ -38,7 +38,7 @@
 //!   - [flexbox_gap](https://github.com/DioxusLabs/taffy/blob/main/examples/flexbox_gap.rs)
 //!   - [grid_holy_grail](https://github.com/DioxusLabs/taffy/blob/main/examples/grid_holy_grail.rs)
 //!   - [measure](https://github.com/DioxusLabs/taffy/blob/main/examples/measure.rs)
-//!   - [cosmic_text](https://github.com/DioxusLabs/taffy/blob/main/examples/cosmic_text.rs)
+//!   - [parley](https://github.com/DioxusLabs/taffy/blob/main/examples/parley/src/main.rs)
 //!
 //! In particular, the "measure" example shows how to integrate Taffy layout with other layout modalities such as text or image layout when using the high level API.
 //!
@@ -109,10 +109,8 @@ pub use crate::compute::compute_grid_layout;
 #[cfg(feature = "detailed_layout_info")]
 pub use crate::compute::detailed_info::*;
 #[doc(inline)]
-// EXACT PATCH (LLP 0440 D5): also re-export compute_leaf_layout_with_baselines.
 pub use crate::compute::{
-    compute_cached_layout, compute_hidden_layout, compute_leaf_layout, compute_leaf_layout_with_baselines,
-    compute_root_layout, round_layout,
+    compute_cached_layout, compute_hidden_layout, compute_leaf_layout, compute_root_layout, round_layout,
 };
 #[doc(inline)]
 pub use crate::style::Style;
@@ -125,6 +123,10 @@ pub use crate::tree::TaffyTree;
 #[doc(inline)]
 pub use crate::util::print_tree;
 
+#[cfg(feature = "parse")]
+pub use parse::{ParseError, ParseResult};
+
+pub use crate::compute::*;
 pub use crate::geometry::*;
 pub use crate::style::*;
 pub use crate::tree::*;

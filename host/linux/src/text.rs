@@ -17,6 +17,9 @@
 mod cache;
 mod catalog;
 mod catalog_recipe;
+mod flow;
+#[cfg(test)]
+mod flow_tests;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -113,6 +116,10 @@ pub struct Spec {
     pub line_clamp: u32,
     /// CSS emergency line-breaking policy.
     pub overflow_wrap: exact_kernel::OverflowWrap,
+    /// CSS whitespace processing mode.
+    pub white_space: exact_kernel::WhiteSpace,
+    /// CSS paragraph base direction.
+    pub direction: exact_kernel::Direction,
 }
 
 impl Spec {
@@ -128,6 +135,8 @@ impl Spec {
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
+            white_space: request.paragraph.white_space,
+            direction: request.paragraph.direction,
         }
     }
 
@@ -143,6 +152,7 @@ pub struct Paragraph {
     /// Width-independent canonical text, shape and catalog.
     source: Rc<ShapedSource>,
     layouts: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
+    flow: Option<flow::FlowLayout>,
     #[cfg(test)]
     layout_lifetime: Arc<()>,
     /// Points, rounded up.
@@ -175,7 +185,7 @@ pub struct RunPaint {
 impl Paragraph {
     /// Full immutable width layout and canonical source in cosmic line order.
     pub fn layout_runs(&self) -> impl Iterator<Item = cosmic_text::LayoutRun<'_>> {
-        shaping::Runs::new(&self.source, &self.layouts)
+        shaping::Runs::new(self)
     }
 
     fn layout_capacity_bytes(&self) -> usize {
@@ -304,6 +314,10 @@ pub struct TextEngine {
     pub hits: usize,
     /// Total synchronous shape/layout miss work, not isolated shaper CPU time.
     pub shaping: Duration,
+    /// Cumulative flowed layout work, including fragment glyph placement.
+    pub flowing: Duration,
+    /// Subset of flowing spent in the shared band/walker itself.
+    pub flow_walk: Duration,
     /// The family sans-serif resolves to.
     pub sans: String,
 }
@@ -414,6 +428,8 @@ impl TextEngine {
             measures: 0,
             hits: 0,
             shaping: Duration::ZERO,
+            flowing: Duration::ZERO,
+            flow_walk: Duration::ZERO,
             #[cfg(test)]
             before_layout: None,
             #[cfg(test)]
@@ -557,6 +573,12 @@ impl TextEngine {
         request: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
         let (key, spec) = self.identified_spec(stamp, || Spec::from_request(request));
+        if let AxisOffer::Definite(width) = request.width {
+            if !request.exclusions.is_empty() {
+                self.measures += 1;
+                return paragraph_metrics(&self.flow_for(key, width, request.exclusions, None));
+            }
+        }
         self.measure_for(&spec, request.width, key)
     }
 
@@ -829,7 +851,19 @@ impl TextMeasurer for Measurer {
     }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
-        self.0.borrow_mut().measure(&spec, request.width)
+        let mut engine = self.0.borrow_mut();
+        if let AxisOffer::Definite(width) = request.width {
+            if !request.exclusions.is_empty() {
+                engine.measures += 1;
+                return paragraph_metrics(&engine.paragraph_flow(
+                    &spec,
+                    width,
+                    request.exclusions,
+                    None,
+                ));
+            }
+        }
+        engine.measure(&spec, request.width)
     }
 }
 

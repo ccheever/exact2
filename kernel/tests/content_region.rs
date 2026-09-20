@@ -1090,6 +1090,81 @@ fn review_grid_baseline_dependency_requires_refusal_or_ordinary_shell_parity() {
     }
 }
 
+// @ref LLP 1043.000 §3 D4 — the selected region carries flow-only changes.
+#[test]
+fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
+    let mut k = fixture();
+    let mut paragraph = StyleProps::default();
+    paragraph.width = Dimension::Points(400.);
+    paragraph.height = Dimension::Points(180.);
+    paragraph.mask = mask(&[StyleId::Width, StyleId::Height]);
+    let mut ball = StyleProps::default();
+    ball.width = Dimension::Points(120.);
+    ball.height = Dimension::Points(120.);
+    ball.top = Dimension::Points(0.);
+    ball.left = Dimension::Points(60.);
+    ball.position_type = PositionType::Absolute;
+    ball.wrap_flow = WrapFlow::Both;
+    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    ball.mask = mask(&[
+        StyleId::Width,
+        StyleId::Height,
+        StyleId::Top,
+        StyleId::Left,
+        StyleId::PositionType,
+        StyleId::WrapFlow,
+        StyleId::ShapeOutside,
+    ]);
+    k.apply(
+        0,
+        0,
+        &[
+            Op::SetStyle {
+                id: 4,
+                patch: Box::new(paragraph),
+            },
+            Op::CreateView {
+                id: 7,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 7,
+                patch: Box::new(ball),
+            },
+            Op::SetChildren {
+                id: 3,
+                children: vec![4, 7],
+            },
+        ],
+    )
+    .unwrap();
+    register(&mut k);
+    let r = ready(&mut k, 400., 1);
+    assert_eq!(
+        k.node(4).unwrap().flow_shapes(),
+        &[FlowShape::Circle {
+            cx: 120.,
+            cy: 60.,
+            r: 60.
+        }]
+    );
+    assert_eq!(r.shell.flow_changed, vec![key(&k, 4)]);
+    let mut moved = StyleProps::default();
+    moved.left = Dimension::Points(80.);
+    moved.mask = mask(&[StyleId::Left]);
+    k.apply(
+        0,
+        0,
+        &[Op::SetStyle {
+            id: 7,
+            patch: Box::new(moved),
+        }],
+    )
+    .unwrap();
+    let r = ready(&mut k, 400., 1);
+    assert_eq!(r.shell.flow_changed, vec![key(&k, 4)]);
+    assert!(!r.shell.changed.contains(&key(&k, 4)));
+}
 #[path = "content_region/flex.rs"]
 mod flex;
 #[path = "content_region/projection.rs"]

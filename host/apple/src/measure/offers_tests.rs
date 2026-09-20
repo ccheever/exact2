@@ -60,6 +60,7 @@ fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> 
     let node = k.node(1).unwrap();
     let runs = node.text_runs();
     let req = TextMeasureRequest {
+        exclusions: &[],
         runs: &runs,
         paragraph: exact_kernel::text::Paragraph::from_style(node.style),
         width: w,
@@ -528,6 +529,7 @@ mod storage {
         paragraph.line_clamp = 3;
         paragraph.overflow_wrap = OverflowWrap::Anywhere;
         let request = TextMeasureRequest {
+            exclusions: &[],
             runs: &runs[..count],
             paragraph,
             width: widths[variant],
@@ -543,6 +545,10 @@ mod storage {
                 align: variant as u8,
                 line_clamp: 3,
                 overflow_wrap: 2,
+                white_space: 0,
+                direction: 0,
+                exclusions: std::ptr::null(),
+                exclusion_count: 0,
             },
             calls: 0,
             exact: true,

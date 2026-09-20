@@ -374,7 +374,7 @@ impl<D: DataSource> Host<D> {
         // point on a dev reload.
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
-        let timers = host.runner.has_timers();
+        let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
@@ -861,7 +861,7 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&self, batch: Batch, error: Option<String>) -> String {
         batch.finish(
-            self.runner.has_timers(),
+            self.runner.timer_due_ms(),
             !self.engine.quiescent(),
             self.runner.now_ms(),
             error.as_deref(),
@@ -983,10 +983,18 @@ impl<D: DataSource> Host<D> {
             if self.content_region.is_some() {
                 self.region_layout(root, Offer::definite(w, h), batch)?;
             } else {
-                self.runner
+                let receipt = self
+                    .runner
                     .kernel_mut()
                     .compute_layout_presented(root, Offer::definite(w, h), projection)
                     .map_err(|e| format!("layout: {e:?}"))?;
+                // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
+                self.runner.report_flow_skipped(&receipt.flow_skipped);
+                for key in receipt.flow_changed {
+                    if let Some(node) = self.runner.kernel().node_by_key(key) {
+                        batch.flow(node.id, node.flow_shapes());
+                    }
+                }
             }
         }
         self.height_projection = sample;

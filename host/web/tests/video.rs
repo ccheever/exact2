@@ -34,6 +34,7 @@ fn media_properties_events_and_rejections() {
     assert!(!batch.contains("\"op\":\"create\""), "{batch}");
     assert!(Event::media_payload("timeupdate\nNaN").is_none());
     assert!(Event::media_payload("press\n").is_none());
+    assert!(Event::media_payload("pan\n").is_none());
     for attribute in ["volume=2", "playbackRate=0", "preload=\"sometimes\""] {
         assert!(
             contract::compile(&format!("component App\n  view\n    video {attribute}\n")).is_err()

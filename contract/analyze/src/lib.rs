@@ -184,7 +184,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 34] = [
+pub const HANDLERS: [&str; 35] = [
     "press",
     "change",
     "hover",
@@ -198,6 +198,7 @@ pub const HANDLERS: [&str; 34] = [
     "dblclick",
     "swiperight",
     "scroll",
+    "pan",
     "navigate",
     "heightrelease",
     "transformgeometry",
@@ -343,7 +344,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
             4
         } else if attr == "transformrelease" {
             6
-        } else if matches!(attr, "scroll" | "heightrelease" | "reorderdrop") {
+        } else if matches!(attr, "scroll" | "pan" | "heightrelease" | "reorderdrop") {
             2
         } else {
             usize::from(handler_payload(attr).is_some())
@@ -387,7 +388,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
         }
         if matches!(
             attr,
-            "heightrelease" | "transformgeometry" | "transformrelease"
+            "pan" | "heightrelease" | "transformgeometry" | "transformrelease"
         ) && params[given..].iter().any(|ty| *ty != Ty::Number)
         {
             return err(

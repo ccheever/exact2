@@ -3,15 +3,12 @@
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
 import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController } from "./navigation.js";
-// Native independent HTTP carries a response ceiling; enforce it during browser reads too.
+let httpModule;
+function httpHelpers() {
+  return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
+}
 async function boundedHttpBody(response, limit) {
-  if (limit == null) return new Uint8Array(await response.arrayBuffer());
-  if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
-  if (!response.body) return new Uint8Array();
-  const reader=response.body.getReader(), chunks=[]; let size=0;
-  try { for (;;) { const {done,value}=await reader.read(); if(done) break; size+=value.length; if(size>limit) throw Error("HTTP response exceeds limit"); if(value.length) chunks.push(value); } }
-  catch(error) { await reader.cancel().catch(()=>{}); throw error; } finally { reader.releaseLock(); }
-  const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
+  return (await httpHelpers()).boundedHttpBody(response, limit);
 }
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
@@ -54,6 +51,7 @@ let messageListening = false;
 let wasm = null;
 let memory = null;
 let inputReady = false;
+let inputHandlers;
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let rustLoader = null, rustLoading = null;
@@ -72,6 +70,28 @@ async function loadRust() {
   rustLoading ??= loadAfterPaint('./rust-glue.js','createRustRuntime')
     .then(create=>{rustLoader=create(()=>memory);}).catch(error=>{rustLoading=null;throw error;});
   await rustLoading;
+}
+// @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
+let textflow = null, flowLoading = null, flowContexts = [], flowDue = null;
+function flowRequest(op, id, bytes) {
+  const ptr = wasm.exact_in(bytes.length);
+  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  return JSON.parse(readOut(wasm.exact_textflow(op, id, bytes.length)));
+}
+function flowBatch(batch) {
+  const op = batch.ops?.find(op => op.op === "textflow");
+  if (op) flowContexts = op.contexts;
+  flowDue = batch.timer_due_ms ?? null;
+  ticker?.update(flowDue);
+  if (textflow) { textflow.afterBatch(batch); return; }
+  if (!flowContexts.length || flowLoading) return;
+  ticker?.dispose(); ticker = null;
+  flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(create => {
+    textflow = create({ views, request: flowRequest, agentMode, log, now,
+      advance: () => send(wasm.exact_advance(now())) });
+    textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue });
+  });
+  flowLoading.catch(error => log(`textflow module: ${error}`));
 }
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
@@ -493,6 +513,7 @@ function environment() {
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  el.exactFlowEvents = handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"] }[k] ?? []));
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   // Teardown can synchronously blur the old input after the new runner is
   // live. Only the element currently owning this id may dispatch into it.
@@ -518,6 +539,9 @@ function attach(el, id, handlers) {
   for (const kind of handlers) {
     if (kind === "press") {
       on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
+    } else if (kind === "pan") {
+      let pan;
+      on("pointerdown", e => (pan ??= inputHandlers.pan(el, id, on))(e));
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
@@ -564,31 +588,6 @@ function attach(el, id, handlers) {
     }
   }
 }
-document.addEventListener("keydown", (event) => {
-  if (event.isComposing || !wasm || !inputReady || event.defaultPrevented) return;
-  const matches = (chord) => {
-    const parts = chord.split("+");
-    const key = parts.pop();
-    const modifiers = new Set(parts);
-    if (key === "Escape" && !parts.length) return event.key === "Escape"
-      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
-    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
-      && (modifiers.has("Meta") || modifiers.has("Control"))
-      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
-      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
-      && event.key.toLowerCase() === key.toLowerCase();
-  };
-  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-    const modal = document.activeElement.closest("dialog:modal");
-    if (modal && !modal.contains(el)) continue;
-    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
-    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (!event.repeat && !el.disabled) el.click();
-    return;
-  }
-}, true);
 function viewFor(op, id) {
   const el = views.get(id);
   if (!el) console.error(`exact: ${op} names missing view ${id}`);
@@ -613,6 +612,7 @@ function apply(batch) {
   for (const op of batch.ops ?? []) {
     try {
       switch (op.op) {
+      case "textflow": break; // consumed once after the complete DOM batch
       case "router": navigation.apply(op); break;
       case "create": {
         // A canvas node is a <div> hosting its surface <canvas> under its
@@ -839,6 +839,7 @@ function apply(batch) {
   return batch.timers;
 }
 function applyBatch(batch) {
+  textflow?.beforeBatch(batch);
   const timers = apply(batch);
   motion.commit(); arrange.commit();
   if (agentMode) {
@@ -848,6 +849,7 @@ function applyBatch(batch) {
     if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
     seek(agentClock);arrange.commit();
   }
+  flowBatch(batch);
   return { timers, batch };
 }
 function send(len) {
@@ -1004,6 +1006,8 @@ function nodeDetail(id) {
   node.native = { element: el.localName };
   const cs = getComputedStyle(el);
   node.browser = Object.fromEntries(Object.entries(INHERITED_CSS).map(([row, prop]) => [row, cs.getPropertyValue(prop)]));
+  const flow = textflow?.facts(id);
+  if (flow) { node.flow = flow; node.flow_shapes = flow.shapes; }
   node.observed = { clock: now(), wall: Date.now() };
   return node;
 }
@@ -1125,19 +1129,13 @@ function settleCandidate() {
 }
 const SETTLE_DEADLINE_MS = 20_000;
 async function waitForInflight(deadline) {
-  while (inflight.size) {
-    const remaining = deadline - performance.now();
-    if (remaining <= 0) return false;
-    let timer;
-    const completed = await Promise.race([
-      Promise.race([...inflight]).then(() => true),
-      new Promise((resolve) => { timer = setTimeout(() => resolve(false), remaining); }),
-    ]);
-    clearTimeout(timer);
-    if (!completed) return false;
-  }
-  return true;
+  if (!inflight.size) return true;
+  let timer;
+  const helpers = await Promise.race([httpHelpers(), new Promise(resolve => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - performance.now())); })]);
+  clearTimeout(timer);
+  return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
+
 function agent(request) {
   try {
     if (!wasm) return { error: "not booted" };
@@ -1219,6 +1217,15 @@ function agent(request) {
     return { error: String(e) };
   }
 }
+
+// @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
+// Await flow only when requested; ordinary agent calls retain their return types.
+async function agentSettled(request) {
+  if (flowLoading) await flowLoading;
+  if (textflow) await textflow.settle();
+  return agent(request);
+}
+
 // Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP
 // 1035.002 D3), read after the operation; a reply's own `clock` (where a
 // `clock` call landed) is kept, and an error is left alone. The driver
@@ -1245,6 +1252,8 @@ async function clock(request) {
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
     globalThis.exact.gpu?.schedule?.();
+    if (flowLoading) await flowLoading;
+    if (textflow) await textflow.settle();
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
     if (!settle) return { clock: agentClock };
     if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false }; continue; }
@@ -1253,7 +1262,13 @@ async function clock(request) {
     if (rounds >= 15) return { clock: agentClock, settled: false };
   }
 }
-let ticker = null;
+
+let ticker = null, timerFactory = null;
+function startClock() {
+  if (timerFactory && !agentMode && !textflow && !flowLoading) {
+    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time)) }); ticker.update(flowDue);
+  }
+}
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
@@ -1274,6 +1289,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   if (faces.error) throw new Error(faces.error);
   const preparedFonts = await prepareFonts(faces, assets);
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
+  if (flowLoading) await flowLoading;
   if (!current() || request !== bootAttempt) return null;
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
   let len;
@@ -1308,9 +1324,10 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   // finish loading across a reload; no old surface request may join the new
   // plan even when view ids are reused.
   globalThis.exact.pendingSurfaces = [];
-  if (ticker) clearInterval(ticker);
-  ticker = null;
+  ticker?.dispose(); ticker = null;
   arrange.reset(); motion.reset();
+  if (textflow) for (const el of views.values()) retiredViews.add(el);
+  textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null;
   globalThis.exact?.gpu?.reset();
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
@@ -1326,14 +1343,17 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   inflight.clear();
   root.replaceChildren();
   commitFonts(preparedFonts);
-  const timers = applyBatch(batch).timers;
+  applyBatch(batch);
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
-  if (timers && !agentMode) ticker = setInterval(() => send(wasm.exact_advance(now())), 250);
+  if (flowLoading) await flowLoading;
+  if (textflow) await textflow.settle();
+  startClock();
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
 }
-// `agent` and `now` exist only in agent mode: a normal page has no agent
+
+// `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
 globalThis.exact = {
@@ -1376,7 +1396,7 @@ globalThis.exact = {
   },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, now } : {}), views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, agentSettled, now } : {}), views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
@@ -1416,6 +1436,7 @@ async function main() {
     root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);
     requestAnimationFrame(async () => {
       loadGpuIfNeeded();
+      if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
       try {
         if (typeof wasm.exact_module_artifact === 'function') {
           moduleLoader = await loadAfterPaint('./module-glue.js','moduleRuntime');
@@ -1423,6 +1444,10 @@ async function main() {
           const realm = await moduleLoader.prepare(payload, logicInfo, 0);
           activeModule = { ...payload, realm };
         }
+        inputHandlers = (await loadAfterPaint('./input-glue.js', 'createInputHandlers'))({
+          root, views, retiredViews, ready: () => inputReady, inertAncestor,
+          dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
+        });
         activateData();
       } catch (error) { root.dataset.error = String(error); console.error(error); }
       finally {

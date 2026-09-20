@@ -435,6 +435,7 @@ fn uncompacted_oracle(engine: &mut TextEngine, p: &Paragraph, width: Option<f32>
     // output only in this test so the ordinary CPU/GPU consumers can paint it.
     let old = legacy(&mut engine.catalog.borrow_mut(), &p.source.spec, width);
     let mut oracle = Paragraph {
+        flow: None,
         source: p.source.clone(),
         layouts: Arc::new(
             old.buffer

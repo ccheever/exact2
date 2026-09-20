@@ -166,7 +166,7 @@ fn storage_batch_preserves_text_and_scope_and_refuses_invalid_utf8() {
             request,
             forced: false,
         });
-        let wire = batch.finish(false, 0., None);
+        let wire = batch.finish(None, 0., None);
         assert!(wire.contains(encoded), "{wire}");
         assert!(
             wire.contains(r#""scope":"""#),

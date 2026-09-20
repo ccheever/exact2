@@ -23,6 +23,8 @@ use exact_runner::{
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
+#[path = "flow_host.rs"]
+mod flow_host;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
@@ -97,6 +99,8 @@ pub struct Host<D: DataSource> {
     font_catalog: String,
     location: String,
     collections: String,
+    exclusions: std::collections::BTreeSet<ViewId>,
+    textflow: String,
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
     parked: BTreeMap<u64, RequestOut>,
@@ -188,6 +192,8 @@ impl<D: DataSource> Host<D> {
             font_catalog,
             location: launch.into(),
             collections: String::new(),
+            exclusions: Default::default(),
+            textflow: String::new(),
             parked: BTreeMap::new(),
         };
         let mut batch = Batch::new();
@@ -232,6 +238,7 @@ impl<D: DataSource> Host<D> {
             batch.store(&w);
         }
         batch.grants(host.runner.data().grants());
+        host.emit_textflow(&mut batch);
         let batch = host.complete(batch, None);
         Ok((host, batch))
     }
@@ -266,7 +273,7 @@ impl<D: DataSource> Host<D> {
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         if !transform_drag::valid_event(&event) {
             return Batch::new().finish(
-                self.runner.has_timers(),
+                self.runner.timer_due_ms(),
                 self.runner.now_ms(),
                 Some("invalid transform event"),
             );
@@ -277,7 +284,7 @@ impl<D: DataSource> Host<D> {
                 || !velocity.is_finite()
             {
                 return Batch::new().finish(
-                    self.runner.has_timers(),
+                    self.runner.timer_due_ms(),
                     self.runner.now_ms(),
                     Some("invalid height release"),
                 );
@@ -335,7 +342,7 @@ impl<D: DataSource> Host<D> {
         let retired = self.springs.set_height_owner(self.runner.kernel(), view)?;
         if previous == self.springs.height_owner() {
             // Same live registration preserves its provenance and pending work.
-            return Ok(Batch::new().finish(self.runner.has_timers(), self.runner.now_ms(), None));
+            return Ok(Batch::new().finish(self.runner.timer_due_ms(), self.runner.now_ms(), None));
         }
         self.height_drags.programmatic();
         let mut batch = Batch::new();
@@ -349,7 +356,7 @@ impl<D: DataSource> Host<D> {
         self.cancel_invalid_height_drag();
         self.emit_springs(&mut batch, &[], self.now_ms / 1000.0);
         self.emit_height_drags(&mut batch);
-        Ok(batch.finish(self.runner.has_timers(), self.runner.now_ms(), None))
+        Ok(batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None))
     }
 
     /// The page's line for the runner's journal (LLP 1012 §3): a refused
@@ -423,7 +430,7 @@ impl<D: DataSource> Host<D> {
                 self.batch_from(batch, &result.receipts, error.as_deref())
             }
             Err(error) => Batch::new().finish(
-                self.runner.has_timers(),
+                self.runner.timer_due_ms(),
                 self.runner.now_ms(),
                 Some(&format!("collection: {error:?}")),
             ),
@@ -464,6 +471,7 @@ impl<D: DataSource> Host<D> {
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.mirror.remove(&id);
+                    self.exclusions.remove(&id);
                     self.height_drags.remove(id);
                     self.transform_drags.remove(id);
                     self.reorder_drags.remove(id);
@@ -521,6 +529,9 @@ impl<D: DataSource> Host<D> {
             self.emit_height_drags(batch);
             self.emit_transform_drags(batch);
             self.emit_reorder_drags(batch);
+        }
+        if !receipts.is_empty() {
+            self.emit_textflow(batch);
         }
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
@@ -583,7 +594,7 @@ impl<D: DataSource> Host<D> {
             self.collections = collections;
             batch.collections(&self.collections);
         }
-        let timers = self.runner.has_timers();
+        let timers = self.runner.timer_due_ms();
         batch.finish(timers, self.runner.now_ms(), error.as_deref())
     }
 
@@ -675,7 +686,7 @@ impl<D: DataSource> Host<D> {
         );
         Ok(Some((
             start,
-            batch.finish(self.runner.has_timers(), self.runner.now_ms(), None),
+            batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None),
         )))
     }
 
@@ -735,7 +746,7 @@ impl<D: DataSource> Host<D> {
         Self::emit_lowered(&mut batch, synced);
         self.reconcile_transform_drags(&mut batch);
         self.emit_springs(&mut batch, &[], now_ms / 1000.0);
-        batch.finish(self.runner.has_timers(), self.runner.now_ms(), None)
+        batch.finish(self.runner.timer_due_ms(), self.runner.now_ms(), None)
     }
 
     /// Complete the authored swipe while its translate hold still owns the
@@ -824,6 +835,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
+        self.track_exclusion(id);
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
         if node.props.str(PropId::ReorderFor).is_some() {
@@ -866,6 +878,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        self.track_exclusion(id);
         let node = self.runner.kernel().node(id).expect("live");
         if node.props.str(PropId::ReorderFor).is_some() {
             self.reorder_drags.track(id, node.key);
@@ -1044,6 +1057,9 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
 /// Props as DOM attributes/properties. Names are the DOM's.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
+    if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
+        out.insert("data-wrap-flow".into(), "both".into());
+    }
     if node.node_type == NodeType::Text && !node.is_inline_run() {
         out.insert("data-exact-text".into(), String::new());
     }

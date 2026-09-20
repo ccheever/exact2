@@ -753,6 +753,16 @@ impl<D: DataSource> Presenter<D> {
         &self.text
     }
 
+    /// The currently painted paragraph, with the same fragment geometry as ink.
+    pub fn paragraph(&self, id: ViewId) -> Option<&crate::text::Paragraph> {
+        let key = self.host.kernel().node(id)?.key;
+        self.brush.paragraph(key).map(|p| &**p)
+    }
+    /// Last CPU flow repaint regions; an empty slice means a full repaint.
+    pub fn damage_rects(&self) -> &[crate::paint::Rect4] {
+        self.brush.damage_rects()
+    }
+
     /// The images.
     pub fn images(&self) -> &Images {
         &self.images
@@ -895,37 +905,6 @@ impl<D: DataSource> Presenter<D> {
             self.host.refuse_request(ticket, reason, ordered);
             self.executor.notify();
         }
-    }
-
-    /// Loads that arrived since the last call: their sizes reach the kernel.
-    /// Whether anything changed.
-    pub fn poll_images(&mut self) -> bool {
-        let reports = self.images.poll();
-        self.apply_reports(reports)
-    }
-
-    /// Wait for every load in flight (bounded).
-    pub fn wait_images(&mut self, timeout: Duration) -> bool {
-        let reports = self.images.wait(timeout);
-        self.apply_reports(reports)
-    }
-
-    fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
-        let any = !reports.is_empty();
-        for (view, size) in reports {
-            if let Some(e) = self.host.set_intrinsic(view, size) {
-                eprintln!("exact: {e}");
-            }
-        }
-        if any {
-            self.dirty = true;
-            self.clamp_scroll();
-            self.queue_collections();
-            if let Some(error) = self.refresh_transform_geometry() {
-                self.host.log(error);
-            }
-        }
-        any
     }
 
     /// The document's extent: the roots' frames, never smaller than the
@@ -1073,6 +1052,18 @@ impl<D: DataSource> Presenter<D> {
                     );
                 }
                 None => detail.push_str(",\"space\":{\"capture\":{\"scale\":1}}"),
+            }
+            // @ref LLP 1043.000 §3 D7 — ordinary paragraphs keep the existing
+            // reply shape, while a flowed empty paragraph still reports its facts.
+            if let Some(p) = self.paragraph(id).filter(|p| p.flow_line_height() > 0.0) {
+                detail.push_str(",\"fragments\":[");
+                for (i, f) in p.fragments().iter().enumerate() {
+                    if i > 0 {
+                        detail.push(',');
+                    }
+                    let _ = write!(detail, "{{\"start\":{},\"end\":{},\"x\":{},\"y\":{},\"width\":{},\"band\":{},\"height\":{}}}", f.start, f.end, num(f.x as f64), num(f.y as f64), num(f.width as f64), f.line, num(p.flow_line_height() as f64));
+                }
+                detail.push(']');
             }
             let _ = write!(
                 detail,

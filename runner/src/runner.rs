@@ -247,6 +247,7 @@ pub struct Runner<D: DataSource> {
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
     journal_start: usize,
+    flow_warned: std::collections::HashSet<exact_kernel::NodeKey>,
 }
 
 /// How many journal lines the runner retains (about an hour of a one-second
@@ -463,6 +464,7 @@ impl<D: DataSource> Runner<D> {
             poisoned: false,
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
+            flow_warned: Default::default(),
         };
         runner.init_slots(carried, launch)?;
         runner.derives = vec![None; runner.plan.derives.len()];
@@ -568,6 +570,18 @@ impl<D: DataSource> Runner<D> {
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();
             self.journal_start += 1;
+        }
+    }
+
+    /// Report unsupported auto-height flow once per leaf per boot.
+    /// @ref LLP 1043.000 §4 stage 2 — M9 makes the deferred behavior visible.
+    pub fn report_flow_skipped(&mut self, keys: &[exact_kernel::NodeKey]) {
+        for &key in keys {
+            if self.flow_warned.insert(key) {
+                if let Some(node) = self.kernel.node_by_key(key) {
+                    self.log(format!("wrap-flow: text #{} has auto height and is not flowed (LLP 1043.000 stage 2)", node.id));
+                }
+            }
         }
     }
 
@@ -694,6 +708,15 @@ impl<D: DataSource> Runner<D> {
     /// Whether the plan has timers (a host then drives `advance`).
     pub fn has_timers(&self) -> bool {
         !self.plan.timers.is_empty()
+    }
+
+    /// Soonest timer deadline in this runner's clock domain; no host polling.
+    /// @ref LLP 1043.000 §3 D8 — hosts wake near the authored timer's due time.
+    pub fn timer_due_ms(&self) -> Option<f64> {
+        self.timers
+            .iter()
+            .map(|timer| timer.next_ms)
+            .reduce(f64::min)
     }
 
     /// The kernel roots.

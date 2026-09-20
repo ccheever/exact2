@@ -681,3 +681,35 @@ fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
         1
     );
 }
+
+// @ref LLP 1042 §2 — Linux keeps a video box even without a playback executor.
+#[test]
+fn new_trunk_apps_compile_and_present_on_the_linux_cpu_host() {
+    pin_font();
+    for app in ["video-player", "typetour"] {
+        let assets = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps")
+            .join(app);
+        let plan = contract::compile_path(&assets.join("app.contract")).unwrap();
+        let (mut presenter, error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (390., 844.),
+            1.,
+            assets,
+            exact_linux::presenter::PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{app}: {error:?}");
+        assert!(presenter.node_count() > 10, "{app}");
+        if app == "video-player" {
+            let id = view(&presenter, "video");
+            let node = presenter.host().kernel().node(id).unwrap();
+            assert_eq!(node.node_type, NodeType::Video);
+            assert!(node.frame.width > 0. && node.frame.height > 0.);
+        }
+        assert!(!presenter.boxes().is_empty(), "{app}");
+        assert!(presenter.resize(390., 580.).is_none(), "{app}");
+        assert!(!presenter.boxes().is_empty(), "{app}");
+    }
+}
