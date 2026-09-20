@@ -10,6 +10,10 @@ root package depends on the separate `game/` workspace.
 Register saved types before constructing entities. Keep continuation state in
 components, resources and arguments; the game implementation itself is stateless.
 
+Use `?` to propagate kernel errors from `setup` and `tick`.
+A returned setup error refuses construction/restart; a returned tick error stops before reaping or advancing the tick, records the first failure in unsaved session logs, and refuses driving, saving or input with that error until restore, carry or bind-restart installs good state, while bounded state/tree/log inspection remains available.
+Never `.unwrap()` a kernel `Result` in game code: on wasm a panic aborts the module and every world in it.
+
 ```rust
 use exact_world::*;
 
@@ -28,11 +32,13 @@ impl Game for Board {
         w.register::<Counter>()?;
         Ok(())
     }
-    fn setup(w: &mut World, _: &Options) {
-        w.spawn_named("counter", Counter::default()).unwrap();
+    fn setup(w: &mut World, _: &Options) -> Result<(), DataError> {
+        w.spawn_named("counter", Counter::default())?;
+        Ok(())
     }
-    fn tick(w: &mut World, _: &Input, args: &Options) {
+    fn tick(w: &mut World, _: &Input, args: &Options) -> Result<(), DataError> {
         w.get_mut::<Counter>("counter").unwrap().points += args.increment;
+        Ok(())
     }
 }
 

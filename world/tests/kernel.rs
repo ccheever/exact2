@@ -31,19 +31,21 @@ impl Game for Counter {
         w.register::<Count>().unwrap();
         Ok(())
     }
-    fn setup(w: &mut World, a: &Options) {
+    fn setup(w: &mut World, a: &Options) -> Result<(), DataError> {
         w.reseed(a.seed);
-        w.spawn_named("counter", Count(0)).unwrap();
+        w.spawn_named("counter", Count(0))?;
+        Ok(())
     }
-    fn tick(w: &mut World, input: &Input, _: &Options) {
+    fn tick(w: &mut World, input: &Input, _: &Options) -> Result<(), DataError> {
         let random = w.rng().next_u32() as u64;
         let n = {
             let mut c = w.get_mut::<Count>("counter").unwrap();
             c.0 = c.0.wrapping_add(random + u64::from(input.pressed("add")));
             c.0
         };
-        w.publish("count", (n % 1_000_000) as u32).unwrap();
+        w.publish("count", (n % 1_000_000) as u32)?;
         *w.derived::<u64>() = n; // Reconstructible, never a dependency of the next tick.
+        Ok(())
     }
     fn paused(a: &Options) -> bool {
         a.paused
@@ -57,8 +59,12 @@ impl Game for Still {
         w.register::<Count>().unwrap();
         Ok(())
     }
-    fn setup(_: &mut World, _: &()) {}
-    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+        Ok(())
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+        Ok(())
+    }
 }
 #[test]
 fn idempotent_recursive_registration_runs_hook_once() {
@@ -320,11 +326,14 @@ fn restore_never_runs_setup_and_derived_slots_are_unsaved() {
             w.register::<Count>().unwrap();
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             SETUPS.set(SETUPS.get() + 1);
-            w.spawn(Count(4)).unwrap();
+            w.spawn(Count(4))?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     SETUPS.set(0);
     let mut s = Sim::<G>::new(()).unwrap();
@@ -546,16 +555,18 @@ fn paranoid_preserves_drained_delivery() {
     impl Game for Delivery {
         const ID: &'static str = "delivery";
         type Args = ();
-        fn setup(w: &mut World, _: &()) {
-            w.publish("fixed", 1u32).unwrap();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            w.publish("fixed", 1u32)?;
             w.emit("initial");
+            Ok(())
         }
-        fn tick(w: &mut World, _: &Input, _: &()) {
-            w.publish("fixed", 1u32).unwrap();
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            w.publish("fixed", 1u32)?;
             if w.tick() == 1 {
                 w.emit("second");
-                w.publish("fixed", 2u32).unwrap();
+                w.publish("fixed", 2u32)?;
             }
+            Ok(())
         }
     }
     let run = |mode| {
@@ -722,14 +733,17 @@ fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
             }
             Ok(())
         }
-        fn setup(w: &mut World, a: &Mode) {
+        fn setup(w: &mut World, a: &Mode) -> Result<(), DataError> {
             if a.new {
-                w.spawn(New(7)).unwrap();
+                w.spawn(New(7))?;
             } else {
-                w.spawn(Old(4)).unwrap();
+                w.spawn(Old(4))?;
             }
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &Mode) {}
+        fn tick(_: &mut World, _: &Input, _: &Mode) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     let saved = Sim::<G>::new(Mode { new: true }).unwrap().save().unwrap();
     let mut old = Sim::<G>::new(Mode::default()).unwrap();
@@ -754,14 +768,16 @@ fn lagging_consumer_cannot_refuse_orphan_reaping() {
             w.register::<Count>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
-            let parent = w.spawn_named("parent", Count(0)).unwrap();
-            let child = w.spawn(()).unwrap();
-            w.set_parent(child, Some(parent)).unwrap();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            let parent = w.spawn_named("parent", Count(0))?;
+            let child = w.spawn(())?;
+            w.set_parent(child, Some(parent))?;
+            Ok(())
         }
-        fn tick(w: &mut World, _: &Input, _: &()) {
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
             TICKS.set(TICKS.get() + 1);
-            w.despawn(w.named("parent").unwrap()).unwrap();
+            w.despawn(w.named("parent").unwrap())?;
+            Ok(())
         }
     }
     TICKS.set(0);
@@ -812,10 +828,13 @@ fn sim_exact_restore_refuses_renamed_fields_and_carry_reports_adaptation() {
             w.register::<Before>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
-            w.spawn(Before { points: 123 }).unwrap();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            w.spawn(Before { points: 123 })?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     impl Game for NewGame {
         const ID: &'static str = "same-id";
@@ -824,10 +843,13 @@ fn sim_exact_restore_refuses_renamed_fields_and_carry_reports_adaptation() {
             w.register::<After>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &()) {
-            w.spawn(After { score: 7 }).unwrap();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            w.spawn(After { score: 7 })?;
+            Ok(())
         }
-        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
     }
     let saved = Sim::<OldGame>::new(()).unwrap().save().unwrap();
     let mut new = Sim::<NewGame>::new(()).unwrap();
@@ -967,12 +989,14 @@ fn live_bindings_and_reconciled_input_invalidate_an_old_rest_observation() {
             w.register::<Count>()?;
             Ok(())
         }
-        fn setup(w: &mut World, _: &A) {
-            w.spawn_named("value", Count(0)).unwrap();
+        fn setup(w: &mut World, _: &A) -> Result<(), DataError> {
+            w.spawn_named("value", Count(0))?;
+            Ok(())
         }
-        fn tick(w: &mut World, input: &Input, args: &A) {
+        fn tick(w: &mut World, input: &Input, args: &A) -> Result<(), DataError> {
             w.get_mut::<Count>("value").unwrap().0 +=
                 u64::from(args.increment) + u64::from(input.key("KeyW"));
+            Ok(())
         }
     }
     let mut s = Sim::<G>::new(A::default()).unwrap();
