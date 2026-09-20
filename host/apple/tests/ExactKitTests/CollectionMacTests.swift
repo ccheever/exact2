@@ -12,12 +12,13 @@ final class CollectionMacTests: XCTestCase {
     private func batch(_ ops: [[String: Any]]) -> Batch {
         Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil)
     }
-    private func fixture() -> (Presenter, NodeView) {
+    private func fixture(collection: Bool = true, configure: (Presenter) -> Void = { _ in }) -> (Presenter, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()
         p.viewport.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        configure(p)
         p.apply(batch([
-            ["op": "collections", "items": [snapshot()]],
+            ["op": "collections", "items": collection ? [snapshot()] : []],
             ["op": "create", "id": 1, "kind": "list"],
             ["op": "create", "id": 2, "kind": "view"],
             ["op": "create", "id": 3, "kind": "view"],
@@ -32,8 +33,16 @@ final class CollectionMacTests: XCTestCase {
         return (p, p.views[1]!)
     }
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
-        let (p, list) = fixture()
+        var legacyReports: [UInt32] = []
+        let (p, list) = fixture { p in
+            p.onList = { id, _, _, _, _, _, _, _ in
+                legacyReports.append(id)
+                return false
+            }
+        }
         defer { p.collections.reset() }
+        XCTAssertTrue(p.collections.owns(list.id))
+        XCTAssertTrue(legacyReports.isEmpty, "collection ownership must precede initial legacy reporting")
         XCTAssertTrue(list.handlers.isEmpty)
         let clip = try XCTUnwrap(list.scroll?.contentView)
         clip.scroll(to: NSPoint(x: 0, y: 120))
@@ -52,6 +61,19 @@ final class CollectionMacTests: XCTestCase {
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
+        XCTAssertTrue(legacyReports.isEmpty, "collection geometry uses only common feedback")
+    }
+    func testOrdinaryListStillReportsLegacyGeometryOnInitialApply() {
+        var legacyReports: [UInt32] = []
+        let (p, list) = fixture(collection: false) { p in
+            p.onList = { id, _, _, _, _, _, _, _ in
+                legacyReports.append(id)
+                return false
+            }
+        }
+        defer { p.collections.reset() }
+        XCTAssertFalse(p.collections.owns(list.id))
+        XCTAssertEqual(legacyReports, [list.id])
     }
     func testFeedbackMembershipCommitsContinueOnLaterTurnsWithoutScroll() {
         let (p, _) = fixture()

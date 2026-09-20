@@ -414,7 +414,7 @@ final class Presenter {
     }
 
     private func report(_ list: NodeView) -> ListReport? {
-        guard views[list.id] === list, let scroll = list.scroll,
+        guard !collections.owns(list.id), views[list.id] === list, let scroll = list.scroll,
               let content = list.container.subviews.first as? NodeView else { return nil }
         var responder = root.window?.firstResponder as? NSView
         if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
