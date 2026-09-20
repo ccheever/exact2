@@ -289,8 +289,8 @@ impl World {
     pub(crate) fn read_journal(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.required_item("missing journal cursor")?;
         self.journal_next.get_mut().read(r)?;
-        if self.journal_next() == u64::MAX {
-            return Err(DataError::new("journal cursor exhausted"));
+        if self.journal_next() > 1 << 62 {
+            return Err(DataError::new("cursor beyond supported range"));
         }
         r.required_item("missing journal entries")?;
         let mut events: Vec<Event> = Vec::new();
@@ -513,5 +513,121 @@ mod review_tests {
         w.despawn(next).unwrap();
         assert_eq!(w.spawn(()).unwrap().index(), 1);
         assert_eq!(w.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod supported_cursor_tests {
+    use super::*;
+    use crate::{Game, Input, Sim};
+    struct G;
+    impl Game for G {
+        const ID: &'static str = "cursor-admission";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
+            let parent = w.spawn_named("parent", ())?;
+            let child = w.spawn(())?;
+            w.set_parent(child, Some(parent))
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            if let Some(parent) = w.named("parent") {
+                w.despawn(parent)?;
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn saved_cursor_limit_refuses_atomically_on_every_open_path_and_boundary_continues() {
+        const LIMIT: u64 = 1 << 62;
+        for cursor in [LIMIT + 1, LIMIT] {
+            let mut source = Sim::<G>::new(()).unwrap();
+            let w = source.world_mut();
+            w.journal_next.set(cursor);
+            let len = w.journal.borrow().len() as u64;
+            for (i, event) in w.journal.get_mut().iter_mut().enumerate() {
+                event.index = cursor - len + i as u64;
+            }
+            let bytes = source.save().unwrap();
+            let mut dest = Sim::<G>::new(()).unwrap();
+            dest.world().session_log("keep").unwrap();
+            let consumer = dest.world_mut().subscribe_changes().unwrap();
+            let before = dest.save().unwrap();
+            let logs = dest.world().logs(LogCursor::default()).unwrap();
+            for carry in [false, true] {
+                let result = if carry {
+                    dest.carry(&bytes).map(|_| ())
+                } else {
+                    dest.restore(&bytes)
+                };
+                if cursor > LIMIT {
+                    assert!(result
+                        .unwrap_err()
+                        .message
+                        .contains("cursor beyond supported range"));
+                    assert_eq!(dest.save().unwrap(), before);
+                    assert_eq!(dest.world().logs(LogCursor::default()).unwrap(), logs);
+                    assert_eq!(dest.world().changes(&consumer).unwrap().events.len(), 0);
+                } else {
+                    result.unwrap();
+                    assert_eq!(dest.save().unwrap(), bytes);
+                    assert_eq!(dest.run(17.).unwrap(), 1);
+                    assert!(dest.world().is_empty(), "tick and orphan reap continue");
+                    assert_eq!(dest.world().journal_next(), LIMIT + 2);
+                    dest.world().validate().unwrap();
+                }
+            }
+            let fresh = Sim::<G>::from_save(&bytes);
+            assert_eq!(fresh.is_ok(), cursor == LIMIT);
+            if let Err(error) = fresh {
+                assert!(error.message.contains("cursor beyond supported range"));
+            }
+
+            // EXGAME omits game/structural/session journals; tick is its saved sequence cursor.
+            let mut source = World::new(60, 0);
+            source.spawn(()).unwrap();
+            source.state.tick = cursor;
+            let bytes = source.save().unwrap();
+            let mut dest = World::new(60, 0);
+            dest.spawn_named("keep", ()).unwrap();
+            let before = dest.save().unwrap();
+            let logs = dest.logs(LogCursor::default()).unwrap();
+            for carry in [false, true] {
+                let result = if carry {
+                    dest.carry(&bytes).map(|_| ())
+                } else {
+                    dest.load(&bytes)
+                };
+                if cursor > LIMIT {
+                    assert!(result
+                        .unwrap_err()
+                        .message
+                        .contains("cursor beyond supported range"));
+                    assert_eq!(dest.save().unwrap(), before);
+                    assert_eq!(dest.logs(LogCursor::default()).unwrap(), logs);
+                } else {
+                    result.unwrap();
+                    assert_eq!(dest.save().unwrap(), bytes);
+                    dest.step_clock();
+                    assert_eq!(dest.tick(), LIMIT + 1);
+                    dest.spawn(()).unwrap();
+                }
+            }
+        }
+    }
+    #[test]
+    fn preflight_reserves_only_records_the_removal_will_emit() {
+        #[derive(Default, crate::Component)]
+        struct C;
+        let mut w = World::new(60, 0);
+        w.register::<C>().unwrap();
+        let e = w.spawn(C).unwrap();
+        // Unreachable runtime belt: does not admit this cursor through a save.
+        w.journal_next.set(u64::MAX - 2);
+        assert!(w.remove::<C>(e).unwrap().is_some());
+        assert_eq!(w.journal_next(), u64::MAX - 1);
+        let epoch = w.mutation_epoch();
+        w.set_parent(e, None).unwrap();
+        assert_eq!(w.mutation_epoch(), epoch);
+        assert_eq!(w.journal_next(), u64::MAX - 1);
     }
 }

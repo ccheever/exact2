@@ -589,7 +589,7 @@ impl World {
         if !self.has::<C>(e) {
             return Ok(None);
         }
-        self.change_room(2)?;
+        self.change_room(1 + usize::from(TypeId::of::<C>() == TypeId::of::<Parent>()))?;
         self.record_change(e, crate::ChangeKind::Remove(C::NAME.into()));
         if TypeId::of::<C>() == TypeId::of::<Parent>() {
             let old = self.get::<Parent>(e).map(|p| p.entity());

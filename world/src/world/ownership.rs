@@ -12,9 +12,9 @@ impl World {
         if !self.contains(child) {
             return Err(DataError::new("stale child"));
         }
-        self.change_room(2)?;
         match parent {
             Some(parent) => {
+                self.change_room(2)?;
                 self.register::<Parent>()?;
                 self.insert(child, Parent(parent))?;
             }

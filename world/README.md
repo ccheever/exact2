@@ -315,8 +315,10 @@ Overflow saturates to refusal; registration rejects a declaration above 256 MiB.
 This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
 layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations
-(such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
-live generation `u32::MAX` refuse decode; `log` returns an error before dropping
+(such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Saved tick and game-journal cursors above 2^62 refuse decode with
+`cursor beyond supported range`; 2^62 is accepted. Structural, session and replacement
+cursors are unsaved and cannot be supplied by a checkpoint. Runtime overflow checks
+remain defensive guards. Live generation `u32::MAX` refuses decode; `log` returns an error before dropping
 retained events. A dead exhausted slot is retired permanently. Spawn selects the lowest reusable
 free slot, skipping at most 200,000 retired indices, then appends if capacity
 permits. Retirement is saved in the existing generation/free fields (no wire change).
