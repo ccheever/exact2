@@ -900,6 +900,19 @@ with identical checksums and logical cold payload. Native launch delays and
 variable timings limit the timing claim; the eliminated scan is the firm result,
 not an established scrolling or displayed-frame improvement.
 
+**Apple unchanged-line reuse (2026-09-20):** an immutable text shape weakly
+remembers its last paragraph. A new width can reuse an ordinary CTLine when
+its exact source range remains unchanged; line-clamped paragraphs are excluded.
+No additional paragraph owner or width history is retained. The new regression
+fails on the parent; all 272 native tests pass, including paint, ellipsis and
+accepted-paragraph release checks. All 480 held-paragraph line/glyph snapshots
+match, with 58 lines reused versus zero on the parent. An isolated 40-paragraph,
+60-width probe accepting each layout as a view does measured paired medians
+29.89/23.64, 28.53/22.70 and 28.24/22.02 µs (parent/candidate, seven trials per
+group). Both use optimized Swift and the same debug native bridge, produce
+the same checksum and retain zero cold payload. This is a paragraph-resize
+work reduction, not a physical scrolling or displayed-frame result.
+
 
 **Actual Linux:** fourteen residency and seven existing text tests pass with
 strict all-targets Clippy on the frozen Ubuntu ARM64 source. Eighteen fresh

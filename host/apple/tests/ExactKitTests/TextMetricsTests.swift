@@ -9,6 +9,55 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testWidthChangesReuseUnchangedLinesWithoutReusingPaintOrEllipses() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = Spec(runs: [Run(text: "First line\nSecond line", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let first = engine.paragraph(input, width: 1000)
+        engine.accepted(first)
+        let resized = withExtendedLifetime(first) { engine.paragraph(input, width: 1001) }
+        XCTAssertEqual(first.lines.count, 2)
+        XCTAssertEqual(resized.lines.count, first.lines.count)
+        for (old, new) in zip(first.lines, resized.lines) { XCTAssertTrue(old === new) }
+        XCTAssertEqual(resized.baselines, first.baselines)
+        XCTAssertEqual(resized.lineBottoms, first.lineBottoms)
+        XCTAssertEqual(resized.width, first.width)
+        XCTAssertEqual(resized.height, first.height)
+        let narrow = engine.paragraph(input, width: 40)
+        let fresh = TextEngine(resolve: { _ in nil }).paragraph(input, width: 40)
+        XCTAssertEqual(narrow.baselines, fresh.baselines)
+        XCTAssertEqual(narrow.width, fresh.width)
+        XCTAssertEqual(narrow.height, fresh.height)
+        XCTAssertEqual(narrow.lines.map { CTLineGetStringRange($0).length },
+                       fresh.lines.map { CTLineGetStringRange($0).length })
+        var painted = input
+        painted.color = [255, 0, 0, 255]
+        let red = engine.paragraph(painted, width: 1002)
+        for (old, new) in zip(resized.lines, red.lines) { XCTAssertFalse(old === new) }
+        var clamped = input
+        clamped.lineClamp = 1
+        let ellipsis = engine.paragraph(clamped, width: 70)
+        let changedEllipsis = withExtendedLifetime(ellipsis) { engine.paragraph(clamped, width: 71) }
+        XCTAssertEqual(changedEllipsis.lines.count, 1)
+        XCTAssertFalse(ellipsis.lines[0] === changedEllipsis.lines[0])
+    }
+
+    func testLineReuseDoesNotRetainAnAcceptedParagraph() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = Spec(runs: [Run(text: "A released view", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        weak var released: Paragraph?
+        let shape = autoreleasepool {
+            let paragraph = engine.paragraph(input, width: 1000)
+            engine.accepted(paragraph)
+            released = paragraph
+            return paragraph.shape!
+        }
+        withExtendedLifetime(shape) { XCTAssertNil(released) }
+    }
+
     func testWidthRetirementDoesNotWalkSavedScalarMeasurements() {
         let input = Spec(runs: [Run(text: "A measured paragraph", size: 16, weight: 400,
                                    family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],

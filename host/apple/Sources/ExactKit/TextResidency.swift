@@ -153,6 +153,9 @@ final class TextShape {
     let identity: TextIdentity
     let spec: Spec
     let typesetter: CTTypesetter
+    // Reuse unchanged CTLines across widths while a view still owns its prior
+    // paragraph. This weak reference adds no paragraph or width-history owner.
+    weak var lastParagraph: Paragraph?
     let attributed: NSAttributedString
     // Unicode opportunities belong to this immutable source, never a width.
     // Filled lazily by the session's TextEngine; raster workers do not use it.

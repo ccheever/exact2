@@ -504,6 +504,7 @@ final class TextEngine {
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
         let p = layout(shape, width: width, breaks: breaks)
+        shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
         return p
     }
@@ -547,6 +548,7 @@ final class TextEngine {
                   Double(height).bitPattern == Double(strutHeight).bitPattern else { return extents(run) }
             return minimum
         }
+        let previous = spec.lineClamp == 0 ? shape.lastParagraph : nil
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -584,7 +586,14 @@ final class TextEngine {
                 }
             }
             if count <= 0 { count = length - start }
-            var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
+            let range = CFRangeMake(start, count)
+            let oldLine = previous.flatMap { lines.count < $0.lines.count ? $0.lines[lines.count] : nil }
+            var line: CTLine
+            // Ordinary CTLines depend on this immutable shape and their exact
+            // source range. Width-dependent ellipses never enter this path.
+            if let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
+                line = oldLine
+            } else { line = CTTypesetterCreateLine(typesetter, range) }
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
             }
