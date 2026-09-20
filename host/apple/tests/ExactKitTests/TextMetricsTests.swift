@@ -9,6 +9,62 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testUrgentFallbackLinesMatchFreshWorkerPixels() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "raster-lines")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        presenter.root.frame = NSRect(x: 0, y: 0, width: 600, height: 2000)
+        defer { window.close(); session.destroy() }
+        func pixels(_ surface: IOSurface) -> Data {
+            surface.lock(options: .readOnly, seed: nil)
+            defer { surface.unlock(options: .readOnly, seed: nil) }
+            var data = Data()
+            for y in 0..<surface.height {
+                data.append(Data(bytes: surface.baseAddress.advanced(by: y * surface.bytesPerRow),
+                                 count: surface.width * 4))
+            }
+            return data
+        }
+        let texts = ["Words with a soft\u{ad}hyphen and trailing spaces.  ",
+                     "日本語 e\u{301} 👨‍👩‍👧‍👦\nSecond line", "العربية שלום Latin", ""]
+        for dark in [false, true] { for width in [140.0, 500.0] {
+            for align in ["left", "center", "right"] { for text in texts {
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                let node = NodeView(id: 1, kind: "text", presenter: presenter)
+                node.applyStyle(["font_size": 16.0, "line_height": "24px", "text_align": align,
+                                 "text_color": [[30.0, 60.0, 90.0, 255.0], [220.0, 180.0, 150.0, 255.0]]])
+                let inline = NodeView(id: 2, kind: "text", presenter: presenter)
+                inline.applyStyle(["font_size": 19.0, "font_style": "italic", "font_weight": 700.0,
+                                   "text_color": [180.0, 70.0, 40.0, 255.0]])
+                inline.applyProps(set: ["text": text, "href": "https://example.invalid/"], clear: [])
+                let regular = NodeView(id: 3, kind: "text", presenter: presenter)
+                regular.applyProps(set: ["text": "Regular → "], clear: [])
+                node.setTextChildren(text.isEmpty ? [inline] : [regular, inline])
+                node.frame = NSRect(x: 0, y: 800, width: width, height: 240)
+                node.prepareToMount()
+                presenter.root.addSubview(node)
+                XCTAssertFalse(presenter.textIsVisible(node))
+                XCTAssertNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+                let urgent = pixels(try XCTUnwrap(node.textRaster))
+                XCTAssertNotNil(node.cachedTextLayout, "the missing-measurement fallback must be exercised")
+                node.dropTextRaster()
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: false))
+                let deadline = Date(timeIntervalSinceNow: 2)
+                while !node.textRasterReady && Date() < deadline {
+                    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001))
+                }
+                XCTAssertEqual(pixels(try XCTUnwrap(node.textRaster)), urgent,
+                               "fresh worker and reused urgent lines must paint identically")
+                node.forget(); node.removeFromSuperview()
+            } }
+        } }
+    }
+
     func testManyInlineLineBoxesMatchTheirIndependentLines() {
         let engine = TextEngine(resolve: { _ in nil })
         let strut = Run(text: "", size: 16, weight: 400, family: 0, italic: false,

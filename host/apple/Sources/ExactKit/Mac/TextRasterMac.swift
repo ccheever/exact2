@@ -70,20 +70,25 @@ final class TextRasterizer {
         // The breaks the kernel measured at this width, when they are still
         // resident: the worker typesets its own lines, so the painted
         // paragraph need not exist on this thread until something reads it.
-        guard let (ranges, baselines) = engine.measuredBreaks(spec, width: key.box.width)
-                ?? node.paragraphLayout().map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else {
+        let measured = engine.measuredBreaks(spec, width: key.box.width)
+        let paragraph = measured == nil ? node.paragraphLayout() : nil
+        guard let (ranges, baselines) = measured
+                ?? paragraph.map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else {
             node.dropTextRaster()
             return true
         }
         node.textRasterKey = key
         node.textRasterReady = false
         node.textRasterPending = false
-        let job = Job(source: engine.attributed(spec).copy() as! NSAttributedString,
+        let source = paragraph?.shape?.attributed ?? engine.attributed(spec)
+        let job = Job(source: source.copy() as! NSAttributedString,
                       ranges: ranges, baselines: baselines,
                       flush: spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0,
                       box: key.box, size: key.size, scale: scale)
         if urgent {
-            node.showTextRaster(Self.render(job), for: key)
+            // A fallback just shaped these lines on this thread. Paint them here;
+            // only the worker path below must build thread-local CoreText lines.
+            node.showTextRaster(Self.render(job, lines: paragraph?.lines), for: key)
             return true
         }
         active += 1
@@ -101,7 +106,9 @@ final class TextRasterizer {
     /// `CTLineDraw` per line, baselines rounded to points — into an sRGB
     /// IOSurface. A surface is what the render server composites: a CGImage
     /// would be converted and copied for it on the main thread, at commit.
-    private static func render(_ job: Job) -> IOSurface? {
+    /// Existing lines are supplied only by a synchronous call on their owning
+    /// thread. Worker calls carry source and ranges, never these line objects.
+    private static func render(_ job: Job, lines: [CTLine]? = nil) -> IOSurface? {
         let width = Int((job.size.width * job.scale).rounded(.up)), height = Int((job.size.height * job.scale).rounded(.up))
         guard width > 0, height > 0,
               let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: 4,
@@ -120,12 +127,18 @@ final class TextRasterizer {
         ctx.scaleBy(x: job.scale, y: -job.scale)
         ctx.setShouldSmoothFonts(true)
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        let typesetter = CTTypesetterCreateWithAttributedString(job.source)
-        for (range, baseline) in zip(job.ranges, job.baselines) {
-            let line = CTTypesetterCreateLine(typesetter, range)
+        func draw(_ line: CTLine, baseline: CGFloat) {
             let x = CGFloat(CTLineGetPenOffsetForFlush(line, job.flush, Double(job.box.width)))
             ctx.textPosition = CGPoint(x: job.box.minX + x, y: job.box.minY + baseline.rounded())
             CTLineDraw(line, ctx)
+        }
+        if let lines {
+            for (line, baseline) in zip(lines, job.baselines) { draw(line, baseline: baseline) }
+        } else {
+            let typesetter = CTTypesetterCreateWithAttributedString(job.source)
+            for (range, baseline) in zip(job.ranges, job.baselines) {
+                draw(CTTypesetterCreateLine(typesetter, range), baseline: baseline)
+            }
         }
         ctx.flush()
         return surface

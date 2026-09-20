@@ -173,6 +173,12 @@ came out the same shape on the first measurement: 746 requests for 128 text
 nodes at boot (Taffy asks several times per node across its passes), 399
 answered from cache, ~17 µs per miss.
 
+On macOS, if a raster needs line breaks that measurement no longer retains,
+the fallback paragraph supplies both its attributed source and its lines.
+Urgent painting reuses those lines synchronously on their owning thread;
+background jobs copy the source and still create their own CoreText lines.
+No additional paragraph or width history is retained by the rasterizer.
+
 ## 4. The C ABI (`host/apple/src/abi.rs`, `include/exact.h`)
 
 **Requests (LLP 1016 D2, built 2026-08-30).** A request never reaches the
