@@ -8845,3 +8845,66 @@ binding captures remain separate. Independent direct timing arithmetic is in
 `/tmp/exact2-glyph-envelope-{pair,reverse}-lead-timing.json`. Further work must
 reduce the remaining complete-turn costs; the current coherent Mac baseline
 and continuous-resize workload also remain to be measured.
+
+### 8.161 Coherent ABI8 Mac Messages baseline with live resizing
+
+One optimized Mac build and one normal-clock cell now establish the full
+Messages workload at `f8bb0cc2`, including the landed owned-UP and collection
+feedback fixes. Later `8f97bb7` textflow changes are excluded. The three ignored
+observer overlays preserve existing scheduling and add separate22/23/24
+advance/decode/apply witnesses inside the existing display-link callback;
+they add no timer or wake. Reusable10,000 rows/batch32, windowed=true,
+bounded=false, cursor=None and nil clock override remain fixed.
+
+The private build uses the recorded two-line ureq3.4.0 lock compatibility
+change; MAIN's lock and external Ibex source remain unchanged. Original locked
+offline metadata refusal is preserved, followed by successful locked offline
+resolution. The runtime driver's original lock assumption is also preserved
+as a prelaunch refusal with zero native launches. A separate derivative admits
+only the exact captured compatibility lock and checks its original reference,
+source card, receipt and product identities. Four focused actual-preflight
+controls pass; runtime behavior and the original23 pure controls are unchanged.
+
+The optimized build exits0 in142.621s and immutable capture in1.960s. Actual
+Bridge compiler dependencies include the captured ABI8 header/module map;
+the completed bake identifies the Reusable entry, plan, History9 schema and
+runtime sources. Binary`d1235015`, capture manifest`417bb928`, is the product
+used by the one17.621s cell under the75s guard. This is a fresh pinned baseline,
+not an A/B comparison or a result for every later MAIN change.
+
+All36 offers are sent and acknowledged during genuine AppKit resize edges:
+18 typing and18 actual direction-matched40-unit wheels, with no skips or
+request errors. Each idle/load/recovery edge contains18 size changes and18
+complete resize/decode/apply chains. Their combined median/maxima are
+4.171/7.284,4.202/7.743 and4.604/8.354ms. One recovery chain exceeds8.333ms.
+Typing ACK maxima are4.745/4.338/6.746ms; wheel maxima3.700/1.458/1.264ms.
+These are instrumented software spans, not display latency or pure Rust/CPU.
+
+The edges contain51/48/47 complete frame-deadline advances and no one-shot
+Timer chains. Their maxima are0.431/7.112/0.739ms. This cohort includes no-op
+advances and has no per-chain revision witness: its low medians cannot be
+compared with historical producer-only samples. Loaded bracketing states
+advance revision9→19; that is aggregate progress, not48 producer updates or
+proof that each revision is painted within the edge.
+
+The2,001.045ms command-free interval advances revision0→8, with seven one-shot
+and five frame-advance chains completed before the following state-read
+enqueue. One-shot median/max is4.098/10.666ms, with two above8.333ms; the five
+frame chains reach2.704ms. Twelve observed chains do not mean twelve revisions.
+Selected full History9 states at0/8/9/19 preserve the first9,968 records and
+the32-row revised suffix with exact UTF-8 byte accounting.
+
+All1,406 primary records are retained with zero primary omissions. Passive
+mode omissions3159/5573/7481 keep mode NOTESTABLISHED despite positive tracking
+samples. The observer stops at apply, not the end of a complete display callback;
+the existing60Hz hardware context establishes no physical120Hz. Current typing
+and resize progress is observed, while robust frame-budget tails remain open.
+
+MAIN`target/mac-messages-abi8-execution-v1` holds the build, immutable product,
+original refusals, derivative binding, raw cell and cleanup. Raw report
+`3f969492` and terminal`a3868bf4` record source unchanged, all seven runtime PIDs/
+six groups absent, four owned mouse-UP releases and no cleanup escalation.
+Output is70,210,118B; peak cumulative charge1,228,083,200B stays within2GiB and
+runtime free space stays above76.509GB. Independent selected raw arithmetic is
+`/tmp/exact2-mac-abi8-lead-selected-raw.json` (`bb89d7db`). No retry, second cell,
+smaller workload, historical timing substitution or new120Hz claim follows.
