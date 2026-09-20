@@ -400,9 +400,9 @@ rays explain a failed route; they do not certify a swept-character path.
 `World::session_log(&self, impl Display)` for diagnostics, excluded from saves,
 continuation comparisons and hashes. `World::journal()`, `journal_next()` and agent
 `logs` expose a separate 4,096-entry combined ring in append order, even at the same
-tick. Session churn cannot evict or renumber saved game events. Existing sessions
-keep their combined cursor through restore/restart and deferred setup; a fresh
-load starts with saved game history only. Session writes do O(text bytes) work,
+tick. Session churn cannot evict or renumber saved game events. Restore reinstates saved game history and merges retained session diagnostics at
+their game-event boundaries; deferred setup preserves earlier attachment notes.
+A fresh load starts with saved game history only. Session writes do O(text bytes) work,
 limited to 65,536 UTF-8 bytes per message; excess text emits an explicit
 `session journal refused` line. Reads visit at most 4,096 entries. Old combined
 entries expire through the existing ring/from-cursor behavior.

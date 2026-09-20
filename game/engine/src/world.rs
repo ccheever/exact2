@@ -232,7 +232,8 @@ pub struct World {
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     // Executor-owned derived data, populated only by linked callers; never saved.
     derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
-    journal: RefCell<VecDeque<Event>>,
+    journal: RefCell<VecDeque<journal::Entry>>,
+    session_count: std::cell::Cell<u64>,
     saved_journal: RefCell<VecDeque<Event>>,
     saved_journal_next: std::cell::Cell<u64>,
     journal_next: std::cell::Cell<u64>,
@@ -298,6 +299,7 @@ impl World {
             resources: BTreeMap::new(),
             derived: RefCell::new(BTreeMap::new()),
             journal: RefCell::new(VecDeque::new()),
+            session_count: std::cell::Cell::new(0),
             saved_journal: RefCell::new(VecDeque::new()),
             saved_journal_next: std::cell::Cell::new(0),
             journal_next: std::cell::Cell::new(0),

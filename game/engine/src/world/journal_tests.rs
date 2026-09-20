@@ -193,3 +193,29 @@ fn session_reload_report_is_visible_but_absent_from_the_next_save() {
         .iter()
         .any(|l| l.contains("reload")));
 }
+
+#[test]
+fn session_restore_reinstates_saved_game_history_and_merges_same_tick_diagnostics() {
+    let donor = Sim::<Probe>::new(()).unwrap();
+    donor.world().log("saved alpha");
+    donor.world().log("saved beta");
+    let saved = donor.save().unwrap();
+    let mut destination = Sim::<Probe>::new(()).unwrap();
+    destination.handoff(true);
+    destination.world().session_log("restore pending");
+    destination.restore(&saved).unwrap();
+    assert_eq!(destination.save().unwrap(), saved);
+    let entries = logs(&mut destination, 0);
+    assert_eq!(entries.next, 7);
+    assert_eq!(entries.lines.len(), 7);
+    assert!(entries.lines[0].ends_with("spawn #0"));
+    assert!(entries.lines[1].contains("publish score"));
+    assert!(entries.lines[2].ends_with("game setup"));
+    assert!(entries.lines[3].ends_with("control: agent attached; controlled clock"));
+    assert!(entries.lines[4].ends_with("restore pending"));
+    assert!(entries.lines[5].ends_with("saved alpha"));
+    assert!(entries.lines[6].ends_with("saved beta"));
+    destination.restore(&saved).unwrap();
+    assert_eq!(logs(&mut destination, 0).lines, entries.lines);
+    assert_eq!(destination.save().unwrap(), saved);
+}
