@@ -1,0 +1,15 @@
+[package]
+name = "exact-world"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "exact_world"
+
+[dependencies]
+exact-world-derive = { path = "derive" }
+exact-plan = { path = "../plan" }
+exact-motion = { path = "../motion" }
+libm = "0.2"

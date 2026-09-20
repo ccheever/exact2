@@ -895,6 +895,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-world"
+version = "0.1.0"
+dependencies = [
+ "exact-motion",
+ "exact-plan",
+ "exact-world-derive",
+ "libm",
+]
+
+[[package]]
+name = "exact-world-derive"
+version = "0.1.0"
+
+[[package]]
 name = "fallible-iterator"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
