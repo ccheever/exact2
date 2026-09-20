@@ -18,6 +18,8 @@ pub struct Hasher {
     tail: [u8; 8],
     used: usize,
     len: u64,
+    limit: u64,
+    refused: bool,
 }
 impl Default for Hasher {
     fn default() -> Self {
@@ -26,6 +28,8 @@ impl Default for Hasher {
             tail: [0; 8],
             used: 0,
             len: 0,
+            limit: u64::MAX,
+            refused: false,
         }
     }
 }
@@ -35,10 +39,30 @@ fn mix(mut n: u64) -> u64 {
     n ^ (n >> 31)
 }
 impl Hasher {
+    pub fn bounded(bytes: u64) -> Self {
+        Self {
+            limit: bytes,
+            ..Self::default()
+        }
+    }
+    pub fn report(&self) -> Result<(u64, u64), super::DataError> {
+        if self.refused {
+            Err(super::DataError::new("observation byte budget exhausted"))
+        } else {
+            Ok((self.finish(), self.len))
+        }
+    }
+    fn allow(&mut self, bytes: usize) -> bool {
+        self.refused |= bytes as u64 > self.limit - self.len;
+        !self.refused
+    }
     fn lane(&mut self, n: u64) {
         self.state = mix(self.state ^ n).rotate_left(27);
     }
     fn raw(&mut self, mut b: &[u8]) {
+        if !self.allow(b.len()) {
+            return;
+        }
         self.len = self.len.wrapping_add(b.len() as u64);
         if self.used != 0 {
             let n = (8 - self.used).min(b.len());
@@ -62,17 +86,25 @@ impl Hasher {
     }
     /// Finalize without changing the writer, so snapshots are cheap.
     pub fn finish(&self) -> u64 {
+        assert!(!self.refused, "bounded hash refused; use report");
         mix(self.state ^ mix(u64::from_le_bytes(self.tail)) ^ self.len)
     }
 }
 impl Writer for Hasher {
+    fn stopped(&self) -> bool {
+        self.refused
+    }
+
     fn bytes(&mut self, value: super::Bulk<'_>) {
         let (kind, len) = value.shape();
+        if !self.allow(len.saturating_add(9)) {
+            return;
+        }
         self.raw(&[17 + kind as u8]);
         self.raw(&(len as u64).to_le_bytes());
         value.chunks(|part| {
             self.raw(part);
-            true
+            !self.stopped()
         });
     }
     fn boolean(&mut self, n: bool) {

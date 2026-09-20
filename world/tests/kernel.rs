@@ -299,7 +299,7 @@ fn paranoid_modes_match_input_publications_rng_and_continuation_bytes() {
             checkpoints.push((
                 s.world().hash(),
                 s.save().unwrap(),
-                s.world().publications().unwrap(),
+                s.world().publications().clone(),
             ));
         }
         assert!(checkpoints.windows(2).all(|w| w[0].0 != w[1].0));
@@ -572,10 +572,7 @@ fn paranoid_preserves_drained_delivery() {
         let mut s = Sim::<Delivery>::new(()).unwrap().paranoid(mode);
         let mut deliveries = vec![];
         for _ in 0..4 {
-            deliveries.push((
-                s.world().take_published().unwrap(),
-                s.world().take_messages(),
-            ));
+            deliveries.push((s.world().take_published(), s.world().take_messages()));
             s.run(17.).unwrap();
         }
         deliveries

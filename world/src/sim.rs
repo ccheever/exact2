@@ -259,9 +259,12 @@ impl<G: Game> Sim<G> {
                 return Err(DataError::new("paused simulation cannot settle"));
             }
             let next = ((self.world.tick() as u128 + 1) * 1_000_000).div_ceil(G::HZ as u128) as i64;
-            let sample = before.unwrap_or_else(|| self.world.observation_hash());
+            let sample = match before {
+                Some(hash) => hash,
+                None => self.world.sample()?.hash,
+            };
             self.advance_us(next + self.caller_us - self.world_us)?;
-            before = Some(self.world.observe(sample));
+            before = Some(self.world.observe(sample)?);
         }
         if self.world.quiescent() && self.queue.is_empty() {
             Ok(self.world.tick() - start)

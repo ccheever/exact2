@@ -1,4 +1,4 @@
-use exact_world::{Component, Entity, Resource, Rng, Value, World};
+use exact_world::{Component, Entity, Published, Resource, Rng, World};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[derive(Default, Component)]
@@ -180,12 +180,12 @@ fn resource_and_non_state_outputs() {
     assert_eq!(w.resource::<Score>().0, 8);
     let before = w.hash();
     w.log("an event").unwrap();
-    w.publish("score", Value::Number(4.0));
+    w.publish("score", Published::Number(4.0));
     let n = w.journal_next();
-    w.publish("score", Value::Number(4.0));
+    w.publish("score", Published::Number(4.0));
     assert_eq!(w.journal_next(), n);
     assert_eq!(before, w.hash());
-    assert_eq!(w.published("score"), Some(Value::Number(4.0)));
+    assert_eq!(w.published("score"), Some(Published::Number(4.0)));
     for i in 0..5000 {
         w.log(&i.to_string()).unwrap();
     }

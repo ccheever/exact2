@@ -1,0 +1,12 @@
+[package]
+name = "exact-world-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-world = { path = "../../world" }
+exact-plan = { path = "../../plan" }
+
+[dev-dependencies]
+exact-game = { path = "../engine" }

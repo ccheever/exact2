@@ -18,6 +18,12 @@ pub enum Readiness {
     Pending(Vec<String>),
     Failed(Vec<String>),
 }
+#[derive(Debug, crate::Data, Default)]
+pub struct Sample {
+    pub hash: u64,
+    pub bytes: u64,
+    pub components: u64,
+}
 impl World {
     pub fn mutation_epoch(&self) -> u64 {
         self.epoch.get()
@@ -150,15 +156,26 @@ impl World {
     pub fn quiescent(&self) -> bool {
         self.observation() == Some(true) && self.settle_tick() == Some(self.tick())
     }
-    pub(crate) fn observation_hash(&self) -> u64 {
-        let mut w = hash::Hasher::default();
+    pub fn sample(&self) -> Result<Sample, DataError> {
+        self.healthy()?;
+        let mut w = hash::Hasher::bounded(32 * 1024 * 1024);
+        let mut components = 0;
+        let mut probes = 0;
         for e in self.entities().filter(|e| !self.has::<Ambient>(*e)) {
+            if w.stopped() {
+                break;
+            }
+            probes += self.components.len() + 1;
+            if probes > 1_000_000 {
+                return Err(DataError::new("observation probe budget exhausted"));
+            }
             e.write(&mut w);
             self.state.slots[e.index() as usize].name.write(&mut w);
             for (name, s) in &self.components {
                 if s.has(e.index() as usize) {
                     w.key(name);
                     s.write_one(e.index() as usize, &mut w);
+                    components += 1;
                 }
             }
         }
@@ -170,51 +187,104 @@ impl World {
             }
         }
         self.published.borrow().write(&mut w);
-        w.finish()
+        let (hash, bytes) = w.report()?;
+        Ok(Sample {
+            hash,
+            bytes,
+            components,
+        })
     }
     pub(crate) fn begin_tick(&mut self) {
         self.mutated();
         self.state.busy.get_mut().clear();
     }
-    pub(crate) fn observe(&mut self, before: u64) -> u64 {
-        let after = self.observation_hash();
+    pub(crate) fn observe(&mut self, before: u64) -> Result<u64, DataError> {
+        let after = self.sample()?.hash;
         self.observed = Some((self.mutation_epoch(), before == after));
-        after
+        Ok(after)
     }
-    pub fn state(&self, entity: Entity) -> Result<String, DataError> {
-        if !self.contains(entity) {
+    /// Visit one entity's components, or all resources for None, by saved type name.
+    pub fn visit(&self, entity: Option<Entity>, w: &mut dyn Writer) -> Result<(), DataError> {
+        self.healthy()?;
+        if entity.is_some_and(|e| !self.contains(e)) {
             return Err(DataError::new("stale entity"));
         }
-        let mut w = crate::json::Encoder::default();
+        let (values, index) = match entity {
+            Some(e) => (&self.components, e.index() as usize),
+            None => (&self.resources, 0),
+        };
         w.begin_struct();
-        for (name, s) in &self.components {
-            if s.has(entity.index() as usize) {
+        for (name, s) in values {
+            if w.stopped() {
+                break;
+            }
+            if s.has(index) {
                 w.field(name);
-                s.write_one(entity.index() as usize, &mut w);
+                s.write_one(index, w);
             }
         }
         w.end_struct();
+        (!w.stopped())
+            .then_some(())
+            .ok_or_else(|| DataError::new("visitor refused"))
+    }
+    pub fn state(&self, entity: Entity) -> Result<String, DataError> {
+        let mut w = crate::json::Encoder::default();
+        self.visit(Some(entity), &mut w)?;
         w.finish()
+    }
+    pub fn candidate(&self) -> Result<Candidate, DataError> {
+        Ok(Candidate(self.decoded(&self.save()?, None, false)?.0))
     }
     pub fn take_messages(&self) -> Vec<String> {
         std::mem::take(&mut *self.messages.borrow_mut())
     }
-    pub fn publications(&self) -> Result<String, DataError> {
-        let mut w = crate::json::Encoder::default();
-        w.begin_struct();
-        for (key, value) in self.published.borrow().iter() {
-            w.key(key);
-            value.inspect(&mut w);
-        }
-        w.end_struct();
-        w.finish()
+    pub fn publications(&self) -> std::cell::Ref<'_, BTreeMap<String, crate::Published>> {
+        self.published.borrow()
     }
-    pub fn take_published(&self) -> Result<Option<String>, DataError> {
-        if !self.published_pending.get() {
-            return Ok(None);
-        }
-        let result = self.publications()?;
-        self.published_pending.set(false);
-        Ok(Some(result))
+    pub fn take_published(&self) -> Option<BTreeMap<String, crate::Published>> {
+        self.published_pending
+            .replace(false)
+            .then(|| self.published.borrow().clone())
+    }
+}
+
+/// Owns an isolated world; failed erased edits poison only this candidate.
+pub struct Candidate(World);
+impl Candidate {
+    pub fn world(&self) -> &World {
+        &self.0
+    }
+    pub fn edit(
+        &mut self,
+        entity: Option<Entity>,
+        name: &str,
+        bytes: &[u8],
+    ) -> Result<(), DataError> {
+        self.0.healthy()?;
+        let result = self.0.mutation(|world| {
+            if entity.is_some_and(|e| !world.contains(e)) {
+                return Err(DataError::new("stale entity"));
+            }
+            let (values, index) = match entity {
+                Some(e) => (&mut world.components, e.index() as usize),
+                None => (&mut world.resources, 0),
+            };
+            let value = values
+                .get_mut(name)
+                .ok_or_else(|| DataError::new("storage absent").at(name))?;
+            if bytes.len() > crate::data::MAX_LOAD_BYTES {
+                return Err(DataError::new("candidate edit byte limit"));
+            }
+            let mut r = bin::Decoder::for_load(bytes, None);
+            value.edit(index, &mut r)?;
+            r.finish()
+        });
+        self.0.poisoned |= result.is_err();
+        result
+    }
+    pub fn commit(self, destination: &mut World) -> Result<(), DataError> {
+        self.0.validate()?;
+        destination.adopt(self.0)
     }
 }

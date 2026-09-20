@@ -519,6 +519,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-world"
+version = "0.1.0"
+dependencies = [
+ "exact-motion",
+ "exact-plan",
+ "exact-world-derive",
+ "libm",
+ "ryu",
+]
+
+[[package]]
+name = "exact-world-adapter"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+ "exact-plan",
+ "exact-world",
+]
+
+[[package]]
+name = "exact-world-derive"
+version = "0.1.0"
+
+[[package]]
 name = "fdeflate"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

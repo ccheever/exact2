@@ -11,7 +11,7 @@ pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub mod storage;
 pub use storage::{Page, Pages, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE};
 mod world;
-pub use world::inspect::{Ambient, Readiness, Work};
+pub use world::inspect::{Ambient, Candidate, Readiness, Sample, Work};
 pub use world::journal::{
     Change, ChangeConsumer, ChangeKind, Changes, Event, EventKind, LogCursor, Logs,
 };

@@ -671,3 +671,12 @@ and counted measurements](../world/README.md). These kernel changes do not chang
 the game engine API or existing game pins. The cross-engine fixture compares
 common Data/hash content, including temporary-column churn; both sides use the
 same reverse component insertion order.
+
+The separate `exact-world-adapter` crate contains Contract publication conversion
+for the optional world kernel. `publication::publish_record(&World, &impl Data)`
+converts named Data fields; `from_contract(Value)` and `to_contract(&Published)`
+bridge positional Contract values; `publication::json(&World)` produces the named
+message envelope. The kernel itself publishes `Published` Data and exposes
+`visit`, isolated `Candidate` edits/commit, bounded `sample`, and resource-local
+revisions. This crate is a member of the game workspace only. Its tests compare
+publication wire bytes/hashes against the engine and exercise bounded conversion.

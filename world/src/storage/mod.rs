@@ -155,6 +155,7 @@ pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
     fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
+    fn edit(&mut self, index: usize, r: &mut dyn Reader) -> Result<(), DataError>;
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
@@ -170,6 +171,11 @@ pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -
     })
 }
 impl<C: Data> Erased for Storage<C> {
+    fn edit(&mut self, index: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut(index)
+            .ok_or_else(|| DataError::new("component absent"))?
+            .read(r)
+    }
     fn has(&self, index: usize) -> bool {
         self.raw.has(index)
     }

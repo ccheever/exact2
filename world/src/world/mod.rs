@@ -1,7 +1,7 @@
 use crate::storage::{self, Erased, Storage};
 use crate::{
     bin, hash, Data, DataError, Now, Pages, Parent, Query, QueryBorrow, Reader, Ref, RefMut, Rng,
-    Value, Writer,
+    Writer,
 };
 use std::any::TypeId;
 use std::cell::RefCell;
@@ -186,7 +186,7 @@ pub struct World {
     session_next: std::cell::Cell<u64>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
-    pub(crate) published: RefCell<BTreeMap<String, crate::values::Stored>>,
+    pub(crate) published: RefCell<BTreeMap<String, crate::Published>>,
     pub(crate) messages: RefCell<Vec<String>>,
     entities_revision: u64,
     replacement: u64,
@@ -599,6 +599,14 @@ impl World {
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
         self.resource_storage::<R>().get().unwrap()
     }
+    /// Conservative resource-local write revision; compare within one replacement.
+    pub fn resource_revision<R: Resource>(&self) -> Option<u64> {
+        self.resources
+            .get(R::NAME)?
+            .any()
+            .downcast_ref::<storage::Singleton<R>>()
+            .map(|s| s.revision())
+    }
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
         self.resource_storage::<R>().get_mut().unwrap()
     }
@@ -612,9 +620,9 @@ impl World {
         self.rng.get_mut().unwrap()
     }
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
-        self.publish_value(key, value.into().0);
+        self.publish_value(key, value.into());
     }
-    pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
+    pub(crate) fn publish_value(&self, key: &str, value: crate::Published) {
         assert!(key.len() <= 256, "publication key exceeds 256 bytes");
         let mut p = self.published.borrow_mut();
         if p.get(key) == Some(&value) {
@@ -648,13 +656,9 @@ impl World {
         );
         messages.push(text);
     }
-    /// Last scalar, list or positional Contract value published under a key.
-    /// Named nested records remain in take_published/agent JSON until shaped by the app.
-    pub fn published(&self, key: &str) -> Option<Value> {
-        self.published
-            .borrow()
-            .get(key)
-            .and_then(crate::values::Stored::value)
+    /// Last published kernel Data, including named objects.
+    pub fn published(&self, key: &str) -> Option<crate::Published> {
+        self.published.borrow().get(key).cloned()
     }
     pub(crate) fn step_clock(&mut self) {
         self.mutated();
@@ -739,6 +743,16 @@ impl World {
         budget: Option<&crate::data::limits::LoadBudget>,
         adapt: bool,
     ) -> Result<bool, DataError> {
+        let (next, changed) = self.decoded(bytes, budget, adapt)?;
+        self.adopt(next)?;
+        Ok(changed)
+    }
+    fn decoded(
+        &self,
+        bytes: &[u8],
+        budget: Option<&crate::data::LoadBudget>,
+        adapt: bool,
+    ) -> Result<(Self, bool), DataError> {
         let payload = Self::saved_payload(bytes)?;
         let mut next = Self::new(self.hz(), 0);
         next.registry = self.registry.clone();
@@ -752,8 +766,7 @@ impl World {
             ));
         }
         next.epoch.set(self.epoch.get().wrapping_add(1));
-        self.adopt(next)?;
-        Ok(changed)
+        Ok((next, changed))
     }
     pub(crate) fn saved_payload(bytes: &[u8]) -> Result<&[u8], DataError> {
         if bytes.len() > crate::data::MAX_LOAD_BYTES {

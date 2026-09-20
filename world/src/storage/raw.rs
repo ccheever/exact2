@@ -244,7 +244,7 @@ impl RawStorage {
         }
     }
     pub(super) fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
-        if !self.has(index) {
+        if w.stopped() || !self.has(index) {
             return false;
         }
         let _lease = self.lease(false);

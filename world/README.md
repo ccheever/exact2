@@ -130,11 +130,29 @@ settle immediately; virtual time cannot finish I/O. `Work::Deadline(tick)` decla
 future simulation work. `busy(reason)` lasts one tick. Repeating the same work or
 publication value does not replace it or invalidate the world.
 
-Explicit observation remains a whole-world operation: O(slots × storage types +
-visited Data), plus deadline traversal. The generic bounded observation report is
-part of the deferred external-module prototype below. **This revision does not
-claim a byte/visit bound for that explicit observation traversal.** Normal ticks
-remain independent of it.
+`sample() -> Result<Sample, DataError>` explicitly reports the observation hash,
+hashed bytes and visited components. It admits at most 32 MiB of hashed Data and
+1,000,000 slot/type probes, refusing during traversal. This costs O(slots × storage
+types + admitted Data), even for mostly empty worlds. Built-in visitors stop at
+refusal; manual writers must honor `stopped()`. Ordinary ticks never sample.
+
+`visit(Option<Entity>, &mut dyn Writer)` traverses erased components (`Some`)
+or resources (`None`) by saved type name. `candidate()` makes an isolated exact
+copy. `Candidate::edit(entity, name, bytes)` applies canonical field patches only
+to that copy; a failed edit poisons it. `commit(self, &mut World)` validates
+ownership and health before adoption. Save/decode budgets apply to candidate
+creation; each edit admits at most 256 MiB of bytes and decoded allocation.
+`resource_revision::<R>() -> Option<u64>` is local to R; compare revisions only
+within one `replacement()` generation.
+
+Publications are kernel `Published` Data (scalars, options, lists, positional
+records and named objects), preserving the existing saved tags. `publications()`
+borrows the map; `take_published()` returns an owned map only when pending.
+Contract conversion and `publish_record(world, &data)` now live in
+`game/world-adapter/src/publication.rs`, compiled only in the game workspace.
+`exact-plan` remains solely for Args decoding/encoding and its Value re-export.
+Dropping it requires moving those Args conversion methods and derive output to
+the adapter while retaining typed argument validation and setup comparisons.
 
 ### Ownership and structural consumers
 
@@ -284,7 +302,7 @@ These are allocation/work counts, not first-pixel or GPU startup measurements.
 | First tick, including first publication | 3 / 640 | **3 / 640** |
 | 1,000 ticks with sparse edits among 200,000 entities | — | **0 / 0**, zero component visitor calls |
 | 1,000 ticks changing a publication every tick | — | **1,003 / 204,704** |
-| Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 47,297** |
+| Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 47,305** |
 | First component at slot 199,999 | 4 / 3,064 | **4 / 3,064** |
 
 The 1,000-publication case pays for 1,000 saved event-key strings and three journal

@@ -20,7 +20,7 @@ fn run_cross(benchmark: bool) {
         .parent()
         .unwrap()
         .join("scratch")
-        .join("K1b-2")
+        .join("K1c")
         .join(format!("cross-{}", std::process::id()));
     fs::create_dir_all(scratch.join("src")).unwrap();
     fs::write(
@@ -106,6 +106,10 @@ pub fn throughput(label: &str, dense: bool) {
 }
 "#;
     let fixture_new = fixture
+        .replace(
+            "Value::record(vec![Value::Bool(true),Value::str(\"x\")])",
+            "Published::Record(vec![Published::Bool(true),Published::Str(\"x\".into())])",
+        )
         .replace("ENGINE", "exact_world")
         .replace(
             "register::<Throughput>()",
@@ -155,12 +159,12 @@ pub fn throughput(label: &str, dense: bool) {
             "bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3])).unwrap()",
         )
         .replace(
-            "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")]))",
-            "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")])).unwrap()",
+            "bin::to_vec(&Published::Record(vec![Published::Bool(true),Published::Str(\"x\".into())]))",
+            "bin::to_vec(&Published::Record(vec![Published::Bool(true),Published::Str(\"x\".into())])).unwrap()",
         );
     let mut source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);
     if benchmark {
-        source.push_str("\n#[test] fn throughput() { for dense in [true, false] { old::throughput(\"engine1024\", dense); new::throughput(\"kernel64\", dense); } }");
+        source.push_str("\n#[test] fn throughput() { for _ in 0..7 { for dense in [true, false] { old::throughput(\"engine1024\", dense); new::throughput(\"kernel64\", dense); } } }");
     }
     fs::write(scratch.join("src/lib.rs"), source).unwrap();
     let mut command = Command::new("cargo");

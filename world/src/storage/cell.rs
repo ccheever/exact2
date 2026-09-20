@@ -14,6 +14,7 @@ pub(crate) struct Singleton<C> {
     borrowed: Cell<isize>,
     pub(super) epoch: Rc<Cell<u64>>,
     name: &'static str,
+    revision: Cell<u64>,
 }
 impl<C: Data> Singleton<C> {
     pub fn new(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -22,10 +23,18 @@ impl<C: Data> Singleton<C> {
             borrowed: Cell::new(0),
             epoch,
             name,
+            revision: Cell::new(0),
         }
     }
-    pub fn insert(&mut self, value: C) {
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision.get()
+    }
+    fn edited(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
+        self.revision.set(self.revision.get().wrapping_add(1));
+    }
+    pub fn insert(&mut self, value: C) {
+        self.edited();
         *self.value.get_mut() = Some(value);
     }
     pub fn get(&self) -> Option<Ref<'_, C>> {
@@ -40,7 +49,7 @@ impl<C: Data> Singleton<C> {
     }
     pub fn get_mut(&self) -> Option<RefMut<'_, C>> {
         let lease = Lease::new(self.name, &self.borrowed, true);
-        self.epoch.set(self.epoch.get().wrapping_add(1));
+        self.edited();
         // SAFETY: the exclusive lease excludes all other references to this cell.
         let value = unsafe { &mut *self.value.get() }.as_mut()?;
         Some(RefMut {
@@ -55,6 +64,11 @@ pub(crate) fn make_cell<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Bo
     Box::new(Singleton::<C>::new(name, epoch))
 }
 impl<C: Data> Erased for Singleton<C> {
+    fn edit(&mut self, _: usize, r: &mut dyn Reader) -> Result<(), DataError> {
+        self.get_mut()
+            .ok_or_else(|| DataError::new("resource absent"))?
+            .read(r)
+    }
     fn has(&self, index: usize) -> bool {
         index == 0 && self.get().is_some()
     }
@@ -69,7 +83,7 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn remove(&mut self, index: usize) {
         if index == 0 {
-            self.epoch.set(self.epoch.get().wrapping_add(1));
+            self.edited();
             *self.value.get_mut() = None;
         }
     }
