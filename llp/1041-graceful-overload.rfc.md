@@ -9052,3 +9052,59 @@ reconstruction. One native cell and sampler exit0 without guard actions/retries.
 Fresh closure proves9 PIDs/8 groups absent, four owned UP releases, ports free and
 lock released. Peak observed charge82,022,400B stays below256MiB; free disk ends
 above77.12GB. Original baseline and both older sampler attempts remain intact.
+
+### 8.165 Direct Mac apply timings separate producer text from resize work
+
+One private diagnostic on the same7594 source adds fixed scalar timing to
+Session and TextRasterMac. It measures main-thread raster-miss preparation,
+synchronous urgent rendering, inclusive collection feedback and their union
+within existing timer/resize/frame/pump apply parents. Preparation includes urgent
+and asynchronous-job attempts; worker rendering and layer publication are outside
+the render interval. Five rows follow each Applied record, with unchanged
+4096/512 trace capacities. Missing, unsafe, midspan or overflowed evidence refuses
+attribution; overlapping categories and nested parents are not blindly added.
+
+The scalar helper passes28 assertions and the independent reader10 controls.
+One optimized build/capture and one unchanged full10k/batch32 native cell exit0.
+All269 parents have complete cuts, with2634 primary rows and zero omissions.
+All36 in-edge inputs/ACKs,18 signed40-unit wheels and54 genuine resize changes
+qualify. The seven selected full histories match the unsampled d0 baseline at
+equal revisions; loaded aggregate revision is9→19. This remains an instrumented
+single run, not an A/B improvement or per-chain painted-revision proof.
+
+All54 scored resize parents contain **zero preparation/render entries**. Their
+idle/load/recovery apply sums are44.782/41.905/40.788ms, of which feedback unions
+are17.107/14.954/14.839ms; residuals are27.675/26.951/25.949ms. Zero in these parents
+does not exclude text rasterization elsewhere. Resize whole median/max is
+4.670/9.279,5.898/8.769,5.661/7.794ms, with2/1/0 spans above8.333ms.
+
+Seven one-shots lie wholly inside the literal command-free interval. Across their
+33.114ms of apply,42 preparation attempts cost4.269ms,42 urgent renders11.590ms,
+and7 feedback calls4.049ms. The combined union is19.908ms and residual13.206ms.
+Rendering is about35% and preparation13% of this cohort's apply wall, not CPU or
+the entire update. Whole median10.516/max14.492ms and5/7 misses remain. The native
+and decode portion alone sums35.883ms; eliminating these text stages would not
+by itself establish robust120Hz.
+
+Loaded frame advances include seven parents with prep/render and39 with zero
+instrumented counts. Their46-parent whole maximum13.844750ms includes7.548625ms
+native/decode and6.296125ms apply;2/46 miss8.333ms. The separate loaded one-shot
+takes10.054ms. Typing ACK maxima10.440/13.119/9.536ms and wheel maxima
+5.350/4.916/1.466ms remain visible. Frame advances include noops, ACKs include
+transport/scheduling, and residual is unclassified wall plus observer overhead.
+Mode remains NOTESTABLISHED; the display is still60Hz and physical120 unmeasured.
+
+Next, reduce repeated producer text work while preserving current-pixel and
+worker ownership rules; measured resize work needs its own feedback/native/UI
+path treatment. Moving urgent rendering alone cannot explain these resize costs.
+No worker/cache policy or production code changes in this diagnostic.
+
+`target/mac-messages-7594-apply-cut-execution-v1/REPORT.md` (`fb10607b`) and
+`FINAL-MANIFEST.json` (`438fdb54`) retain514 files/132,769,119B. Binary`53e2d1cf`
+has297 captured files/58,031,924B; its282 source cards differ from d0 only in
+Session/TextRaster instrumentation, with identical generated entry/plan/compat.
+The initial source-card check caught23 old resolved-symlink labels; corrected
+binding preserves literal source/link bytes and the failed check. Fresh closure
+proves65 PIDs/20 groups absent, four owned UP releases and ports free, without
+guard actions or retries. Charged growth808,747,008B stays below2GiB. The user's
+updated disk policy triggers cleanup below25GB; this run ends above77.12GB.
