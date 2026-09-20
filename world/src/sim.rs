@@ -109,6 +109,7 @@ impl<G: Game> Sim<G> {
             self.tick_failed = false;
         } else {
             self.args = args;
+            self.world.mutated();
         }
         Ok(())
     }
@@ -233,6 +234,7 @@ impl<G: Game> Sim<G> {
         self.input = input;
         self.queue.clear();
         self.caller_us = caller_us;
+        self.world.mutated();
         Ok(())
     }
     pub fn alpha_inputs(&self) -> (u64, u32, u32) {

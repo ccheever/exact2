@@ -71,7 +71,6 @@ pub trait Component: Data {
     }
 }
 /// Named singleton Data; the same semantic immutability contract as Component.
-///
 pub trait Resource: Data {
     const NAME: &'static str;
     /// Exclude executor bookkeeping from observed rest.
@@ -657,7 +656,6 @@ impl World {
             .get(key)
             .and_then(crate::values::Stored::value)
     }
-    // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
         self.mutated();
         self.state.tick = self

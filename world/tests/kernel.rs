@@ -965,3 +965,48 @@ fn clock_deltas_round_individually_to_microseconds() {
     sim.run(0.0005).unwrap();
     assert_eq!(sim.alpha_inputs(), (0, 120, 1_000_000));
 }
+
+#[test]
+fn live_bindings_and_reconciled_input_invalidate_an_old_rest_observation() {
+    #[derive(Default, Args)]
+    struct A {
+        #[live]
+        increment: u32,
+    }
+    struct G;
+    impl Game for G {
+        const ID: &'static str = "rest-invalidation";
+        type Args = A;
+        fn register(w: &mut World, _: args::SetupArgs<'_, A>) -> Result<(), DataError> {
+            w.register::<Count>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &A) {
+            w.spawn_named("value", Count(0)).unwrap();
+        }
+        fn tick(w: &mut World, input: &Input, args: &A) {
+            w.get_mut::<Count>("value").unwrap().0 +=
+                u64::from(args.increment) + u64::from(input.key("KeyW"));
+        }
+    }
+    let mut s = Sim::<G>::new(A::default()).unwrap();
+    assert_eq!(s.settle(1).unwrap(), 1);
+    s.bind(A { increment: 1 }).unwrap();
+    assert_eq!(s.world().observation(), None);
+    assert!(s.settle(1).is_err());
+    assert_eq!(s.world().get::<Count>("value").unwrap().0, 1);
+    s.bind(A::default()).unwrap();
+    assert_eq!(s.settle(1).unwrap(), 1);
+    s.reconcile_input(
+        50.,
+        &[InputEvent::Key {
+            code: "KeyW".into(),
+            down: true,
+            at_ms: 50.,
+        }],
+    )
+    .unwrap();
+    assert_eq!(s.world().observation(), None);
+    assert!(s.settle(1).is_err());
+    assert_eq!(s.world().get::<Count>("value").unwrap().0, 2);
+}
