@@ -1,12 +1,16 @@
 #[path = "bin/options.rs"]
 mod options;
+#[path = "bin/oracle.rs"]
+mod oracle;
 #[path = "bin/prepare.rs"]
 mod prepare;
 #[path = "bin/readback.rs"]
 mod readback;
+#[path = "bin/selection_readback.rs"]
+mod selection_readback;
 use clod_format::Reader;
 use clod_view::{
-    Mode, Renderer,
+    Mode, Renderer, Selector, View,
     scene::Scene,
     select::{self, Selection},
 };
@@ -44,7 +48,7 @@ fn run() -> Result<()> {
         json!({"adapter":adapter.name,"backend":format!("{:?}",adapter.backend),"features":format!("{:?}",device.features()),"limits":"wgpu::Limits::default()"})
     );
     let create = |mode| {
-        Renderer::new(
+        let mut renderer = Renderer::new(
             device.clone(),
             queue.clone(),
             &reader,
@@ -52,9 +56,21 @@ fn run() -> Result<()> {
             &scene,
             [options.width, options.height],
             mode,
-        )
+        )?;
+        if mode == Mode::Cluster && options.selector != Selector::Cpu {
+            renderer.enable_gpu_selection(&reader, options.capacity)?;
+        }
+        Ok::<_, String>(renderer)
     };
     match options.command.as_str() {
+        "oracle" => oracle::run(
+            &reader,
+            &device,
+            &queue,
+            [options.width, options.height],
+            options.steps.max(64),
+            false,
+        )?,
         "render" | "time" => {
             let mut renderer = create(options.mode)?;
             let count = if options.command == "time" {
@@ -89,6 +105,8 @@ fn run() -> Result<()> {
                 "shadow_selection_ms",
                 "encode_ms",
                 "gpu_ms",
+                "gpu_select_ms",
+                "cpu_ms",
                 "gpu_main_ms",
                 "gpu_shadow_ms",
             ] {
@@ -140,32 +158,71 @@ fn sample(
     threshold: f32,
 ) -> Result<Sample> {
     let camera = options.camera(scene, t);
+    let gpu = renderer.mode == Mode::Cluster && options.selector != Selector::Cpu;
+    let cull = options.cull && options.view != View::Overdraw;
     let start = Instant::now();
-    let selection = if renderer.mode == Mode::Cluster {
-        select::select(reader, &scene.instances, &camera, options.height, threshold)
+    let selection = if renderer.mode == Mode::Cluster && !gpu {
+        select::select_culled(
+            reader,
+            &scene.instances,
+            &camera,
+            options.height,
+            threshold,
+            cull,
+        )
     } else {
         Selection::default()
     };
     let selection_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    let shadow = if renderer.mode == Mode::Cluster {
-        select::select(
+    let shadow = if renderer.mode == Mode::Cluster && !gpu {
+        select::select_culled(
             reader,
             &scene.instances,
             &scene.light_camera(),
             2048,
             (threshold * 2.0).min(f32::MAX / 2.0),
+            cull,
         )
     } else {
         Selection::default()
     };
     let shadow_selection_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    let frame = renderer.render(scene, &camera, options.view, &selection, &shadow)?;
+    let frame = if gpu {
+        renderer.render_gpu(
+            scene,
+            &camera,
+            options.view,
+            threshold,
+            cull,
+            options.selector == Selector::Brute,
+        )?
+    } else {
+        renderer.render(scene, &camera, options.view, &selection, &shadow)?
+    };
     let encode_ms = start.elapsed().as_secs_f64() * 1000.0;
     let (pixels, times) = readback::read(renderer, &frame)?;
-    let s = frame.stats;
-    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"ground_draws":1,"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v[0]+v[1]),"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
+    let mut s = frame.stats;
+    if gpu {
+        let cuts = selection_readback::selections(
+            renderer,
+            reader.pages.len(),
+            reader.header.config.max_triangles,
+            false,
+        )?;
+        s.selected_clusters = cuts[0].clusters;
+        s.triangles = cuts[0].triangles;
+        s.padded_triangles = cuts[0].padded_triangles;
+        s.shadow_clusters = cuts[1].clusters;
+        s.shadow_triangles = cuts[1].triangles;
+        s.shadow_padding = cuts[1].padded_triangles;
+        s.candidates = cuts[0].candidates;
+        s.shadow_candidates = cuts[1].candidates;
+        s.overflow = cuts[0].overflow;
+        s.shadow_overflow = cuts[1].overflow;
+    }
+    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"ground_draws":1,"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
     Ok(Sample { pixels, report })
 }
 fn save(path: &Path, pixels: &[u8], width: u32, height: u32) -> Result<()> {

@@ -17,11 +17,16 @@ pub struct FrameStats {
     pub shadow_draws: u32,
     pub resident_bytes: u64,
     pub readback_bytes: u64,
+    pub candidates: u64,
+    pub shadow_candidates: u64,
+    pub overflow: u64,
+    pub shadow_overflow: u64,
 }
 pub struct Frame {
     pub pixels: wgpu::Buffer,
     pub timestamps: Option<wgpu::Buffer>,
     pub row_bytes: u32,
+    pub gpu_selected: bool,
     pub stats: FrameStats,
 }
 impl Renderer {
@@ -34,12 +39,45 @@ impl Renderer {
         selection: &Selection,
         shadow_selection: &Selection,
     ) -> Result<Frame> {
+        self.render_inner(scene, camera, view, selection, shadow_selection, None)
+    }
+    pub fn render_gpu(
+        &mut self,
+        scene: &Scene,
+        camera: &Camera,
+        view: View,
+        threshold: f32,
+        cull: bool,
+        brute: bool,
+    ) -> Result<Frame> {
+        if self.compute.is_none() {
+            return Err("enable GPU selection at scene load first".into());
+        }
+        self.render_inner(
+            scene,
+            camera,
+            view,
+            &Selection::default(),
+            &Selection::default(),
+            Some((threshold, cull && view != View::Overdraw, brute)),
+        )
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn render_inner(
+        &mut self,
+        scene: &Scene,
+        camera: &Camera,
+        view: View,
+        selection: &Selection,
+        shadow_selection: &Selection,
+        gpu: Option<(f32, bool, bool)>,
+    ) -> Result<Frame> {
         if self.mode == Mode::Naive
             && matches!(view, View::Clusters | View::Depth | View::Triangles)
         {
             return Err("cluster, DAG depth and triangle debug views require cluster mode".into());
         }
-        if self.mode == Mode::Cluster {
+        if self.mode == Mode::Cluster && gpu.is_none() {
             if selection.pages.len() != self.pages.len()
                 || shadow_selection.pages.len() != self.pages.len()
             {
@@ -64,6 +102,7 @@ impl Renderer {
                             &self.pages[id],
                             &self.clusters,
                             &self.instances,
+                            &self.dummy_draws,
                             size.next_power_of_two(),
                         );
                     }
@@ -78,7 +117,7 @@ impl Renderer {
             light_vp: scene.light_camera().matrix.to_cols_array(),
             eye: camera.eye.extend(1.0).to_array(),
             ground: [scene.center.x, scene.center.y, -0.015, scene.radius * 50.0],
-            params: [view as u32, self.max_depth, 0, 0],
+            params: [view as u32, self.max_depth, gpu.is_some() as u32, 0],
         };
         self.queue
             .write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
@@ -87,6 +126,29 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("cluster reference frame"),
             });
+        if let Some((threshold, cull, brute)) = gpu {
+            let compute = self.compute.as_ref().expect("enabled");
+            compute.encode(
+                self,
+                &mut encoder,
+                camera,
+                self.height,
+                threshold,
+                cull,
+                brute,
+                0,
+            );
+            compute.encode(
+                self,
+                &mut encoder,
+                &scene.light_camera(),
+                2048,
+                (threshold * 2.0).min(f32::MAX / 2.0),
+                cull,
+                brute,
+                1,
+            );
+        }
         let writes = |start, end| {
             self.query
                 .as_ref()
@@ -108,12 +170,20 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: writes(0, 1),
+                timestamp_writes: writes(
+                    if gpu.is_some() { 4 } else { 0 },
+                    if gpu.is_some() { 5 } else { 1 },
+                ),
                 ..Default::default()
             });
             pass.set_pipeline(&self.shadow_pipeline);
             pass.set_bind_group(0, &self.global_bind, &[]);
-            self.draw(&mut pass, &self.shadow_lists, shadow_selection);
+            self.draw(
+                &mut pass,
+                &self.shadow_lists,
+                shadow_selection,
+                gpu.map(|_| 1),
+            );
         }
         let color_view = self.color.create_view(&Default::default());
         {
@@ -146,7 +216,10 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: writes(2, 3),
+                timestamp_writes: writes(
+                    if gpu.is_some() { 6 } else { 2 },
+                    if gpu.is_some() { 7 } else { 3 },
+                ),
                 ..Default::default()
             });
             pass.set_bind_group(0, &self.global_bind, &[]);
@@ -160,7 +233,7 @@ impl Renderer {
             } else {
                 &self.main
             });
-            self.draw(&mut pass, &self.lists, selection);
+            self.draw(&mut pass, &self.lists, selection, gpu.map(|_| 0));
         }
         let row_bytes = (self.width * 4).div_ceil(256) * 256;
         let pixels = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -190,15 +263,25 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
+        // Metal counters are resolved in a subsequent command buffer so final fragment
+        // timestamps are complete. No CPU wait or map occurs at this boundary.
+        self.queue.submit([encoder.finish()]);
+        let mut encoder = self.device.create_command_encoder(&Default::default());
         let timestamps = if let (Some(query), Some(resolve)) = (&self.query, &self.query_resolve) {
             let read = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("timestamps"),
-                size: 32,
+                size: 64,
                 usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            encoder.resolve_query_set(query, 0..4, resolve, 0);
-            encoder.copy_buffer_to_buffer(resolve, 0, &read, 0, 32);
+            encoder.resolve_query_set(query, 0..if gpu.is_some() { 8 } else { 4 }, resolve, 0);
+            encoder.copy_buffer_to_buffer(
+                resolve,
+                0,
+                &read,
+                0,
+                if gpu.is_some() { 64 } else { 32 },
+            );
             Some(read)
         } else {
             None
@@ -211,6 +294,10 @@ impl Renderer {
                 selected_clusters: selection.clusters,
                 triangles: selection.triangles,
                 padded_triangles: selection.padded_triangles,
+                candidates: selection.candidates,
+                shadow_candidates: shadow_selection.candidates,
+                overflow: selection.overflow,
+                shadow_overflow: shadow_selection.overflow,
                 draws: self.pages.len() as u32,
                 shadow_clusters: shadow_selection.clusters,
                 shadow_triangles: shadow_selection.triangles,
@@ -228,17 +315,21 @@ impl Renderer {
             }
         };
         stats.resident_bytes = self.static_bytes
-            + self
-                .lists
-                .iter()
-                .chain(&self.shadow_lists)
-                .map(|l| l.capacity)
-                .sum::<u64>();
+            + if let Some(c) = &self.compute {
+                c.bytes
+            } else {
+                self.lists
+                    .iter()
+                    .chain(&self.shadow_lists)
+                    .map(|l| l.capacity)
+                    .sum::<u64>()
+            };
         stats.readback_bytes = pixels.size() + timestamps.as_ref().map_or(0, |b| b.size());
         Ok(Frame {
             pixels,
             timestamps,
             row_bytes,
+            gpu_selected: gpu.is_some(),
             stats,
         })
     }
@@ -247,11 +338,22 @@ impl Renderer {
         pass: &mut wgpu::RenderPass<'_>,
         lists: &[crate::gpu::ListGpu],
         selection: &Selection,
+        gpu: Option<usize>,
     ) {
         if self.mode == Mode::Cluster {
-            for (list, pairs) in lists.iter().zip(&selection.pages) {
+            for (id, list) in lists.iter().enumerate() {
                 pass.set_bind_group(1, &list.bind, &[]);
-                pass.draw(0..self.max_triangles * 3, 0..pairs.len() as u32);
+                if let Some(p) = gpu {
+                    pass.draw_indirect(
+                        &self.compute.as_ref().expect("enabled").passes[p].draws,
+                        id as u64 * 32,
+                    );
+                } else {
+                    pass.draw(
+                        0..self.max_triangles * 3,
+                        0..selection.pages[id].len() as u32,
+                    );
+                }
             }
         } else {
             pass.set_bind_group(1, &lists[0].bind, &[]);

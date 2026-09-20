@@ -1,4 +1,5 @@
 //! Portable little-endian, directly uploadable cluster-LOD records. See the experiment README.
+pub mod oracle;
 mod reader;
 mod writer;
 use bytemuck::{Pod, Zeroable};

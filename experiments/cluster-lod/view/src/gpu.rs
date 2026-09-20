@@ -100,6 +100,8 @@ pub struct Renderer {
     pub height: u32,
     pub mode: Mode,
     pub(crate) pages: Vec<PageGpu>,
+    pub(crate) compute: Option<crate::compute::Compute>,
+    pub(crate) dummy_draws: wgpu::Buffer,
     pub(crate) lists: Vec<ListGpu>,
     pub(crate) shadow_lists: Vec<ListGpu>,
     pub(crate) clusters: wgpu::Buffer,
@@ -113,6 +115,7 @@ pub struct Renderer {
     pub(crate) msaa: wgpu::TextureView,
     pub(crate) depth: wgpu::TextureView,
     pub(crate) shadow: wgpu::TextureView,
+    pub(crate) shadow_texture: wgpu::Texture,
     pub(crate) main: wgpu::RenderPipeline,
     pub(crate) overdraw: wgpu::RenderPipeline,
     pub(crate) ground: wgpu::RenderPipeline,
@@ -210,6 +213,7 @@ impl Renderer {
             },
             storage,
         );
+        let dummy_draws = buffer(&device, "CPU draw offsets", &[0u8; 32], storage);
         let page_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("four storage buffers"),
             entries: &[
@@ -230,6 +234,11 @@ impl Renderer {
                 ),
                 entry(
                     3,
+                    wgpu::BufferBindingType::Storage { read_only: true },
+                    wgpu::ShaderStages::VERTEX,
+                ),
+                entry(
+                    5,
                     wgpu::BufferBindingType::Storage { read_only: true },
                     wgpu::ShaderStages::VERTEX,
                 ),
@@ -287,7 +296,7 @@ impl Renderer {
             let params = buffer(
                 &device,
                 "page offsets",
-                bytemuck::cast_slice(&[p.indices_offset, 0u32, 0, 0]),
+                bytemuck::cast_slice(&[p.indices_offset, id as u32, 0, 0]),
                 wgpu::BufferUsages::UNIFORM,
             );
             static_bytes += geometry.size() + params.size();
@@ -325,7 +334,9 @@ impl Renderer {
             SHADOW_SIZE,
             1,
             wgpu::TextureFormat::Depth32Float,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
         );
         let shadow = shadow_tex.create_view(&Default::default());
         let shadow_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -531,27 +542,47 @@ impl Renderer {
                 device.create_query_set(&wgpu::QuerySetDescriptor {
                     label: None,
                     ty: wgpu::QueryType::Timestamp,
-                    count: 4,
+                    count: 8,
                 })
             });
         let query_resolve = query.as_ref().map(|_| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
-                size: 32,
+                size: 64,
                 usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
                 mapped_at_creation: false,
             })
         });
         if query.is_some() {
-            static_bytes += 32;
+            static_bytes += 64;
         }
         let lists = pages
             .iter()
-            .map(|p| Self::make_list(&device, &page_layout, p, &clusters, &instances, 8))
+            .map(|p| {
+                Self::make_list(
+                    &device,
+                    &page_layout,
+                    p,
+                    &clusters,
+                    &instances,
+                    &dummy_draws,
+                    8,
+                )
+            })
             .collect();
         let shadow_lists = pages
             .iter()
-            .map(|p| Self::make_list(&device, &page_layout, p, &clusters, &instances, 8))
+            .map(|p| {
+                Self::make_list(
+                    &device,
+                    &page_layout,
+                    p,
+                    &clusters,
+                    &instances,
+                    &dummy_draws,
+                    8,
+                )
+            })
             .collect();
         Ok(Self {
             device,
@@ -560,6 +591,8 @@ impl Renderer {
             height,
             mode,
             pages,
+            compute: None,
+            dummy_draws,
             lists,
             shadow_lists,
             clusters,
@@ -573,6 +606,7 @@ impl Renderer {
             msaa,
             depth,
             shadow,
+            shadow_texture: shadow_tex,
             main,
             overdraw,
             ground,
@@ -585,12 +619,14 @@ impl Renderer {
             max_depth: reader.groups.iter().map(|g| g.depth).max().unwrap_or(0),
         })
     }
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn make_list(
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         page: &PageGpu,
         clusters: &wgpu::Buffer,
         instances: &wgpu::Buffer,
+        draws: &wgpu::Buffer,
         capacity: u64,
     ) -> ListGpu {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -599,7 +635,26 @@ impl Renderer {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bindings = [&page.geometry, clusters, &buffer, instances, &page.params];
+        Self::bind_list(device, layout, page, clusters, instances, buffer, draws)
+    }
+    pub(crate) fn bind_list(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        page: &PageGpu,
+        clusters: &wgpu::Buffer,
+        instances: &wgpu::Buffer,
+        buffer: wgpu::Buffer,
+        draws: &wgpu::Buffer,
+    ) -> ListGpu {
+        let capacity = buffer.size();
+        let bindings = [
+            &page.geometry,
+            clusters,
+            &buffer,
+            instances,
+            &page.params,
+            draws,
+        ];
         let entries: Vec<_> = bindings
             .iter()
             .enumerate()

@@ -228,6 +228,37 @@ must be finite, nonnegative and less than `f32::MAX`.
     `tests/real_assets.rs` checks both orders at t=0,.5,1; skips loudly if cached
     scans or a GPU are unavailable. The standard procedural test needs no files.
 
+24. L2b uses a runtime error-envelope index, preserving baked cluster order. A suffix
+    maximum of simplified error and prefix minimum of refined error are monotone;
+    binary searches bound a conservative contiguous candidate range. The enclosing
+    sphere includes all selection bounds, not only vertices. This trades extra
+    candidates within a depth for stable raster order and no format/re-bake change.
+25. Main culling uses instance/cluster spheres and meshoptimizer's perspective
+    apex cone test. Shadows keep L2a's orthographic error at twice the threshold,
+    light-frustum spheres, and the directional-light cone test. Camera-facing
+    tests are never used for shadow casters. Culling is disabled for overdraw.
+26. Allocate visible storage once: each instance gets min(cluster count,
+    floor(4,194,304 / instance count)) slots per pass. `--capacity` overrides
+    the per-instance slot count. Stable scans keep earliest coarse-to-fine IDs;
+    a full quota drops subsequent finer clusters, counts every drop, and cannot
+    overwrite another instance. Unused quotas are not shared. Overflow can make
+    holes; it is an explicitly reported degraded image, not a crack-free cut.
+
+27. Metal timing limitation found during L2b: main-pass end counters were zero
+    or stale after indirect compute-selected rendering. Three diagnostic/fix
+    rounds inspected raw counters, reordered query indices into execution order,
+    and resolved in a subsequent command buffer. The issue persisted; the fix
+    loop stopped. Invalid pairs are printed with all eight raw values and become
+    JSON null, never zero or a fabricated duration. Valid select/shadow timings
+    and CPU costs are still reported; a missing total cannot establish 16.6 ms.
+
+28. Reuse L1's 524,288-triangle (subdivision 8) closed fixture for the GPU edge
+    oracle, and share the edge-count implementation through `clod-format::oracle`.
+    An initial subdivision-6 fixture exposed 1–2 bad edges in ten unculled camera
+    cuts, identically on CPU and GPU (zero set differences). That new-fixture
+    bake/topology limitation is retained here as evidence, not blamed on GPU
+    selection or hidden by a relaxed edge threshold.
+
 ## Results
 
 L1 verification, 2026-09-20, from cache `logs/L1-verify-{1,mac}.log`:

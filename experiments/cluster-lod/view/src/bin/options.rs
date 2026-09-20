@@ -1,5 +1,5 @@
 use clod_view::{
-    Mode, View,
+    Mode, Selector, View,
     scene::{Camera, Scene},
 };
 use glam::Vec3;
@@ -12,6 +12,9 @@ pub struct Options {
     pub height: u32,
     pub layout: String,
     pub mode: Mode,
+    pub selector: Selector,
+    pub cull: bool,
+    pub capacity: Option<u32>,
     pub view: View,
     pub thresholds: Vec<f32>,
     pub times: Vec<f32>,
@@ -26,9 +29,9 @@ impl Options {
         let mut args = std::env::args().skip(1);
         let command = args
             .next()
-            .ok_or("usage: clod-view <render|time|compare|pop> <file.clod> [options]")?;
-        if !["render", "time", "compare", "pop"].contains(&command.as_str()) {
-            return Err("command must be render|time|compare|pop".into());
+            .ok_or("usage: clod-view <render|time|compare|pop|oracle> <file.clod> [options]")?;
+        if !["render", "time", "compare", "pop", "oracle"].contains(&command.as_str()) {
+            return Err("command must be render|time|compare|pop|oracle".into());
         }
         let file = args.next().ok_or("missing .clod file")?.into();
         let out = PathBuf::from(std::env::var("HOME").map_err(|e| e.to_string())?)
@@ -51,6 +54,9 @@ impl Options {
             height: 1440,
             layout: "single".into(),
             mode: Mode::Cluster,
+            selector: Selector::Gpu,
+            cull: true,
+            capacity: None,
             view: View::Lit,
             steps: 240,
             frames: 7,
@@ -65,6 +71,15 @@ impl Options {
             match arg.as_str() {
                 "--out" => result.out = value.into(),
                 "--layout" => result.layout = value,
+                "--select" => result.selector = Selector::parse(&value)?,
+                "--capacity" => result.capacity = Some(value.parse().map_err(|_| "bad capacity")?),
+                "--cull" => {
+                    result.cull = match value.as_str() {
+                        "on" => true,
+                        "off" => false,
+                        _ => return Err("cull must be on|off".into()),
+                    }
+                }
                 "--mode" => {
                     result.mode = match value.as_str() {
                         "cluster" => Mode::Cluster,

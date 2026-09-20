@@ -8,6 +8,7 @@ struct Globals {
 @group(1) @binding(2) var<storage, read> visible: array<vec2<u32>>;
 @group(1) @binding(3) var<storage, read> transforms: array<mat4x4<f32>>;
 @group(1) @binding(4) var<uniform> page: vec4<u32>;
+@group(1) @binding(5) var<storage, read> draws: array<u32>;
 @group(2) @binding(0) var shadow_map: texture_depth_2d;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 struct VertexOut {
@@ -32,8 +33,12 @@ fn vertex(p:vec3<f32>, n:u32, color:u32, instance:u32, ids:vec4<u32>) -> VertexO
     let world=model*vec4(p,1.0);
     return VertexOut(g.vp*world,world.xyz,normalize((model*vec4(normal_decode(n),0.0)).xyz),unpack4x8unorm(color),ids);
 }
+fn visible_offset(slot:u32)->u32 {
+    if g.params.z!=0u { return slot+draws[page.y*8u+4u]; }
+    return slot;
+}
 fn pulled(v:u32, slot:u32) -> VertexOut {
-    let item=visible[slot]; let base=item.x*32u;
+    let item=visible[visible_offset(slot)]; let base=item.x*32u;
     let count=clusters[base+27u];
     if v>=count*3u {
         // All three padding vertices coincide beyond the clip volume: no fragments.
@@ -48,7 +53,7 @@ fn pulled(v:u32, slot:u32) -> VertexOut {
 @vertex fn pull(@builtin(vertex_index) v:u32,@builtin(instance_index) slot:u32)->VertexOut { return pulled(v,slot); }
 @vertex fn shadow_pull(@builtin(vertex_index) v:u32,@builtin(instance_index) slot:u32)->@invariant @builtin(position) vec4<f32> {
     let p=pulled(v,slot);
-    if v>=clusters[visible[slot].x*32u+27u]*3u { return vec4(2.0,2.0,2.0,1.0); }
+    if v>=clusters[visible[visible_offset(slot)].x*32u+27u]*3u { return vec4(2.0,2.0,2.0,1.0); }
     return g.light_vp*vec4(p.world,1.0);
 }
 struct Input { @location(0) position:vec3<f32>, @location(1) normal:u32, @location(2) color:u32 };
