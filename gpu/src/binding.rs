@@ -23,7 +23,6 @@ pub(crate) fn values(
     surface: &dyn crate::Surface,
     text: &str,
 ) -> Result<Vec<crate::Value>, String> {
-    admit(text)?;
     let (names, values) = json::parse_bindings(text)?;
     let mut fields = surface.arguments();
     let Some(names) = names else {
@@ -51,6 +50,7 @@ pub(crate) fn values(
     Ok(fields.into_iter().map(|(_, value)| value).collect())
 }
 
+#[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn admit(text: &str) -> Result<(), String> {
     if text.len() > 16_384 {
         return Err("surface request exceeds 16384 bytes".into());

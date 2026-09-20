@@ -360,6 +360,18 @@ mod tests {
         shaders: &[],
     };
     #[test]
+    fn owned_binding_limit_does_not_limit_device_scene_values() {
+        let text = format!("[\"{}\"]", "x".repeat(20_000));
+        let values = crate::binding::values(&Large, &text).unwrap();
+        assert_eq!(values[0].as_str().unwrap().len(), 20_000);
+        unload();
+        load_headless(&REGISTRY);
+        let id = create_headless("large");
+        assert!(!bind(id, &text));
+        assert!(error().contains("16384"));
+        unload();
+    }
+    #[test]
     fn returned_data_is_bounded_before_crossing_the_owned_abi() {
         unload();
         load_headless(&REGISTRY);
