@@ -1,0 +1,1295 @@
+{
+  "bakes_and_oracles": [
+    {
+      "asset": "gaul",
+      "bake": {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "output_sha256": "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004",
+        "pages": 4,
+        "peak_rss_bytes": 712228864,
+        "seconds": {
+          "ao": 12.990290875,
+          "build": 6.931067959,
+          "encode": 0.713954417,
+          "load": 1.5536626249999999,
+          "normals": 0.007429917,
+          "write": 0.014770875
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      },
+      "repeat": {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4-repeat.clod",
+        "output_sha256": "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004",
+        "pages": 4,
+        "peak_rss_bytes": 704561152,
+        "seconds": {
+          "ao": 18.73286975,
+          "build": 8.961557709000001,
+          "encode": 0.963712417,
+          "load": 1.469347041,
+          "normals": 0.009759083,
+          "write": 0.013953583
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      }
+    },
+    {
+      "asset": "washington",
+      "bake": {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "output_sha256": "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4",
+        "pages": 18,
+        "peak_rss_bytes": 2782674944,
+        "seconds": {
+          "ao": 12.107022125,
+          "build": 24.069113458,
+          "encode": 2.563524,
+          "load": 14.503294041,
+          "normals": 0.030719083,
+          "write": 0.226995583
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      },
+      "repeat": {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4-repeat.clod",
+        "output_sha256": "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4",
+        "pages": 18,
+        "peak_rss_bytes": 2782052352,
+        "seconds": {
+          "ao": 13.1166275,
+          "build": 25.934565541,
+          "encode": 2.869127584,
+          "load": 12.651698125,
+          "normals": 0.032526209,
+          "write": 0.115821167
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      }
+    },
+    {
+      "name": "gaul-oracle",
+      "summaries": [
+        {
+          "equal": true,
+          "main_triangles": 4000020,
+          "oracle": "extreme_threshold",
+          "shadow_triangles": 4000020,
+          "threshold": 0.0
+        },
+        {
+          "equal": true,
+          "main_triangles": 118,
+          "oracle": "extreme_threshold",
+          "shadow_triangles": 118,
+          "threshold": 1.7014117331926443e+38
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 2,
+          "dropped": 2179,
+          "layout": "single",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 24,
+          "dropped": 1609,
+          "layout": "ring:12",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 800,
+          "dropped": 7040,
+          "layout": "grid:400",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "cameras_per_layout": 64,
+          "checked": 192,
+          "culling_image_pairs": 96,
+          "deterministic_png_pairs": 192,
+          "edge_triangles": 0,
+          "failures": [],
+          "identical_images": 192,
+          "near_boundary_differences": 0,
+          "oracle": "gpu_summary",
+          "overflow_dropped": 10828,
+          "pixels_checked": 12582912
+        }
+      ]
+    },
+    {
+      "name": "washington-oracle",
+      "summaries": [
+        {
+          "equal": true,
+          "main_triangles": 16860930,
+          "oracle": "extreme_threshold",
+          "shadow_triangles": 16860930,
+          "threshold": 0.0
+        },
+        {
+          "equal": true,
+          "main_triangles": 26998,
+          "oracle": "extreme_threshold",
+          "shadow_triangles": 26998,
+          "threshold": 1.7014117331926443e+38
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 2,
+          "dropped": 7403,
+          "layout": "single",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 24,
+          "dropped": 17232,
+          "layout": "ring:12",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "capacity_per_instance": 1,
+          "drawn": 800,
+          "dropped": 329996,
+          "layout": "grid:400",
+          "matches_selected_subset_and_pixels": true,
+          "oracle": "overflow"
+        },
+        {
+          "cameras_per_layout": 64,
+          "checked": 192,
+          "culling_image_pairs": 96,
+          "deterministic_png_pairs": 192,
+          "edge_triangles": 0,
+          "failures": [],
+          "identical_images": 192,
+          "near_boundary_differences": 0,
+          "oracle": "gpu_summary",
+          "overflow_dropped": 354631,
+          "pixels_checked": 12582912
+        }
+      ]
+    }
+  ],
+  "camera": {
+    "samples": 2401,
+    "median_edge_world": 0.0010240989504382014,
+    "minimum_distance_1440p_2px": 0.8900616765022278,
+    "source_triangle_clearance": 0.9053984880447388,
+    "worst_t": 0.6320833563804626,
+    "median_edge_pixels_at_clearance": 1.9661214351654053
+  },
+  "ao_fixture": {
+    "vertices": 3362,
+    "proxy_triangles": 6400,
+    "crease": 248,
+    "convex_mean": 255,
+    "repeat_bytes": 109776,
+    "failures": []
+  },
+  "reel": {
+    "command": "reel",
+    "elapsed_seconds": 500.657349375,
+    "failures": [],
+    "fps": 60,
+    "frames_measured": 2400,
+    "frames_requested": 2400,
+    "gpu_ms_max": 91.63875,
+    "gpu_ms_median": 9.216584000000001,
+    "gpu_ms_min": 1.9064990000000002,
+    "seconds": 40.0,
+    "source_triangles_times_instances": 421523250,
+    "stills": [
+      0,
+      360,
+      720,
+      1080,
+      1439,
+      1799,
+      2159,
+      2399
+    ],
+    "triangles_max": 1648903,
+    "triangles_min": 287795
+  },
+  "frame_statistics": {
+    "frames": 2400,
+    "failures": [],
+    "timings": {
+      "gpu_ms": {
+        "min": 1.9064990000000002,
+        "median": 9.216584000000001,
+        "p95": 13.083832,
+        "max": 91.63875
+      },
+      "gpu_main_ms": {
+        "min": 0.666333,
+        "median": 1.663667,
+        "p95": 4.420625,
+        "max": 6.440791
+      },
+      "gpu_shadow_ms": {
+        "min": 0.169042,
+        "median": 0.421125,
+        "p95": 1.535417,
+        "max": 2.340375
+      },
+      "gpu_select_ms": {
+        "min": 0.438791,
+        "median": 6.051292,
+        "p95": 10.235125,
+        "max": 88.992958
+      },
+      "cpu_ms": {
+        "min": 0.541001,
+        "median": 0.724083,
+        "p95": 1.935666,
+        "max": 180.19516700000003
+      },
+      "frame_completion_ms": {
+        "min": 6.6025,
+        "median": 13.135916,
+        "p95": 28.166708,
+        "max": 383.9245
+      },
+      "triangles_drawn": {
+        "min": 287795,
+        "median": 645826,
+        "p95": 1522013,
+        "max": 1648903
+      },
+      "shadow_triangles": {
+        "min": 410832,
+        "median": 629014,
+        "p95": 1634055,
+        "max": 1653515
+      },
+      "bytes_resident_gpu": {
+        "min": 911412536,
+        "median": 911412536,
+        "p95": 911412536,
+        "max": 911412536
+      }
+    },
+    "stills": [
+      {
+        "name": "t-000.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            48,
+            235
+          ],
+          [
+            46,
+            233
+          ],
+          [
+            39,
+            230
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-015.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            48,
+            235
+          ],
+          [
+            42,
+            233
+          ],
+          [
+            33,
+            230
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-030.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            51,
+            235
+          ],
+          [
+            45,
+            233
+          ],
+          [
+            36,
+            230
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-045.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            53,
+            234
+          ],
+          [
+            52,
+            232
+          ],
+          [
+            46,
+            229
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-060.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            13,
+            232
+          ],
+          [
+            24,
+            231
+          ],
+          [
+            20,
+            228
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-075.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            53,
+            234
+          ],
+          [
+            56,
+            232
+          ],
+          [
+            52,
+            229
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-090.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            44,
+            234
+          ],
+          [
+            38,
+            232
+          ],
+          [
+            30,
+            229
+          ]
+        ],
+        "clipped_channels": 0
+      },
+      {
+        "name": "t-100.png",
+        "size": [
+          2560,
+          1440
+        ],
+        "rgb_extrema": [
+          [
+            45,
+            234
+          ],
+          [
+            39,
+            233
+          ],
+          [
+            31,
+            229
+          ]
+        ],
+        "clipped_channels": 0
+      }
+    ],
+    "drops": {
+      "overflow": 0,
+      "shadow_overflow": 0
+    },
+    "hold": {
+      "checked_frames": 144,
+      "different_scene_frames": [],
+      "caption_excluded": true
+    }
+  },
+  "videos": {
+    "videos_checked": 2,
+    "videos": [
+      {
+        "file": "cluster-lod-reel.mp4",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 2560,
+              "height": 1440,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "duration": "40.000000",
+              "nb_frames": "2400",
+              "nb_read_frames": "2400"
+            }
+          ],
+          "format": {
+            "duration": "40.000000",
+            "size": "25540309"
+          }
+        },
+        "probe_stderr": "",
+        "decode_exit": 0,
+        "decoded_frames": 2400,
+        "decode_seconds": 2.0918420839999996,
+        "decode_stderr": "",
+        "failures": []
+      },
+      {
+        "file": "cluster-lod-reel-1080p.mp4",
+        "probe": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "codec_name": "h264",
+              "width": 1920,
+              "height": 1080,
+              "pix_fmt": "yuv420p",
+              "r_frame_rate": "60/1",
+              "avg_frame_rate": "60/1",
+              "duration": "40.000000",
+              "nb_frames": "2400",
+              "nb_read_frames": "2400"
+            }
+          ],
+          "format": {
+            "duration": "40.000000",
+            "size": "14209559"
+          }
+        },
+        "probe_stderr": "",
+        "decode_exit": 0,
+        "decoded_frames": 2400,
+        "decode_seconds": 0.5497107079999992,
+        "decode_stderr": "",
+        "failures": []
+      }
+    ],
+    "failures": [],
+    "gui_playback": "Unavailable: CUA reports no browser; complete software decode checked instead."
+  },
+  "ao_images": {
+    "ao_on_off_rgb_mad_255": 0.7982720269097222,
+    "ao_on_off_rgb_mad_normalized": 0.0031304785369008713,
+    "size": [
+      2560,
+      1440
+    ]
+  },
+  "verification": [
+    {
+      "name": "tests",
+      "pid": 50270,
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--no-fail-fast",
+        "--",
+        "--nocapture"
+      ]
+    },
+    {
+      "name": "tests",
+      "pid": 50270,
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--no-fail-fast",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 162.90098079199998
+    },
+    {
+      "name": "clippy",
+      "pid": 77284,
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "name": "clippy",
+      "pid": 77284,
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 0.8282331249999988
+    },
+    {
+      "name": "fmt",
+      "pid": 77427,
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    },
+    {
+      "name": "fmt",
+      "pid": 77427,
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 0.16703433299998868
+    },
+    {
+      "name": "wasm-format",
+      "pid": 77450,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-format",
+        "--target",
+        "wasm32-unknown-unknown"
+      ]
+    },
+    {
+      "name": "wasm-format",
+      "pid": 77450,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-format",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit": 0,
+      "seconds": 0.11250887499999954
+    },
+    {
+      "name": "wasm-view",
+      "pid": 77474,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view",
+        "--lib",
+        "--target",
+        "wasm32-unknown-unknown"
+      ]
+    },
+    {
+      "name": "wasm-view",
+      "pid": 77474,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view",
+        "--lib",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit": 0,
+      "seconds": 0.5690794579999929
+    },
+    {
+      "mode": "verify",
+      "commands": 5,
+      "source_files": 51,
+      "max_lines": [
+        713,
+        "view/src/gpu.rs"
+      ],
+      "failures": []
+    }
+  ],
+  "compare": [
+    {
+      "cluster_shadow_triangles": 1549250,
+      "cluster_triangles": 1498330,
+      "fraction_gt_2": 0.037222493489583335,
+      "max": 0.44313725490196076,
+      "max_byte": 113,
+      "mean_abs": 0.0012237576309458969,
+      "naive_triangles": 286635810,
+      "oracle": "compare",
+      "size": [
+        2560,
+        1440
+      ],
+      "t": 0.0,
+      "threshold_px": 1.0
+    },
+    {
+      "cluster_shadow_triangles": 411611,
+      "cluster_triangles": 617769,
+      "fraction_gt_2": 0.03003173828125,
+      "max": 0.2823529411764706,
+      "max_byte": 72,
+      "mean_abs": 0.0008129946640114379,
+      "naive_triangles": 50582790,
+      "oracle": "compare",
+      "size": [
+        2560,
+        1440
+      ],
+      "t": 0.44999998807907104,
+      "threshold_px": 1.0
+    },
+    {
+      "cluster_shadow_triangles": 629014,
+      "cluster_triangles": 488844,
+      "fraction_gt_2": 0.014690483940972223,
+      "max": 0.2549019607843137,
+      "max_byte": 65,
+      "mean_abs": 0.0004984631728848948,
+      "naive_triangles": 33721860,
+      "oracle": "compare",
+      "size": [
+        2560,
+        1440
+      ],
+      "t": 0.75,
+      "threshold_px": 1.0
+    },
+    {
+      "cluster_shadow_triangles": 629014,
+      "cluster_triangles": 758433,
+      "fraction_gt_2": 0.05084879557291667,
+      "max": 0.3058823529411765,
+      "max_byte": 78,
+      "mean_abs": 0.0017620861133805373,
+      "naive_triangles": 16860930,
+      "oracle": "compare",
+      "size": [
+        2560,
+        1440
+      ],
+      "t": 1.0,
+      "threshold_px": 1.0
+    },
+    {
+      "failures": [],
+      "oracle": "compare_summary",
+      "pairs": 4,
+      "worst": {
+        "cluster_shadow_triangles": 629014,
+        "cluster_triangles": 758433,
+        "fraction_gt_2": 0.05084879557291667,
+        "max": 0.3058823529411765,
+        "max_byte": 78,
+        "mean_abs": 0.0017620861133805373,
+        "naive_triangles": 16860930,
+        "oracle": "compare",
+        "size": [
+          2560,
+          1440
+        ],
+        "t": 1.0,
+        "threshold_px": 1.0
+      }
+    }
+  ],
+  "pop": [
+    {
+      "failures": [],
+      "max_excess_frame_diff": 0.0,
+      "max_excess_step": 226,
+      "max_temporal_residual": 0.003304291414192992,
+      "oracle": "pop_summary",
+      "pairs": 239,
+      "size": [
+        2560,
+        1440
+      ],
+      "steps": 240,
+      "threshold_px": 1.0,
+      "worst_step": 38
+    }
+  ],
+  "independent_bake_digests": {
+    "gaul": {
+      "bake": {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "output_sha256": "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004",
+        "pages": 4,
+        "peak_rss_bytes": 712228864,
+        "seconds": {
+          "ao": 12.990290875,
+          "build": 6.931067959,
+          "encode": 0.713954417,
+          "load": 1.5536626249999999,
+          "normals": 0.007429917,
+          "write": 0.014770875
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      },
+      "repeat": {
+        "ao": {
+          "mean": 214.6796505584275,
+          "min": 0,
+          "proxy_triangles": 249998,
+          "rays": 31999856
+        },
+        "bvh_nodes": 4573,
+        "bytes_per_source_triangle": 34.56166319168404,
+        "clusters": 65405,
+        "clusters_per_depth": [
+          31491,
+          16781,
+          8558,
+          4300,
+          2144,
+          1065,
+          532,
+          270,
+          133,
+          66,
+          32,
+          17,
+          9,
+          4,
+          2,
+          1
+        ],
+        "dag_depth": 15,
+        "file_bytes": 138247344,
+        "groups": 3992,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4-repeat.clod",
+        "output_sha256": "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004",
+        "pages": 4,
+        "peak_rss_bytes": 704561152,
+        "seconds": {
+          "ao": 18.73286975,
+          "build": 8.961557709000001,
+          "encode": 0.963712417,
+          "load": 1.469347041,
+          "normals": 0.009759083,
+          "write": 0.013953583
+        },
+        "source_sha256": "4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2",
+        "source_triangles": 4000020,
+        "source_vertices": 1999991,
+        "terminal_triangles": 118,
+        "topology": {
+          "checked": 3991,
+          "rejected": 0,
+          "stopped": 0
+        },
+        "triangles_per_depth": [
+          4000020,
+          1999614,
+          999158,
+          499194,
+          249398,
+          124612,
+          62254,
+          31108,
+          15542,
+          7768,
+          3882,
+          1940,
+          970,
+          484,
+          242,
+          118
+        ]
+      },
+      "verified_digests": [
+        "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004",
+        "8d602c2339227d4e8a36c3d5b8fc13629dd52792190d958607869a28d481e004"
+      ]
+    },
+    "washington": {
+      "bake": {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "output_sha256": "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4",
+        "pages": 18,
+        "peak_rss_bytes": 2782674944,
+        "seconds": {
+          "ao": 12.107022125,
+          "build": 24.069113458,
+          "encode": 2.563524,
+          "load": 14.503294041,
+          "normals": 0.030719083,
+          "write": 0.226995583
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      },
+      "repeat": {
+        "ao": {
+          "mean": 195.1706464361962,
+          "min": 0,
+          "proxy_triangles": 249990,
+          "rays": 144356768
+        },
+        "bvh_nodes": 19615,
+        "bytes_per_source_triangle": 37.164155476595894,
+        "clusters": 280965,
+        "clusters_per_depth": [
+          133228,
+          72302,
+          37138,
+          18845,
+          9583,
+          4872,
+          2480,
+          1268,
+          683,
+          401,
+          157,
+          8
+        ],
+        "dag_depth": 11,
+        "file_bytes": 626622224,
+        "groups": 17147,
+        "input": "/Users/ccheever/Library/Caches/exact2-cluster-lod/assets/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj",
+        "output": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4-repeat.clod",
+        "output_sha256": "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4",
+        "pages": 18,
+        "peak_rss_bytes": 2782052352,
+        "seconds": {
+          "ao": 13.1166275,
+          "build": 25.934565541,
+          "encode": 2.869127584,
+          "load": 12.651698125,
+          "normals": 0.032526209,
+          "write": 0.115821167
+        },
+        "source_sha256": "ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9",
+        "source_triangles": 16860930,
+        "source_vertices": 9022298,
+        "terminal_triangles": 26998,
+        "topology": {
+          "checked": 17132,
+          "rejected": 6,
+          "stopped": 7
+        },
+        "triangles_per_depth": [
+          16860930,
+          8428004,
+          4210988,
+          2103882,
+          1051106,
+          525146,
+          262344,
+          131092,
+          66768,
+          36336,
+          12673,
+          633
+        ]
+      },
+      "verified_digests": [
+        "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4",
+        "431fbed95fc834a5185f4a36fe6dee29540768aecee925ff7fd8a79191e9abb4"
+      ]
+    }
+  },
+  "raw_records": {
+    "reel": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel/frames.jsonl",
+    "compare": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel/compare.log",
+    "pop": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/reel/pop.log",
+    "test_and_oracle_logs": "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/L3a"
+  }
+}

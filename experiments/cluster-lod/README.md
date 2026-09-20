@@ -7,6 +7,8 @@ The native CLI renders the two scanned statues and a continuous avenue-to-detail
 camera path, including lit cluster colours, baked AO, and a 40-second 60fps H.264
 reel. It is an offscreen demo, not an interactive player. L3a uses format v4;
 the F2 performance tables below remain historical v3 measurements.
+Hero: Smithsonian *George Washington*, Horatio Greenough, 1840 (CC0).
+Fast fixture: SMK *Dying Gaul* (Public Domain Mark).
 
 F1 found four-incident edges in regular vendor simplification, including uniform
 cuts. F2 establishes that these are balanced pinches (net winding zero), not holes
@@ -60,7 +62,7 @@ out="$HOME/Library/Caches/exact2-cluster-lod/out/reel"
 export DYLD_LIBRARY_PATH="$out/encoder-lib"
 target/debug/clod-view reel "$asset" --out "$out" --seconds 40 --fps 60 --size 2560x1440
 target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 1
-target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 1
+target/debug/clod-view render "$asset" --out "$out/clusters.png" --path hero --view clusters --t 1
 target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --capacity 12000 --frames 7
 target/debug/clod-view time "$asset" --out "$out/naive.png" --layout grid:400 --mode naive --shadows off
 target/debug/clod-view compare "$asset" --out "$out/compare" --threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1
@@ -186,6 +188,9 @@ in cache `out/reel/encoder-lib`, via `DYLD_LIBRARY_PATH`; no system file, binary
 or signature is altered. Bottle SHA-256:
 `b8a5e68579e954f4bfd2917891880f5861537f87c6787caaf72af7419747450f`.
 The runtime was verified with `/opt/homebrew/bin/ffmpeg -version`, exit 0.
+The available UI automation reports no browser, so GUI playback could not be
+observed. Verify both videos by counting decoded frames with ffprobe and decoding
+the complete streams with ffmpeg; keep that distinction in the delivery report.
 
 
 F2 evidence: `cargo test -p clod-bake --test topology -- --nocapture`, with the
@@ -315,7 +320,48 @@ comparison. Bake with the release baker, matching the previous bake measurements
 
 Commands: `bun measure.mjs bake`, `bun measure.mjs verify`, `bun measure.mjs oracles`,
 and the `reel` command above. Logs and media are in `<cache>/out/reel/`; command
-runner logs are in `<cache>/out/L3a/`. The previous v3 tables start below.
+runner logs are in `<cache>/out/L3a/`. The previous v3 tables start below. [Exact L3a records](results/l3a.json) retain
+the bake, repeat, topology, camera, GPU oracle, comparison, timing and video numbers.
+
+The final `reel` command rendered **2,400/2,400 frames**, **40 seconds at 60 fps**,
+at 2560×1440. PNG rendering took **470.255484 s**; rendering plus both encodes took
+**500.657349 s**. All frames succeeded with **zero main/shadow overflow**. Outputs:
+
+| Video under `<cache>/out/reel/` | Dimensions | Codec / pixels | Duration | Decoded frames | Bytes |
+|---|---|---|---:|---:|---:|
+| `cluster-lod-reel.mp4` | 2560×1440 | H.264 / yuv420p | 40.000000 s | 2,400 | 25,540,309 |
+| `cluster-lod-reel-1080p.mp4` | 1920×1080 | H.264 / yuv420p | 40.000000 s | 2,400 | 14,209,559 |
+
+`ffprobe -v error -count_frames -show_entries
+stream=codec_name,pix_fmt,width,height,r_frame_rate,avg_frame_rate,duration,nb_frames,nb_read_frames:format=duration,size
+-of json <video>` reports 60/1 fps for both. `ffmpeg -v error -progress pipe:1
+-i <video> -f null -` decoded every frame: exit 0, no decoder errors, **2.091842 s**
+and **0.549711 s** respectively. Both commands use `/opt/homebrew/bin/` and the
+cache-local `DYLD_LIBRARY_PATH` above. GUI playback was unavailable because the UI
+tool exposes no browser; full software decoding is the playback validation.
+
+The reel's 25 Washington instances represent **421,523,250 source triangles**.
+GPU resident allocation is **911,412,536 bytes**. These are the actual 2,400-frame
+measurements from `reel/frames.jsonl`, summarized in `reel/frame-statistics.json`:
+
+| Measurement | Minimum | Median | p95 | Maximum |
+|---|---:|---:|---:|---:|
+| Total GPU ms | 1.906499 | 9.216584 | 13.083832 | 91.638750 |
+| Main GPU ms | 0.666333 | 1.663667 | 4.420625 | 6.440791 |
+| Shadow GPU ms | 0.169042 | 0.421125 | 1.535417 | 2.340375 |
+| Selection GPU ms | 0.438791 | 6.051292 | 10.235125 | 88.992958 |
+| CPU ms | 0.541001 | 0.724083 | 1.935666 | 180.195167 |
+| Frame completion ms | 6.602500 | 13.135916 | 28.166708 | 383.924500 |
+| Main triangles | 287,795 | 645,826 | 1,522,013 | 1,648,903 |
+| Shadow triangles | 410,832 | 629,014 | 1,634,055 | 1,653,515 |
+
+This was an offline capture on a shared machine; the timing spikes are retained,
+and this is not a sustained realtime 60 fps claim. Selection includes both passes.
+The final **144 frames / 2.4 seconds** have byte-identical scene pixels after
+excluding the bottom 90-pixel live-stats area. All eight inspected stills are
+2560×1440 with **zero RGB channels clipped to 255** (largest channel value 235).
+The hold and channel counts were computed from the actual PNGs with Pillow;
+per-still RGB extrema and every timing statistic are in the exact records.
 
 AO uses 16 rays/vertex, a 250k-triangle target proxy, 3.5%-extent radius and up to
 16 workers. `cargo test -p clod-bake --test ao -- --nocapture` checks 3,362 corner
@@ -323,6 +369,8 @@ vertices / 6,400 proxy triangles: crease 248/255 < convex bump mean 255/255;
 109,776 baked bytes repeat exactly, zero failures. Saved and opened
 `reel/ao-on.png` and `reel/ao-off.png` at hero t=.75: the former reveals the neck,
 fingers and cloth recesses; the latter fills those creases with sky light.
+Their mean absolute RGB difference is 0.798272027/255 (0.003130479 normalized),
+measured with Pillow `ImageStat(ImageChops.difference(on, off))`.
 
 | Asset | Vertices | Source triangles | AO proxy triangles | AO rays | AO seconds, first / repeat | File bytes | Mean AO /255 |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -364,6 +412,39 @@ overflow tests; these are separate from the zero-overflow reel.
 | .45 | 617,769 | 50,582,790 | 0.000812995 | 72 | 0.030031738 |
 | .75 | 488,844 | 33,721,860 | 0.000498463 | 65 | 0.014690484 |
 | 1 | 758,433 | 16,860,930 | 0.001762086 | 78 | 0.050848796 |
+
+`clod-view pop <washington-4.clod> --path hero --steps 240 --out
+<cache>/out/reel/pop`: 239 temporal pairs; maximum spatial temporal residual
+0.003304291414 (step 38); maximum positive excess mean frame difference **0**;
+zero failures. This supports an absence of large aggregate pops on this sampled
+path, not a per-pixel or no-popping guarantee. Cluster IDs still switch discretely.
+
+Final verification: **21 tests in 19 suites, zero failures**, including the original
+frozen pinch cuts, 96 real-asset coverage cameras, 12 full-geometry equality
+comparisons and the source/reversed-Z/shadow oracles. Workspace tests took
+162.900981 s; clippy 0.828233 s, fmt 0.167034 s, wasm32 format 0.112509 s and wasm32
+view-library 0.569079 s. All five commands exit 0. **51 source files**, maximum
+**713 lines**, zero cap failures. The first verification found one stale v3 fixture
+path and three lints; the second found the AO fixture wall's reversed winding.
+Both were corrected; the third complete run passes. No shader/geometry oracle was
+weakened or removed.
+
+The final stills are the actual encoded-source frames nearest t = 0, .15, .3,
+.45, .6, .75, .9, 1, under `reel/stills/`. They were opened at full source size.
+Three visual passes were used: the first exposed the wrong chair target and hand
+occlusion, the second exposed proxy-exit AO specks, the third established the
+final look and clearance. Final renders use that third pass.
+
+| Still | What is in frame; what works; remaining limitation |
+|---|---|
+| 0 | Two receding rows of white monuments; repetition and grounded silhouettes read clearly; the upper field is deliberately sparse. |
+| .15 | Glide between larger statues toward the hero; cloth and chair backs have depth; foreground monuments clip at the side edges. |
+| .30 | Hero at the avenue's end with flanking statues leaving frame; the route is readable; it remains a transitional wide composition. |
+| .45 | Elevated three-quarter whole statue; warm relief and a shaped ground shadow; the plinth approaches the lower crop. |
+| .60 | Diagonal lit/palette wipe across the raised hand and hair; pastel clusters retain surface shading; patch boundaries remain conspicuous by design. |
+| .75 | Head, chest and raised hand after the wipe; fingers, face and curls separate cleanly; it is a source-safe portrait rather than a hair macro. |
+| .90 | Descending toward the chair side; drapery, attendant figure and chariot become readable; relief detail is inherently softer than the main figure. |
+| 1 | Held chariot relief and plinth; the wheel and horses read with no fly-through or scan-hole extreme close-up; the source relief remains soft. |
 
 ### Historical F2 results (format v3)
 
