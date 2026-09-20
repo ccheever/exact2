@@ -1,7 +1,6 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {createHash} from 'node:crypto';
 
 // Execute the actual bake's HTML write without compiling either wasm.
 const build=readFileSync(new URL('../build.mjs',import.meta.url),'utf8');
@@ -15,8 +14,8 @@ function page(manifest) {
 }
 const ordinary={name:'A & B',theme_color:'#123456',icons:[{src:'assets/icon.png',type:'image/png'}]};
 test('ordinary app HTML is byte-identical to the K3 bake, including metadata escaping',()=>{
-  const digest=createHash('sha256').update(page(ordinary)).digest('hex');
-  assert.equal(digest,'3b1b280afd496b3634c934493705736a0cc8faf0997fd4a57b89739abe6b4ba4');
+  const before=readFileSync(new URL('./fixtures/ordinary-page.html',import.meta.url));
+  assert.ok(Buffer.from(page(ordinary)).equals(before));
   assert.equal(page(ordinary).includes('modulepreload'),false);
 });
 test('only manifest-declared surface modules preload the JS and credential-matched wasm fetch',()=>{
