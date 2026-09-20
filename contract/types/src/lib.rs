@@ -1207,8 +1207,9 @@ fn check_component(
     }
     // Derives: iterate to a fixpoint so order does not matter and `?` fills.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
+    // Every declaration now has a type entry before constructing a full scope.
     for _round in 0..(c.derives.len() + 2) {
-        let scope = types_scope(c, &ct, types);
+        let scope = types.component_scope(c, &ct);
         let mut changed = false;
         for (i, d) in c.derives.iter().enumerate() {
             match infer(&d.expr, &scope, shapes) {
@@ -1235,7 +1236,7 @@ fn check_component(
         }
     }
     // Everything must now type; re-infer derives strictly to surface errors.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     for (i, d) in c.derives.iter().enumerate() {
         ct.derives[i] = infer(&d.expr, &scope, shapes)?;
         if !ct.derives[i].is_complete() {
@@ -1258,11 +1259,11 @@ fn check_component(
     // Handler call sites give untyped parameters their types.
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     refine_params_from_view(&c.view, &scope, c, &mut ct, shapes)?;
     // Action bodies: writes refine slots; assignments must unify.
     for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types_scope(c, &ct, types);
+        let mut scope = types.component_scope(c, &ct);
         scope.push(
             a.params
                 .iter()
@@ -1282,7 +1283,7 @@ fn check_component(
     // the final scope, unified with the sends' (recorded as their bodies were
     // checked). One source, one signature.
     {
-        let scope = types_scope(c, &ct, types);
+        let scope = types.component_scope(c, &ct);
         for (i, r) in c.resources.iter().enumerate() {
             let mut params = Vec::with_capacity(r.args.len());
             for arg in &r.args {
@@ -1312,7 +1313,7 @@ fn check_component(
         }
     }
     // The view types.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     check_view(&c.view, &scope, shapes)?;
     for t in &c.tasks {
         if infer(&t.every.0, &scope, shapes)? != Ty::Number {
@@ -1324,18 +1325,6 @@ fn check_component(
         }
     }
     Ok(ct)
-}
-
-fn types_scope(c: &Component, ct: &ComponentTypes, types: &Types) -> Scope {
-    let mut ct = ct.clone();
-    // Fill any not-yet-computed derive slots so the scope has every name.
-    while ct.derives.len() < c.derives.len() {
-        ct.derives.push(Ty::Unknown);
-    }
-    while ct.actions.len() < c.actions.len() {
-        ct.actions.push(Vec::new());
-    }
-    types.component_scope(c, &ct)
 }
 
 impl Scope {

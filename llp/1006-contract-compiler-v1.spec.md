@@ -270,6 +270,10 @@ stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
 ownership preserves the public scope's ability to cross threads. Frames live only
 as long as the scopes that use them; there is no cross-compilation cache.
+Before constructing a component scope, inference has allocated every declaration's
+type entry, including unresolved derive and action parameter types. Scope construction
+copies bindings directly from that table into its owned snapshot, without first
+cloning the whole component type table and its unrelated data-source signatures.
 
 HTML `dialog` lowers to a View with `semanticTag="dialog"` and the absolute
 position default; `commandfor` and `command` are schema props, passed by their

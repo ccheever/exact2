@@ -1,6 +1,6 @@
 //! Component checks that require recursive action or view traversal.
 
-use super::{err, infer, types_scope, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
+use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::BTreeMap;
 
@@ -77,7 +77,7 @@ fn owner_scopes(
     let mut scopes = BTreeMap::new();
     collect_owner_scopes(
         &c.view,
-        &types_scope(c, ct, types),
+        &types.component_scope(c, ct),
         &types.shapes,
         &mut scopes,
     )?;
