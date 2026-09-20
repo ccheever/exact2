@@ -61,6 +61,10 @@ fn report(error: &contract::CompileError, json: bool, code: u8) -> ExitCode {
 }
 
 pub(super) fn run(args: &[String]) -> ExitCode {
+    if matches!(args, [flag] if flag == "--help" || flag == "-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
     let Some(Options {
         input,
         output,

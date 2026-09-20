@@ -1,4 +1,4 @@
-//! `contract build <file.contract> [-o <file.plan>] [--json]` — compile, print a
+//! `contract build <file.contract> [-o <file.plan>] [--json] [--map]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
 //! `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`
@@ -12,9 +12,21 @@ use std::process::ExitCode;
 mod build;
 mod diff;
 
+const USAGE: &str = "usage:
+  contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]
+  contract symbols <file.contract>
+  contract fmt [--check | --stdout] <file.contract>
+  contract types <file.contract> [-o <app.d.ts>]
+  contract test <file.test.contract>
+  contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]";
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("--help" | "-h") if args.len() == 1 => {
+            println!("{USAGE}");
+            ExitCode::SUCCESS
+        }
         Some("build") => build::run(&args[1..]),
         Some("symbols") => symbols(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
@@ -22,7 +34,7 @@ fn main() -> ExitCode {
         Some("compat") => compat(&args[1..]),
         Some("types") => types(&args[1..]),
         _ => {
-            eprintln!("usage: contract symbols <file.contract> | contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] [--json] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+            eprintln!("{USAGE}");
             ExitCode::from(2)
         }
     }
