@@ -11,6 +11,6 @@
     "linux"
   ],
   "generated": "bun game/prove.mjs beacons --repin --hosts linux",
-  "at": "9b70654379fa8bf1f64fb4fe2b517be6eb125ace",
-  "reason": "FOLD2 R15/D6 with EXSIM v7; Linux continuous/Save/FreshGame and release agreement"
+  "at": "3dce46822bc59b9054c4dcd132e240927b332d95",
+  "reason": "FOLD2 final tree: Linux continuous/Save/FreshGame and release agreement"
 }

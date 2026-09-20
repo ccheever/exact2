@@ -10,6 +10,6 @@
     "linux"
   ],
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux",
-  "at": "61c93a30ab84af0cf33483148b409b0306d310fb",
-  "reason": "FOLD2 R15/D6 with EXSIM v7; Linux continuous/Save/FreshGame and release agreement"
+  "at": "3dce46822bc59b9054c4dcd132e240927b332d95",
+  "reason": "FOLD2 final tree: Linux continuous/Save/FreshGame and release agreement"
 }

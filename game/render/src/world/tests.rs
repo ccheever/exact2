@@ -522,18 +522,28 @@ fn light_membership_uses_current_distance_then_entity_order() {
     for x in [0.2, 0., 0.2, 0.] {
         sim.world().get_mut::<Transform>(camera).unwrap().position.x = x;
         f.feed_to(sim.world(), &mut r).unwrap();
-        assert_eq!(selected(&f, old), x == 0.);
-        assert_eq!(selected(&f, challenger), x != 0.);
+        assert!(selected(&f, old));
+        assert!(!selected(&f, challenger));
+        assert_eq!(f.scene.lights_for_test().len(), 16);
+    }
+    // Stop's first tick translates every light by one metre. Cross their
+    // current midpoint to prove selection has no retained-membership bias.
+    for x in [1.2, 1., 1.2, 1.] {
+        sim.world().get_mut::<Transform>(camera).unwrap().position.x = x;
+        f.feed_to(sim.world(), &mut r).unwrap();
+        assert_eq!(selected(&f, old), x == 1.);
+        assert_eq!(selected(&f, challenger), x != 1.);
         assert_eq!(f.scene.lights_for_test().len(), 16);
     }
     sim.world().get_mut::<Transform>(camera).unwrap().position.x = 2.;
     f.feed_to(sim.world(), &mut r).unwrap();
     assert!(!selected(&f, old));
     assert!(selected(&f, challenger));
+    let tied_position = sim.world().get::<Transform>(old).unwrap().position;
     sim.world()
         .get_mut::<Transform>(challenger)
         .unwrap()
-        .position = Vec3::new(-10., 0., 0.);
+        .position = tied_position;
     f.feed_to(sim.world(), &mut r).unwrap();
     assert!(
         selected(&f, old),
