@@ -91,7 +91,7 @@ impl Default for Record { fn default() -> Self { Self { omitted: NoDefault } } }
     let error = String::from_utf8_lossy(&missing_default.stderr);
     assert!(!missing_default.status.success());
     assert!(
-        error.contains("NoDefault") && error.contains("Default"),
+        error.contains("NoDefault") && error.contains("Data fields require Default"),
         "{error}"
     );
     // Presence is unsafe initialization evidence, never caller-replaceable.

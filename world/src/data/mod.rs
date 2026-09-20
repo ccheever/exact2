@@ -11,11 +11,22 @@ pub use limits::{MAX_LOAD_BYTES, MAX_LOAD_ENTITIES, MAX_LOAD_STRING};
 pub mod json;
 mod text;
 
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "Data fields require Default, including skipped fields: {Self}"
+)]
+pub trait FieldDefault: Default {}
+impl<T: Default> FieldDefault for T {}
+#[doc(hidden)]
+pub fn field_default<T: FieldDefault>() -> T {
+    T::default()
+}
+
 /// State that can survive a save, level load, or code reload.
 ///
 /// Semantic state has no interior mutability; derives introduce none. A manual
 /// implementation that changes semantic state through a shared reference is outside
-/// this contract: quiescence and the hash cache are undefined for it.
+/// the observation contract. Explicit hashes always traverse current Data.
 ///
 /// Records keep fields the input lacks; sequences, maps and options are replaced whole.
 ///

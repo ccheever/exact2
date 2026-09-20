@@ -681,3 +681,14 @@ message envelope. The kernel itself publishes `Published` Data and exposes
 `visit`, isolated `Candidate` edits/commit, bounded `sample`, and resource-local
 revisions. This crate is a member of the game workspace only. Its tests compare
 publication wire bytes/hashes against the engine and exercise bounded conversion.
+
+K1d keeps Contract argument conversion in `exact-world-adapter::args`:
+`decode_args::<A>(&[Value]) -> Result<A, DataError>`,
+`argument_values(&A) -> Result<Vec<Value>, DataError>`, and
+`from_values::<G>(&[Value]) -> Result<Sim<G>, DataError>`. Omitted arguments keep
+Rust defaults; range and arity checks run before construction. Core has no plan
+dependency. `World::report(&mut dyn Writer)` exposes bounded busy/work/observation
+reasons. Record publication uses atomic `World::publish_batch`; borrowed publication
+keys share `Rc<str>` with saved events, while owned delivery retains String keys.
+Reload candidates preserve all continuation delivery/history, and a Sim-owned
+World refuses direct load/carry. Restore through the owning Sim.

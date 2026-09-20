@@ -84,11 +84,11 @@ fn membership_union_is_ordered_and_does_not_require_both_columns() {
     assert_eq!(found, [es[0], es[17], es[PAGE + 9], es[PAGE * 2]]);
 }
 
-// Safety audit (Miri-style reasoning; Miri is unavailable on this builder):
+// Safety audit, exercised under Miri (commands and results in README):
 // Page's only public fields, first/generation, are reporting metadata. slots,
 // mask, PhantomData, leases, descriptors and every constructor used to obtain
-// references are private or crate-private. Query is sealed; its public raw fetch
-// entry points are unsafe. The compile-refusal harness locks mask and lifetimes.
+// references are private or crate-private. Query is sealed; raw fetch
+// entry points are crate-private. The compile-refusal harness locks mask and lifetimes.
 // ZST references cover zero bytes, so equal aligned nonnull addresses do not
 // imply overlapping memory. Safe std slice::IterMut has the same property.
 // Presence still owns one Drop per logical slot; leases still forbid reborrows.
@@ -160,7 +160,7 @@ fn panicking_writers_and_row_bodies_release_leases_before_reuse() {
     w.register::<Owned>().unwrap();
     let e = w.spawn(Owned("first".into())).unwrap();
     // A partial writer never owns the slot: the shared lease unwinds while the
-    // initialized String remains owned by its presence bit (Miri-style audit).
+    // initialized String remains owned by its presence bit (also exercised under Miri).
     assert!(catch_unwind(AssertUnwindSafe(|| w.save())).is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| {
         let mut rows = w.query::<&mut Owned>().into_iter();

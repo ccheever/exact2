@@ -231,7 +231,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 clean(&arm.name),
                 write_body(b, &refs)
             );
-            let defaults = vec!["::core::default::Default::default()".to_owned(); b.fields.len()];
+            let defaults = vec!["::exact_world::data::field_default()".to_owned(); b.fields.len()];
             let wildcards = vec!["_".to_owned(); b.fields.len()];
             let bind = if arms.len() == 1 {
                 format!("let {pat} = self; (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?;", read_body(b, &refs))
@@ -333,7 +333,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
                 f.ty
             );
         }
-        s += &format!("{a} = ::core::default::Default::default();");
+        s += &format!("{a} = ::exact_world::data::field_default();");
     }
     s += if named {
         "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field {"

@@ -82,7 +82,8 @@ This example is compiled as a doctest. Run it with
 Data fields traverse in declaration order. Storage traverses in type-name order;
 queries return ascending entity slots. Hashing and binary encoding canonicalize
 NaNs and preserve signed zero. Semantic Data has no interior mutability. Manual
-implementations must obey the visitor and allocation contracts below.
+implementations must obey the visitor and admission contracts below. Explicit
+`hash()` always walks current Data; it no longer caches by the mutation epoch.
 
 `Entity` contains a slot and generation. Reusing the lowest free slot does not
 revive an old handle. `entity_at(index: usize) -> Option<Entity>` checks the slot
@@ -90,7 +91,8 @@ and returns its current live incarnation; dead and out-of-range indices return
 `None`. Names select the lowest live matching slot. `resolve` accepts a name,
 `#12`, or `name#12`; explicit index selectors take precedence over names.
 
-Registration is explicit and fallible. `register::<C>()` and
+Registration is explicit and fallible. A short-name collision refuses and names
+both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
 including recursive registration. `Game::register` receives borrowed setup/restart
 arguments, without formatting them. Insertion never registers types implicitly.
@@ -104,8 +106,8 @@ replacement, component revision/membership and page generations support external
 caches. Mutable access conservatively invalidates revisions even without assignment.
 
 A panicking structural mutation poisons its world; discard it. A tick failing
-once gameplay has started poisons its driver, so retry cannot execute partial
-logic again. Input admission happens before the boundary changes. Earlier
+once gameplay has started poisons its driver and World, so neither continuation
+boundary can save partial logic. A healthy Sim checkpoint can recover it. Input admission happens before the boundary changes. Earlier
 successful ticks remain committed if a later tick in the request is refused.
 
 ### Ordinary ticks and explicit observation
@@ -136,15 +138,20 @@ publication value does not replace it or invalidate the world.
 
 `sample() -> Result<Sample, DataError>` explicitly reports the observation hash,
 hashed bytes and visited components. It admits at most 32 MiB of hashed Data and
-1,000,000 slot/type probes, refusing during traversal. This costs O(slots × storage
-types + admitted Data), even for mostly empty worlds. Built-in visitors stop at
-refusal; manual writers must honor `stopped()`. Ordinary ticks never sample.
+1,000,000 live-column/slot probes, refusing during traversal. This costs O(slots × storage
+nonempty types + admitted Data), even for mostly empty worlds. Built-in visitors stop at
+refusal; manual writers must honor `stopped()`. Empty retained columns do not consume probes or take part in traversal. Ordinary
+ticks never sample. `report(&mut dyn Writer) -> Result<(), DataError>` exposes
+observation, up to eight busy reasons and eight named Work entries, plus truncation;
+it visits at most 64 admitted entries, each with at most 256 bytes of text.
 
 `visit(Option<Entity>, &mut dyn Writer)` traverses erased components (`Some`)
 or resources (`None`) by saved type name. `candidate()` makes an isolated exact
 copy. `Candidate::edit(entity, name, bytes)` applies canonical field patches only
 to that copy; a failed edit poisons it. `commit(self, &mut World)` validates
-ownership and health before adoption. Save/decode budgets apply to candidate
+ownership and health before adoption. Publications, their pending flag, messages,
+and saved game history survive an untouched commit; session/structural replacement
+effects follow the ordinary adoption contract. Save/decode budgets apply to candidate
 creation; each edit admits at most 256 MiB of bytes and decoded allocation.
 `resource_revision::<R>() -> Option<u64>` is local to R; compare revisions only
 within one `replacement()` generation.
@@ -154,19 +161,29 @@ records and named objects), preserving the existing saved tags. `publications()`
 borrows the map; `take_published()` returns an owned map only when pending.
 Contract conversion and `publish_record(world, &data)` now live in
 `game/world-adapter/src/publication.rs`, compiled only in the game workspace.
-`exact-plan` remains solely for Args decoding/encoding and its Value re-export.
-Dropping it requires moving those Args conversion methods and derive output to
-the adapter while retaining typed argument validation and setup comparisons.
+The kernel has no `exact-plan` dependency or Value re-export. The adapter exposes
+`args::decode_args::<A>(&[Value])`, `argument_values(&A)` and `from_values::<G>`;
+conversion uses Data, preserves omitted defaults and checks Contract numeric range.
+Publication map keys and journal keys share `Rc<str>` allocations. Owned delivery
+still returns String keys. `publish_batch(BTreeMap<String, Published>) -> Result`
+admits all keys, values and event cursors before changing anything; the adapter
+uses it for complete record updates. A single changed publication validates only
+its old/new values, using the retained aggregate cost; batches visit at most 512
+old/new entries within the shared 65,536-unit publication budget.
 
 ### Ownership and structural consumers
 
 Parent is an ownership edge, independent of spatial transforms. Only
-`set_parent` changes it. Parent insertion rejects stale handles and cycles.
+`set_parent` changes it. Parent insertion rejects stale handles and cycles. Each ancestry check admits
+at most 256 edges, returning an error past that work bound before mutation. This
+bounds natural chain construction; it is not a global maximum depth, since reverse
+construction can form deeper valid chains. Validation still walks each edge once.
 Despawn removes the entity immediately; descendants leave at the next reap in
 ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
 
-Only despawn can create an orphan, so valid spawns, Parent edits and unchanged
-ticks do not trigger an ownership scan. A necessary reap reuses one byte per slot
+A derived owner-count index makes an unrelated despawn O(log owners), without
+an ownership scan. Only removal of an entity with children arms reaping; valid
+spawns, Parent edits and unchanged ticks do not trigger it. A necessary reap reuses one byte per slot
 of scratch. Its three-color walk follows each edge at most twice through the
 Parent query: O(slots), plus removal work. Scratch
 is bounded to 200,000 bytes of initialized status entries; allocation capacity
@@ -207,6 +224,7 @@ changes neither format nor generic Data/hash tags. Empty columns are omitted.
 EXSIM includes caller time separately from simulation time. Other envelope
 versions are refused, without migration.
 
+`World::load/carry` on a Sim-owned world refuses; use the owning Sim.
 Exact restore reconstructs a candidate and requires canonical bytes to reproduce
 exactly before installation. `carry` deliberately permits field adaptation and
 returns whether canonical content changed; Sim carry also preserves current live
@@ -246,12 +264,16 @@ including skipped fields, must declare `default_size` or implement an admitted
 | Binary/world/simulation output | Generic 256 MiB; World and Sim 128 MiB |
 | Decoder allocation / string / nesting | Cumulative 256 MiB / 1 MiB / 256 |
 
-Binary output admission includes conservative native decoded-allocation estimates.
-The bytes/hashes are portable; the allocation-admission threshold can depend on
-native Rust layout. Ownership scratch has its separate entity bound. Requests
+Admission uses architecture-independent wire units, not `size_of`: scalar widths,
+24 units for text/container headers, 16 plus fields for derived records, and fixed
+metadata/chunk accounting. `Data::default_size()` declares those units, including
+allocating defaults; manual implementations must supply conservative fixed values.
+This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
+layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations
-(such as invalid publication/borrow use) which panic. Journal *capacity* no longer
-causes mutation refusal; exhausted numeric cursors and entity generations still do.
+(such as invalid publication/borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
+live generation `u32::MAX` refuse decode; `log` returns an error before dropping
+retained events. A dead exhausted slot cannot be spawned again.
 
 ### Clock, arguments and scalar helpers
 
@@ -259,20 +281,25 @@ causes mutation refusal; exhausted numeric cursors and entity generations still 
 rounds separately to the nearest microsecond, with half-microseconds rounded up.
 Sub-microsecond deltas are not accumulated before rounding. `alpha_inputs()` still
 returns `(tick, numerator, 1_000_000)`; typed clock/phase result types are deferred.
+Both paused and playing input use half-open timestamp boundaries. Clock rebasing
+and settle range-check in widened arithmetic before mutation, in debug and release.
 Pause advances caller time and reconciles held input without simulation ticks or
 retained resume edges. `reconcile_input(clock_ms, held)` atomically replaces held
 state, clears edges/queued input and rebases caller time without a tick.
 
 Args fields default to Setup. `#[live]` changes subsequent ticks; either boolean
 `#[restart]` edge reconstructs the world. Registration sees only setup/restart
-fields. Derive supports typed portable scalars; nonfinite values and integers
-outside the Contract safe range refuse before mutation. Input exposes key, held,
+fields. Derive supports typed portable scalars; nonfinite values and oversized text refuse
+before mutation. Full-width integers remain typed core values; Contract safe-range
+checks belong to the adapter. Input exposes key, held,
 pressed, released and scalar axis state. Axis declarations still require a key
 pair; a dedicated analog-only declaration is deferred. `stick_axis` uses the
 60-point contact-offset rule; contact ownership belongs to a module.
 
 `Spring` and `Tween` are saved scalar motion over exact-motion. Tween uses its
-cubic easing; Spring state is private and rejects nonfinite scalar input. Scalar
+cubic easing; Spring state is private and rejects nonfinite scalar input. Tween, Spring and
+SpringConfig writers refuse invalid values using `Writer::reject`; successful
+built-in saves survive their corresponding reader. Scalar
 math re-exports libm's f32 functions directly. Angles are radians; `round` rounds
 halfway away from zero. `lerp` permits extrapolation, `smoothstep` clamps between
 distinct increasing edges, and `wrap_angle` returns [-pi, pi). `ease` uses a
@@ -305,19 +332,19 @@ removing event delivery fails the test. The old clone path fails the zero-alloca
 assertion with 68,751 allocations. New input-state capacity and event creation are
 not claimed to be allocation-free.
 
-| Fixture | Before K1c | After K1c |
+| Fixture | K1c | K1d |
 |---|---:|---:|
 | Empty World | 1 / 24 | **1 / 24** |
-| 100-entity construction | 21 / 42,400 | **21 / 41,968** |
-| First tick, including first publication | 3 / 640 | **3 / 640** |
+| 100-entity construction | 21 / 41,968 | **21 / 41,880** |
+| First tick, including first publication | 3 / 640 | **2 / 568** |
 | 1,000 ticks with sparse edits among 200,000 entities | 0 / 0 | **0 / 0**, zero component visitor calls |
-| 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 68,751 / 2,987,524 | **0 / 0** |
-| 1,000 ticks changing a publication every tick | 1,003 / 204,704 | **1,003 / 204,704** |
-| Exact 10,240-byte restore | 80 / 47,297 | **80 / 46,873** |
-| First component at slot 199,999 | 4 / 3,064 | **4 / 77,536** |
+| 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 0 / 0 | **0 / 0** |
+| 1,000 ticks changing a publication every tick | 1,003 / 204,704 | **3 / 200,704** |
+| Exact 10,240-byte restore | 80 / 46,764 | **80 / 46,764** |
+| First component at slot 199,999 | 4 / 77,536 | **4 / 77,536** |
+| 1,000 empty-column remove/reinsert cycles at slot 199,999 | 2,000 / 77,048,000 | **0 / 0** |
 
-The 1,000-publication case pays for 1,000 saved event-key strings and three journal
-capacity growths. This is game-produced output, not hidden component observation.
+The 1,000-publication case now pays only for three journal capacity growths. This is game-produced output, not hidden component observation.
 The 200,000-entity counter test subsequently performs three settle ticks and
 counts exactly 800,000 component writes: four boundaries, including the initial
 sample. That positive control catches an observer that simply returns nothing.
@@ -326,7 +353,7 @@ unvisited; reverse chains, parent-slot recycling and later reuse exercise the
 unfavorable case. Spawning into a valid hierarchy also performs no ownership walk.
 
 Relative to lane 1 (1,038 / 106,671), restore allocation calls remain **13×** lower
-and requested bytes **2.28×** lower. K1c preserves the 80 allocation calls.
+and requested bytes **2.28×** lower. K1d preserves the 80 allocation calls.
 The histogram printed by the test locates the remaining requests: canonical
 re-encoding buffer growth requests 26,611 bytes; the Blob owns 6,176 bytes; the
 65-event journal backing requests 3,640; the component page 2,048; and the slot
@@ -371,8 +398,10 @@ ratios are 1.081× dense and 1.065× sparse. Both query targets pass; runs impro
 
 Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
 for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes
-at capacity on this 64-bit machine). Empty columns allocate neither; removing
-the last value releases both. Only metadata is zeroed. Each 64-value chunk is
+at capacity on this 64-bit machine). New empty columns allocate neither. Once
+allocated, metadata and value chunks retain their bounded high-water backing until
+World destruction/replacement. Removal clears presence and drops the value without
+a directory scan; public page iteration and save accounting skip empty chunks. Only metadata is zeroed. Each 64-value chunk is
 allocated uninitialized and owns exactly the slots whose presence bits are set.
 Chunks keep separate write generations; typed runs skip holes with bit operations.
 
@@ -384,7 +413,7 @@ The bounds remain 200,000 slots, eight terms and four filters; excess world/quer
 admission refuses. Query work is O(slots/64 × terms + returned rows); runs cost
 O(directory chunks + present runs + values actually consumed).
 
-Counted construction is **21 / 41,968**, restore **80 / 46,873**, and first
+Counted construction is **21 / 41,880**, restore **80 / 46,764**, and first
 component at slot 199,999 is **4 / 77,536**. The last byte count rises deliberately
 with flat metadata; it still allocates only one value chunk. Empty World, first
 tick, publication ticks and 1,000 sparse-edit ticks retain their prior counts.
@@ -410,21 +439,36 @@ insertion histories across engines. It normalizes only the EXGAME header version
 the old engine's unpopulated column history is compared with new-kernel
 create/remove history. The separate 200k churn test checks history independence.
 
-World validation finishes with **102 passing tests**, including the two explicitly
-run large controls and the lifecycle doctest; the derive test also checks 19
-compile-refusal cases. World/game clippy and formatting pass, the kernel builds
-for wasm32-unknown-unknown, and caps/boot pass. Root build/test/clippy stop at
-missing lean Hermes bakes. Authored game workspaces have 48 passes, three GPU
-failures and one ignored test.
+K1d validation and environment results are recorded below after the final runs.
+The box has no GPU adapter, Chrome or Apple SDK. Rendering, GPU residency and
+Apple execution cannot be certified here; F2 core admission remains outstanding.
 
-This box has no GPU adapter, Chrome or Apple SDK. The game workspace has 737
-passing tests, 18 GPU-adapter failures and 25 ignored tests (including the optional
-throughput test, which was separately run). Bun has 146 passes, one skip and three
-browser-dependent failures. Seven consumer Linux proofs pass. Both Lanterns
-proofs have zero assertion failures but remain unverified because their pins are
-empty. The cubes proof chooses Chrome even with a `linux` argument; its browser
-launch fails, and its exit waiter required termination of the recorded owned
-runner. None of this certifies rendering, GPU residency or Apple execution.
+### Unsafe boundary verification
+
+Nightly `1.100.0-nightly (feaadeeac 2026-09-19)` with Miri installed successfully.
+The final storage command passed seven tests; query/page commands passed thirteen.
+No undefined behavior was detected. This includes aligned ZST retained rows,
+lease unwind, padded/owned moves, slot reuse, rejecting readers and panicking drops.
+The 200k directory stress stays native; Miri's churn/overalignment sizes are reduced
+while still crossing chunks. The equal-address ZST allegation was not reproduced.
+
+```sh
+cargo +nightly miri test -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
+cargo +nightly miri test -p exact-world --test pages --test ecs -- --test-threads=1 --skip resource_and_non_state_outputs
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test continuation
+```
+
+The raw query `Fetch` trait and reference constructors are crate-private. External
+compile probes refuse both direct construction and a generic attempt to mint a
+`'static` row. Unsafe code remains confined to `world/src/storage/`.
+
+Derives require `Default` on every field, including skipped fields, even when the
+outer type supplies its own manual Default. Tuple/container replacement and enum
+switching construct field defaults. The compile harness checks a skipped
+`NoDefault` field and requires the compiler's Default diagnostic. Field-spanned
+macro parser diagnostics remain deferred; this lane does not introduce a second
+parser or weaken the bounds.
 
 ## Public surface and remaining work
 
@@ -466,17 +510,15 @@ and EXSIM v9 bytes plus World hashes after reversed insertion, recycled slots,
 resource changes, ownership, publications, pending assets and queued input. The
 separate cross-engine test still proves common grammar/hash parity.
 
-Production Rust is **6,500 lines**, excluding tests and cfg(test) modules. The
-count includes comments and blank lines; no production code was moved to another
-root crate. Shared slot-addressing and allocation-growth implementations replace
-duplicated code; preflighted spawn/despawn identities are reused at commit.
-README is outside that ceiling. Reproduce the count with:
+The ceiling is **7,500 lines for all handwritten kernel material**: production
+Rust in world/ and world/derive, README and both manifests. Tests alone are excluded;
+comments and blank lines count. Reproduce the honest total with:
 
 ```sh
 python3 - <<'PYCOUNT'
 import re
 from pathlib import Path
-total = 0
+rust = 0
 for path in sorted(Path('world').rglob('*.rs')):
     if 'tests' in path.parts:
         continue
@@ -485,7 +527,11 @@ for path in sorted(Path('world').rglob('*.rs')):
         continue
     source = re.sub(r'^#\[cfg\(test\)\]\nmod \w+ \{.*?^\}', '', source,
                     flags=re.M | re.S)
-    total += len(source.splitlines())
-print('PRODUCTION RUST', total)
+    rust += len(source.splitlines())
+readme = len(Path('world/README.md').read_text().splitlines())
+manifests = sum(len(p.read_text().splitlines()) for p in
+                [Path('world/Cargo.toml'), Path('world/derive/Cargo.toml')])
+print('Rust', rust, 'README', readme, 'manifests', manifests,
+      'ALL HANDWRITTEN', rust + readme + manifests)
 PYCOUNT
 ```
