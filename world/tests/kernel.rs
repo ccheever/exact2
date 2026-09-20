@@ -147,7 +147,7 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
     let mut s = Sim::<Still>::new(()).unwrap();
     let w = s.world_mut();
     let consumer = w.subscribe_changes().unwrap();
-    let start = w.change_cursor();
+    let start = w.changes(&consumer).unwrap().next;
     let a = w.spawn(Count(1)).unwrap();
     let owner = w.spawn(()).unwrap();
     w.insert(a, Count(2)).unwrap();
@@ -156,7 +156,7 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
     let b = w.spawn(Count(3)).unwrap();
     assert_eq!(a.index(), b.index());
     assert_ne!(a.generation(), b.generation());
-    let cursor = w.change_cursor();
+    let cursor = w.changes(&consumer).unwrap().next;
     s.run(1000.).unwrap();
     let retained: Vec<_> = s
         .world()
@@ -197,7 +197,7 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
             .kind,
         ChangeKind::Reset
     );
-    let cursor = s.world().change_cursor();
+    let cursor = s.world().changes(&consumer).unwrap().next;
     s.world_mut()
         .acknowledge_changes(&consumer, cursor)
         .unwrap();
@@ -436,7 +436,7 @@ fn bounded_inspection_refuses_large_values_and_reading_is_passive() {
     let e = w.spawn(Count(4)).unwrap();
     let before = w.save().unwrap();
     assert!(w.state(e).unwrap().contains('4'));
-    assert_eq!(w.tree().0.len(), 1);
+    assert_eq!(w.entities().take(512).count(), 1);
     assert!(!w.logs(LogCursor::default()).unwrap().entries.is_empty());
     assert_eq!(w.save().unwrap(), before);
     assert!(json::to_string(&"x".repeat(json::LIMIT + 1)).is_err());
@@ -781,7 +781,7 @@ fn lagging_consumer_cannot_refuse_orphan_reaping() {
     let mut s = Sim::<G>::new(()).unwrap();
     let consumer = s.world_mut().subscribe_changes().unwrap();
     let parent = s.world().named("parent").unwrap();
-    while s.world().change_cursor() < 5000 {
+    while s.world().changes(&consumer).unwrap().next < 5000 {
         s.world_mut().insert(parent, Count(0)).unwrap();
     }
     assert_eq!(s.run(17.).unwrap(), 1);

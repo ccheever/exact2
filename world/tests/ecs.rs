@@ -181,15 +181,15 @@ fn resource_and_non_state_outputs() {
     let before = w.hash();
     w.log("an event").unwrap();
     w.publish("score", Value::Number(4.0));
-    let n = w.journal(0).len();
+    let n = w.journal_next();
     w.publish("score", Value::Number(4.0));
-    assert_eq!(w.journal(0).len(), n);
+    assert_eq!(w.journal_next(), n);
     assert_eq!(before, w.hash());
     assert_eq!(w.published("score"), Some(Value::Number(4.0)));
     for i in 0..5000 {
         w.log(&i.to_string()).unwrap();
     }
-    assert_eq!(w.journal(0).len(), 512);
+    assert!(w.logs(exact_world::LogCursor::default()).unwrap().truncated);
     assert_eq!(w.hz(), 120);
     assert_eq!(w.tick(), 0);
     assert_eq!(w.tick() as f64 / w.hz() as f64, 0.0);
@@ -205,7 +205,14 @@ fn hierarchy_despawn_and_live_generations() {
     let leaf = w.spawn(()).unwrap();
     w.set_parent(leaf, Some(child)).unwrap();
     w.set_parent(child, Some(root)).unwrap();
-    assert_eq!(w.children(root), [child]);
+    assert_eq!(
+        w.query::<&exact_world::Parent>()
+            .iter()
+            .filter(|(_, p)| p.entity() == root)
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>(),
+        [child]
+    );
     assert!(w.despawn(root));
     assert!(w.contains(leaf));
     w.reap_orphans().unwrap();

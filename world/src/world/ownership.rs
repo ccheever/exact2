@@ -156,14 +156,14 @@ mod budget_tests {
         w.state.slots[last.index() as usize].generation = u32::MAX;
         let last = w.entity_at(last.index() as usize);
         w.despawn(parent);
-        let cursor = w.change_cursor();
+        let cursor = w.journal_next();
         let result = catch_unwind(AssertUnwindSafe(|| w.reap_orphans()));
         assert!(
             w.contains(first),
             "earlier orphan was removed before refusal"
         );
         assert!(w.contains(last));
-        assert_eq!(w.change_cursor(), cursor);
+        assert_eq!(w.journal_next(), cursor);
         assert!(result.unwrap().unwrap_err().message.contains("generation"));
     }
     #[test]

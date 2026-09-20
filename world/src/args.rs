@@ -1,28 +1,17 @@
 use crate::Value;
 
-/// Whether changing a bound field constructs a new world.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArgumentKind {
-    /// Construct a new world when this value changes.
     Setup,
-    /// A boolean edge: either transition reconstructs through the setup path.
     Restart,
-    /// Pass the new value to subsequent ticks.
     Live,
 }
-/// Typed canvas arguments. Derive this on a named struct; field order is wire order.
-///
 pub trait Args: crate::Data {
     fn argument(&self, name: &str) -> Option<ArgumentRef<'_>>;
-    /// Ordered field names and their binding behavior.
     const FIELDS: &'static [(&'static str, ArgumentKind)];
-    /// Decode all values before any world or clock mutation.
     fn decode(values: &[Value]) -> Result<Self, String>;
-    /// Refuse nonfinite floats and integers outside the portable wire range.
     fn check_scalars(&self) -> Result<(), String>;
-    /// Canonical wire values encoded from the decoded fields.
     fn values(&self) -> Vec<Value>;
-    /// Whether any setup field differs.
     fn setup_changed(&self, next: &Self) -> bool;
 }
 impl Args for () {
@@ -44,7 +33,6 @@ impl Args for () {
         false
     }
 }
-/// Support for the Args derive; not a string lookup API.
 #[doc(hidden)]
 pub fn arity(values: &[Value], fields: &[(&str, ArgumentKind)]) -> Result<(), String> {
     let count = fields.len();
@@ -62,13 +50,11 @@ pub fn arity(values: &[Value], fields: &[(&str, ArgumentKind)]) -> Result<(), St
         Ok(())
     }
 }
-/// Supported scalar argument types, used by the derive.
 #[doc(hidden)]
 pub trait Argument: Sized {
     const EXPECTED: &'static str;
     fn value(value: &Value) -> Option<Self>;
 }
-/// Decode one positional field with an author-facing refusal.
 #[doc(hidden)]
 pub fn field<T: Argument>(values: &[Value], index: usize, name: &str) -> Result<T, String> {
     values.get(index).and_then(T::value).ok_or_else(|| {
@@ -143,7 +129,6 @@ impl Argument for f32 {
     }
 }
 
-/// A borrowed scalar argument; declaration and restore never format it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ArgumentRef<'a> {
     Bool(bool),
@@ -152,7 +137,6 @@ pub enum ArgumentRef<'a> {
     Float(f64),
     Text(&'a str),
 }
-/// Only setup/restart fields are visible to registration.
 pub struct SetupArgs<'a, A: Args>(pub(crate) &'a A);
 impl<A: Args> SetupArgs<'_, A> {
     pub fn get(&self, name: &str) -> Option<ArgumentRef<'_>> {

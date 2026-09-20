@@ -1,19 +1,13 @@
 use crate::{Data, DataError, Now, Reader, Writer};
 
-/// A finite, seekable scalar smoothstep, anchored in simulation ticks.
 #[derive(Clone, Debug, Default)]
 pub struct Tween {
-    /// Value at the last retarget.
     pub start_value: f32,
-    /// Desired final value.
     pub target: f32,
-    /// Tick of the last retarget.
     pub start_tick: u64,
-    /// Duration in seconds, independent of tick rate.
     pub duration: f32,
 }
 impl Tween {
-    /// A motionless tween at a value.
     pub fn new(value: f32) -> Self {
         assert!(value.is_finite());
         Self {
@@ -22,7 +16,6 @@ impl Tween {
             ..Self::default()
         }
     }
-    /// Retarget continuously at now, reaching target after duration seconds.
     pub fn to(&mut self, now: Now, target: f32, duration: f32) {
         assert!(target.is_finite() && duration.is_finite() && duration >= 0.0);
         assert!(now.tick >= self.start_tick);
@@ -35,7 +28,6 @@ impl Tween {
         self.start_tick
             .saturating_add((self.duration as f64 * now.hz as f64).ceil() as u64)
     }
-    /// Sample without mutating the anchor, arriving exactly at the deadline.
     pub fn value(&self, now: Now) -> f32 {
         assert!(now.hz > 0);
         if now.tick >= self.deadline(now) || self.duration == 0.0 {
@@ -43,7 +35,6 @@ impl Tween {
         }
         self.sample(now.tick.saturating_sub(self.start_tick) as f64 / now.hz as f64)
     }
-    /// Sample presentation time in seconds, including the frame's sub-tick phase.
     pub fn value_at(&self, seconds: f64, hz: u32) -> f32 {
         assert!(hz > 0 && seconds.is_finite());
         self.sample((seconds - self.start_tick as f64 / hz as f64).max(0.))

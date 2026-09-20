@@ -191,3 +191,16 @@ A page admits at most 512 records and 65,536 escaped output bytes before visitin
 records; smaller pages accommodate long messages. Saved game event indices and
 EXSIM bytes do not change. Session-only output progresses across any number of
 pages up to the retained 4,096 entries; overflow and restore are explicit.
+
+The merged cursor replaces `journal(since)`; structural consumers read `batch.next` instead of the removed global `change_cursor()`. The `tree` and `children` collection
+wrappers are removed: bounded adapters use `entities().take(512)` and query Parent
+explicitly. These avoid a second log-reading protocol and convenience collectors
+that duplicate the existing iterator APIs. Public argument/math/motion descriptions
+are consolidated in this included README; arithmetic and binding behavior are unchanged.
+
+The tested item-8 prototype is deferred: its 125 added production lines do not fit
+the 6,500 ceiling. It provides erased component/resource visitors, isolated candidate
+patching and commit validation, and bounded observation reports. The local patch
+and its public-API-only fixture are in `~/lanes/gamenext/scratch/K1b-2/external-seams.patch`.
+Moving the 125-line Contract record publication adapter (`RecordWriter` and
+`publish_record`) to a future adapter crate would fund it; this run preserves that API.

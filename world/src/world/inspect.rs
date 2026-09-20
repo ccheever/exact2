@@ -18,7 +18,6 @@ pub enum Readiness {
     Pending(Vec<String>),
     Failed(Vec<String>),
 }
-pub type TreeRow<'a> = (Entity, Option<&'a str>, Option<Entity>);
 impl World {
     pub fn mutation_epoch(&self) -> u64 {
         self.epoch.get()
@@ -193,15 +192,6 @@ impl World {
         }
         w.end_struct();
         w.finish()
-    }
-    /// Entity ordered ownership tree rows, capped at 512, with an explicit omitted count.
-    pub fn tree(&self) -> (Vec<TreeRow<'_>>, usize) {
-        let rows = self
-            .entities()
-            .take(512)
-            .map(|e| (e, self.name(e), self.get::<Parent>(e).map(|p| p.entity())))
-            .collect();
-        (rows, self.len().saturating_sub(512))
     }
     pub fn take_messages(&self) -> Vec<String> {
         std::mem::take(&mut *self.messages.borrow_mut())

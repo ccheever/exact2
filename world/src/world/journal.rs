@@ -99,10 +99,6 @@ impl World {
             kind,
         });
     }
-    /// Next structural cursor. Reading never acknowledges events.
-    pub fn change_cursor(&self) -> u64 {
-        self.change_next
-    }
     pub fn subscribe_changes(&mut self) -> Result<ChangeConsumer, DataError> {
         self.prune_changes();
         if self.consumers.len() == 64 {
@@ -180,16 +176,6 @@ impl World {
         }
         self.event(EventKind::Message(message.into()));
         Ok(())
-    }
-    /// At most 512 structured records; formatting happens in the caller or logs().
-    pub fn journal(&self, since: u64) -> Vec<Event> {
-        self.journal
-            .borrow()
-            .iter()
-            .filter(|e| e.index >= since)
-            .take(512)
-            .cloned()
-            .collect()
     }
     pub fn logs(&self, mut cursor: LogCursor) -> Result<Logs, DataError> {
         let reset = cursor.replacement != self.replacement;

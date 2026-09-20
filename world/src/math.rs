@@ -6,16 +6,13 @@ pub use libm::{
     expf as exp, floorf as floor, logf as ln, powf, roundf as round, sinf as sin, sqrtf as sqrt,
     tanf as tan,
 };
-/// Linear interpolation, with t allowed outside [0, 1].
 pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
-/// Cubic interpolation between distinct increasing edges, clamped to [0, 1].
 pub fn smoothstep(lo: f32, hi: f32, x: f32) -> f32 {
     let t = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
-/// Wrap radians to [-pi, pi).
 pub fn wrap_angle(x: f32) -> f32 {
     let pi = std::f32::consts::PI;
     let tau = std::f32::consts::TAU;
@@ -45,8 +42,6 @@ fn approach(current: f32, target: f32, fraction: f32) -> f32 {
         next
     }
 }
-/// Exponential approach with time constant `lag` seconds. Zero lag arrives now;
-/// otherwise snaps when the remaining distance is at most 1e-4. Uses portable libm.
 pub fn ease(current: f32, target: f32, lag: f32, dt: f32) -> f32 {
     assert!(lag.is_finite() && lag >= 0.0 && dt.is_finite() && dt >= 0.0);
     if lag == 0.0 {

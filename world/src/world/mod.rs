@@ -568,18 +568,6 @@ impl World {
     pub fn entities_revision(&self) -> u64 {
         self.entities_revision
     }
-    /// Scan for direct children in entity order, for tools;
-    /// a tick that needs children keeps them in a component.
-    pub fn children(&self, e: Entity) -> Vec<Entity> {
-        if !self.contains(e) {
-            return vec![];
-        }
-        self.query::<&Parent>()
-            .iter()
-            .filter(|(_, p)| p.entity() == e)
-            .map(|(e, _)| e)
-            .collect()
-    }
     pub fn insert_resource<R: Resource>(&mut self, r: R) -> Result<(), DataError> {
         self.registered::<R>(R::NAME, true)?;
         self.mutation(|this| this.insert_resource_commit(r));
