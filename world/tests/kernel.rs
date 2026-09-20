@@ -951,3 +951,17 @@ fn merged_log_pages_admit_escaped_text_before_formatting() {
     }
     assert_eq!(entries, 600);
 }
+
+#[test]
+fn clock_deltas_round_individually_to_microseconds() {
+    let mut sim = Sim::<Still>::new(()).unwrap();
+    for _ in 0..1000 {
+        assert_eq!(sim.run(0.0004).unwrap(), 0);
+    }
+    assert_eq!(sim.alpha_inputs(), (0, 0, 1_000_000));
+    sim.run(0.0005).unwrap();
+    assert_eq!(sim.alpha_inputs(), (0, 60, 1_000_000));
+    assert!(sim.advance_to(0.0004).is_err());
+    sim.run(0.0005).unwrap();
+    assert_eq!(sim.alpha_inputs(), (0, 120, 1_000_000));
+}

@@ -196,7 +196,7 @@ pub struct World {
     change_next: u64,
     observed: Option<(u64, bool)>,
     ownership: RefCell<Vec<u8>>,
-    reaped: (u64, u64),
+    reap_dirty: bool,
     poisoned: bool,
 }
 const SINGLETON: Entity = Entity {
@@ -241,7 +241,7 @@ impl World {
             change_next: 0,
             observed: None,
             ownership: RefCell::new(Vec::new()),
-            reaped: (0, 0),
+            reap_dirty: false,
             poisoned: false,
         }
     }
@@ -411,6 +411,7 @@ impl World {
         self.mutation(|this| this.despawn_commit(e))
     }
     fn despawn_commit(&mut self, e: Entity) -> bool {
+        self.reap_dirty = true;
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
@@ -459,11 +460,12 @@ impl World {
                 generation: s.generation,
             })
     }
-    pub(crate) fn entity_at(&self, index: usize) -> Entity {
-        Entity {
+    pub fn entity_at(&self, index: usize) -> Option<Entity> {
+        let slot = self.state.slots.get(index)?;
+        slot.alive.then_some(Entity {
             index: index as u32,
-            generation: self.state.slots[index].generation,
-        }
+            generation: slot.generation,
+        })
     }
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.names.get(name)?.first().copied()
@@ -694,7 +696,7 @@ impl World {
                     if kind == "resources" {
                         SINGLETON
                     } else {
-                        self.entity_at(index)
+                        self.entity_at(index).unwrap()
                     }
                 });
             }

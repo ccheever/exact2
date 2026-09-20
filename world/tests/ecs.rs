@@ -468,3 +468,16 @@ fn names_do_not_shadow_index_selectors() {
     assert_eq!(w.named("fox#12"), Some(shadow));
     assert_eq!(w.resolve("wrong#12"), None);
 }
+
+#[test]
+fn checked_slot_lookup_refuses_dead_and_out_of_range_indices() {
+    let mut w = World::new(60, 0);
+    let old = w.spawn(()).unwrap();
+    assert_eq!(w.entity_at(old.index() as usize), Some(old));
+    assert!(w.entity_at(usize::MAX).is_none());
+    w.despawn(old);
+    assert!(w.entity_at(old.index() as usize).is_none());
+    let new = w.spawn(()).unwrap();
+    assert_eq!(w.entity_at(old.index() as usize), Some(new));
+    assert_ne!(new, old);
+}

@@ -394,7 +394,7 @@ impl<'w, Q: Query> QueryRows<'w, Q> {
         let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
         // Each returned guard splits the lease, so dropping this iterator is safe.
-        Some((self.query.world.entity_at(index), unsafe {
+        Some((self.query.world.entity_at(index).unwrap(), unsafe {
             Q::owned(&self.query.state, index)
         }))
     }
@@ -445,6 +445,6 @@ impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
         // SAFETY: mask intersection proves presence, each index is yielded only once,
         // and the exclusive borrow of QueryBorrow keeps leases alive for every row.
         let item = unsafe { self.query.state.fetch(index) };
-        Some((self.query.world.entity_at(index), item))
+        Some((self.query.world.entity_at(index).unwrap(), item))
     }
 }

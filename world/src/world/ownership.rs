@@ -46,7 +46,7 @@ impl World {
             return Err(DataError::new("ownership entity limit"));
         }
         let mut parents = self.query::<&Parent>();
-        let mut parent = |at| parents.get(self.entity_at(at)).map(|p| p.entity());
+        let mut parent = |at| parents.get(self.entity_at(at).unwrap()).map(|p| p.entity());
         let mut status = self.ownership.borrow_mut();
         status.resize(count, 0);
         status.fill(0);
@@ -97,8 +97,7 @@ impl World {
     }
     /// Despawn leaves descendants until this boundary. Reap in ascending slot order.
     pub fn reap_orphans(&mut self) -> Result<(), DataError> {
-        let key = (self.entities_revision(), self.revision::<Parent>());
-        if self.reaped == key || self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+        if !self.reap_dirty || self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
             return Ok(());
         }
         let mut status = self.ownership_status()?;
@@ -114,11 +113,11 @@ impl World {
         drop(status);
         for (index, &state) in states.iter().enumerate() {
             if state == 3 {
-                self.despawn(self.entity_at(index));
+                self.despawn(self.entity_at(index).unwrap());
             }
         }
         *self.ownership.get_mut() = states;
-        self.reaped = (self.entities_revision(), self.revision::<Parent>());
+        self.reap_dirty = false;
         Ok(())
     }
 }
@@ -133,11 +132,23 @@ mod budget_tests {
         let child = w.spawn(()).unwrap();
         w.set_parent(child, Some(root)).unwrap();
         w.reap_orphans().unwrap();
+        assert!(
+            w.ownership.borrow().is_empty(),
+            "valid Parent insertion needs no reap"
+        );
+        let transient = w.spawn(()).unwrap();
+        w.reap_orphans().unwrap();
+        assert!(
+            w.ownership.borrow().is_empty(),
+            "spawning cannot orphan an owner"
+        );
+        w.despawn(transient);
+        w.reap_orphans().unwrap();
         w.ownership.get_mut().fill(42);
         for _ in 0..1000 {
             w.reap_orphans().unwrap();
         }
-        assert_eq!(*w.ownership.borrow(), [42, 42]);
+        assert_eq!(*w.ownership.borrow(), [42, 42, 42]);
         w.despawn(root);
         w.reap_orphans().unwrap();
         assert!(!w.contains(child));
@@ -154,7 +165,7 @@ mod budget_tests {
         // A valid loaded generation can reach this boundary; no billions of
         // churn operations are necessary to exercise the unfavourable suffix.
         w.state.slots[last.index() as usize].generation = u32::MAX;
-        let last = w.entity_at(last.index() as usize);
+        let last = w.entity_at(last.index() as usize).unwrap();
         w.despawn(parent);
         let cursor = w.journal_next();
         let result = catch_unwind(AssertUnwindSafe(|| w.reap_orphans()));
