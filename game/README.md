@@ -662,8 +662,12 @@ tests use `game/bake/tests/support`’s `assets` helper with `Sim::with_assets` 
 records the production primitive feed for consumer tests without a GPU. The
 renderer fixture owns its frozen Fox model/texture; it depends on no game.
 
-The optional root `exact-world` kernel is still separate from `exact-game`.
-Its revised authoring API requires explicit fallible registration before spawn or
-insert; see [kernel API](../world/README.md). Its clock reconciliation and save
-versions do not change the game engine API or existing game pins. The cross-engine
-fixture compares common Data/hash content, including temporary-column churn.
+The optional root `exact-world` kernel remains separate from `exact-game` and
+uses explicit fallible registration/insertion. Ordinary ticks do not observe
+components. Structural consumers subscribe and acknowledge independent cursors;
+slow readers receive resync. Merged logs have an unsaved cursor, and binary
+writers borrow typed bulk slices. See the [contributor lifecycle, API contracts
+and counted measurements](../world/README.md). These kernel changes do not change
+the game engine API or existing game pins. The cross-engine fixture compares
+common Data/hash content, including temporary-column churn; both sides use the
+same reverse component insertion order.
