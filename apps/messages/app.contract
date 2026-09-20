@@ -1,7 +1,7 @@
 use Inbox from "./models.contract"
 use NewMessageSheet from "./new-message-sheet.contract"
 use ReactionBadges from "./message-parts.contract"
-use ContactNameField from "./contact-fields.contract"
+use NewContactSheet from "./new-contact-sheet.contract"
 use ContactDetails from "./contact-details.contract"
 
 // Messages: the router owns locations; UIKit owns the keyboard and scrolling.
@@ -818,75 +818,31 @@ component Messages
           )
 
         when e.name == "newContact"
-          column navigationKey=`${e.id}` navigationPresentation="modal" closedby="none" testId="new-contact-layer" position="absolute" top=0 left=0 right=0 bottom=0 background-color="light-dark(#f2f2f7, #000000)"
-            column testId="new-contact-sheet" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 bottom=0 overflow="hidden"
-              row height=70 flex-shrink=0 align-items="center" justify-content="center" retainFocus=true
-                text "New Contact" font-size=17 font-weight=600 margin-top=6
-                button popovertarget="discard-contact-confirmation" retainFocus=true testId="close-new-contact" aria-label="Close new contact" position="absolute" left=16 top=16 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
-                  image "symbol:close" font-size=22 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
-                button press=saveContact retainFocus=true testId="save-new-contact" aria-label="Done" position="absolute" right=16 top=16 width=44 height=44 border-radius=22 background-color="#0088ff" display="flex" align-items="center" justify-content="center"
-                  box width=20 height=22 clip-path="path('M 1 11 Q 0 10 1 9 Q 2 8 3 10 L 8 17 L 17 2 Q 18 0 20 2 L 10 21 Q 8 23 7 21 Z')" background-color="#7ae8ff"
-              scroll testId="contact-form-scroll" touch-action="pan-y" keyboardDismissMode="interactive" flex=1 min-height=0
-                column padding-left=20 padding-right=20 padding-bottom="calc(env(safe-area-inset-bottom) + 24px)" gap=16
-                  column align-items="center" margin-bottom=7.333333
-                    column testId="new-contact-avatar" width=175 height=175 border-radius=87.5 background-color="#92a8ce" align-items="center" justify-content="center"
-                      when chat.initials != ""
-                        text chat.initials font-size=72 font-weight=500 color="#ffffff"
-                      else
-                        box width=32 height=36 scale=3 clip-path=personPath background-color="#ffffff"
-                    button disabled=true aria-label="Add Photo" margin-top=12 width=127 height=48 border-radius=24 background-color="light-dark(#e3e3e9, #2c2c2e)" display="flex" align-items="center" justify-content="center"
-                      text "Add Photo" font-size=16 font-weight=600
-                  column border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
-                    ContactNameField(value=contactFirst, label="First name", fieldId="contact-first", write=writeContactFirst, separated=true)
-                    ContactNameField(value=contactLast, label="Last name", fieldId="contact-last", write=writeContactLast, separated=true)
-                    ContactNameField(value=contactCompany, label="Company", fieldId="contact-company", write=writeContactCompany, separated=false)
-                  column border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
-                    when contactPhoneShown
-                      row height=53 box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 gap=12 border-bottom-style="solid" border-bottom-width=0.333333 border-color="light-dark(#e5e5e5, #38383a)"
-                        button press=removeContactPhone testId="remove-contact-phone" aria-label="Remove phone" width=28 height=44 display="flex" align-items="center" justify-content="center" flex-shrink=0
-                          box width=25.666667 height=25.666667 border-radius=13 background-color="#ff3b30" display="flex" align-items="center" justify-content="center"
-                            box width=13 height=2 border-radius=1 background-color="#ffffff"
-                        button disabled=true aria-label="Phone label" width=92 height=44 display="flex" align-items="center" justify-content="space-between" flex-shrink=0
-                          text "phone" font-size=17
-                          image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
-                        input id="contact-phone" testId="contact-phone" aria-label="Phone" placeholder="Phone" inputmode="tel" value=contactPhone change=writeContactPhone font-size=17 height=22 flex=1 min-width=0 border-width=0
-                    button press=addContactPhone disabled=contactPhoneShown testId="add-contact-phone" aria-label="Add phone" height=51.333333 display="flex" align-items="center" padding-left=19.333333 padding-right=16 gap=14
-                      box width=25.666667 height=25.666667 border-radius=13 background-color="#34c759" display="flex" align-items="center" justify-content="center"
-                        image "symbol:add" font-size=18 tint-color="#ffffff"
-                      text "add phone" font-size=17
-                  column border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
-                    when contactEmailShown
-                      row height=53 box-sizing="border-box" align-items="center" padding-left=16 padding-right=16 gap=12 border-bottom-style="solid" border-bottom-width=0.333333 border-color="light-dark(#e5e5e5, #38383a)"
-                        button press=removeContactEmail testId="remove-contact-email" aria-label="Remove email" width=28 height=44 display="flex" align-items="center" justify-content="center" flex-shrink=0
-                          box width=25.666667 height=25.666667 border-radius=13 background-color="#ff3b30" display="flex" align-items="center" justify-content="center"
-                            box width=13 height=2 border-radius=1 background-color="#ffffff"
-                        text "home" font-size=17 width=92 flex-shrink=0
-                        input id="contact-email" testId="contact-email" aria-label="Email" placeholder="Email" type="email" value=contactEmail change=writeContactEmail font-size=17 height=22 flex=1 min-width=0 border-width=0
-                    button press=addContactEmail disabled=contactEmailShown testId="add-contact-email" aria-label="Add email" height=51.333333 display="flex" align-items="center" padding-left=19.333333 padding-right=16 gap=14
-                      box width=25.666667 height=25.666667 border-radius=13 background-color="#34c759" display="flex" align-items="center" justify-content="center"
-                        image "symbol:add" font-size=18 tint-color="#ffffff"
-                      text "add email" font-size=17
-                  button disabled=true aria-label="Add pronouns" height=51.333333 border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" display="flex" align-items="center" padding-left=19.333333 gap=14
-                    box width=25.666667 height=25.666667 border-radius=13 background-color="#34c759" display="flex" align-items="center" justify-content="center"
-                      image "symbol:add" font-size=18 tint-color="#ffffff"
-                    text "add pronouns" font-size=17
-                  button disabled=true aria-label="Ringtone" height=51.333333 border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" display="flex" align-items="center" padding-left=16 padding-right=16 gap=8
-                    text "Ringtone" font-size=17 flex=1
-                    text "Default" font-size=17 color="#8e8e93"
-                    image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
-                  button disabled=true aria-label="Text Tone" height=51.333333 border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)" display="flex" align-items="center" padding-left=16 padding-right=16 gap=8
-                    text "Text Tone" font-size=17 flex=1
-                    text "Default" font-size=17 color="#8e8e93"
-                    image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
-                  column min-height=106.333333 box-sizing="border-box" padding=16 border-radius=28 background-color="light-dark(#ffffff, #1c1c1e)"
-                    text "Notes" font-size=17
-                    textarea id="contact-notes" testId="contact-notes" aria-label="Notes" value=contactNotes change=writeContactNotes font-size=17 line-height="22px" field-sizing="content" min-height=44 border-width=0
-            column id="discard-contact-confirmation" popover="auto" role="alertdialog" aria-label="Discard new contact" position="absolute" width=240 box-sizing="border-box" padding=16 border-width=0 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" gap=12
-              text "Are you sure you want to discard this new contact?" font-size=13 color="#8e8e93" text-align="center"
-              button destructive=true press=discardContact id="back" testId="discard-new-contact" popovertarget="discard-contact-confirmation" popovertargetaction="hide" color="#ff3b30" height=48 border-radius=24 background-color="light-dark(#ffffff, #38383a)"
-                text "Discard Changes" font-size=17
-              button testId="keep-new-contact" popovertarget="discard-contact-confirmation" popovertargetaction="hide" color="light-dark(#007aff, #0a84ff)" height=44
-                text "Cancel" font-size=17
+          NewContactSheet(
+            routeKey=`${e.id}`,
+            initials=chat.initials,
+            personPath=personPath,
+            contactFirst=contactFirst,
+            contactLast=contactLast,
+            contactCompany=contactCompany,
+            contactPhone=contactPhone,
+            contactEmail=contactEmail,
+            contactNotes=contactNotes,
+            contactPhoneShown=contactPhoneShown,
+            contactEmailShown=contactEmailShown,
+            saveContact=saveContact,
+            discardContact=discardContact,
+            writeContactFirst=writeContactFirst,
+            writeContactLast=writeContactLast,
+            writeContactCompany=writeContactCompany,
+            writeContactPhone=writeContactPhone,
+            writeContactEmail=writeContactEmail,
+            writeContactNotes=writeContactNotes,
+            addContactPhone=addContactPhone,
+            removeContactPhone=removeContactPhone,
+            addContactEmail=addContactEmail,
+            removeContactEmail=removeContactEmail,
+          )
 
         when e.name == "compose"
           NewMessageSheet(
