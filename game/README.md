@@ -734,3 +734,9 @@ omits it. Binding takes the first fixed tick and publishes immediately. Agent `s
 propagate failures with `?`. `WorldSurface` reports a tick failure once through
 `take_error()`, retains `state.world.failed` and `error` for inspection, and refuses
 clock driving until restore. Failed ticks do not deliver partial publications.
+
+The device-free adapter's checkpoint is exactly `Sim::save()`; its existing
+`Surface::carry` / `restore` signatures are unchanged. The adapter reads
+`Sim::clock_ms()` instead of shadowing caller time. Old `EXSURF` envelopes refuse.
+Tally reads `World::children("hand")` in slot order; its saved `Round.deck` retains
+the shuffled draw order. See the [adapter contract](world-adapter/README.md).

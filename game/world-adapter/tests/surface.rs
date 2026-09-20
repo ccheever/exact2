@@ -241,3 +241,46 @@ fn oversized_returned_error_is_bounded_without_losing_failed_inspection() {
         .unwrap()
         .contains("truncated"));
 }
+
+#[test]
+fn checkpoint_is_sim_save_and_clock_is_canonical_after_fractional_settle_and_restore() {
+    let mut surface = WorldSurface::<tally::Tally>::default();
+    surface.bind(&[], Some(0.)).unwrap();
+    clock(&mut surface, 0.0006);
+    let save = surface.sim().unwrap().save().unwrap();
+    assert_eq!(surface.carry().unwrap().unwrap(), save);
+    // Tally's heartbeat never settles: the refusal must still retain the Sim's
+    // exact microsecond clock after all 3,600 admitted ticks.
+    let result = surface
+        .agent(r#"{"op":"clock","settle":true,"now":0.0006}"#)
+        .unwrap();
+    assert!(result.contains("settle tick budget exhausted"), "{result}");
+    let bytes = surface.carry().unwrap().unwrap();
+    let sim = Sim::<tally::Tally>::from_save(&bytes).unwrap();
+    assert_eq!(
+        bytes,
+        sim.save().unwrap(),
+        "no surface envelope or shadow clock"
+    );
+    let mut restored = WorldSurface::<tally::Tally>::default();
+    restored.bind(&[], Some(0.0006)).unwrap();
+    restored.restore(&bytes, Restore::Open).unwrap();
+    for target in [&mut surface, &mut restored] {
+        key(target, 1.0006, true);
+        key(target, 2.0006, false);
+        clock(target, 100.0006);
+    }
+    assert_eq!(surface.carry().unwrap(), restored.carry().unwrap());
+    assert_eq!(
+        surface
+            .sim()
+            .unwrap()
+            .world()
+            .resource::<tally::Round>()
+            .drawn,
+        1
+    );
+    let before = restored.carry().unwrap();
+    assert!(restored.restore(b"EXSURF\0\x01", Restore::Open).is_err());
+    assert_eq!(restored.carry().unwrap(), before);
+}

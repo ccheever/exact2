@@ -9,12 +9,10 @@ impl Request {
     }
 }
 
-const MAGIC: &[u8] = b"EXSURF\0\x01";
 const MAX_REQUEST: usize = 16_384;
 
 pub struct WorldSurface<G: Game> {
     sim: Option<Sim<G>>,
-    caller: f64,
     host: Option<f64>,
     seekable: bool,
     hidden: bool,
@@ -29,7 +27,6 @@ impl<G: Game> Default for WorldSurface<G> {
     fn default() -> Self {
         Self {
             sim: None,
-            caller: 0.,
             host: None,
             seekable: true,
             hidden: false,
@@ -105,7 +102,6 @@ impl<G: Game> WorldSurface<G> {
             self.record_failure();
         }
         result?;
-        self.caller += (ms * 1000.).round() / 1000.;
         Ok(())
     }
     fn advance(&mut self, now: f64) -> Result<(), DataError> {
@@ -123,7 +119,8 @@ impl<G: Game> WorldSurface<G> {
         Ok(())
     }
     fn stamp(&self, now: f64) -> f64 {
-        self.caller + self.host.map_or(0., |old| (now - old).max(0.))
+        self.sim.as_ref().map_or(0., Sim::clock_ms)
+            + self.host.map_or(0., |old| (now - old).max(0.))
     }
     fn ownership(&self, out: &mut dyn Writer) {
         out.begin_struct();
@@ -154,13 +151,10 @@ impl<G: Game> WorldSurface<G> {
             } else if q.get("reload").and_then(Value::as_bool) == Some(true) {
                 self.host = now;
             } else if q.get("settle").and_then(Value::as_bool) == Some(true) {
-                let before = self.sim_mut()?.world().tick();
                 let result = self.sim_mut()?.settle(3600);
                 if result.is_err() {
                     self.record_failure();
                 }
-                let after = self.sim_mut()?.world().tick();
-                self.caller += (after - before) as f64 * 1000. / G::HZ as f64;
                 result?;
                 self.host = now.or(self.host);
             } else if let Some(ticks) = number(&q, "ticks")? {
@@ -367,15 +361,11 @@ impl<G: Game> Surface for WorldSurface<G> {
             .then(std::time::Instant::now);
         let args = args::decode_args::<G::Args>(values).map_err(error)?;
         G::validate(&args).map_err(error)?;
-        if let Some(sim) = &self.sim {
-            let restart = sim.args().setup_changed(&args);
+        if self.sim.is_some() {
             if let Some(at) = at_ms {
                 self.advance(at).map_err(error)?;
             }
             self.sim_mut().map_err(error)?.bind(args).map_err(error)?;
-            if restart {
-                self.caller = 0.;
-            }
         } else {
             self.sim = Some(Sim::new(args).map_err(error)?.paranoid(paranoid()));
             self.host = at_ms;
@@ -400,30 +390,16 @@ impl<G: Game> Surface for WorldSurface<G> {
     fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
         self.sim
             .as_ref()
-            .map(|sim| {
-                let mut bytes = MAGIC.to_vec();
-                bytes.extend(self.caller.to_le_bytes());
-                bytes.extend(sim.save().map_err(error)?);
-                Ok(bytes)
-            })
+            .map(|sim| sim.save().map_err(error))
             .transpose()
     }
     fn restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
-        let payload = bytes
-            .strip_prefix(MAGIC)
-            .filter(|b| b.len() >= 8)
-            .ok_or("invalid surface checkpoint")?;
-        let caller = f64::from_le_bytes(payload[..8].try_into().unwrap());
-        if !caller.is_finite() || caller < 0. {
-            return Err("invalid saved caller clock".into());
-        }
         let sim = self.sim.as_mut().ok_or("world has not been bound")?;
         match mode {
-            Restore::Open => sim.restore(&payload[8..]),
-            Restore::Carry => sim.carry(&payload[8..]).map(|_| ()),
+            Restore::Open => sim.restore(bytes),
+            Restore::Carry => sim.carry(bytes).map(|_| ()),
         }
         .map_err(|e| e.to_string())?;
-        self.caller = caller;
         self.restored = true;
         self.publish = true;
         if !self.seekable {

@@ -61,20 +61,12 @@ impl Game for Tally {
                 };
                 w.set_parent(card, w.named("hand"))?;
             }
-            let total: u32 = hand(w).iter().sum();
+            let total: u32 = hand(w)?.iter().sum();
             if total > 21 {
                 w.resource_mut::<Round>().over = true;
             } else if input.pressed("hold") {
                 w.resource_mut::<Round>().score += total;
-                let cards: Vec<_> = w
-                    .query::<&Card>()
-                    .iter()
-                    .filter(|(e, _)| {
-                        w.get::<Parent>(*e)
-                            .is_some_and(|p| Some(p.entity()) == w.named("hand"))
-                    })
-                    .map(|(e, _)| e)
-                    .collect();
+                let cards: Vec<_> = w.children("hand").take(12).collect();
                 for e in cards {
                     w.set_parent(e, w.named("held"))?;
                 }
@@ -88,7 +80,7 @@ impl Game for Tally {
         w.publish(
             "hand",
             Published::List(
-                hand(w)
+                hand(w)?
                     .into_iter()
                     .map(|v| Published::Number(v as f64))
                     .collect(),
@@ -100,16 +92,22 @@ impl Game for Tally {
         Ok(())
     }
 }
-fn hand(w: &World) -> Vec<u32> {
-    w.query::<&Card>()
-        .iter()
-        .filter(|(e, _)| {
-            w.get::<Parent>(*e)
-                .is_some_and(|p| Some(p.entity()) == w.named("hand"))
-        })
-        .map(|(_, c)| c.value)
-        .collect()
+fn hand(w: &World) -> Result<Vec<u32>, DataError> {
+    // Hand presentation is slot-ordered; Round.deck alone defines draw order.
+    let mut values = Vec::new();
+    for e in w.children("hand").take(13) {
+        if values.len() == 12 {
+            return Err(DataError::new("Tally hand exceeds twelve cards"));
+        }
+        values.push(
+            w.get::<Card>(e)
+                .ok_or_else(|| DataError::new("Tally hand child is not a card"))?
+                .value,
+        );
+    }
+    Ok(values)
 }
+
 fn reset(w: &mut World) -> Result<(), DataError> {
     let mut deck = w.resource::<Round>().deck.clone();
     for i in (1..deck.len()).rev() {
@@ -124,4 +122,43 @@ fn reset(w: &mut World) -> Result<(), DataError> {
         ..Default::default()
     };
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn hand_uses_children_in_slot_order_after_interleaving_and_reparenting() {
+        let mut world = World::new(60, 7);
+        world.register::<Parent>().unwrap();
+        world.register::<Card>().unwrap();
+        world.register::<Owner>().unwrap();
+        world.spawn_named("hand", Owner).unwrap();
+        world.spawn_named("pile", Owner).unwrap();
+        let mut cards = Vec::new();
+        for value in 1..=12 {
+            // Unrelated cards interleave the actual hand in the same column.
+            for _ in 0..1000 {
+                world.spawn(Card { value: 999 }).unwrap();
+            }
+            cards.push(world.spawn(Card { value }).unwrap());
+        }
+        for &card in cards.iter().rev() {
+            world.set_parent(card, world.named("hand")).unwrap();
+        }
+        assert_eq!(hand(&world).unwrap(), (1..=12).collect::<Vec<_>>());
+        world.set_parent(cards[4], world.named("pile")).unwrap();
+        assert_eq!(
+            hand(&world).unwrap(),
+            vec![1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12]
+        );
+        world.set_parent(cards[4], world.named("hand")).unwrap();
+        assert_eq!(hand(&world).unwrap(), (1..=12).collect::<Vec<_>>());
+        let extra = world.spawn(Card { value: 13 }).unwrap();
+        world.set_parent(extra, world.named("hand")).unwrap();
+        assert!(hand(&world)
+            .unwrap_err()
+            .to_string()
+            .contains("twelve cards"));
+    }
 }

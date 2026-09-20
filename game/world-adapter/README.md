@@ -36,16 +36,18 @@ Entity listings return at most 512 rows and mark truncation. Inspection admits
 input queues admit 1,024 events. Kernel admission bounds apply independently.
 The owner admits 256 surfaces and refuses ID exhaustion. Game code must bound its
 own work: Tally has 15 entities, and each card traversal visits at most twelve
-cards. Its heartbeat deliberately exhausts the settle budget.
+cards (a thirteenth child explicitly refuses). Hand reads use the ownership index,
+not a scan of all cards. Its heartbeat deliberately exhausts the settle budget.
 
 ## Checkpoints
 
-The envelope is `EXSURF\0\x01` (eight bytes), caller milliseconds as an eight-byte
-little-endian finite, nonnegative `f64`, then the opaque Sim save. Versions and
-invalid clocks refuse. Caller time is carried because the kernel exposes no
-caller-clock getter; the host rebases time on open. Queued input stays in the Sim
-checkpoint. `Restore::Open` is exact; `Restore::Carry` uses Sim carry semantics.
-The opaque log cursor is retained per surface and is not saved continuation state.
+`carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError>` returns exactly
+`Sim::save()`; `restore(&mut self, &[u8], Restore) -> Result<(), String>` passes
+those bytes directly to the Sim. `Sim::clock_ms()` is the sole saved caller clock;
+the adapter keeps only the host epoch. There is no version wrapper or duplicated
+clock. Old surface envelopes refuse; queued input stays in the Sim checkpoint.
+`Restore::Open` is exact; `Restore::Carry` uses Sim carry semantics. The opaque
+log cursor is retained per surface and is not saved continuation state.
 
 ## Measure
 

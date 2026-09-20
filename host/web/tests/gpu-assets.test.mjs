@@ -24,7 +24,7 @@ test('a failed cosmetic never gets a first-frame stamp or repeated state seriali
   const gpu = {gpu_render:()=>0, gpu_agent:()=>{reads++; return JSON.stringify({world:{assets:[{name:'bad.model',state:'Failed'}]}})}};
   const render = new Function('gpu','hidden','exact','size','clockFor','messages','requestAnimationFrame',body+'return render;')(
     gpu, false, {}, ()=>({w:10,h:10,s:1}), x=>x, ()=>{}, ()=>{});
-  const entry = {id:1,el:{}};
+  const entry = {id:1,el:{},stateful:true};
   render(entry,0); render(entry,1); render(entry,2);
   expect(entry.firstFrameSubmittedMs).toBeUndefined();
   expect(reads).toBe(1);
