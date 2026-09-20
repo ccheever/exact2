@@ -499,3 +499,22 @@ fn insertion_reports_new_membership_and_replacement_separately() {
         assert!(w.insert(e, A(3)).unwrap());
     }
 }
+
+#[test]
+fn builtin_rng_name_cannot_be_registered_as_a_second_saved_resource() {
+    #[derive(Default, Resource)]
+    struct GameRng(Rng);
+    let mut w = World::new(60, 7);
+    let before = w.save().unwrap();
+    assert!(w.register_resource::<Rng>().is_err());
+    assert!(w.insert_resource(Rng::new(1)).is_err());
+    assert_eq!(w.save().unwrap(), before);
+    w.register_resource::<GameRng>().unwrap();
+    w.insert_resource(GameRng(Rng::new(13))).unwrap();
+    let saved = w.save().unwrap();
+    let expected = w.resource_mut::<GameRng>().0.next_u32();
+    let builtin = w.rng().next_u32();
+    w.load(&saved).unwrap();
+    assert_eq!(w.resource_mut::<GameRng>().0.next_u32(), expected);
+    assert_eq!(w.rng().next_u32(), builtin);
+}

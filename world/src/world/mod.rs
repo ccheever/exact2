@@ -294,6 +294,9 @@ impl World {
         Ok(self)
     }
     pub fn register_resource<R: Resource>(&mut self) -> Result<&mut Self, DataError> {
+        if R::NAME == "Rng" {
+            return Err(DataError::new("Rng is reserved for the built-in generator"));
+        }
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
         reg.resource_size = 64usize.saturating_add(R::default_size());
