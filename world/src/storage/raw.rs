@@ -11,6 +11,7 @@ use std::{
 
 struct Descriptor {
     layout: Layout,
+    wire_size: fn() -> usize,
     move_to: unsafe fn(*mut u8, *mut u8),
     swap: unsafe fn(*mut u8, *mut u8),
     drop_in_place: unsafe fn(*mut u8),
@@ -22,6 +23,7 @@ impl Descriptor {
     const fn of<C: Data>() -> Self {
         Self {
             layout: Layout::new::<C>(),
+            wire_size: C::default_size,
             // SAFETY: callers supply a live C with the matching layout and lease.
             move_to: |src, dst| unsafe { dst.cast::<C>().write(src.cast::<C>().read()) },
             swap: |a, b| unsafe {
@@ -249,7 +251,7 @@ impl RawStorage {
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);
         w.claim_decoded(
-            1024 + self.desc.layout.size()
+            1024 + (self.desc.wire_size)()
                 + self.pages.mask().len() * 72
                 + self
                     .pages
@@ -257,7 +259,7 @@ impl RawStorage {
                     .iter()
                     .filter(|p| !p.ptr.is_null())
                     .count()
-                    .saturating_mul(self.pages.layout.size()),
+                    .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
         );
         w.begin_seq(self.len);
         for index in self.indices(None) {
@@ -285,12 +287,12 @@ impl RawStorage {
             r.check_allocation(
                 count
                     .div_ceil(PAGE)
-                    .checked_mul(self.pages.layout.size())
+                    .checked_mul(PAGE.saturating_mul((self.desc.wire_size)()))
                     .ok_or_else(|| DataError::new("allocation size overflow"))?,
             )?;
         }
         let mut last = None;
-        r.claim(self.desc.layout.size())?;
+        r.claim((self.desc.wire_size)())?;
         let mut value = Value {
             bytes: Bytes::new(self.desc.layout),
             desc: self.desc,
@@ -313,7 +315,7 @@ impl RawStorage {
                     .get(page)
                     .is_none_or(|p| p.ptr.is_null())
                 {
-                    self.pages.layout.size()
+                    PAGE.saturating_mul((self.desc.wire_size)())
                 } else {
                     0
                 };

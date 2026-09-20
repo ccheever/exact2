@@ -4,6 +4,9 @@ use std::any::Any;
 use std::collections::BTreeMap;
 
 impl Data for bool {
+    fn default_size() -> usize {
+        1
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.boolean(*self);
     }
@@ -20,6 +23,7 @@ fn integral(n: f64) -> Option<i128> {
 }
 macro_rules! integer {
     ($kind:ident, $($ty:ty),+) => {$(impl Data for $ty {
+        fn default_size() -> usize { <$ty>::BITS as usize / 8 }
         fn write(&self, w: &mut dyn Writer) { w.number(Number::$kind((*self).into())); }
         fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
             *self = match r.number()? {
@@ -35,6 +39,9 @@ macro_rules! integer {
 integer!(Unsigned, u8, u16, u32, u64);
 integer!(Signed, i8, i16, i32, i64);
 impl Data for f32 {
+    fn default_size() -> usize {
+        4
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F32(*self));
     }
@@ -44,6 +51,9 @@ impl Data for f32 {
     }
 }
 impl Data for f64 {
+    fn default_size() -> usize {
+        8
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F64(*self));
     }
@@ -53,6 +63,9 @@ impl Data for f64 {
     }
 }
 impl Data for String {
+    fn default_size() -> usize {
+        24
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -62,6 +75,9 @@ impl Data for String {
     }
 }
 impl Data for std::borrow::Cow<'static, str> {
+    fn default_size() -> usize {
+        24
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -71,6 +87,9 @@ impl Data for std::borrow::Cow<'static, str> {
     }
 }
 impl<T: Data> Data for Vec<T> {
+    fn default_size() -> usize {
+        24
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.iter()
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
@@ -93,7 +112,7 @@ impl<T: Data> Data for Vec<T> {
         bulk!(f32, F32);
         w.claim_decoded(
             self.len()
-                .saturating_mul(std::mem::size_of::<T>())
+                .saturating_mul(T::default_size())
                 .saturating_mul(4),
         );
         write_slice(self, w);
@@ -140,6 +159,9 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
+    fn default_size() -> usize {
+        8usize.saturating_add(T::default_size())
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.as_ref().map_or(Some(now.tick), |v| v.settle_tick(now))
     }
@@ -176,7 +198,7 @@ where
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
-        r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?;
+        r.claim(Self::default_size())?;
         *self = Self::default();
         read_slice(self, r)
     }
@@ -210,10 +232,10 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
 }
 impl<T: Data> Data for Box<T> {
     fn default_size() -> usize {
-        std::mem::size_of::<Self>().saturating_add(T::default_size())
+        8usize.saturating_add(T::default_size())
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
-        r.claim(std::mem::size_of::<T>())?;
+        r.claim(T::default_size())?;
         Ok(Box::new(T::read_new(r)?))
     }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
@@ -228,6 +250,9 @@ impl<T: Data> Data for Box<T> {
     }
 }
 impl<T: Data> Data for BTreeMap<String, T> {
+    fn default_size() -> usize {
+        24
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.values()
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
@@ -235,7 +260,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
-            w.claim_decoded(64 + std::mem::size_of::<T>());
+            w.claim_decoded(64 + T::default_size());
             if w.stopped() {
                 break;
             }
@@ -248,7 +273,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
         r.begin_struct()?;
         self.clear();
         while let Some(k) = r.field()? {
-            r.claim(64 + k.len() + std::mem::size_of::<T>())?;
+            r.claim(64 + k.len() + T::default_size())?;
             let value = T::read_new(r).map_err(|e| e.at(k))?;
             self.insert(k.into(), value);
         }
@@ -258,14 +283,14 @@ impl<T: Data> Data for BTreeMap<String, T> {
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
-            fn default_size() -> usize { std::mem::size_of::<Self>() $(.saturating_add($T::default_size().saturating_sub(std::mem::size_of::<$T>())))* }
+            fn default_size() -> usize { 16usize $(.saturating_add($T::default_size()))* }
             fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {
                 w.claim_decoded(Self::default_size().saturating_mul(2));
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-                r.begin_seq()?; r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?; *self = Self::default(); let mut i = 0;
+                r.begin_seq()?; r.claim(Self::default_size())?; *self = Self::default(); let mut i = 0;
                 while r.item()? {
                     match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.unknown().map_err(|e| e.at(i))?, }
                     i += 1;
@@ -276,6 +301,9 @@ macro_rules! tuple {
     };
 }
 impl Data for () {
+    fn default_size() -> usize {
+        0
+    }
     fn write(&self, w: &mut dyn Writer) {
         w.unit();
     }

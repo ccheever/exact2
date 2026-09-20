@@ -24,14 +24,16 @@ mod text;
 /// Platform-sized integers and unordered maps intentionally have no implementation.
 ///
 pub trait Data: Sized + Default + 'static {
+    /// Architecture-independent admission units; manual implementations declare a
+    /// conservative bound for their default and must not use native layout sizes.
     /// Construction-oriented decode. Allocation-free defaults may use this
     /// fallback; allocating manual defaults must override and claim first.
     fn default_size() -> usize {
-        std::mem::size_of::<Self>()
+        64
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
         r.check_allocation(Self::default_size().max(1))?;
-        r.claim(Self::default_size().saturating_sub(std::mem::size_of::<Self>()))?;
+        r.claim(Self::default_size())?;
         let mut value = Self::default();
         value.read(r)?;
         Ok(value)

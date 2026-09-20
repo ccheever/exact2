@@ -98,7 +98,7 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let value = self.get();
-        w.claim_decoded(1024 + std::mem::size_of::<Self>());
+        w.claim_decoded(1088 + C::default_size());
         w.begin_seq(usize::from(value.is_some()));
         if let Some(value) = value {
             w.item();

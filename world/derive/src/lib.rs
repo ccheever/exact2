@@ -254,7 +254,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     let default_size = if kind == "struct" {
         default_size(&body(tokens.get(2))?)
     } else {
-        "::core::mem::size_of::<Self>()".into()
+        "64usize".into()
     };
     let mut out = format!("impl ::exact_world::Data for {name} {{ fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
@@ -266,9 +266,12 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     Ok(out)
 }
 fn default_size(b: &Body) -> String {
-    let mut size = "::core::mem::size_of::<Self>()".to_owned();
+    let mut size = "16usize".to_owned();
     for f in b.fields.iter().filter(|f| !f.skip) {
-        size += &format!(".saturating_add(<{} as ::exact_world::Data>::default_size().saturating_sub(::core::mem::size_of::<{}>()))", f.ty, f.ty);
+        size += &format!(
+            ".saturating_add(<{} as ::exact_world::Data>::default_size())",
+            f.ty
+        );
     }
     size
 }
@@ -325,7 +328,10 @@ fn read_body(b: &Body, access: &[String]) -> String {
         .filter(|(f, _)| f.skip || !named)
     {
         if !f.skip {
-            s += &format!("r.claim(<{} as ::exact_world::Data>::default_size().saturating_sub(::core::mem::size_of::<{}>()))?;", f.ty, f.ty);
+            s += &format!(
+                "r.claim(<{} as ::exact_world::Data>::default_size())?;",
+                f.ty
+            );
         }
         s += &format!("{a} = ::core::default::Default::default();");
     }

@@ -53,7 +53,7 @@ impl Directory {
         if index < self.len {
             0
         } else {
-            Self::shape(self.capacity_for(index)).0.size()
+            self.capacity_for(index) * 24
         }
     }
     pub(super) fn ensure(&mut self, index: usize) {

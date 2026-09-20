@@ -263,7 +263,7 @@ impl World {
     pub fn register_resource<R: Resource>(&mut self) -> Result<&mut Self, DataError> {
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
-        reg.resource_size = std::mem::size_of::<storage::Singleton<R>>();
+        reg.resource_size = 64 + R::default_size();
         reg.ambient = R::AMBIENT;
         Ok(self)
     }

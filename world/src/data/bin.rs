@@ -338,8 +338,7 @@ impl<'a> Decoder<'a> {
         let n = self.var()?;
         if n == 0 {
             let s = self.text()?;
-            self.budget
-                .claim(64 + std::mem::size_of::<(&str, usize)>())?;
+            self.budget.claim(96)?;
             self.budget.reserve(&mut self.names)?;
             self.names.push(s);
             Ok(s)

@@ -55,7 +55,7 @@ impl Budget {
         Ok(out)
     }
     pub fn reserve<T>(&mut self, v: &mut Vec<T>) -> Result<(), DataError> {
-        grow(v, 1, |bytes| self.claim(bytes))
+        grow(v, 1, 32, |bytes| self.claim(bytes))
     }
     pub fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         let remaining = self
@@ -72,16 +72,17 @@ impl Budget {
 pub(crate) fn allocation(_: std::collections::TryReserveError) -> DataError {
     DataError::new("cannot allocate decoded value")
 }
-pub(crate) fn reserve<T>(
+pub(crate) fn reserve<T: Data>(
     r: &mut dyn Reader,
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
-    grow(v, extra, |bytes| r.claim(bytes))
+    grow(v, extra, T::default_size(), |bytes| r.claim(bytes))
 }
 fn grow<T>(
     v: &mut Vec<T>,
     extra: usize,
+    unit: usize,
     mut claim: impl FnMut(usize) -> Result<(), DataError>,
 ) -> Result<(), DataError> {
     let need = v
@@ -92,7 +93,7 @@ fn grow<T>(
         let capacity = need.max(v.capacity().saturating_mul(2)).max(4);
         claim(
             (capacity - v.capacity())
-                .checked_mul(std::mem::size_of::<T>())
+                .checked_mul(unit)
                 .ok_or_else(|| DataError::new("allocation size overflow"))?,
         )?;
         v.try_reserve_exact(capacity - v.len())
