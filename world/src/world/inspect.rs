@@ -136,6 +136,7 @@ impl World {
             .unwrap_or(self.tick());
         self.components
             .values()
+            .filter(|s| s.len() != 0)
             .map(|s| (s, self.storage::<Ambient>()))
             .chain(
                 self.resources
@@ -161,17 +162,22 @@ impl World {
         let mut w = hash::Hasher::bounded(32 * 1024 * 1024);
         let mut components = 0;
         let mut probes = 0;
+        let columns: Vec<_> = self
+            .components
+            .iter()
+            .filter(|(_, s)| s.len() != 0)
+            .collect();
         for e in self.entities().filter(|e| !self.has::<Ambient>(*e)) {
             if w.stopped() {
                 break;
             }
-            probes += self.components.len() + 1;
+            probes += columns.len() + 1;
             if probes > 1_000_000 {
                 return Err(DataError::new("observation probe budget exhausted"));
             }
             e.write(&mut w);
             self.state.slots[e.index() as usize].name.write(&mut w);
-            for (name, s) in &self.components {
+            for (name, s) in &columns {
                 if s.has(e.index() as usize) {
                     w.key(name);
                     s.write_one(e.index() as usize, &mut w);

@@ -64,3 +64,51 @@ fn untouched_and_edited_candidates_preserve_complete_continuation() {
         assert_eq!(s.world().take_messages(), ["pending delivery"]);
     }
 }
+
+#[test]
+fn five_empty_columns_do_not_change_observation_of_200k_entities() {
+    #[derive(Default, Component)]
+    struct A;
+    #[derive(Default, Component)]
+    struct B;
+    #[derive(Default, Component)]
+    struct C;
+    #[derive(Default, Component)]
+    struct D;
+    #[derive(Default, Component)]
+    struct E;
+    let mut w = World::new(60, 0);
+    w.register::<A>()
+        .unwrap()
+        .register::<B>()
+        .unwrap()
+        .register::<C>()
+        .unwrap()
+        .register::<D>()
+        .unwrap()
+        .register::<E>()
+        .unwrap();
+    for _ in 0..MAX_ENTITIES {
+        w.spawn(()).unwrap();
+    }
+    let high = w.entity_at(MAX_ENTITIES - 1).unwrap();
+    let before = w.sample().unwrap();
+    w.insert(high, A).unwrap();
+    w.remove::<A>(high);
+    w.insert(high, B).unwrap();
+    w.remove::<B>(high);
+    w.insert(high, C).unwrap();
+    w.remove::<C>(high);
+    w.insert(high, D).unwrap();
+    w.remove::<D>(high);
+    w.insert(high, E).unwrap();
+    w.remove::<E>(high);
+    let after = w.sample().unwrap();
+    assert_eq!((after.hash, after.components), (before.hash, 0));
+    let bytes = w.save().unwrap();
+    w.load(&bytes).unwrap();
+    assert_eq!(w.sample().unwrap().hash, before.hash);
+    w.insert(high, A).unwrap();
+    assert_eq!(w.sample().unwrap().components, 1);
+    assert_ne!(w.sample().unwrap().hash, before.hash);
+}
