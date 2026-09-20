@@ -1,899 +1,469 @@
-# Cluster LOD — offline bake, GPU selection and hardware rasterization
+# Cluster LOD on core WebGPU
 
-Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numerical
-oracles; L2a adds hardware rasterization; L2b adds core-WebGPU selection,
-culling, stable compaction and per-page indirect draws, retaining the CPU oracle.
-The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
+Standalone experiment for LLP 1041.011 O1 / §5 Q2: bake a cluster-LOD DAG, select
+and cull on the GPU, then draw through ordinary hardware rasterization. No software
+rasterizer, 64-bit atomics, optional rendering features, or vendor modifications.
+The native CLI renders the two scanned statues and a continuous far-to-detail
+camera path, including cluster-colour views. It is an offscreen demo, not a player.
 
-**Status:** L1/L2a verified; L2b GPU image/selection oracles verified on Apple M5 Max
-/ Metal. Initial invalid counter readbacks are documented in decision 27;
-final commands report sample validity and independent completed-frame latency.
+F1 found a real bake defect: regular vendor simplification introduced four-incident
+edges, including in uniform cuts. The shim now rejects those transitions and keeps
+finer geometry. The permanent 21-fixture oracle checks 10,815 cuts with zero bad
+edges or ancestor overlaps. This is boundary/edge preservation, not a proof against
+geometric self-intersection. The new scans pass 96 mixed-LOD coverage cameras with
+zero missing interior pixels. Threshold zero is pixel-exact in the tested images.
 
-## Run
+At 400 instances, 2560×1440 and 1 px, the main-pass medians are **22.332 vs 74.609 ms
+(Gaul)** and **115.172 vs 428.440 ms (Washington)**, GPU cluster vs indexed naive.
+The corresponding shadow medians are 15.619 vs 68.396 ms and 70.339 vs 357.158 ms.
+These runs have zero drops; Washington uses a 12,000-cluster per-instance quota.
+Shadows use twice the main error threshold, so the main-pass comparison leads.
+The topology fix raises the minimum geometry substantially; the previous performance
+headline is withdrawn. Quota-overflow rows draw incomplete images and support no speedup claim.
 
-Run these commands from `experiments/cluster-lod/` with the launch environment
-(debug information and incremental compilation disabled). The only target directory
-is this workspace's `target/`.
+## How to run
+
+Use this directory and the launch environment (debug info off, incremental off).
+There is one target directory, `target/`; this is an independent Cargo workspace.
+All assets, bakes, exported meshes, PNGs and logs belong in
+`~/Library/Caches/exact2-cluster-lod/`, abbreviated `<cache>` below.
 
 ```sh
-cargo run -p clod-bake -- <input.ply> <output.clod> --max-triangles 128 --page-mib 32
-cargo run -p clod-bake -- --inspect <output.clod>
-cargo run -p clod-bake -- --cut <output.clod> --threshold 0.01 --obj <cut.obj>
-cargo run -p clod-bake -- --generate 8 ~/Library/Caches/exact2-cluster-lod/out/sphere.ply
-cargo test --workspace --no-fail-fast -- --nocapture
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all -- --check
-cargo build -p clod-format --target wasm32-unknown-unknown
+cargo build -p clod-bake -p clod-view
+cargo run -p clod-bake -- <input.ply> <cache>/out/mesh.clod --max-triangles 128 --page-mib 32
+cargo run -p clod-bake -- --inspect <cache>/out/mesh.clod
+cargo run -p clod-bake -- --cut <cache>/out/mesh.clod --threshold 1e30 --obj <cache>/out/terminal.obj
+cargo run -p clod-bake -- --generate 8 <cache>/out/sphere.ply
+bun measure.mjs verify
+bun measure.mjs sweep
+bun measure.mjs oracles
 ```
 
-Bake output is one JSON object. View outputs JSON lines; compare/pop report all
-pairs and a summary. Failures produce an `error` object and exit 1.
-All meshes, baked outputs, exported cuts and logs belong in
-`~/Library/Caches/exact2-cluster-lod/`, never in Git.
-
-### Renderer commands
+`verify` runs workspace tests with `--no-fail-fast --nocapture`, clippy with
+`-D warnings`, fmt, and both format/view-library wasm32 builds; it reports all
+command failures and source-file lengths. `sweep` runs 48 default-quota timing
+configurations plus four larger-quota runs for complete Gaul field/Washington grid cuts.
+`oracles` checks 64 cameras × three layouts per real asset. The scripts record
+commands, PIDs, exit codes and elapsed times in `<cache>/out/F1/`.
 
 ```sh
-cargo build -p clod-view
-# Full checks, all 32 timing cases, and 64 cameras × three layouts per real asset:
-python3 measure.py verify
-python3 measure.py sweep
-python3 measure.py oracles
-asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-1.clod"
-out="$HOME/Library/Caches/exact2-cluster-lod/out/demo"
-target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 0.5
-target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 0.5
-target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --select gpu --frames 7
-target/debug/clod-view time "$asset" --out "$out/brute.png" --layout grid:400 --select brute --frames 7
-target/debug/clod-view render "$asset" --out "$out/overflow.png" --capacity 1
-target/debug/clod-view oracle "$asset" --steps 64 --size 256x256
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-2.clod"
+out="$HOME/Library/Caches/exact2-cluster-lod/out/F1/demo"
+target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 1
+target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 1
+target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --capacity 12000 --frames 7
+target/debug/clod-view time "$asset" --out "$out/naive.png" --layout grid:400 --mode naive --shadows off
 target/debug/clod-view compare "$asset" --out "$out/compare" --threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1
 target/debug/clod-view pop "$asset" --out "$out/pop" --threshold-px 1 --steps 240
-cargo test --workspace --no-fail-fast -- --nocapture
-cargo clippy --all-targets -- -D warnings
-cargo fmt --all -- --check
-cargo build -p clod-view --lib --target wasm32-unknown-unknown
+cargo test -p clod-bake --test topology -- --nocapture
+cargo test -p clod-view --test coverage -- --nocapture
 ```
 
-Defaults: cluster mode, GPU selection, culling on, lit view, single layout, threshold 1 px, 2560×1440,
-45° vertical field of view, hero t=0. `--mode naive` uses the indexed baseline.
-Selection: `--select gpu|cpu|brute`; `brute` scans every cluster of each surviving
-instance on the GPU. `--cull on|off` controls both passes; overdraw disables culling.
-`--capacity N` sets a fixed **per-instance** GPU quota at load time (default rule
-in decision 26); zero is clamped to one. CPU reference rendering uses its own
-renderer/list buffers. Layouts: `single`, `ring:N`, `grid:N`, `field:N,seed`; N=1..10,000. Views:
-`lit|clusters|depth|triangles|instances|overdraw`. Explicit world-space camera:
-`--eye x,y,z --target x,y,z --fov degrees`. `--size WIDTHxHEIGHT` caps at 8192².
-The library accepts byte slices and caller-owned wgpu devices; I/O, timing,
-blocking map polling and PNG encoding live exclusively in the native binary.
-The browser's caller supplies cache-optimized baseline buffers if it needs naive
-mode; the native-only meshoptimizer FFI is not linked into the library or Wasm.
+Defaults: `--mode cluster --select gpu --cull on --shadows on --view lit`,
+1 px, 2560×1440, vertical FOV 45°, hero t=0. Selectors: `gpu|cpu|brute`;
+`brute` scans all clusters of surviving instances. Layouts: `single|ring:N|grid:N|field:N,seed`,
+N=1..10,000. Views: `lit|clusters|depth|triangles|instances|overdraw|coverage`.
+`depth` is DAG depth. `coverage` has white geometry, magenta background, no ground
+or shadows. Cameras accept `--eye x,y,z --target x,y,z --fov degrees`; size caps
+at 8192². `--capacity N` is a per-instance GPU quota, not a total budget.
 
-The CLI is an offscreen demo: render arbitrary `--t` values or walk 240 samples
-with `pop`. There is no window or real-time interactive player in this lane.
-Runtime shader compilation is performed by wgpu from the build-validated WGSL.
+The library accepts byte slices and caller-owned wgpu devices. Native I/O, PNG
+encoding, blocking readback and meshoptimizer baseline optimization stay in the
+binary. A browser supplies its own optimized baseline buffers. Only `time`
+requires `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
+`Limits::default()` and no required features. Bake emits one JSON record; view
+commands emit JSON lines, including errors with exit 1. `compare` and `pop` are
+measurement reports; the permanent quality gates are the cargo tests.
 
-## Format v1
+## Format v2
 
-Little endian, magic `CLOD0001`, version 1. `format/src/lib.rs` contains the
-authoritative `repr(C)`/`Pod` structs. Header and every top-level section begin on
-16-byte boundaries. Padding is zero. Section order is header, clusters, groups,
-page table, optional BVH, geometry pages. The header carries counts, byte offsets,
-configuration, flags and SHA-256 of the primary source file's exact bytes.
-The reader borrows aligned bytes, returns errors on unaligned or malformed input,
-and checks all ranges, local indices, digests, group references and BVH reachability.
-The writer invokes the reader to validate its own output. No filesystem or native
-dependency in the format crate; its `wasm32-unknown-unknown` build passes.
+Little endian, magic `CLOD0002`, version 2. Version 1 is rejected because the
+accepted DAG changed. `format/src/lib.rs` defines the `repr(C)`/`Pod` records.
+Sections, in order: header, clusters, groups, page table, optional BVH, geometry.
+Section starts and page arrays align to 16 bytes; all padding is zero.
 
-Each 128-byte cluster has its own sphere and normal cone (apex, axis, cutoff),
-20-byte simplified and refined bounds (float3 centre, radius, error), group IDs,
-page ID, page-relative vertex offset/count, index-byte offset/triangle count,
-group depth, and three zero reserved words. `u32::MAX` is the original-geometry
-refinement sentinel. Terminal groups store `f32::MAX` error. L2 should use scalar
-WGSL arrays/words for these layouts; WGSL `vec3` alignment is not the C layout.
+| Record | Bytes | Contents |
+| --- | ---: | --- |
+| Cluster | 128 | Culling sphere/cone, simplified/refined bounds, group IDs, page/ranges, depth, reserved zeros |
+| Selection bounds | 20 | Float32 centre/radius/error |
+| Group | 32 | Simplified bounds, depth, cluster range |
+| BVH node | 32 | Bounds, group or children; one root per depth |
+| Page | 80 | u64 extent, SHA-256, cluster/vertex/index ranges, reserved zeros |
+| Vertex | 20 | Float32 xyz, octahedral snorm16×2 normal, RGBA8 |
 
-A group is 32 bytes: simplified bounds, depth, first cluster, cluster count.
-A BVH node is 32 bytes: bounds, group ID (`u32::MAX` for internal nodes), child
-offset/count. This is the vendor's forest: the first `root_count` nodes are roots,
-one per depth; leaves address the group table. Flat selection never needs it.
+A cluster has at most 256 vertices and 128 triangles with three u8 local indices
+per triangle. Vertices then indices occupy each page; no cross-page pointers.
+Pages default to 32 MiB, configurable from 4 KiB to 128 MiB. All terminal groups
+must fit page zero. Positions retain source float32 bits. RGBA is low-byte red;
+`HAS_COLOR` is set iff at least one stored colour differs from opaque white.
+Unpack normals by signed division by 32767, hemisphere unfold and normalization.
 
-A page-table record is 80 bytes: u64 offset/length, SHA-256, cluster range, vertex
-and index counts, vertex/index offsets within the page, two reserved words.
-Pages contain only vertices then index bytes, both padded to 16 bytes. Every
-cluster has a contiguous vertex array and three `u8` local indices per triangle.
-Offsets address vertices or bytes, respectively. There are no cross-page pointers.
-The default bound is 32 MiB, configurable from 4 KiB through 128 MiB.
+The aligned, borrowing reader validates canonical section/page layout, all ranges,
+indices, reserved words and zero padding (header gap, section tails, page arrays),
+page SHA-256, finite geometry/culling records, group coverage, original triangle
+count, depth/order/error monotonicity, matching refinement bounds, and terminal iff
+unreferenced. Each ancestor group sphere must contain its directly referenced
+child sphere; each cluster culling sphere must contain its decoded vertices.
+Containment allows `8 * f32::EPSILON * max(abs(centres), radii)` world units,
+evaluated in f64. Transitive containment inherits this per-edge rounding tolerance.
+BVH checks cover reachability, unique leaves and exact leaf/group agreement;
+internal-node geometric containment and normal-cone correctness are not validated.
+The reader does not recompute topology: topology preservation is a bake check.
 
-Vertices are 20 bytes: float32 xyz (12), octahedral signed-normalized 16-bit x/y
-packed into a u32 (4), RGBA8 (4). Decode normal components by signed division by
-32767, unfold the lower hemisphere and normalize (`unpack_normal` is the oracle).
-RGBA is low-byte red; absent colors become opaque white and header flag bit 0 is
-clear. Source positions are copied without quantization: every copy, across all
-clusters and pages, has identical position bits. Normals are area-weighted if
-missing, normalized otherwise. Normals and colors enter simplification as float
-attributes with weight 0.1 per component.
+The writer validates its output with the reader. Offset/size arithmetic is checked,
+including public geometry/page accessors and Vec address-space limits; a >4 GiB
+output on wasm32 is an error, not a wrap. The source SHA-256 identifies the primary
+input file; external glTF buffers are additional inputs. The format crate needs
+neither filesystem access nor native code.
 
-## Selection
+## Selection rule
 
-Draw each cluster independently iff `projected(simplified) > threshold` AND
-(`refined == ORIGINAL` OR `projected(refined_bounds) <= threshold`). A uniform cut
-uses world-space errors directly. Perspective projection follows the vendor:
+Select a cluster iff `projected(simplified) > threshold` and either its refinement
+ID is `ORIGINAL` (`u32::MAX`) or `projected(refined) <= threshold`.
+Terminal error `f32::MAX` is a sentinel. Uniform cuts use stored world-space errors.
+One CPU function, `format::projection::Projection::projected`, and its WGSL mirror use:
 
+```text
+perspective = error * scale / max(length(transformed_center - eye) - radius * scale, near)
+              * cot(fovy / 2) * 0.5 * viewport_height
+orthographic = error * scale * viewport_height / orthographic_span
 ```
-error / max(length(center - camera_position) - radius, positive_near)
-    * (cot(fovy / 2) * 0.5) * viewport_height
-```
 
-Terminal error is treated as infinity, avoiding overflow/underflow of the stored
-finite sentinel. Camera orientation is intentionally absent from this rotationally
-invariant size estimate. Frustum/cone culling is a separate L2 operation. Threshold
-must be finite, nonnegative and less than `f32::MAX`.
+The sentinel stays MAX. Zero stays zero; positive projected errors saturate at
+MIN_POSITIVE, including underflow. Threshold zero bypasses candidate pruning and
+therefore selects original geometry. Length uses max-component scaling. The scene
+contract is positive, uniform, orthogonal affine scale (relative tolerance 2e-5);
+non-uniform scale, shear, reflection, nonfinite transforms and zero asset extent
+return errors. Thresholds are finite, nonnegative and below MAX. Camera orientation
+does not enter the distance formula; the multi-fixture test applies random rigid
+orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
 
-1. Preserve float32 position bits and pack only normals. This gives a direct crack
-   guarantee for repeated source positions; independent per-page quantization does
-   not. RGBA8 stays present even without colors for one GPU vertex stride.
-2. Disable permissive and sloppy simplification, keeping topology-preserving regular
-   simplification and locked group borders. This lane's closed-manifold oracle takes
-   precedence over obtaining the smallest terminal cut. Use additive error accumulation
-   (`max(previous, current) + current`), a conservative setting to test numerically.
-3. Store every terminal group first, then descending depth with original group ID as
-   tie-breaker. Page 0 must fit the entire terminal cut; fail with a page-budget error
-   if it cannot. Nonterminal groups may span pages, but individual clusters never do.
-   Group IDs remain vendor emission order; cluster ranges are updated after packing.
-4. Lift a zero simplification error to `f32::MIN_POSITIVE` when recording groups so
-   threshold zero selects precisely original triangles even for planar geometry.
-5. Use single-threaded vendored construction. Hash maps in mesh generation and STL
-   welding are lookup-only; emitted order follows source triangles, never map iteration.
-6. Keep glTF with default features disabled and only `utils`; no image decoder, renderer,
-   or wgpu dependency in L1. Load all triangle primitives of the first mesh, ignoring
-   scene transforms/materials. Support GLB, base64 buffers and plain local buffer paths;
-   no network/percent-escaped URIs. The source digest is of the primary file; external
-   glTF buffers are additional inputs and must also remain unchanged for determinism.
-7. Stream PLY, OBJ and STL input through a hashing buffered reader. Support ASCII PLY
-   with one element per line, binary little/big-endian PLY, optional normals and uchar
-   RGB(A); reject nontriangular PLY faces. OBJ polygons use fan triangulation, positions
-   only. Binary STL welds identical float positions (signed zero normalized).
-8. The writer assembles a contiguous output vector after building bounded pages.
-   This uses more RAM than an on-disk spool but avoids scratch duplication on the
-   nearly full disk. Peak process RSS is measured in each CLI run. Build errors are
-   reported as errors; the page-0 bound is never silently exceeded.
-9. Use a displaced octasphere for reproducible fixtures: 8 subdivisions requests
-   524,288 triangles, and 10 requests 8,388,608. The numerical test requests 15
-   uniform thresholds and 240 random cameras. It generates orientations but does
-   not apply frustum culling: selection is rotationally invariant and culling would
-   intentionally open the surface tested for closed edges.
-10. Sample 100,000 area-uniform cut points at each of four thresholds. The error
-    gate is `4 * maximum selected refined error + 1e-6` world units. Four is a
-    deliberately generous falsification threshold for accumulated quadric error,
-    which is not a rigorous Hausdorff bound; print maximum/RMS and ratio regardless
-    of success. This is cut-to-source sampling, not a bidirectional or pixel-error
-    proof. The completed measurements are below.
-11. Reconstruct the naive source-resolution mesh once from ORIGINAL clusters,
-    weld identical complete vertex records, and run meshoptimizer vertex-cache and
-    vertex-fetch optimization. This keeps source geometry/attributes identical
-    while giving the baseline real indexed vertex buffers and instancing.
-12. Use flat, deterministic CPU selection with group error evaluated once per
-    instance, then independent cluster selection and sphere/frustum culling.
-    Uniform instance scale affects radius and error. No cone culling is needed
-    for the L2a reference; L2b extends it with decision 25.
-13. Submit one instanced draw per baked page per pass, including zero-instance
-    draws for empty pages. Each instance is one visible (cluster, scene instance)
-    pair. Short clusters emit coincident out-of-clip vertices; padding consumes
-    vertex invocations but produces no fragments. Report useful and padded counts.
-
-14. Normalize the longest asset dimension to 2 world units and place its bottom on
-    Z=0. Smithsonian Washington's source digest identifies its Y-up basis; rotate
-    it into the Z-up scene. Other sources default to Z-up. Layout seed uses an
-    explicit 32-bit LCG. Grid and field vary positive uniform scale and rotation.
-15. Resolve authored 16:9 screen anchors on the two scans' hair to the nearest real
-    source triangle at load time. This was chosen after viewing the first PNGs:
-    a bounding-box aim landed behind the surface. The smoothstep camera ends
-    0.055 world units from the hit, with near=0.002 and no camera cuts. Other
-    meshes use a central screen anchor. The path is geometric; it does not morph
-    between LOD cuts or guarantee a zero popping metric.
-16. Render a 2048² directional shadow map through the same page path at twice the
-    main threshold, selected with orthographic projected error. The indexed
-    baseline draws its full-resolution mesh in both passes. Report shadow costs
-    separately; image differences include shadows as well as main geometry.
-    Use nine comparison samples, depth bias, Lambert + GGX dielectric (roughness
-    .32, F0 .04), hemisphere ambient, filmic tonemap, an sRGB target and 4× MSAA.
-17. Only `time` requests TIMESTAMP_QUERY, and only when the adapter exposes it.
-    `render`, `compare`, `pop`, and all image tests request no features. All use
-    `Limits::default()` exactly. `time` reports medians of seven measured frames
-    after one warmup; GPU values cover the main and shadow passes, excluding
-    readback, uploads and CPU selection. `encode_ms` includes upload calls,
-    command encoding and submission; separately report both CPU selections.
-18. Baseline cluster/depth/triangle debug views are rejected: core WebGPU exposes
-    no primitive ID without an extra feature, and duplicating vertices would
-    spoil the indexed baseline. Those debug views operate on the cluster path.
-    `depth` means DAG depth. `overdraw` adds linear RGB (.04,.013,.002) with
-    depth test Always and no backface culling, producing a saturating heat view.
-19. Pixel errors use RGB in the output sRGB PNG, normalized by 255; alpha excluded.
-    A pixel differs if any channel differs by >2. Worst compare pair means
-    largest mean absolute error. Pop reports both max(MAD(cluster delta) minus
-    MAD(naive delta)) and the stronger mean absolute spatial residual of signed
-    RGB deltas; saves before/after cluster and naive frames at the latter maximum.
-20. The format does not promise pixel-identical rasterization after triangle
-    reordering. On the procedural fixture allow threshold-zero max 1/255 and mean
-    <1e-6; final measured mean is 0 (earlier camera measured 1.77e-8). The 1 px
-    procedural regression gate is mean <.008 and differing-pixel fraction <.20:
-    measured .003611/.12291; this bounds image regression,
-    not Hausdorff distance or a guarantee that all changed pixels lie within 1 px.
-21. Visible-pair storage grows to a power-of-two high-water capacity per page,
-    capped at 128 MiB. Reject a larger list rather than adding draws dependent
-    on visibility. Baseline chunks cap indices at 128 MiB and vertices at 120 MiB.
-    GPU residency counts allocated buffers/textures, with readback separate;
-    driver overhead, shader binaries and allocator overhead are not measurable here.
-    L2b supersedes the growing GPU list with decision 26; the CPU reference retains
-    this growth policy.
-
-22. Keep only the current and worst frame pairs in memory in compare/pop and
-    encode the winning PNGs once at the end. This removes repeated PNG writes
-    from the camera sweep without changing the error equations. Adapter skips
-    write directly to stderr so libtest cannot hide them in its default capture.
-
-23. Evaluate shadow transforms as `light * (model * position)` in both paths and
-    mark clip positions invariant. An initial different multiplication grouping
-    caused 163/85 changed pixels (>2/255) in Gaul/Washington close-ups at threshold
-    zero. The corrected close-ups are exact. A probe preserving source triangle
-    order also makes the far images exact; cache optimization leaves one changed
-    pixel there (max 18/255 Gaul, 4/255 Washington). Keep the cache-optimized
-    baseline and allow at most 8 such pixels, max 20/255, mean <1e-7 on the scans.
-    `tests/real_assets.rs` checks both orders at t=0,.5,1; skips loudly if cached
-    scans or a GPU are unavailable. The standard procedural test needs no files.
-
-24. L2b uses a runtime error-envelope index, preserving baked cluster order. A suffix
-    maximum of simplified error and prefix minimum of refined error are monotone;
-    binary searches bound a conservative contiguous candidate range. The enclosing
-    sphere includes all selection bounds, not only vertices. This trades extra
-    candidates within a depth for stable raster order and no format/re-bake change.
-    Pad the enclosing radius by 1.00002 and range thresholds by relative 1e-5,
-    only to avoid pruning borderline candidates; the final LOD predicate is exact.
-    Terminal sentinels always survive range pruning, including when a very large
-    finite threshold overflows its mesh-space conversion.
-25. Main culling uses instance/cluster spheres and meshoptimizer's perspective
-    apex cone test. Shadows keep L2a's orthographic error at twice the threshold,
-    light-frustum spheres, and the directional-light cone test. Camera-facing
-    tests are never used for shadow casters. Sphere planes and cone dots use a
-    conservative 1e-5 guard in both CPU and WGSL. Culling is disabled for overdraw.
-26. Allocate visible storage once: each instance gets min(cluster count,
-    floor(4,194,304 / instance count)) slots per pass. `--capacity` overrides
-    the per-instance slot count. Stable scans keep earliest coarse-to-fine IDs;
-    a full quota drops subsequent finer clusters, counts every drop, and cannot
-    overwrite another instance. Unused quotas are not shared. Overflow can make
-    holes; it is an explicitly reported degraded image, not a crack-free cut.
-
-27. Metal timing limitation found during L2b: main-pass end counters were zero
-    or stale in the expanded timing path (CPU and naive commands also affected). Three diagnostic/fix
-    rounds inspected raw counters, reordered query indices into execution order,
-    and resolved in a subsequent command buffer. The issue persisted; the fix
-    loop stopped. Invalid pairs are printed with all eight raw values and become
-    JSON null, never zero or a fabricated duration. A stage median requires all
-    measured samples to be valid; valid sample counts are explicit. Valid select/shadow timings
-    and CPU costs are still reported. `frame_completion_ms` is a separate host-clock
-    latency from encode start through completed RGBA readback: an upper bound
-    including submission, GPU work and pixel transfer, not a substitute GPU
-    stage time. The unsuccessful extra-submission workaround was removed.
-
-28. Reuse L1's 524,288-triangle (subdivision 8) closed fixture for the GPU edge
-    oracle, and share the edge-count implementation through `clod-format::oracle`.
-    An initial subdivision-6 fixture exposed 1–2 bad edges in ten unculled camera
-    cuts, identically on CPU and GPU (zero set differences). That new-fixture
-    bake/topology limitation is retained here as evidence, not blamed on GPU
-    selection or hidden by a relaxed edge threshold.
-
-29. Keep topology-preserving bakes and their unchanged SHA-256 digests. The
-    optional depth-gated permissive/sloppy experiment is not performed or adopted:
-    the immutable vendor's public configuration has only global fallback switches,
-    so a depth gate needs a separate builder change. No HZB, streaming or optional
-    core features are added. This leaves a measured raster floor, not a claim that
-    GPU selection alone makes the 5,000-instance Washington scene reach 60 Hz.
-30. The GPU frame uploads two fixed selection uniforms and one render uniform,
-    encodes eight fixed compute dispatches and two page-draw loops, and submits.
-    Instances and metadata are uploaded only at scene load. CPU frame work is
-    O(pages), independent of clusters and instances, for a fixed asset. Diagnostic
-    visible/counter/shadow readbacks are explicit post-frame CLI/test operations;
-    their results never feed a draw. Reject scenes exceeding the u32 candidate
-    counter range rather than silently wrapping a measurement.
-
-31. Correct the inherited Washington floor: 6,088 is the deepest level, not the
-    whole terminal cut. `clod-bake --cut ... --threshold 1e30 --obj ...` and both
-    selectors at `f32::MAX / 2` give 24,515 triangles, including groups that stopped
-    at earlier depths. The 5,000-instance floor is therefore 122,575,000 triangles,
-    98.16% of the 124,878,597 main triangles measured at 1 px. The bake is unchanged;
-    the earlier floor report was incorrect. Optional fallback remains unmeasured.
-
-32. F1 replaces decision 28: vendor regular simplification can introduce an edge
-    with four incident triangles. Subdivision 5/seed 0 first exposes it; subdivision
-    6 fails uniform cuts too. All 21 fixtures have zero bounds-containment violations
-    at 1e-6 tolerance; no failure involved an ancestor overlap, an early terminal,
-    or the zero-error lift. For example edge (594,2331) changes from two incidences
-    in child group 4 to four in its replacement clusters 21/22 at depth 2. Their
-    projected simplified/refined errors are 4.940409/2.817221 px at threshold
-    3.167388 px: a valid flat cut of invalid replacement geometry.
-    Validate each replacement patch before packing: ordinary oriented interior
-    edges cancel; boundary and pre-existing nonmanifold scan edges must remain
-    identical. Stop an invalid transition and its dependent ancestor transitions,
-    remove their replacement clusters, and retain remaining finer clusters as
-    terminal groups. Vendor sources are unchanged. Format v2 records the changed
-    DAG; both assets will be re-baked. This preserves edge incidence, not a proof
-    against geometric self-intersection.
-
-33. Keep one CPU projection in format/projection.rs, with a thin view adapter and
-    a WGSL mirror. Positive errors saturate at MIN_POSITIVE; robust vector lengths
-    avoid intermediate square overflow. Threshold zero bypasses candidate pruning.
-    Planar regression: 32,768 source triangles; eight of nine CPU/GPU cases formerly
-    drew 24,382, all nine now draw 32,768 at scale 1e-20 and/or distance 1e20.
-34. Validate zero padding, terminal/reference equivalence, ancestor containment,
-    vertex culling spheres and canonical color presence. Sphere tolerance is eight
-    float32 epsilons times the largest absolute coordinate or radius, evaluated in
-    f64. HAS_COLOR means at least one non-white RGBA8 value (all-white is canonical
-    uncolored data). Checked offsets return errors on address-space overflow.
-35. Normalize authored and generated normals using f64 intermediates; validate again
-    before FFI. Preserve normals per glTF primitive. The malformed-buffer panic did
-    not reproduce: glTF validation already rejected index 99. Use checked lookup
-    anyway. Drop FFI input pointers after construction and guard narrowing.
-36. Main perspective depth is reversed-Z (clear 0, Greater); orthographic shadows
-    retain forward-Z. At distance 100, surfaces 0.01 apart previously shared
-    0.99998206; their reversed values are 1.8000037e-5 and 1.7998036e-5. Both render
-    paths resolve the near surface. Reject zero extents, non-uniform scale and shear.
-37. Give naive main/shadow draws the same instance-sphere frustum cull as clusters.
-    Submit consecutive surviving instance ranges in source order. Separate main and
-    shadow GPU times and measure both modes with shadows disabled. Keep only the
-    last image plus timing records. Missing/invalid timestamps are errors; elapsed
-    ticks use modular subtraction with invalid-counter detection.
-38. Port measurement orchestration to Bun. Keep pop as a CLI report, not a test.
-    Add a 50% procedural reduction gate at 1 px and cut-diversity/mixed-depth gates.
-    A forced-original mutation passed the old image oracle and fails the new gate.
-    Coverage uses saturated magenta, white geometry, no ground/shadows, and a
-    one-pixel silhouette exclusion; injected one-pixel holes must be detected.
+1. Preserve position bits; pack normals only. Identical border coordinates are
+   necessary but insufficient for a crack-free cut: decision 32 also checks topology.
+2. Disable permissive/sloppy simplification and lock borders. Accumulate error as
+   `max(previous, current) + current`. Regular simplification still needs decision 32.
+3. Pack terminals first, then descending depth and original ID. Page zero must hold
+   the complete terminal cut; fail when its configured budget cannot.
+4. Lift zero group errors to MIN_POSITIVE. Projection must preserve positivity too.
+5. Build single-threaded; hash maps are lookup-only and never determine output order.
+   Repeat digests are same-host; cross-ISA identity is not claimed for meshoptimizer.
+6. glTF uses only `utils`: first mesh, triangle primitives, no scene/materials/images.
+   GLB, base64 and plain local buffers work; network/percent-escaped URIs do not.
+7. Stream hashed PLY/OBJ/STL. PLY supports ASCII and both binary endiannesses, normals
+   and uchar RGB(A), triangular faces only. OBJ fans polygons. STL welds exact positions.
+8. Assemble bounded pages then one contiguous output Vec; measure peak process RSS.
+9. Keep the displaced octasphere plus 21 seeded fixtures, subdivisions 3..9.
+   Each gets 15 uniform cuts and 500 oriented cameras; culling is off for closed edges.
+10. Error honesty is **one-sided cut→source**, sampled at 100,000 points per threshold,
+    against the maximum selected **refined** error with a **4× + 1e-6** gate.
+    Accumulated quadric error is not a Hausdorff bound or a pixel guarantee.
+11. Naive geometry comes from ORIGINAL clusters, welded on complete vertex records,
+    then cache/fetch optimized. It uses indexed buffers and instancing.
+12. CPU reference evaluates each group once per instance, then selects clusters.
+    Scale affects error and radius. Projection has one CPU implementation.
+13. Draw once per page per pass, including empty pages. Short clusters pad to the
+    configured triangle count with clipped vertices; report padding separately.
+14. Normalize the longest dimension to 2 world units, bottom at Z=0. Washington's
+    source digest identifies its Y-up basis. Layout randomness uses a fixed 32-bit LCG.
+15. Hero anchors hit actual hair triangles. A smoothstep path ends 0.055 world units
+    from the hit, near=0.002. There is no geomorphing or guarantee of zero popping.
+16. Use a 2048² orthographic shadow map at twice the main threshold, nine samples,
+    bias, Lambert/GGX (.32 roughness, .04 F0), ambient, tonemap, sRGB and 4× MSAA.
+17. `time` takes seven frames after one warmup. Report main/shadow/select GPU medians
+    separately; CPU encode includes uploads/submission. Completion includes readback.
+18. Cluster-only depth/triangle/cluster colours avoid adding primitive-ID features
+    or duplicating naive vertices. Overdraw uses Always depth and no culling.
+19. RGB errors are sRGB bytes /255, alpha excluded; a differing pixel exceeds 2/255.
+    Pop reports signed-frame-difference excess and spatial temporal residual.
+20. Gate procedural 1 px mean <.008 and fraction <.20, plus triangle reduction <50%.
+    Those averages do not detect cracks; decision 38 adds localized coverage.
+21. CPU page lists cap at 128 MiB; baseline chunks at 128 MiB indices/120 MiB vertices.
+    GPU residency counts allocated buffers/textures, excluding driver overhead.
+22. Compare/pop retain current and worst pairs; `time` retains timing records and
+    only its last pixel frame. PNGs are written once per retained result.
+23. Both paths evaluate `light * (model * position)` with invariant clip positions.
+    Threshold-zero tests now require exact pixels for both baseline triangle orders.
+24. GPU candidates use suffix-max/prefix-min error envelopes in baked order; radius
+    padding 1.00002 and range guard 1e-5 only widen candidates. Final predicate is exact.
+25. Instance/cluster spheres and perspective cone culls use a 1e-5 guard.
+    Main and shadow frusta are separate; overdraw disables culling. Shadows use
+    sphere/frustum culling and hardware backfaces, as required by decision 42.
+26. Default per-instance quota is min(cluster count, floor(4,194,304 / instances)).
+    Stable scans drop later IDs on overflow and count every drop. Quotas do not share
+    spare space; overflow means an incomplete image, not a valid cut.
+27. Resolve timestamp queries after frame GPU completion, before another frame,
+    then read them in a second submission. Resolve only active counters. Modular
+    subtraction handles wrap; missing/stale/ambiguous counters return errors.
+28. The subdivision-6 bad edges are real. The permanent oracle includes smaller
+    fixtures and uniform cuts; subdivision 5/seed 0 is the smallest observed failure.
+29. No permissive/sloppy fallback, HZB, streaming or optional rendering feature is added.
+    Retained finer terminals establish a measured geometry floor.
+30. GPU frame work uploads fixed uniforms, runs fixed scans and page loops; instances
+    and metadata upload at load. Diagnostic readbacks never decide a draw.
+31. Sum every terminal group, including early depths. The deepest level alone is
+    not the terminal floor. F1 remeasures the new v2 floors below.
+32. Compare oriented boundary/nonmanifold-edge signatures of every replacement patch.
+    Stop invalid transitions and dependent ancestors, remove their replacements and
+    retain remaining finer clusters as terminals. Vendor unchanged; format bumped to v2.
+33. Stable CPU/WGSL length and positive projection saturation cover tiny scale/far eye.
+    The planar regression must draw all 32,768 source triangles in nine selector cases.
+34. Reader sphere tolerance and canonical colour/padding rules are explicit above.
+    Validate checked sizes before allocation; naive never binds a cluster table.
+35. Normalize authored/generated normals in f64, validate before FFI, and compute
+    missing glTF normals per primitive. Clear borrowed FFI pointers and check narrowing.
+    Bad-buffer panic did not reproduce: glTF already rejected index 99; lookup is checked.
+36. Main perspective uses reversed-Z, clear 0, Greater. Shadows remain forward-Z.
+    At distance 100, 0.01-separated surfaces resolve in both paths.
+37. Naive applies the same instance-sphere frustum cull per pass as clusters; render
+    surviving contiguous instance ranges in order. Measure both with shadows off too.
+38. Keep pop a CLI report, not a test. A forced-original mutation fails the reduction
+    gate. A one-pixel injected crack fails coverage even when the old mean gate accepts.
+39. Coverage erodes the fully covered naive MSAA mask by a one-pixel Chebyshev band.
+    Partial MSAA pixels belong to the silhouette; test every remaining background hole.
+    Use 16 hero, 16 ring-interior and 16 grid-interior cameras per asset, requiring ≥32
+    nonempty mixed-depth cuts. Do not run a closed-manifold oracle on open scans.
+40. Use Bun for measurement orchestration. Preserve superseded measurements in an
+    explicitly historical archive; current tables must come from v2 and reversed-Z.
+41. Equality oracles reserve the full 128 MiB core visible-list binding budget,
+    divided per instance, to check complete cuts of the larger v2 terminal patches.
+    Default-quota timings remain separate, and the one-slot overflow oracle remains.
+42. Disable shadow cone rejection in CPU/WGSL: on Washington's grid it removed a
+    rasterized texel (depth 0.48806113 → 0.48824522), while sphere-only culling was
+    exact. Keep the exact-depth oracle; retain hardware backface culling. Re-measure
+    timings after this change. The shader no longer carries an unused light direction.
+43. Check CPU/GPU images even when a set difference is within the existing 1e-5
+    numerical boundary band. Closed-edge diagnostics apply only to closed fixtures;
+    the real scans use image equality and localized coverage.
 
 ## Results
 
-F1 topology regression (`cargo test -p clod-bake --test topology -- --nocapture`):
-21 fixtures (subdivisions 3..9, noise seeds 0..2), 315 uniform cuts + 10,500
-oriented cameras. Before: 378 failed cuts, 616,144,192 triangle occurrences,
-62.419445333 s. After: 0 failures, 622,100,574 triangle occurrences,
-26.939051209 s. The edge oracle checks every decoded edge, including cluster
-interiors, incrementally as the cut changes. Detailed edge/cluster/group/depth
-and projected-error records: `<out>/F1/topology-before.log`; passing run:
-`<out>/F1/topology-after-final.log`. Smallest observed source fixture (8,192
-triangles): `<out>/F1/subdivision-5-seed-0.ply`.
+Measurements below are on Apple M5 Max / Metal, wgpu 30.0.1, opt-level=2,
+debug=false, incremental=false. `<out>` means `<cache>/out/F1/`.
+[Round-1 archive](results/round-1.md) preserves every prior README number for
+provenance; its v1 timings and earlier validation claims are superseded.
 
-L1 verification, 2026-09-20, from cache `logs/L1-verify-{1,mac}.log`:
+### Topology and regression evidence
 
-| Command / measurement | Linux | Apple Mac |
-| --- | ---: | ---: |
-| `cargo test --workspace --no-fail-fast -- --nocapture` | 3 tests passed, 16.424 s total | 3 tests passed, 23.573 s total |
-| numerical oracle | 6.033 s | 4.96 s |
-| `cargo clippy --all-targets -- -D warnings` | passed | passed, 5.71 s |
-| `cargo build -p clod-format --target wasm32-unknown-unknown` | — | passed, 3.27 s |
+Command: `cargo test -p clod-bake --test topology -- --nocapture`.
+Before: 21 fixtures, 315 uniform +10,500 oriented camera cuts, 378 failed cuts,
+616,144,192 triangle occurrences, 62.419445333 s. The first topology-only fix
+checked 622,100,574 occurrences in 26.939051209 s with zero failures; subsequent
+normal normalization changes the deterministic fixture bake. Final counts are in
+the verification table below. Detailed failures include every edge's incident
+clusters, group IDs, depths and both projected errors in `<out>/topology-before.log`.
+Smallest observed source: `<out>/subdivision-5-seed-0.ply` (8,192 triangles).
 
-Linux numerical oracle: 524,288 source triangles, 15 uniform thresholds plus 240
-cameras, 29,338,902 triangles checked, 0 bad edges, 0 ancestor overlaps, edge use
-exactly 2. Camera cuts: 126–524,288 triangles, 120 distinct counts. Four sets of
-100,000 sampled points: maximum deviation / claimed error = 0.67745, 0.64592,
-0.54846, 0.33381 (thresholds .001, .01, .1, 1); maximum distances .00066282,
-.00593142, .04081806, .08612405; RMS .00008838, .00116135, .00830478, .02127320.
-26 malformed files rejected, 8 loader formats, 3 CLI commands passed.
+Uniform cuts fail too. All 21 original fixtures had zero ancestor overlaps and
+zero sphere-containment violations at 1e-6 tolerance. Edge (594,2331), formerly
+2 incidences in child group 4, had 4 in replacement clusters 21/22 at depth 2;
+simplified/refined errors 4.940409/2.817221 px, threshold 3.167388 px. Thus this was
+invalid replacement topology, not projection nonmonotonicity, early terminals,
+FLT_MIN or a wrong refined link. Rejected transitions preserve the finer patch.
 
-`target/release/clod-bake <assets>/smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl <out>/gaul-1.clod`:
-4,000,020 triangles, 1,999,991 source vertices, 65,415 clusters, 4,006 groups,
-4,591 BVH nodes, depth 15, 4 pages, 138,273,088 bytes (34.56810 B/source triangle).
-First/repeat elapsed 9.03/9.33 s; peak RSS 670,662,656/666,861,568 bytes.
-First phases: load 1.32038 s, normals .05917 s, build 6.07353 s, encode .74801 s,
-write .01847 s. Terminal cut 114 triangles. Both outputs have SHA-256
-`879644077118ad27d0c777b988a36134b0be96e2e9f4f8fc475d07e515549eb0`.
+| Review item | Failing evidence before fix | Passing gate / disposition |
+| --- | --- | --- |
+| Root cause | `topology-before.log`: 378 bad cuts, including uniform | `multi_fixture_closed_cuts`: 21 fixtures ×515 cuts |
+| 1: zero threshold | `projection-before.log`: 8/9 cases drew 24,382 instead of 32,768 | CPU, envelope GPU and brute GPU: 9/9 source cuts |
+| 2: vacuity/coverage | `lod-disabled-old-oracle.log` passed forced-original; new gate failed it. Injected crack passed mean gate | Reduction/diversity/mixed cuts, 96 scan coverage cameras and two crack controls |
+| 3: reader | `reader-before.log`: eight new corruptions accepted | 36 malformed files rejected, five accessor-overflow and four writer-arithmetic cases |
+| 4–5: depth/scene | `render-before.log`: equal depths, nonuniform/zero extent accepted | 0.01-separated surfaces at distance 100, both render paths; scene errors |
+| 6: fairness/timing | Unculled naive count; invalid timestamp counters; wrap failed | Same instance cull, eight on/off timing cases, five arithmetic cases, 52 timing commands |
+| 7: FFI | Borrowed pointers remained; unchecked narrowing | Clear pointers, checked conversions, exercised by all fixture/scan bakes |
+| 8: normals | `inputs-before.log`: six extreme-normal cases failed | Six finite cases preserve direction; nonfinite inputs rejected before FFI |
+| 9: glTF | Mixed primitive lost authored normals | Preserve authored primitive; missing buffer panic **not reproduced**, index 99 already Err |
+| 10–11: scene/limits | Zero extent accepted; naive cluster limit rejected; oversized baseline panicked | Error before GPU allocation; unused 134,217,856-byte cluster table accepted in naive |
+| 12–13: tooling/docs | Python runner and superseded notebook | Bun verify/sweep/oracles; structured README and historical numeric archive |
 
-
-
-### Hero bake (L1, orchestrator-verified)
-
-From cache `logs/L1-hero-bake.log`, command
-`target/release/clod-bake <assets>/si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj <out>/washington-1.clod`:
-16,860,930 source triangles, 9,022,298 source vertices, 281,343 clusters,
-17,204 groups, 19,684 BVH nodes, depth 11, 18 pages, 627,022,800 bytes
-(37.18791 B/source triangle), deepest level 6,088 triangles. The complete
-terminal cut is 24,515 triangles (L2b correction: earlier groups can also terminate). First/repeat wall
-57.52/61.00 s, peak RSS 2,839,658,496/2,843,557,888 bytes. First phases:
-load 21.80677 s, normals .10789 s, build 29.09533 s, encode 3.15659 s,
-write .62860 s. Repeat: load 12.49021 s, normals .11094 s, build 39.19019 s,
-encode 4.49781 s, write .10324 s. Both SHA-256:
-`84b20d2f2dfbd329a24d79f9ddb9827f967ac1862a5dcfd02d803878f96811a1`.
-
-### L2a verification
-
-2026-09-20, Apple M5 Max, Metal, wgpu 30.0.1, optimized dev/test profile
-(opt-level=2, debug=false, incremental=false). Renderer commit `a7907b88`.
-40 final sweep commands, 0 failures: 50 compare pairs, 6 extra threshold-zero
-pairs, two 240-frame paths (478 temporal comparisons), 12 render commands,
-12 timing commands and 10 debug-view commands. No GPU test was skipped.
-Raw logs/PIDs/commands: `<out>/L2a-sweep.jsonl`, `<out>/<asset>-*.jsonl`;
-final checks: `<out>/L2a-validation-final.jsonl` and `<out>/final-*.log`.
-All images live under `<out>/L2a/{gaul,washington}/`; no binary assets in Git.
-
-| Final command | Result | Wall seconds |
-| --- | --- | ---: |
-| `cargo test --workspace --no-fail-fast -- --nocapture` | exit 0; 5 tests passed | 13.366487 |
-| `cargo clippy --all-targets -- -D warnings` | exit 0 | 0.155357 |
-| `cargo fmt --all -- --check` | exit 0 | 0.093154 |
-| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | exit 0 | 1.189273 |
-
-Line-count run: Python `Path.rglob`, `splitlines`, excluding target/vendor:
-31 source files, max 622 lines (`view/src/gpu.rs`),
-0 files over 1,500. Naga validated 1 WGSL file with 0 failures and no capabilities.
-Device oracle: 0 features, 8 storage bindings/stage, 134,217,728-byte storage
-binding, 268,435,456-byte buffer limits. Five rotated/translated/scaled cuts
-match exactly; scale 2.5 gives projected error 10.686141 px in both frames.
-
-Procedural image oracle: 524,288 source triangles, 384² pixels, 17 pages,
-9 rendered images, threshold-zero exact, repeated PNGs byte-identical
-(63,207 bytes). At 1 px: 32,688 main triangles + 2,640 padding triangles,
-17 main draws at both thresholds, mean 0.003611641235,
-max 67/255, differing-pixel fraction 0.122904459635.
-The .008 mean/.20 fraction regression bounds are 2.22×/1.63× these measured values.
-
-| Debug view vs lit (procedural, 1 px) | Mean absolute RGB difference |
-| --- | ---: |
-| Clusters | 0.042653920292 |
-| Depth | 0.034482753424 |
-| Triangles | 0.038581124543 |
-| Instances | 0.028973260130 |
-| Overdraw | 0.043558348723 |
-
-Real-asset oracle: 2 scans × 3 cameras × 2 baseline triangle orders = 12
-comparisons / 18 GPU frames, 0 failures. The same-order indexed reference is
-**pixel-exact in all six cases**. The cache-optimized reference has the following
-threshold-zero differences (out of 3,686,400 pixels):
-
-| Asset | t | Mean absolute | Max byte | Pixels >2/255 |
-| --- | ---: | ---: | ---: | ---: |
-| gaul | 0 | 2.26942628903e-08 | 18 | 1 |
-| gaul | 0.5 | 3.54597857662e-09 | 4 | 1 |
-| gaul | 1 | 0 | 0 | 0 |
-| washington | 0 | 6.38276143791e-09 | 4 | 1 |
-| washington | 0.5 | 8.15575072622e-09 | 7 | 2 |
-| washington | 1 | 0 | 0 | 0 |
-
-Additional CLI check: `render gaul-1.clod --layout field:12,7 --view instances
---size 800x600`, twice: 14,765-byte identical PNGs,
-SHA-256 `c4b8c553016a20eab0c5852aeff19eb137d99283faf9dbc52b2db5bc47dbf43c`.
-`compare gaul-1.clod --layout field:12,7 --size 800x600 --threshold-px 0,1
---t 0 --eye 8,-12,7 --target 0,0,0.6 --fov 50`:
-
-| Threshold px | Cluster triangles | Naive triangles | Mean absolute | Max byte | Fraction >2/255 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 0 | 48,000,240 | 48,000,240 | 3.50217864924e-06 | 30 | 6.66666666667e-05 |
-| 1 | 65,352 | 48,000,240 | 0.00156669934641 | 120 | 0.035625 |
-
-The multi-instance threshold-zero case has 32 pixels >2/255 and max 30/255;
-it is not pixel-exact. The single-instance test's empirical bound is not a
-universal bound over different instance/draw orders. Geometry position bits
-are identical; source-order tests isolate the remaining order dependence.
-
-### Frame costs at 2560×1440
-
-Commands for every table row: `target/debug/clod-view render <out>/<asset>-1.clod
---mode <mode> --layout <layout> --size 2560x1440 --threshold-px 1 --t 0 --out <png>`;
-replace `render` with `time` and append `--frames 7` for timings (one warmup).
-Both modes share the same scene and camera. Main and shadow counts exclude the
-2-triangle, 1-draw ground plane. Total draws = main + shadow + 1.
-The naive mesh uses 1 chunk / 1,999,991 vertices for Gaul and 2 chunks /
-9,114,163 vertices for Washington (91,865 repeated vertices at chunk boundaries).
-All pages are resident; there is no streaming. Padding costs three vertex
-invocations per padded triangle, with no vertex-page fetch or raster fragments.
-
-| Asset / layout / mode | Selected clusters | Main triangles | Main padding | Main draws | Shadow triangles | Shadow padding | Shadow draws | GPU resident bytes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| gaul / single / cluster | 1,281 | 148,718 | 15,250 | 4 | 87,476 | 9,932 | 4 | 287,510,048 |
-| gaul / single / naive | 0 | 4,000,020 | 0 | 1 | 4,000,020 | 0 | 1 | 237,488,124 |
-| gaul / ring:12 / cluster | 904 | 104,134 | 11,578 | 4 | 84,504 | 7,656 | 4 | 287,502,560 |
-| gaul / ring:12 / naive | 0 | 48,000,240 | 0 | 1 | 48,000,240 | 0 | 1 | 237,488,828 |
-| gaul / grid:400 / cluster | 3,425 | 408,496 | 29,904 | 4 | 271,040 | 15,680 | 4 | 287,576,544 |
-| gaul / grid:400 / naive | 0 | 1,600,008,000 | 0 | 1 | 1,600,008,000 | 0 | 1 | 237,513,660 |
-| washington / single / cluster | 4,361 | 467,930 | 90,278 | 18 | 343,882 | 68,278 | 18 | 775,404,056 |
-| washington / single / naive | 0 | 16,860,930 | 0 | 2 | 16,860,930 | 0 | 2 | 534,102,484 |
-| washington / ring:12 / cluster | 9,627 | 945,870 | 286,386 | 18 | 765,936 | 253,968 | 18 | 775,526,512 |
-| washington / ring:12 / naive | 0 | 202,331,160 | 0 | 2 | 202,331,160 | 0 | 2 | 534,103,188 |
-| washington / grid:400 / cluster | 156,162 | 13,681,274 | 6,307,462 | 18 | 12,114,320 | 6,112,880 | 18 | 779,549,040 |
-| washington / grid:400 / naive | 0 | 6,744,372,000 | 0 | 2 | 6,744,372,000 | 0 | 2 | 534,128,020 |
-
-Readback is another 14,745,632 bytes with timing, 14,745,600 without; ordinary
-render residency is 32 bytes below the timing table (query resolve buffer).
-CPU and GPU columns are independent medians in ms, so median GPU total need
-not equal the sum of the two pass medians. CPU selection includes the flat
-reference scan; encode excludes image readback and PNG encoding.
-
-| Asset / layout / mode | CPU main select | CPU shadow select | Encode | GPU main | GPU shadow | GPU total |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| gaul / single / cluster | 0.387958 | 0.112917 | 0.330875 | 0.523416 | 0.066875 | 0.589749 |
-| gaul / single / naive | 0.000000 | 0.000000 | 0.252833 | 0.998958 | 0.408667 | 1.407625 |
-| gaul / ring:12 / cluster | 1.218583 | 0.873042 | 0.283791 | 0.821500 | 0.137542 | 0.958250 |
-| gaul / ring:12 / naive | 0.000000 | 0.000000 | 0.360875 | 2.496084 | 2.221500 | 4.775041 |
-| gaul / grid:400 / cluster | 41.136750 | 36.521958 | 0.388250 | 1.171833 | 0.280333 | 1.452333 |
-| gaul / grid:400 / naive | 0.000000 | 0.000000 | 0.308625 | 74.835041 | 68.507250 | 143.091416 |
-| washington / single / cluster | 1.369125 | 1.153916 | 0.538042 | 1.815125 | 0.375125 | 2.190375 |
-| washington / single / naive | 0.000041 | 0.000041 | 0.295834 | 1.801375 | 1.150958 | 2.985209 |
-| washington / ring:12 / cluster | 15.557625 | 11.600000 | 0.495250 | 1.149458 | 0.395666 | 1.545124 |
-| washington / ring:12 / naive | 0.000000 | 0.000042 | 0.348083 | 10.148542 | 8.677917 | 18.802041 |
-| washington / grid:400 / cluster | 368.294541 | 345.027375 | 0.759666 | 6.294709 | 9.318000 | 15.719375 |
-| washington / grid:400 / naive | 0.000042 | 0.000041 | 0.600250 | 455.821708 | 441.419334 | 881.973750 |
-
-Gaul grid: GPU ratio 98.53×; summed measured CPU selection + encode + GPU medians 79.499 ms cluster vs 143.400 ms naive. This sum is a cost estimate, not measured frame latency. Padding is 6.82% of submitted cluster triangles.
-
-Washington grid: GPU ratio 56.11×; summed measured CPU selection + encode + GPU medians 729.801 ms cluster vs 882.574 ms naive. This sum is a cost estimate, not measured frame latency. Padding is 31.56% of submitted cluster triangles.
-
-The GPU reduction is real, but the CPU reference scan prevents interactive
-large scenes: Washington grid spends hundreds of milliseconds selecting each
-pass. Moving that work to compute is L2b's measurable target. Small single-mesh
-views are much closer on GPU time, because rasterizing the image and ground
-still costs time after reducing geometry.
-
-### Image comparison tables
-
-For each asset: `target/debug/clod-view compare <out>/<asset>-1.clod
---threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1 --size 2560x1440
---out <out>/L2a/<asset>/compare`. Mean and fraction are normalized 0..1;
-max is printed in byte units (divide by 255 for normalized max).
-These include the coarser cluster shadow versus the full-resolution naive shadow.
-
-#### Gaul
-
-| Threshold px | t | Mean absolute | Max byte | Fraction >2/255 | Cluster triangles | Naive triangles | Cluster shadow triangles |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.5 | 0 | 0.000439128 | 75 | 0.013124457 | 329,938 | 4,000,020 | 230,100 |
-| 1 | 0 | 0.000574163 | 107 | 0.017065158 | 148,718 | 4,000,020 | 87,476 |
-| 2 | 0 | 0.000770215 | 130 | 0.021299642 | 68,412 | 4,000,020 | 36,758 |
-| 4 | 0 | 0.001009394 | 124 | 0.026478950 | 33,300 | 4,000,020 | 15,738 |
-| 8 | 0 | 0.001458510 | 133 | 0.033742405 | 12,900 | 4,000,020 | 7,042 |
-| 0.5 | 0.25 | 0.000551133 | 87 | 0.016104872 | 403,558 | 4,000,020 | 230,100 |
-| 1 | 0.25 | 0.000729212 | 101 | 0.021258952 | 173,636 | 4,000,020 | 87,476 |
-| 2 | 0.25 | 0.000974700 | 132 | 0.027343750 | 78,690 | 4,000,020 | 36,758 |
-| 4 | 0.25 | 0.001303787 | 129 | 0.034737956 | 36,758 | 4,000,020 | 15,738 |
-| 8 | 0.25 | 0.001807057 | 131 | 0.043368056 | 18,522 | 4,000,020 | 7,042 |
-| 0.5 | 0.5 | 0.000885026 | 91 | 0.024264052 | 615,737 | 4,000,020 | 230,100 |
-| 1 | 0.5 | 0.001185656 | 95 | 0.034252387 | 308,203 | 4,000,020 | 87,476 |
-| 2 | 0.5 | 0.001551233 | 122 | 0.045083008 | 148,027 | 4,000,020 | 36,758 |
-| 4 | 0.5 | 0.001984419 | 120 | 0.054493544 | 78,589 | 4,000,020 | 15,738 |
-| 8 | 0.5 | 0.002799733 | 126 | 0.071214735 | 36,653 | 4,000,020 | 7,042 |
-| 0.5 | 0.75 | 0.000750771 | 51 | 0.017654351 | 742,530 | 4,000,020 | 230,100 |
-| 1 | 0.75 | 0.001542177 | 64 | 0.044855143 | 400,696 | 4,000,020 | 87,476 |
-| 2 | 0.75 | 0.002242411 | 90 | 0.067905816 | 227,029 | 4,000,020 | 36,758 |
-| 4 | 0.75 | 0.003205039 | 111 | 0.093610569 | 127,962 | 4,000,020 | 15,738 |
-| 8 | 0.75 | 0.004758052 | 111 | 0.117682292 | 84,725 | 4,000,020 | 7,042 |
-| 0.5 | 1 | 0.001318314 | 21 | 0.057992622 | 434,594 | 4,000,020 | 230,100 |
-| 1 | 1 | 0.002094026 | 31 | 0.083525662 | 371,365 | 4,000,020 | 87,476 |
-| 2 | 1 | 0.002964863 | 51 | 0.100791829 | 230,455 | 4,000,020 | 36,758 |
-| 4 | 1 | 0.004193963 | 51 | 0.132863227 | 149,616 | 4,000,020 | 15,738 |
-| 8 | 1 | 0.012004740 | 85 | 0.242714030 | 103,675 | 4,000,020 | 7,042 |
-
-#### Washington
-
-| Threshold px | t | Mean absolute | Max byte | Fraction >2/255 | Cluster triangles | Naive triangles | Cluster shadow triangles |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0.5 | 0 | 0.000396037 | 76 | 0.012555881 | 896,890 | 16,860,930 | 706,488 |
-| 1 | 0 | 0.000560972 | 90 | 0.018231879 | 467,930 | 16,860,930 | 343,882 |
-| 2 | 0 | 0.000772165 | 90 | 0.023257107 | 244,610 | 16,860,930 | 172,572 |
-| 4 | 0 | 0.001038898 | 106 | 0.028988715 | 136,708 | 16,860,930 | 96,146 |
-| 8 | 0 | 0.001408524 | 120 | 0.034767253 | 82,274 | 16,860,930 | 58,498 |
-| 0.5 | 0.25 | 0.000470920 | 67 | 0.014418945 | 1,050,532 | 16,860,930 | 706,488 |
-| 1 | 0.25 | 0.000686127 | 89 | 0.021952040 | 547,636 | 16,860,930 | 343,882 |
-| 2 | 0.25 | 0.000927901 | 89 | 0.028677843 | 286,588 | 16,860,930 | 172,572 |
-| 4 | 0.25 | 0.001287559 | 104 | 0.036565484 | 154,892 | 16,860,930 | 96,146 |
-| 8 | 0.25 | 0.001748571 | 119 | 0.044445258 | 92,082 | 16,860,930 | 58,498 |
-| 0.5 | 0.5 | 0.000588298 | 63 | 0.016377224 | 1,457,655 | 16,860,930 | 706,488 |
-| 1 | 0.5 | 0.000888772 | 76 | 0.026855469 | 803,542 | 16,860,930 | 343,882 |
-| 2 | 0.5 | 0.001293488 | 86 | 0.039289551 | 424,701 | 16,860,930 | 172,572 |
-| 4 | 0.5 | 0.001739593 | 98 | 0.050486111 | 235,700 | 16,860,930 | 96,146 |
-| 8 | 0.5 | 0.002406155 | 107 | 0.062613932 | 141,742 | 16,860,930 | 58,498 |
-| 0.5 | 0.75 | 0.000432483 | 73 | 0.007083062 | 846,522 | 16,860,930 | 706,488 |
-| 1 | 0.75 | 0.000737666 | 74 | 0.016793349 | 514,744 | 16,860,930 | 343,882 |
-| 2 | 0.75 | 0.001137425 | 75 | 0.031436632 | 311,515 | 16,860,930 | 172,572 |
-| 4 | 0.75 | 0.001724902 | 159 | 0.049432509 | 190,767 | 16,860,930 | 96,146 |
-| 8 | 0.75 | 0.002293859 | 159 | 0.067272407 | 119,276 | 16,860,930 | 58,498 |
-| 0.5 | 1 | 0.000992809 | 31 | 0.038136936 | 133,446 | 16,860,930 | 706,488 |
-| 1 | 1 | 0.001104147 | 119 | 0.042827148 | 112,176 | 16,860,930 | 343,882 |
-| 2 | 1 | 0.001815562 | 120 | 0.064330512 | 83,489 | 16,860,930 | 172,572 |
-| 4 | 1 | 0.002758670 | 120 | 0.087069227 | 68,216 | 16,860,930 | 96,146 |
-| 8 | 1 | 0.004006336 | 120 | 0.117296821 | 52,213 | 16,860,930 | 58,498 |
-
-### Temporal comparisons
-
-`target/debug/clod-view pop <out>/<asset>-1.clod --threshold-px 1 --steps 240
---size 2560x1440 --out <out>/L2a/<asset>/pop`. t=step/239. 239 pairs per asset.
-The requested metric is the **excess MAD** column; the stronger spatial residual
-also exposes redistribution that can cancel in a difference of image means.
-
-| Asset | Max excess MAD | Step | Max temporal residual | Step | Command wall seconds |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| gaul | 0.000113175580 | 220 | 0.003234335640 | 195 | 9.742247 |
-| washington | 0.000217941517 | 231 | 0.001760733323 | 173 | 13.902593 |
-
-The metric is nonzero: there is no claim of mathematically pop-free rendering.
-All 240 samples of each initial path were reproduced exactly after changing
-only PNG output scheduling; the corrected invariant-shadow sweep above is the
-final result. It saves `pop-before.png`, `pop-after.png` and both naive frames.
-
-### Visual inspection and limits
-
-Opened the lit full-scene and close-up PNGs for both scans, both worst-pair
-reference images, cluster colors and the Washington grid. The statues are
-upright, visibly lit, cast shadows and show carved hair at the endpoint;
-cluster colors form contiguous patches over the same visible surface. No black
-frame, accidental sliver or globally inverted normals was seen. The close-ups
-show source facets and visibly coarse shadow edges. At 8 px the worst-pair
-images show altered relief/shadow detail; small mean RGB errors do not imply
-that every feature is visually identical.
-
-The L2a results above are from the offscreen CPU-reference lane. The browser library compiles but has
-not been driven in a browser, and there is no interactive window, streaming,
-occlusion culling or LOD morphing. L2b results below cover GPU selection. The declared
-regression bounds apply to the measured fixtures/cameras, not arbitrary meshes.
-
-Useful local PNGs: `<out>/L2a/<asset>/render-single-cluster.png`,
-`debug-clusters.png`, `compare/worst-{cluster,naive,diff-10x}.png`,
-`pop/pop-{before,after}.png`. `<out>` means
-`~/Library/Caches/exact2-cluster-lod/out` throughout this report.
-
-<details>
-<summary>Exact render and timing JSON lines for all six requested scene/mode pairs per asset</summary>
-
-The original numeric fields are preserved. `out` paths use `<out>` below.
-
-```jsonl
-{"asset":"gaul","bytes_resident_gpu":287510016,"command":"render","draws":4,"encode_ms":1.3777920000000001,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2a/gaul/render-single-cluster.png","padding_triangles":15250,"readback_bytes":14745600,"selected_clusters":1281,"selection_ms":0.390125,"shadow_clusters":761,"shadow_draws":4,"shadow_padding":9932,"shadow_selection_ms":0.10162500000000001,"shadow_triangles":87476,"size":[2560,1440],"submitted_vertices_or_indices":491904,"t":0.0,"threshold_px":1.0,"triangles_drawn":148718,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":287510048,"command":"time","draws":4,"encode_ms":0.33087500000000003,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"gpu_main_ms":0.523416,"gpu_ms":0.589749,"gpu_shadow_ms":0.066875,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2a/gaul/time-single-cluster.png","padding_triangles":15250,"readback_bytes":14745632,"selected_clusters":1281,"selection_ms":0.38795799999999997,"shadow_clusters":761,"shadow_draws":4,"shadow_padding":9932,"shadow_selection_ms":0.112917,"shadow_triangles":87476,"size":[2560,1440],"submitted_vertices_or_indices":491904,"t":0.0,"threshold_px":1.0,"triangles_drawn":148718,"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237488092,"command":"render","draws":1,"encode_ms":1.045125,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"naive","out":"<out>/L2a/gaul/render-single-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":4.2e-05,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":4000020,"size":[2560,1440],"submitted_vertices_or_indices":12000060,"t":0.0,"threshold_px":1.0,"triangles_drawn":4000020,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":237488124,"command":"time","draws":1,"encode_ms":0.252833,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"gpu_main_ms":0.9989579999999999,"gpu_ms":1.407625,"gpu_shadow_ms":0.408667,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"naive","out":"<out>/L2a/gaul/time-single-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":4000020,"size":[2560,1440],"submitted_vertices_or_indices":12000060,"t":0.0,"threshold_px":1.0,"triangles_drawn":4000020,"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287502528,"command":"render","draws":4,"encode_ms":1.1888750000000001,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"ring:12","measured_frames":1,"mode":"cluster","out":"<out>/L2a/gaul/render-ring-12-cluster.png","padding_triangles":11578,"readback_bytes":14745600,"selected_clusters":904,"selection_ms":1.198042,"shadow_clusters":720,"shadow_draws":4,"shadow_padding":7656,"shadow_selection_ms":0.80325,"shadow_triangles":84504,"size":[2560,1440],"submitted_vertices_or_indices":347136,"t":0.0,"threshold_px":1.0,"triangles_drawn":104134,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":287502560,"command":"time","draws":4,"encode_ms":0.28379099999999996,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"gpu_main_ms":0.8215,"gpu_ms":0.95825,"gpu_shadow_ms":0.137542,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2a/gaul/time-ring-12-cluster.png","padding_triangles":11578,"readback_bytes":14745632,"selected_clusters":904,"selection_ms":1.218583,"shadow_clusters":720,"shadow_draws":4,"shadow_padding":7656,"shadow_selection_ms":0.873042,"shadow_triangles":84504,"size":[2560,1440],"submitted_vertices_or_indices":347136,"t":0.0,"threshold_px":1.0,"triangles_drawn":104134,"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237488796,"command":"render","draws":1,"encode_ms":1.020291,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"ring:12","measured_frames":1,"mode":"naive","out":"<out>/L2a/gaul/render-ring-12-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":48000240,"size":[2560,1440],"submitted_vertices_or_indices":144000720,"t":0.0,"threshold_px":1.0,"triangles_drawn":48000240,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":237488828,"command":"time","draws":1,"encode_ms":0.360875,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"gpu_main_ms":2.4960839999999997,"gpu_ms":4.775041,"gpu_shadow_ms":2.2215,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"naive","out":"<out>/L2a/gaul/time-ring-12-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":48000240,"size":[2560,1440],"submitted_vertices_or_indices":144000720,"t":0.0,"threshold_px":1.0,"triangles_drawn":48000240,"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287576512,"command":"render","draws":4,"encode_ms":1.848167,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"grid:400","measured_frames":1,"mode":"cluster","out":"<out>/L2a/gaul/render-grid-400-cluster.png","padding_triangles":29904,"readback_bytes":14745600,"selected_clusters":3425,"selection_ms":47.747833,"shadow_clusters":2240,"shadow_draws":4,"shadow_padding":15680,"shadow_selection_ms":46.315416,"shadow_triangles":271040,"size":[2560,1440],"submitted_vertices_or_indices":1315200,"t":0.0,"threshold_px":1.0,"triangles_drawn":408496,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":287576544,"command":"time","draws":4,"encode_ms":0.38825,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"gpu_main_ms":1.171833,"gpu_ms":1.4523329999999999,"gpu_shadow_ms":0.280333,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2a/gaul/time-grid-400-cluster.png","padding_triangles":29904,"readback_bytes":14745632,"selected_clusters":3425,"selection_ms":41.13675,"shadow_clusters":2240,"shadow_draws":4,"shadow_padding":15680,"shadow_selection_ms":36.521958,"shadow_triangles":271040,"size":[2560,1440],"submitted_vertices_or_indices":1315200,"t":0.0,"threshold_px":1.0,"triangles_drawn":408496,"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237513628,"command":"render","draws":1,"encode_ms":1.2495,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"grid:400","measured_frames":1,"mode":"naive","out":"<out>/L2a/gaul/render-grid-400-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":4.1e-05,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.000125,"shadow_triangles":1600008000,"size":[2560,1440],"submitted_vertices_or_indices":4800024000,"t":0.0,"threshold_px":1.0,"triangles_drawn":1600008000,"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":237513660,"command":"time","draws":1,"encode_ms":0.308625,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"gpu_main_ms":74.83504099999999,"gpu_ms":143.09141599999998,"gpu_shadow_ms":68.50725,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"naive","out":"<out>/L2a/gaul/time-grid-400-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":1,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":1600008000,"size":[2560,1440],"submitted_vertices_or_indices":4800024000,"t":0.0,"threshold_px":1.0,"triangles_drawn":1600008000,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":775404024,"command":"render","draws":18,"encode_ms":2.078834,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2a/washington/render-single-cluster.png","padding_triangles":90278,"readback_bytes":14745600,"selected_clusters":4361,"selection_ms":0.550625,"shadow_clusters":3220,"shadow_draws":18,"shadow_padding":68278,"shadow_selection_ms":0.48304100000000005,"shadow_triangles":343882,"size":[2560,1440],"submitted_vertices_or_indices":1674624,"t":0.0,"threshold_px":1.0,"triangles_drawn":467930,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":775404056,"command":"time","draws":18,"encode_ms":0.538042,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"gpu_main_ms":1.8151249999999999,"gpu_ms":2.190375,"gpu_shadow_ms":0.375125,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2a/washington/time-single-cluster.png","padding_triangles":90278,"readback_bytes":14745632,"selected_clusters":4361,"selection_ms":1.369125,"shadow_clusters":3220,"shadow_draws":18,"shadow_padding":68278,"shadow_selection_ms":1.1539160000000002,"shadow_triangles":343882,"size":[2560,1440],"submitted_vertices_or_indices":1674624,"t":0.0,"threshold_px":1.0,"triangles_drawn":467930,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534102452,"command":"render","draws":2,"encode_ms":1.2175420000000001,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"naive","out":"<out>/L2a/washington/render-single-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":4.2e-05,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":0.000125,"shadow_triangles":16860930,"size":[2560,1440],"submitted_vertices_or_indices":50582790,"t":0.0,"threshold_px":1.0,"triangles_drawn":16860930,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":534102484,"command":"time","draws":2,"encode_ms":0.295834,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"gpu_main_ms":1.801375,"gpu_ms":2.9852090000000002,"gpu_shadow_ms":1.150958,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"naive","out":"<out>/L2a/washington/time-single-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":4.1e-05,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":4.1e-05,"shadow_triangles":16860930,"size":[2560,1440],"submitted_vertices_or_indices":50582790,"t":0.0,"threshold_px":1.0,"triangles_drawn":16860930,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":775526480,"command":"render","draws":18,"encode_ms":1.7979999999999998,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"ring:12","measured_frames":1,"mode":"cluster","out":"<out>/L2a/washington/render-ring-12-cluster.png","padding_triangles":286386,"readback_bytes":14745600,"selected_clusters":9627,"selection_ms":13.950707999999999,"shadow_clusters":7968,"shadow_draws":18,"shadow_padding":253968,"shadow_selection_ms":12.137208,"shadow_triangles":765936,"size":[2560,1440],"submitted_vertices_or_indices":3696768,"t":0.0,"threshold_px":1.0,"triangles_drawn":945870,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":775526512,"command":"time","draws":18,"encode_ms":0.49525,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"gpu_main_ms":1.1494579999999999,"gpu_ms":1.545124,"gpu_shadow_ms":0.39566599999999996,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2a/washington/time-ring-12-cluster.png","padding_triangles":286386,"readback_bytes":14745632,"selected_clusters":9627,"selection_ms":15.557625,"shadow_clusters":7968,"shadow_draws":18,"shadow_padding":253968,"shadow_selection_ms":11.6,"shadow_triangles":765936,"size":[2560,1440],"submitted_vertices_or_indices":3696768,"t":0.0,"threshold_px":1.0,"triangles_drawn":945870,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534103156,"command":"render","draws":2,"encode_ms":1.1165829999999999,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"ring:12","measured_frames":1,"mode":"naive","out":"<out>/L2a/washington/render-ring-12-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":202331160,"size":[2560,1440],"submitted_vertices_or_indices":606993480,"t":0.0,"threshold_px":1.0,"triangles_drawn":202331160,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":534103188,"command":"time","draws":2,"encode_ms":0.34808300000000003,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"gpu_main_ms":10.148541999999999,"gpu_ms":18.802041,"gpu_shadow_ms":8.677916999999999,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"naive","out":"<out>/L2a/washington/time-ring-12-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":0.0,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":4.2e-05,"shadow_triangles":202331160,"size":[2560,1440],"submitted_vertices_or_indices":606993480,"t":0.0,"threshold_px":1.0,"triangles_drawn":202331160,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":779549008,"command":"render","draws":18,"encode_ms":2.112208,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"grid:400","measured_frames":1,"mode":"cluster","out":"<out>/L2a/washington/render-grid-400-cluster.png","padding_triangles":6307462,"readback_bytes":14745600,"selected_clusters":156162,"selection_ms":406.417959,"shadow_clusters":142400,"shadow_draws":18,"shadow_padding":6112880,"shadow_selection_ms":360.568542,"shadow_triangles":12114320,"size":[2560,1440],"submitted_vertices_or_indices":59966208,"t":0.0,"threshold_px":1.0,"triangles_drawn":13681274,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":779549040,"command":"time","draws":18,"encode_ms":0.759666,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"gpu_main_ms":6.294709,"gpu_ms":15.719375,"gpu_shadow_ms":9.318,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2a/washington/time-grid-400-cluster.png","padding_triangles":6307462,"readback_bytes":14745632,"selected_clusters":156162,"selection_ms":368.294541,"shadow_clusters":142400,"shadow_draws":18,"shadow_padding":6112880,"shadow_selection_ms":345.027375,"shadow_triangles":12114320,"size":[2560,1440],"submitted_vertices_or_indices":59966208,"t":0.0,"threshold_px":1.0,"triangles_drawn":13681274,"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534127988,"command":"render","draws":2,"encode_ms":1.157959,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"gpu_main_ms":null,"gpu_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"grid:400","measured_frames":1,"mode":"naive","out":"<out>/L2a/washington/render-grid-400-naive.png","padding_triangles":0,"readback_bytes":14745600,"selected_clusters":0,"selection_ms":4.2e-05,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":6744372000,"size":[2560,1440],"submitted_vertices_or_indices":20233116000,"t":0.0,"threshold_px":1.0,"triangles_drawn":6744372000,"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":534128020,"command":"time","draws":2,"encode_ms":0.60025,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"gpu_main_ms":455.821708,"gpu_ms":881.97375,"gpu_shadow_ms":441.419334,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"naive","out":"<out>/L2a/washington/time-grid-400-naive.png","padding_triangles":0,"readback_bytes":14745632,"selected_clusters":0,"selection_ms":4.2e-05,"shadow_clusters":0,"shadow_draws":2,"shadow_padding":0,"shadow_selection_ms":4.1e-05,"shadow_triangles":6744372000,"size":[2560,1440],"submitted_vertices_or_indices":20233116000,"t":0.0,"threshold_px":1.0,"triangles_drawn":6744372000,"view":"lit","warmup_frames":1}
-```
-
-</details>
-
-
-## L2b verification and measurements
-
-Run from this workspace: `python3 measure.py verify`, `python3 measure.py oracles`,
-then `python3 measure.py sweep`. Raw commands, recorded child PIDs and exit codes
-are in `<out>/L2b/{processes,runs}.jsonl`; each command's JSON lines and stderr are
-in `<out>/L2b/<case>.log`. Images remain in that cache directory. No vendor,
-workspace-root, engine, rule, or LLP file was changed.
+Pop remains a report, not a quality test. No pop-bound claim is made. FFI structural
+repairs were verified through bakes rather than fabricated runtime failing cases.
 
 ### Verification
 
-| Command | Result | Wall seconds |
-| --- | --- | ---: |
-| `cargo test --workspace --no-fail-fast -- --nocapture` | 6 passed; no GPU skips | 25.375433 |
-| `cargo clippy --all-targets -- -D warnings` | passed | 0.794380 |
-| `cargo fmt --all -- --check` | passed | 0.117755 |
-| `cargo build -p clod-format --target wasm32-unknown-unknown` | passed | 0.104719 |
-| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | passed | 0.697083 |
-| `clod-view oracle <out>/gaul-1.clod --steps 64 --size 256x256` | passed | 9.627883 |
-| `clod-view oracle <out>/washington-1.clod --steps 64 --size 256x256` | passed | 39.938490 |
+Command: `bun measure.mjs verify`. 18 tests passed; zero GPU/asset skips.
 
-All oracle commands request **zero features** and exactly `Limits::default()`;
-selection uses seven storage bindings, raster uses five, workgroups contain 256
-invocations, and the largest dispatch is 5,000 workgroups in the measured scenes.
-Both WGSL files validate with Naga's empty capability set at build time. Source
-caps: 38 Rust/WGSL/Python/C++ files, maximum 678 lines, zero over 1,500.
+| Command | Exit | Wall seconds |
+| --- | --- | --- |
+| `cargo test --workspace --no-fail-fast -- --nocapture` | 0 | 72.81098458299999 |
+| `cargo clippy --all-targets -- -D warnings` | 0 | 1.4698457909999998 |
+| `cargo fmt --all -- --check` | 0 | 0.14374258299999929 |
+| `cargo build -p clod-format --target wasm32-unknown-unknown` | 0 | 0.10872258400000283 |
+| `cargo build -p clod-view --lib --target wasm32-unknown-unknown` | 0 | 0.9148390840000066 |
 
-| Fixture | Cameras/layout | Layouts | Identical set/image pairs | Near-boundary differences | Exact color + shadow culling pairs | Identical repeated PNGs | Overflow drops (three tiny-capacity cases) |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| L1 octasphere, 192² | 64 | 3 | 192 | 0 | 96 | 192 | 4,041 |
-| Gaul, 256² | 64 | 3 | 192 | 0 | 96 | 192 | 3,520 |
-| Washington, 256² | 64 | 3 | 192 | 0 | 96 | 192 | 276,958 |
+45 source files; maximum 705 lines (`view/src/gpu.rs`); two WGSL shaders validate with no capabilities. Rendering: zero required features, eight storage bindings/stage, 134,217,728-byte storage binding and 268,435,456-byte buffer limits.
 
-The three layouts are `single`, `ring:12`, `grid:400`. Half the cameras follow
-far-to-detail; half are inside the scene looking outward. Total: 576 set/image
-pairs, 32,243,712 color pixels compared exactly, 288 culling pairs with direct
-2048² shadow-depth byte comparisons, and 576 deterministic PNG pairs. No draw-order
-pixel exception was needed: stable page/instance/cluster order is preserved.
-The 64 unculled procedural GPU cuts checked 5,927,820 decoded triangles with
-L1's shared edge oracle: zero bad edges. No 1e-5 boundary exceptions occurred;
-when one does, the CLI checks the affected unculled GPU main/light cuts' edges.
-The two real scans are not asserted to be closed manifolds.
+| Gate | Measured result |
+| --- | --- |
+| 21-fixture closed topology | 10,815 cuts, 621,330,298 triangle occurrences, 0 failures, 33.439433416 s |
+| L1 camera cuts | 240 cameras, 105 distinct sizes, 2,038–524,288 triangles, 28,936,928 occurrences including 15 uniform cuts; zero edges/overlaps |
+| Procedural threshold 0 | 306,628 culled triangles from 524,288 source; RGB max/mean/fraction = 0 |
+| Procedural 1 px | 27,580 triangles +2,372 padding, 17 draws; mean 0.003517335934663217, max 61/255, fraction 0.12141927083333333 |
+| Planar threshold 0 | 9 cases ×32,768 triangles, scales 1 or 1e-20, distances 1 or 1e20; all source cuts |
+| Depth at 100 / separation .01 | Before both 0.99998206; after 1.8000037e-5 / 1.7998036e-5; both paths return near red [213,2,1,255] |
+| Reader / arithmetic | 36 corruptions, 5 accessor overflows, 4 writer cases; all rejected as expected |
+| Loaders / normals | 8 formats, 3 malformed inputs, 3 CLI commands; 6 extreme normals; two glTF primitives retain 3 authored +3 generated normals |
+| Timing | 8 shadows on/off render cases and 5 modular-arithmetic cases; all pass |
+| Shadow depth | 4,532,800 clusters /499,906,400 triangles; configured and sphere-only cuts both match unculled pixels exactly |
 
-All nine capacity-one cases matched the CPU's exact retained cluster subsets,
-exact drop counts and rendered pixels, without validation errors. They dropped
-284,519 selected clusters in total. This verifies safe deterministic degradation;
-it does **not** claim that an overflowing cut stays watertight. Normal measurement
-scenes have zero overflow in both passes. L1's numerical, corruption, loader and
-byte-determinism checks, L2a's procedural images, and its 12 real-asset baseline
-comparisons remain green. The subdivision-6 limitation is documented in decision 28.
+Command: `cargo test -p clod-view --test coverage -- --nocapture`. 512², one-pixel silhouette exclusion, fully covered MSAA interior.
 
-### Timing method
+| Asset | Cameras / mixed | Interior pixels | Missing | Injected cracks detected |
+| --- | --- | --- | --- | --- |
+| gaul | 48 / 48 | 3,094,126 | 0 | 1 |
+| washington | 48 / 48 | 3,985,199 | 0 | 1 |
 
-Every timing row is `target/debug/clod-view time <out>/<asset>-1.clod --layout
-<layout> --size 2560x1440 --threshold-px 1 --frames 7 --select <gpu|brute|cpu>
---out <out>/L2b/<case>.png`; naive substitutes `--mode naive`. One warmup, then
-seven measured frames; medians are per column, so totals need not sum across
-median columns. `GPU select` includes selection and stable compaction for **both**
-passes. `CPU` is both selections plus encoding/submission. `Completion` measures
-encode start through completed pixel readback; it excludes CPU reference selection,
-post-frame counter diagnostics, PNG encoding and scene load. Resident bytes count
-allocated buffers/textures, excluding diagnostic staging, driver and shader memory.
-All geometry and instance records are resident and immutable after scene load.
+Each injected one-pixel crack has mean 0.0000012715657552083333, fraction 0.000003814697265625, max 255/255: the old mean gate accepts it; localized coverage detects it.
 
-Initial main timestamp failures and the three-round stop are documented in
-decision 27. Each final JSON reports valid timestamp sample counts explicitly;
-a stage with fewer than seven valid measured samples is null, not a partial median.
-The completed-frame host-clock number provides an independent latency measurement.
+Command: `bun measure.mjs oracles` (real scans) and `cargo test -p clod-view --test gpu_selection -- --nocapture` (procedural). All image comparisons include numerical-boundary cases.
 
-Final 32 rows have **7/7 valid samples for every timing column**, zero invalid
-counter lines, and zero overflow. The GPU/brute rows were refreshed after the
-terminal-sentinel guard; CPU/naive code was unchanged. Measured PNGs are byte-identical
-for all 16 GPU-vs-CPU and GPU-vs-brute comparisons, including both 5,000-instance
-fields. Main/shadow cluster, useful-triangle and padding counts also match.
-Six additional endpoint-threshold cases agree exactly: zero selects
-524,288 / 4,000,020 / 16,860,930 triangles; `f32::MAX / 2` selects
-126 / 114 / 24,515, for the fixture / Gaul / Washington, in both passes.
+| Asset | Cuts / exact images | Pixels | Cull pairs | Deterministic PNGs | Boundary pairs | One-slot drops | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| procedural | 192 / 192 | 7,077,888 | 96 | 192 | 0 | 15,114 | 0 |
+| gaul | 192 / 192 | 12,582,912 | 96 | 192 | 1 | 2,019,560 | 0 |
+| washington | 192 / 192 | 12,582,912 | 96 | 192 | 1 | 8,995,784 | 0 |
 
-| Asset / layout / selector | CPU ms | GPU select ms | GPU main ms | GPU shadow ms | GPU total ms | Completion ms |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| gaul / single / gpu | 0.502791 | 0.424125 | 0.532042 | 0.066791 | 1.022126 | 3.901209 |
-| gaul / single / brute | 0.522625 | 1.958334 | 0.477792 | 0.060250 | 2.495542 | 5.076250 |
-| gaul / single / cpu | 1.686917 | 0.000000 | 1.352208 | 0.154167 | 1.509458 | 4.507125 |
-| gaul / single / naive | 0.429334 | 0.000000 | 0.982292 | 0.435833 | 1.468416 | 4.871083 |
-| gaul / ring:12 / gpu | 0.490584 | 0.244041 | 0.810542 | 0.138083 | 1.193917 | 3.848709 |
-| gaul / ring:12 / brute | 0.441666 | 0.997791 | 0.175958 | 0.031875 | 1.205916 | 3.894583 |
-| gaul / ring:12 / cpu | 4.844125 | 0.000000 | 0.812166 | 0.140333 | 0.952125 | 4.294291 |
-| gaul / ring:12 / naive | 0.413833 | 0.000000 | 2.456833 | 2.225791 | 4.674041 | 8.165000 |
-| gaul / grid:400 / gpu | 0.453875 | 2.067667 | 0.272291 | 0.164959 | 2.504917 | 4.852750 |
-| gaul / grid:400 / brute | 0.422833 | 4.274542 | 0.242875 | 0.061333 | 4.581791 | 6.910250 |
-| gaul / grid:400 / cpu | 92.764084 | 0.000000 | 1.165208 | 0.282375 | 1.447583 | 5.008375 |
-| gaul / grid:400 / naive | 0.453042 | 0.000000 | 76.843792 | 68.361459 | 147.098750 | 151.425542 |
-| gaul / field:5000,1 / gpu | 0.435125 | 5.505250 | 0.319917 | 0.110208 | 5.932291 | 8.442875 |
-| gaul / field:5000,1 / brute | 0.445917 | 46.030417 | 0.322916 | 0.109958 | 46.463376 | 48.958917 |
-| gaul / field:5000,1 / cpu | 1275.701542 | 0.000000 | 1.484750 | 0.514875 | 1.999917 | 13.590708 |
-| gaul / field:5000,1 / naive | 0.812417 | 0.000000 | 1148.077583 | 1055.947083 | 2205.199417 | 2221.871500 |
-| washington / single / gpu | 0.549166 | 3.368291 | 0.635500 | 0.127250 | 4.179708 | 6.616042 |
-| washington / single / brute | 0.505042 | 4.329042 | 0.398875 | 0.078917 | 4.806626 | 7.240792 |
-| washington / single / cpu | 13.314292 | 0.000000 | 1.816292 | 0.369334 | 2.185292 | 5.791041 |
-| washington / single / naive | 0.458541 | 0.000000 | 1.866917 | 1.218125 | 3.098124 | 6.628167 |
-| washington / ring:12 / gpu | 0.538292 | 0.319791 | 0.887208 | 0.306375 | 1.512791 | 4.109500 |
-| washington / ring:12 / brute | 0.515499 | 4.199542 | 0.455417 | 0.152208 | 4.798708 | 7.290084 |
-| washington / ring:12 / cpu | 42.050208 | 0.000000 | 2.121709 | 0.722291 | 2.853208 | 6.817459 |
-| washington / ring:12 / naive | 0.386250 | 0.000000 | 10.057334 | 8.542875 | 18.755084 | 21.450916 |
-| washington / grid:400 / gpu | 0.723000 | 0.620416 | 3.934208 | 2.238334 | 6.788916 | 9.748042 |
-| washington / grid:400 / brute | 0.548833 | 18.986000 | 3.894584 | 2.255333 | 25.136875 | 27.720667 |
-| washington / grid:400 / cpu | 995.470999 | 0.000000 | 6.329708 | 9.326833 | 15.645416 | 19.490667 |
-| washington / grid:400 / naive | 0.424792 | 0.000000 | 349.522209 | 330.212125 | 679.557000 | 686.124417 |
-| washington / field:5000,1 / gpu | 0.613958 | 6.948000 | 34.271083 | 23.094708 | 64.421874 | 67.651167 |
-| washington / field:5000,1 / brute | 0.602625 | 198.440208 | 34.221042 | 23.042208 | 255.820626 | 260.308500 |
-| washington / field:5000,1 / cpu | 18963.177751 | 0.000000 | 34.168334 | 32.682500 | 66.797583 | 100.922125 |
-| washington / field:5000,1 / naive | 0.911167 | 0.000000 | 4794.789875 | 4259.548667 | 9066.564792 | 9199.697708 |
+The procedural GPU oracle also checks 5,968,822 decoded triangles. Real scan closed-edge count is intentionally zero. Threshold-zero scan tests check 12 comparisons at 2560×1440, both triangle orders, t=0/.5/1: every max/mean/fraction is zero (18 GPU frames).
 
-CPU-reference submissions are separated by much longer CPU work than GPU-selected
-submissions. These are measured frame costs, not a controlled clock experiment;
-the different raster timings do not imply different triangle work.
+Command: `cargo test -p clod-bake --test oracles -- --nocapture`; 100,000 samples per row, one-sided cut→source.
 
-### Candidate scaling and resident geometry
+| Threshold | Cut triangles | Claimed refined error | Max distance | RMS | Max / claim | 4× +1e-6 gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.0010000000474974513 | 259,552 | 0.0009929724037647247 | 0.0007128301127924904 | 0.00008782397147560541 | 0.7178750487827139 | 0.003972889615058899 |
+| 0.009999999776482582 | 16,332 | 0.009320216253399849 | 0.005378318276093772 | 0.0011488024152074676 | 0.577059386806809 | 0.0372818650135994 |
+| 0.10000000149011612 | 2,038 | 0.04534897953271866 | 0.03280584918284454 | 0.005445760300585687 | 0.7234087629066841 | 0.18139691813087463 |
+| 1 | 2,038 | 0.04534897953271866 | 0.030166941867430696 | 0.005430983040835787 | 0.6652176560150745 | 0.18139691813087463 |
 
-`Candidates` and `clusters` below are main/shadow pairs. CPU and brute test the
-same candidate count at these cameras. Geometry and draws are identical across
-all three selectors. Draw columns exclude the one additional ground draw.
+### Repeated v2 bakes
 
-| Asset / layout | GPU candidates | CPU/brute candidates | Visible clusters | Useful triangles | Padding triangles | Main/shadow draws | GPU/brute resident bytes | CPU resident bytes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| gaul / single | 16,861 / 1,618 | 65,415 / 65,415 | 1,218 / 751 | 142,297 / 86,701 | 13,607 / 9,427 | 4 / 4 | 289,317,940 | 287,510,112 |
-| gaul / ring:12 | 1,487 / 720 | 784,980 / 784,980 | 895 / 720 | 103,957 / 84,504 | 10,603 / 7,656 | 4 / 4 | 303,711,352 | 287,502,624 |
-| gaul / grid:400 | 3,788 / 2,240 | 26,166,000 / 26,166,000 | 3,408 / 2,240 | 408,445 / 271,040 | 27,779 / 15,680 | 4 / 4 | 371,966,248 | 287,576,608 |
-| gaul / field:5000,1 | 5,528 / 5,000 | 327,075,000 / 327,075,000 | 5,457 / 5,000 | 628,496 / 570,000 | 70,000 / 70,000 | 4 / 4 | 372,769,448 | 287,936,544 |
-| washington / single | 209,901 / 23,885 | 281,343 / 281,343 | 4,160 / 3,143 | 452,524 / 339,461 | 79,956 / 62,843 | 18 / 18 | 783,208,660 | 775,404,120 |
-| washington / ring:12 | 59,732 / 37,692 | 3,376,116 / 3,376,116 | 9,475 / 7,880 | 940,530 / 763,947 | 272,270 / 244,693 | 18 / 18 | 845,109,928 | 775,526,576 |
-| washington / grid:400 | 371,502 / 245,520 | 112,537,200 / 112,537,200 | 155,455 / 141,700 | 13,674,953 / 12,112,720 | 6,223,287 / 6,024,880 | 18 / 18 | 861,672,472 | 779,549,104 |
-| washington / field:5000,1 | 2,496,205 / 1,949,105 | 1,406,715,000 / 1,406,715,000 | 1,496,826 / 1,489,948 | 124,878,597 / 124,177,569 | 66,715,131 / 66,535,775 | 18 / 18 | 864,021,272 | 809,203,632 |
+Commands: `target/release/clod-bake <source> <cache>/out/<asset>-2.clod`, repeated to `<asset>-2-repeat.clod`. Sources are the cached SMK STL and Smithsonian OBJ named below. Full phase records: `<out>/<asset>-bake-{0,1}.log`.
 
-| Asset / layout | Naive triangles per pass | Naive draws per pass | Naive resident bytes | Brute / range selection time ratio |
-| --- | ---: | ---: | ---: | ---: |
-| gaul / single | 4,000,020 | 1 | 237,488,188 | 4.617351× |
-| gaul / ring:12 | 48,000,240 | 1 | 237,488,892 | 4.088620× |
-| gaul / grid:400 | 1,600,008,000 | 1 | 237,513,724 | 2.067326× |
-| gaul / field:5000,1 | 20,000,100,000 | 1 | 237,808,124 | 8.361186× |
-| washington / single | 16,860,930 | 2 | 534,102,548 | 1.285234× |
-| washington / ring:12 | 202,331,160 | 2 | 534,103,252 | 13.132146× |
-| washington / grid:400 | 6,744,372,000 | 2 | 534,128,084 | 30.602048× |
-| washington / field:5000,1 | 84,304,650,000 | 2 | 534,422,484 | 28.560767× |
+| Asset | Source triangles / vertices | Clusters / groups / BVH | Depth / pages | File bytes | B/source triangle | Terminal triangles |
+| --- | --- | --- | --- | --- | --- | --- |
+| gaul | 4,000,020 / 1,999,991 | 62,852 / 3,921 / 4,494 | 6 / 4 | 132,955,424 | 33.238689806550965 | 296,378 |
+| washington | 16,860,930 / 9,022,298 | 269,362 / 16,851 / 19,275 | 7 / 17 | 597,206,000 | 35.41951719151909 | 1,249,766 |
 
-Washington `grid:400` meets the target in this run: **6.788916 ms GPU,
-0.723000 ms CPU**, with 9.748042 ms completed-frame
-latency including pixel transfer. Its two selections test 617,022 candidates
-instead of 225,074,400 (364.775324× fewer), and selection/compaction is
-30.602048× faster than brute force. Total GPU time
-is 100.098013× below the measured naive path. These are medians
-on this machine, not a cross-device guarantee.
+| Asset/run | Load s | Normals s | Build s | Encode s | Write s | Peak RSS bytes |
+| --- | --- | --- | --- | --- | --- | --- |
+| gaul/0 | 1.396051666 | 0.102508667 | 6.809361041 | 0.622238917 | 0.018604125 | 683,212,800 |
+| gaul/1 | 1.615406375 | 0.0767055 | 6.542359542 | 0.574022583 | 0.023276416 | 681,607,168 |
+| washington/0 | 10.680276375 | 0.1151795 | 26.470118792 | 3.143933583 | 0.189276417 | 2,654,011,392 |
+| washington/1 | 10.524749 | 0.098171666 | 29.162845375 | 2.7213552500000002 | 0.225657916 | 2,652,061,696 |
 
-Washington `field:5000,1` remains raster-limited: 124,878,597 useful main triangles
-plus 66,715,131 padding triangles, and 124,177,569 useful shadow triangles plus
-66,535,775 padding triangles. GPU selection removes the CPU scan but cannot remove
-this geometry floor. Its complete terminal cut is 296 clusters / 24,515 triangles /
-34,635 copied vertices; `clod-bake --cut <out>/washington-1.clod --threshold 1e30
---obj <out>/L2b-washington-terminal.obj` produced those counts. The original
-6,088-triangle figure counted only depth 11. The optional fallback experiment
-was not performed; decision 29 records why.
+gaul: source `smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl`, SHA-256 `4246ebd08faad0d3a83adf9d77e1117a509e98cfe93afe5e3ca36abc1ef7c2b2`. Both baked outputs: **`04614794a20f516ffaf79d835dd9476de38968a4a94ff73c08d95d4c61eddefc`**. Triangles per depth: 4,000,020, 1,998,656, 986,540, 453,509, 184,718, 62,586, 14,494; clusters per depth: 31,491, 16,767, 8,445, 3,899, 1,590, 535, 125.
 
-### Images inspected and remaining limits
+washington: source `si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj`, SHA-256 `ce558e481460d31678b1e31d4a18602cbede7a89fa83adddf109c3bd5be53cb9`. Both baked outputs: **`98d74ea42db9d4cf95fce58e2dba6c7e320f72bd3c93e4f75ae73f0e673a6f7a`**. Triangles per depth: 16,860,930, 8,408,464, 4,134,230, 1,924,118, 806,474, 267,311, 51,427, 3,224; clusters per depth: 133,228, 72,178, 36,448, 17,233, 7,303, 2,459, 483, 30.
 
-Opened `<out>/L2b/{gaul,washington}-close-{lit,clusters}.png` (2560×1440),
-`washington-grid-400-gpu.png`, `gaul-field-5000-1-gpu.png`, and the initial
-384² Gaul frame. The close-ups show carved relief, source facets and coarse
-shadow edges; cluster colors cover contiguous patches of the same surface.
-Washington has a small separate surface patch in the close-up; the camera
-oracles found no GPU-vs-CPU image difference. The grid shows repeated upright statues with shadows. The
-far field's individual statues are only a few pixels wide. The inherited large
-ground plane shows a stepped distant clipping boundary in wide views. No
-GPU-selection-only holes or garbage triangles were observed at normal capacity;
-the numerical image checks are stronger evidence than that visual inspection.
+### Timings
 
-This remains an offscreen demo with a continuous authored camera path. There is
-no interactive window, browser runtime validation, HZB, streaming, LOD morphing,
-or mathematical no-pop guarantee; L2a's nonzero temporal error measurements still
-apply. Capacity overflow intentionally drops geometry and is reported. Initial
-counter failures and the subdivision-6 bake's edge defects remain documented;
-all final required commands and measured camera oracles pass. No claim is made
-that arbitrary new meshes inherit the sampled image or topology bounds.
+Command: `bun measure.mjs sweep`. Apple M5 Max / Metal; 2560×1440, t=0, 1 px, one warmup +7 measured frames, median milliseconds. Both modes use the same instance-frustum cull. GPU select includes main and shadow selection; CPU includes selection +encode/submit. Shadows-on clusters use 2 px shadows; naive uses full resolution. Off rows remove the shadow pass. Main-pass comparisons therefore lead. Individual stage medians need not sum to the median total.
 
-<details>
-<summary>Exact final timing JSON for all 32 scene/selector cases and four inspected close-ups</summary>
+| Scene | Path / shadows / quota | Main ms | Shadow ms | GPU select ms | CPU ms | Main triangles | Drops main / shadow |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| gaul/single | gpu / on / 62852 | 0.733167 | 0.143584 | 0.436291 | 0.423792 | 289,677 | 0 / 0 |
+| gaul/single | brute / on / 62852 | 0.591791 | 0.116583 | 1.567333 | 0.533875 | 289,677 | 0 / 0 |
+| gaul/single | cpu / on / — | 1.719000 | 0.336625 | 0.000000 | 1.996583 | 289,677 | 0 / 0 |
+| gaul/single | naive / on / — | 1.060458 | 0.434834 | 0.000000 | 0.232500 | 4,000,020 | 0 / 0 |
+| gaul/single | gpu / off / 62852 | 0.540708 | 0.000000 | 0.317542 | 0.291916 | 289,677 | 0 / 0 |
+| gaul/single | naive / off / — | 0.788125 | 0.000000 | 0.000000 | 0.133625 | 4,000,020 | 0 / 0 |
+| gaul/ring:12 | gpu / on / 62852 | 0.915375 | 0.535000 | 0.151167 | 0.470792 | 3,401,146 | 0 / 0 |
+| gaul/ring:12 | brute / on / 62852 | 1.285166 | 0.732208 | 1.452499 | 0.425750 | 3,401,146 | 0 / 0 |
+| gaul/ring:12 | cpu / on / — | 1.412083 | 0.868625 | 0.000000 | 4.070584 | 3,401,146 | 0 / 0 |
+| gaul/ring:12 | naive / on / — | 2.505209 | 2.191792 | 0.000000 | 0.216709 | 48,000,240 | 0 / 0 |
+| gaul/ring:12 | gpu / off / 62852 | 1.470541 | 0.000000 | 0.131750 | 0.295583 | 3,401,146 | 0 / 0 |
+| gaul/ring:12 | naive / off / — | 2.408292 | 0.000000 | 0.000000 | 0.194250 | 48,000,240 | 0 / 0 |
+| gaul/grid:400 | gpu / on / 10485 | 22.331875 | 15.619375 | 0.774291 | 0.435541 | 111,876,590 | 0 / 0 |
+| gaul/grid:400 | brute / on / 10485 | 22.307000 | 15.630833 | 4.246292 | 0.476750 | 111,876,590 | 0 / 0 |
+| gaul/grid:400 | cpu / on / — | 22.616708 | 15.743959 | 0.000000 | 76.129291 | 111,876,590 | 0 / 0 |
+| gaul/grid:400 | naive / on / — | 74.608667 | 68.396459 | 0.000000 | 0.257084 | 1,600,008,000 | 0 / 0 |
+| gaul/grid:400 | gpu / off / 10485 | 22.193583 | 0.000000 | 0.380250 | 0.361458 | 111,876,590 | 0 / 0 |
+| gaul/grid:400 | naive / off / — | 75.965667 | 0.000000 | 0.000000 | 0.262084 | 1,600,008,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / on / 838 | 98.858916 | 64.904292 | 8.284375 | 0.509792 | 492,021,329 | 7,786,187 / 8,435,000 |
+| gaul/field:5000,1 | brute / on / 838 | 98.824083 | 65.643875 | 46.562334 | 0.533792 | 492,021,329 | 7,786,187 / 8,435,000 |
+| gaul/field:5000,1 | cpu / on / — | 289.722625 | 204.712250 | 0.000000 | 1421.765291 | 1,416,304,398 | 0 / 0 |
+| gaul/field:5000,1 | naive / on / — | 1286.603292 | 1196.325291 | 0.000000 | 0.700500 | 20,000,100,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / off / 838 | 105.177875 | 0.000000 | 4.475292 | 0.539626 | 492,021,329 | 7,786,187 / 0 |
+| gaul/field:5000,1 | naive / off / — | 1267.483875 | 0.000000 | 0.000000 | 0.494292 | 20,000,100,000 | 0 / 0 |
+| gaul/field:5000,1 | gpu / on / 3000 | 357.430375 | 248.213292 | 11.890125 | 0.746125 | 1,416,304,398 | 0 / 0 |
+| gaul/field:5000,1 | gpu / off / 3000 | 369.544750 | 0.000000 | 6.315834 | 0.516084 | 1,416,304,398 | 0 / 0 |
+| washington/single | gpu / on / 269362 | 1.017375 | 0.360917 | 1.391334 | 0.629666 | 1,186,453 | 0 / 0 |
+| washington/single | brute / on / 269362 | 0.652834 | 0.221125 | 4.246875 | 0.521334 | 1,186,453 | 0 / 0 |
+| washington/single | cpu / on / — | 2.854000 | 1.050292 | 0.000000 | 10.340625 | 1,186,453 | 0 / 0 |
+| washington/single | naive / on / — | 1.808333 | 1.150167 | 0.000000 | 0.227833 | 16,860,930 | 0 / 0 |
+| washington/single | gpu / off / 269362 | 0.810375 | 0.000000 | 0.926709 | 0.391583 | 1,186,453 | 0 / 0 |
+| washington/single | naive / off / — | 1.728084 | 0.000000 | 0.000000 | 0.215168 | 16,860,930 | 0 / 0 |
+| washington/ring:12 | gpu / on / 269362 | 3.714708 | 2.145250 | 0.473167 | 0.537625 | 13,611,402 | 0 / 0 |
+| washington/ring:12 | brute / on / 269362 | 3.703208 | 2.180667 | 4.262751 | 0.490667 | 13,611,402 | 0 / 0 |
+| washington/ring:12 | cpu / on / — | 3.718750 | 2.182500 | 0.000000 | 30.492167 | 13,611,402 | 0 / 0 |
+| washington/ring:12 | naive / on / — | 10.421709 | 8.951791 | 0.000000 | 0.262541 | 202,331,160 | 0 / 0 |
+| washington/ring:12 | gpu / off / 269362 | 3.637333 | 0.000000 | 0.245500 | 0.353625 | 13,611,402 | 0 / 0 |
+| washington/ring:12 | naive / off / — | 9.855667 | 0.000000 | 0.000000 | 0.188709 | 202,331,160 | 0 / 0 |
+| washington/grid:400 | gpu / on / 10485 | 117.542375 | 65.565916 | 2.160792 | 0.571750 | 464,852,668 | 14,051 / 338,800 |
+| washington/grid:400 | brute / on / 10485 | 116.210042 | 65.570917 | 20.132667 | 0.592584 | 464,852,668 | 14,051 / 338,800 |
+| washington/grid:400 | cpu / on / — | 114.643583 | 70.762250 | 0.000000 | 658.895209 | 466,600,422 | 0 / 0 |
+| washington/grid:400 | naive / on / — | 428.439500 | 357.158209 | 0.000000 | 0.345000 | 6,744,372,000 | 0 / 0 |
+| washington/grid:400 | gpu / off / 10485 | 126.044541 | 0.000000 | 1.207792 | 0.675499 | 464,852,668 | 14,051 / 0 |
+| washington/grid:400 | naive / off / — | 523.388625 | 0.000000 | 0.000000 | 0.376168 | 6,744,372,000 | 0 / 0 |
+| washington/field:5000,1 | gpu / on / 838 | 106.213625 | 71.173667 | 23.835417 | 0.789417 | 459,013,110 | 46,525,494 / 52,470,000 |
+| washington/field:5000,1 | brute / on / 838 | 148.147584 | 101.576375 | 308.533709 | 0.878042 | 459,013,110 | 46,525,494 / 52,470,000 |
+| washington-field-5000-1-cpu-shadows-on | **ERROR** | — | — | — | — | — | page 0 visible list exceeds 128 MiB core storage binding |
+| washington/field:5000,1 | naive / on / — | 5036.812875 | 4586.307042 | 0.000000 | 0.807042 | 84,304,650,000 | 0 / 0 |
+| washington/field:5000,1 | gpu / off / 838 | 97.746292 | 0.000000 | 11.691416 | 0.639416 | 459,013,110 | 46,525,494 / 0 |
+| washington/field:5000,1 | naive / off / — | 5189.691791 | 0.000000 | 0.000000 | 0.516583 | 84,304,650,000 | 0 / 0 |
+| washington/grid:400 | gpu / on / 12000 | 115.171750 | 70.338875 | 2.119624 | 0.758917 | 466,600,422 | 0 / 0 |
+| washington/grid:400 | gpu / off / 12000 | 114.340458 | 0.000000 | 1.128125 | 0.408125 | 466,600,422 | 0 / 0 |
 
-```jsonl
-{"asset":"gaul","bytes_resident_gpu":289317940,"candidates_tested":16861,"capacity_per_instance":65415,"command":"time","cpu_ms":0.5027910000000001,"culling":true,"draws":4,"encode_ms":0.5026660000000001,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"frame_completion_ms":3.901209,"gpu_main_ms":0.532042,"gpu_ms":1.0221259999999999,"gpu_select_ms":0.424125,"gpu_shadow_ms":0.066791,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-single-gpu.png","overflow":0,"padding_triangles":13607,"readback_bytes":14745664,"selected_clusters":1218,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":1618,"shadow_clusters":751,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":9427,"shadow_selection_ms":4.2e-05,"shadow_triangles":86701,"size":[2560,1440],"submitted_vertices_or_indices":467712,"t":0.0,"threshold_px":1.0,"triangles_drawn":142297,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":289317940,"candidates_tested":65415,"capacity_per_instance":65415,"command":"time","cpu_ms":0.522625,"culling":true,"draws":4,"encode_ms":0.522625,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"frame_completion_ms":5.07625,"gpu_main_ms":0.477792,"gpu_ms":2.495542,"gpu_select_ms":1.958334,"gpu_shadow_ms":0.06025,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-single-brute.png","overflow":0,"padding_triangles":13607,"readback_bytes":14745664,"selected_clusters":1218,"selection_ms":0.0,"selector":"brute","shadow_candidates_tested":65415,"shadow_clusters":751,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":9427,"shadow_selection_ms":0.0,"shadow_triangles":86701,"size":[2560,1440],"submitted_vertices_or_indices":467712,"t":0.0,"threshold_px":1.0,"triangles_drawn":142297,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287510112,"candidates_tested":65415,"capacity_per_instance":null,"command":"time","cpu_ms":1.686917,"culling":true,"draws":4,"encode_ms":0.376583,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"frame_completion_ms":4.507125,"gpu_main_ms":1.3522079999999999,"gpu_ms":1.509458,"gpu_select_ms":0.0,"gpu_shadow_ms":0.154167,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-single-cpu.png","overflow":0,"padding_triangles":13607,"readback_bytes":14745664,"selected_clusters":1218,"selection_ms":0.913667,"selector":"cpu","shadow_candidates_tested":65415,"shadow_clusters":751,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":9427,"shadow_selection_ms":0.45079199999999997,"shadow_triangles":86701,"size":[2560,1440],"submitted_vertices_or_indices":467712,"t":0.0,"threshold_px":1.0,"triangles_drawn":142297,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237488188,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.429334,"culling":true,"draws":1,"encode_ms":0.429334,"eye":[1.4864147901535034,-2.797957420349121,1.971238136291504],"frame_completion_ms":4.871083,"gpu_main_ms":0.9822919999999999,"gpu_ms":1.468416,"gpu_select_ms":0.0,"gpu_shadow_ms":0.43583299999999997,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"naive","out":"<out>/L2b/gaul-single-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":4.2e-05,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":1,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":4000020,"size":[2560,1440],"submitted_vertices_or_indices":12000060,"t":0.0,"threshold_px":1.0,"triangles_drawn":4000020,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":303711352,"candidates_tested":1487,"capacity_per_instance":65415,"command":"time","cpu_ms":0.49058399999999996,"culling":true,"draws":4,"encode_ms":0.490542,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"frame_completion_ms":3.848709,"gpu_main_ms":0.810542,"gpu_ms":1.1939170000000001,"gpu_select_ms":0.24404099999999998,"gpu_shadow_ms":0.13808299999999998,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-ring-12-gpu.png","overflow":0,"padding_triangles":10603,"readback_bytes":14745664,"selected_clusters":895,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":720,"shadow_clusters":720,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":7656,"shadow_selection_ms":0.0,"shadow_triangles":84504,"size":[2560,1440],"submitted_vertices_or_indices":343680,"t":0.0,"threshold_px":1.0,"triangles_drawn":103957,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":303711352,"candidates_tested":784980,"capacity_per_instance":65415,"command":"time","cpu_ms":0.441666,"culling":true,"draws":4,"encode_ms":0.441666,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"frame_completion_ms":3.894583,"gpu_main_ms":0.175958,"gpu_ms":1.205916,"gpu_select_ms":0.9977909999999999,"gpu_shadow_ms":0.031875,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-ring-12-brute.png","overflow":0,"padding_triangles":10603,"readback_bytes":14745664,"selected_clusters":895,"selection_ms":0.0,"selector":"brute","shadow_candidates_tested":784980,"shadow_clusters":720,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":7656,"shadow_selection_ms":0.0,"shadow_triangles":84504,"size":[2560,1440],"submitted_vertices_or_indices":343680,"t":0.0,"threshold_px":1.0,"triangles_drawn":103957,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287502624,"candidates_tested":784980,"capacity_per_instance":null,"command":"time","cpu_ms":4.844125,"culling":true,"draws":4,"encode_ms":0.481834,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"frame_completion_ms":4.294291,"gpu_main_ms":0.8121659999999999,"gpu_ms":0.9521249999999999,"gpu_select_ms":0.0,"gpu_shadow_ms":0.14033299999999999,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-ring-12-cpu.png","overflow":0,"padding_triangles":10603,"readback_bytes":14745664,"selected_clusters":895,"selection_ms":2.335542,"selector":"cpu","shadow_candidates_tested":784980,"shadow_clusters":720,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":7656,"shadow_selection_ms":1.878625,"shadow_triangles":84504,"size":[2560,1440],"submitted_vertices_or_indices":343680,"t":0.0,"threshold_px":1.0,"triangles_drawn":103957,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237488892,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.413833,"culling":true,"draws":1,"encode_ms":0.413833,"eye":[12.100516319274902,-22.777442932128906,12.585339546203613],"frame_completion_ms":8.165000000000001,"gpu_main_ms":2.456833,"gpu_ms":4.674041,"gpu_select_ms":0.0,"gpu_shadow_ms":2.225791,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"naive","out":"<out>/L2b/gaul-ring-12-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":1,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":48000240,"size":[2560,1440],"submitted_vertices_or_indices":144000720,"t":0.0,"threshold_px":1.0,"triangles_drawn":48000240,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":371966248,"candidates_tested":3788,"capacity_per_instance":10485,"command":"time","cpu_ms":0.45387500000000003,"culling":true,"draws":4,"encode_ms":0.45387500000000003,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"frame_completion_ms":4.85275,"gpu_main_ms":0.272291,"gpu_ms":2.504917,"gpu_select_ms":2.067667,"gpu_shadow_ms":0.164959,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-grid-400-gpu.png","overflow":0,"padding_triangles":27779,"readback_bytes":14745664,"selected_clusters":3408,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":2240,"shadow_clusters":2240,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":15680,"shadow_selection_ms":0.0,"shadow_triangles":271040,"size":[2560,1440],"submitted_vertices_or_indices":1308672,"t":0.0,"threshold_px":1.0,"triangles_drawn":408445,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":371966248,"candidates_tested":26166000,"capacity_per_instance":10485,"command":"time","cpu_ms":0.42283299999999996,"culling":true,"draws":4,"encode_ms":0.422791,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"frame_completion_ms":6.91025,"gpu_main_ms":0.24287499999999998,"gpu_ms":4.581791,"gpu_select_ms":4.274542,"gpu_shadow_ms":0.061333,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-grid-400-brute.png","overflow":0,"padding_triangles":27779,"readback_bytes":14745664,"selected_clusters":3408,"selection_ms":4.1e-05,"selector":"brute","shadow_candidates_tested":26166000,"shadow_clusters":2240,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":15680,"shadow_selection_ms":4.1e-05,"shadow_triangles":271040,"size":[2560,1440],"submitted_vertices_or_indices":1308672,"t":0.0,"threshold_px":1.0,"triangles_drawn":408445,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287576608,"candidates_tested":26166000,"capacity_per_instance":null,"command":"time","cpu_ms":92.764084,"culling":true,"draws":4,"encode_ms":0.613417,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"frame_completion_ms":5.008375,"gpu_main_ms":1.165208,"gpu_ms":1.447583,"gpu_select_ms":0.0,"gpu_shadow_ms":0.282375,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-grid-400-cpu.png","overflow":0,"padding_triangles":27779,"readback_bytes":14745664,"selected_clusters":3408,"selection_ms":45.784625000000005,"selector":"cpu","shadow_candidates_tested":26166000,"shadow_clusters":2240,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":15680,"shadow_selection_ms":40.625959,"shadow_triangles":271040,"size":[2560,1440],"submitted_vertices_or_indices":1308672,"t":0.0,"threshold_px":1.0,"triangles_drawn":408445,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237513724,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.453042,"culling":true,"draws":1,"encode_ms":0.453,"eye":[51.26447296142578,-96.09046936035156,51.605613708496094],"frame_completion_ms":151.425542,"gpu_main_ms":76.843792,"gpu_ms":147.09875,"gpu_select_ms":0.0,"gpu_shadow_ms":68.361459,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"naive","out":"<out>/L2b/gaul-grid-400-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":4.2e-05,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":1,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":1600008000,"size":[2560,1440],"submitted_vertices_or_indices":4800024000,"t":0.0,"threshold_px":1.0,"triangles_drawn":1600008000,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":372769448,"candidates_tested":5528,"capacity_per_instance":838,"command":"time","cpu_ms":0.43512500000000004,"culling":true,"draws":4,"encode_ms":0.43512500000000004,"eye":[216.71762084960938,-408.0025634765625,217.35040283203125],"frame_completion_ms":8.442875,"gpu_main_ms":0.319917,"gpu_ms":5.932290999999999,"gpu_select_ms":5.50525,"gpu_shadow_ms":0.110208,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-field-5000-1-gpu.png","overflow":0,"padding_triangles":70000,"readback_bytes":14745664,"selected_clusters":5457,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":5000,"shadow_clusters":5000,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":70000,"shadow_selection_ms":0.0,"shadow_triangles":570000,"size":[2560,1440],"submitted_vertices_or_indices":2095488,"t":0.0,"threshold_px":1.0,"triangles_drawn":628496,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":372769448,"candidates_tested":327075000,"capacity_per_instance":838,"command":"time","cpu_ms":0.44591699999999995,"culling":true,"draws":4,"encode_ms":0.44587499999999997,"eye":[216.71762084960938,-408.0025634765625,217.35040283203125],"frame_completion_ms":48.958917,"gpu_main_ms":0.322916,"gpu_ms":46.463376,"gpu_select_ms":46.030417,"gpu_shadow_ms":0.109958,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-field-5000-1-brute.png","overflow":0,"padding_triangles":70000,"readback_bytes":14745664,"selected_clusters":5457,"selection_ms":0.0,"selector":"brute","shadow_candidates_tested":327075000,"shadow_clusters":5000,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":70000,"shadow_selection_ms":0.0,"shadow_triangles":570000,"size":[2560,1440],"submitted_vertices_or_indices":2095488,"t":0.0,"threshold_px":1.0,"triangles_drawn":628496,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":287936544,"candidates_tested":327075000,"capacity_per_instance":null,"command":"time","cpu_ms":1275.7015420000002,"culling":true,"draws":4,"encode_ms":0.679458,"eye":[216.71762084960938,-408.0025634765625,217.35040283203125],"frame_completion_ms":13.590708,"gpu_main_ms":1.48475,"gpu_ms":1.999917,"gpu_select_ms":0.0,"gpu_shadow_ms":0.514875,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/gaul-field-5000-1-cpu.png","overflow":0,"padding_triangles":70000,"readback_bytes":14745664,"selected_clusters":5457,"selection_ms":676.224792,"selector":"cpu","shadow_candidates_tested":327075000,"shadow_clusters":5000,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":70000,"shadow_selection_ms":598.8202500000001,"shadow_triangles":570000,"size":[2560,1440],"submitted_vertices_or_indices":2095488,"t":0.0,"threshold_px":1.0,"triangles_drawn":628496,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":237808124,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.812417,"culling":true,"draws":1,"encode_ms":0.812417,"eye":[216.71762084960938,-408.0025634765625,217.35040283203125],"frame_completion_ms":2221.8714999999997,"gpu_main_ms":1148.077583,"gpu_ms":2205.199417,"gpu_select_ms":0.0,"gpu_shadow_ms":1055.947083,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"naive","out":"<out>/L2b/gaul-field-5000-1-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":4.1e-05,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":1,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":20000100000,"size":[2560,1440],"submitted_vertices_or_indices":60000300000,"t":0.0,"threshold_px":1.0,"triangles_drawn":20000100000,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":783208660,"candidates_tested":209901,"capacity_per_instance":281343,"command":"time","cpu_ms":0.549166,"culling":true,"draws":18,"encode_ms":0.549083,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"frame_completion_ms":6.616042,"gpu_main_ms":0.6355,"gpu_ms":4.179708,"gpu_select_ms":3.3682909999999997,"gpu_shadow_ms":0.12725,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-single-gpu.png","overflow":0,"padding_triangles":79956,"readback_bytes":14745664,"selected_clusters":4160,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":23885,"shadow_clusters":3143,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":62843,"shadow_selection_ms":0.0,"shadow_triangles":339461,"size":[2560,1440],"submitted_vertices_or_indices":1597440,"t":0.0,"threshold_px":1.0,"triangles_drawn":452524,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":783208660,"candidates_tested":281343,"capacity_per_instance":281343,"command":"time","cpu_ms":0.505042,"culling":true,"draws":18,"encode_ms":0.505042,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"frame_completion_ms":7.240792,"gpu_main_ms":0.398875,"gpu_ms":4.806626,"gpu_select_ms":4.329041999999999,"gpu_shadow_ms":0.078917,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-single-brute.png","overflow":0,"padding_triangles":79956,"readback_bytes":14745664,"selected_clusters":4160,"selection_ms":0.0,"selector":"brute","shadow_candidates_tested":281343,"shadow_clusters":3143,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":62843,"shadow_selection_ms":0.0,"shadow_triangles":339461,"size":[2560,1440],"submitted_vertices_or_indices":1597440,"t":0.0,"threshold_px":1.0,"triangles_drawn":452524,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":775404120,"candidates_tested":281343,"capacity_per_instance":null,"command":"time","cpu_ms":13.314292,"culling":true,"draws":18,"encode_ms":0.5555,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"frame_completion_ms":5.791041,"gpu_main_ms":1.816292,"gpu_ms":2.185292,"gpu_select_ms":0.0,"gpu_shadow_ms":0.369334,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-single-cpu.png","overflow":0,"padding_triangles":79956,"readback_bytes":14745664,"selected_clusters":4160,"selection_ms":6.703291999999999,"selector":"cpu","shadow_candidates_tested":281343,"shadow_clusters":3143,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":62843,"shadow_selection_ms":6.010458,"shadow_triangles":339461,"size":[2560,1440],"submitted_vertices_or_indices":1597440,"t":0.0,"threshold_px":1.0,"triangles_drawn":452524,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534102548,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.458541,"culling":true,"draws":2,"encode_ms":0.45849999999999996,"eye":[1.727691650390625,-3.2521255016326904,2.727691650390625],"frame_completion_ms":6.6281669999999995,"gpu_main_ms":1.866917,"gpu_ms":3.098124,"gpu_select_ms":0.0,"gpu_shadow_ms":1.218125,"ground_draws":1,"layout":"single","measured_frames":7,"mode":"naive","out":"<out>/L2b/washington-single-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":2,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":4.1e-05,"shadow_triangles":16860930,"size":[2560,1440],"submitted_vertices_or_indices":50582790,"t":0.0,"threshold_px":1.0,"triangles_drawn":16860930,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":845109928,"candidates_tested":59732,"capacity_per_instance":281343,"command":"time","cpu_ms":0.538292,"culling":true,"draws":18,"encode_ms":0.53825,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"frame_completion_ms":4.109500000000001,"gpu_main_ms":0.887208,"gpu_ms":1.5127910000000002,"gpu_select_ms":0.319791,"gpu_shadow_ms":0.306375,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-ring-12-gpu.png","overflow":0,"padding_triangles":272270,"readback_bytes":14745664,"selected_clusters":9475,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":37692,"shadow_clusters":7880,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":244693,"shadow_selection_ms":4.2e-05,"shadow_triangles":763947,"size":[2560,1440],"submitted_vertices_or_indices":3638400,"t":0.0,"threshold_px":1.0,"triangles_drawn":940530,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":845109928,"candidates_tested":3376116,"capacity_per_instance":281343,"command":"time","cpu_ms":0.5154989999999999,"culling":true,"draws":18,"encode_ms":0.515458,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"frame_completion_ms":7.290083999999999,"gpu_main_ms":0.45541699999999996,"gpu_ms":4.7987079999999995,"gpu_select_ms":4.199542,"gpu_shadow_ms":0.15220799999999998,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-ring-12-brute.png","overflow":0,"padding_triangles":272270,"readback_bytes":14745664,"selected_clusters":9475,"selection_ms":4.2e-05,"selector":"brute","shadow_candidates_tested":3376116,"shadow_clusters":7880,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":244693,"shadow_selection_ms":4.1e-05,"shadow_triangles":763947,"size":[2560,1440],"submitted_vertices_or_indices":3638400,"t":0.0,"threshold_px":1.0,"triangles_drawn":940530,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":775526576,"candidates_tested":3376116,"capacity_per_instance":null,"command":"time","cpu_ms":42.050208,"culling":true,"draws":18,"encode_ms":0.665834,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"frame_completion_ms":6.8174589999999995,"gpu_main_ms":2.121709,"gpu_ms":2.853208,"gpu_select_ms":0.0,"gpu_shadow_ms":0.722291,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-ring-12-cpu.png","overflow":0,"padding_triangles":272270,"readback_bytes":14745664,"selected_clusters":9475,"selection_ms":22.692,"selector":"cpu","shadow_candidates_tested":3376116,"shadow_clusters":7880,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":244693,"shadow_selection_ms":19.788957999999997,"shadow_triangles":763947,"size":[2560,1440],"submitted_vertices_or_indices":3638400,"t":0.0,"threshold_px":1.0,"triangles_drawn":940530,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534103252,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.38625,"culling":true,"draws":2,"encode_ms":0.386167,"eye":[11.758244514465332,-22.133167266845703,12.758244514465332],"frame_completion_ms":21.450916,"gpu_main_ms":10.057333999999999,"gpu_ms":18.755083999999997,"gpu_select_ms":0.0,"gpu_shadow_ms":8.542875,"ground_draws":1,"layout":"ring:12","measured_frames":7,"mode":"naive","out":"<out>/L2b/washington-ring-12-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":4.1e-05,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":2,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":4.1e-05,"shadow_triangles":202331160,"size":[2560,1440],"submitted_vertices_or_indices":606993480,"t":0.0,"threshold_px":1.0,"triangles_drawn":202331160,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":861672472,"candidates_tested":371502,"capacity_per_instance":10485,"command":"time","cpu_ms":0.723,"culling":true,"draws":18,"encode_ms":0.722958,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"frame_completion_ms":9.748042,"gpu_main_ms":3.934208,"gpu_ms":6.788916,"gpu_select_ms":0.620416,"gpu_shadow_ms":2.238334,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-grid-400-gpu.png","overflow":0,"padding_triangles":6223287,"readback_bytes":14745664,"selected_clusters":155455,"selection_ms":4.1e-05,"selector":"gpu","shadow_candidates_tested":245520,"shadow_clusters":141700,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":6024880,"shadow_selection_ms":0.0,"shadow_triangles":12112720,"size":[2560,1440],"submitted_vertices_or_indices":59694720,"t":0.0,"threshold_px":1.0,"triangles_drawn":13674953,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":861672472,"candidates_tested":112537200,"capacity_per_instance":10485,"command":"time","cpu_ms":0.548833,"culling":true,"draws":18,"encode_ms":0.548833,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"frame_completion_ms":27.720667000000002,"gpu_main_ms":3.8945839999999996,"gpu_ms":25.136875,"gpu_select_ms":18.986,"gpu_shadow_ms":2.255333,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-grid-400-brute.png","overflow":0,"padding_triangles":6223287,"readback_bytes":14745664,"selected_clusters":155455,"selection_ms":0.0,"selector":"brute","shadow_candidates_tested":112537200,"shadow_clusters":141700,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":6024880,"shadow_selection_ms":0.0,"shadow_triangles":12112720,"size":[2560,1440],"submitted_vertices_or_indices":59694720,"t":0.0,"threshold_px":1.0,"triangles_drawn":13674953,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":779549104,"candidates_tested":112537200,"capacity_per_instance":null,"command":"time","cpu_ms":995.470999,"culling":true,"draws":18,"encode_ms":0.972333,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"frame_completion_ms":19.490667,"gpu_main_ms":6.329708,"gpu_ms":15.645415999999999,"gpu_select_ms":0.0,"gpu_shadow_ms":9.326832999999999,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-grid-400-cpu.png","overflow":0,"padding_triangles":6223287,"readback_bytes":14745664,"selected_clusters":155455,"selection_ms":501.655834,"selector":"cpu","shadow_candidates_tested":112537200,"shadow_clusters":141700,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":6024880,"shadow_selection_ms":494.404125,"shadow_triangles":12112720,"size":[2560,1440],"submitted_vertices_or_indices":59694720,"t":0.0,"threshold_px":1.0,"triangles_drawn":13674953,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534128084,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.424792,"culling":true,"draws":2,"encode_ms":0.424709,"eye":[51.163719177246094,-95.86027526855469,52.075775146484375],"frame_completion_ms":686.124417,"gpu_main_ms":349.522209,"gpu_ms":679.557,"gpu_select_ms":0.0,"gpu_shadow_ms":330.21212499999996,"ground_draws":1,"layout":"grid:400","measured_frames":7,"mode":"naive","out":"<out>/L2b/washington-grid-400-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":2,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":0.0,"shadow_triangles":6744372000,"size":[2560,1440],"submitted_vertices_or_indices":20233116000,"t":0.0,"threshold_px":1.0,"triangles_drawn":6744372000,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":864021272,"candidates_tested":2496205,"capacity_per_instance":838,"command":"time","cpu_ms":0.613958,"culling":true,"draws":18,"encode_ms":0.613958,"eye":[216.61434936523438,-407.53985595703125,217.83889770507812],"frame_completion_ms":67.651167,"gpu_main_ms":34.271083,"gpu_ms":64.42187399999999,"gpu_select_ms":6.9479999999999995,"gpu_shadow_ms":23.094708,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-field-5000-1-gpu.png","overflow":0,"padding_triangles":66715131,"readback_bytes":14745664,"selected_clusters":1496826,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":1949105,"shadow_clusters":1489948,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":66535775,"shadow_selection_ms":0.0,"shadow_triangles":124177569,"size":[2560,1440],"submitted_vertices_or_indices":574781184,"t":0.0,"threshold_px":1.0,"triangles_drawn":124878597,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":864021272,"candidates_tested":1406715000,"capacity_per_instance":838,"command":"time","cpu_ms":0.602625,"culling":true,"draws":18,"encode_ms":0.6025419999999999,"eye":[216.61434936523438,-407.53985595703125,217.83889770507812],"frame_completion_ms":260.3085,"gpu_main_ms":34.221042,"gpu_ms":255.820626,"gpu_select_ms":198.44020799999998,"gpu_shadow_ms":23.042208,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-field-5000-1-brute.png","overflow":0,"padding_triangles":66715131,"readback_bytes":14745664,"selected_clusters":1496826,"selection_ms":4.1e-05,"selector":"brute","shadow_candidates_tested":1406715000,"shadow_clusters":1489948,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":66535775,"shadow_selection_ms":0.0,"shadow_triangles":124177569,"size":[2560,1440],"submitted_vertices_or_indices":574781184,"t":0.0,"threshold_px":1.0,"triangles_drawn":124878597,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":809203632,"candidates_tested":1406715000,"capacity_per_instance":null,"command":"time","cpu_ms":18963.177751000003,"culling":true,"draws":18,"encode_ms":6.494375,"eye":[216.61434936523438,-407.53985595703125,217.83889770507812],"frame_completion_ms":100.92212500000001,"gpu_main_ms":34.168334,"gpu_ms":66.797583,"gpu_select_ms":0.0,"gpu_shadow_ms":32.6825,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"cluster","out":"<out>/L2b/washington-field-5000-1-cpu.png","overflow":0,"padding_triangles":66715131,"readback_bytes":14745664,"selected_clusters":1496826,"selection_ms":9360.104041999999,"selector":"cpu","shadow_candidates_tested":1406715000,"shadow_clusters":1489948,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":66535775,"shadow_selection_ms":9596.606375000001,"shadow_triangles":124177569,"size":[2560,1440],"submitted_vertices_or_indices":574781184,"t":0.0,"threshold_px":1.0,"triangles_drawn":124878597,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"washington","bytes_resident_gpu":534422484,"candidates_tested":0,"capacity_per_instance":null,"command":"time","cpu_ms":0.9111670000000001,"culling":true,"draws":2,"encode_ms":0.911,"eye":[216.61434936523438,-407.53985595703125,217.83889770507812],"frame_completion_ms":9199.697708,"gpu_main_ms":4794.7898749999995,"gpu_ms":9066.564792,"gpu_select_ms":0.0,"gpu_shadow_ms":4259.548667,"ground_draws":1,"layout":"field:5000,1","measured_frames":7,"mode":"naive","out":"<out>/L2b/washington-field-5000-1-naive.png","overflow":0,"padding_triangles":0,"readback_bytes":14745664,"selected_clusters":0,"selection_ms":4.2e-05,"selector":"gpu","shadow_candidates_tested":0,"shadow_clusters":0,"shadow_draws":2,"shadow_overflow":0,"shadow_padding":0,"shadow_selection_ms":4.2e-05,"shadow_triangles":84304650000,"size":[2560,1440],"submitted_vertices_or_indices":252913950000,"t":0.0,"threshold_px":1.0,"triangles_drawn":84304650000,"valid_timestamp_samples":{"gpu_main_ms":7,"gpu_ms":7,"gpu_select_ms":7,"gpu_shadow_ms":7},"view":"lit","warmup_frames":1}
-{"asset":"gaul","bytes_resident_gpu":289317876,"candidates_tested":64884,"capacity_per_instance":65415,"command":"render","cpu_ms":2.675959,"culling":true,"draws":4,"encode_ms":2.675875,"eye":[-0.4810411334037781,-0.33051377534866333,0.9211194515228271],"frame_completion_ms":24.703166,"gpu_main_ms":null,"gpu_ms":null,"gpu_select_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2b/gaul-close-lit.png","overflow":0,"padding_triangles":6195,"readback_bytes":14745600,"selected_clusters":2159,"selection_ms":4.2e-05,"selector":"gpu","shadow_candidates_tested":1618,"shadow_clusters":751,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":9427,"shadow_selection_ms":4.2e-05,"shadow_triangles":86701,"size":[2560,1440],"submitted_vertices_or_indices":829056,"t":1.0,"threshold_px":1.0,"triangles_drawn":270157,"valid_timestamp_samples":{"gpu_main_ms":0,"gpu_ms":0,"gpu_select_ms":0,"gpu_shadow_ms":0},"view":"lit","warmup_frames":0}
-{"asset":"gaul","bytes_resident_gpu":289317876,"candidates_tested":64884,"capacity_per_instance":65415,"command":"render","cpu_ms":2.375958,"culling":true,"draws":4,"encode_ms":2.375917,"eye":[-0.4810411334037781,-0.33051377534866333,0.9211194515228271],"frame_completion_ms":26.030542,"gpu_main_ms":null,"gpu_ms":null,"gpu_select_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2b/gaul-close-clusters.png","overflow":0,"padding_triangles":6195,"readback_bytes":14745600,"selected_clusters":2159,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":1618,"shadow_clusters":751,"shadow_draws":4,"shadow_overflow":0,"shadow_padding":9427,"shadow_selection_ms":4.1e-05,"shadow_triangles":86701,"size":[2560,1440],"submitted_vertices_or_indices":829056,"t":1.0,"threshold_px":1.0,"triangles_drawn":270157,"valid_timestamp_samples":{"gpu_main_ms":0,"gpu_ms":0,"gpu_select_ms":0,"gpu_shadow_ms":0},"view":"clusters","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":783208596,"candidates_tested":279955,"capacity_per_instance":281343,"command":"render","cpu_ms":2.213334,"culling":true,"draws":18,"encode_ms":2.213334,"eye":[-0.2631993591785431,-0.17961221933364868,1.773664951324463],"frame_completion_ms":40.062167,"gpu_main_ms":null,"gpu_ms":null,"gpu_select_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2b/washington-close-lit.png","overflow":0,"padding_triangles":1807,"readback_bytes":14745600,"selected_clusters":404,"selection_ms":0.0,"selector":"gpu","shadow_candidates_tested":23885,"shadow_clusters":3143,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":62843,"shadow_selection_ms":0.0,"shadow_triangles":339461,"size":[2560,1440],"submitted_vertices_or_indices":155136,"t":1.0,"threshold_px":1.0,"triangles_drawn":49905,"valid_timestamp_samples":{"gpu_main_ms":0,"gpu_ms":0,"gpu_select_ms":0,"gpu_shadow_ms":0},"view":"lit","warmup_frames":0}
-{"asset":"washington","bytes_resident_gpu":783208596,"candidates_tested":279955,"capacity_per_instance":281343,"command":"render","cpu_ms":2.9559580000000003,"culling":true,"draws":18,"encode_ms":2.9558750000000003,"eye":[-0.2631993591785431,-0.17961221933364868,1.773664951324463],"frame_completion_ms":39.6735,"gpu_main_ms":null,"gpu_ms":null,"gpu_select_ms":null,"gpu_shadow_ms":null,"ground_draws":1,"layout":"single","measured_frames":1,"mode":"cluster","out":"<out>/L2b/washington-close-clusters.png","overflow":0,"padding_triangles":1807,"readback_bytes":14745600,"selected_clusters":404,"selection_ms":4.2e-05,"selector":"gpu","shadow_candidates_tested":23885,"shadow_clusters":3143,"shadow_draws":18,"shadow_overflow":0,"shadow_padding":62843,"shadow_selection_ms":4.1e-05,"shadow_triangles":339461,"size":[2560,1440],"submitted_vertices_or_indices":155136,"t":1.0,"threshold_px":1.0,"triangles_drawn":49905,"valid_timestamp_samples":{"gpu_main_ms":0,"gpu_ms":0,"gpu_select_ms":0,"gpu_shadow_ms":0},"view":"clusters","warmup_frames":0}
-```
+51 rows completed; every one has seven valid samples for each reported GPU stage.
+One row fails explicitly, so `sweep` exits 1 after reporting all 52 configurations.
+Rows with drops are incomplete images and support no speedup claim. Washington
+field:5000 CPU errors because page zero exceeds its 128 MiB visible-list limit.
+Washington field cannot fit its complete terminal cut in the GPU's 128 MiB binding
+either. The 12,000-slot Washington grid and 3,000-slot Gaul field rows have zero
+drops. Raw exact values, every command and PID remain in `<out>/*shadows-*.log`,
+`processes.jsonl` and `runs.jsonl`.
 
-</details>
+### Image and camera-path reports
+
+Commands: `clod-view compare <asset>-2.clod --out <out>/<asset>-compare` and `clod-view pop <asset>-2.clod --out <out>/<asset>-pop`. Compare: five hero positions ×five thresholds ×two assets, 2560×1440. Each row below is the largest mean error among five positions at that threshold; maxima/fractions belong to that same pair.
+
+| Asset | Threshold px | t | Mean | Max /255 | Fraction >2/255 | Cluster main triangles |
+| --- | --- | --- | --- | --- | --- | --- |
+| gaul | 0.5 | 1 | 0.0010314499931917212 | 27 | 0.04269911024305555 | 301,154 |
+| gaul | 1 | 0.75 | 0.0014355862353622004 | 64 | 0.04125217013888889 | 370,736 |
+| gaul | 2 | 0.75 | 0.002080289465323166 | 86 | 0.06336073133680556 | 240,773 |
+| gaul | 4 | 0.75 | 0.002420610504039579 | 86 | 0.07476372612847222 | 201,104 |
+| gaul | 8 | 1 | 0.003186876616966231 | 85 | 0.1133932834201389 | 114,772 |
+| washington | 0.5 | 1 | 0.0009235270714188454 | 27 | 0.03732638888888889 | 53,483 |
+| washington | 1 | 1 | 0.0019767486638752724 | 119 | 0.07094780815972222 | 50,347 |
+| washington | 2 | 1 | 0.001992602379493464 | 120 | 0.07128228081597222 | 46,501 |
+| washington | 4 | 1 | 0.002000243254130356 | 120 | 0.0713916015625 | 41,595 |
+| washington | 8 | 1 | 0.002643800069217502 | 120 | 0.09010281032986112 | 35,788 |
+
+Pop is a report, **not a test or a no-popping guarantee**. Two 240-frame paths, 478 temporal pairs.
+
+| Asset | Pairs | Max spatial temporal residual | Worst step | Max excess MAD | Excess step | Failures |
+| --- | --- | --- | --- | --- | --- | --- |
+| gaul | 239 | 0.003003001316267248 | 194 | -0.000014553759872004343 | 239 | 0 |
+| washington | 239 | 0.0018133520986519608 | 174 | 0.00018020308528503975 | 232 | 0 |
+
+Final lit/cluster PNGs: `<out>/<asset>-close-{lit,clusters}.png`; winning compare/pop frames are in their output directories. No mesh, baked output, PNG or log is committed. [Detailed measurement tables](results/f1-details.md) retain the per-fixture, camera, image, memory, padding and temporal numbers without lengthening this README. Preliminary F1 numbers before the shadow-cone repair remain in `<out>/pre-shadow-fix/`; those timings are superseded.
+
+## Known limits
+
+All pages are resident. The hero required about 775 MiB in the earlier run;
+current exact byte counts are in the timing tables. A browser tab will not hold
+this whole hero reliably: page residency/streaming is future work, and a web demo
+must use a smaller asset or a page budget. This lane provides a Wasm library, not
+a deployed web demo or interactive native player.
+
+Quota overflow drops geometry. Some large scenes also exceed the CPU reference's
+128 MiB page-list limit. Such measurements are failures or degraded-image rows,
+not evidence of crack-free rendering or valid speedups. The current topology filter
+is conservative and can keep large early terminal patches; the resulting raster
+floor is a real limitation of this experiment.
+
+The error-honesty oracle is one-sided, sampled and uses a 4× refined-error gate.
+Coverage tests detect fully missing interior pixels, excluding one pixel of the
+MSAA silhouette; they do not prove a global geometric or subpixel error bound.
+No geomorphing, occlusion hierarchy, streaming, software rasterizer or fallback
+simplifier is implemented. Cross-ISA byte identity is not claimed.

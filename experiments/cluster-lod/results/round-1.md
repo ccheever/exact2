@@ -1,8 +1,313 @@
-# Archived round-1 measurements
+# Historical round-1 README — superseded
 
-These are historical measurements of format v1 and the uncorrected renderer.
-Use the experiment README for current results and conclusions. All original
-result numbers are retained below for comparison.
+Preserved verbatim for numeric provenance. Its v1 bake, validation and performance claims do not describe the F1 implementation; use ../README.md for current results.
+
+# Cluster LOD — offline bake, GPU selection and hardware rasterization
+
+Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numerical
+oracles; L2a adds hardware rasterization; L2b adds core-WebGPU selection,
+culling, stable compaction and per-page indirect draws, retaining the CPU oracle.
+The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
+
+**Status:** L1/L2a verified; L2b GPU image/selection oracles verified on Apple M5 Max
+/ Metal. Initial invalid counter readbacks are documented in decision 27;
+final commands report sample validity and independent completed-frame latency.
+
+## Run
+
+Run these commands from `experiments/cluster-lod/` with the launch environment
+(debug information and incremental compilation disabled). The only target directory
+is this workspace's `target/`.
+
+```sh
+cargo run -p clod-bake -- <input.ply> <output.clod> --max-triangles 128 --page-mib 32
+cargo run -p clod-bake -- --inspect <output.clod>
+cargo run -p clod-bake -- --cut <output.clod> --threshold 0.01 --obj <cut.obj>
+cargo run -p clod-bake -- --generate 8 ~/Library/Caches/exact2-cluster-lod/out/sphere.ply
+cargo test --workspace --no-fail-fast -- --nocapture
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo build -p clod-format --target wasm32-unknown-unknown
+```
+
+Bake output is one JSON object. View outputs JSON lines; compare/pop report all
+pairs and a summary. Failures produce an `error` object and exit 1.
+All meshes, baked outputs, exported cuts and logs belong in
+`~/Library/Caches/exact2-cluster-lod/`, never in Git.
+
+### Renderer commands
+
+```sh
+cargo build -p clod-view
+# Full checks, all 32 timing cases, and 64 cameras × three layouts per real asset:
+python3 measure.py verify
+python3 measure.py sweep
+python3 measure.py oracles
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-1.clod"
+out="$HOME/Library/Caches/exact2-cluster-lod/out/demo"
+target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 0.5
+target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 0.5
+target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --select gpu --frames 7
+target/debug/clod-view time "$asset" --out "$out/brute.png" --layout grid:400 --select brute --frames 7
+target/debug/clod-view render "$asset" --out "$out/overflow.png" --capacity 1
+target/debug/clod-view oracle "$asset" --steps 64 --size 256x256
+target/debug/clod-view compare "$asset" --out "$out/compare" --threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1
+target/debug/clod-view pop "$asset" --out "$out/pop" --threshold-px 1 --steps 240
+cargo test --workspace --no-fail-fast -- --nocapture
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo build -p clod-view --lib --target wasm32-unknown-unknown
+```
+
+Defaults: cluster mode, GPU selection, culling on, lit view, single layout, threshold 1 px, 2560×1440,
+45° vertical field of view, hero t=0. `--mode naive` uses the indexed baseline.
+Selection: `--select gpu|cpu|brute`; `brute` scans every cluster of each surviving
+instance on the GPU. `--cull on|off` controls both passes; overdraw disables culling.
+`--capacity N` sets a fixed **per-instance** GPU quota at load time (default rule
+in decision 26); zero is clamped to one. CPU reference rendering uses its own
+renderer/list buffers. Layouts: `single`, `ring:N`, `grid:N`, `field:N,seed`; N=1..10,000. Views:
+`lit|clusters|depth|triangles|instances|overdraw`. Explicit world-space camera:
+`--eye x,y,z --target x,y,z --fov degrees`. `--size WIDTHxHEIGHT` caps at 8192².
+The library accepts byte slices and caller-owned wgpu devices; I/O, timing,
+blocking map polling and PNG encoding live exclusively in the native binary.
+The browser's caller supplies cache-optimized baseline buffers if it needs naive
+mode; the native-only meshoptimizer FFI is not linked into the library or Wasm.
+
+The CLI is an offscreen demo: render arbitrary `--t` values or walk 240 samples
+with `pop`. There is no window or real-time interactive player in this lane.
+Runtime shader compilation is performed by wgpu from the build-validated WGSL.
+
+## Format v1
+
+Little endian, magic `CLOD0001`, version 1. `format/src/lib.rs` contains the
+authoritative `repr(C)`/`Pod` structs. Header and every top-level section begin on
+16-byte boundaries. Padding is zero. Section order is header, clusters, groups,
+page table, optional BVH, geometry pages. The header carries counts, byte offsets,
+configuration, flags and SHA-256 of the primary source file's exact bytes.
+The reader borrows aligned bytes, returns errors on unaligned or malformed input,
+and checks all ranges, local indices, digests, group references and BVH reachability.
+The writer invokes the reader to validate its own output. No filesystem or native
+dependency in the format crate; its `wasm32-unknown-unknown` build passes.
+
+Each 128-byte cluster has its own sphere and normal cone (apex, axis, cutoff),
+20-byte simplified and refined bounds (float3 centre, radius, error), group IDs,
+page ID, page-relative vertex offset/count, index-byte offset/triangle count,
+group depth, and three zero reserved words. `u32::MAX` is the original-geometry
+refinement sentinel. Terminal groups store `f32::MAX` error. L2 should use scalar
+WGSL arrays/words for these layouts; WGSL `vec3` alignment is not the C layout.
+
+A group is 32 bytes: simplified bounds, depth, first cluster, cluster count.
+A BVH node is 32 bytes: bounds, group ID (`u32::MAX` for internal nodes), child
+offset/count. This is the vendor's forest: the first `root_count` nodes are roots,
+one per depth; leaves address the group table. Flat selection never needs it.
+
+A page-table record is 80 bytes: u64 offset/length, SHA-256, cluster range, vertex
+and index counts, vertex/index offsets within the page, two reserved words.
+Pages contain only vertices then index bytes, both padded to 16 bytes. Every
+cluster has a contiguous vertex array and three `u8` local indices per triangle.
+Offsets address vertices or bytes, respectively. There are no cross-page pointers.
+The default bound is 32 MiB, configurable from 4 KiB through 128 MiB.
+
+Vertices are 20 bytes: float32 xyz (12), octahedral signed-normalized 16-bit x/y
+packed into a u32 (4), RGBA8 (4). Decode normal components by signed division by
+32767, unfold the lower hemisphere and normalize (`unpack_normal` is the oracle).
+RGBA is low-byte red; absent colors become opaque white and header flag bit 0 is
+clear. Source positions are copied without quantization: every copy, across all
+clusters and pages, has identical position bits. Normals are area-weighted if
+missing, normalized otherwise. Normals and colors enter simplification as float
+attributes with weight 0.1 per component.
+
+## Selection
+
+Draw each cluster independently iff `projected(simplified) > threshold` AND
+(`refined == ORIGINAL` OR `projected(refined_bounds) <= threshold`). A uniform cut
+uses world-space errors directly. Perspective projection follows the vendor:
+
+```
+error / max(length(center - camera_position) - radius, positive_near)
+    * (cot(fovy / 2) * 0.5) * viewport_height
+```
+
+Terminal error is treated as infinity, avoiding overflow/underflow of the stored
+finite sentinel. Camera orientation is intentionally absent from this rotationally
+invariant size estimate. Frustum/cone culling is a separate L2 operation. Threshold
+must be finite, nonnegative and less than `f32::MAX`.
+
+## Decisions
+
+1. Preserve float32 position bits and pack only normals. This gives a direct crack
+   guarantee for repeated source positions; independent per-page quantization does
+   not. RGBA8 stays present even without colors for one GPU vertex stride.
+2. Disable permissive and sloppy simplification, keeping topology-preserving regular
+   simplification and locked group borders. This lane's closed-manifold oracle takes
+   precedence over obtaining the smallest terminal cut. Use additive error accumulation
+   (`max(previous, current) + current`), a conservative setting to test numerically.
+3. Store every terminal group first, then descending depth with original group ID as
+   tie-breaker. Page 0 must fit the entire terminal cut; fail with a page-budget error
+   if it cannot. Nonterminal groups may span pages, but individual clusters never do.
+   Group IDs remain vendor emission order; cluster ranges are updated after packing.
+4. Lift a zero simplification error to `f32::MIN_POSITIVE` when recording groups so
+   threshold zero selects precisely original triangles even for planar geometry.
+5. Use single-threaded vendored construction. Hash maps in mesh generation and STL
+   welding are lookup-only; emitted order follows source triangles, never map iteration.
+6. Keep glTF with default features disabled and only `utils`; no image decoder, renderer,
+   or wgpu dependency in L1. Load all triangle primitives of the first mesh, ignoring
+   scene transforms/materials. Support GLB, base64 buffers and plain local buffer paths;
+   no network/percent-escaped URIs. The source digest is of the primary file; external
+   glTF buffers are additional inputs and must also remain unchanged for determinism.
+7. Stream PLY, OBJ and STL input through a hashing buffered reader. Support ASCII PLY
+   with one element per line, binary little/big-endian PLY, optional normals and uchar
+   RGB(A); reject nontriangular PLY faces. OBJ polygons use fan triangulation, positions
+   only. Binary STL welds identical float positions (signed zero normalized).
+8. The writer assembles a contiguous output vector after building bounded pages.
+   This uses more RAM than an on-disk spool but avoids scratch duplication on the
+   nearly full disk. Peak process RSS is measured in each CLI run. Build errors are
+   reported as errors; the page-0 bound is never silently exceeded.
+9. Use a displaced octasphere for reproducible fixtures: 8 subdivisions requests
+   524,288 triangles, and 10 requests 8,388,608. The numerical test requests 15
+   uniform thresholds and 240 random cameras. It generates orientations but does
+   not apply frustum culling: selection is rotationally invariant and culling would
+   intentionally open the surface tested for closed edges.
+10. Sample 100,000 area-uniform cut points at each of four thresholds. The error
+    gate is `4 * maximum selected refined error + 1e-6` world units. Four is a
+    deliberately generous falsification threshold for accumulated quadric error,
+    which is not a rigorous Hausdorff bound; print maximum/RMS and ratio regardless
+    of success. This is cut-to-source sampling, not a bidirectional or pixel-error
+    proof. The completed measurements are below.
+11. Reconstruct the naive source-resolution mesh once from ORIGINAL clusters,
+    weld identical complete vertex records, and run meshoptimizer vertex-cache and
+    vertex-fetch optimization. This keeps source geometry/attributes identical
+    while giving the baseline real indexed vertex buffers and instancing.
+12. Use flat, deterministic CPU selection with group error evaluated once per
+    instance, then independent cluster selection and sphere/frustum culling.
+    Uniform instance scale affects radius and error. No cone culling is needed
+    for the L2a reference; L2b extends it with decision 25.
+13. Submit one instanced draw per baked page per pass, including zero-instance
+    draws for empty pages. Each instance is one visible (cluster, scene instance)
+    pair. Short clusters emit coincident out-of-clip vertices; padding consumes
+    vertex invocations but produces no fragments. Report useful and padded counts.
+
+14. Normalize the longest asset dimension to 2 world units and place its bottom on
+    Z=0. Smithsonian Washington's source digest identifies its Y-up basis; rotate
+    it into the Z-up scene. Other sources default to Z-up. Layout seed uses an
+    explicit 32-bit LCG. Grid and field vary positive uniform scale and rotation.
+15. Resolve authored 16:9 screen anchors on the two scans' hair to the nearest real
+    source triangle at load time. This was chosen after viewing the first PNGs:
+    a bounding-box aim landed behind the surface. The smoothstep camera ends
+    0.055 world units from the hit, with near=0.002 and no camera cuts. Other
+    meshes use a central screen anchor. The path is geometric; it does not morph
+    between LOD cuts or guarantee a zero popping metric.
+16. Render a 2048² directional shadow map through the same page path at twice the
+    main threshold, selected with orthographic projected error. The indexed
+    baseline draws its full-resolution mesh in both passes. Report shadow costs
+    separately; image differences include shadows as well as main geometry.
+    Use nine comparison samples, depth bias, Lambert + GGX dielectric (roughness
+    .32, F0 .04), hemisphere ambient, filmic tonemap, an sRGB target and 4× MSAA.
+17. Only `time` requests TIMESTAMP_QUERY, and only when the adapter exposes it.
+    `render`, `compare`, `pop`, and all image tests request no features. All use
+    `Limits::default()` exactly. `time` reports medians of seven measured frames
+    after one warmup; GPU values cover the main and shadow passes, excluding
+    readback, uploads and CPU selection. `encode_ms` includes upload calls,
+    command encoding and submission; separately report both CPU selections.
+18. Baseline cluster/depth/triangle debug views are rejected: core WebGPU exposes
+    no primitive ID without an extra feature, and duplicating vertices would
+    spoil the indexed baseline. Those debug views operate on the cluster path.
+    `depth` means DAG depth. `overdraw` adds linear RGB (.04,.013,.002) with
+    depth test Always and no backface culling, producing a saturating heat view.
+19. Pixel errors use RGB in the output sRGB PNG, normalized by 255; alpha excluded.
+    A pixel differs if any channel differs by >2. Worst compare pair means
+    largest mean absolute error. Pop reports both max(MAD(cluster delta) minus
+    MAD(naive delta)) and the stronger mean absolute spatial residual of signed
+    RGB deltas; saves before/after cluster and naive frames at the latter maximum.
+20. The format does not promise pixel-identical rasterization after triangle
+    reordering. On the procedural fixture allow threshold-zero max 1/255 and mean
+    <1e-6; final measured mean is 0 (earlier camera measured 1.77e-8). The 1 px
+    procedural regression gate is mean <.008 and differing-pixel fraction <.20:
+    measured .003611/.12291; this bounds image regression,
+    not Hausdorff distance or a guarantee that all changed pixels lie within 1 px.
+21. Visible-pair storage grows to a power-of-two high-water capacity per page,
+    capped at 128 MiB. Reject a larger list rather than adding draws dependent
+    on visibility. Baseline chunks cap indices at 128 MiB and vertices at 120 MiB.
+    GPU residency counts allocated buffers/textures, with readback separate;
+    driver overhead, shader binaries and allocator overhead are not measurable here.
+    L2b supersedes the growing GPU list with decision 26; the CPU reference retains
+    this growth policy.
+
+22. Keep only the current and worst frame pairs in memory in compare/pop and
+    encode the winning PNGs once at the end. This removes repeated PNG writes
+    from the camera sweep without changing the error equations. Adapter skips
+    write directly to stderr so libtest cannot hide them in its default capture.
+
+23. Evaluate shadow transforms as `light * (model * position)` in both paths and
+    mark clip positions invariant. An initial different multiplication grouping
+    caused 163/85 changed pixels (>2/255) in Gaul/Washington close-ups at threshold
+    zero. The corrected close-ups are exact. A probe preserving source triangle
+    order also makes the far images exact; cache optimization leaves one changed
+    pixel there (max 18/255 Gaul, 4/255 Washington). Keep the cache-optimized
+    baseline and allow at most 8 such pixels, max 20/255, mean <1e-7 on the scans.
+    `tests/real_assets.rs` checks both orders at t=0,.5,1; skips loudly if cached
+    scans or a GPU are unavailable. The standard procedural test needs no files.
+
+24. L2b uses a runtime error-envelope index, preserving baked cluster order. A suffix
+    maximum of simplified error and prefix minimum of refined error are monotone;
+    binary searches bound a conservative contiguous candidate range. The enclosing
+    sphere includes all selection bounds, not only vertices. This trades extra
+    candidates within a depth for stable raster order and no format/re-bake change.
+    Pad the enclosing radius by 1.00002 and range thresholds by relative 1e-5,
+    only to avoid pruning borderline candidates; the final LOD predicate is exact.
+    Terminal sentinels always survive range pruning, including when a very large
+    finite threshold overflows its mesh-space conversion.
+25. Main culling uses instance/cluster spheres and meshoptimizer's perspective
+    apex cone test. Shadows keep L2a's orthographic error at twice the threshold,
+    light-frustum spheres, and the directional-light cone test. Camera-facing
+    tests are never used for shadow casters. Sphere planes and cone dots use a
+    conservative 1e-5 guard in both CPU and WGSL. Culling is disabled for overdraw.
+26. Allocate visible storage once: each instance gets min(cluster count,
+    floor(4,194,304 / instance count)) slots per pass. `--capacity` overrides
+    the per-instance slot count. Stable scans keep earliest coarse-to-fine IDs;
+    a full quota drops subsequent finer clusters, counts every drop, and cannot
+    overwrite another instance. Unused quotas are not shared. Overflow can make
+    holes; it is an explicitly reported degraded image, not a crack-free cut.
+
+27. Metal timing limitation found during L2b: main-pass end counters were zero
+    or stale in the expanded timing path (CPU and naive commands also affected). Three diagnostic/fix
+    rounds inspected raw counters, reordered query indices into execution order,
+    and resolved in a subsequent command buffer. The issue persisted; the fix
+    loop stopped. Invalid pairs are printed with all eight raw values and become
+    JSON null, never zero or a fabricated duration. A stage median requires all
+    measured samples to be valid; valid sample counts are explicit. Valid select/shadow timings
+    and CPU costs are still reported. `frame_completion_ms` is a separate host-clock
+    latency from encode start through completed RGBA readback: an upper bound
+    including submission, GPU work and pixel transfer, not a substitute GPU
+    stage time. The unsuccessful extra-submission workaround was removed.
+
+28. Reuse L1's 524,288-triangle (subdivision 8) closed fixture for the GPU edge
+    oracle, and share the edge-count implementation through `clod-format::oracle`.
+    An initial subdivision-6 fixture exposed 1–2 bad edges in ten unculled camera
+    cuts, identically on CPU and GPU (zero set differences). That new-fixture
+    bake/topology limitation is retained here as evidence, not blamed on GPU
+    selection or hidden by a relaxed edge threshold.
+
+29. Keep topology-preserving bakes and their unchanged SHA-256 digests. The
+    optional depth-gated permissive/sloppy experiment is not performed or adopted:
+    the immutable vendor's public configuration has only global fallback switches,
+    so a depth gate needs a separate builder change. No HZB, streaming or optional
+    core features are added. This leaves a measured raster floor, not a claim that
+    GPU selection alone makes the 5,000-instance Washington scene reach 60 Hz.
+30. The GPU frame uploads two fixed selection uniforms and one render uniform,
+    encodes eight fixed compute dispatches and two page-draw loops, and submits.
+    Instances and metadata are uploaded only at scene load. CPU frame work is
+    O(pages), independent of clusters and instances, for a fixed asset. Diagnostic
+    visible/counter/shadow readbacks are explicit post-frame CLI/test operations;
+    their results never feed a draw. Reject scenes exceeding the u32 candidate
+    counter range rather than silently wrapping a measurement.
+
+31. Correct the inherited Washington floor: 6,088 is the deepest level, not the
+    whole terminal cut. `clod-bake --cut ... --threshold 1e30 --obj ...` and both
+    selectors at `f32::MAX / 2` give 24,515 triangles, including groups that stopped
+    at earlier depths. The 5,000-instance floor is therefore 122,575,000 triangles,
+    98.16% of the 124,878,597 main triangles measured at 1 px. The bake is unchanged;
+    the earlier floor report was incorrect. Optional fallback remains unmeasured.
 
 ## Results
 
