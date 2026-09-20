@@ -1,5 +1,5 @@
 [workspace]
-members = ["format", "bake"]
+members = ["format", "bake", "view"]
 resolver = "2"
 
 [workspace.dependencies]

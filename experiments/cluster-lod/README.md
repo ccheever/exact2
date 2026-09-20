@@ -4,7 +4,7 @@ Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numer
 oracles; GPU rendering, timing and the interactive camera demonstration belong to L2.
 The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
 
-**Status:** L1 verified on Linux and this Mac; CPU reference renderer in progress.
+**Status:** L1 verified on Linux and this Mac; CPU reference renderer implemented; measurement sweep in progress.
 The native executable startup fault cleared without changes to L1 code.
 
 ## Run
@@ -137,6 +137,50 @@ must be finite, nonnegative and less than `f32::MAX`.
     draws for empty pages. Each instance is one visible (cluster, scene instance)
     pair. Short clusters emit coincident out-of-clip vertices; padding consumes
     vertex invocations but produces no fragments. Report useful and padded counts.
+
+14. Normalize the longest asset dimension to 2 world units and place its bottom on
+    Z=0. Smithsonian Washington's source digest identifies its Y-up basis; rotate
+    it into the Z-up scene. Other sources default to Z-up. Layout seed uses an
+    explicit 32-bit LCG. Grid and field vary positive uniform scale and rotation.
+15. Resolve authored 16:9 screen anchors on the two scans' hair to the nearest real
+    source triangle at load time. This was chosen after viewing the first PNGs:
+    a bounding-box aim landed behind the surface. The smoothstep camera ends
+    0.055 world units from the hit, with near=0.002 and no camera cuts. Other
+    meshes use a central screen anchor. The path is geometric; it does not morph
+    between LOD cuts or guarantee a zero popping metric.
+16. Render a 2048² directional shadow map through the same page path at twice the
+    main threshold, selected with orthographic projected error. The indexed
+    baseline draws its full-resolution mesh in both passes. Report shadow costs
+    separately; image differences include shadows as well as main geometry.
+    Use nine comparison samples, depth bias, Lambert + GGX dielectric (roughness
+    .32, F0 .04), hemisphere ambient, filmic tonemap, an sRGB target and 4× MSAA.
+17. Only `time` requests TIMESTAMP_QUERY, and only when the adapter exposes it.
+    `render`, `compare`, `pop`, and all image tests request no features. All use
+    `Limits::default()` exactly. `time` reports medians of seven measured frames
+    after one warmup; GPU values cover the main and shadow passes, excluding
+    readback, uploads and CPU selection. `encode_ms` includes upload calls,
+    command encoding and submission; separately report both CPU selections.
+18. Baseline cluster/depth/triangle debug views are rejected: core WebGPU exposes
+    no primitive ID without an extra feature, and duplicating vertices would
+    spoil the indexed baseline. Those debug views operate on the cluster path.
+    `depth` means DAG depth. `overdraw` adds linear RGB (.04,.013,.002) with
+    depth test Always and no backface culling, producing a saturating heat view.
+19. Pixel errors use RGB in the output sRGB PNG, normalized by 255; alpha excluded.
+    A pixel differs if any channel differs by >2. Worst compare pair means
+    largest mean absolute error. Pop reports both max(MAD(cluster delta) minus
+    MAD(naive delta)) and the stronger mean absolute spatial residual of signed
+    RGB deltas; saves before/after cluster and naive frames at the latter maximum.
+20. The format does not promise pixel-identical rasterization after triangle
+    reordering. On this Metal adapter allow threshold-zero max 1/255 and mean
+    <1e-6; measured mean is 1.77e-8 (rounding at identical geometry). The 1 px
+    procedural regression gate is mean <.008 and differing-pixel fraction <.20:
+    measured .00366/.124 before final path adjustment; this bounds image regression,
+    not Hausdorff distance or a guarantee that all changed pixels lie within 1 px.
+21. Visible-pair storage grows to a power-of-two high-water capacity per page,
+    capped at 128 MiB. Reject a larger list rather than adding draws dependent
+    on visibility. Baseline chunks cap indices at 128 MiB and vertices at 120 MiB.
+    GPU residency counts allocated buffers/textures, with readback separate;
+    driver overhead, shader binaries and allocator overhead are not measurable here.
 
 ## Results
 
