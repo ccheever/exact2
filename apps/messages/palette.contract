@@ -1,0 +1,20 @@
+// Shared colour roles, using the same CSS light-dark pairs on every surface.
+
+style PrimaryText
+  color="light-dark(#000000, #ffffff)"
+
+style AccentText
+  color="light-dark(#007aff, #0a84ff)"
+
+style PrimaryIcon
+  tint-color="light-dark(#000000, #ffffff)"
+
+style PrimaryFill
+  background-color="light-dark(#000000, #ffffff)"
+
+style PageSurface
+  background-color="light-dark(#ffffff, #000000)"
+
+style PageCanvas
+  background-color="light-dark(#ffffff, #000000)"
+  color="light-dark(#000000, #ffffff)"

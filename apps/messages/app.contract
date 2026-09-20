@@ -1,3 +1,9 @@
+use PrimaryText from "./palette.contract"
+use AccentText from "./palette.contract"
+use PrimaryIcon from "./palette.contract"
+use PrimaryFill from "./palette.contract"
+use PageSurface from "./palette.contract"
+use PageCanvas from "./palette.contract"
 use Inbox from "./models.contract"
 use NewMessageSheet from "./new-message-sheet.contract"
 use MessageBubble from "./message-parts.contract"
@@ -449,10 +455,10 @@ component Messages
     nav = open(nav, location)
 
   view
-    main testId="messages" navigationKey=`${top(nav).id}` navigationBack="back" navigate=followLink viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" background-color="light-dark(#ffffff, #000000)" color="light-dark(#000000, #ffffff)" font-family="system-ui"
+    main testId="messages" navigationKey=`${top(nav).id}` navigationBack="back" navigate=followLink viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" class=PageCanvas font-family="system-ui"
       each e in stack(nav) key=e.id
         when e.name == "inbox"
-          column navigationKey=`${e.id}` testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+          column navigationKey=`${e.id}` testId="inbox-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
             when inboxMode == "messages"
               column flex=1 min-height=0
                 row testId="inbox-title-bar" position="absolute" top=0 left=0 right=0 z-index=1 padding-left=20 padding-right=20 height=44 align-items="center" justify-content="space-between" backgroundMaterial="ultra-thin" opacity=inboxTitleOpacity
@@ -502,12 +508,12 @@ component Messages
                     text syncStatus testId="sync-status" text-align="center" padding=16 font-size=12 color="#8e8e93"
                 row margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0
                   row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
-                    image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 tint-color="light-dark(#000000, #ffffff)"
-                    input id="search" testId="search" value=query change=search placeholder="Search" aria-label="Search conversations" color="light-dark(#000000, #ffffff)" font-size=17 flex=1 min-width=0 height=44 border-width=0
+                    image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 class=PrimaryIcon
+                    input id="search" testId="search" value=query change=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
                     button disabled=true testId="search-dictation" aria-label="Dictate search" width=28 height=40 display="flex" align-items="center" justify-content="center" flex-shrink=0
-                      image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
+                      image "symbol:microphone" font-size=17 font-weight=400 class=PrimaryIcon
                   button press=newMessage testId="new-message" aria-label="New message" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" flex-shrink=0
-                    image "symbol:compose" testId="compose-symbol" font-size=22 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
+                    image "symbol:compose" testId="compose-symbol" font-size=22 font-weight=400 class=PrimaryIcon
                 box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
             when inboxMode == "deleted"
               column testId="recently-deleted-screen" flex=1 min-height=0
@@ -536,9 +542,9 @@ component Messages
                 box height="calc(env(safe-area-inset-bottom) - 6px)" min-height=0 flex-shrink=0
             button popovertarget="inbox-filters" testId="inbox-filters-button" aria-label="Filter messages" position="absolute" top="env(safe-area-inset-top)" right=16 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" z-index=2
               column width=22 gap=4 align-items="center"
-                box width=22 height=1.5 border-radius=1 background-color="light-dark(#000000, #ffffff)"
-                box width=16 height=1.5 border-radius=1 background-color="light-dark(#000000, #ffffff)"
-                box width=10 height=1.5 border-radius=1 background-color="light-dark(#000000, #ffffff)"
+                box width=22 height=1.5 border-radius=1 class=PrimaryFill
+                box width=16 height=1.5 border-radius=1 class=PrimaryFill
+                box width=10 height=1.5 border-radius=1 class=PrimaryFill
             column id="inbox-filters" popover="auto" position="absolute" role="menu" aria-label="Filter messages" width=250 padding=8 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
               button press=filterInbox("messages") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "messages") testId="filter-messages" height=44 padding-left=16 padding-right=16
                 text "Messages" font-size=17
@@ -546,7 +552,7 @@ component Messages
                 text "Recently Deleted" font-size=17
             column id="recover-confirmation" popover="auto" position="absolute" role="alertdialog" aria-label="Recover messages" width=240 box-sizing="border-box" padding=16 gap=16 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
               text "These messages will be recovered." font-size=17
-              button press=recoverDeleted popovertarget="recover-confirmation" popovertargetaction="hide" testId="confirm-recover" color="light-dark(#007aff, #0a84ff)" background-color="#0088ff" height=48 border-radius=24
+              button press=recoverDeleted popovertarget="recover-confirmation" popovertargetaction="hide" testId="confirm-recover" class=AccentText background-color="#0088ff" height=48 border-radius=24
                 text (recoveryCount == 1 ? "Recover Message" : `Recover ${recoveryCount} Messages`) font-size=17 font-weight=600 color="#ffffff"
               button popovertarget="recover-confirmation" popovertargetaction="hide" testId="cancel-recover" height=44
                 text "Cancel" font-size=17
@@ -557,16 +563,16 @@ component Messages
               button popovertarget="purge-confirmation" popovertargetaction="hide" testId="cancel-purge" height=44
                 text "Cancel" font-size=17
         when e.name == "thread"
-          column navigationKey=`${e.id}` testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
+          column navigationKey=`${e.id}` testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
             row testId="conversation-header" height=95.333333 flex-shrink=0 align-items="flex-start" justify-content="center" padding-left=16 padding-right=16
               button press=back disabled=composing id="back" testId="back" aria-label="Back to Messages" position="absolute" left=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display=(replying == "" and not selecting ? "flex" : "none") align-items="center" justify-content="center"
-                image "symbol:back" font-size=20 font-weight=600 tint-color="light-dark(#000000, #ffffff)"
+                image "symbol:back" font-size=20 font-weight=600 class=PrimaryIcon
               when replying != "" and not selecting
                 button press=cancelReply testId="close-reply-thread" aria-label="Close replies" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" z-index=2
-                  image "symbol:close" testId="close-symbol" font-size=20 font-weight=500 tint-color="light-dark(#000000, #ffffff)"
+                  image "symbol:close" testId="close-symbol" font-size=20 font-weight=500 class=PrimaryIcon
               when selecting
                 button press=cancelSelection testId="cancel-selection" aria-label="Cancel message selection" position="absolute" right=16 top=0 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" z-index=2
-                  image "symbol:close" font-size=20 font-weight=500 tint-color="light-dark(#000000, #ffffff)"
+                  image "symbol:close" font-size=20 font-weight=500 class=PrimaryIcon
               button press=showDetails retainFocus=true disabled=selecting testId="contact-details" aria-label=`Contact information for ${chat.name}` max-width="70%" display="flex" flex-direction="column" align-items="center"
                 column id="contact-photo" width=60 height=60 border-radius=30 background-color=chat.color align-items="center" justify-content="center" z-index=1
                   when chat.initials != ""
@@ -574,7 +580,7 @@ component Messages
                   else
                     box width=32 height=36 scale=0.8 clip-path=personPath background-color="#ffffff"
                 row max-width="100%" box-sizing="border-box" padding-left=14 padding-right=12 height=32 margin-top=-5 border-radius=16 backgroundMaterial="glass" align-items="center" gap=6
-                  text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 color="light-dark(#000000, #ffffff)"
+                  text chat.name min-width=0 line-clamp=1 font-size=17 font-weight=600 class=PrimaryText
                   text "›" font-size=22 font-weight=600 color="light-dark(#b4b4b7, #8e8e93)"
             column testId="conversation-body" flex=1 min-height=0
               scroll testId="transcript" scrollFollowEnd=(cursor == "") keyboardDismissMode="interactive" scrollTop=(cursor == "" ? 1000000 + chat.scrollRevision : 0 - windowShift) flex=1 min-height=0 overflow-x="hidden"
@@ -583,7 +589,7 @@ component Messages
                     column scroll-snap-align="start" width="50%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=14 padding-bottom=14 gap=4
                       when chat.hasEarlier
                         button press=shiftWindow(chat.earlier) testId="show-earlier-messages" left=timestampOffset padding=12
-                          text "Show earlier messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
+                          text "Show earlier messages" font-size=14 class=AccentText
                       when length(chat.messages) > 0 and not chat.hasEarlier
                         column testId="conversation-service" left=timestampOffset align-items="center" margin-bottom=10
                           text "iMessage" font-size=11 line-height="13.333333px" color="#8e8e93"
@@ -625,22 +631,22 @@ component Messages
                                   when message.chosen
                                     box width=12 height=12 clip-path="path('M 0 6 L 2 4 L 5 8 L 10 0 L 12 1 L 5 12 Z')" background-color="#ffffff"
                                   else
-                                    box width=19 height=19 border-radius=9.5 background-color="light-dark(#ffffff, #000000)"
+                                    box width=19 height=19 border-radius=9.5 class=PageSurface
                             column position="absolute" left="100%" margin-left=8 top=0 bottom=0 width=50 opacity=(timestampDistance > 0 ? 1 : 0) justify-content="center"
                               text message.time testId=`timestamp-${message.id}` font-size=11 line-height="14px" color="#8e8e93" text-align="right"
                           when message.delivery != ""
                             text message.delivery testId=`delivery-status-${message.id}` opacity=(selecting or (selected == message.id and replying == "") ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
                           when message.replyCount > 0
                             button press=openReplies(message.replyRoot) testId=`replies-${message.id}` margin-top=5 margin-left=6 margin-right=6 padding=3
-                              text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 color="light-dark(#007aff, #0a84ff)"
+                              text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 class=AccentText
                           when selecting
                             button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" z-index=3
                       when chat.hasLater
                         button press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
-                          text "Show later messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
+                          text "Show later messages" font-size=14 class=AccentText
                       when cursor != "" and (chat.hasEarlier or chat.hasLater)
                         button press=shiftWindow("") testId="show-latest-messages" left=timestampOffset padding=12
-                          text "Show latest messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
+                          text "Show latest messages" font-size=14 class=AccentText
                       when chat.typingName != ""
                         row testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
                           TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="typing")
@@ -685,20 +691,20 @@ component Messages
                           TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="reply-typing")
             when attachments and not selecting
               row testId="attachments" gap=16 padding=16 justify-content="center" background-color="light-dark(#f2f2f7, #1c1c1e)" flex-shrink=0
-                button press=insert("😊") retainFocus=true testId="insert-smile" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                button press=insert("😊") retainFocus=true testId="insert-smile" padding=12 border-radius=14 class=PageSurface
                   text "😊" font-size=30
-                button press=insert("❤️") retainFocus=true testId="insert-heart" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                button press=insert("❤️") retainFocus=true testId="insert-heart" padding=12 border-radius=14 class=PageSurface
                   text "❤️" font-size=30
-                button press=insert("☕️") retainFocus=true testId="insert-coffee" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
+                button press=insert("☕️") retainFocus=true testId="insert-coffee" padding=12 border-radius=14 class=PageSurface
                   text "☕️" font-size=30
-            column testId="composer-bar" display=(selecting ? "none" : "flex") padding-left=16 padding-right=16 padding-top=0 padding-bottom=16 flex-shrink=1 min-height=40.333333 background-color="light-dark(#ffffff, #000000)"
+            column testId="composer-bar" display=(selecting ? "none" : "flex") padding-left=16 padding-right=16 padding-top=0 padding-bottom=16 flex-shrink=1 min-height=40.333333 class=PageSurface
               row align-items="flex-end" min-height=0
                 box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
                 row flex=1 min-width=0 gap=12 align-items="flex-end" align-self="stretch" max-height="100%"
                   button press=showAttachments retainFocus=true testId="add" aria-label="Add attachment" width=40 height=40 display="flex" justify-content="center" align-items="center" border-radius=20 backgroundMaterial="glass"
-                    image "symbol:add" font-size=22 font-weight=400 rotate=(attachments ? 45 : 0) tint-color="light-dark(#000000, #ffffff)"
+                    image "symbol:add" font-size=22 font-weight=400 rotate=(attachments ? 45 : 0) class=PrimaryIcon
                   row testId="composer-surface" flex=1 min-width=0 min-height=40.333333 max-height="100%" align-self="stretch" box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6.333333 padding-top=6 padding-bottom=6 gap=5
-                    textarea id="composer" testId="composer" value=draft change=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" color="light-dark(#000000, #ffffff)" font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
+                    textarea id="composer" testId="composer" value=draft change=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
                     button press=sendDraft retainFocus=true disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=38 height=28 box-sizing="border-box" padding-left=(draft == "" ? 10 : 0) border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" align-items="center" justify-content="center"
                       when draft == ""
                         image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
@@ -760,8 +766,8 @@ component Messages
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
                                     box width=14 height=14
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 background-color="light-dark(#000000, #ffffff)"
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
+                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
                                 else
                                   button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=0 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
                                     box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
@@ -780,8 +786,8 @@ component Messages
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
                                     box width=14 height=14
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 background-color="light-dark(#000000, #ffffff)"
-                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 background-color="light-dark(#000000, #ffffff)"
+                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=45 class=PrimaryFill
+                                      box position="absolute" left=6 top=0 width=1.5 height=14 rotate=-45 class=PrimaryFill
                                 else
                                   button press=showEmojiPicker retainFocus=true testId="open-emoji-picker" aria-label="Choose another emoji" position="absolute" left=6 top=-12 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
                                     box width=24 height=24 clip-path=emojiFacePath background-color="light-dark(#99999e, #b4b4b9)"
@@ -793,20 +799,20 @@ component Messages
                           column id="message-actions" testId="message-actions" backgroundMaterial="glass" align-self=(selectedOutgoing ? "flex-end" : "flex-start") margin-left=(selectedOutgoing ? 0 : 5) width=250 border-radius=32 padding-top=10 padding-bottom=10
                             button press=reply testId="reply" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
                               column width=32 height=32 align-items="center" justify-content="center"
-                                text "↩︎" font-size=22 color="light-dark(#000000, #ffffff)"
-                              text "Reply" font-size=17 color="light-dark(#000000, #ffffff)"
+                                text "↩︎" font-size=22 class=PrimaryText
+                              text "Reply" font-size=17 class=PrimaryText
                             button press=copyMessage testId="copy-message" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
                               column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:copy" testId="copy-symbol" font-size=17 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
-                              text "Copy" font-size=17 color="light-dark(#000000, #ffffff)"
+                                image "symbol:copy" testId="copy-symbol" font-size=17 font-weight=400 class=PrimaryIcon
+                              text "Copy" font-size=17 class=PrimaryText
                             button press=selectMessageText testId="select-message-text" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
                               column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:select-text" testId="select-text-symbol" font-size=17 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
-                              text "Select" font-size=17 color="light-dark(#000000, #ffffff)"
+                                image "symbol:select-text" testId="select-text-symbol" font-size=17 font-weight=400 class=PrimaryIcon
+                              text "Select" font-size=17 class=PrimaryText
                             button press=more testId="more-message" height=42 padding-left=24 padding-right=16 display="flex" align-items="center" gap=8
                               column width=32 height=32 align-items="center" justify-content="center"
-                                image "symbol:more" testId="more-symbol" font-size=17 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
-                              text "More…" font-size=17 color="light-dark(#000000, #ffffff)"
+                                image "symbol:more" testId="more-symbol" font-size=17 font-weight=400 class=PrimaryIcon
+                              text "More…" font-size=17 class=PrimaryText
         when e.name == "details"
           ContactDetails(
             routeKey=`${e.id}`,

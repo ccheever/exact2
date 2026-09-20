@@ -1,3 +1,7 @@
+use PrimaryText from "./palette.contract"
+use AccentText from "./palette.contract"
+use PrimaryIcon from "./palette.contract"
+use PrimaryFill from "./palette.contract"
 use Recipients from "./models.contract"
 
 component NewMessageSheet
@@ -68,7 +72,7 @@ component NewMessageSheet
             justify-content="center"
             image "symbol:close" font-size=22
               font-weight=400
-              tint-color="light-dark(#000000, #ffffff)"
+              class=PrimaryIcon
         row testId="recipient-field"
           margin-left=16
           margin-right=16
@@ -111,7 +115,7 @@ component NewMessageSheet
               key=recipientKey
               aria-label="To"
               font-size=17
-              color="light-dark(#000000, #ffffff)"
+              class=PrimaryText
               flex=1
               min-width=36
               height=40
@@ -133,14 +137,14 @@ component NewMessageSheet
                 width=2
                 height=14
                 border-radius=1
-                background-color="light-dark(#000000, #ffffff)"
+                class=PrimaryFill
               box position="absolute"
                 left=0
                 top=6
                 width=14
                 height=2
                 border-radius=1
-                background-color="light-dark(#000000, #ffffff)"
+                class=PrimaryFill
         scroll testId="recipient-results"
           flex=1
           min-height=0
@@ -174,7 +178,7 @@ component NewMessageSheet
                         scale=0.55
                         clip-path=personPath
                         background-color="#ffffff"
-                  text person.name font-size=17 line-clamp=1 color="light-dark(#007aff, #0a84ff)"
+                  text person.name font-size=17 line-clamp=1 class=AccentText
               when length(contacts.people) == 0
                 text "No Results" font-size=17 color="#8e8e93" text-align="center" padding=24
         column padding-left=16
@@ -217,7 +221,7 @@ component NewMessageSheet
                 focus=clearRecipientSelection
                 placeholder=(contacts.target == "" ? "": "iMessage")
                 aria-label="New message"
-                color="light-dark(#000000, #ffffff)"
+                class=PrimaryText
                 font-size=17
                 line-height="20px"
                 flex=1

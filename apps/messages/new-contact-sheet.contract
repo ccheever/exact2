@@ -1,3 +1,5 @@
+use AccentText from "./palette.contract"
+use PrimaryIcon from "./palette.contract"
 use ContactNameField from "./contact-fields.contract"
 
 style ContactFormSurface
@@ -66,7 +68,7 @@ component NewContactSheet
             justify-content="center"
             image "symbol:close" font-size=22
               font-weight=400
-              tint-color="light-dark(#000000, #ffffff)"
+              class=PrimaryIcon
           button press=saveContact
             retainFocus=true
             testId="save-new-contact"
@@ -363,6 +365,6 @@ component NewContactSheet
         button testId="keep-new-contact"
           popovertarget="discard-contact-confirmation"
           popovertargetaction="hide"
-          color="light-dark(#007aff, #0a84ff)"
+          class=AccentText
           height=44
           text "Cancel" font-size=17

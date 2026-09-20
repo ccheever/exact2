@@ -1,3 +1,7 @@
+use AccentText from "./palette.contract"
+use PrimaryIcon from "./palette.contract"
+use PrimaryFill from "./palette.contract"
+use PageSurface from "./palette.contract"
 use Conversation from "./models.contract"
 
 style ContactGroupSurface
@@ -26,7 +30,7 @@ component ContactDetails
       bottom=0
       left=0
       box-sizing="border-box"
-      background-color="light-dark(#ffffff, #000000)"
+      class=PageSurface
       padding-top="env(safe-area-inset-top)"
       padding-left="env(safe-area-inset-left)"
       padding-right="env(safe-area-inset-right)"
@@ -67,7 +71,7 @@ component ContactDetails
               box width=22
                 height=24
                 clip-path=callPath
-                background-color="light-dark(#000000, #ffffff)"
+                class=PrimaryFill
             button disabled=true
               aria-label="Video call"
               width=48
@@ -135,7 +139,7 @@ component ContactDetails
                   padding-right=16
                   display="flex"
                   align-items="center"
-                  text "Create New Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
+                  text "Create New Contact" font-size=17 class=AccentText
                   box position="absolute"
                     bottom=0
                     left=16
@@ -149,7 +153,7 @@ component ContactDetails
                   padding-right=16
                   display="flex"
                   align-items="center"
-                  text "Add to Existing Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
+                  text "Add to Existing Contact" font-size=17 class=AccentText
             button press=toggleMute
               testId="details-hide-alerts"
               role="switch"
@@ -230,7 +234,7 @@ component ContactDetails
         button popovertarget="block-confirmation"
           popovertargetaction="hide"
           testId="cancel-block-contact"
-          color="light-dark(#007aff, #0a84ff)"
+          class=AccentText
           height=44
           text "Cancel" font-size=17
       button press=closeDetails
@@ -247,4 +251,4 @@ component ContactDetails
         display="flex"
         align-items="center"
         justify-content="center"
-        image "symbol:back" font-size=20 font-weight=600 tint-color="light-dark(#000000, #ffffff)"
+        image "symbol:back" font-size=20 font-weight=600 class=PrimaryIcon
