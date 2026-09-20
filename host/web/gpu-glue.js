@@ -686,9 +686,11 @@ function worlds(request) {
         world.perf = { ...world.perf, wallClock: true,
           navigationToFirstContentfulPaintMs: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
           gpuMs: Number(exact.root.dataset.gpuMs),
-          moduleInstantiatedMs: Number(exact.root.dataset.worldModuleMs),
-          boundMs: entry.boundMs ?? null, firstTickMs: entry.firstTickMs ?? null,
-          firstPublicationMs: entry.firstPublicationMs ?? null,
+          ...(!gpu.gpu_load ? {
+            moduleInstantiatedMs: Number(exact.root.dataset.worldModuleMs),
+            boundMs: entry.boundMs ?? null, firstTickMs: entry.firstTickMs ?? null,
+            firstPublicationMs: entry.firstPublicationMs ?? null,
+          } : {}),
           inputMs: entry.inputMs ?? null,
           firstFrameSubmittedMs: entry.firstFrameSubmittedMs ?? null,
           firstFrameMs: entry.firstFrameMs ?? null,
@@ -697,9 +699,10 @@ function worlds(request) {
           resources: performance.getEntriesByType('resource')
             .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
             .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, bytes: r.decodedBodySize })),
-          resourceTransfers: performance.getEntriesByType('resource')
+          ...(!gpu.gpu_load ? {resourceTransfers: performance.getEntriesByType('resource')
             .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
             .map(r => ({name:new URL(r.name).pathname, durationMs:r.duration, transferBytes:r.transferSize, encodedBytes:r.encodedBodySize})),
+          } : {}),
         };
       }
       out.push({ ...world, canvas: view });
@@ -1292,8 +1295,8 @@ const t0 = performance.now();
 try {
   const version = exact.gpuVersion ?? 0;
   gpu = await loadModule(version);
-  exact.root.dataset.worldModuleMs = performance.now().toFixed(3);
   if (!gpu.gpu_load) {
+    exact.root.dataset.worldModuleMs = performance.now().toFixed(3);
     gpu.gpu_load_headless();
     gpu.gpu_seekable(Boolean(exact.now));
   } else {

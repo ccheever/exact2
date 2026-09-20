@@ -571,6 +571,9 @@ impl Module {
 
     /// Create surface ownership without a device, target, or registered shaders.
     pub fn create_headless(&mut self, name: &str) -> Option<u32> {
+        if self.instances.len() >= 256 || self.next == u32::MAX {
+            return self.fail("surface ownership limit (256) or ID exhaustion");
+        }
         let Some((_, _, factory)) = self.registry.surfaces.iter().find(|(n, _, _)| *n == name)
         else {
             return self.fail(format!("no surface named `{name}` in this module"));
@@ -583,9 +586,6 @@ impl Module {
         factory: Factory,
         presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) -> Option<u32> {
-        if self.instances.len() >= 256 || self.next == u32::MAX {
-            return self.fail("surface ownership limit (256) or ID exhaustion");
-        }
         self.next += 1;
         let id = self.next;
         let mut surface = factory();
@@ -738,7 +738,7 @@ impl Module {
         }
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
-            if !advance::error_reply(reply.as_deref()) {
+            if inst.config.is_some() || !advance::error_reply(reply.as_deref()) {
                 return None;
             }
         }

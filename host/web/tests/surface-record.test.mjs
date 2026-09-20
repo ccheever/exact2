@@ -68,7 +68,7 @@ export async function fixture(options = {}) {
       return JSON.stringify(reply);
     }};
   };
-  const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
+  const source = (options.gpuSource ?? readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8'))
     .replace('import { assetDelivery, assetName } from "./gpu-assets.js";', '')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
@@ -101,9 +101,9 @@ export async function fixture(options = {}) {
     }
   }
   const initialized = new (Object.getPrototypeOf(async function() {}).constructor)(
-    'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage', 'navigator', 'fetch',
+    'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage', 'navigator', 'fetch', 'performance',
     source + `;exact.entries = () => [...surfaces.values()]; exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: options.search ?? '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)}, {sendBeacon:url=>beacons.push(url)}, options.fetch ?? globalThis.fetch);
+  )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: options.search ?? '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)}, {sendBeacon:url=>beacons.push(url)}, options.fetch ?? globalThis.fetch, options.performance ?? globalThis.performance);
   if (!options.pendingLoad) await initialized;
   await new Promise(resolve => setTimeout(resolve, 0));
   function create(id, name = 'world', values = []) {

@@ -91,3 +91,19 @@ const failureJS=new URL('../../../game/tests/world-failure/dist/gpu.js',import.m
     assert.equal(f.exact.gpu.agent(1,{op:'state'}).world.tick,1);
   } finally {module.gpu_unload();}
 });
+// Execute both real revisions under exactly the same device, clock and resource inputs.
+import {execFileSync} from 'node:child_process';
+test('device state and DOM dataset are byte-identical to f418821',async()=>{
+  const before=execFileSync('git',['show','f418821:host/web/gpu-glue.js'],{cwd:import.meta.dir,encoding:'utf8'});
+  const performance={now:()=>100,getEntriesByName:()=>[{startTime:12}],getEntriesByType:()=>[
+    {name:'http://fixture/gpu_bg.wasm',startTime:10,responseEnd:20,decodedBodySize:123,duration:10,transferSize:150,encodedBodySize:100},
+  ]};
+  const run=async gpuSource=>{
+    const f=await fixture({gpuSource,performance,gpu:{gpu_error:()=>''}});
+    f.create(1);f.paint(17);
+    return {state:JSON.stringify(f.exact.gpu.decorate({op:'state'},{})),dataset:JSON.stringify(f.exact.root.dataset)};
+  };
+  const expected=await run(before),actual=await run();
+  assert.equal(actual.state,expected.state);
+  assert.equal(actual.dataset,expected.dataset);
+});

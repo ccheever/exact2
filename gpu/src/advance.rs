@@ -31,7 +31,7 @@ impl Module {
 #[cfg(test)]
 mod tests {
     use crate::*;
-    struct Probe;
+    pub(super) struct Probe;
     impl Surface for Probe {
         fn render(
             &mut self,
@@ -53,7 +53,7 @@ mod tests {
             Some(SurfaceError("original failure".into()))
         }
     }
-    static REGISTRY: Registry = Registry {
+    pub(super) static REGISTRY: Registry = Registry {
         surfaces: &[("probe", 0, || Box::new(Probe))],
         shaders: &[],
     };
@@ -80,5 +80,43 @@ mod tests {
         }
         assert!(m.create_headless("probe").is_none());
         assert_eq!(m.instances.len(), 256);
+    }
+}
+
+#[cfg(test)]
+mod device_identity {
+    use super::tests::{Probe, REGISTRY};
+    use crate::*;
+    #[test]
+    fn device_insertion_retains_the_f418821_range() {
+        let mut m = Module::new(&REGISTRY);
+        for _ in 0..257 {
+            assert!(m.insert(|| Box::new(Probe), None).is_some());
+        }
+        assert!(
+            m.create_headless("probe").is_none(),
+            "owned capacity remains bounded"
+        );
+        m.next = u32::MAX - 1;
+        assert_eq!(m.insert(|| Box::new(Probe), None), Some(u32::MAX));
+    }
+    #[test]
+    fn presentable_device_agent_error_still_returns_no_reply() {
+        let mut m = Module::new(&REGISTRY);
+        let id = m.insert(|| Box::new(Probe), None).unwrap();
+        // Config survives device loss: classification must not depend on a live target.
+        m.instances.get_mut(&id).unwrap().config = Some(wgpu::SurfaceConfiguration {
+            color_space: Default::default(),
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            width: 1,
+            height: 1,
+            present_mode: wgpu::PresentMode::AutoVsync,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        });
+        assert_eq!(m.agent(id, "{}"), None);
+        assert_eq!(m.take_error(), "original failure");
     }
 }
