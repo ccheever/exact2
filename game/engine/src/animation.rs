@@ -1202,7 +1202,7 @@ impl Definitions {
                 w.remove_component::<Blend>(e);
                 w.remove_component::<Animator>(e);
                 if !w.has::<Animation>(e) && !w.insert(e, fresh.clone()) {
-                    w.log(format_args!(
+                    w.session_log(format_args!(
                         "animation carry `{name}`: controller insert refused"
                     ));
                 }
@@ -1210,7 +1210,7 @@ impl Definitions {
                 w.remove_component::<Animation>(e);
                 w.remove_component::<Animator>(e);
                 if !w.has::<Blend>(e) && !w.insert(e, fresh.clone()) {
-                    w.log(format_args!(
+                    w.session_log(format_args!(
                         "animation carry `{name}`: controller insert refused"
                     ));
                 }
@@ -1218,7 +1218,7 @@ impl Definitions {
                 w.remove_component::<Animation>(e);
                 w.remove_component::<Blend>(e);
                 if !w.has::<Animator>(e) && !w.insert(e, fresh.clone()) {
-                    w.log(format_args!(
+                    w.session_log(format_args!(
                         "animation carry `{name}`: controller insert refused"
                     ));
                 }
