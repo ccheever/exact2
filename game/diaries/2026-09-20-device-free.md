@@ -854,3 +854,54 @@ awaited and no live recorded children remained. No broad process kill was used.
   their 4-second timeouts; both reproduce with the byte-identical base
   `scripts/agent.mjs` restored (0 passed, 2 failed, 93 filtered, 8.10 s).
   No carrier change is included in the delivered patch.
+
+## K8 host/adapter (2026-09-20, exact2-t2)
+
+Base `36eccf14`; no edits to `world/`, `world/derive/` or `motion/`, no pins moved.
+No API signatures changed. `Surface::advance(&mut self, now_ms: f64) -> bool`
+now explicitly requires duplicate timestamps to return false without doing work.
+Live retreat retains the last accepted host anchor; controlled clocks still refuse.
+
+| Item / commit | Executed failing-before evidence | Result |
+|---|---|---|
+| Native owned bounds — `ed865a6d` | Real C-export subprocess accepted 20,000-character bindings and 65,537-byte replies; 100,000 nested arrays SIGABRT; oversized messages/errors escaped | All subprocess cases pass after admission, including maximum accepted text/depth, escaped output, 256 MiB framing and ordinary device 20 KiB binding |
+| Owned reentrancy — `67a0c4e0` | Tick callback re-entering native unload aborts on RefCell borrow | Tick and agent subprocess callbacks refuse, module remains usable |
+| Live resize/clock — `19c70d96` | Observer fixture advances before first frame; adapter live retreat sets an error | Both regressions pass; real observer/human-clock fixture added in `game/games/tally/live.mjs` |
+| Tick-1 retention — `4278e814` | Adapter/native bind refuses; web owner turns successful bind plus take_error into refusal; baked carrier loses instance | Adapter, owned ABI unit and rebuilt actual wasm through production glue retain failed state/tree/error and restart |
+| Device compatibility — `9855f378` | 257th common insertion refuses; configured device agent keeps an error reply; matched glue state/DOM bytes differ | All controls pass; device state JSON and dataset are byte-identical to executed `f418821` under identical fixture inputs |
+| Duplicate timestamps — `92801429` | A duplicate advance returns true while publication is pending | 1,000 duplicate calls with 1,024 queued inputs: zero allocations, identical save, pending publication retained; later time advances |
+| Queue — `860a1d21` | Documentation, no failing runtime test applies | Linux DISPLAY baseline limitation, codec/Swift/Apple proof gaps, startup loading and host settle coalescing recorded |
+
+`d2f670f2` removes an extra blank line to keep the trait file at the 1,500-line cap.
+The native boundary admits 16 KiB/depth-64 requests, 64 KiB text returns,
+1,024/64 KiB pending messages, 256 MiB carry/restore, and 4 KiB error prefixes.
+Pending output checks visit at most 256 owned instances. Application callback
+allocation/work before returning remains the application's responsibility.
+
+Completed validation:
+- Adapter: 26 passing tests (8 unit, 18 integration), including the 1,000-component
+  idle observation control. Owned native export tests: 3 passing integration tests
+  including the separate device binary. Owned web units: 4 passing tests. Device
+  insertion/error and ownership-limit units: 4 passing tests.
+- Web Bun suite: 159 pass, 3 skip, 4 fail. All four failures attempt unavailable
+  `xcrun`; no Swift assertion executed. Actual Tally wasm fixtures, the rebuilt
+  tick-1 failure wasm carrier fixture, device identity, and ordinary HTML identity pass.
+- The world-failure web build succeeds. Formatting for both workspaces, caps
+  (810 source files), boot (two pre-pixel modules, one wasm reference) pass.
+- Real Chromium live proof cannot launch: browser executable ENOENT. Therefore
+  **no human-clock one-second tick measurements**, no executed real observer-race
+  result, and no full browser failure proof result are claimed.
+
+Verification stopped at the explicit disk threshold: the shared filesystem fell
+from 31 GiB free at start to 24 GiB, then 23 GiB. No cold builds were started after
+that finding. Full root/game Rust suites, clippy, full game Bun, six Tally proof
+modes, all other Linux game proofs, the browser failure proof, and final
+`cargo build -p caltrain-gpu --target wasm32-unknown-unknown` remain unverified in
+this run. Earlier K6 evidence is not relabelled as a K8 result. Local logs are in
+`~/lanes/gamenext/scratch/k8-t2/`.
+
+Only an Apple machine can finish Swift product-copy/bake verification, macOS/iOS
+failed-tick inspection and recovery, first-layout Metal behavior, display-link
+pacing, and real device shader/recovery/replacement checks. No startup-budget
+closure or permission to ship is claimed. Bun here is 1.3.14; the repository pin
+remains 1.3.12. No dependency or determinism pin was edited.
