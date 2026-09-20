@@ -51,10 +51,6 @@ sits on that list carries the trade it would take.
   on the Air); investigate without weakening the limit. Interview's new Mac
   materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
 
-- **Web driver shutdown** (2026-09-14): Caltrain web smoke and Interview web
-  drive print success after closing sessions but leave Bun alive; find the
-  remaining handle. Explicit exit after the smoke returns completes cleanly.
-
 - **Markdown scrolling, on the 120 Hz machine** (2026-09-19): scrolling now measures
   ahead of Legend on an M4 Pro at 60 Hz with input synthesized in-process
   (`apps/markdown/README.md`: inputs committed later than one 120 Hz frame, of
@@ -565,14 +561,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Storage reload assertion (2026-09-14, router verification): the workspace sweep failed `exact-js --test storage` / `unload_invalidates_continuations_and_configuration_survives_reload` with `"cancel"` instead of `"again"`; the focused seven-test storage rerun passed. Reproduce the cancelled file operation/reload interaction before claiming the full workspace sweep green. Evidence: `target/router-test.log`, `target/router-test-retry.log` in `exact2-wt-router`.
 
-- Web smoke teardown (2026-09-14, router verification): `bun scripts/smoke.mjs web` printed `web smoke: ok in 34.6 s` and all three Caltrain tests passed, but the Bun process remained alive afterward; the launched exec session was interrupted (exit 130). Identify the retained handle and make successful smoke runs exit naturally. Evidence: `target/router-smoke.log` in `exact2-wt-router`.
-
 - Interview router row 4 (LLP 1038 F10): seed an isolated agent-mode replica for the own-data/scroll swipe drive; first finish the static fixture’s held swipes with Simulator unobscured (other desktop apps blocked contact).
 - Interview iPad-wide iOS (LLP 1038): drive the rail on a real wide simulator viewport; the iPhone agent ignores `--size` and reports 402 × 874 for both requested sizes.
 - Interview backend list arguments (LLP 1038): let `/state` accept question/person/post ID lists and return every stacked record; the pre-replica path currently sends only each list’s first ID.
 
 - Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
-- Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 # Graceful-overload consumers (2026-09-16)
 
 LLP 1041 starts `messages-stress` and `completion-storm` as opt-in synthetic
