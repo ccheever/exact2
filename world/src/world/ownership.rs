@@ -37,7 +37,7 @@ impl World {
                 None => return Ok(()),
             }
         }
-        Err(DataError::new("ownership ancestry check exceeds 256 edges"))
+        Err(DataError::new("ownership cycle check exceeds 256 edges"))
     }
     pub(super) fn change_owner(&mut self, old: Option<Entity>, new: Option<Entity>) {
         if old == new {
@@ -172,6 +172,26 @@ mod budget_tests {
         w.ownership.get_mut().fill(42);
         for _ in 0..1000 {
             w.reap_orphans().unwrap();
+        }
+        assert!(w.ownership.borrow().is_empty());
+        w.despawn(root);
+        w.reap_orphans().unwrap();
+        assert!(!w.contains(child));
+    }
+    #[test]
+    fn unrelated_despawns_in_a_200k_world_never_scan_ownership() {
+        let mut w = World::new(60, 0);
+        for _ in 0..crate::MAX_ENTITIES {
+            w.spawn(()).unwrap();
+        }
+        let root = w.entity_at(0).unwrap();
+        let child = w.entity_at(199_999).unwrap();
+        w.set_parent(child, Some(root)).unwrap();
+        for _ in 0..1000 {
+            let unrelated = w.entity_at(100_000).unwrap();
+            w.despawn(unrelated);
+            w.reap_orphans().unwrap();
+            w.spawn(()).unwrap();
         }
         assert!(w.ownership.borrow().is_empty());
         w.despawn(root);

@@ -321,7 +321,11 @@ impl World {
         self.replacement
     }
     pub(crate) fn adopt(&mut self, mut next: Self) -> Result<(), DataError> {
-        self.change_room(1)?;
+        // Reset consumes only the unsaved structural cursor. A healthy candidate
+        // may replace a poisoned destination; all refusal precedes moving journals.
+        self.change_next
+            .checked_add(1)
+            .ok_or_else(|| DataError::new("structural cursor exhausted"))?;
         next.replacement = self
             .replacement
             .checked_add(1)

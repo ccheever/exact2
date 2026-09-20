@@ -118,6 +118,9 @@ fn zero_budget_refuses_before_constructing_boxed_defaults() {
         }
     }
     impl Data for Large {
+        fn default_size() -> usize {
+            8192
+        }
         fn write(&self, w: &mut dyn Writer) {
             self.0[0].write(w);
         }
@@ -171,6 +174,9 @@ fn nested_box_default_is_preflighted_before_allocating() {
         }
     }
     impl Data for Large {
+        fn default_size() -> usize {
+            8192
+        }
         fn write(&self, w: &mut dyn Writer) {
             self.0[0].write(w);
         }
@@ -198,6 +204,9 @@ fn omitted_box_fields_and_container_resets_claim_defaults_before_allocation() {
         }
     }
     impl Data for Large {
+        fn default_size() -> usize {
+            8192
+        }
         fn write(&self, w: &mut dyn Writer) {
             self.0[0].write(w);
         }
@@ -235,7 +244,7 @@ fn omitted_box_fields_and_container_resets_claim_defaults_before_allocation() {
     );
     DEFAULTS.set(0);
     let decoded =
-        bin::from_slice_in::<Vec<Record>>(&empty_records(2), Some(&data::LoadBudget::new(30000)))
+        bin::from_slice_in::<Vec<Record>>(&empty_records(2), Some(&data::LoadBudget::new(100000)))
             .unwrap();
     assert_eq!(decoded.len(), 2);
     assert_eq!(DEFAULTS.get(), 2); // negative control: admitted defaults are constructed

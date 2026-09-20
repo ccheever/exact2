@@ -85,8 +85,8 @@ fn field_names_are_not_values() {
     assert_ne!(hash::of(&vec![1u8]), hash::of(&vec![1u8, 0]));
     assert_ne!(hash::of(&Choice::Idle), hash::of(&Choice::Empty {}));
     assert_ne!(
-        hash::of(&BTreeMap::from([("a".into(), 1u32)])),
-        hash::of(&BTreeMap::from([("b".into(), 1u32)]))
+        hash::of(&BTreeMap::from([("a".to_owned(), 1u32)])),
+        hash::of(&BTreeMap::from([("b".to_owned(), 1u32)]))
     );
 }
 #[test]

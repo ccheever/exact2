@@ -607,14 +607,14 @@ fn input_refusal_preserves_the_entire_tick_boundary() {
 
 #[test]
 fn driver_refuses_external_world_clock_replacement_before_work() {
-    let mut s = Sim::<Still>::new(()).unwrap();
-    s.world_mut()
-        .load(&World::new(30, 0).save().unwrap())
-        .unwrap();
-    let before = s.world().save().unwrap();
-    assert!(s.save().is_err());
-    assert!(s.run(17.).is_err());
-    assert_eq!(s.world().save().unwrap(), before);
+    let mut sim = Sim::<Counter>::new(Options::default()).unwrap();
+    let before = sim.save().unwrap();
+    assert!(sim
+        .world_mut()
+        .load(&World::new(120, 0).save().unwrap())
+        .is_err());
+    assert_eq!(sim.save().unwrap(), before);
+    assert_eq!(sim.run(17.).unwrap(), 1);
 }
 
 #[test]
@@ -790,12 +790,11 @@ fn lagging_consumer_cannot_refuse_orphan_reaping() {
 
 #[test]
 fn save_refuses_strings_that_cannot_decode() {
-    let s = Sim::<Counter>::new(Options {
-        text: "x".repeat(data::MAX_LOAD_STRING + 1),
+    assert!(Sim::<Counter>::new(Options {
+        text: "x".repeat(1_048_577),
         ..Options::default()
     })
-    .unwrap();
-    assert!(s.save().is_err());
+    .is_err());
 }
 
 #[test]

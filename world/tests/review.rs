@@ -198,12 +198,15 @@ fn panicking_tick_cannot_be_saved_through_the_underlying_world() {
         }
     }
     let mut s = Sim::<Panics>::new(()).unwrap();
+    let healthy = s.save().unwrap();
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.run(17.))).is_err());
     assert!(s.save().is_err());
     assert!(
         s.world().save().is_err(),
         "partial tick escaped as valid EXGAME"
     );
+    s.restore(&healthy).unwrap();
+    assert_eq!(s.save().unwrap(), healthy);
 }
 
 #[test]
