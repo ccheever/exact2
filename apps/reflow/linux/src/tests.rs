@@ -322,4 +322,53 @@ fn the_wall_mounts_a_window_and_scrolls_it() {
         .max()
         .unwrap();
     assert!(highest > 30, "{highest}");
+
+    for width in [360.0, 600.0, 1000.0, 1001.0] {
+        assert!(p.resize(width, 900.0).is_none());
+        p.frame();
+        let scroll = id(&p, "wall-scroll");
+        let frame = p.host().kernel().node(scroll).unwrap().frame;
+        let (_, top) = p.scroll_of(scroll);
+        let expected = query(
+            "wall",
+            &[frame.width as f64, top as f64, frame.height as f64, 1.0],
+        );
+        let fields = record(&expected);
+        let origin = p.host().kernel().node(id(&p, "wall")).unwrap().frame;
+        let cards = list(&fields[5]);
+        let mounted: Vec<_> = ids(&p, "wall-")
+            .into_iter()
+            .filter(|(name, _)| {
+                name.strip_prefix("wall-")
+                    .is_some_and(|index| index.parse::<usize>().is_ok())
+            })
+            .collect();
+        assert_eq!(mounted.len(), cards.len(), "width {width}");
+        for card in cards {
+            let card = record(card);
+            let name = card[0].as_str().unwrap();
+            let view = id(&p, name);
+            let actual = p.host().kernel().node(view).unwrap().frame;
+            assert_eq!(
+                (actual.x - origin.x) as f64,
+                card[2].as_number().unwrap(),
+                "{name} x at {width}"
+            );
+            assert_eq!(
+                (actual.y - origin.y) as f64,
+                card[3].as_number().unwrap(),
+                "{name} y at {width}"
+            );
+            assert_eq!(
+                actual.height as f64,
+                card[4].as_number().unwrap(),
+                "{name} h at {width}"
+            );
+            assert_eq!(
+                actual.width as f64,
+                fields[1].as_number().unwrap(),
+                "{name} w at {width}"
+            );
+        }
+    }
 }

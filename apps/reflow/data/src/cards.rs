@@ -6,6 +6,7 @@ use crate::font::{BOLD, REGULAR};
 use crate::prose::{SENTENCES, TITLES};
 use crate::typeset::Type;
 use exact_plan::Value;
+use exact_textflow::Prepared;
 
 /// Gap between columns and between cards, px.
 pub const GAP: f32 = 16.0;
@@ -81,14 +82,7 @@ pub fn measure(seed: u64, index: usize, column_width: f32) -> Measured {
     let text_width = column_width - 2.0 * PAD;
     let title_lines = TITLE.lines(&title, text_width);
     let body_lines = BODY.lines(&body, text_width);
-    let height = PAD
-        + title_lines as f32 * TITLE.line_height
-        + TITLE_GAP
-        + body_lines as f32 * BODY.line_height
-        + FOOT_GAP
-        + FOOT
-        + PAD
-        + BORDER;
+    let height = height(title_lines, body_lines);
     Measured {
         index,
         title,
@@ -97,6 +91,16 @@ pub fn measure(seed: u64, index: usize, column_width: f32) -> Measured {
         body_lines,
         height,
     }
+}
+
+fn height(title_lines: usize, body_lines: usize) -> f32 {
+    PAD + title_lines as f32 * TITLE.line_height
+        + TITLE_GAP
+        + body_lines as f32 * BODY.line_height
+        + FOOT_GAP
+        + FOOT
+        + PAD
+        + BORDER
 }
 
 /// Column count and integral column width for a page `width` wide.
@@ -161,13 +165,15 @@ pub fn masonry(width: f32, seed: u64) -> Value {
 /// A wall card's place, kept between scrolls.
 pub struct Placed {
     m: Measured,
+    title: Prepared,
+    body: Prepared,
     x: f32,
     y: f32,
 }
 
-/// The wall at one width and seed: every card's position, computed once.
+/// One seed's prepared text and placement at the most recent column geometry.
 pub struct Wall {
-    key: (u32, u64),
+    seed: u64,
     cols: usize,
     column: f32,
     total: f32,
@@ -176,28 +182,55 @@ pub struct Wall {
 
 impl Wall {
     fn build(width: f32, seed: u64) -> Self {
-        let (cols, column) = grid(width);
-        let mut heights = vec![0f32; cols];
-        let mut placed = Vec::with_capacity(WALL_COUNT);
-        for index in 0..WALL_COUNT {
-            let m = measure(seed, index, column);
-            let c = shortest(&heights);
-            let y = heights[c];
-            heights[c] += m.height + GAP;
-            placed.push(Placed {
-                m,
-                x: c as f32 * (column + GAP),
-                y,
-            });
-        }
-        let total = heights.iter().cloned().fold(0f32, f32::max) - GAP;
-        Self {
-            key: (width as u32, seed),
-            cols,
-            column,
-            total: total.max(0.0),
+        let placed = (0..WALL_COUNT)
+            .map(|index| {
+                let (title, body) = card(seed, index);
+                Placed {
+                    title: TITLE.prepare(&title),
+                    body: BODY.prepare(&body),
+                    m: Measured {
+                        index,
+                        title,
+                        body,
+                        title_lines: 0,
+                        body_lines: 0,
+                        height: 0.0,
+                    },
+                    x: 0.0,
+                    y: 0.0,
+                }
+            })
+            .collect();
+        let mut wall = Self {
+            seed,
+            cols: 0,
+            column: 0.0,
+            total: 0.0,
             placed,
+        };
+        wall.reflow(width);
+        wall
+    }
+
+    fn reflow(&mut self, width: f32) {
+        let (cols, column) = grid(width);
+        if (self.cols, self.column) == (cols, column) {
+            return;
         }
+        let text_width = column - 2.0 * PAD;
+        let mut heights = [0f32; 5];
+        for p in &mut self.placed {
+            p.m.title_lines = p.title.count_lines(text_width);
+            p.m.body_lines = p.body.count_lines(text_width);
+            p.m.height = height(p.m.title_lines, p.m.body_lines);
+            let c = shortest(&heights[..cols]);
+            p.x = c as f32 * (column + GAP);
+            p.y = heights[c];
+            heights[c] += p.m.height + GAP;
+        }
+        self.total = (heights[..cols].iter().copied().fold(0f32, f32::max) - GAP).max(0.0);
+        self.cols = cols;
+        self.column = column;
     }
 }
 
@@ -210,11 +243,11 @@ pub fn wall(
     viewport: f32,
     seed: u64,
 ) -> Value {
-    let key = (width as u32, seed);
-    if cache.as_ref().map(|w| w.key) != Some(key) {
+    if cache.as_ref().map(|w| w.seed) != Some(seed) {
         *cache = Some(Wall::build(width, seed));
     }
-    let wall = cache.as_ref().unwrap();
+    let wall = cache.as_mut().unwrap();
+    wall.reflow(width);
     let top = scroll_top - viewport;
     let bottom = scroll_top + 2.0 * viewport;
     let visible: Vec<Value> = wall
@@ -261,7 +294,8 @@ mod tests {
         let Value::Record(far) = &far else { panic!() };
         assert!(far[4].as_number().unwrap() > 6.0);
         // Same width, same seed: the second query reused the placement.
-        assert_eq!(cache.as_ref().unwrap().key, (1000, 1));
+        assert_eq!(cache.as_ref().unwrap().seed, 1);
+        assert_eq!(cache.as_ref().unwrap().column, grid(1000.0).1);
         let w = Wall::build(1000.0, 1);
         let mut per_column = vec![0f32; w.cols];
         for p in &w.placed {
@@ -272,5 +306,46 @@ mod tests {
             .iter()
             .fold((f32::MAX, 0f32), |(a, b), &h| (a.min(h), b.max(h)));
         assert!(max - min < 400.0, "unbalanced: {per_column:?}");
+    }
+
+    #[test]
+    fn resized_wall_matches_fresh_measurements_across_columns_and_seeds() {
+        let mut cache = None;
+        // Both sides of column-count boundaries, widths sharing a rounded
+        // column, narrower/wider text, and a return to the original geometry.
+        let widths = [
+            1000.0, 1001.0, 1002.0, 495.5, 496.0, 751.5, 752.0, 1007.5, 1008.0, 1263.5, 1264.0,
+            120.0, 2000.0, 1000.0,
+        ];
+        for seed in [1, 9, u64::MAX, 1] {
+            for width in widths {
+                wall(&mut cache, width, 0.0, 800.0, seed);
+                let w = cache.as_ref().unwrap();
+                let (cols, column) = grid(width);
+                let mut heights = vec![0.0; cols];
+                assert_eq!(w.placed.len(), WALL_COUNT);
+                assert_eq!((w.cols, w.column, w.seed), (cols, column, seed));
+                for (index, placed) in w.placed.iter().enumerate() {
+                    let fresh = measure(seed, index, column);
+                    let c = shortest(&heights);
+                    assert_eq!(placed.m.index, index);
+                    assert_eq!(placed.m.title, fresh.title);
+                    assert_eq!(placed.m.body, fresh.body);
+                    assert_eq!(placed.m.title_lines, fresh.title_lines);
+                    assert_eq!(placed.m.body_lines, fresh.body_lines);
+                    assert_eq!(placed.m.height, fresh.height);
+                    assert_eq!(placed.x, c as f32 * (column + GAP));
+                    assert_eq!(placed.y, heights[c]);
+                    heights[c] += fresh.height + GAP;
+                }
+                assert_eq!(w.total, heights.into_iter().fold(0.0, f32::max) - GAP);
+            }
+            // Reused preparations and placements must not change windowing.
+            for scroll in [0.0, 1234.0, 18000.0, 50000.0] {
+                let actual = wall(&mut cache, 1000.0, scroll, 800.0, seed);
+                let fresh = wall(&mut None, 1000.0, scroll, 800.0, seed);
+                assert_eq!(actual, fresh);
+            }
+        }
     }
 }

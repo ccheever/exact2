@@ -18,6 +18,22 @@ Pretext has two halves and this app shows both without the library.
   receives text already cut to the lines the arithmetic found. No font is
   parsed at runtime; the wasm carries a table, not a font.
 
+The wall retains prepared title/body advances for its current seed. Resizing
+recounts lines and balances the columns from those advances; widths producing
+the same column count and integral column width reuse the placement too. A new
+seed replaces the preparations, so the cache holds one 1,200-card deck rather
+than growing with resize history. Geometry still follows each new column width.
+
+A release-mode data-query probe on this Mac (2026-09-20, baseline/candidate/
+candidate/baseline order, seven trials per group) measured median queries over
+240 one-pixel resize steps: 3.89/4.04 ms before and 0.056/0.055 ms after.
+Cold queries remained about 4 ms; retained allocator-requested storage grew
+from 442,487 to 3,117,367 bytes for seed 1. These are data-query costs, not
+rendered frame times. Answers matched the old implementation across 208
+width/seed/scroll combinations. The data regression also checks all 1,200 card
+heights and positions against fresh measurements across column boundaries and
+seed changes; the Linux tests verify painted heights and windowed scrolling.
+
 The spread measures its pull quote in the italic face at the current font size
 and padded width before cutting the article columns. Its painted box and
 exclusion share that height, and the picture moves down if the quote needs room.
