@@ -523,3 +523,24 @@ fn high_slot_empty_column_churn_reuses_all_backing() {
     assert_eq!((allocations, bytes), (0, 0));
     assert_eq!(w.get::<Transient>(high).unwrap().0[0], 1001);
 }
+
+#[test]
+fn hostile_input_lengths_refuse_before_payload_allocation() {
+    let mut out = bin::Encoder::default();
+    out.begin_struct();
+    out.field("keys");
+    out.begin_seq(1_000_000);
+    for _ in 0..1_000_000 {
+        out.item();
+        out.string("");
+    }
+    out.end_seq();
+    out.end_struct();
+    let bytes = out.finish().unwrap();
+    let (result, (_, allocated)) = counting::measure(|| bin::from_slice::<Input>(&bytes));
+    assert!(result.is_err());
+    assert!(
+        allocated < 10_000,
+        "allocated {allocated} before the 64-key refusal"
+    );
+}

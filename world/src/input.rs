@@ -1,4 +1,4 @@
-use crate::{Data, DataError};
+use crate::{Data, DataError, Reader, Writer};
 use std::{borrow::Cow, collections::BTreeMap};
 /// Static action declaration; no strings are allocated at construction.
 #[derive(Clone, Copy, Debug)]
@@ -62,15 +62,46 @@ impl InputEvent {
 type Declarations = &'static [Action];
 type StaticText = Cow<'static, str>;
 /// Saved tick-boundary input. Declarations are reconstructed, never decoded from a save.
-#[derive(Clone, Default, Data)]
+#[derive(Clone, Default)]
 pub struct Input {
-    #[data(skip)]
     actions: Declarations,
     keys: Vec<String>,
     buttons: Vec<String>,
     axes: BTreeMap<String, f32>,
     pressed: Vec<StaticText>,
     released: Vec<StaticText>,
+}
+impl Data for Input {
+    fn write(&self, w: &mut dyn Writer) {
+        w.begin_struct();
+        w.field("keys");
+        self.keys.write(w);
+        w.field("buttons");
+        self.buttons.write(w);
+        w.field("axes");
+        self.axes.write(w);
+        w.field("pressed");
+        self.pressed.write(w);
+        w.field("released");
+        self.released.write(w);
+        w.end_struct();
+    }
+    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        use crate::data::limits::{read_map, read_vec};
+        self.actions = &[];
+        r.begin_struct()?;
+        while let Some(field) = r.field()? {
+            match field {
+                "keys" => read_vec(r, &mut self.keys, 64)?,
+                "buttons" => read_vec(r, &mut self.buttons, 64)?,
+                "axes" => read_map(r, &mut self.axes, 64, 128)?,
+                "pressed" => read_vec(r, &mut self.pressed, 64)?,
+                "released" => read_vec(r, &mut self.released, 64)?,
+                _ => r.skip()?,
+            }
+        }
+        Ok(())
+    }
 }
 impl Input {
     pub(crate) fn new(actions: &'static [Action]) -> Result<Self, DataError> {

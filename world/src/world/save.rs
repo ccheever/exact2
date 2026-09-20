@@ -69,8 +69,8 @@ impl Data for State {
                 "seed" => self.seed.read(r),
                 "slots" => limits::read_vec(r, &mut self.slots, MAX_LOAD_ENTITIES),
                 "free" => self.free.read(r),
-                "busy" => self.busy.get_mut().read(r),
-                "work" => self.work.get_mut().read(r),
+                "busy" => limits::read_vec(r, self.busy.get_mut(), 64),
+                "work" => limits::read_map(r, self.work.get_mut(), 64, 256),
                 _ => r.skip(),
             }
             .map_err(|e| e.at(field))?;
@@ -81,7 +81,7 @@ impl Data for State {
 
 impl World {
     pub(crate) fn read_publications(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        self.published.get_mut().read(r)?;
+        limits::read_map(r, self.published.get_mut(), 256, 256)?;
         if self.published.get_mut().len() > 256
             || self.published.get_mut().keys().any(|k| k.len() > 256)
         {

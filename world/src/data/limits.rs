@@ -123,3 +123,22 @@ pub(crate) fn read_vec<T: Data>(
     }
     Ok(())
 }
+
+pub(crate) fn read_map<T: Data>(
+    r: &mut dyn Reader,
+    values: &mut std::collections::BTreeMap<String, T>,
+    limit: usize,
+    key_bytes: usize,
+) -> Result<(), DataError> {
+    r.begin_struct()?;
+    values.clear();
+    while let Some(key) = r.field()? {
+        if values.len() == limit || key.len() > key_bytes {
+            return Err(DataError::new("map count/key limit"));
+        }
+        r.claim(64 + key.len() + T::default_size())?;
+        let value = T::read_new(r).map_err(|e| e.at(key))?;
+        values.insert(key.into(), value);
+    }
+    Ok(())
+}
