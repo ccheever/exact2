@@ -9,6 +9,31 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testWidthRetirementDoesNotWalkSavedScalarMeasurements() {
+        let input = Spec(runs: [Run(text: "A measured paragraph", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        for history in [10, 100, 1000] {
+            var cache = TextResidency()
+            let identity = cache.identity(input)
+            for width in 0..<history {
+                cache.put(identity, kind: .definite(Double(width).bitPattern),
+                          metrics: ExactMetrics(width: Float(width), height: 24, baseline: 16))
+            }
+            let before = cache.stats.maintenanceVisits
+            cache.retireWidths(TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(input)), width: 2000))
+            let visits = cache.stats.maintenanceVisits - before
+            XCTAssertLessThanOrEqual(visits, 16, "Retiring layouts must not scan saved scalar widths")
+            print("scalar-width-history=\(history) retirement-visits=\(visits)")
+            for width in 0..<history {
+                let metrics = cache.scalar(identity, kind: .definite(Double(width).bitPattern))
+                XCTAssertEqual(metrics?.width, Float(width))
+                XCTAssertEqual(metrics?.height, 24)
+                XCTAssertEqual(metrics?.baseline, 16)
+            }
+        }
+    }
+
     func testSharedLineBreakerReleasesParagraphInputAfterEachCall() {
         let engine = TextEngine(resolve: { _ in nil })
         for index in 0..<2 {

@@ -887,6 +887,19 @@ boundary-cache parent under the same run conditions, not against another app
 or a displayed-frame target. A preceding strong-entry weak-lookup shortcut had
 no consistent benefit and was not retained.
 
+**Apple width-retirement index (2026-09-20):** scalar measurements remain in
+bounded cold storage for reuse, but are no longer indexed among the shapes and
+paragraphs that width retirement examines. This removes a scan of saved scalar
+widths without changing their ownership, eviction, accounting or lookup rules.
+The new 10/100/1,000-width regression previously observed 12/102/1,002 visits;
+it now observes two in each case, and every saved metric still resolves. All
+270 native tests pass; 480 complete line/glyph snapshots remain identical.
+An isolated reader ABBA comparison with optimized Swift and the same debug
+native bridge measured baseline medians 56.58/51.18 µs and candidate 48.70/50.44 µs,
+with identical checksums and logical cold payload. Native launch delays and
+variable timings limit the timing claim; the eliminated scan is the firm result,
+not an established scrolling or displayed-frame improvement.
+
 
 **Actual Linux:** fourteen residency and seven existing text tests pass with
 strict all-targets Clippy on the frozen Ubuntu ARM64 source. Eighteen fresh

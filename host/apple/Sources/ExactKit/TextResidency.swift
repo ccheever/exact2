@@ -299,7 +299,8 @@ struct TextResidency {
     private var first: TextEntryKey?, last: TextEntryKey?, sweepEntry: TextEntryKey?
     private var coldFirst: TextEntryKey?, coldLast: TextEntryKey?
     private var coldCount = 0
-    private var coldGroups: [TextIdentityToken: Set<TextEntryKey>] = [:]
+    // Retirement visits layouts only; saved scalar answers need no width retirement.
+    private var coldLayouts: [TextIdentityToken: Set<TextEntryKey>] = [:]
     private var geometryIndex: [TextGeometryKey: Set<TextEntryKey>] = [:]
     private var identities: [Int: Set<TextIdentityToken>] = [:]
     private var identityEntries: [TextIdentityToken: IdentityEntry] = [:]
@@ -408,7 +409,7 @@ struct TextResidency {
     mutating func retireWidths(_ key: TextParagraphKey) {
         maintain()
         // Only this source's cold variants; accepted widths stay weakly indexed.
-        for old in coldGroups[key.shape.token] ?? [] {
+        for old in coldLayouts[key.shape.token] ?? [] {
             maintenanceVisits &+= 1
             switch old {
             case .paragraph(let p) where p != key:
@@ -446,7 +447,7 @@ struct TextResidency {
         last = key
         if let coldLast { entries[coldLast]?.warmer = key } else { coldFirst = key }
         coldLast = key; coldCount += 1
-        coldGroups[value.identity.token, default: []].insert(key)
+        if value.shape != nil { coldLayouts[value.identity.token, default: []].insert(key) }
         if case .paragraph(let p) = key {
             geometryIndex[TextGeometryKey(token: p.shape.token, widthBits: p.widthBits), default: []].insert(key)
         }
@@ -513,8 +514,10 @@ struct TextResidency {
         if let p = e.colder { entries[p]?.warmer = e.warmer } else { coldFirst = e.warmer }
         if let n = e.warmer { entries[n]?.colder = e.colder } else { coldLast = e.colder }
         entries[key]?.cold = nil; entries[key]?.colder = nil; entries[key]?.warmer = nil
-        coldGroups[value.identity.token]?.remove(key)
-        if coldGroups[value.identity.token]?.isEmpty == true { coldGroups.removeValue(forKey: value.identity.token) }
+        if value.shape != nil {
+            coldLayouts[value.identity.token]?.remove(key)
+            if coldLayouts[value.identity.token]?.isEmpty == true { coldLayouts.removeValue(forKey: value.identity.token) }
+        }
         coldCount -= 1
         charge(value, adding: false)
     }
