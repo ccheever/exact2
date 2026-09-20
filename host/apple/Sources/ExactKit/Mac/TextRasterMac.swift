@@ -147,6 +147,20 @@ extension NodeView {
     /// Whether the pump still owes this paragraph pixels.
     var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil || textRasterPending }
 
+    /// The box a raster was painted for is gone — the layer would stretch its
+    /// surface to whatever the paragraph is now. Retire the key so the pump
+    /// asks a worker for pixels at the new geometry. AppKit's own dirty flag
+    /// cannot be that record: a paragraph resized while it is off screen is
+    /// not redrawn there, and an `ensure` that finds every worker busy
+    /// declines after `updateLayer` has already cleared the flag. The old
+    /// pixels stay up until the new ones replace them, as `invalidateText`
+    /// leaves them for a changed paragraph.
+    func textRasterGeometryChanged() {
+        guard let key = textRasterKey, key.size != bounds.size || key.box != contentBox() else { return }
+        textRasterKey = nil
+        textRasterPending = false
+    }
+
     func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, deferOffscreen: Bool = false) {
         // An urgent paint can overtake its worker. Keep the accepted surface
         // instead of committing identical pixels again when that worker ends.

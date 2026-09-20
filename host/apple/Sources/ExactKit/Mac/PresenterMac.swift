@@ -870,6 +870,7 @@ final class Presenter {
             case "frame":
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.contentBox()
                 v.layoutTextArea()
