@@ -16,6 +16,58 @@ fn panic_text(f: impl FnOnce()) -> String {
     }
 }
 #[test]
+fn ownership_reads_follow_slot_order_through_churn_restore_and_reap() {
+    let mut w = World::new(60, 0);
+    let owner = w.spawn_named("hand", ()).unwrap();
+    let first = w.spawn_named("card", ()).unwrap();
+    let other = w.spawn_named("pile", ()).unwrap();
+    let last = w.spawn(()).unwrap();
+    let nested = w.spawn(()).unwrap();
+    w.set_parent(last, Some(owner)).unwrap();
+    w.set_parent(first, Some(owner)).unwrap(); // Reverse edge insertion order.
+    w.set_parent(nested, Some(last)).unwrap();
+    assert_eq!(w.children("hand").collect::<Vec<_>>(), [first, last]);
+    assert_eq!(w.parent("card"), Some(owner));
+    w.despawn(first).unwrap();
+    assert_eq!(w.parent(first), None);
+    assert_eq!(w.children(owner).collect::<Vec<_>>(), [last]);
+    let recycled = w.spawn_named("card", ()).unwrap();
+    assert_eq!(recycled.index(), first.index());
+    w.set_parent(recycled, Some(owner)).unwrap();
+    assert_eq!(w.children(owner).collect::<Vec<_>>(), [recycled, last]);
+    let bytes = w.save().unwrap();
+    let mut restored = World::new(60, 0);
+    restored.register::<exact_world::Parent>().unwrap();
+    restored.load(&bytes).unwrap();
+    assert_eq!(restored.save().unwrap(), bytes);
+    for w in [&mut w, &mut restored] {
+        assert_eq!(w.children("hand#0").collect::<Vec<_>>(), [recycled, last]);
+        assert_eq!(w.parent("#1"), Some(owner));
+        w.set_parent(recycled, Some(other)).unwrap();
+        assert_eq!(w.children(owner).collect::<Vec<_>>(), [last]);
+        assert_eq!(w.children(other).collect::<Vec<_>>(), [recycled]);
+        assert_eq!(w.parent(recycled), Some(other));
+        w.set_parent(recycled, None).unwrap();
+        assert_eq!(w.parent(recycled), None);
+        assert_eq!(w.children(other).count(), 0);
+        w.despawn(owner).unwrap();
+        assert!(w.contains(last)); // Pending reap is an observable boundary.
+        assert_eq!(w.parent(last), None);
+        assert_eq!(w.children(owner).count(), 0);
+        let replacement = w.spawn_named("hand", ()).unwrap();
+        assert_eq!(replacement.index(), owner.index());
+        assert_eq!(w.children(replacement).count(), 0);
+        w.reap_orphans().unwrap();
+        assert!(!w.contains(last) && !w.contains(nested));
+        assert_eq!(w.children(owner).count(), 0);
+        assert_eq!(w.parent(last), None);
+        assert_eq!(w.children("missing").count(), 0);
+        assert_eq!(w.children(Entity::default()).count(), 0);
+        assert_eq!(w.parent("missing"), None);
+        assert_eq!(w.parent(Entity::default()), None);
+    }
+}
+#[test]
 fn generations_names_and_order_under_churn() {
     let mut w = World::new(60, 19);
     w.register::<A>().unwrap();

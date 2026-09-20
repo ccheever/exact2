@@ -212,6 +212,7 @@ construction can form deeper valid chains. Validation still walks each edge once
 before mutation; stale/absent targets return Ok(false)/Ok(None).
 Despawn removes the entity immediately; descendants leave at the next reap in
 ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
+`children(owner)` borrows live direct children in ascending slot order (including recycled slots); `parent(entity)` returns the live parent or `None`; both accept names or handles and allocate nothing, with O(log owners + children) and O(log types) work respectively under the existing admission bounds.
 
 A derived reverse-child index makes unrelated despawn O(log owners). Owner
 removal queues only its immediate children; reaping follows only that orphan
@@ -345,6 +346,7 @@ and settle range-check in widened arithmetic before mutation, in debug and relea
 Pause advances caller time and reconciles held input without simulation ticks or
 retained resume edges. `reconcile_input(clock_ms, held)` atomically replaces held
 state, clears edges/queued input and rebases caller time without a tick.
+`Sim::clock_ms() -> f64` reads the last accepted caller clock (`caller_us / 1000`), including pauses and rebases, preserved by restore/from_save/carry so hosts can resume from it.
 
 Args fields default to Setup. `#[live]` changes subsequent ticks; either boolean
 `#[restart]` edge reconstructs the world. Registration sees only setup/restart

@@ -94,6 +94,10 @@ impl<G: Game> Sim<G> {
     pub fn input_state(&self) -> &Input {
         &self.input
     }
+    /// Last accepted caller clock in milliseconds, including pauses and rebases.
+    pub fn clock_ms(&self) -> f64 {
+        self.caller_us as f64 / 1000.
+    }
     pub fn paranoid(mut self, mode: Paranoid) -> Self {
         self.paranoid = mode;
         self

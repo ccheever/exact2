@@ -46,6 +46,36 @@ fn report(label: &str, actual: (usize, usize), ceiling: (usize, usize)) {
     );
 }
 #[test]
+fn ownership_reads_allocate_nothing_and_visit_only_ten_of_200k_entities() {
+    let mut w = World::new(60, 0);
+    let owner = w.spawn_named("hand", ()).unwrap();
+    for _ in 1..MAX_ENTITIES {
+        w.spawn(()).unwrap();
+    }
+    assert!(w.spawn(()).is_err()); // The traversal bound is enforced at admission.
+    let children: [_; 10] = std::array::from_fn(|i| w.entity_at(19_999 * (i + 1)).unwrap());
+    for &child in children.iter().rev() {
+        w.set_parent(child, Some(owner)).unwrap();
+    }
+    let (_, counts) = counting::measure(|| {
+        for _ in 0..1000 {
+            let mut iter = w.children(owner);
+            assert_eq!(iter.next(), Some(children[0]));
+            // Exact remaining candidates, not merely ten matches from a 200k scan.
+            assert_eq!(iter.size_hint(), (9, Some(9)));
+            assert!(iter.eq(children[1..].iter().copied()));
+            assert!(w.children("hand").eq(children));
+            for &child in &children {
+                assert_eq!(w.parent(child), Some(owner));
+            }
+            assert_eq!(w.parent("#19999"), Some(owner));
+            assert_eq!(w.parent("missing"), None);
+            assert_eq!(w.children("missing").count(), 0);
+        }
+    });
+    report("ownership.1000_reads_200k", counts, (0, 0));
+}
+#[test]
 fn construction_activation_restore_counts() {
     let (empty, counts) = counting::measure(|| World::new(60, 0));
     report("construction.empty", counts, (1, 24));

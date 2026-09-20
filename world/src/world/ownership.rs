@@ -8,6 +8,21 @@ impl Parent {
     }
 }
 impl World {
+    /// Live direct children in ascending slot order, borrowing the reverse index.
+    pub fn children(&self, owner: impl Target) -> impl Iterator<Item = Entity> + '_ {
+        owner
+            .entity(self)
+            .filter(|&e| self.contains(e))
+            .and_then(|e| self.owners.get(&e))
+            .into_iter()
+            .flatten()
+            .copied()
+    }
+    /// The live parent of a live entity, if it has one.
+    pub fn parent(&self, target: impl Target) -> Option<Entity> {
+        let parent = self.get::<Parent>(target)?.entity();
+        self.contains(parent).then_some(parent)
+    }
     pub fn set_parent(&mut self, child: Entity, parent: Option<Entity>) -> Result<(), DataError> {
         if !self.contains(child) {
             return Err(DataError::new("stale child"));
