@@ -1,0 +1,28 @@
+shape Hud
+  score: number
+  hand: list<number>
+  pile_count: number
+  over: bool
+  ticks: number
+
+component Tally
+  resource hud = exactSurface("world") as shape Hud
+  view
+    main width="100%" height="100%" background-color="#202731" color="#ffffff"
+      canvas surface=world(seed=7) testId="world" width="100%" height="100%"
+        column padding=24 gap=16
+          text "Tally" font-size=32
+          text `Score ${hud.score}` testId="score"
+          text `Pile ${hud.pile_count}` testId="pile"
+          text `Tick ${hud.ticks}` testId="ticks"
+          each card in hud.hand key=card
+            text `Card ${card}`
+          when hud.over
+            text "Round over" testId="over"
+          row gap=12
+            button action="draw" testId="draw" padding=16 background-color="#354751"
+              text "Draw"
+            button action="hold" testId="hold" padding=16 background-color="#354751"
+              text "Hold"
+            button action="reset" testId="reset" padding=16 background-color="#354751"
+              text "Reset"

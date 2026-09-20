@@ -2,6 +2,26 @@
 #![deny(unsafe_code)]
 pub mod args;
 pub mod publication;
+mod surface;
+pub use surface::WorldSurface;
+pub use {exact_gpu, exact_world};
+
+/// Register a nonspatial game as the ordinary `world` surface.
+#[macro_export]
+macro_rules! module {
+    ($game:ty) => {
+        pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
+            surfaces: &[(
+                "world",
+                <<$game as $crate::exact_world::Game>::Args as $crate::exact_world::Args>::FIELDS
+                    .len(),
+                || Box::new($crate::WorldSurface::<$game>::default()),
+            )],
+            shaders: &[],
+        };
+        $crate::exact_gpu::module!(REGISTRY);
+    };
+}
 
 #[cfg(test)]
 mod tests {
@@ -65,5 +85,30 @@ mod atomic_publication {
         .is_err());
         assert_eq!(*w.publications(), before);
         assert_eq!(w.journal_next(), cursor);
+    }
+}
+
+/// Emit the shell's argument declaration without constructing a world or device.
+pub fn emit_declaration<G: exact_world::Game>(app_dir: &str) {
+    use exact_world::Args;
+    let rows: Vec<_> = G::Args::FIELDS
+        .iter()
+        .zip(args::argument_values(&G::Args::default()).unwrap())
+        .map(|((name, _), value)| {
+            let value = match value {
+                exact_plan::Value::Number(n) => serde_json::json!(n),
+                exact_plan::Value::Bool(b) => serde_json::json!(b),
+                exact_plan::Value::Str(s) => serde_json::json!(s.as_ref()),
+                _ => panic!("unsupported default"),
+            };
+            serde_json::json!({"name":name,"default":value})
+        })
+        .collect();
+    let path = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .join(app_dir)
+        .join(".shells/surfaces.json");
+    let text = serde_json::to_string_pretty(&serde_json::json!({"world":rows})).unwrap() + "\n";
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(&text) {
+        std::fs::write(path, text).unwrap();
     }
 }

@@ -212,12 +212,14 @@ pub trait Surface {
     /// frame is wanted without new inputs.
     fn render(
         &mut self,
-        frame: &Frame,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        target: &wgpu::TextureView,
-        format: wgpu::TextureFormat,
-    ) -> bool;
+        _frame: &Frame,
+        _device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        _target: &wgpu::TextureView,
+        _format: wgpu::TextureFormat,
+    ) -> bool {
+        false
+    }
     /// A presentation target acquired a device, before its first draw.
     fn device_ready(&mut self) {}
     /// Presentation was lost; release device resources without discarding owned state.

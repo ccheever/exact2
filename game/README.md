@@ -721,3 +721,10 @@ The optional kernel's structural removals are fallible:
 `World::despawn(Entity) -> Result<bool, DataError>` and
 `World::remove::<C>(Entity) -> Result<Option<C>, DataError>`. Stale/absent targets
 return `Ok(false)`/`Ok(None)`; cursor exhaustion returns `Err` before mutation.
+
+`exact_world_adapter::WorldSurface<G: exact_world::Game>` now implements the
+ordinary `exact_gpu::Surface` lifecycle without presentation. `module!(G)` registers
+`world`; `game.world: true` selects that registration in generated app shells.
+Binding takes the first fixed tick and publishes immediately. Agent `state`, `tree`,
+`clock`, `logs`, input, carry and restore are device-free. See
+[Tally](games/tally/app.contract) and the [adapter contract and measurements](world-adapter/README.md).

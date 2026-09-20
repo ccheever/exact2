@@ -12,6 +12,7 @@ version = "0.1.0"
 license = "MIT"
 
 [workspace.dependencies]
+exact-world-adapter = { path = "world-adapter" }
 exact-game = { path = "engine" }
 exact-game-bake = { path = "bake" }
 exact-game-derive = { path = "derive" }

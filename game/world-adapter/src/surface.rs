@@ -1,0 +1,452 @@
+//! Device-free ownership. Presentation and host pacing never enter kernel state.
+use crate::{args, publication};
+use exact_gpu::{InputEvent, Lifecycle, PointerPhase, Restore, Surface, SurfaceError, Value};
+use exact_world::{json, Args, Data, DataError, Game, LogCursor, Paranoid, Sim, Writer};
+use serde_json::Value as Request;
+
+const MAGIC: &[u8] = b"EXSURF\0\x01";
+const MAX_REQUEST: usize = 16_384;
+
+pub struct WorldSurface<G: Game> {
+    sim: Option<Sim<G>>,
+    caller: f64,
+    host: Option<f64>,
+    seekable: bool,
+    hidden: bool,
+    interrupted: bool,
+    restored: bool,
+    publish: bool,
+    error: Option<SurfaceError>,
+    logs: LogCursor,
+}
+impl<G: Game> Default for WorldSurface<G> {
+    fn default() -> Self {
+        Self {
+            sim: None,
+            caller: 0.,
+            host: None,
+            seekable: true,
+            hidden: false,
+            interrupted: false,
+            restored: false,
+            publish: false,
+            error: None,
+            logs: LogCursor::default(),
+        }
+    }
+}
+fn error(e: impl ToString) -> SurfaceError {
+    SurfaceError(e.to_string())
+}
+fn invalid(e: impl ToString) -> DataError {
+    DataError::new(e.to_string())
+}
+fn number(q: &Request, key: &str) -> Result<Option<f64>, DataError> {
+    match q.get(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_f64()
+            .filter(|n| n.is_finite() && *n >= 0.)
+            .map(Some)
+            .ok_or_else(|| invalid(format!("invalid {key}"))),
+    }
+}
+fn paranoid() -> Paranoid {
+    let mode = if cfg!(target_arch = "wasm32") {
+        option_env!("EXACT_GAME_PARANOID").unwrap_or("0").to_owned()
+    } else {
+        std::env::var("EXACT_GAME_PARANOID").unwrap_or_default()
+    };
+    match mode.as_str() {
+        "1" => Paranoid::Save,
+        "2" => Paranoid::FreshGame,
+        _ => Paranoid::Off,
+    }
+}
+impl<G: Game> WorldSurface<G> {
+    pub fn sim(&self) -> Option<&Sim<G>> {
+        self.sim.as_ref()
+    }
+    fn sim_mut(&mut self) -> Result<&mut Sim<G>, DataError> {
+        self.sim
+            .as_mut()
+            .ok_or_else(|| invalid("world has not been bound"))
+    }
+    fn run(&mut self, ms: f64) -> Result<(), DataError> {
+        self.sim_mut()?.run(ms)?;
+        self.caller += (ms * 1000.).round() / 1000.;
+        Ok(())
+    }
+    fn advance(&mut self, now: f64) -> Result<(), DataError> {
+        if !now.is_finite() || now < 0. {
+            return Err(invalid("invalid clock"));
+        }
+        let dt = self.host.map_or(0., |old| now - old);
+        if dt < 0. {
+            return Err(invalid("host clock cannot retreat"));
+        }
+        if self.seekable || !(self.hidden || self.interrupted) {
+            self.run(dt)?;
+        }
+        self.host = Some(now);
+        Ok(())
+    }
+    fn stamp(&self, now: f64) -> f64 {
+        self.caller + self.host.map_or(0., |old| (now - old).max(0.))
+    }
+    fn ownership(&self, out: &mut dyn Writer) {
+        out.begin_struct();
+        out.field("owner");
+        out.string(if self.seekable { "agent" } else { "human" });
+        out.end_struct();
+    }
+    fn request(&mut self, text: &str) -> Result<String, DataError> {
+        if text.len() > MAX_REQUEST {
+            return Err(invalid("agent request exceeds 16384 bytes"));
+        }
+        let q: Request = serde_json::from_str(text).map_err(invalid)?;
+        let op = q
+            .get("op")
+            .and_then(Request::as_str)
+            .ok_or_else(|| invalid("missing op"))?;
+        if op == "clock" {
+            let now = number(&q, "now")?;
+            if let Some(owner) = q.get("owner").and_then(Request::as_str) {
+                if !matches!(owner, "agent" | "human") {
+                    return Err(invalid("unknown clock owner"));
+                }
+                self.seekable = owner == "agent";
+                self.host = now;
+            } else if q.get("reload").and_then(Request::as_bool) == Some(true) {
+                self.host = now;
+            } else if q.get("settle").and_then(Request::as_bool) == Some(true) {
+                let before = self.sim_mut()?.world().tick();
+                let result = self.sim_mut()?.settle(3600);
+                let after = self.sim_mut()?.world().tick();
+                self.caller += (after - before) as f64 * 1000. / G::HZ as f64;
+                result?;
+                self.host = now.or(self.host);
+            } else if let Some(ticks) = number(&q, "ticks")? {
+                if ticks.fract() != 0. || ticks > 216_000. {
+                    return Err(invalid("clock request exceeds 216000 ticks"));
+                }
+                self.run(ticks * 1000. / G::HZ as f64)?;
+                self.host = now.or(self.host);
+            } else if let Some(now) = now {
+                self.advance(now)?;
+            }
+        }
+        let sim = self
+            .sim
+            .as_ref()
+            .ok_or_else(|| invalid("world has not been bound"))?;
+        let world = sim.world();
+        let mut out = json::Encoder::default();
+        out.begin_struct();
+        out.field("tick");
+        world.tick().write(&mut out);
+        match op {
+            "state" | "tree" if q.get("entity").and_then(Request::as_str).is_some() => {
+                let name = q["entity"].as_str().unwrap();
+                if name != "*" {
+                    let e = world
+                        .resolve(name)
+                        .ok_or_else(|| invalid("unknown entity"))?;
+                    out.field("entity");
+                    out.begin_struct();
+                    out.field("id");
+                    e.index().write(&mut out);
+                    out.field("name");
+                    out.string(world.name(e).unwrap_or(""));
+                    out.field("components");
+                    world.visit(Some(e), &mut out)?;
+                    out.end_struct();
+                } else {
+                    self.entities(&mut out)?;
+                }
+            }
+            "state" => {
+                out.field("world");
+                out.begin_struct();
+                out.field("name");
+                out.string("world");
+                out.field("game");
+                out.string(G::ID);
+                out.field("tick");
+                world.tick().write(&mut out);
+                out.field("hz");
+                G::HZ.write(&mut out);
+                out.field("hash");
+                out.string(&format!("0x{:016x}", world.hash()?));
+                out.field("ready");
+                (world.tick() > 0).write(&mut out);
+                out.field("readyReasons");
+                if world.tick() > 0 {
+                    Vec::<String>::new()
+                } else {
+                    vec!["first tick pending".into()]
+                }
+                .write(&mut out);
+                out.field("presentation");
+                out.string("none");
+                out.field("restored");
+                self.restored.write(&mut out);
+                out.field("args");
+                sim.args().write(&mut out);
+                out.field("ownership");
+                self.ownership(&mut out);
+                out.field("resources");
+                world.visit(None, &mut out)?;
+                out.field("published");
+                out.begin_struct();
+                for (name, value) in world.publications().iter() {
+                    out.key(name);
+                    publication::inspect(value, &mut out);
+                }
+                out.end_struct();
+                out.field("report");
+                world.report(&mut out)?;
+                out.end_struct();
+            }
+            "tree" => self.entities(&mut out)?,
+            "clock" => {
+                out.field("hash");
+                out.string(&format!("0x{:016x}", world.hash()?));
+                out.field("quiescent");
+                world.quiescent().write(&mut out);
+                out.field("ownership");
+                self.ownership(&mut out);
+                if q.get("reload").and_then(Request::as_bool) == Some(true) {
+                    out.field("reload");
+                    out.begin_struct();
+                    out.field("values");
+                    let values = args::argument_values(sim.args())?
+                        .into_iter()
+                        .map(publication::from_contract)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    values.write(&mut out);
+                    out.field("names");
+                    G::Args::FIELDS
+                        .iter()
+                        .map(|(name, _)| name.to_string())
+                        .collect::<Vec<_>>()
+                        .write(&mut out);
+                    out.field("setupIndices");
+                    G::Args::FIELDS
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, (_, kind))| *kind == exact_world::args::ArgumentKind::Setup)
+                        .map(|(i, _)| i as u32)
+                        .collect::<Vec<_>>()
+                        .write(&mut out);
+                    out.end_struct();
+                }
+            }
+            "logs" => {
+                let page = world.logs(self.logs)?;
+                self.logs = page.next;
+                out.field("lines");
+                out.begin_seq(1);
+                out.item();
+                out.string(&page.entries);
+                out.end_seq();
+                out.field("reset");
+                page.reset.write(&mut out);
+                out.field("truncated");
+                page.truncated.write(&mut out);
+            }
+            _ => return Err(invalid(format!("unsupported world operation: {op}"))),
+        }
+        out.end_struct();
+        out.finish()
+    }
+    fn entities(&self, out: &mut dyn Writer) -> Result<(), DataError> {
+        let w = self.sim.as_ref().unwrap().world();
+        out.field("game");
+        out.string(G::ID);
+        out.field("hash");
+        out.string(&format!("0x{:016x}", w.hash()?));
+        out.field("entities");
+        out.begin_seq(w.entities().take(512).count());
+        for e in w.entities().take(512) {
+            if out.stopped() {
+                break;
+            }
+            out.item();
+            out.begin_struct();
+            out.field("id");
+            e.index().write(out);
+            out.field("name");
+            out.string(w.name(e).unwrap_or(""));
+            out.field("components");
+            w.visit(Some(e), out)?;
+            out.end_struct();
+        }
+        out.end_seq();
+        out.field("truncated");
+        w.entities().nth(512).is_some().write(out);
+        Ok(())
+    }
+}
+impl<G: Game> Surface for WorldSurface<G> {
+    fn lifecycle(&mut self, event: Lifecycle) {
+        match event {
+            Lifecycle::Hidden => self.hidden = true,
+            Lifecycle::Visible => self.hidden = false,
+            Lifecycle::Interrupted => self.interrupted = true,
+            Lifecycle::Resumed => self.interrupted = false,
+            _ => {}
+        }
+        if !self.seekable {
+            self.host = None;
+        }
+    }
+    fn clock(&mut self, seekable: bool) {
+        if self.seekable != seekable {
+            self.host = None;
+        }
+        self.seekable = seekable;
+    }
+    fn arguments(&self) -> Vec<(&'static str, Value)> {
+        G::Args::FIELDS
+            .iter()
+            .map(|(name, _)| *name)
+            .zip(args::argument_values(&G::Args::default()).expect("default arguments"))
+            .collect()
+    }
+    fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        let args = args::decode_args::<G::Args>(values).map_err(error)?;
+        G::validate(&args).map_err(error)?;
+        if let Some(sim) = &self.sim {
+            let restart = sim.args().setup_changed(&args);
+            if let Some(at) = at_ms {
+                self.advance(at).map_err(error)?;
+            }
+            self.sim_mut().map_err(error)?.bind(args).map_err(error)?;
+            if restart {
+                self.caller = 0.;
+            }
+        } else {
+            self.sim = Some(Sim::new(args).map_err(error)?.paranoid(paranoid()));
+            self.host = at_ms;
+        }
+        if self.sim.as_ref().unwrap().world().tick() == 0 {
+            self.run((1_000_000. / G::HZ as f64).ceil() / 1000.)
+                .map_err(error)?;
+        }
+        self.publish = true;
+        Ok(())
+    }
+    fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
+        self.sim
+            .as_ref()
+            .map(|sim| {
+                let mut bytes = MAGIC.to_vec();
+                bytes.extend(self.caller.to_le_bytes());
+                bytes.extend(sim.save().map_err(error)?);
+                Ok(bytes)
+            })
+            .transpose()
+    }
+    fn restore(&mut self, bytes: &[u8], mode: Restore) -> Result<(), String> {
+        let payload = bytes
+            .strip_prefix(MAGIC)
+            .filter(|b| b.len() >= 8)
+            .ok_or("invalid surface checkpoint")?;
+        let caller = f64::from_le_bytes(payload[..8].try_into().unwrap());
+        if !caller.is_finite() || caller < 0. {
+            return Err("invalid saved caller clock".into());
+        }
+        let sim = self.sim.as_mut().ok_or("world has not been bound")?;
+        match mode {
+            Restore::Open => sim.restore(&payload[8..]),
+            Restore::Carry => sim.carry(&payload[8..]).map(|_| ()),
+        }
+        .map_err(|e| e.to_string())?;
+        self.caller = caller;
+        self.restored = true;
+        self.publish = true;
+        if !self.seekable {
+            self.host = None;
+        }
+        self.error = None;
+        Ok(())
+    }
+    fn take_error(&mut self) -> Option<SurfaceError> {
+        self.error.take()
+    }
+    fn wants_input(&self) -> bool {
+        true
+    }
+    fn input(&mut self, event: &InputEvent) {
+        use exact_world::InputEvent as E;
+        let e = match event {
+            InputEvent::Key {
+                code, down, at_ms, ..
+            } => E::Key {
+                code: code.clone(),
+                down: *down,
+                at_ms: self.stamp(*at_ms),
+            },
+            InputEvent::Control {
+                name,
+                phase,
+                at_ms,
+                x,
+                ..
+            } => {
+                if G::ACTIONS
+                    .iter()
+                    .any(|a| a.name == name && a.axis_keys.is_some())
+                {
+                    E::Axis {
+                        name: name.clone(),
+                        value: if matches!(phase, PointerPhase::Up | PointerPhase::Cancel) {
+                            0.
+                        } else {
+                            *x
+                        },
+                        at_ms: self.stamp(*at_ms),
+                    }
+                } else {
+                    E::Action {
+                        name: name.clone(),
+                        down: matches!(phase, PointerPhase::Down | PointerPhase::Move),
+                        at_ms: self.stamp(*at_ms),
+                    }
+                }
+            }
+            InputEvent::Blur { at_ms } => E::Blur {
+                at_ms: self.stamp(*at_ms),
+            },
+            _ => return,
+        };
+        if let Err(e) = self.sim_mut().and_then(|s| s.input(e)) {
+            self.error = Some(error(e));
+        }
+    }
+    fn messages(&mut self) -> Vec<String> {
+        self.sim
+            .as_ref()
+            .map_or_else(Vec::new, |s| s.world().take_messages())
+    }
+    fn published(&mut self) -> Option<String> {
+        let w = self.sim.as_ref()?.world();
+        if w.take_published().is_none() && !self.publish {
+            return None;
+        }
+        self.publish = false;
+        match publication::json(w) {
+            Ok(value) => Some(value),
+            Err(e) => {
+                self.error = Some(error(e));
+                None
+            }
+        }
+    }
+    fn agent(&mut self, request: &str) -> Option<String> {
+        Some(self.request(request).unwrap_or_else(|e| {
+            format!("{{\"error\":{}}}", json::to_string(&e.to_string()).unwrap())
+        }))
+    }
+}

@@ -332,7 +332,7 @@ mod record_tests {
     }
 }
 
-fn inspect(value: &Published, w: &mut dyn Writer) {
+pub(crate) fn inspect(value: &Published, w: &mut dyn Writer) {
     match value {
         Published::Object(fields) => {
             w.begin_struct();

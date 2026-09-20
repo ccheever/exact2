@@ -14,6 +14,7 @@
       "required": ["crate", "type"],
       "additionalProperties": false,
       "properties": {
+        "world": { "type": "boolean", "description": "Use exact-world's device-free surface adapter." },
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },

@@ -1,0 +1,4 @@
+{
+  "id": "com.exact.tally", "name": "Tally",
+  "game": {"crate": "tally-logic", "type": "Tally", "world": true}
+}

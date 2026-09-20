@@ -1,0 +1,35 @@
+#!/usr/bin/env bun
+import {resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
+import {proof} from '../../proof.mjs';
+process.env.CARGO_TARGET_DIR ??= resolve(import.meta.dir,'../../target');
+if (import.meta.main) await proof(import.meta, async ({open,check,equal,out})=>{
+  const state=async s=>(await s.state()).world[0];
+  const play=async s=>{await s.tap('draw');await s.clock('+100');await s.tap('hold');await s.clock('+100');};
+  const saved=resolve(out,'checkpoint.world'), final=resolve(out,'continued.world');
+  const s=await open();
+  const initial=await state(s);
+  check('device-free world ready after binding and first tick',initial.ready===true);
+  await s.clock('+1000');
+  const next=await state(s);
+  check('NEGATIVE CONTROL clock +1000 advances published ticks',next.published.ticks>initial.published.ticks);
+  await s.tap('draw');await s.clock('+100');
+  const drawn=await state(s);
+  check('Draw moves one card from pile to hand',drawn.published.hand.length===1 && drawn.published.pile_count===11);
+  await s.tap('hold');await s.clock('+100');
+  const held=await state(s);
+  check('Hold banks the hand',held.published.hand.length===0 && held.published.score>0);
+  check('Contract text contains published score',(await s.tree()).nodes.some(n=>n.props?.testId==='score' && n.props.text===`Score ${held.published.score}`));
+  await s.world('world').save(saved);
+  await play(s);const expected=await s.world('world').snapshot();
+  await s.world('world').save(final);await s.logs();await s.close();
+  const r=await open({fresh:true,world:saved});
+  check('restore acknowledged',(await state(r)).restored===true);
+  await play(r);
+  check('exact continuation hash and entities',equal(expected,await r.world('world').snapshot()));
+  const restored=resolve(out,'restored.world');await r.world('world').save(restored);
+  check('exact continuation checkpoint bytes',readFileSync(final).equals(readFileSync(restored)));
+  await r.tap('reset');await r.clock('+100');const reset=await state(r);
+  check('Reset restores full pile and clears score',reset.published.score===0 && reset.published.pile_count===12);
+  await r.close();
+});

@@ -28,7 +28,7 @@ export function gameDefaults(dir, workspace = gameRoot) {
   const authored = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
   const overrides = authored;
   const rust = readFileSync(source, 'utf8');
-  const declaration = /impl\s+(?:exact_game::)?Game\s+for\s+(\w+)\s*\{[^{}]*?\bconst\s+ID\s*:\s*&'static\s+str\s*=\s*"([a-z][a-z0-9-]*)"/.exec(rust);
+  const declaration = /impl\s+(?:exact_(?:game|world)::)?Game\s+for\s+(\w+)\s*\{[^{}]*?\bconst\s+ID\s*:\s*&'static\s+str\s*=\s*"([a-z][a-z0-9-]*)"/.exec(rust);
   if (!declaration && !(overrides.game?.crate && overrides.game?.type)) return null;
   if (!declaration && (!(overrides.id ?? overrides.app?.id) || !(overrides.name ?? overrides.app?.name)))
     throw new Error(`${path}: explicit id and name are required when the Game declaration cannot be inferred`);
@@ -100,13 +100,13 @@ export function gameShells(dir, game, workspace) {
       : `[lib]\ncrate-type = ["${kind === 'apple' ? 'staticlib' : 'cdylib'}", "rlib"]\ntest = false\ndoctest = false`;
     const header = `[package]\nname = "${name}-${kind}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\n\n${target}\n\n[dependencies]\n`;
     const dependencies = kind === 'gpu'
-      ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
+      ? `${app.game.world ? "exact-world-adapter" : "exact-game-render"}.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n${app.game.world ? "exact-world-adapter.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n\n[build-dependencies]\nexact-game-app.workspace = true\n`;
     desired.set(shellName, {
       'Cargo.toml': header + dependencies,
-      [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+      [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `${app.game.world ? "exact_world_adapter" : "exact_game_render"}::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
-        ? `fn main() {\n    exact_game_app::emit_declaration::<game_logic::${type}>(${JSON.stringify(relative(shell, appDir))});\n${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    println!("cargo:rerun-if-changed=build.rs");\n}\n`
+        ? `fn main() {\n    ${app.game.world ? "exact_world_adapter::emit_declaration" : "exact_game_app::emit_declaration"}::<game_logic::${type}>(${JSON.stringify(relative(shell, appDir))});\n${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    println!("cargo:rerun-if-changed=build.rs");\n}\n`
         : `fn main() {\n    exact_game_app::bake_declaration("${kind}", ${JSON.stringify(relative(shell, appDir))});\n}\n`,
     });
   }
