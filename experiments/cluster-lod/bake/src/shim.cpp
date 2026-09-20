@@ -39,6 +39,7 @@ struct Output {
     std::vector<uint32_t> vertices;
     std::vector<uint8_t> indices;
     clodMesh mesh;
+    uint32_t transitions_checked = 0, transitions_rejected = 0, transitions_stopped = 0;
 };
 struct View {
     const Cluster* clusters; size_t cluster_count;
@@ -46,6 +47,7 @@ struct View {
     const clodNode* nodes; size_t node_count;
     const uint32_t* vertices; size_t vertex_count;
     const uint8_t* indices; size_t index_count;
+    uint32_t transitions_checked, transitions_rejected, transitions_stopped;
     void* owner;
 };
 #include "topology.h"
@@ -100,7 +102,7 @@ extern "C" bool exact_clod_build(const float* positions, size_t vertex_count, co
         size_t levels = output->groups.back().depth + 1;
         output->nodes.resize(narrow(clodBuildHierarchyBound(output->groups.size(), 8, levels)));
         output->nodes.resize(clodBuildHierarchy(output->nodes.data(), output->vendor_groups.data(), output->groups.size(), 8, levels));
-        *view = {output->clusters.data(), output->clusters.size(), output->groups.data(), output->groups.size(), output->nodes.data(), output->nodes.size(), output->vertices.data(), output->vertices.size(), output->indices.data(), output->indices.size(), output.get()};
+        *view = {output->clusters.data(), output->clusters.size(), output->groups.data(), output->groups.size(), output->nodes.data(), output->nodes.size(), output->vertices.data(), output->vertices.size(), output->indices.data(), output->indices.size(), output->transitions_checked, output->transitions_rejected, output->transitions_stopped, output.get()};
         output.release();
         return true;
     } catch (...) { return false; }

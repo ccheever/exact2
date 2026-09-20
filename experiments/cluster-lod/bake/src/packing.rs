@@ -5,6 +5,8 @@ use std::time::Instant;
 
 pub struct Bake {
     pub bytes: Vec<u8>,
+    /// Checked transitions, direct boundary-chain rejects, and all stopped transitions.
+    pub topology: [u32; 3],
     pub normals_seconds: f64,
     pub build_seconds: f64,
     pub encode_seconds: f64,
@@ -115,6 +117,7 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
     let bytes = encode(header, &clusters, &groups, built.nodes(), &pages)?;
     Ok(Bake {
         bytes,
+        topology: built.topology(),
         normals_seconds,
         build_seconds,
         encode_seconds: start.elapsed().as_secs_f64(),

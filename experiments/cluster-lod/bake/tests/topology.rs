@@ -1,14 +1,16 @@
 use clod_bake::{bake, procedural};
 use clod_format::{Bounds, Config, ORIGINAL, Reader};
 use serde_json::json;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
 
 struct Edges {
     keys: Vec<u64>,
-    clusters: Vec<Vec<(usize, i32)>>,
+    clusters: Vec<Vec<(usize, i32, i32)>>,
     uses: Vec<i32>,
+    winding: Vec<i32>,
     bad: BTreeSet<usize>,
+    pinches: BTreeSet<usize>,
     selected: Vec<bool>,
     marks: Vec<u32>,
     generation: u32,
@@ -28,7 +30,17 @@ impl Edges {
                 let t: [u32; 3] =
                     std::array::from_fn(|i| ids[&vs[t[i] as usize].position.map(f32::to_bits)]);
                 for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                    edges.push((((a.min(b) as u64) << 32) | a.max(b) as u64, ci));
+                    edges.push((
+                        ((a.min(b) as u64) << 32) | a.max(b) as u64,
+                        ci,
+                        if a < b {
+                            1
+                        } else if a > b {
+                            -1
+                        } else {
+                            0
+                        },
+                    ));
                 }
             }
         }
@@ -37,24 +49,30 @@ impl Edges {
         let mut clusters = vec![Vec::new(); reader.clusters.len()];
         let mut i = 0;
         while i < edges.len() {
-            let (key, ci) = edges[i];
+            let (key, ci, _) = edges[i];
             if keys.last() != Some(&key) {
                 keys.push(key);
             }
             let mut end = i + 1;
-            while end < edges.len() && edges[end] == edges[i] {
+            while end < edges.len() && (edges[end].0, edges[end].1) == (key, ci) {
                 end += 1;
             }
-            clusters[ci].push((keys.len() - 1, (end - i) as i32));
+            clusters[ci].push((
+                keys.len() - 1,
+                (end - i) as i32,
+                edges[i..end].iter().map(|e| e.2).sum(),
+            ));
             i = end;
         }
         Self {
             uses: vec![0; keys.len()],
+            winding: vec![0; keys.len()],
             marks: vec![0; keys.len()],
             generation: 0,
             keys,
             clusters,
             bad: BTreeSet::new(),
+            pinches: BTreeSet::new(),
             selected: vec![false; reader.clusters.len()],
         }
     }
@@ -66,7 +84,8 @@ impl Edges {
             if s == self.selected[ci] {
                 continue;
             }
-            for &(edge, count) in &self.clusters[ci] {
+            for &(edge, count, winding) in &self.clusters[ci] {
+                self.winding[edge] += if s { winding } else { -winding };
                 self.uses[edge] += if s { count } else { -count };
                 if self.marks[edge] != self.generation {
                     self.marks[edge] = self.generation;
@@ -75,7 +94,12 @@ impl Edges {
             }
         }
         for edge in touched {
-            if self.uses[edge] == 0 || self.uses[edge] == 2 {
+            if self.uses[edge] > 2 && self.winding[edge] == 0 {
+                self.pinches.insert(edge);
+            } else {
+                self.pinches.remove(&edge);
+            }
+            if self.winding[edge] == 0 {
                 self.bad.remove(&edge);
             } else {
                 self.bad.insert(edge);
@@ -138,11 +162,20 @@ fn multi_fixture_closed_cuts() {
     let mut checked = 0;
     let mut checked_triangles = 0u64;
     let mut fixtures = 0;
+    let mut pinched_cuts = 0;
+    let mut pinched_occurrences = 0;
+    let mut worst_incidence = 2;
+    let mut topology = [0u32; 3];
+    let mut histogram = BTreeMap::new();
+    let mut nonzero_winding = 0;
     for sub in 3..=9 {
         for seed in 0..3 {
             let fixture_start = Instant::now();
             let mut mesh = procedural::octasphere_seeded(sub, seed).unwrap();
             let baked = bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+            for (total, n) in topology.iter_mut().zip(baked.topology) {
+                *total += n;
+            }
             let reader = Reader::new(&baked.bytes).unwrap();
             let mut edges = Edges::new(&mesh, &reader);
             let mut rng = 0xa512_a971_2000_0421;
@@ -221,6 +254,24 @@ fn multi_fixture_closed_cuts() {
                     })
                     .collect();
                 edges.update(&selected);
+                pinched_cuts += usize::from(!edges.pinches.is_empty());
+                pinched_occurrences += edges.pinches.len();
+                let max_use = edges
+                    .pinches
+                    .iter()
+                    .map(|&e| edges.uses[e])
+                    .max()
+                    .unwrap_or(2);
+                worst_incidence = worst_incidence.max(max_use);
+                for &edge in &edges.pinches {
+                    *histogram
+                        .entry((edges.uses[edge], edges.winding[edge]))
+                        .or_insert(0usize) += 1;
+                }
+                println!(
+                    "{}",
+                    json!({"oracle":"cut_topology","subdivision":sub,"seed":seed,"camera":camera,"threshold":threshold,"pinched_edges":edges.pinches.len(),"worst_incidence":max_use,"nonzero_winding":edges.bad.len()})
+                );
                 let overlap = overlaps(&reader, &selected);
                 let tris: u64 = reader
                     .clusters
@@ -252,6 +303,10 @@ fn multi_fixture_closed_cuts() {
                         json!({"cluster":ci,"group":c.group,"refined":c.refined,"depth":c.depth,"selected":selected[ci],"simplified_projected":project(&c.simplified),"refined_projected":project(&c.refined_bounds)})
                     };
                     for &edge in &edges.bad {
+                        *histogram
+                            .entry((edges.uses[edge], edges.winding[edge]))
+                            .or_insert(0usize) += 1;
+                        nonzero_winding += usize::from(edges.winding[edge] != 0);
                         let sides: Vec<_> = edges
                             .clusters
                             .iter()
@@ -259,12 +314,12 @@ fn multi_fixture_closed_cuts() {
                             .filter_map(|(ci, es)| {
                                 es.binary_search_by_key(&edge, |x| x.0)
                                     .ok()
-                                    .map(|i| json!({"uses":es[i].1,"record":record(ci)}))
+                                    .map(|i| json!({"uses":es[i].1,"winding":es[i].2,"record":record(ci)}))
                             })
                             .collect();
                         println!(
                             "{}",
-                            json!({"failure":"edge","subdivision":sub,"seed":seed,"camera":camera,"uniform":camera<15,"eye":eye,"orientation":q,"cot":cot,"near":near,"height":height,"threshold":threshold,"edge":[edges.keys[edge]>>32,edges.keys[edge] as u32 as u64],"uses":edges.uses[edge],"sides_all_generations":sides})
+                            json!({"failure":"edge","subdivision":sub,"seed":seed,"camera":camera,"uniform":camera<15,"eye":eye,"orientation":q,"cot":cot,"near":near,"height":height,"threshold":threshold,"edge":[edges.keys[edge]>>32,edges.keys[edge] as u32 as u64],"uses":edges.uses[edge],"winding":edges.winding[edge],"sides_all_generations":sides})
                         );
                     }
                     for pair in overlap {
@@ -285,13 +340,23 @@ fn multi_fixture_closed_cuts() {
             }
             println!(
                 "{}",
-                json!({"oracle":"topology_fixture","subdivision":sub,"seed":seed,"source_triangles":mesh.indices.len()/3,"clusters":reader.clusters.len(),"groups":reader.groups.len(),"bounds_violations":bounds_violations,"terminal_depths":terminal_depths,"uniform_cuts":15,"cameras":500,"bad_uniform":bad_uniform,"bad_camera":bad_camera,"distinct_cuts":distinct.len(),"mixed_cuts":mixed,"seconds":fixture_start.elapsed().as_secs_f64()})
+                json!({"oracle":"topology_fixture","subdivision":sub,"seed":seed,"transitions":baked.topology,"source_triangles":mesh.indices.len()/3,"clusters":reader.clusters.len(),"groups":reader.groups.len(),"bounds_violations":bounds_violations,"terminal_depths":terminal_depths,"uniform_cuts":15,"cameras":500,"bad_uniform":bad_uniform,"bad_camera":bad_camera,"distinct_cuts":distinct.len(),"mixed_cuts":mixed,"seconds":fixture_start.elapsed().as_secs_f64()})
             );
         }
     }
     println!(
         "{}",
-        json!({"oracle":"topology_summary","fixtures":fixtures,"cuts":checked,"triangles":checked_triangles,"failed_cuts":failed_cuts,"seconds":start.elapsed().as_secs_f64()})
+        json!({"oracle":"topology_summary","fixtures":fixtures,"cuts":checked,"triangles":checked_triangles,"pinched_edge_occurrences":pinched_occurrences,"pinched_cuts":pinched_cuts,"worst_incidence":worst_incidence,"transitions":topology,"failed_cuts":failed_cuts,"seconds":start.elapsed().as_secs_f64()})
+    );
+    for ((incidence, winding), occurrences) in histogram {
+        println!(
+            "{}",
+            json!({"oracle":"incidence_winding", "incidence":incidence,"winding":winding,"edge_cut_occurrences":occurrences})
+        );
+    }
+    println!(
+        "{}",
+        json!({"oracle":"winding_summary","nonzero_winding":nonzero_winding})
     );
     assert_eq!(failed_cuts, 0);
 }

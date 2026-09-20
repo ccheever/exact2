@@ -138,7 +138,7 @@ fn numerical_oracles() {
         previous = cut.len();
         println!(
             "{}",
-            json!({"oracle":"uniform_cut","threshold":threshold,"triangles":cut.len(),"clusters":selected.iter().filter(|s|**s).count(),"bad_edges":e.bad,"max_edge_use":e.max_use,"overlaps":overlap})
+            json!({"oracle":"uniform_cut","threshold":threshold,"triangles":cut.len(),"clusters":selected.iter().filter(|s|**s).count(),"pinched_edges":e.pinches.len(),"bad_edges":e.bad,"max_edge_use":e.max_use,"overlaps":overlap})
         );
     }
     let terminal = reader
@@ -198,6 +198,10 @@ fn numerical_oracles() {
         let cut = geo.cut(&selected);
         let e = edges(&cut);
         let overlap = overlaps(&reader, &selected);
+        println!(
+            "{}",
+            json!({"oracle":"camera_topology","camera":camera,"pinched_edges":e.pinches.len(),"worst_incidence":e.max_use,"nonzero_winding":e.bad,"overlaps":overlap})
+        );
         distinct.insert(cut.len());
         min_tri = min_tri.min(cut.len());
         max_tri = max_tri.max(cut.len());
@@ -259,7 +263,7 @@ fn numerical_oracles() {
         }
         println!(
             "{}",
-            json!({"oracle":"error_honesty","threshold":threshold,"triangles":cut.len(),"samples":100_000,"claimed_error":claimed,"max_distance":max,"rms_distance":rms,"max_over_claim":max/claimed,"gate":limit,"seconds":sample_start.elapsed().as_secs_f64()})
+            json!({"oracle":"error_honesty","threshold":threshold,"triangles":cut.len(),"pinched_edges":edges(&cut).pinches.len(),"samples":100_000,"claimed_error":claimed,"max_distance":max,"rms_distance":rms,"max_over_claim":max/claimed,"gate":limit,"seconds":sample_start.elapsed().as_secs_f64()})
         );
     }
     println!(

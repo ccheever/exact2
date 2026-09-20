@@ -35,6 +35,7 @@ fn stats(reader: &Reader<'_>) -> Value {
         clusters[c.depth as usize] += 1;
     }
     json!({"source_triangles":reader.header.source_triangles,"source_vertices":reader.header.source_vertices,
+        "terminal_triangles":reader.clusters.iter().filter(|c|c.selected(1e30)).map(|c|c.triangle_count as u64).sum::<u64>(),
         "clusters":reader.clusters.len(),"groups":reader.groups.len(),"dag_depth":depth,
         "triangles_per_depth":triangles,"clusters_per_depth":clusters,"pages":reader.pages.len(),
         "file_bytes":reader.header.file_bytes,"bytes_per_source_triangle":reader.header.file_bytes as f64/reader.header.source_triangles as f64,
@@ -169,6 +170,7 @@ fn run() -> Result<Value> {
     let write = start.elapsed().as_secs_f64();
     let reader = Reader::new(&baked.bytes)?;
     let mut result = stats(&reader);
+    result["topology"] = json!({"checked":baked.topology[0],"rejected":baked.topology[1],"stopped":baked.topology[2]});
     result["input"] = json!(args[0]);
     result["output"] = json!(args[1]);
     result["seconds"] = json!({"load":load,"normals":baked.normals_seconds,"build":baked.build_seconds,"encode":baked.encode_seconds,"write":write});

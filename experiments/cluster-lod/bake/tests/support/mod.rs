@@ -1,6 +1,6 @@
 pub mod bvh;
 use clod_bake::Mesh;
-use clod_format::{ORIGINAL, Reader};
+use clod_format::Reader;
 use std::collections::HashMap;
 
 pub struct Random(u64);
@@ -76,27 +76,4 @@ impl Geometry {
             .collect()
     }
 }
-pub use clod_format::oracle::edges;
-pub fn overlaps(reader: &Reader<'_>, selected: &[bool]) -> usize {
-    // Mark every descendant group of every selected cluster in reverse topological order.
-    let mut descendant = vec![false; reader.groups.len()];
-    for (c, &s) in reader.clusters.iter().zip(selected) {
-        if s && c.refined != ORIGINAL {
-            descendant[c.refined as usize] = true;
-        }
-    }
-    let mut count = 0;
-    for (gi, g) in reader.groups.iter().enumerate().rev() {
-        if !descendant[gi] {
-            continue;
-        }
-        let range = g.first_cluster as usize..(g.first_cluster + g.cluster_count) as usize;
-        for (c, &is_selected) in reader.clusters[range.clone()].iter().zip(&selected[range]) {
-            count += usize::from(is_selected);
-            if c.refined != ORIGINAL {
-                descendant[c.refined as usize] = true;
-            }
-        }
-    }
-    count
-}
+pub use clod_format::oracle::{edges, overlaps};

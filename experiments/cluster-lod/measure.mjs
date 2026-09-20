@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // Run every requested measurement; retain commands, PIDs, numbers and all failures.
-import { mkdirSync, appendFileSync, openSync, closeSync } from 'node:fs';
+import { mkdirSync, appendFileSync, openSync, closeSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 const root=import.meta.dir;
-const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/F1');
+const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/F2');
 mkdirSync(out,{recursive:true});
 const mode=process.argv[2]??'verify';
 const commands=[];
@@ -13,9 +13,21 @@ if(mode==='verify') {
     ['fmt',['cargo','fmt','--all','--','--check']],
     ['wasm-format',['cargo','build','-p','clod-format','--target','wasm32-unknown-unknown']],
     ['wasm-view',['cargo','build','-p','clod-view','--lib','--target','wasm32-unknown-unknown']]);
+} else if(mode==='bake') {
+  commands.push(['build-baker',['cargo','build','--release','-p','clod-bake']]);
+  for(const [asset,file] of [['gaul','smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl'],['washington','si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj']]) {
+    for(let repeat=0;repeat<2;repeat++) commands.push([`${asset}-bake-${repeat}`,['target/release/clod-bake',join(out,'../../assets',file),join(out,'..',`${asset}-3${repeat?'-repeat':''}.clod`)]]);
+  }
+} else if(mode==='images') {
+  for(const asset of ['gaul','washington']) {
+    const source=join(out,'..',`${asset}-3.clod`);
+    commands.push([`${asset}-compare`,['target/debug/clod-view','compare',source,'--threshold-px','0.5,1,2,4,8','--t','0,0.25,0.5,0.75,1','--out',join(out,`${asset}-compare`)]]);
+    commands.push([`${asset}-pop`,['target/debug/clod-view','pop',source,'--steps','240','--out',join(out,`${asset}-pop`)]]);
+    for(const view of ['lit','clusters']) commands.push([`${asset}-close-${view}`,['target/debug/clod-view','render',source,'--t','1','--view',view,'--out',join(out,`${asset}-close-${view}.png`)]]);
+  }
 } else if(mode==='sweep'||mode==='oracles') {
   for(const asset of ['gaul','washington']) {
-    const source=join(out,'..',`${asset}-2.clod`);
+    const source=join(out,'..',`${asset}-3.clod`);
     if(mode==='oracles') {
       commands.push([`${asset}-oracle`,['target/debug/clod-view','oracle',source,'--steps','64','--size','256x256']]);
       continue;
@@ -35,7 +47,7 @@ if(mode==='verify') {
     }
   }
 } else {
-  console.error('usage: bun measure.mjs verify|sweep|oracles');
+  console.error('usage: bun measure.mjs verify|sweep|oracles|bake|images');
   process.exit(1);
 }
 const failures=[];
@@ -52,6 +64,11 @@ for(const [name,command] of commands) {
   appendFileSync(join(out,'runs.jsonl'),JSON.stringify(record)+'\n');
   console.log(JSON.stringify(record));
   if(code) failures.push(name);
+  if(mode==='sweep' && !code) {
+    const rows=readFileSync(join(out,`${name}.log`),'utf8').split('\n').flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
+    const measured=rows.findLast(row=>row.command==='time');
+    if(!measured || measured.overflow || measured.shadow_overflow) failures.push(`${name}: missing measurement or dropped geometry`);
+  }
 }
 const lengths=[];
 for await(const path of new Bun.Glob('**/*.{rs,wgsl,mjs,c,cpp,h}').scan({cwd:root})) {

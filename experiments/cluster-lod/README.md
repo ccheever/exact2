@@ -6,20 +6,23 @@ rasterizer, 64-bit atomics, optional rendering features, or vendor modifications
 The native CLI renders the two scanned statues and a continuous far-to-detail
 camera path, including cluster-colour views. It is an offscreen demo, not a player.
 
-F1 found a real bake defect: regular vendor simplification introduced four-incident
-edges, including in uniform cuts. The shim now rejects those transitions and keeps
-finer geometry. The permanent 21-fixture oracle checks 10,815 cuts with zero bad
-edges or ancestor overlaps. This is boundary/edge preservation, not a proof against
-geometric self-intersection. The new scans pass 96 mixed-LOD coverage cameras with
-zero missing interior pixels. Threshold zero is pixel-exact in the tested images.
+F1 found four-incident edges in regular vendor simplification, including uniform
+cuts. F2 establishes that these are balanced pinches (net winding zero), not holes
+or a bake defect. The strict-manifold filter was an over-constraint; it is removed.
+The bake now rejects only changes to the oriented boundary chain.
 
-At 400 instances, 2560×1440 and 1 px, the main-pass medians are **22.332 vs 74.609 ms
+watertight: every group transition preserves the oriented boundary chain, so every
+cut of a closed mesh is closed; not guaranteed manifold: 503 pinched edges across
+501 cuts, worst incidence 4. These are edge-cut occurrences in the 21-fixture sweep;
+this statement does not promise absence of geometric self-intersection.
+
+Historical F1 strict-manifold cost: at 400 instances, 2560×1440 and 1 px, the main-pass medians are **22.332 vs 74.609 ms
 (Gaul)** and **115.172 vs 428.440 ms (Washington)**, GPU cluster vs indexed naive.
 The corresponding shadow medians are 15.619 vs 68.396 ms and 70.339 vs 357.158 ms.
 These runs have zero drops; Washington uses a 12,000-cluster per-instance quota.
 Shadows use twice the main error threshold, so the main-pass comparison leads.
-The topology fix raises the minimum geometry substantially; the previous performance
-headline is withdrawn. Quota-overflow rows draw incomplete images and support no speedup claim.
+The strict-manifold criterion raised the minimum geometry substantially. These
+F1 timings are historical; F2 measurements below supersede them. Quota-overflow rows draw incomplete images and support no speedup claim.
 
 ## How to run
 
@@ -44,11 +47,11 @@ bun measure.mjs oracles
 command failures and source-file lengths. `sweep` runs 48 default-quota timing
 configurations plus four larger-quota runs for complete Gaul field/Washington grid cuts.
 `oracles` checks 64 cameras × three layouts per real asset. The scripts record
-commands, PIDs, exit codes and elapsed times in `<cache>/out/F1/`.
+commands, PIDs, exit codes and elapsed times in `<cache>/out/F2/`.
 
 ```sh
-asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-2.clod"
-out="$HOME/Library/Caches/exact2-cluster-lod/out/F1/demo"
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-3.clod"
+out="$HOME/Library/Caches/exact2-cluster-lod/out/F2/demo"
 target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 1
 target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 1
 target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --capacity 12000 --frames 7
@@ -75,9 +78,9 @@ requires `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
 commands emit JSON lines, including errors with exit 1. `compare` and `pop` are
 measurement reports; the permanent quality gates are the cargo tests.
 
-## Format v2
+## Format v3
 
-Little endian, magic `CLOD0002`, version 2. Version 1 is rejected because the
+Little endian, magic `CLOD0003`, version 3. Versions 1 and 2 are rejected because the
 accepted DAG changed. `format/src/lib.rs` defines the `repr(C)`/`Pod` records.
 Sections, in order: header, clusters, groups, page table, optional BVH, geometry.
 Section starts and page arrays align to 16 bytes; all padding is zero.
@@ -139,6 +142,24 @@ does not enter the distance formula; the multi-fixture test applies random rigid
 orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
+
+F2 evidence: `cargo test -p clod-bake --test topology -- --nocapture`, with the
+rejection call temporarily removed, checked 21 fixtures, 10,815 cuts and
+614,133,420 triangle occurrences in 31.628988 s. All 503 offending edge occurrences
+in 501 cuts were (incidence 4, winding 0); zero non-zero-winding edges. The old
+strict assertion intentionally exited 101. [Per-fixture evidence](results/f2-unfiltered.json).
+
+F2 decisions: compare signed position-welded boundary chains, discarding zero
+coefficients and incidence counts; zero-length edges contribute zero. Retain the
+existing dependent-transition stop for a real chain change. Record direct rejects
+and dependent stops separately. Bump the bake to v3 because the accepted DAG changes.
+Freeze the valid 6,456-triangle mixed cut from sweep camera 36 for six aimed
+32×32 image windows; this intentionally magnifies the pinches without automatic
+refinement removing them. CPU uploads this cut to the ordinary cluster hardware
+path; the permanent GPU sweep independently checks GPU-selected cuts.
+Target subdivision 6/seed 0 for pinch images: it has the most edge-cut pinch
+occurrences (109) and the largest simultaneous count (2, tied). Keep F1 costs as
+historical results. Do not add a manifold mode.
 
 1. Preserve position bits; pack normals only. Identical border coordinates are
    necessary but insufficient for a crack-free cut: decision 32 also checks topology.
@@ -204,9 +225,10 @@ orientations to both bounds and camera. Culling remains separate from selection.
     and metadata upload at load. Diagnostic readbacks never decide a draw.
 31. Sum every terminal group, including early depths. The deepest level alone is
     not the terminal floor. F1 remeasures the new v2 floors below.
-32. Compare oriented boundary/nonmanifold-edge signatures of every replacement patch.
+32. Compare oriented boundary chains of every replacement patch; balanced pinches
+    cancel at any incidence. F2 removes F1's nonmanifold-edge signature.
     Stop invalid transitions and dependent ancestors, remove their replacements and
-    retain remaining finer clusters as terminals. Vendor unchanged; format bumped to v2.
+    retain remaining finer clusters as terminals. Vendor unchanged; F2 format bumped to v3.
 33. Stable CPU/WGSL length and positive projection saturation cover tiny scale/far eye.
     The planar regression must draw all 32,768 source triangles in nine selector cases.
 34. Reader sphere tolerance and canonical colour/padding rules are explicit above.
@@ -223,9 +245,9 @@ orientations to both bounds and camera. Culling remains separate from selection.
 39. Coverage erodes the fully covered naive MSAA mask by a one-pixel Chebyshev band.
     Partial MSAA pixels belong to the silhouette; test every remaining background hole.
     Use 16 hero, 16 ring-interior and 16 grid-interior cameras per asset, requiring ≥32
-    nonempty mixed-depth cuts. Do not run a closed-manifold oracle on open scans.
+    nonempty mixed-depth cuts. Do not require a zero boundary chain on open scans.
 40. Use Bun for measurement orchestration. Preserve superseded measurements in an
-    explicitly historical archive; current tables must come from v2 and reversed-Z.
+    explicitly historical archive; current tables must come from v3 and reversed-Z.
 41. Equality oracles reserve the full 128 MiB core visible-list binding budget,
     divided per instance, to check complete cuts of the larger v2 terminal patches.
     Default-quota timings remain separate, and the one-slot overflow oracle remains.
@@ -237,7 +259,7 @@ orientations to both bounds and camera. Culling remains separate from selection.
     numerical boundary band. Closed-edge diagnostics apply only to closed fixtures;
     the real scans use image equality and localized coverage.
 
-## Results
+## Results (F1 historical measurements; F2 evidence above)
 
 Measurements below are on Apple M5 Max / Metal, wgpu 30.0.1, opt-level=2,
 debug=false, incremental=false. `<out>` means `<cache>/out/F1/`.

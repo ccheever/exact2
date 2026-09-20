@@ -14,6 +14,9 @@ struct View {
     vertex_count: usize,
     indices: *const u8,
     index_count: usize,
+    transitions_checked: u32,
+    transitions_rejected: u32,
+    transitions_stopped: u32,
     owner: *mut c_void,
 }
 unsafe extern "C" {
@@ -68,6 +71,13 @@ impl Built {
         }
         // SAFETY: successful C++ call initialized every View field and transferred owner to Rust.
         Ok(Self(unsafe { view.assume_init() }))
+    }
+    pub fn topology(&self) -> [u32; 3] {
+        [
+            self.0.transitions_checked,
+            self.0.transitions_rejected,
+            self.0.transitions_stopped,
+        ]
     }
     pub fn clusters(&self) -> &[Cluster] {
         // SAFETY: shim-owned immutable array remains allocated until self is dropped.

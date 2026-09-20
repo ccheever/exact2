@@ -1,7 +1,6 @@
-// A simplification is usable only if it preserves the oriented patch boundary and
-// introduces no nonmanifold edge. Reject its dependent coarser transitions as well.
+// Preserve the oriented boundary as an integer 1-chain. Balanced pinches are
+// permitted; reject chain changes and their dependent coarser transitions.
 #include <algorithm>
-#include <tuple>
 #include <utility>
 
 static void preserveTopology(Output& o) {
@@ -12,7 +11,7 @@ static void preserveTopology(Output& o) {
         if (o.clusters[ci].refined != UINT32_MAX)
             replacements[o.clusters[ci].refined].push_back(ci);
     using Edge = std::pair<uint64_t, int>;
-    using Boundary = std::vector<std::tuple<uint64_t, size_t, int>>;
+    using Boundary = std::vector<Edge>;
     auto boundary = [&](const std::vector<size_t>& clusters) {
         std::vector<Edge> edges;
         for (size_t ci : clusters) {
@@ -23,7 +22,7 @@ static void preserveTopology(Output& o) {
                     t[k] = remap[o.vertices[c.vertex_offset + o.indices[c.triangle_offset + ti + k]]];
                 for (size_t k = 0; k < 3; ++k) {
                     uint32_t a = t[k], b = t[(k + 1) % 3];
-                    edges.emplace_back((uint64_t(std::min(a,b)) << 32) | std::max(a,b), a < b ? 1 : -1);
+                    edges.emplace_back((uint64_t(std::min(a,b)) << 32) | std::max(a,b), a < b ? 1 : a > b ? -1 : 0);
                 }
             }
         }
@@ -34,10 +33,9 @@ static void preserveTopology(Output& o) {
             int winding = 0;
             while (end < edges.size() && edges[end].first == edges[i].first)
                 winding += edges[end++].second;
-            // Ordinary interior edges disappear; boundary and pre-existing scan
-            // defects must survive unchanged, and new defects cannot be introduced.
-            if (end - i != 2 || winding != 0)
-                result.emplace_back(edges[i].first, end - i, winding);
+            // Only the chain coefficient matters: balanced edges cancel at any incidence.
+            if (winding != 0)
+                result.emplace_back(edges[i].first, winding);
             i = end;
         }
         return result;
@@ -49,7 +47,9 @@ static void preserveTopology(Output& o) {
         std::vector<size_t> source;
         for (size_t ci = g.first_cluster; ci < size_t(g.first_cluster) + g.cluster_count; ++ci)
             source.push_back(ci);
+        ++o.transitions_checked;
         stopped[gi] = boundary(source) != boundary(replacements[gi]);
+        o.transitions_rejected += stopped[gi];
     }
     // Callback IDs are topological. Once a group loses an invalid input cluster,
     // it cannot simplify as a whole; keep its remaining valid clusters terminal.
@@ -60,6 +60,8 @@ static void preserveTopology(Output& o) {
             if (child != UINT32_MAX && stopped[child]) stopped[gi] = true;
         }
     }
+    for (size_t gi = 0; gi < o.groups.size(); ++gi)
+        o.transitions_stopped += stopped[gi] && !replacements[gi].empty();
     std::vector<Group> groups;
     std::vector<Cluster> clusters;
     std::vector<uint32_t> ids(o.groups.size(), UINT32_MAX);

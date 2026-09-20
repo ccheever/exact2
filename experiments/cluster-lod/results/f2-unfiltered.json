@@ -1,0 +1,488 @@
+{
+  "command": "cargo test -p clod-bake --test topology -- --nocapture (preserveTopology call temporarily disabled; strict diagnostic assertion intentionally exits 101)",
+  "fixtures": [
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 7,
+      "distinct_cuts": 3,
+      "groups": 3,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.001382709,
+      "seed": 0,
+      "source_triangles": 512,
+      "subdivision": 3,
+      "terminal_depths": [
+        2
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 7,
+      "distinct_cuts": 3,
+      "groups": 3,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.001278833,
+      "seed": 1,
+      "source_triangles": 512,
+      "subdivision": 3,
+      "terminal_depths": [
+        2
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 7,
+      "distinct_cuts": 3,
+      "groups": 3,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.001297833,
+      "seed": 2,
+      "source_triangles": 512,
+      "subdivision": 3,
+      "terminal_depths": [
+        2
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 31,
+      "distinct_cuts": 5,
+      "groups": 5,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.005817333,
+      "seed": 0,
+      "source_triangles": 2048,
+      "subdivision": 4,
+      "terminal_depths": [
+        4
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 31,
+      "distinct_cuts": 5,
+      "groups": 5,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.005259291,
+      "seed": 1,
+      "source_triangles": 2048,
+      "subdivision": 4,
+      "terminal_depths": [
+        4
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 32,
+      "distinct_cuts": 5,
+      "groups": 5,
+      "mixed_cuts": 0,
+      "oracle": "topology_fixture",
+      "seconds": 0.0062175,
+      "seed": 2,
+      "source_triangles": 2048,
+      "subdivision": 4,
+      "terminal_depths": [
+        4
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 27,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 131,
+      "distinct_cuts": 17,
+      "groups": 11,
+      "mixed_cuts": 20,
+      "oracle": "topology_fixture",
+      "seconds": 0.02616325,
+      "seed": 0,
+      "source_triangles": 8192,
+      "subdivision": 5,
+      "terminal_depths": [
+        6
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 27,
+      "unique_pinched_edges": 1,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 27,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 131,
+      "distinct_cuts": 15,
+      "groups": 11,
+      "mixed_cuts": 17,
+      "oracle": "topology_fixture",
+      "seconds": 0.026069416,
+      "seed": 1,
+      "source_triangles": 8192,
+      "subdivision": 5,
+      "terminal_depths": [
+        6
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 27,
+      "unique_pinched_edges": 1,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 27,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 132,
+      "distinct_cuts": 16,
+      "groups": 11,
+      "mixed_cuts": 22,
+      "oracle": "topology_fixture",
+      "seconds": 0.026216708,
+      "seed": 2,
+      "source_triangles": 8192,
+      "subdivision": 5,
+      "terminal_depths": [
+        6
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 27,
+      "unique_pinched_edges": 1,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 105,
+      "bad_uniform": 2,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 536,
+      "distinct_cuts": 103,
+      "groups": 37,
+      "mixed_cuts": 113,
+      "oracle": "topology_fixture",
+      "seconds": 0.134314792,
+      "seed": 0,
+      "source_triangles": 32768,
+      "subdivision": 6,
+      "terminal_depths": [
+        8
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 109,
+      "unique_pinched_edges": 4,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 532,
+      "distinct_cuts": 83,
+      "groups": 34,
+      "mixed_cuts": 101,
+      "oracle": "topology_fixture",
+      "seconds": 0.119394584,
+      "seed": 1,
+      "source_triangles": 32768,
+      "subdivision": 6,
+      "terminal_depths": [
+        8
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 532,
+      "distinct_cuts": 92,
+      "groups": 36,
+      "mixed_cuts": 108,
+      "oracle": "topology_fixture",
+      "seconds": 0.230458125,
+      "seed": 2,
+      "source_triangles": 32768,
+      "subdivision": 6,
+      "terminal_depths": [
+        8
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 95,
+      "bad_uniform": 5,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 2132,
+      "distinct_cuts": 169,
+      "groups": 133,
+      "mixed_cuts": 164,
+      "oracle": "topology_fixture",
+      "seconds": 0.874288542,
+      "seed": 0,
+      "source_triangles": 131072,
+      "subdivision": 7,
+      "terminal_depths": [
+        10
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 100,
+      "unique_pinched_edges": 2,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 2148,
+      "distinct_cuts": 175,
+      "groups": 139,
+      "mixed_cuts": 177,
+      "oracle": "topology_fixture",
+      "seconds": 0.46072875,
+      "seed": 1,
+      "source_triangles": 131072,
+      "subdivision": 7,
+      "terminal_depths": [
+        10
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 2137,
+      "distinct_cuts": 165,
+      "groups": 129,
+      "mixed_cuts": 163,
+      "oracle": "topology_fixture",
+      "seconds": 0.472832708,
+      "seed": 2,
+      "source_triangles": 131072,
+      "subdivision": 7,
+      "terminal_depths": [
+        10
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 12,
+      "bad_uniform": 1,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 8556,
+      "distinct_cuts": 242,
+      "groups": 527,
+      "mixed_cuts": 234,
+      "oracle": "topology_fixture",
+      "seconds": 1.9154153329999999,
+      "seed": 0,
+      "source_triangles": 524288,
+      "subdivision": 8,
+      "terminal_depths": [
+        12
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 13,
+      "unique_pinched_edges": 1,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 8543,
+      "distinct_cuts": 241,
+      "groups": 525,
+      "mixed_cuts": 234,
+      "oracle": "topology_fixture",
+      "seconds": 1.840459292,
+      "seed": 1,
+      "source_triangles": 524288,
+      "subdivision": 8,
+      "terminal_depths": [
+        12
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    },
+    {
+      "bad_camera": 26,
+      "bad_uniform": 1,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 8561,
+      "distinct_cuts": 241,
+      "groups": 535,
+      "mixed_cuts": 231,
+      "oracle": "topology_fixture",
+      "seconds": 1.930525291,
+      "seed": 2,
+      "source_triangles": 524288,
+      "subdivision": 8,
+      "terminal_depths": [
+        12
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 27,
+      "unique_pinched_edges": 1,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 87,
+      "bad_uniform": 1,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 34193,
+      "distinct_cuts": 272,
+      "groups": 2087,
+      "mixed_cuts": 266,
+      "oracle": "topology_fixture",
+      "seconds": 7.486874042,
+      "seed": 0,
+      "source_triangles": 2097152,
+      "subdivision": 9,
+      "terminal_depths": [
+        14
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 88,
+      "unique_pinched_edges": 3,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 80,
+      "bad_uniform": 5,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 34193,
+      "distinct_cuts": 264,
+      "groups": 2107,
+      "mixed_cuts": 253,
+      "oracle": "topology_fixture",
+      "seconds": 9.152498791,
+      "seed": 1,
+      "source_triangles": 2097152,
+      "subdivision": 9,
+      "terminal_depths": [
+        14
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 85,
+      "unique_pinched_edges": 2,
+      "worst_incidence": 4
+    },
+    {
+      "bad_camera": 0,
+      "bad_uniform": 0,
+      "bounds_violations": 0,
+      "cameras": 500,
+      "clusters": 34204,
+      "distinct_cuts": 269,
+      "groups": 2100,
+      "mixed_cuts": 260,
+      "oracle": "topology_fixture",
+      "seconds": 6.879268375,
+      "seed": 2,
+      "source_triangles": 2097152,
+      "subdivision": 9,
+      "terminal_depths": [
+        14
+      ],
+      "uniform_cuts": 15,
+      "pinched_edge_occurrences": 0,
+      "unique_pinched_edges": 0,
+      "worst_incidence": 2
+    }
+  ],
+  "summary": [
+    {
+      "cuts": 10815,
+      "failed_cuts": 501,
+      "fixtures": 21,
+      "oracle": "topology_summary",
+      "seconds": 31.628988,
+      "triangles": 614133420
+    },
+    {
+      "edge_cut_occurrences": 503,
+      "incidence": 4,
+      "oracle": "incidence_winding",
+      "winding": 0
+    },
+    {
+      "nonzero_winding": 0,
+      "oracle": "winding_summary"
+    }
+  ],
+  "unique_pinched_edges": 16
+}

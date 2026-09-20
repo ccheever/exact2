@@ -90,13 +90,19 @@ fn compare_sets(
     }
     (near, bad)
 }
-fn edge_counts(reader: &Reader<'_>, cut: &Selection, instance: u32) -> (usize, usize) {
+fn edge_counts(
+    reader: &Reader<'_>,
+    cut: &Selection,
+    instance: u32,
+) -> (usize, clod_format::oracle::Edges, usize) {
+    let mut selected = vec![false; reader.clusters.len()];
     let mut positions = BTreeMap::new();
     let mut triangles = Vec::new();
     for &[cluster, i] in cut.pages.iter().flatten() {
         if i != instance {
             continue;
         }
+        selected[cluster as usize] = true;
         let (vertices, indices) = reader.geometry(cluster as usize).expect("validated");
         let ids: Vec<_> = vertices
             .iter()
@@ -114,7 +120,11 @@ fn edge_counts(reader: &Reader<'_>, cut: &Selection, instance: u32) -> (usize, u
         );
     }
     let edges = clod_format::oracle::edges(&triangles);
-    (triangles.len(), edges.bad)
+    (
+        triangles.len(),
+        edges,
+        clod_format::oracle::overlaps(reader, &selected),
+    )
 }
 fn truncated(reader: &Reader<'_>, cut: &Selection, instances: usize, quota: usize) -> Selection {
     let mut counts = vec![0usize; instances];
@@ -291,18 +301,22 @@ pub fn run(
                         .chain((closed && layout == "single").then_some(0))
                         .collect();
                     for instance in affected {
-                        let (triangles, bad_edges) =
+                        let (triangles, edges, overlaps) =
                             edge_counts(reader, &unculled_cuts[0], instance);
-                        let (_, cpu_bad_edges) = edge_counts(reader, &ref_unculled, instance);
+                        let (_, cpu_edges, _) = edge_counts(reader, &ref_unculled, instance);
                         let diff = pair_set(&ref_unculled)
                             .symmetric_difference(&pair_set(&unculled_cuts[0]))
                             .count();
                         println!(
-                            "edge_diagnostic layout={layout} step={step} gpu_bad={bad_edges} cpu_bad={cpu_bad_edges} differences={diff}"
+                            "edge_diagnostic layout={layout} step={step} gpu_bad={} cpu_bad={} pinches={} worst_incidence={} overlaps={overlaps} differences={diff}",
+                            edges.bad,
+                            cpu_edges.bad,
+                            edges.pinches.len(),
+                            edges.max_use
                         );
                         edge_triangles += triangles;
-                        if bad_edges > 0 {
-                            failures.push(format!("{layout}/{step}/{instance}: decoded GPU cut has {bad_edges} bad edges"));
+                        if edges.bad > 0 || overlaps > 0 {
+                            failures.push(format!("{layout}/{step}/{instance}: decoded GPU cut has {} nonzero edges, {overlaps} ancestor overlaps",edges.bad));
                         }
                     }
                 }
@@ -316,11 +330,15 @@ pub fn run(
                     .map(|p| p[1])
                     .collect();
                 for instance in affected {
-                    let (triangles, bad_edges) = edge_counts(reader, &full[1], instance);
+                    let (triangles, edges, overlaps) = edge_counts(reader, &full[1], instance);
+                    println!(
+                        "{}",
+                        json!({"oracle":"shadow_cut_topology","layout":layout,"step":step,"instance":instance,"pinched_edges":edges.pinches.len(),"worst_incidence":edges.max_use,"overlaps":overlaps,"nonzero_winding":edges.bad})
+                    );
                     edge_triangles += triangles;
-                    if bad_edges > 0 {
+                    if edges.bad > 0 || overlaps > 0 {
                         failures.push(format!(
-                            "{layout}/{step}/{instance}: shadow GPU cut has {bad_edges} bad edges"
+                            "{layout}/{step}/{instance}: shadow GPU cut has {} nonzero edges, {overlaps} ancestor overlaps",edges.bad
                         ));
                     }
                 }
