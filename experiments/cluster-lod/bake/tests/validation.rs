@@ -102,6 +102,112 @@ fn malformed_files_are_errors_not_panics() {
             n.child_count = 0;
         })
     });
+    corrupt("header_padding", &|b| b[size_of::<Header>()] = 1);
+    for (pi, page) in reader.pages.iter().enumerate() {
+        let vertex_end = page.vertex_count as usize * size_of::<clod_format::Vertex>();
+        let index_end = page.indices_offset as usize + page.index_count as usize;
+        for (name, at, end) in [
+            ("vertex_padding", vertex_end, page.indices_offset as usize),
+            ("index_padding", index_end, page.byte_length as usize),
+        ] {
+            if at < end {
+                corrupt(name, &|b| {
+                    b[page.offset as usize + at] = 1;
+                    rehash(b, h.pages_offset as usize + pi * size_of::<Page>());
+                });
+            }
+        }
+    }
+    corrupt("culling_sphere_excludes_vertices", &|b| {
+        patch::<Cluster>(b, h.clusters_offset as usize, |c| c.sphere[3] = 0.0);
+    });
+    corrupt("color_without_flag", &|b| {
+        patch::<clod_format::Vertex>(b, p.offset as usize, |v| v.color = 0);
+        rehash(b, h.pages_offset as usize);
+    });
+    corrupt("flag_without_color", &|b| {
+        patch::<Header>(b, 0, |h| h.flags = clod_format::HAS_COLOR)
+    });
+    let rewrite_bounds = |b: &mut Vec<u8>, gi: usize, bounds: clod_format::Bounds| {
+        patch::<Group>(b, h.groups_offset as usize + gi * size_of::<Group>(), |g| {
+            g.simplified = bounds
+        });
+        for (ci, c) in reader.clusters.iter().enumerate() {
+            patch::<Cluster>(
+                b,
+                h.clusters_offset as usize + ci * size_of::<Cluster>(),
+                |out| {
+                    if c.group as usize == gi {
+                        out.simplified = bounds;
+                    }
+                    if c.refined as usize == gi {
+                        out.refined_bounds = bounds;
+                    }
+                },
+            );
+        }
+        for (ni, n) in reader.nodes.iter().enumerate() {
+            if n.group as usize == gi {
+                patch::<Node>(b, h.nodes_offset as usize + ni * size_of::<Node>(), |n| {
+                    n.bounds = bounds
+                });
+            }
+        }
+    };
+    corrupt("unreferenced_nonterminal", &|b| {
+        let gi = reader.groups.len() - 1;
+        rewrite_bounds(
+            b,
+            gi,
+            clod_format::Bounds {
+                error: f32::MAX / 2.0,
+                ..reader.groups[gi].simplified
+            },
+        );
+    });
+    corrupt("referenced_terminal", &|b| {
+        for (gi, g) in reader.groups.iter().enumerate() {
+            rewrite_bounds(
+                b,
+                gi,
+                clod_format::Bounds {
+                    error: f32::MAX,
+                    ..g.simplified
+                },
+            );
+        }
+    });
+    corrupt("ancestor_sphere_excludes_child", &|b| {
+        let gi = reader.groups.len() - 1;
+        rewrite_bounds(
+            b,
+            gi,
+            clod_format::Bounds {
+                radius: 0.0,
+                ..reader.groups[gi].simplified
+            },
+        );
+    });
+    let mut triangle = clod_bake::Mesh {
+        positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        indices: vec![0, 1, 2],
+        ..Default::default()
+    };
+    let small = bake(&mut triangle, Config::default(), [0; 32]).unwrap();
+    let small_reader = Reader::new(&small.bytes).unwrap();
+    let page = small_reader.pages[0];
+    for (name, at) in [
+        ("small_vertex_padding", 60),
+        (
+            "small_index_padding",
+            page.indices_offset + page.index_count,
+        ),
+    ] {
+        let mut b = small.bytes.clone();
+        b[page.offset as usize + at as usize] = 1;
+        rehash(&mut b, small_reader.header.pages_offset as usize);
+        cases.push((name.into(), b));
+    }
     let mut failures = Vec::new();
     let mut rejected = 0;
     for (name, b) in &cases {

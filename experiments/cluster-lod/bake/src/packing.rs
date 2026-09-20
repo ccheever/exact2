@@ -28,6 +28,7 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
     }
     let start = Instant::now();
     mesh.compute_normals();
+    mesh.validate()?;
     let normals_seconds = start.elapsed().as_secs_f64();
     let start = Instant::now();
     let built = Built::new(mesh, config)?;
@@ -101,7 +102,11 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
         source_sha256,
         source_vertices: mesh.positions.len() as u32,
         source_triangles: (mesh.indices.len() / 3) as u32,
-        flags: u32::from(mesh.colors.is_some()),
+        flags: u32::from(
+            mesh.colors
+                .as_ref()
+                .is_some_and(|colors| colors.iter().any(|c| *c != [255; 4])),
+        ),
         root_count: groups.iter().map(|g| g.depth).max().unwrap_or(0) + 1,
         config,
         ..Header::zeroed()

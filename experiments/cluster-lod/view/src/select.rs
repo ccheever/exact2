@@ -60,15 +60,15 @@ impl CandidateIndex {
 }
 /// Terminal sentinel is infinity; scale both error and sphere before projection.
 pub fn projected(b: &Bounds, model: Mat4, scale: f32, camera: &Camera, height: u32) -> f32 {
-    if b.error == f32::MAX {
-        return f32::MAX;
-    }
-    if let Some(span) = camera.orthographic_span {
-        return b.error * scale * height as f32 / span;
-    }
     let center = model.transform_point3(Vec3::from_array(b.center));
-    let distance = ((center - camera.eye).length() - b.radius * scale).max(camera.near);
-    b.error * scale / distance * (camera.cot * 0.5 * height as f32)
+    clod_format::projection::Projection {
+        eye: camera.eye.to_array(),
+        cot: camera.cot,
+        near: camera.near,
+        height: height as f32,
+        orthographic_span: camera.orthographic_span,
+    }
+    .projected(b, center.to_array(), scale)
 }
 pub fn sphere_visible(sphere: [f32; 4], model: Mat4, scale: f32, planes: &[Vec4; 6]) -> bool {
     let center = model.transform_point3(Vec3::from_slice(&sphere));

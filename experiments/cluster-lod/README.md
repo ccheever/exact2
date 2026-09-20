@@ -321,6 +321,35 @@ must be finite, nonnegative and less than `f32::MAX`.
     DAG; both assets will be re-baked. This preserves edge incidence, not a proof
     against geometric self-intersection.
 
+33. Keep one CPU projection in format/projection.rs, with a thin view adapter and
+    a WGSL mirror. Positive errors saturate at MIN_POSITIVE; robust vector lengths
+    avoid intermediate square overflow. Threshold zero bypasses candidate pruning.
+    Planar regression: 32,768 source triangles; eight of nine CPU/GPU cases formerly
+    drew 24,382, all nine now draw 32,768 at scale 1e-20 and/or distance 1e20.
+34. Validate zero padding, terminal/reference equivalence, ancestor containment,
+    vertex culling spheres and canonical color presence. Sphere tolerance is eight
+    float32 epsilons times the largest absolute coordinate or radius, evaluated in
+    f64. HAS_COLOR means at least one non-white RGBA8 value (all-white is canonical
+    uncolored data). Checked offsets return errors on address-space overflow.
+35. Normalize authored and generated normals using f64 intermediates; validate again
+    before FFI. Preserve normals per glTF primitive. The malformed-buffer panic did
+    not reproduce: glTF validation already rejected index 99. Use checked lookup
+    anyway. Drop FFI input pointers after construction and guard narrowing.
+36. Main perspective depth is reversed-Z (clear 0, Greater); orthographic shadows
+    retain forward-Z. At distance 100, surfaces 0.01 apart previously shared
+    0.99998206; their reversed values are 1.8000037e-5 and 1.7998036e-5. Both render
+    paths resolve the near surface. Reject zero extents, non-uniform scale and shear.
+37. Give naive main/shadow draws the same instance-sphere frustum cull as clusters.
+    Submit consecutive surviving instance ranges in source order. Separate main and
+    shadow GPU times and measure both modes with shadows disabled. Keep only the
+    last image plus timing records. Missing/invalid timestamps are errors; elapsed
+    ticks use modular subtraction with invalid-counter detection.
+38. Port measurement orchestration to Bun. Keep pop as a CLI report, not a test.
+    Add a 50% procedural reduction gate at 1 px and cut-diversity/mixed-depth gates.
+    A forced-original mutation passed the old image oracle and fails the new gate.
+    Coverage uses saturated magenta, white geometry, no ground/shadows, and a
+    one-pixel silhouette exclusion; injected one-pixel holes must be detected.
+
 ## Results
 
 F1 topology regression (`cargo test -p clod-bake --test topology -- --nocapture`):

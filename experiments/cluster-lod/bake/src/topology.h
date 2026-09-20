@@ -70,7 +70,7 @@ static void preserveTopology(Output& o) {
         for (size_t ci = g.first_cluster; ci < size_t(g.first_cluster) + g.cluster_count; ++ci) {
             Cluster c = o.clusters[ci];
             if (c.refined != UINT32_MAX && stopped[c.refined]) continue;
-            c.group = uint32_t(groups.size());
+            c.group = narrow(groups.size());
             c.simplified = g.simplified;
             if (c.refined != UINT32_MAX) {
                 c.refined = ids[c.refined];
@@ -79,9 +79,9 @@ static void preserveTopology(Output& o) {
             clusters.push_back(c);
         }
         if (clusters.size() == first) continue;
-        ids[gi] = uint32_t(groups.size());
-        g.first_cluster = uint32_t(first);
-        g.cluster_count = uint32_t(clusters.size() - first);
+        ids[gi] = narrow(groups.size());
+        g.first_cluster = narrow(first);
+        g.cluster_count = narrow(clusters.size() - first);
         groups.push_back(g);
     }
     o.groups.swap(groups);

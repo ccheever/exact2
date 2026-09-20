@@ -23,7 +23,7 @@ impl Instance {
         Mat4::from_cols_array(&self.matrix)
     }
     pub fn scale(&self) -> f32 {
-        self.transform().x_axis.truncate().length()
+        clod_format::projection::length(self.transform().x_axis.truncate().to_array())
     }
 }
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +64,33 @@ pub struct Scene {
     pub hero_direction: Vec3,
 }
 impl Scene {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.instances.is_empty() || self.instances.len() > 10000 {
+            return Err("scene needs 1..10000 instances".into());
+        }
+        for instance in &self.instances {
+            let m = instance.transform();
+            let scale = instance.scale();
+            if !m.is_finite() || !scale.is_finite() || scale <= 0.0 {
+                return Err("instance requires a finite positive uniform scale".into());
+            }
+            let axes = [
+                m.x_axis.truncate() / scale,
+                m.y_axis.truncate() / scale,
+                m.z_axis.truncate() / scale,
+            ];
+            if axes.iter().any(|a| (a.length_squared() - 1.0).abs() > 2e-5)
+                || axes[0].dot(axes[1]).abs() > 2e-5
+                || axes[0].dot(axes[2]).abs() > 2e-5
+                || axes[1].dot(axes[2]).abs() > 2e-5
+                || axes[0].cross(axes[1]).dot(axes[2]) < 0.0
+                || [m.x_axis.w, m.y_axis.w, m.z_axis.w, m.w_axis.w] != [0.0, 0.0, 0.0, 1.0]
+            {
+                return Err("instance must be an affine rotation with positive uniform scale (no shear or non-uniform scale)".into());
+            }
+        }
+        Ok(())
+    }
     pub fn layout(reader: &Reader<'_>, layout: &str) -> Result<Self, String> {
         let source_bounds = AssetBounds::read(reader);
         // Source metadata for the known Smithsonian OBJ: Y-up. Others default to Z-up.
@@ -87,6 +114,9 @@ impl Scene {
             bounds.max = bounds.max.max(p);
         }
         let extent = bounds.max - bounds.min;
+        if !extent.is_finite() || extent.max_element() <= 0.0 {
+            return Err("asset extent must be finite and positive".into());
+        }
         let scale = 2.0 / extent.max_element();
         let origin = Vec3::new(bounds.center().x, bounds.center().y, bounds.min.z);
         let base = Mat4::from_scale(Vec3::splat(scale)) * Mat4::from_translation(-origin) * basis;
@@ -166,13 +196,15 @@ impl Scene {
         let (hero, direction) =
             crate::hero::target(reader, base, single_min, single_max, washington);
         let first = instances[0].transform() * base.inverse();
-        Ok(Self {
+        let scene = Self {
             hero: first.transform_point3(hero),
             hero_direction: first.transform_vector3(direction).normalize(),
             instances,
             center: (lo + hi) * 0.5,
             radius: (hi - lo).length() * 0.5,
-        })
+        };
+        scene.validate()?;
+        Ok(scene)
     }
     pub fn camera(&self, t: f32, aspect: f32, fov: f32) -> Camera {
         let t = t.clamp(0.0, 1.0);
@@ -223,7 +255,7 @@ impl Camera {
     ) -> Self {
         Self {
             eye,
-            matrix: glam::camera::rh::proj::directx::perspective(fov, aspect, near, far)
+            matrix: glam::camera::rh::proj::directx::perspective(fov, aspect, far, near)
                 * glam::camera::rh::view::look_at_mat4(eye, target, Vec3::Z),
             near,
             cot: 1.0 / (fov * 0.5).tan(),

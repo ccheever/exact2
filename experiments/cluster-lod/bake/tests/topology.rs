@@ -193,7 +193,14 @@ fn multi_fixture_closed_cuts() {
                             center: rotate(b.center, q),
                             ..*b
                         };
-                        b.projected(rotate(eye, q), cot, near, height)
+                        clod_format::projection::Projection {
+                            eye: rotate(eye, q),
+                            cot,
+                            near,
+                            height,
+                            orthographic_span: None,
+                        }
+                        .projected(&b, b.center, 1.0)
                     }
                 };
                 let errors: Vec<_> = reader
@@ -265,6 +272,13 @@ fn multi_fixture_closed_cuts() {
                 }
             }
             fixtures += 1;
+            if distinct.len() < 3 || (sub >= 5 && mixed == 0) {
+                failed_cuts += 1;
+                println!(
+                    "{}",
+                    json!({"failure":"vacuous_lod","subdivision":sub,"seed":seed,"distinct":distinct.len(),"mixed":mixed})
+                );
+            }
             println!(
                 "{}",
                 json!({"oracle":"topology_fixture","subdivision":sub,"seed":seed,"source_triangles":mesh.indices.len()/3,"clusters":reader.clusters.len(),"groups":reader.groups.len(),"bounds_violations":bounds_violations,"terminal_depths":terminal_depths,"uniform_cuts":15,"cameras":500,"bad_uniform":bad_uniform,"bad_camera":bad_camera,"distinct_cuts":distinct.len(),"mixed_cuts":mixed,"seconds":fixture_start.elapsed().as_secs_f64()})

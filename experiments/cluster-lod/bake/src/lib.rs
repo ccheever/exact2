@@ -60,23 +60,37 @@ impl Mesh {
             }
             return;
         }
-        self.normals.resize(self.positions.len(), [0.0; 3]);
+        let mut normals = vec![[0.0f64; 3]; self.positions.len()];
         for t in self.indices.chunks_exact(3) {
             let [a, b, c] = [
-                self.positions[t[0] as usize],
-                self.positions[t[1] as usize],
-                self.positions[t[2] as usize],
+                self.positions[t[0] as usize].map(f64::from),
+                self.positions[t[1] as usize].map(f64::from),
+                self.positions[t[2] as usize].map(f64::from),
             ];
-            let n = cross(sub(b, a), sub(c, a));
+            let u: [f64; 3] = std::array::from_fn(|i| b[i] - a[i]);
+            let v: [f64; 3] = std::array::from_fn(|i| c[i] - a[i]);
+            let n = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
             for i in t {
-                for (v, x) in self.normals[*i as usize].iter_mut().zip(n) {
+                for (v, x) in normals[*i as usize].iter_mut().zip(n) {
                     *v += x;
                 }
             }
         }
-        for n in &mut self.normals {
-            *n = normalize(*n);
-        }
+        self.normals = normals
+            .into_iter()
+            .map(|n| {
+                let length = n.iter().map(|x| x * x).sum::<f64>().sqrt();
+                if length > 0.0 {
+                    n.map(|x| (x / length) as f32)
+                } else {
+                    [0.0, 0.0, 1.0]
+                }
+            })
+            .collect();
     }
 }
 pub fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -93,9 +107,9 @@ pub fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
     a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 pub fn normalize(n: [f32; 3]) -> [f32; 3] {
-    let l = dot(n, n).sqrt();
+    let l = n.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     if l > 0.0 {
-        n.map(|x| x / l)
+        n.map(|x| (x as f64 / l) as f32)
     } else {
         [0.0, 0.0, 1.0]
     }

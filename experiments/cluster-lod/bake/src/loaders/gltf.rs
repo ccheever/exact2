@@ -32,23 +32,21 @@ pub fn read(bytes: &[u8], path: &Path) -> Result<Mesh> {
     }
     let source = document.meshes().next().ok_or("glTF has no mesh")?;
     let mut mesh = Mesh::default();
-    let mut all_normals = true;
     for primitive in source.primitives() {
         if primitive.mode() != gltf::mesh::Mode::Triangles {
             return Err("glTF requires triangle primitives".into());
         }
-        let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()][..]));
+        let reader = primitive.reader(|buffer| buffers.get(buffer.index()).map(Vec::as_slice));
         let positions: Vec<_> = reader
             .read_positions()
             .ok_or("glTF POSITION missing")?
             .collect();
         let base = mesh.positions.len() as u32;
         let count = positions.len();
-        if let Some(normals) = reader.read_normals() {
-            mesh.normals.extend(normals);
-        } else {
-            all_normals = false;
-        }
+        let normals = reader
+            .read_normals()
+            .map(|n| n.collect())
+            .unwrap_or_default();
         if let Some(colors) = reader.read_colors(0) {
             let cs = mesh
                 .colors
@@ -64,11 +62,18 @@ pub fn read(bytes: &[u8], path: &Path) -> Result<Mesh> {
         if local.iter().any(|i| *i as usize >= count) {
             return Err("glTF index out of primitive range".into());
         }
-        mesh.indices.extend(local.into_iter().map(|i| base + i));
-        mesh.positions.extend(positions);
-    }
-    if !all_normals {
-        mesh.normals.clear();
+        let mut part = Mesh {
+            positions,
+            indices: local,
+            normals,
+            colors: None,
+        };
+        part.validate()?;
+        part.compute_normals();
+        mesh.indices
+            .extend(part.indices.into_iter().map(|i| base + i));
+        mesh.positions.extend(part.positions);
+        mesh.normals.extend(part.normals);
     }
     mesh.validate()?;
     Ok(mesh)

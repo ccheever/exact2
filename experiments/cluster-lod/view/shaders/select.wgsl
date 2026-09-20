@@ -17,13 +17,20 @@ struct Config {
 @group(0) @binding(7) var<storage,read_write> visible: array<vec2<u32>>;
 fn f(base:u32)->f32 { return bitcast<f32>(clusters[base]); }
 fn v3(base:u32)->vec3<f32> { return vec3(f(base),f(base+1u),f(base+2u)); }
+fn stable_length(v:vec3<f32>)->f32 {
+    let m=max(max(abs(v.x),abs(v.y)),abs(v.z));
+    if m==0.0 { return 0.0; }
+    return length(v/m)*m;
+}
 fn projected(base:u32,model:mat4x4<f32>,scale:f32)->f32 {
     let error=f(base+4u);
     if error==bitcast<f32>(0x7f7fffffu) { return error; }
-    if cfg.projection.w>0.0 { return error*scale*cfg.projection.x/cfg.projection.w; }
+    if error==0.0 { return 0.0; }
+    let positive=bitcast<f32>(0x00800000u);
+    if cfg.projection.w>0.0 { return max(error*scale*cfg.projection.x/cfg.projection.w,positive); }
     let center=(model*vec4(v3(base),1.0)).xyz;
-    let distance=max(length(center-cfg.eye.xyz)-f(base+3u)*scale,cfg.projection.z);
-    return error*scale/distance*(cfg.projection.y*0.5*cfg.projection.x);
+    let distance=max(stable_length(center-cfg.eye.xyz)-f(base+3u)*scale,cfg.projection.z);
+    return max(error*scale/distance*(cfg.projection.y*0.5*cfg.projection.x),positive);
 }
 fn sphere_visible(sphere:vec4<f32>,model:mat4x4<f32>,scale:f32)->bool {
     let center=(model*vec4(sphere.xyz,1.0)).xyz;
@@ -61,12 +68,12 @@ var<workgroup> scan:array<u32,256>;
 fn choose(@builtin(workgroup_id) group:vec3<u32>,@builtin(local_invocation_index) lane:u32) {
     let instance=group.x;
     let model=transforms[instance];
-    let scale=length(model[0].xyz);
+    let scale=stable_length(model[0].xyz);
     let stat=cfg.sizes.y*cfg.sizes.z*3u+instance*4u;
     if lane==0u {
         first=0u; end=cfg.sizes.x; total=0u;
         if cfg.options.x!=0u && !sphere_visible(cfg.sphere,model,scale) { end=0u; }
-        if end>0u && cfg.options.y==0u {
+        if end>0u && cfg.options.y==0u && cfg.threshold.x>0.0 {
             let center=(model*vec4(cfg.sphere.xyz,1.0)).xyz;
             let radius=cfg.sphere.w*scale;
             let distance=length(center-cfg.eye.xyz);

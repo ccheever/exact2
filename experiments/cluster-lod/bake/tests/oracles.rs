@@ -176,17 +176,24 @@ fn numerical_oracles() {
         let near = (0.001 + rng.unit() * 0.099) as f32;
         let height = (720.0 + rng.unit() * 1440.0) as f32;
         let threshold = 10f64.powf(rng.unit() * 3.0 - 1.0) as f32;
-        // Random unit orientation: the vendor projection formula is invariant under it.
-        let q: [f64; 4] = std::array::from_fn(|_| rng.unit() * 2.0 - 1.0);
-        let qlen = q.iter().map(|v| v * v).sum::<f64>().sqrt();
-        let orientation = q.map(|v| v / qlen);
-        if orientation.iter().any(|v| !v.is_finite()) {
-            failures.push(format!("invalid orientation {camera}"));
-        }
         let selected = reader
             .clusters
             .iter()
-            .map(|c| c.selected_camera(threshold, position, cot, near, height))
+            .map(|c| {
+                let project = |b: &clod_format::Bounds| {
+                    clod_format::projection::Projection {
+                        eye: position,
+                        cot,
+                        near,
+                        height,
+                        orthographic_span: None,
+                    }
+                    .projected(b, b.center, 1.0)
+                };
+                project(&c.simplified) > threshold
+                    && (c.refined == clod_format::ORIGINAL
+                        || project(&c.refined_bounds) <= threshold)
+            })
             .collect::<Vec<_>>();
         let cut = geo.cut(&selected);
         let e = edges(&cut);
@@ -199,13 +206,16 @@ fn numerical_oracles() {
         worst_overlap = worst_overlap.max(overlap);
         evaluated_triangles += cut.len();
         if e.bad > 0 || e.degenerate > 0 || overlap > 0 || cut.is_empty() {
-            failures.push(format!("camera {camera}, p={position:?}, q={orientation:?}, fov={fov}, threshold={threshold}: {e:?}, overlaps {overlap}, triangles {}",cut.len()));
+            failures.push(format!("camera {camera}, p={position:?}, fov={fov}, threshold={threshold}: {e:?}, overlaps {overlap}, triangles {}",cut.len()));
         }
     }
     println!(
         "{}",
         json!({"oracle":"camera_cuts","cameras":240,"distinct_triangle_counts":distinct.len(),"min_triangles":min_tri,"max_triangles":max_tri,"evaluated_triangles_including_uniform":evaluated_triangles,"worst_bad_edges":worst_bad,"worst_edge_use":worst_use,"worst_ancestor_overlaps":worst_overlap,"seconds":camera_start.elapsed().as_secs_f64()})
     );
+    if distinct.len() < 16 {
+        failures.push(format!("only {} distinct camera cuts", distinct.len()));
+    }
     let bvh_start = Instant::now();
     let bvh = bvh::Bvh::new(&mesh);
     println!(

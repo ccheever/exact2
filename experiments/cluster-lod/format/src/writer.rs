@@ -9,9 +9,23 @@ pub struct PageData {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u8>,
 }
-fn append<T: Pod>(out: &mut Vec<u8>, data: &[T]) {
+fn end_offset(start: usize, count: usize, stride: usize) -> Result<usize, Error> {
+    start
+        .checked_add(
+            count
+                .checked_mul(stride)
+                .ok_or_else(|| Error("section size overflow".into()))?,
+        )
+        .filter(|n| *n <= isize::MAX as usize)
+        .ok_or_else(|| Error("file exceeds address space".into()))
+}
+fn append<T: Pod>(out: &mut Vec<u8>, data: &[T]) -> Result<(), Error> {
+    let end = align16(end_offset(out.len(), data.len(), size_of::<T>())?)?;
+    out.try_reserve(end - out.len())
+        .map_err(|e| Error(e.to_string()))?;
     out.extend_from_slice(bytemuck::cast_slice(data));
-    out.resize(align16(out.len()), 0);
+    out.resize(end, 0);
+    Ok(())
 }
 /// Produces a canonical file and validates it before returning; no filesystem dependency.
 pub fn encode(
@@ -30,22 +44,25 @@ pub fn encode(
         u32::try_from(groups.len()).map_err(|_| Error("too many groups".into()))?;
     header.node_count = u32::try_from(nodes.len()).map_err(|_| Error("too many nodes".into()))?;
     header.page_count = u32::try_from(pages.len()).map_err(|_| Error("too many pages".into()))?;
-    let mut out = vec![0; align16(size_of::<Header>())];
+    let mut out = vec![0; align16(size_of::<Header>())?];
     header.clusters_offset = out.len() as u64;
-    append(&mut out, clusters);
+    append(&mut out, clusters)?;
     header.groups_offset = out.len() as u64;
-    append(&mut out, groups);
+    append(&mut out, groups)?;
     header.pages_offset = out.len() as u64;
-    out.resize(align16(out.len() + size_of::<Page>() * pages.len()), 0);
+    out.resize(
+        align16(end_offset(out.len(), pages.len(), size_of::<Page>())?)?,
+        0,
+    );
     header.nodes_offset = out.len() as u64;
-    append(&mut out, nodes);
+    append(&mut out, nodes)?;
     header.geometry_offset = out.len() as u64;
     let mut table = Vec::with_capacity(pages.len());
     for p in pages {
         let offset = out.len();
-        append(&mut out, &p.vertices);
+        append(&mut out, &p.vertices)?;
         let indices_offset = out.len() - offset;
-        append(&mut out, &p.indices);
+        append(&mut out, &p.indices)?;
         table.push(Page {
             offset: offset as u64,
             byte_length: (out.len() - offset) as u64,
@@ -65,8 +82,8 @@ pub fn encode(
     header.file_bytes = out.len() as u64;
     out[..size_of::<Header>()].copy_from_slice(bytemuck::bytes_of(&header));
     let start = header.pages_offset as usize;
-    out[start..start + table.len() * size_of::<Page>()]
-        .copy_from_slice(bytemuck::cast_slice(&table));
+    let end = end_offset(start, table.len(), size_of::<Page>())?;
+    out[start..end].copy_from_slice(bytemuck::cast_slice(&table));
     Reader::new(&out)?;
     Ok(out)
 }

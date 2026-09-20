@@ -3,6 +3,13 @@
 #include "clusterlod.h"
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <climits>
+
+static uint32_t narrow(size_t count) {
+    if (count > UINT32_MAX) throw std::overflow_error("cluster count/offset exceeds uint32");
+    return static_cast<uint32_t>(count);
+}
 
 struct Config {
     uint32_t max_triangles, page_bytes, partition_size, vertex_encoding;
@@ -45,8 +52,10 @@ struct View {
 static int emit(void* context, clodGroup group, const clodCluster* clusters, size_t count) {
     Output& o = *static_cast<Output*>(context);
     group.simplified.error = std::max(group.simplified.error, FLT_MIN);
-    int id = int(o.groups.size());
-    o.groups.push_back({group.simplified, uint32_t(group.depth), uint32_t(o.clusters.size()), uint32_t(count)});
+    if (o.groups.size() >= INT_MAX || group.depth < 0 || count > UINT32_MAX - o.clusters.size())
+        throw std::overflow_error("group/cluster id overflow");
+    int id = static_cast<int>(o.groups.size());
+    o.groups.push_back({group.simplified, narrow(group.depth), narrow(o.clusters.size()), narrow(count)});
     o.vendor_groups.push_back(group);
     for (size_t i = 0; i < count; ++i) {
         const clodCluster& c = clusters[i];
@@ -57,10 +66,12 @@ static int emit(void* context, clodGroup group, const clodCluster* clusters, siz
         memcpy(result.cone_axis, b.cone_axis, 12); result.cone_cutoff = b.cone_cutoff;
         result.simplified = group.simplified;
         result.refined = uint32_t(c.refined);
+        if (c.refined >= id || c.refined < -1 || c.vertex_count > UINT32_MAX - o.vertices.size()
+            || c.index_count > UINT32_MAX - o.indices.size()) throw std::overflow_error("geometry offset/refinement overflow");
         if (c.refined >= 0) result.refined_bounds = o.groups[c.refined].simplified;
-        result.group = uint32_t(id); result.depth = uint32_t(group.depth);
-        result.vertex_offset = uint32_t(o.vertices.size()); result.vertex_count = uint32_t(c.vertex_count);
-        result.triangle_offset = uint32_t(o.indices.size()); result.triangle_count = uint32_t(c.index_count / 3);
+        result.group = narrow(id); result.depth = narrow(group.depth);
+        result.vertex_offset = narrow(o.vertices.size()); result.vertex_count = narrow(c.vertex_count);
+        result.triangle_offset = narrow(o.indices.size()); result.triangle_count = narrow(c.index_count / 3);
         o.vertices.resize(o.vertices.size() + c.vertex_count);
         o.indices.resize(o.indices.size() + c.index_count);
         clodLocalIndices(o.vertices.data() + result.vertex_offset, o.indices.data() + result.triangle_offset, c.indices, c.index_count);
@@ -80,14 +91,14 @@ extern "C" bool exact_clod_build(const float* positions, size_t vertex_count, co
         c.simplify_threshold = config.simplify_threshold;
         c.simplify_error_merge_previous = config.error_merge_previous;
         c.simplify_error_merge_additive = config.error_merge_additive;
-        c.optimize_bounds = true;
         float weights[7] = {config.normal_weight, config.normal_weight, config.normal_weight, config.color_weight, config.color_weight, config.color_weight, config.color_weight};
         output->mesh = {indices, index_count, vertex_count, positions, 12, attributes, 28, nullptr, weights, colors ? size_t(7) : size_t(3), 0};
         clodBuild(c, output->mesh, output.get(), emit);
         preserveTopology(*output);
+        output->mesh = {}; // All input pointers were borrowed only for synchronous construction.
         if (output->groups.empty()) return false;
         size_t levels = output->groups.back().depth + 1;
-        output->nodes.resize(clodBuildHierarchyBound(output->groups.size(), 8, levels));
+        output->nodes.resize(narrow(clodBuildHierarchyBound(output->groups.size(), 8, levels)));
         output->nodes.resize(clodBuildHierarchy(output->nodes.data(), output->vendor_groups.data(), output->groups.size(), 8, levels));
         *view = {output->clusters.data(), output->clusters.size(), output->groups.data(), output->groups.size(), output->nodes.data(), output->nodes.size(), output->vertices.data(), output->vertices.size(), output->indices.data(), output->indices.size(), output.get()};
         output.release();

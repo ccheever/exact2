@@ -1,5 +1,6 @@
 //! Portable little-endian, directly uploadable cluster-LOD records. See the experiment README.
 pub mod oracle;
+pub mod projection;
 mod reader;
 mod writer;
 use bytemuck::{Pod, Zeroable};
@@ -76,23 +77,6 @@ pub struct Bounds {
     pub radius: f32,
     pub error: f32,
 }
-impl Bounds {
-    /// Vendor rotationally invariant perspective estimate, multiplied by viewport height.
-    pub fn projected(&self, position: [f32; 3], cot_half_fov: f32, near: f32, height: f32) -> f32 {
-        if self.error == f32::MAX {
-            return f32::MAX;
-        }
-        let d = self
-            .center
-            .iter()
-            .zip(position)
-            .map(|(a, b)| (a - b) * (a - b))
-            .sum::<f32>()
-            .sqrt();
-        self.error / (d - self.radius).max(near) * (cot_half_fov * 0.5 * height)
-    }
-}
-
 /// 128 bytes, scalar WGSL layout (use scalar arrays for vec3 fields).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -117,23 +101,6 @@ impl Cluster {
     pub fn selected(&self, threshold: f32) -> bool {
         self.simplified.error > threshold
             && (self.refined == ORIGINAL || self.refined_bounds.error <= threshold)
-    }
-    pub fn selected_camera(
-        &self,
-        threshold: f32,
-        position: [f32; 3],
-        cot_half_fov: f32,
-        near: f32,
-        height: f32,
-    ) -> bool {
-        self.simplified
-            .projected(position, cot_half_fov, near, height)
-            > threshold
-            && (self.refined == ORIGINAL
-                || self
-                    .refined_bounds
-                    .projected(position, cot_half_fov, near, height)
-                    <= threshold)
     }
 }
 

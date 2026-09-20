@@ -35,8 +35,33 @@ fn valid_bounds(b: &Bounds) -> bool {
         && b.error.is_finite()
         && b.error >= 0.0
 }
-pub(crate) fn align16(n: usize) -> usize {
-    (n + 15) & !15
+pub(crate) fn align16(n: usize) -> Result<usize, Error> {
+    n.checked_add(15)
+        .map(|n| n & !15)
+        .ok_or_else(|| Error("alignment overflow".into()))
+}
+fn zero_padding(bytes: &[u8], start: usize, end: usize) -> Result<(), Error> {
+    require(
+        bytes
+            .get(start..end)
+            .is_some_and(|b| b.iter().all(|x| *x == 0)),
+        "nonzero or missing alignment padding",
+    )
+}
+/// Tolerance covers float32 sphere construction: eight ulps at the coordinate/radius scale.
+fn contains(center: [f32; 3], radius: f32, child: [f32; 3], child_radius: f32) -> bool {
+    let magnitude = center
+        .iter()
+        .chain(&child)
+        .map(|x| (*x as f64).abs())
+        .fold(radius.max(child_radius) as f64, f64::max);
+    let distance = center
+        .iter()
+        .zip(child)
+        .map(|(&a, b)| (a as f64 - b as f64).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    distance + child_radius as f64 <= radius as f64 + 8.0 * f32::EPSILON as f64 * magnitude
 }
 
 /// Borrows aligned bytes; validates all offsets, indices, digests and graph references.
@@ -102,7 +127,8 @@ impl<'a> Reader<'a> {
         let groups = section(bytes, h.groups_offset, h.group_count)?;
         let pages = section(bytes, h.pages_offset, h.page_count)?;
         let nodes = section(bytes, h.nodes_offset, h.node_count)?;
-        let mut next = align16(size_of::<Header>());
+        let mut next = align16(size_of::<Header>())?;
+        zero_padding(bytes, size_of::<Header>(), next)?;
         for (offset, count, stride) in [
             (h.clusters_offset, h.cluster_count, size_of::<Cluster>()),
             (h.groups_offset, h.group_count, size_of::<Group>()),
@@ -113,14 +139,15 @@ impl<'a> Reader<'a> {
                 offset == next as u64,
                 "noncanonical or overlapping sections",
             )?;
-            next = align16(
-                next.checked_add(
+            let end = next
+                .checked_add(
                     (count as usize)
                         .checked_mul(stride)
                         .ok_or_else(|| Error("size overflow".into()))?,
                 )
-                .ok_or_else(|| Error("size overflow".into()))?,
-            );
+                .ok_or_else(|| Error("size overflow".into()))?;
+            next = align16(end)?;
+            zero_padding(bytes, end, next)?;
         }
         require(h.geometry_offset == next as u64, "bad geometry offset")?;
         let r = Self {
@@ -136,6 +163,7 @@ impl<'a> Reader<'a> {
     }
     fn validate(&self, mut next: usize) -> Result<(), Error> {
         let mut cluster_cursor = 0usize;
+        let mut has_color = false;
         for (pi, p) in self.pages.iter().enumerate() {
             require(
                 p.offset == next as u64
@@ -178,11 +206,22 @@ impl<'a> Reader<'a> {
             require(
                 p.vertices_offset == 0
                     && p.indices_offset as usize
-                        == align16(p.vertex_count as usize * size_of::<Vertex>())
-                    && align16(p.indices_offset as usize + p.index_count as usize) == length,
+                        == align16(p.vertex_count as usize * size_of::<Vertex>())?
+                    && align16(p.indices_offset as usize + p.index_count as usize)? == length,
                 "page layout mismatch",
             )?;
             let vertices = section::<Vertex>(data, p.vertices_offset as u64, p.vertex_count)?;
+            zero_padding(
+                data,
+                p.vertex_count as usize * size_of::<Vertex>(),
+                p.indices_offset as usize,
+            )?;
+            zero_padding(
+                data,
+                p.indices_offset as usize + p.index_count as usize,
+                length,
+            )?;
+            has_color |= vertices.iter().any(|v| v.color != u32::MAX);
             require(
                 vertices
                     .iter()
@@ -210,6 +249,17 @@ impl<'a> Reader<'a> {
                 vc += c.vertex_count as usize;
                 let te = tc + c.triangle_count as usize * 3;
                 require(vc <= vertices.len(), "cluster vertices out of range")?;
+                require(
+                    vertices[c.vertex_offset as usize..vc].iter().all(|v| {
+                        contains(
+                            [c.sphere[0], c.sphere[1], c.sphere[2]],
+                            c.sphere[3],
+                            v.position,
+                            0.0,
+                        )
+                    }),
+                    "culling sphere excludes vertices",
+                )?;
                 let local = indices
                     .get(tc..te)
                     .ok_or_else(|| Error("cluster indices out of range".into()))?;
@@ -229,7 +279,12 @@ impl<'a> Reader<'a> {
             next == self.bytes.len() && cluster_cursor == self.clusters.len(),
             "unclaimed bytes or clusters",
         )?;
+        require(
+            has_color == (self.header.flags & HAS_COLOR != 0),
+            "color flag disagrees with vertex data",
+        )?;
         let mut group_use = vec![false; self.clusters.len()];
+        let mut referenced = vec![false; self.groups.len()];
         let mut originals = 0u64;
         for (gi, g) in self.groups.iter().enumerate() {
             require(
@@ -285,6 +340,16 @@ impl<'a> Reader<'a> {
                             && child.simplified.error <= g.simplified.error,
                         "invalid or cyclic refinement",
                     )?;
+                    referenced[c.refined as usize] = true;
+                    require(
+                        contains(
+                            g.simplified.center,
+                            g.simplified.radius,
+                            child.simplified.center,
+                            child.simplified.radius,
+                        ),
+                        "ancestor sphere excludes descendant",
+                    )?;
                 }
                 require(
                     g.simplified.error != f32::MAX || c.page == 0,
@@ -295,6 +360,13 @@ impl<'a> Reader<'a> {
         require(
             group_use.iter().all(|x| *x) && originals == self.header.source_triangles as u64,
             "group coverage or source triangle count mismatch",
+        )?;
+        require(
+            self.groups
+                .iter()
+                .zip(referenced)
+                .all(|(g, r)| r == (g.simplified.error != f32::MAX)),
+            "terminal/refinement reference mismatch",
         )?;
         self.validate_nodes()
     }
@@ -354,19 +426,23 @@ impl<'a> Reader<'a> {
     }
     pub fn page_bytes(&self, page: usize) -> Option<&'a [u8]> {
         let p = self.pages.get(page)?;
-        self.bytes
-            .get(p.offset as usize..(p.offset + p.byte_length) as usize)
+        let start = usize::try_from(p.offset).ok()?;
+        let end = usize::try_from(p.offset.checked_add(p.byte_length)?).ok()?;
+        self.bytes.get(start..end)
     }
     pub fn geometry(&self, cluster: usize) -> Option<(&'a [Vertex], &'a [u8])> {
         let c = self.clusters.get(cluster)?;
-        let p = &self.pages[c.page as usize];
+        let p = self.pages.get(c.page as usize)?;
         let b = self.page_bytes(c.page as usize)?;
         let v = section::<Vertex>(b, p.vertices_offset as u64, p.vertex_count).ok()?;
-        let indices = &b[p.indices_offset as usize..];
+        let indices = b.get(p.indices_offset as usize..)?;
         Some((
-            &v[c.vertex_offset as usize..(c.vertex_offset + c.vertex_count) as usize],
-            &indices[c.triangle_offset as usize
-                ..c.triangle_offset as usize + c.triangle_count as usize * 3],
+            v.get(c.vertex_offset as usize..c.vertex_offset.checked_add(c.vertex_count)? as usize)?,
+            indices.get(
+                c.triangle_offset as usize
+                    ..(c.triangle_offset as usize)
+                        .checked_add((c.triangle_count as usize).checked_mul(3)?)?,
+            )?,
         ))
     }
 }
