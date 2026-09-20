@@ -496,6 +496,16 @@ does not include game, and Caltrain's normal dependency tree does not include wo
 K1f totals 7,254 lines: 6,738 Rust + 493 README + 23 manifests, down from 7,479.
 The extracted optional motion module adds 335 separate lines (326 Rust + 9 manifest)
 under the same exclusions; kernel plus module totals 7,589, up 110 from old core alone.
+K5 retains the startup/allocation counts above, including 80 / 46,760 for 10 KiB
+restore and 84 / 46,766 for carry; all three prepared 1,000-tick controls stay 0 / 0.
+The 4,866,081-byte restore median is 94.57 ms (20 release runs); worst admitted input
+is 70.96 ms in release (128-byte names, 64 actions, 8 bindings, 16 keys, 1,024 events).
+Kernel/derive: 186 passed, plus both large controls; wasm executes all five frozen
+save/hash boundaries and refuses native page-layout overflow. Game tests: 758 passed,
+18 missing-GPU failures, 25 ignored; game clippy/fmt pass. Bun: 145 passed, 1 skipped,
+4 failures (two missing Chrome, two disk refusals). Below 25 GiB free, cold root builds
+and the remaining Linux proofs stopped; GPU/Apple/browser execution is unverified.
+
 The production ceiling is 7,500 handwritten lines: all production Rust under
 world/ including derive, this README and both manifests. Comments and blank lines
 count. Only tests and test-only allocator support are excluded. Reproduce with:

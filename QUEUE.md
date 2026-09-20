@@ -657,7 +657,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 ## world kernel
 
-- Retired-slot reuse repeatedly scans up to 200,000 dead slots (`world/src/world/mod.rs:411`); derive a reusable-free index without changing the saved free union (R-K7-sol #10 / grok #7).
+- Retired-slot reuse repeatedly scans up to 200,000 dead slots (`world/src/world/mod.rs:416`); derive a reusable-free index without changing the saved free union (R-K7-sol #10 / grok #7).
 - First high-slot insertion zeros its directory prefix (`world/src/storage/directory.rs:46`, `world/src/storage/raw.rs:197`); page metadata or define explicit warm-up for the retained capacity cost (R-K7-grok #7).
 - Sample/settle can perform 51.2M membership tests per sample (`world/src/world/inspect.rs:185`, `world/src/sim.rs:269`); merge column indices or charge misses to the observation budget (R-K7-grok #6).
 - A failed registration hook rolls back declarations but leaves gameplay mutations (`world/src/world/mod.rs:262`); enforce declaration-only hooks or roll back their storages/entities (R-K7-grok #4).
@@ -665,10 +665,10 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Restored input permits duplicate edges and clones axis names for validation (`world/src/input.rs:254`); reject duplicate pressed/released names and validate axes through borrowed fields (R-K7-sol #13).
 - Derive diagnostics lose offending spans and compile tests select an rlib by mtime (`world/derive/src/lib.rs:46`, `world/tests/derive.rs:18`); retain token spans and consume Cargo's exact artifact (R-K7-sol #14 / grok #11).
 - Terminating recursive `[Box<Node>; 0]` falsely fails the default-cycle check (`world/src/data/impls.rs:199`, `world/tests/derive.rs:128`); support that form or explicitly document the recursion restriction (R-K7-grok #11).
-- Publication batches retain omitted keys (`world/src/world/mod.rs:745`); document patch semantics or define deletion/unpublish before consumers assume replacement (R-K7-grok #10).
+- Publication batches retain omitted keys (`world/src/world/mod.rs:750`); document patch semantics or define deletion/unpublish before consumers assume replacement (R-K7-grok #10).
 - Failed ticks can retain invalid ownership, while telemetry intentionally remains usable after failure (`world/src/sim.rs:195`, `world/src/world/journal.rs:250`); make inspector and partial-world contracts explicit without implying transactional rollback (R-K7-grok #10; JUDGE-7 accepts partial ticks and diagnostic telemetry).
-- Remaining negative controls allow nonzero empty-hook snapshot scans, omit Parent insertion/refusal, and lack direct padded-varint identity rejection (`world/src/world/mod.rs:1113`, `world/tests/ecs.rs:541`, `world/src/data/bin.rs:321`); strengthen these assertions, retaining the new real replacement and ZST controls (R-K7-grok #12).
-- Exact restore/carry retain a second canonical output buffer (`world/src/world/mod.rs:875`, `world/src/sim.rs:459`); compare the encoded stream with the supplied slice if it fits the K5 60-line logic allowance (R-K7-sol #5).
+- Remaining negative controls allow nonzero empty-hook snapshot scans, omit Parent insertion/refusal, and lack direct padded-varint identity rejection (`world/src/world/mod.rs:1118`, `world/tests/ecs.rs:541`, `world/src/data/bin.rs:321`); strengthen these assertions, retaining the new real replacement and ZST controls (R-K7-grok #12).
+- Exact restore/carry retain a second canonical output buffer (`world/src/world/mod.rs:892`, `world/src/sim.rs:458`); defer the comparing sink because changing Encoder lifetime/buffer handling and extracting both save traversals exceeds the approximately 60 changed production lines allowed for this optional item (R-K7-sol #5).
 - The live MAX-generation preflight fixture uses an unreachable valid-world state (`world/src/world/ownership.rs:265`); retain reachable retirement coverage when replacing that defensive control.
 - Core motion's overdamped slow root cancels to zero (`motion/src/spring.rs:128`); use the stable division form and a long-horizon boundary control in a separate core-motion change (R-K6-sol #3; outside this lane).
 - Core motion mistakes undamped transient crossings for settlement (`motion/src/spring.rs:145`, `motion/src/transition.rs:305`); share a permanent-rest bound in a separate core-motion change (R-K6-sol #6; outside this lane).
