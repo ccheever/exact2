@@ -168,6 +168,7 @@ impl<G: Game> Sim<G> {
             self.world.step_clock();
             self.world_us = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
             if self.paranoid != Paranoid::Off {
+                let pending = self.world.published_pending.get();
                 let hash = self.world.hash();
                 let bytes = self.save()?;
                 if self.paranoid == Paranoid::FreshGame {
@@ -176,6 +177,7 @@ impl<G: Game> Sim<G> {
                 } else {
                     self.restore(&bytes)?;
                 }
+                self.world.published_pending.set(pending);
                 assert_eq!(
                     hash,
                     self.world.hash(),

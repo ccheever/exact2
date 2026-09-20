@@ -499,3 +499,41 @@ fn carry_keeps_live_args_refuses_setup_changes_and_publication_budget_is_cumulat
     assert_eq!(s.save().unwrap(), before);
     s.restore(&before).unwrap();
 }
+
+#[test]
+fn paranoid_preserves_drained_delivery() {
+    struct Delivery;
+    impl Game for Delivery {
+        const ID: &'static str = "delivery";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.publish("fixed", 1u32);
+            w.emit("initial");
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.publish("fixed", 1u32);
+            if w.tick() == 1 {
+                w.emit("second");
+                w.publish("fixed", 2u32);
+            }
+        }
+    }
+    let run = |mode| {
+        let mut s = Sim::<Delivery>::new(()).unwrap().paranoid(mode);
+        let mut deliveries = vec![];
+        for _ in 0..4 {
+            deliveries.push((
+                s.world().take_published().unwrap(),
+                s.world().take_messages(),
+            ));
+            s.run(17.).unwrap();
+        }
+        deliveries
+    };
+    let off = run(Paranoid::Off);
+    assert!(off[0].0.is_some());
+    assert!(off[1].0.is_none());
+    assert_eq!(off[2].1, ["second"]);
+    assert_eq!(off, run(Paranoid::Save));
+    assert_eq!(off, run(Paranoid::FreshGame));
+}
