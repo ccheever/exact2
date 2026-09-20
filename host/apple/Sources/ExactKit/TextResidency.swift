@@ -154,6 +154,9 @@ final class TextShape {
     let spec: Spec
     let typesetter: CTTypesetter
     let attributed: NSAttributedString
+    // Unicode opportunities belong to this immutable source, never a width.
+    // Filled lazily by the session's TextEngine; raster workers do not use it.
+    var lineBreakBoundaries: [Int]?
     private(set) var flow: TextFlowSource?
     private(set) var prepareCount = 0
     func preparedFlow() -> TextFlowSource {
@@ -170,7 +173,8 @@ final class TextShape {
     // Policy estimate, not measurement of opaque CoreText allocations. Source
     // String payload is accounted once separately; paint key payload is owned.
     var ownedBytes: Int {
-        (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
+        (lineBreakBoundaries?.count ?? 0) * MemoryLayout<Int>.stride
+            + (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
             $0 + MemoryLayout<TextPaint.Inline>.stride + ($1.color?.count ?? 0) * MemoryLayout<Double>.stride
                 + $1.decoration.utf8.count + $1.href.utf8.count
@@ -456,6 +460,21 @@ struct TextResidency {
             coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
         }
         trim(incoming: 0, keeping: .shape(shape.key))
+    }
+    /// Checkpoints share immutable sources whose lazy preparation can grow.
+    /// Their copied charge tables must catch up before re-admitting cold work.
+    /// Restore is exceptional; ordinary lookups never scan the cache.
+    mutating func refreshAfterRestore() {
+        var seen: Set<ObjectIdentifier> = []
+        for entry in entries.values {
+            guard let shape = entry.cold?.shape else { continue }
+            let key = ObjectIdentifier(shape)
+            guard seen.insert(key).inserted, let old = coldShapes[key] else { continue }
+            ownedBudget += shape.ownedBytes - old.owned
+            opaqueBudget += shape.opaqueEstimate - old.opaque
+            coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
+        }
+        trim(incoming: 0, keeping: coldLast)
     }
     mutating func prepare(estimatedBytes: Int) {
         maintain(); trim(incoming: estimatedBytes, keeping: nil)

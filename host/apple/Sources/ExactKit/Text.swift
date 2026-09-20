@@ -309,6 +309,7 @@ final class TextEngine {
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.residency = residency
+            engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.dropMeasuredBreaks()
         }
@@ -561,7 +562,12 @@ final class TextEngine {
         var boundaries: [Int] = []
         var boundaryIndex = 0
         if spec.overflowWrap == 0 && width.isFinite && breaks == nil {
-            boundaries = lineBoundaries(spec.runs.map(\.text).joined() as NSString, length: length)
+            if let cached = shape.lineBreakBoundaries { boundaries = cached }
+            else {
+                boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
+                shape.lineBreakBoundaries = boundaries
+                residency.refresh(shape)
+            }
         }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }

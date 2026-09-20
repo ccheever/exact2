@@ -96,14 +96,6 @@ sits on that list carries the trade it would take.
   never leaves 50 wide); with the scrolling work, 24 and 9. Nothing else failed.
   The fixtures assume overlay scrollers, and something in the run is timing.
 
-- **Apple text: cache the line-break boundaries per spec** (2026-09-18; LLP 1043 F7):
-  under `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over
-  the whole paragraph at every width (25–31 µs on a 79–120 µs snapshot, probe only);
-  the boundaries depend on the text alone. Keep them beside `typesetters`; confirm in
-  the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
-  Since 2026-09-19 one tokenizer is shared (`TextEngine.lineBoundaries`), which removed
-  making one per paragraph, a tenth of a first measure; the re-run per width is as it was.
-
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
   Owed: Interview's held-swipe/retained-data and iPad-wide sweep; iOS cover viewport

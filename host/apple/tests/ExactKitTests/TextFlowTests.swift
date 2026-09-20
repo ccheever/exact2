@@ -65,6 +65,73 @@ final class TextFlowTests: XCTestCase {
         }
     }
 
+    func testCachedUnicodeOpportunitiesPreserveFreshLayoutAcrossWidths() {
+        let texts = [
+            "", "longwordwithoutbreaks", "A hyphen-ated word and https://example.invalid/long/path.",
+            "東京都は日本の首都です。中文段落沿着河边展开。",
+            "ภาษาไทยไม่มีช่องว่างระหว่างคำ จึงต้องใช้พจนานุกรมในการตัดคำ",
+            "Emoji 👨‍👩‍👧‍👦 e\u{301} é العربية שלום soft\u{ad}hyphen no\u{a0}break",
+            "one\ntwo\r\nthree\u{2028}four"
+        ]
+        for text in texts {
+            for mode in 0...2 {
+                var input = spec(text); input.overflowWrap = mode
+                let source = shape(input)
+                XCTAssertNil(source.lineBreakBoundaries, "Intrinsic layout needs no boundary scan")
+                for width: CGFloat in [1, 70, 280, 113, 400, 70] {
+                    let cached = engine.paragraph(input, width: width)
+                    let fresh = TextEngine(resolve: { _ in nil }).paragraph(input, width: width)
+                    XCTAssertTrue(cached.shape === source)
+                    XCTAssertEqual(cached.lines.map { CTLineGetStringRange($0).location }, fresh.lines.map { CTLineGetStringRange($0).location })
+                    XCTAssertEqual(cached.lines.map { CTLineGetStringRange($0).length }, fresh.lines.map { CTLineGetStringRange($0).length })
+                    XCTAssertEqual(cached.baselines, fresh.baselines)
+                    XCTAssertEqual(cached.lineBottoms, fresh.lineBottoms)
+                    XCTAssertEqual(cached.width, fresh.width)
+                    XCTAssertEqual(cached.height, fresh.height)
+                }
+                if mode == 0 {
+                    XCTAssertEqual(source.lineBreakBoundaries, engine.lineBoundaries(text as NSString, length: text.utf16.count))
+                } else { XCTAssertNil(source.lineBreakBoundaries, "Emergency wrapping needs no Unicode opportunity array") }
+            }
+        }
+    }
+
+    func testLazySourceChargesCatchUpWhenRestoringAnEarlierCheckpoint() {
+        let input = spec(String(repeating: "Unicode opportunities 👨‍👩‍👧‍👦 中文 e\u{301} ", count: 12))
+        let source = shape(input)
+        let before = engine.residencyStats.coldOwnedPayloadBytes
+        let originalShapeBytes = source.ownedBytes
+        let saved = engine.checkpoint()
+        _ = engine.layout(source, width: 180)
+        let boundaryBytes = source.lineBreakBoundaries!.count * MemoryLayout<Int>.stride
+        XCTAssertGreaterThan(boundaryBytes, 0)
+        XCTAssertEqual(source.ownedBytes - originalShapeBytes, boundaryBytes)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before + boundaryBytes)
+        engine.restore(saved)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before + boundaryBytes)
+        // Existing lazy flow preparation shares the same checkpoint lifetime.
+        _ = engine.paragraph(input, width: 360, flow: [circle])
+        let growth = source.ownedBytes - originalShapeBytes
+        XCTAssertGreaterThan(growth, boundaryBytes)
+        engine.restore(saved)
+        XCTAssertEqual(engine.residencyStats.coldOwnedPayloadBytes, before + growth)
+        XCTAssertEqual(engine.lineBoundaries(input.runs[0].text as NSString, length: source.identity.utf16Count), source.lineBreakBoundaries)
+    }
+
+    func testUnicodeBoundaryStorageLeavesWithTheRetiredShape() {
+        let local = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 1024)
+        weak var first: TextShape?
+        autoreleasepool {
+            let p = local.paragraph(spec(String(repeating: "First source 👨‍👩‍👧‍👦 ", count: 90)), width: 180)
+            first = p.shape
+            XCTAssertNotNil(first?.lineBreakBoundaries)
+        }
+        autoreleasepool {
+            _ = local.paragraph(spec(String(repeating: "Replacement 中文 ", count: 90)), width: 240)
+        }
+        XCTAssertNil(first, "No separate source/width history may retain the boundary array")
+    }
+
     func testSoftHyphenPaintsDashBesideHole() {
         let flowed = engine.layoutFlow(shape(spec("ab\u{ad}cdefghij")), width: 400,
             flow: [TextFlowShape(kind: 2, x: 64, y: 0, a: 160, b: 100)])
