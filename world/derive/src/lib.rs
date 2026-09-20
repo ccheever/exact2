@@ -181,6 +181,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         return Err("Data does not support generics or lifetimes".into());
     }
     let mut read_new = String::new();
+    let mut enum_size = String::from("64usize");
     let (write, read, settle) = if kind == "struct" {
         let b = body(tokens.get(2))?;
         let access: Vec<_> = b
@@ -198,7 +199,12 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             return Err("expected enum body".into());
         };
         let mut arms = Vec::new();
+        let mut unit_default = false;
         for a in split(g.stream())? {
+            unit_default |= a.windows(2).any(|w| {
+                punct(&w[0], '#')
+                    && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "default")
+            });
             let (a, _) = strip(&a, false)?;
             if a.iter().any(|t| punct(t, '=')) {
                 return Err(
@@ -211,6 +217,17 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 name: arm,
                 body: body(a.get(1))?,
             });
+        }
+        if !unit_default {
+            for arm in &arms {
+                if arm.body.fields.iter().any(|f| {
+                    f.ty.split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .any(|t| t == name || t == "Self")
+                }) {
+                    return Err("recursive Data enums require a derived unit Default or manual Data admission".into());
+                }
+                enum_size += &format!(".max({})", default_size(&arm.body));
+            }
         }
         let mut write = String::from("match self {");
         let mut settle = String::from("match self {");
@@ -229,7 +246,8 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             let write_pat = pattern(&arm.name, b, &write_vars);
             settle += &format!("{write_pat} => {},", settle_body(b, &refs));
             write += &format!(
-                "{write_pat} => {{ w.variant({:?}, {index}); {} w.end_variant(); }},",
+                "{write_pat} => {{ w.claim_decoded({}); w.variant({:?}, {index}); {} w.end_variant(); }},",
+                default_size(b),
                 clean(&arm.name),
                 write_body(b, &refs)
             );
@@ -250,7 +268,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             );
         }
         write += "}";
-        read += "_ => return ::core::result::Result::Err(::exact_world::DataError::new(::std::format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
+        read += "_ => return ::core::result::Result::Err(::exact_world::DataError::new(\"unknown variant\").at(arm)), } r.end_variant()?;";
         settle += "}";
         read_new += "_ => return Err(::exact_world::DataError::new(\"unknown variant\")), }; r.end_variant()?; Ok(value) }";
         (write, read, settle)
@@ -258,7 +276,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     let default_size = if kind == "struct" {
         default_size(&body(tokens.get(2))?)
     } else {
-        "64usize".into()
+        enum_size
     };
     let mut out = format!("impl ::exact_world::Data for {name} {{ {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
@@ -307,6 +325,12 @@ fn write_body(b: &Body, access: &[String]) -> String {
             b.fields.iter().filter(|f| !f.skip).count()
         )
     };
+    for f in b.fields.iter().filter(|f| f.skip) {
+        s += &format!(
+            "w.claim_decoded(<{} as ::exact_world::Data>::default_size());",
+            f.ty
+        );
+    }
     for (f, a) in b.fields.iter().zip(access).filter(|(f, _)| !f.skip) {
         if named {
             s += &format!("w.field({:?});", clean(&f.name));

@@ -649,4 +649,58 @@ fn skipped_defaults_and_manual_enum_defaults_cannot_escape_decode_admission() {
         0,
         "decoding an enum called its unrelated manual default"
     );
+    #[derive(Default, Data)]
+    struct Nested {
+        choice: Choice,
+    }
+    DEFAULTS.set(0);
+    assert!(bin::from_slice_in::<Nested>(&[8, 0], Some(&data::LoadBudget::new(1024))).is_err());
+    assert_eq!(DEFAULTS.get(), 0, "nested enum default escaped admission");
+}
+
+#[test]
+fn unknown_variant_errors_do_not_copy_attacker_sized_names() {
+    #[derive(Default, Data)]
+    enum Choice {
+        #[default]
+        A,
+        B,
+    }
+    let name: &'static str = Box::leak("x".repeat(1_000_000).into_boxed_str());
+    let mut w = bin::Encoder::default();
+    w.variant(name, 0);
+    w.begin_struct();
+    w.end_struct();
+    w.end_variant();
+    let bytes = w.finish().unwrap();
+    let (error, counts) = counting::measure(|| {
+        Choice::default()
+            .read(&mut bin::Decoder::new(&bytes))
+            .unwrap_err()
+    });
+    assert!(error.message.len() + error.path.len() <= 512);
+    assert!(counts.1 < 4096, "error allocated {counts:?}");
+}
+
+#[test]
+fn writer_accounts_for_skipped_default_resets_before_returning_unreadable_bytes() {
+    #[derive(Default)]
+    struct Costly;
+    impl Data for Costly {
+        fn default_size() -> usize {
+            140 * 1024 * 1024
+        }
+        fn write(&self, w: &mut dyn Writer) {
+            w.unit();
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            r.skip()
+        }
+    }
+    #[derive(Default, Data)]
+    struct Skipped {
+        #[data(skip)]
+        value: Costly,
+    }
+    assert!(bin::to_vec(&Skipped::default()).is_err());
 }

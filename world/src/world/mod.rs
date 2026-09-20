@@ -943,9 +943,8 @@ impl World {
                             }
                         }
                         let (&key, reg) = self.registry.get_key_value(name).ok_or_else(|| {
-                            DataError::new(format!(
-                                "unregistered storage `{name}`; declare it in Game::register"
-                            ))
+                            DataError::new("unregistered storage; declare it in Game::register")
+                                .at(name)
                         })?;
                         let resource = field == "resources";
                         let make = if resource {
@@ -955,9 +954,8 @@ impl World {
                             reg.make
                         };
                         let make = make.ok_or_else(|| {
-                            DataError::new(format!(
-                                "storage kind differs for `{name}`; declare it in Game::register"
-                            ))
+                            DataError::new("storage kind differs; declare it in Game::register")
+                                .at(name)
                         })?;
                         r.claim(1024)?;
                         let mut s = make(key, self.epoch.clone());
