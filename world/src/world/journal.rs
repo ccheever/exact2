@@ -405,6 +405,32 @@ mod atomic_tests {
 mod review_tests {
     use super::*;
     #[test]
+    fn conflicting_parent_lease_during_remove_poisons_recorded_partial_mutation() {
+        let mut w = World::new(60, 0);
+        let parent = w.spawn(()).unwrap();
+        let child = w.spawn(()).unwrap();
+        w.set_parent(child, Some(parent)).unwrap();
+        let cursor = w.journal_next();
+        // Inject a conflicting internal lease: public APIs prohibit mutable Parent access.
+        std::mem::forget(
+            w.storage::<Parent>()
+                .unwrap()
+                .get_mut(child.index() as usize)
+                .unwrap(),
+        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+            || w.remove::<Parent>(child)
+        ))
+        .is_err());
+        assert!(w.has::<Parent>(child));
+        assert_eq!(w.journal_next(), cursor + 1);
+        assert!(
+            w.healthy().is_err(),
+            "recorded Remove with Parent still present must poison"
+        );
+        assert!(w.save().unwrap_err().message.contains("poisoned"));
+    }
+    #[test]
     fn adoption_preflight_keeps_delivery_and_subscriptions_on_replacement_exhaustion() {
         let mut w = World::new(60, 0);
         let consumer = w.subscribe_changes().unwrap();

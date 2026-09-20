@@ -594,17 +594,19 @@ impl World {
             return Ok(None);
         }
         self.change_room(1 + usize::from(TypeId::of::<C>() == TypeId::of::<Parent>()))?;
+        Ok(self.mutation(|this| this.remove_commit::<C>(e)))
+    }
+    fn remove_commit<C: Component>(&mut self, e: Entity) -> Option<C> {
         self.record_change(e, crate::ChangeKind::Remove(C::NAME.into()));
         if TypeId::of::<C>() == TypeId::of::<Parent>() {
             let old = self.get::<Parent>(e).map(|p| p.entity());
             self.change_owner(e, old, None);
             self.record_change(e, crate::ChangeKind::Reparent(None));
         }
-        Ok(self
-            .components
+        self.components
             .get_mut(C::NAME)
             .and_then(|s| s.any_mut().downcast_mut::<Storage<C>>())
-            .and_then(|s| s.remove(e.index as usize)))
+            .and_then(|s| s.remove(e.index as usize))
     }
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
