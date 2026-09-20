@@ -186,14 +186,12 @@ construction can form deeper valid chains. Validation still walks each edge once
 Despawn removes the entity immediately; descendants leave at the next reap in
 ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
 
-A derived owner-count index makes an unrelated despawn O(log owners), without
-an ownership scan. Only removal of an entity with children arms reaping; valid
-spawns, Parent edits and unchanged ticks do not trigger it. A necessary reap reuses one byte per slot
-of scratch. Its three-color walk follows each edge at most twice through the
-Parent query: O(slots), plus removal work. Scratch
-is bounded to 200,000 bytes of initialized status entries; allocation capacity
-can retain the vector's bounded high-water growth. Independent validation uses
-the same scratch. Every orphan generation is checked before removal starts.
+A derived reverse-child index makes unrelated despawn O(log owners). Owner
+removal queues only its immediate children; reaping follows only that orphan
+subtree, preflights all removals, then removes in slot order. At most 200,000
+entries are visited; excess work refuses explicitly. Cost is O(subtree × log slots
++ subtree × registered columns), independent of unrelated entities. Exact save
+validation still uses a linear three-color ownership walk with bounded scratch.
 
 The structural journal has a separate consumer model from saved game logs:
 

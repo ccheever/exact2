@@ -39,29 +39,30 @@ impl World {
         }
         Err(DataError::new("ownership cycle check exceeds 256 edges"))
     }
-    pub(super) fn change_owner(&mut self, old: Option<Entity>, new: Option<Entity>) {
+    pub(super) fn change_owner(&mut self, child: Entity, old: Option<Entity>, new: Option<Entity>) {
         if old == new {
             return;
         }
         if let Some(old) = old {
-            let count = self.owners.get_mut(&old).expect("ownership count");
-            *count -= 1;
-            if *count == 0 {
-                self.owners.remove(&old);
+            if let Some(children) = self.owners.get_mut(&old) {
+                children.remove(&child);
+                if children.is_empty() {
+                    self.owners.remove(&old);
+                }
             }
         }
         if let Some(new) = new {
-            *self.owners.entry(new).or_default() += 1;
+            self.owners.entry(new).or_default().insert(child);
         }
     }
     pub(super) fn rebuild_owners(&mut self) {
-        let owners = self
-            .query::<&Parent>()
-            .iter()
-            .fold(BTreeMap::new(), |mut owners, (_, p)| {
-                *owners.entry(p.entity()).or_default() += 1;
+        let owners = self.query::<&Parent>().iter().fold(
+            BTreeMap::<Entity, BTreeSet<Entity>>::new(),
+            |mut owners, (child, p)| {
+                owners.entry(p.entity()).or_default().insert(child);
                 owners
-            });
+            },
+        );
         self.owners = owners;
     }
     // A three-colour walk visits each edge at most twice, including reverse chains.
@@ -122,27 +123,39 @@ impl World {
     }
     /// Despawn leaves descendants until this boundary. Reap in ascending slot order.
     pub fn reap_orphans(&mut self) -> Result<(), DataError> {
-        if !self.reap_dirty || self.storage::<Parent>().is_none_or(|s| s.len() == 0) {
+        if self.orphans.is_empty() {
             return Ok(());
         }
-        let mut status = self.ownership_status()?;
-        if status
-            .iter()
-            .enumerate()
-            .any(|(i, &s)| s == 3 && self.state.slots[i].generation == u32::MAX)
-        {
-            return Err(DataError::new("entity generation exhausted"));
-        }
-        self.change_room(status.iter().filter(|&&s| s == 3).count())?;
-        let states = std::mem::take(&mut *status);
-        drop(status);
-        for (index, &state) in states.iter().enumerate() {
-            if state == 3 {
-                self.despawn(self.entity_at(index).unwrap());
+        let mut todo: Vec<_> = self.orphans.iter().copied().collect();
+        let mut remove = BTreeSet::new();
+        let mut at = 0;
+        while let Some(&e) = todo.get(at) {
+            at += 1;
+            if self.state.slots[e.index as usize].generation == u32::MAX {
+                return Err(DataError::new("entity generation exhausted"));
+            }
+            if !self.contains(e) || remove.contains(&e) {
+                continue;
+            }
+            let orphan = self
+                .get::<Parent>(e)
+                .is_some_and(|p| !self.contains(p.entity()) || remove.contains(&p.entity()));
+            if !orphan {
+                continue;
+            }
+            remove.insert(e);
+            if let Some(children) = self.owners.get(&e) {
+                todo.extend(children);
+            }
+            if todo.len() > crate::MAX_ENTITIES {
+                return Err(DataError::new("orphan work limit"));
             }
         }
-        *self.ownership.get_mut() = states;
-        self.reap_dirty = false;
+        self.change_room(remove.len())?;
+        for e in remove {
+            self.despawn(e);
+        }
+        self.orphans.clear();
         Ok(())
     }
 }
@@ -197,6 +210,24 @@ mod budget_tests {
         w.despawn(root);
         w.reap_orphans().unwrap();
         assert!(!w.contains(child));
+    }
+    #[test]
+    fn destroying_one_owner_in_200k_slots_reaps_only_its_descendants() {
+        let mut w = World::new(60, 0);
+        for _ in 0..crate::MAX_ENTITIES {
+            w.spawn(()).unwrap();
+        }
+        let root = w.entity_at(100_000).unwrap();
+        let child = w.entity_at(199_999).unwrap();
+        let grandchild = w.entity_at(1).unwrap();
+        w.set_parent(child, Some(root)).unwrap();
+        w.set_parent(grandchild, Some(child)).unwrap();
+        w.despawn(root);
+        w.spawn(()).unwrap(); // recycled root must not rescue the old subtree
+        w.reap_orphans().unwrap();
+        assert!(w.ownership.borrow().is_empty(), "reap scanned all slots");
+        assert!(!w.contains(child) && !w.contains(grandchild));
+        assert_eq!(w.len(), crate::MAX_ENTITIES - 2);
     }
     #[test]
     fn orphan_generation_exhaustion_refuses_before_removing_any_child() {
