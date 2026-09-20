@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
@@ -8,10 +8,45 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
-import { listPublicFiles, readStaticFile, serveStatic } from '../host/web/serve.mjs';
+import { listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange } from '../host/web/serve.mjs';
 import { publishRoot } from './deploy.mjs';
 import { DirectoryOrigin, webReleasePath } from './origin.mjs';
 const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
+
+test('static ancestor notifications reconcile nested trees and retain refused replacements', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-static-ancestor-'));
+  const app = join(dir, 'app'), source = join(app, 'gpu/shaders'), target = join(dir, 'served/shaders');
+  const trees = [[join(app, 'assets'), 'assets'], [source, 'shaders']];
+  const reconcile = filename => {
+    const changes = staticWatchChanges(app, trees, filename);
+    assert.equal(changes.length, 1);
+    assert.deepEqual(changes[0], {root:source,targetRoot:'shaders',relative:'',name:'shaders',tree:true});
+    return applyStaticTreeChange(changes[0].root, target);
+  };
+  try {
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'live.wgsl'), 'first');
+    assert.equal(reconcile('gpu').present, true);
+    renameSync(join(app, 'gpu'), join(dir, 'retired'));
+    assert.deepEqual(reconcile('gpu').files, [{name:'live.wgsl',bytes:null,removed:true}]);
+    assert.equal(existsSync(target), false);
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, 'live.wgsl'), 'second');
+    reconcile('gpu/');
+    assert.equal(readFileSync(join(target, 'live.wgsl'), 'utf8'), 'second');
+    rmSync(join(app, 'gpu'), { recursive: true });
+    symlinkSync(join(dir, 'retired'), join(app, 'gpu'));
+    assert.throws(() => reconcile('gpu'));
+    assert.equal(readFileSync(join(target, 'live.wgsl'), 'utf8'), 'second');
+    for (const name of ['gpu-other', 'assets-old', '../', join(dir, 'retired')]) {
+      assert.deepEqual(staticWatchChanges(app, trees, name), []);
+    }
+    assert.equal(staticWatchChanges(app, trees, '.').length, 2);
+    assert.equal(staticWatchChanges(app, trees, null).length, 2);
+    assert.deepEqual(staticWatchChanges(app, trees, 'gpu/shaders/live.wgsl'),
+      [{root:source,targetRoot:'shaders',relative:'live.wgsl',name:'shaders/live.wgsl',tree:false}]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
 
 test('Rust manifest policy inherits from global, environment, platform and platform environment', () => {
   for (const [platform, dev, prod] of [['web','browser','browser'],['ios','wasm','wasm'],['macos','native','native'],['linux','native','native'],['android','native','wasm'],['windows','native','native']]) {

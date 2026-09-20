@@ -269,16 +269,21 @@ export function shaderInterfaceDigests(source, reflectBin) {
 }
 
 /** Map one recursive watch event, relative to a stable app root, onto the
- * configured static tree. A root event has an empty `relative` path; a null
+ * configured static tree. A root or ancestor event has an empty `relative` path; a null
  * filename conservatively reconciles every tree. */
 export function staticWatchChanges(watchRoot, trees, filename) {
   if (filename === null || filename === undefined || filename === '') return trees.map(([root, targetRoot]) => ({ root: resolve(root), targetRoot, relative: '', name: targetRoot, tree: true }));
   const path = resolve(watchRoot, String(filename));
+  const watched = relative(resolve(watchRoot), path);
+  if (watched === '..' || watched.startsWith(`..${sep}`) || isAbsolute(watched)) return [];
   const changes = [];
   for (const [tree, targetRoot] of trees) {
     const root = resolve(tree);
     const rel = relative(root, path);
-    if (rel === '') changes.push({ root, targetRoot, relative: '', name: targetRoot, tree: true });
+    const descendant = relative(path, root);
+    if (descendant !== '..' && !descendant.startsWith(`..${sep}`) && !isAbsolute(descendant)) {
+      changes.push({ root, targetRoot, relative: '', name: targetRoot, tree: true });
+    }
     else if (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
       const portable = rel.split(sep).join('/');
       changes.push({ root, targetRoot, relative: portable, name: `${targetRoot}/${portable}`, tree: false });
