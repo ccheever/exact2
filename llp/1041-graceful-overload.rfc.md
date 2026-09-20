@@ -8345,3 +8345,95 @@ MAIN`target/masked-opaque-span-probe-v1` preserves source seal`d588b4e3`, patch
 `5a5954e7` and all three compilation attempts. `target/fill-eligibility-evaluation`
 holds independent source/product readback and the separate unstarted-execution
 seal`9c851c81`/raw CSV`4c823149`. NativeSplit's unrelated reference allowance stays3/3.
+
+### 8.151 Opaque spans in actual Messages: eligible and equivalent, speed unmeasured
+
+One new optimized Linux diagnostic binds the published tiny-skia0.12 package,
+§8.150's shortcut and bounded counters to the original full10,000/32 Messages
+workload. Each eligible rectangle first runs the original pipeline against its
+actual incoming destination, checks every resulting RGBA pixel, writes the
+candidate span and checks again. A mismatch refuses success. Eight u64 values per
+Paint count rectangle calls/visits, hits, writes, misses, verified visits and
+refusals. They add16KiB fixed turn storage and96B active TLS. The existing
+functional reader, clocks, quotas, Raster path and workload remain unchanged.
+
+Nine library checks, one host bridge check and16 reader checks pass after one
+preserved test-only import setup failure. The optimized app build passes once
+in43.230s; actual compiler artifacts bind the owned dependency and45 source
+dependencies. The corrected v2 build helper ran; the later v2-final assertion
+addition did not. One subsequent native cell passes functional acceptance.
+Independent raw reconstruction finds4,614 events,985 turns,14,126 spans and193
+complete picture/Paint chains, at most72 rows per turn. Every Paint's
+owner/input/attempt and all eight counters close without flags or mismatches.
+
+| Cohort | Paints | Eligible writes | Verified pixel visits | Mask refusals |
+|---|---:|---:|---:|---:|
+| Entire capture |193|62,319|45,776,418|42,689|
+| Loaded fixed prefix |20|6,280|4,213,625|5,220|
+| Command-free fixed prefix |8|2,512|1,620,605|2,064|
+
+The entire capture offers105,008 rectangles/80,626,066 pixel visits. Counts include
+overdraw, not unique pixels or inspected mask bytes. This is compositional proof
+for actual replaced spans, not an independent full-frame replay. The separate
+fill classifier still has94 unknown calls at early events6/11, totaling0.031880ms;
+its full-capture attribution remains unavailable. Scored prefixes have none.
+
+All36 input handlers and18 signed40-unit wheels remain inside fixed2s prefixes.
+The qualified newer-picture wheel1342 uses actual predecessor163, not offered162.
+Eight silent timers advance0→8 without input or drain credit. Initial/final full
+History has10,000 rows, final revision16/changed32. Final picture193 and fence4614
+close; full RGB binds that picture. Eight loaded timer turns have median9.693248ms,
+maximum12.843718ms and8/8 over8.33ms; silent median11.466400ms, maximum15.014976ms
+and7/8 misses. Reference rendering and verification deliberately add work: these
+timings show neither gain nor regression of the uninstrumented shortcut.
+
+All six recorded PIDs/four groups retire and port5941 is free. Native−15 is
+intentional post-acceptance cleanup, separate from outer0. The preserved plan's
+descriptive lock label is stale; operative source cards, compiler metadata and
+compat bind actual lock`cae4ca0b`. No retry, source repair, production dependency
+selection, CPU or physical120Hz claim follows. Private ink-pair build capture
+`fecf5e83`/ELF`b283f5df`, runtime raw`77bc65dc`, report`fb7c4967` and seal`1a2f4339`
+retain the evidence. MAIN`target/fill-eligibility-evaluation` holds independent
+arithmetic. Actual application benefit remains the next required discriminator.
+
+### 8.152 Pixel-copy expression: faster ordinary-buffer primitive, app trial pending
+
+The existing Linux XRGB copy already compiles to vector instructions. An isolated
+safe Rust expression treats each four-byte input chunk as a little-endian word,
+reverses bytes, shifts by8, sets alpha255 and writes little-endian bytes. This
+produces the same B/G/R/255 bytes, including nonopaque inputs. All cropping,
+row strides, destination pitch, slicing and row order remain byte-identical.
+There is no unsafe code, alignment assumption or architecture-specific source.
+
+One actual AArch64 compile/check/benchmark passes. Six correctness groups cover
+12,950 cases and6,447,368 aggregate compared byte pairs, including all channel
+values, vector tails, source/destination guards, odd pitches, unaligned offsets,
+zero extents and overlapping in-bounds destination rows. A deliberately incorrect
+swizzle is detected. Invalid-length panic cases are not executed; their outer
+source is unchanged. Both functions have the same probe-only noinline annotation.
+
+| Prewarmed ordinary-buffer case | Original median µs/copy | Candidate median µs/copy | Median paired ratio |
+|---|---:|---:|---:|
+|1024×768|163.943344|81.055000|0.494506|
+|1920×1080|268.132594|132.788250|0.495421|
+|Cropped/padded/unaligned|283.633938|159.830063|0.565627|
+|33 pixels|0.035480|0.030844|0.869316|
+|1 pixel|0.002370|0.002024|0.850087|
+
+Each case has six alternating-order pairs; all30 rows/52,800 timed calls remain.
+Every candidate sample is lower, including the retained one-pixel last-round
+ratio0.326350 outlier. Small copies include call/timing overhead. Ratios are
+medians of paired totals, not quotients of separate medians. Allocation and first
+touch are outside timing; these are ordinary buffers, not DRM mappings or scanout.
+Do not apply these ratios to recorded application KmsCopy times.
+
+The actual distinct symbols show a34-instruction/16-pixel original loop and a
+12-instruction/8-pixel candidate loop using word reversal/shift/OR/stores. This is
+code shape, not measured cycles. All owned groups/locks release without guard or
+cleanup signals. No production change is selected by this primitive alone.
+MAIN`target/kms-copy-expression-probe-v1` preserves input`467b575b`, ELF`50e4222d`,
+raw CSV`27069f7f`, report`d80d9947` and result seal`3fe0fe69`; lead arithmetic is in
+`target/fill-eligibility-evaluation`. The next trial reuses only the original app
+product for a fresh baseline cell and changes one candidate copy path. Existing
+RGB captures observe the source Pixmap/VNC image, not a DRM XRGB readback; byte
+tests establish the swizzle contract. NativeSplit's separate allowance stays3/3.
