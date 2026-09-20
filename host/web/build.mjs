@@ -147,7 +147,7 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(
     '<script type="module" src="./glue.js"></script>',
-    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
+    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${app.manifest.game ? '<link rel="preload" as="fetch" crossorigin href="app.wasm" fetchpriority="high">\n<link rel="modulepreload" href="gpu.js" fetchpriority="low">\n<link rel="preload" as="fetch" crossorigin href="gpu_bg.wasm" fetchpriority="low">\n' : ''}${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
   ));
 // The deep-link association file (LLP 1030 D1; 1030.000 D2): generated from
 // the manifest when the iOS host claims the domain and names its team; a

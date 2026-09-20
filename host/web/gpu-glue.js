@@ -323,12 +323,13 @@ function create(entry, module, carry, mode = 1) {
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
   module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
+  const bound = performance.now();
   const initial = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
   entry.stateful = Boolean(initial);
   entry.deviceFree = initial?.presentation === "none";
   entry.headless ||= entry.deviceFree;
   if (!entry.stateful) entry.stateful = module.gpu_carry(entry.id) !== undefined;
-  if (entry.stateful) entry.boundMs = performance.now();
+  if (entry.stateful) entry.boundMs = bound;
   if (initial?.tick > 0) entry.firstTickMs = entry.boundMs;
   if (exact.now && entry.stateful) {
     const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent",now:exact.now()})) || "null");
