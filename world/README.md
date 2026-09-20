@@ -280,11 +280,11 @@ hashing, saving or inspection. Tags, little-endian order and float normalization
 remain unchanged. Numeric decoding still owns both raw and converted buffers;
 its cumulative budget counts both.
 
-A `Data` author follows three rules:
-1. Write fields in declaration order; stop container loops when `Writer::stopped()` is true.
+1. A `Data` writer emits fields in declaration order and stops container loops on `Writer::stopped()`.
 2. Declare conservative portable `inline_size`/`default_size` units, including allocating
    defaults and skipped-field resets; custom allocating `read_new` must claim before allocating.
 3. Read through `Reader`, propagate errors, and respect its allocation and nesting checks.
+
 Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
 For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
 excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
