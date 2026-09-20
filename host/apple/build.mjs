@@ -764,6 +764,10 @@ function test(args) {
     if (!unit) throw new Error(`Cargo has no library target for ${crate}`);
     cargoRelease = claimBuildOutput(app, appleCargoClaims(app, 'host', [unit])[0]);
     run('cargo', ['build', '--release', '-p', crate, '--lib'], { cwd: app.workspace, env: cargoEnv });
+    // Swift fixtures compile their Contract at test time with `target/debug/contract`. Build it from
+    // THIS checkout first: a binary left by an older commit carries an older kernel schema digest and
+    // every such fixture then refuses to boot with `KernelSchemaMismatch`.
+    run('cargo', ['build', '-p', 'contract', '--bin', 'contract'], { cwd: root, env: developmentBuildEnv() });
     const libDir = resolve(app.target, 'release');
     runApple('swift', ['test', '--scratch-path', resolve(paths.namespace, 'tests')], {
       cwd: pkg, stdio: 'inherit',
