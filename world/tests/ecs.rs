@@ -484,3 +484,18 @@ fn checked_slot_lookup_refuses_dead_and_out_of_range_indices() {
     assert_eq!(w.entity_at(old.index() as usize), Some(new));
     assert_ne!(new, old);
 }
+
+#[test]
+fn insertion_reports_new_membership_and_replacement_separately() {
+    let mut w = World::new(60, 0);
+    w.register::<A>().unwrap();
+    let first = w.spawn(()).unwrap();
+    let second = w.spawn(()).unwrap();
+    for e in [second, first] {
+        assert!(w.insert(e, A(1)).unwrap());
+        assert!(!w.insert(e, A(2)).unwrap());
+        assert_eq!(w.get::<A>(e).unwrap().0, 2);
+        assert_eq!(w.remove::<A>(e).unwrap().unwrap().0, 2);
+        assert!(w.insert(e, A(3)).unwrap());
+    }
+}

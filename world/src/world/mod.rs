@@ -570,7 +570,8 @@ impl World {
             self.change_owner(e, old, Some(parent.entity()));
             self.record_change(e, crate::ChangeKind::Reparent(Some(parent.entity())));
         }
-        let kind = if self.has::<C>(e) {
+        let inserted = !self.has::<C>(e);
+        let kind = if !inserted {
             crate::ChangeKind::Replace(C::NAME.into())
         } else {
             crate::ChangeKind::Insert(C::NAME.into())
@@ -583,7 +584,7 @@ impl World {
             .downcast_mut::<Storage<C>>()
             .unwrap()
             .insert(e.index as usize, c);
-        Ok(true)
+        Ok(inserted)
     }
     pub fn remove<C: Component>(&mut self, e: Entity) -> Result<Option<C>, DataError> {
         if !self.has::<C>(e) {
