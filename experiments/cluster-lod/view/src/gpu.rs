@@ -83,6 +83,7 @@ pub(crate) struct Globals {
     pub ground: [f32; 4],
     pub params: [u32; 4],
     pub look: [f32; 4],
+    pub sun: [f32; 4],
 }
 pub(crate) struct PageGpu {
     pub geometry: wgpu::Buffer,

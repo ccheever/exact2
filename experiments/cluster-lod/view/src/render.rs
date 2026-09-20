@@ -180,6 +180,7 @@ impl Renderer {
             }
         }
         let globals = Globals {
+            sun: scene.sun.extend(0.0).to_array(),
             vp: camera.matrix.to_cols_array(),
             light_vp: scene.light_camera().matrix.to_cols_array(),
             eye: camera.eye.extend(1.0).to_array(),

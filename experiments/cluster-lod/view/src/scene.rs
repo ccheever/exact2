@@ -66,6 +66,7 @@ pub struct Scene {
     pub avenue: bool,
     pub shadow_focus: Option<(Vec3, f32)>,
     pub relief: Vec3,
+    pub sun: Vec3,
 }
 impl Scene {
     pub fn validate(&self) -> Result<(), String> {
@@ -219,6 +220,7 @@ impl Scene {
             median_edge: crate::hero::median_edge(reader, scale),
             avenue: kind == "avenue",
             shadow_focus: None,
+            sun: Vec3::new(-0.75, -0.65, 0.85).normalize(),
             relief: first.transform_point3(Vec3::new(-0.27, -0.37, 0.43)),
             instances,
             center: (lo + hi) * 0.5,
@@ -312,6 +314,14 @@ impl Scene {
     }
     pub fn fit_shadow(&mut self, t: f32) {
         if self.avenue {
+            let ease = |x: f32| {
+                let x = x.clamp(0.0, 1.0);
+                x * x * x * (x * (x * 6.0 - 15.0) + 10.0)
+            };
+            let portrait = ease((t - 0.50) / 0.15) * (1.0 - ease((t - 0.80) / 0.12));
+            self.sun = Vec3::new(-0.75, -0.65, 0.85)
+                .lerp(Vec3::new(0.30, -0.85, 0.85), portrait)
+                .normalize();
             let s = (t / 0.55).clamp(0.0, 1.0);
             let s = s * s * s * (s * (s * 6.0 - 15.0) + 10.0);
             self.shadow_focus = Some((
@@ -321,7 +331,7 @@ impl Scene {
         }
     }
     pub fn light_camera(&self) -> Camera {
-        let sun = Vec3::new(0.30, -0.85, 0.85).normalize();
+        let sun = self.sun;
         let (center, r) = self
             .shadow_focus
             .unwrap_or((self.center, self.radius * 1.05));

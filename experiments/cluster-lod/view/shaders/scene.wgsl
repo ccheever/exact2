@@ -1,6 +1,6 @@
 struct Globals {
     vp: mat4x4<f32>, light_vp: mat4x4<f32>, eye: vec4<f32>,
-    ground: vec4<f32>, params: vec4<u32>, look: vec4<f32>,
+    ground: vec4<f32>, params: vec4<u32>, look: vec4<f32>, sun: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> g: Globals;
 @group(1) @binding(0) var<storage, read> geometry: array<u32>;
@@ -101,7 +101,7 @@ fn background_color(y:f32)->vec3<f32> {
 }
 @fragment fn shade(v:VertexOut)->@location(0) vec4<f32> {
     if g.params.x==6u { return vec4(1.0); }
-    let n=normalize(v.normal); let l=normalize(vec3(0.30,-0.85,0.85));
+    let n=normalize(v.normal); let l=normalize(g.sun.xyz);
     let is_ground=v.ids.x==0xffffffffu;
     var base=v.color.rgb*vec3(0.82,0.80,0.75);
     if is_ground { base=v.color.rgb; }

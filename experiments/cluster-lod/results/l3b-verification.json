@@ -1,0 +1,933 @@
+{
+  "verify": [
+    {
+      "name": "tests",
+      "pid": 1623,
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--no-fail-fast",
+        "--",
+        "--nocapture"
+      ]
+    },
+    {
+      "name": "tests",
+      "pid": 1623,
+      "command": [
+        "cargo",
+        "test",
+        "--workspace",
+        "--no-fail-fast",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 0,
+      "seconds": 83.16999875
+    },
+    {
+      "name": "clippy",
+      "pid": 14166,
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ]
+    },
+    {
+      "name": "clippy",
+      "pid": 14166,
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 1.6687545830000017
+    },
+    {
+      "name": "fmt",
+      "pid": 14455,
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ]
+    },
+    {
+      "name": "fmt",
+      "pid": 14455,
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit": 0,
+      "seconds": 0.17113020899999537
+    },
+    {
+      "name": "wasm-format",
+      "pid": 14493,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-format",
+        "--target",
+        "wasm32-unknown-unknown"
+      ]
+    },
+    {
+      "name": "wasm-format",
+      "pid": 14493,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-format",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit": 0,
+      "seconds": 0.12137062500001047
+    },
+    {
+      "name": "wasm-view",
+      "pid": 14520,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view",
+        "--lib",
+        "--target",
+        "wasm32-unknown-unknown"
+      ]
+    },
+    {
+      "name": "wasm-view",
+      "pid": 14520,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view",
+        "--lib",
+        "--target",
+        "wasm32-unknown-unknown"
+      ],
+      "exit": 0,
+      "seconds": 1.2599303340000043
+    },
+    {
+      "mode": "verify",
+      "commands": 5,
+      "source_files": 55,
+      "max_lines": [
+        716,
+        "view/src/gpu.rs"
+      ],
+      "failures": []
+    }
+  ],
+  "test_functions": 22,
+  "nonempty_test_suites": 14,
+  "oracles": [
+    {
+      "name": "gaul-oracle",
+      "pid": 49237,
+      "command": [
+        "target/debug/clod-view",
+        "oracle",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--steps",
+        "64",
+        "--size",
+        "256x256"
+      ]
+    },
+    {
+      "name": "gaul-oracle",
+      "pid": 49237,
+      "command": [
+        "target/debug/clod-view",
+        "oracle",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--steps",
+        "64",
+        "--size",
+        "256x256"
+      ],
+      "exit": 0,
+      "seconds": 13.199791458
+    },
+    {
+      "name": "washington-oracle",
+      "pid": 51217,
+      "command": [
+        "target/debug/clod-view",
+        "oracle",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--steps",
+        "64",
+        "--size",
+        "256x256"
+      ]
+    },
+    {
+      "name": "washington-oracle",
+      "pid": 51217,
+      "command": [
+        "target/debug/clod-view",
+        "oracle",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--steps",
+        "64",
+        "--size",
+        "256x256"
+      ],
+      "exit": 0,
+      "seconds": 34.324329583
+    },
+    {
+      "mode": "oracles",
+      "commands": 2,
+      "source_files": 55,
+      "max_lines": [
+        716,
+        "view/src/gpu.rs"
+      ],
+      "failures": []
+    }
+  ],
+  "oracle_summaries": {
+    "gaul": [
+      {
+        "capacity_per_instance": 1,
+        "drawn": 2,
+        "dropped": 2179,
+        "layout": "single",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "capacity_per_instance": 1,
+        "drawn": 24,
+        "dropped": 1609,
+        "layout": "ring:12",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "capacity_per_instance": 1,
+        "drawn": 800,
+        "dropped": 7040,
+        "layout": "grid:400",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "cameras_per_layout": 64,
+        "checked": 192,
+        "culling_image_pairs": 96,
+        "deterministic_png_pairs": 192,
+        "edge_triangles": 0,
+        "failures": [],
+        "identical_images": 192,
+        "near_boundary_differences": 0,
+        "oracle": "gpu_summary",
+        "overflow_dropped": 10828,
+        "pixels_checked": 12582912
+      }
+    ],
+    "washington": [
+      {
+        "capacity_per_instance": 1,
+        "drawn": 2,
+        "dropped": 7403,
+        "layout": "single",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "capacity_per_instance": 1,
+        "drawn": 24,
+        "dropped": 17232,
+        "layout": "ring:12",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "capacity_per_instance": 1,
+        "drawn": 800,
+        "dropped": 329996,
+        "layout": "grid:400",
+        "matches_selected_subset_and_pixels": true,
+        "oracle": "overflow"
+      },
+      {
+        "cameras_per_layout": 64,
+        "checked": 192,
+        "culling_image_pairs": 96,
+        "deterministic_png_pairs": 192,
+        "edge_triangles": 0,
+        "failures": [],
+        "identical_images": 192,
+        "near_boundary_differences": 0,
+        "oracle": "gpu_summary",
+        "overflow_dropped": 354631,
+        "pixels_checked": 12582912
+      }
+    ]
+  },
+  "benchmark": [
+    {
+      "name": "build",
+      "pid": 22547,
+      "args": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view"
+      ]
+    },
+    {
+      "name": "build",
+      "pid": 22547,
+      "args": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view"
+      ],
+      "exit": 0,
+      "seconds": 0.314049792
+    },
+    {
+      "name": "gaul-single",
+      "pid": 22631,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "single",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "gaul-single",
+      "pid": 22631,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "single",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 2.4878132500000003
+    },
+    {
+      "name": "gaul-ring-12",
+      "pid": 22950,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "ring:12",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "gaul-ring-12",
+      "pid": 22950,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "ring:12",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 1.4547423750000004
+    },
+    {
+      "name": "gaul-avenue-25",
+      "pid": 23220,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.45",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "gaul-avenue-25",
+      "pid": 23220,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.45",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 1.492522
+    },
+    {
+      "name": "gaul-grid-400",
+      "pid": 23359,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "grid:400",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "gaul-grid-400",
+      "pid": 23359,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "grid:400",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 3.0831157079999993
+    },
+    {
+      "name": "gaul-field-5000-1",
+      "pid": 23765,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "field:5000,1",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "gaul-field-5000-1",
+      "pid": 23765,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--layout",
+        "field:5000,1",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 27.158145832999995
+    },
+    {
+      "name": "washington-single",
+      "pid": 27306,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "single",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "washington-single",
+      "pid": 27306,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "single",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 6.618710957999996
+    },
+    {
+      "name": "washington-ring-12",
+      "pid": 28378,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "ring:12",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "washington-ring-12",
+      "pid": 28378,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "ring:12",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 5.849007542000007
+    },
+    {
+      "name": "washington-avenue-25",
+      "pid": 29275,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.45",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "washington-avenue-25",
+      "pid": 29275,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.45",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 5.702194167000002
+    },
+    {
+      "name": "washington-grid-400",
+      "pid": 30067,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "grid:400",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "washington-grid-400",
+      "pid": 30067,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "grid:400",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 14.767585541999994
+    },
+    {
+      "name": "washington-field-5000-1",
+      "pid": 31395,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "field:5000,1",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ]
+    },
+    {
+      "name": "washington-field-5000-1",
+      "pid": 31395,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "field:5000,1",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0",
+        "--threshold-px",
+        "1"
+      ],
+      "exit": 0,
+      "seconds": 110.17855025
+    },
+    {
+      "name": "washington-quality",
+      "pid": 47858,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.75",
+        "--threshold-px",
+        "0.5,1,2,4"
+      ]
+    },
+    {
+      "name": "washington-quality",
+      "pid": 47858,
+      "args": [
+        "target/debug/clod-view",
+        "bench",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--layout",
+        "avenue:25",
+        "--frames",
+        "7",
+        "--size",
+        "2560x1440",
+        "--t",
+        "0.75",
+        "--threshold-px",
+        "0.5,1,2,4"
+      ],
+      "exit": 0,
+      "seconds": 9.08534354099998
+    },
+    {
+      "benchmark_rows": 10,
+      "sweep_rows": 4,
+      "failures": []
+    }
+  ],
+  "pacing": [
+    {
+      "name": "build-view",
+      "pid": 14746,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view"
+      ]
+    },
+    {
+      "name": "build-view",
+      "pid": 14746,
+      "command": [
+        "cargo",
+        "build",
+        "-p",
+        "clod-view"
+      ],
+      "exit": 0,
+      "seconds": 0.188013916
+    },
+    {
+      "name": "gaul-cluster-600",
+      "pid": 14809,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--mode",
+        "cluster",
+        "--frames",
+        "600",
+        "--exit"
+      ]
+    },
+    {
+      "name": "gaul-cluster-600",
+      "pid": 14809,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--mode",
+        "cluster",
+        "--frames",
+        "600",
+        "--exit"
+      ],
+      "exit": 0,
+      "seconds": 7.508578540999999
+    },
+    {
+      "name": "gaul-naive-600",
+      "pid": 15964,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--mode",
+        "naive",
+        "--frames",
+        "600",
+        "--exit"
+      ]
+    },
+    {
+      "name": "gaul-naive-600",
+      "pid": 15964,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/gaul-4.clod",
+        "--mode",
+        "naive",
+        "--frames",
+        "600",
+        "--exit"
+      ],
+      "exit": 0,
+      "seconds": 8.257214458
+    },
+    {
+      "name": "washington-cluster-600",
+      "pid": 17290,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--mode",
+        "cluster",
+        "--frames",
+        "600",
+        "--exit"
+      ]
+    },
+    {
+      "name": "washington-cluster-600",
+      "pid": 17290,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--mode",
+        "cluster",
+        "--frames",
+        "600",
+        "--exit"
+      ],
+      "exit": 0,
+      "seconds": 12.888396334
+    },
+    {
+      "name": "washington-naive-600",
+      "pid": 19202,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--mode",
+        "naive",
+        "--frames",
+        "600",
+        "--exit"
+      ]
+    },
+    {
+      "name": "washington-naive-600",
+      "pid": 19202,
+      "command": [
+        "target/debug/clod-view",
+        "demo",
+        "/Users/ccheever/Library/Caches/exact2-cluster-lod/out/washington-4.clod",
+        "--mode",
+        "naive",
+        "--frames",
+        "600",
+        "--exit"
+      ],
+      "exit": 0,
+      "seconds": 23.708397208
+    },
+    {
+      "mode": "pacing",
+      "commands": 5,
+      "source_files": 55,
+      "max_lines": [
+        716,
+        "view/src/gpu.rs"
+      ],
+      "failures": []
+    }
+  ],
+  "closing_proof": {
+    "closing_relief_roi": [
+      780,
+      450,
+      1620,
+      1000
+    ],
+    "pixels": 462000,
+    "mean_abs_rgb_normalized": 0.0,
+    "max_byte": 0
+  },
+  "portrait_proof": {
+    "portrait_pixels": 3686400,
+    "mean_abs_rgb_normalized": 1.0637935729847494e-09,
+    "max_byte": 1
+  }
+}
