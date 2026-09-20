@@ -50,7 +50,6 @@ pub(crate) fn values(
     Ok(fields.into_iter().map(|(_, value)| value).collect())
 }
 
-#[cfg(any(target_arch = "wasm32", test))]
 pub(crate) fn admit(text: &str) -> Result<(), String> {
     if text.len() > 16_384 {
         return Err("surface request exceeds 16384 bytes".into());

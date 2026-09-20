@@ -1488,7 +1488,7 @@ pub mod fixture;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
 #[cfg(not(target_arch = "wasm32"))]
-mod native_owned;
+pub mod native_owned;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 #[cfg(any(target_arch = "wasm32", test))]

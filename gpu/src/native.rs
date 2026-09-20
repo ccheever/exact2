@@ -9,16 +9,31 @@
 //! undefined behaviour (LLP 1009 D2: the ABI is the one `unsafe` boundary).
 
 use crate::{json, Frame, Module, Registry};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ffi::c_void;
 
 thread_local! {
     static MODULE: RefCell<Option<Module>> = const { RefCell::new(None) };
     static ERROR: RefCell<String> = const { RefCell::new(String::new()) };
+    static OWNED: Cell<bool> = const { Cell::new(false) };
 }
 
 fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
-    MODULE.with(|m| m.borrow_mut().as_mut().map(f))
+    MODULE.with(|m| {
+        m.borrow_mut().as_mut().map(|m| {
+            let result = f(m);
+            if OWNED.get() {
+                crate::native_owned::bound_pending(m);
+            }
+            result
+        })
+    })
+}
+
+/// Select the ownership-only admission boundary; device registrations never call this.
+pub fn load_owned(registry: &'static Registry) {
+    OWNED.set(true);
+    load_headless(registry);
 }
 
 /// Drain requested asset paths as JSON.

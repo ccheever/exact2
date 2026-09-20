@@ -195,3 +195,11 @@ argument declarations. Neither the four generated Tally shells nor the adapter's
 tests depend on `exact-game`, `exact-game-app` or `exact-game-render`.
 `game.world: true` with `game.audio: true` or `game.assets: true` refuses during
 manifest resolution; these require a device game module.
+
+The ownership-only native ABI admits text before parsing: 16 KiB and depth 64,
+matching web ownership. Text returns are at most 64 KiB, pending messages at most
+1,024 / 64 KiB, and binary carry/restore at most 256 MiB; errors retain a UTF-8
+prefix of at most 4 KiB. Refusals precede delivery across the ABI. Pending delivery
+is checked after each native callback over at most 256 owned instances; application
+callbacks remain responsible for their own allocation/work before returning.
+The ordinary device ABI retains its prior text range (including 20 KiB bindings).
