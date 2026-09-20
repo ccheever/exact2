@@ -9152,3 +9152,41 @@ module cache. The three-path prototype remains private; MAIN production and
 the prior normal-clock diagnostic are unchanged. All compile/run operations
 are terminal with no guard actions;14 recorded PIDs/groups are freshly absent.
 Closure free space is76.81GB, above the user's25GB cleanup trigger.
+
+### 8.167 Single-run immutable raster sources remove actual Messages preparation work
+
+The next candidate constructs a raster Job's single-run NSAttributedString directly,
+using the same extracted font/color/kern/decoration attributes. It removes the mutable
+aggregate, append and final copy call; zero/multiple runs retain the builder+copy.
+Other TextEngine callers, CoreText reconstruction, surfaces, two-worker admission,
+urgent rendering and publication remain unchanged. There is no new cache or owner.
+
+The same twelve methods pass469 assertions with ignored construction sentinels and
+398 without production instrumentation. Original construction with a test-only API
+bridge fails exactly46 named construction assertions; all pixel/attribute/lifetime
+and publication controls pass. Thirteen source cases produce26 exact active-BGRA
+surface comparisons at1x/2x, with deliberate paint corruption as a negative control.
+This uses all75 actual Swift sources and the retained ABI8 Reusable Messages Rust
+archive, through an assertion adapter/direct calls, not Xcode XCTest or a new bake.
+
+Two fresh virtual-clock, actual Session/Presenter/NSWindow fixtures keep all10,000
+rows,32 changed rows per step and9,968 identical prefix rows across eight updates.
+Four changed tail rows remain visible. Each arm prepares50 single-run raster jobs:
+48 urgent and2 asynchronous. Mutable-builder/append/copy call counts fall50/50/50
+→0/0/0, including48/48/48→0/0/0 for urgent jobs. All eight full History hashes and48
+current urgent raster hashes match exactly; job identities and geometry also match.
+The960x932 window and943x582 port are fixture geometry, not a matched normal-clock
+carrier. These counts do not measure physical allocations, CPU or frame latency.
+
+Preserved initial failures are fixture-only: missing mounted style/layer setup
+(two unexpected publication failures in both arms), and an immediate pixel check
+wrongly applied to pending nonurgent jobs. The corrected check retains all job
+counts but requires current pixels only for urgent jobs. An offline Python3.9
+zip-keyword failure is also retained. Production bytes did not change during fixes.
+
+Evidence is MAIN`target/mac-single-run-raster-source-validation-v1/REPORT.md`
+(`05d739dc`) and manifest`ec3ace06`:775 files/71,765,285B, excluding reproducible
+module cache. Fresh closure proves16 recorded PIDs/groups absent, no guard actions
+and76.415GB free. A fresh normal-clock A/B is next; reuse of retained control53e2d1cf
+requires preserving its7594 runtime/plan foundation in the candidate. Historical
+cell timings cannot supply the control. No native speedup or physical120Hz is claimed.

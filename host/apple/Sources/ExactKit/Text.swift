@@ -437,13 +437,27 @@ final class TextEngine {
         let s = NSMutableAttributedString()
         let color = TextEngine.color(spec.color)
         for r in spec.runs {
-            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: r.color.map(TextEngine.color) ?? color]
-            if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
-            if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            s.append(NSAttributedString(string: r.text, attributes: a))
+            s.append(NSAttributedString(string: r.text, attributes: attributes(r, color: color)))
         }
         return s
+    }
+
+    /// An immutable source for a raster job. A single run needs no mutable
+    /// aggregate or final copy; multiple runs keep the builder's snapshot.
+    func rasterSource(_ spec: Spec) -> NSAttributedString {
+        if spec.runs.count == 1 {
+            let run = spec.runs[0]
+            return NSAttributedString(string: run.text, attributes: attributes(run, color: TextEngine.color(spec.color)))
+        }
+        return attributed(spec).copy() as! NSAttributedString
+    }
+
+    private func attributes(_ r: Run, color: PlatformColor) -> [NSAttributedString.Key: Any] {
+        var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: r.color.map(TextEngine.color) ?? color]
+        if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
+        if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+        if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+        return a
     }
 
     /// The line ranges and baselines the kernel's measurement of `spec` at

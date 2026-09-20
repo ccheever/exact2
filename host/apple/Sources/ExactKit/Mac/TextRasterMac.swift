@@ -78,7 +78,7 @@ final class TextRasterizer {
         node.textRasterKey = key
         node.textRasterReady = false
         node.textRasterPending = false
-        let job = Job(source: engine.attributed(spec).copy() as! NSAttributedString,
+        let job = Job(source: engine.rasterSource(spec),
                       ranges: ranges, baselines: baselines,
                       flush: spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0,
                       box: key.box, size: key.size, scale: scale)

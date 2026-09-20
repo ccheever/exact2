@@ -265,5 +265,256 @@ final class TextMetricsTests: XCTestCase {
             }
         }
     }
+
+    // Frozen original construction, independent of attributed/rasterSource and
+    // their attribute helpers. Font resolution is the unchanged session seam.
+    private func originalRasterSource(_ engine: TextEngine, _ spec: Spec) -> NSAttributedString {
+        func color(_ bytes: [Double]) -> NSColor {
+            NSColor(srgbRed: bytes[0] / 255, green: bytes[1] / 255,
+                    blue: bytes[2] / 255, alpha: bytes[3] / 255)
+        }
+        let result = NSMutableAttributedString()
+        for run in spec.runs {
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
+                .foregroundColor: color(run.color ?? spec.color),
+            ]
+            if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
+            if run.decoration.contains("underline") || (run.decoration.isEmpty && !run.href.isEmpty) {
+                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            }
+            if run.decoration.contains("line-through") { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            result.append(NSAttributedString(string: run.text, attributes: attrs))
+        }
+        return result.copy() as! NSAttributedString
+    }
+
+    private func rasterSourceSpec(_ text: String, size: CGFloat = 14,
+                                  color: [Double] = [23, 40, 63, 255]) -> Spec {
+        let run = Run(text: text, size: size, weight: 400, family: 0, italic: false,
+                      lineHeight: CGFloat(Float(size) * Float(1.45)), letterSpacing: 0)
+        var strut = run; strut.text = ""
+        return Spec(runs: [run], align: 0, lineClamp: 0, color: color,
+                    overflowWrap: 0, direction: 0, whiteSpace: 1, strut: strut)
+    }
+
+    private func rasterSourceCases() -> [Spec] {
+        let body = "A longer synthetic message wraps naturally when the window gets narrow.\n\nSynthetic stream revision 19. token token token "
+        var cases = [
+            rasterSourceSpec("10,000 messages · revision 18", size: 12, color: [0, 0, 0, 255]),
+            rasterSourceSpec("10,000 messages · revision 19", size: 12),
+            rasterSourceSpec(body), rasterSourceSpec(body, color: [255, 255, 255, 255]),
+            rasterSourceSpec("Updated · 19", size: 10, color: [220, 232, 255, 255]),
+            rasterSourceSpec("Updated · 20", size: 10, color: [83, 99, 123, 255]),
+            rasterSourceSpec(""), rasterSourceSpec("Café e\u{301} 👩🏽‍💻 東京\nאבג العربية"),
+        ]
+        var styled = cases[7]
+        styled.direction = 1; styled.align = 2
+        styled.runs[0].color = [190, 30, 90, 173]
+        styled.runs[0].letterSpacing = 0.25; styled.runs[0].italic = true
+        styled.runs[0].weight = 600; styled.runs[0].family = 5
+        styled.runs[0].decoration = "underline line-through"; styled.runs[0].href = "kept.md"
+        cases.append(styled)
+        styled.runs[0].decoration = ""; cases.append(styled) // href implies underline
+        styled.runs[0].decoration = "none"; cases.append(styled) // explicit none suppresses it
+        var empty = cases[0]; empty.runs = []; cases.append(empty)
+        var multiple = cases[2]; multiple.align = 1
+        multiple.runs += [cases[6].runs[0], styled.runs[0]]; cases.append(multiple)
+        return cases
+    }
+
+    // The original IOSurface renderer, receiving the two independently built
+    // sources with identical geometry. Never calls a candidate render helper.
+    private func originalRasterPixels(_ source: NSAttributedString, key: TextRasterKey,
+                                      ranges: [CFRange], baselines: [CGFloat]) -> IOSurface? {
+        let width = Int((key.size.width * key.scale).rounded(.up))
+        let height = Int((key.size.height * key.scale).rounded(.up))
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        guard width > 0, height > 0,
+              let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: 4,
+                                                   .pixelFormat: UInt32(0x42475241)]) else { return nil }
+        surface.lock(options: [], seed: nil)
+        defer {
+            surface.unlock(options: [], seed: nil)
+            if let profile = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
+        }
+        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                  bytesPerRow: surface.bytesPerRow, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: key.scale, y: -key.scale)
+        ctx.setShouldSmoothFonts(true); ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+        let typesetter = CTTypesetterCreateWithAttributedString(source)
+        let flush: CGFloat = key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0
+        for (range, baseline) in zip(ranges, baselines) {
+            let line = CTTypesetterCreateLine(typesetter, range)
+            let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(key.box.width)))
+            ctx.textPosition = CGPoint(x: key.box.minX + x, y: key.box.minY + baseline.rounded())
+            CTLineDraw(line, ctx)
+        }
+        ctx.flush()
+        return surface
+    }
+
+    private func activeRasterBytes(_ surface: IOSurface) -> Data {
+        surface.lock(options: .readOnly, seed: nil)
+        defer { surface.unlock(options: .readOnly, seed: nil) }
+        var bytes = Data()
+        for row in 0..<surface.height {
+            bytes.append(surface.baseAddress.advanced(by: row * surface.bytesPerRow)
+                .assumingMemoryBound(to: UInt8.self), count: surface.width * 4)
+        }
+        return bytes
+    }
+
+    func testRasterSourceMatchesIndependentAttributesAndConstructionCounts() {
+        let engine = TextEngine(resolve: { _ in nil })
+        for spec in rasterSourceCases() {
+            let expected = originalRasterSource(engine, spec)
+            #if EXACT_RASTER_SOURCE_SENTINELS
+            engine.rasterSourceRequests = 0; engine.rasterSourceSingleRuns = 0
+            engine.attributedBuilderCalls = 0; engine.attributedAppendCalls = 0; engine.rasterSourceCopies = 0
+            #endif
+            let actual = engine.rasterSource(spec)
+            XCTAssertEqual(Array(actual.string.utf8), Array(expected.string.utf8))
+            XCTAssertEqual(actual.length, expected.length)
+            XCTAssertTrue(actual.isEqual(to: expected), "all original attributes and UTF16 ranges")
+            XCTAssertFalse(actual is NSMutableAttributedString)
+            #if EXACT_RASTER_SOURCE_SENTINELS
+            let single = spec.runs.count == 1
+            XCTAssertEqual(engine.rasterSourceRequests, 1)
+            XCTAssertEqual(engine.rasterSourceSingleRuns, single ? 1 : 0)
+            XCTAssertEqual(engine.attributedBuilderCalls, single ? 0 : 1)
+            XCTAssertEqual(engine.attributedAppendCalls, single ? 0 : spec.runs.count)
+            XCTAssertEqual(engine.rasterSourceCopies, single ? 0 : 1)
+            #endif
+        }
+    }
+
+    func testRasterSourcePixelsMatchOriginalForChangedMessagesAndFallbacks() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        for spec in rasterSourceCases() {
+            let paragraph = engine.paragraph(spec, width: 173.25)
+            let ranges = paragraph.lines.map { CTLineGetStringRange($0) }
+            let reference = originalRasterSource(engine, spec), candidate = engine.rasterSource(spec)
+            for scale: CGFloat in [1, 2] {
+                let key = TextRasterKey(spec: spec, size: CGSize(width: 203.5, height: 240.25),
+                                        box: CGRect(x: 11.25, y: 8.5, width: 173.25, height: 220.5), scale: scale)
+                let old = try XCTUnwrap(originalRasterPixels(reference, key: key, ranges: ranges,
+                                                            baselines: paragraph.baselines))
+                let new = try XCTUnwrap(originalRasterPixels(candidate, key: key, ranges: ranges,
+                                                            baselines: paragraph.baselines))
+                XCTAssertEqual(new.width, old.width); XCTAssertEqual(new.height, old.height)
+                XCTAssertEqual(new.bytesPerRow, old.bytesPerRow)
+                XCTAssertEqual(activeRasterBytes(new), activeRasterBytes(old))
+            }
+        }
+    }
+
+    func testRasterSourceOracleDetectsChangedPaintAndLinkAttributes() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        var spec = rasterSourceSpec("Visible colored link"); spec.runs[0].href = "source.md"
+        let original = originalRasterSource(engine, spec), candidate = engine.rasterSource(spec)
+        XCTAssertTrue(candidate.isEqual(to: original))
+        let corrupted = NSMutableAttributedString(attributedString: original)
+        corrupted.addAttribute(.foregroundColor, value: NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1),
+                               range: NSRange(location: 0, length: corrupted.length))
+        XCTAssertFalse(candidate.isEqual(to: corrupted))
+        let p = engine.paragraph(spec, width: 220), ranges = p.lines.map { CTLineGetStringRange($0) }
+        let key = TextRasterKey(spec: spec, size: CGSize(width: 240, height: 90),
+                                box: CGRect(x: 3.25, y: 4.5, width: 220, height: 80), scale: 2)
+        let good = try XCTUnwrap(originalRasterPixels(candidate, key: key, ranges: ranges, baselines: p.baselines))
+        let bad = try XCTUnwrap(originalRasterPixels(corrupted, key: key, ranges: ranges, baselines: p.baselines))
+        XCTAssertNotEqual(activeRasterBytes(good), activeRasterBytes(bad), "pixel oracle must detect changed color")
+        corrupted.setAttributedString(original)
+        corrupted.removeAttribute(.underlineStyle, range: NSRange(location: 0, length: corrupted.length))
+        XCTAssertFalse(candidate.isEqual(to: corrupted), "href-derived underline must not disappear")
+    }
+
+    func testRasterSourceImmutableInputsAndMutableCopiesAreIsolated() {
+        let engine = TextEngine(resolve: { _ in nil })
+        for original in rasterSourceCases() {
+            var spec = original
+            let expected = originalRasterSource(engine, spec), held = engine.rasterSource(spec)
+            let writable = held.mutableCopy() as! NSMutableAttributedString
+            writable.setAttributedString(NSAttributedString(string: "mutated", attributes: [.kern: 9]))
+            spec.color = [255, 0, 0, 255]
+            if !spec.runs.isEmpty {
+                spec.runs[0].text = "new revision"; spec.runs[0].color = [0, 255, 0, 255]
+                spec.runs[0].href = "different.md"
+            }
+            _ = engine.rasterSource(spec)
+            XCTAssertFalse(held is NSMutableAttributedString)
+            XCTAssertTrue(held.isEqual(to: expected), "caller edits and later requests cannot mutate held Job source")
+            XCTAssertFalse(held.isEqual(to: writable))
+        }
+    }
+
+    func testRasterSourceSurvivesCatalogResetRestoreAndEngineRelease() throws {
+        var retained: NSAttributedString?, reference: NSAttributedString?
+        weak var weakEngine: TextEngine?
+        autoreleasepool {
+            let engine = TextEngine(resolve: { _ in nil }); weakEngine = engine
+            var spec = rasterSourceSpec("Owned source after engine release")
+            spec.runs[0].family = 5; spec.runs[0].italic = true
+            retained = engine.rasterSource(spec); reference = originalRasterSource(engine, spec)
+            let checkpoint = engine.checkpoint()
+            engine.install(nil)
+            var changed = spec; changed.runs[0].size = 19; changed.runs[0].weight = 700
+            XCTAssertTrue(engine.rasterSource(changed).isEqual(to: originalRasterSource(engine, changed)))
+            engine.restore(checkpoint)
+            XCTAssertTrue(engine.rasterSource(spec).isEqual(to: reference!))
+            XCTAssertTrue(retained!.isEqual(to: reference!))
+        }
+        XCTAssertNil(weakEngine, "immutable Job source must not retain the engine")
+        let held = try XCTUnwrap(retained), expected = try XCTUnwrap(reference)
+        XCTAssertTrue(held.isEqual(to: expected))
+    }
+
+    func testUrgentEnsureUsesRasterSourceForChangedTextAndPreservesPublication() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "single-run-raster-source")
+        let presenter = session.presenter, engine = session.text
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        let node = NodeView(id: 900, kind: "text", presenter: presenter)
+        node.frame = CGRect(x: 10, y: 10, width: 240, height: 160); presenter.root.addSubview(node)
+        var previousKey: TextRasterKey?, previousPixels: IOSurface?
+        for revision in 18...19 {
+            node.style = ["font_size": 14.0, "line_height": 1.45, "white_space": "pre-wrap",
+                          "text_color": revision == 18 ? [23.0, 40.0, 63.0, 255.0] : [255.0, 255.0, 255.0, 255.0]]
+            node.props["text"] = "Changed Messages body\nSynthetic stream revision \(revision). token token token"
+            node.applyStyle(node.style) // Mounted text receives its layer through normal style application.
+            node.invalidateText()
+            XCTAssertTrue(node.rastersText)
+            if let previousPixels { XCTAssertTrue(node.textRaster === previousPixels) }
+            #if EXACT_RASTER_SOURCE_SENTINELS
+            engine.rasterSourceRequests = 0; engine.rasterSourceSingleRuns = 0
+            #endif
+            XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+            XCTAssertTrue(node.textRasterReady); XCTAssertFalse(node.textRasterPending)
+            #if EXACT_RASTER_SOURCE_SENTINELS
+            XCTAssertEqual(engine.rasterSourceRequests, 1, "actual ensure must request the Job source from the factory")
+            XCTAssertEqual(engine.rasterSourceSingleRuns, 1)
+            #endif
+            let key = try XCTUnwrap(node.textRasterKey), pixels = try XCTUnwrap(node.textRaster)
+            let spec = node.paragraphSpec(), p = try XCTUnwrap(node.paragraphLayout())
+            XCTAssertEqual(key.spec, spec)
+            let reference = try XCTUnwrap(originalRasterPixels(originalRasterSource(engine, spec), key: key,
+                ranges: p.lines.map { CTLineGetStringRange($0) }, baselines: p.baselines))
+            XCTAssertEqual(activeRasterBytes(pixels), activeRasterBytes(reference))
+            XCTAssertTrue(node.layer?.contents as? IOSurface === pixels, "current urgent pixels publish immediately")
+            if let previousKey, let previousPixels { node.showTextRaster(previousPixels, for: previousKey) }
+            node.showTextRaster(reference, for: key)
+            XCTAssertTrue(node.textRaster === pixels, "obsolete and late same-key answers cannot replace accepted pixels")
+            XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+            #if EXACT_RASTER_SOURCE_SENTINELS
+            XCTAssertEqual(engine.rasterSourceRequests, 1, "a ready key must not prepare another source")
+            #endif
+            previousKey = key; previousPixels = pixels
+        }
+    }
 }
 #endif
