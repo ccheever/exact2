@@ -48,7 +48,9 @@ impl World {
         self.change_next = sequence
             .checked_add(1)
             .expect("structural sequence exhausted");
-        self.event(EventKind::Structural(kind.clone(), entity));
+        if kind != ChangeKind::Reset {
+            self.event(EventKind::Structural(kind.clone(), entity));
+        }
         self.changes.push_back(Change {
             sequence,
             tick: self.tick(),
@@ -114,7 +116,91 @@ impl World {
             .collect()
     }
     pub fn logs(&self, since: u64) -> Result<String, DataError> {
-        crate::json::to_string(&self.journal(since))
+        let game = self.journal.borrow();
+        let session = self.session_journal.borrow();
+        let mut game = game.iter().filter(|e| e.index >= since).peekable();
+        let mut session = session.iter().filter(|e| e.index >= since).peekable();
+        let events: Vec<_> = std::iter::from_fn(|| {
+            if session
+                .peek()
+                .is_some_and(|s| game.peek().is_none_or(|g| s.index <= g.index))
+            {
+                session.next()
+            } else {
+                game.next()
+            }
+        })
+        .take(512)
+        .cloned()
+        .collect();
+        crate::json::to_string(&events)
+    }
+    /// Unsaved host telemetry, anchored before the next deterministic game event.
+    pub fn session_log(&self, message: &str) -> Result<(), DataError> {
+        if message.len() > 4096 {
+            return Err(DataError::new("session log exceeds 4096 bytes"));
+        }
+        let mut events = self.session_journal.borrow_mut();
+        if events.len() == 4096 {
+            events.pop_front();
+        }
+        events.push_back(Event {
+            index: self.journal_next(),
+            tick: self.tick(),
+            kind: EventKind::Message(message.into()),
+        });
+        Ok(())
+    }
+    pub(crate) fn write_journal(&self, w: &mut dyn Writer) {
+        w.item();
+        self.journal_next().write(w);
+        let events = self.journal.borrow();
+        w.item();
+        w.begin_seq(events.len());
+        for e in events.iter() {
+            w.item();
+            e.write(w);
+        }
+        w.end_seq();
+    }
+    pub(crate) fn read_journal(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        if !r.item()? {
+            return Err(DataError::new("missing journal cursor"));
+        }
+        self.journal_next.get_mut().read(r)?;
+        if !r.item()? {
+            return Err(DataError::new("missing journal entries"));
+        }
+        let mut events: Vec<Event> = Vec::new();
+        crate::data::limits::read_vec(r, &mut events, 4096)?;
+        let first = self
+            .journal_next()
+            .checked_sub(events.len() as u64)
+            .ok_or_else(|| DataError::new("journal cursor precedes entries"))?;
+        let mut tick = 0;
+        for (i, e) in events.iter().enumerate() {
+            let text = match &e.kind {
+                EventKind::Message(s) | EventKind::Published(s) => s.as_str(),
+                EventKind::Structural(
+                    ChangeKind::Insert(s) | ChangeKind::Replace(s) | ChangeKind::Remove(s),
+                    _,
+                ) => s.as_ref(),
+                EventKind::Structural(ChangeKind::Reset, _) => {
+                    return Err(DataError::new("reset is not a game event"))
+                }
+                _ => "",
+            };
+            if e.index != first + i as u64
+                || e.tick < tick
+                || e.tick > self.tick()
+                || text.len() > 4096
+            {
+                return Err(DataError::new("invalid saved journal"));
+            }
+            tick = e.tick;
+        }
+        *self.journal.get_mut() = events.into();
+        Ok(())
     }
     pub fn journal_next(&self) -> u64 {
         self.journal_next.get()
@@ -134,6 +220,10 @@ impl World {
         next.changes = std::mem::take(&mut self.changes);
         next.change_next = self.change_next;
         next.record_change(Entity::default(), ChangeKind::Reset);
+        next.session_journal = std::mem::take(&mut self.session_journal);
+        for e in next.session_journal.get_mut() {
+            e.index = next.journal_next.get();
+        }
         *self = next;
         Ok(())
     }

@@ -54,6 +54,40 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
         String::from_utf8_lossy(&positive.stderr)
     );
     let cases = [
+        r###"fn main() {
+use exact_world::{World, Component};
+#[derive(Default, Component)] struct Count(u32);
+World::new(60, 0).resource::<Count>();
+}"###,
+        r###"fn main() {
+use exact_world::{World, Component};
+#[derive(Default, Component)] struct Item(u32);
+let mut world = World::new(60, 0);
+world.spawn((Item::default(),));
+let mut query = world.query::<&mut Item>();
+let row = query.iter().next().unwrap().1;
+drop(query);
+row.0 = 1;
+}"###,
+        r###"fn main() {
+use exact_world::{World, Component};
+#[derive(Default, Component)] struct Item(u32);
+let world = World::new(60, 0);
+let mut query = world.query::<&mut Item>();
+let row = query.iter().next().unwrap().1;
+let again = query.iter().next().unwrap().1;
+row.0 = again.0;
+}"###,
+        r###"fn main() {
+use exact_world::{World, Component};
+#[derive(Default, Component)] struct Item(u32);
+let mut world = World::new(60, 0);
+world.spawn((Item::default(),));
+let pages = world.pages::<Item>();
+let view = pages.iter().next().unwrap();
+drop(pages);
+let runs = view.runs().collect::<Vec<_>>();
+}"###,
         r###"use exact_world::Data;
 #[derive(Default, Data)]
 struct Mutable { value: std::cell::Cell<u32> }"###,

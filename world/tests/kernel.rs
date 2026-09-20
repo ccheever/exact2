@@ -423,3 +423,79 @@ fn ambient_motion_deadlines_and_same_value_leases_do_not_hide_changes() {
     drop(s.world().get_mut::<Motion>(e));
     assert!(!s.world().quiescent());
 }
+
+#[test]
+#[ignore = "admission ceilings; explicit long workload"]
+fn full_entity_and_journal_limits_refuse_without_losing_events() {
+    let mut w = World::new(60, 0);
+    for _ in 0..MAX_ENTITIES {
+        w.spawn(());
+    }
+    assert!(catch_unwind(AssertUnwindSafe(|| w.spawn(()))).is_err());
+    assert_eq!(w.len(), MAX_ENTITIES);
+    let cursor = w.change_cursor();
+    w.consume_changes(cursor).unwrap();
+    let e = w.resolve("#0").unwrap();
+    for n in 0..999_999 {
+        w.insert(e, Count(n));
+    }
+    // insert reserves two events so ownership can always journal its edge too.
+    let cursor = w.change_cursor();
+    assert!(catch_unwind(AssertUnwindSafe(|| w.insert(e, Count(0)))).is_err());
+    assert_eq!(w.change_cursor(), cursor);
+    assert_eq!(w.changes(cursor - 1).unwrap().count(), 1);
+}
+
+#[test]
+fn saved_game_journal_excludes_session_telemetry_and_survives_restore() {
+    let mut s = Sim::<Counter>::new(Options::default()).unwrap();
+    s.run(17.).unwrap();
+    s.world().log("game scored").unwrap();
+    let before = s.save().unwrap();
+    let cursor = s.world().journal_next();
+    s.world().session_log("agent attached").unwrap();
+    assert_eq!(s.save().unwrap(), before);
+    assert_eq!(s.world().journal_next(), cursor);
+    s.restore(&before).unwrap();
+    assert_eq!(s.save().unwrap(), before);
+    let logs = s.world().logs(0).unwrap();
+    assert!(logs.contains("game scored"));
+    assert!(logs.contains("agent attached"));
+    assert!(logs.find("game scored") < logs.find("agent attached"));
+    s.world().log("game next").unwrap();
+    let logs = s.world().logs(0).unwrap();
+    assert!(logs.find("agent attached") < logs.find("game next"));
+    let fresh = Sim::<Counter>::from_save(&s.save().unwrap()).unwrap();
+    assert!(!fresh.world().logs(0).unwrap().contains("agent attached"));
+    assert!(fresh.world().logs(0).unwrap().contains("game next"));
+}
+#[test]
+fn carry_keeps_live_args_refuses_setup_changes_and_publication_budget_is_cumulative() {
+    let saved = Sim::<Counter>::new(Options::default())
+        .unwrap()
+        .save()
+        .unwrap();
+    let mut s = Sim::<Counter>::new(Options {
+        paused: true,
+        ..Options::default()
+    })
+    .unwrap();
+    s.carry(&saved).unwrap();
+    assert!(s.args().paused);
+    s.bind(Options {
+        seed: 7,
+        ..Options::default()
+    })
+    .unwrap();
+    let before = s.save().unwrap();
+    assert!(s.carry(&saved).is_err());
+    assert_eq!(s.save().unwrap(), before);
+    s.world().publish("a", "a".repeat(6000));
+    let before = s.save().unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| s
+        .world()
+        .publish("b", "b".repeat(6000))))
+    .is_err());
+    assert_eq!(s.save().unwrap(), before);
+    s.restore(&before).unwrap();
+}

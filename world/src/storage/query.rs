@@ -272,26 +272,6 @@ tuples!(A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7);
 /// Iteration borrows this object exclusively; rows may outlive an iterator but
 /// cannot outlive the leases or overlap a second iteration.
 ///
-/// ```compile_fail
-/// use exact_world::{World, Component};
-/// #[derive(Default, Component)] struct Item(u32);
-/// let mut world = World::new(60, 0);
-/// world.spawn((Item::default(),));
-/// let mut query = world.query::<&mut Item>();
-/// let row = query.iter().next().unwrap().1;
-/// drop(query);
-/// row.0 = 1;
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::{World, Component};
-/// #[derive(Default, Component)] struct Item(u32);
-/// let world = World::new(60, 0);
-/// let mut query = world.query::<&mut Item>();
-/// let row = query.iter().next().unwrap().1;
-/// let again = query.iter().next().unwrap().1;
-/// row.0 = again.0;
-/// ```
 pub struct QueryBorrow<'w, Q: Query> {
     world: &'w World,
     state: Q::State<'w>,

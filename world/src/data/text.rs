@@ -1,19 +1,15 @@
-//! Standard round-trip formatting; no formatter dependency.
+//! Shortest round-trip float output, including signed zero. Inspection checks finiteness.
 use std::fmt::{self, Write};
-pub struct Float<T>(pub T);
-impl<T: fmt::Display> fmt::Display for Float<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-pub(crate) fn shortest<T: fmt::Display + fmt::Debug>(
+pub(crate) fn shortest<T: ryu::Float + Copy>(
     out: &mut impl Write,
     n: T,
     debug: bool,
 ) -> fmt::Result {
-    if debug {
-        write!(out, "{n:?}")
+    let mut buffer = ryu::Buffer::new();
+    let text = buffer.format(n);
+    out.write_str(if debug {
+        text
     } else {
-        write!(out, "{n}")
-    }
+        text.strip_suffix(".0").unwrap_or(text)
+    })
 }

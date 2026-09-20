@@ -9,7 +9,7 @@ pub(crate) mod limits;
 pub use limits::LoadBudget;
 pub use limits::{MAX_LOAD_BYTES, MAX_LOAD_ENTITIES, MAX_LOAD_STRING};
 pub mod json;
-pub mod text;
+mod text;
 
 /// State that can survive a save, level load, or code reload.
 ///
@@ -86,27 +86,18 @@ impl std::error::Error for DataError {}
 /// Numeric widths that affect the binary and hash representations.
 #[derive(Clone, Copy, Debug)]
 pub enum Number {
-    /// An unsigned integer, encoded as a varint.
     Unsigned(u64),
-    /// A signed integer, encoded as a zigzag varint.
     Signed(i64),
-    /// IEEE binary32.
     F32(f32),
-    /// IEEE binary64.
     F64(f64),
 }
 
-/// Element kind of a little-endian bulk payload; part of both wire and hash framing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum BulkKind {
-    /// Bytes.
     U8,
-    /// Unsigned 16-bit integers.
     U16,
-    /// Unsigned 32-bit integers.
     U32,
-    /// Canonical IEEE binary32 values.
     F32,
 }
 impl BulkKind {
@@ -120,9 +111,7 @@ impl BulkKind {
     }
 }
 
-/// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
-    /// An entity reference; ordinary codecs retain its historical record encoding.
     fn entity(&mut self, index: u32, generation: u32) {
         self.begin_struct();
         self.field("index");
@@ -131,66 +120,41 @@ pub trait Writer {
         self.number(Number::Unsigned(generation.into()));
         self.end_struct();
     }
-    /// Unit has the existing empty-sequence save/hash representation. Value sinks
-    /// may override it to preserve the distinction from an empty list.
     fn unit(&mut self) {
         self.begin_seq(0);
         self.end_seq();
     }
-    /// Write a boolean.
     fn boolean(&mut self, value: bool);
-    /// Write a number, canonicalizing NaNs in binary representations.
     fn number(&mut self, value: Number);
-    /// Write a typed length-prefixed byte payload; JSON emits an inspection summary.
     fn bytes(&mut self, kind: BulkKind, value: &[u8]);
-    /// Write a UTF-8 value (as opposed to a field name).
     fn string(&mut self, value: &str);
-    /// Begin a sequence of exactly `len` elements.
     fn begin_seq(&mut self, len: usize);
-    /// Separate sequence elements, including the first.
     fn item(&mut self);
-    /// End a sequence.
     fn end_seq(&mut self);
-    /// Begin a record whose fields are named in self-describing codecs.
     fn begin_struct(&mut self);
-    /// Introduce the following field value.
     fn field(&mut self, name: &str);
-    /// A map key is a value and therefore participates in the hash.
     fn key(&mut self, name: &str) {
         self.field(name);
     }
-    /// End a record.
     fn end_struct(&mut self);
-    /// Begin an enum arm; names survive schema changes, indices enter the hash.
     fn variant(&mut self, name: &str, index: u32);
-    /// End the enum arm's single payload (record or sequence).
     fn end_variant(&mut self);
-    /// Begin an option, followed by one value when present.
     fn option(&mut self, some: bool);
-    /// End an option.
     fn end_option(&mut self);
 }
 
-/// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
-    /// Check a declared collection's minimum storage before reading any elements.
-    /// Reservations still claim their actual capacity through `claim`.
     fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {
         Ok(())
     }
-    /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())
     }
-    /// Remaining sequence count, if the format declares it in advance.
     fn sequence_len(&self) -> Option<usize> {
         None
     }
-    /// Read a boolean.
     fn boolean(&mut self) -> Result<bool, DataError>;
-    /// Read a number without losing integer precision.
     fn number(&mut self) -> Result<Number, DataError>;
-    /// Read binary32. Text formats can round directly to the destination width.
     fn f32(&mut self) -> Result<f32, DataError> {
         Ok(match self.number()? {
             Number::Unsigned(n) => n as f32,
@@ -205,7 +169,6 @@ pub trait Reader {
             }
         })
     }
-    /// Read binary64, without imposing an intermediate integer range.
     fn f64(&mut self) -> Result<f64, DataError> {
         Ok(match self.number()? {
             Number::Unsigned(n) => n as f64,
@@ -214,32 +177,19 @@ pub trait Reader {
             Number::F64(n) => n,
         })
     }
-    /// Read a matching typed payload, claiming its byte size before reserving.
-    /// This claim also covers conversion into a same-sized numeric destination.
     fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError>;
-    /// Read UTF-8 text.
     fn string(&mut self) -> Result<String, DataError>;
-    /// Enter a sequence.
     fn begin_seq(&mut self) -> Result<(), DataError>;
-    /// Begin the next element, or consume the end and return false.
     fn item(&mut self) -> Result<bool, DataError>;
-    /// Enter a named record.
     fn begin_struct(&mut self) -> Result<(), DataError>;
-    /// Read the next field name, or consume the record end.
     fn field(&mut self) -> Result<Option<String>, DataError>;
-    /// Enter an enum payload and return its arm name.
     fn variant(&mut self) -> Result<String, DataError>;
-    /// Consume the enum end.
     fn end_variant(&mut self) -> Result<(), DataError>;
-    /// Enter an option and report whether a value follows.
     fn option(&mut self) -> Result<bool, DataError>;
-    /// Consume the option end.
     fn end_option(&mut self) -> Result<(), DataError>;
-    /// Skip an unknown field in a compatible record.
     fn unknown(&mut self) -> Result<(), DataError> {
         self.skip()
     }
-    /// Discard one complete value, including names interned within it.
     fn skip(&mut self) -> Result<(), DataError>;
 }
 

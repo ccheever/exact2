@@ -53,7 +53,6 @@ impl Encoder {
         w.bytes.extend_from_slice(prefix);
         w
     }
-    /// Return the completed stream.
     pub fn finish(self) -> Vec<u8> {
         self.bytes
     }
@@ -155,7 +154,6 @@ enum Frame<'a> {
     Option,
 }
 impl<'a> Decoder<'a> {
-    /// Read a single stream, starting with an empty name table.
     pub fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,
@@ -183,7 +181,6 @@ impl<'a> Decoder<'a> {
         }
         r
     }
-    /// Check that the caller consumed the entire stream.
     pub fn finish(&self) -> Result<(), DataError> {
         if self.pos == self.bytes.len() && self.frames.is_empty() {
             Ok(())

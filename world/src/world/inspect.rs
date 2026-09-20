@@ -171,7 +171,6 @@ impl World {
     }
     pub(crate) fn begin_tick(&mut self) {
         self.mutated();
-        self.in_tick = true;
         self.state.busy.get_mut().clear();
     }
     pub(crate) fn observe(&mut self, before: u64) {

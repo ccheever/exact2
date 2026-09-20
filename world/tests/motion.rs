@@ -68,3 +68,28 @@ fn math_uses_the_declared_functions() {
     );
     assert_eq!(math::lerp(0.0, 10.0, 0.3), 3.0);
 }
+
+#[test]
+fn tween_uses_exact_motion_and_saved_deadline() {
+    use exact_world::{Data, Tween};
+    let mut t = Tween::new(-1.);
+    t.to(Now { tick: 4, hz: 60 }, 3., 0.5);
+    let bytes = bin::to_vec(&t);
+    let loaded: Tween = bin::from_slice(&bytes).unwrap();
+    for tick in 4..35 {
+        let progress = exact_motion::Easing::CubicBezier {
+            x1: 1. / 3.,
+            y1: 0.,
+            x2: 2. / 3.,
+            y2: 1.,
+        }
+        .progress((tick - 4) as f64 / 30.);
+        assert_eq!(t.value(Now { tick, hz: 60 }), (-1. + 4. * progress) as f32);
+        assert_eq!(
+            loaded.value(Now { tick, hz: 60 }),
+            t.value(Now { tick, hz: 60 })
+        );
+    }
+    assert_eq!(t.settle_tick(Now { tick: 4, hz: 60 }), Some(34));
+    assert_eq!(t.value(Now { tick: 34, hz: 60 }), 3.);
+}

@@ -8,8 +8,8 @@ struct CellValue {
 }
 #[derive(Default, Resource)]
 struct Blob(Vec<u8>);
-struct Board;
-impl Game for Board {
+struct Board<const N: u64>;
+impl<const N: u64> Game for Board<N> {
     const ID: &'static str = "startup-board";
     type Args = ();
     fn register(w: &mut World, _: args::SetupArgs<'_, ()>) {
@@ -17,7 +17,7 @@ impl Game for Board {
         w.register_resource::<Blob>();
     }
     fn setup(w: &mut World, _: &()) {
-        for number in 0..100 {
+        for number in 0..N {
             w.spawn(CellValue {
                 number,
                 payload: [number; 3],
@@ -47,13 +47,15 @@ fn construction_activation_restore_counts() {
     let (empty, counts) = counting::measure(|| World::new(60, 0));
     report("construction.empty", counts, (1, 24));
     assert!(empty.is_empty());
-    let (mut sim, counts) = counting::measure(|| Sim::<Board>::new(()).unwrap());
+    let (mut sim, counts) = counting::measure(|| Sim::<Board<100>>::new(()).unwrap());
     report("construction.100", counts, (31, 70568));
     assert_eq!(sim.world().len(), 100);
     let (ticks, counts) = counting::measure(|| sim.run(17.).unwrap());
     report("activation.first_tick", counts, (3, 640));
     assert_eq!(ticks, 1);
     assert_eq!(sim.world().require::<CellValue>("#99").number, 100);
+    let mut sim = Sim::<Board<32>>::new(()).unwrap();
+    sim.run(17.).unwrap();
     sim.world_mut().insert_resource(Blob::default());
     let mut size = 0usize;
     for _ in 0..4 {
@@ -66,10 +68,10 @@ fn construction_activation_restore_counts() {
     }
     let bytes = sim.save().unwrap();
     assert_eq!(bytes.len(), 10240);
-    let (restored, counts) = counting::measure(|| Sim::<Board>::from_save(&bytes).unwrap());
-    report("restore.10KiB", counts, (1063, 86312));
+    let (restored, counts) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
+    report("restore.10KiB", counts, (1000, 77986));
     assert_eq!(restored.world().hash(), sim.world().hash());
     assert_eq!(restored.save().unwrap(), bytes);
-    let (_, again) = counting::measure(|| Sim::<Board>::from_save(&bytes).unwrap());
+    let (_, again) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
     assert_eq!(again, counts, "counts are deterministic, not time samples");
 }

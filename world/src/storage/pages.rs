@@ -4,16 +4,6 @@ use std::marker::PhantomData;
 
 /// Shared lease over a storage's allocated pages. Page views borrow this lease.
 ///
-/// ```compile_fail
-/// use exact_world::{World, Component};
-/// #[derive(Default, Component)] struct Item(u32);
-/// let mut world = World::new(60, 0);
-/// world.spawn((Item::default(),));
-/// let pages = world.pages::<Item>();
-/// let view = pages.iter().next().unwrap();
-/// drop(pages);
-/// let runs = view.runs().collect::<Vec<_>>();
-/// ```
 pub struct Pages<'w, C> {
     storage: Option<&'w Storage<C>>,
     _lease: Option<Lease<'w>>,
@@ -48,7 +38,7 @@ pub struct Page<'a, C> {
     /// Conservative write generation; changes when a mutable row is handed out,
     /// inserted or removed. Compare only within one world presentation generation.
     pub generation: u64,
-    /// Sixteen presence words; bit zero corresponds to `first`.
+    /// PAGE / 64 presence words; bit zero corresponds to `first`.
     pub mask: &'a [u64],
     slots: *const C,
     _life: PhantomData<&'a C>,

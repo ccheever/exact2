@@ -151,3 +151,44 @@ fn name_table_walks_unknown_fields() {
     });
     assert_eq!(bin::from_slice::<New>(&b).unwrap().kept.reused, 12);
 }
+
+#[test]
+fn inspection_floats_round_trip_signed_zero_subnormals_and_random_bits() {
+    let mut bits = 1u64;
+    for _ in 0..100_000 {
+        bits = bits.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let a = f32::from_bits(bits as u32);
+        let b = f64::from_bits(bits);
+        if a.is_finite() {
+            assert_eq!(
+                json::to_string(&a)
+                    .unwrap()
+                    .parse::<f32>()
+                    .unwrap()
+                    .to_bits(),
+                a.to_bits()
+            );
+        }
+        if b.is_finite() {
+            assert_eq!(
+                json::to_string(&b)
+                    .unwrap()
+                    .parse::<f64>()
+                    .unwrap()
+                    .to_bits(),
+                b.to_bits()
+            );
+        }
+    }
+    for n in [0., -0., f64::MAX, f64::MIN_POSITIVE, f64::from_bits(1)] {
+        assert_eq!(
+            json::to_string(&n)
+                .unwrap()
+                .parse::<f64>()
+                .unwrap()
+                .to_bits(),
+            n.to_bits()
+        );
+    }
+    assert!(json::to_string(&f64::INFINITY).is_err());
+}

@@ -172,7 +172,7 @@ impl<G: Game> Sim<G> {
                 let bytes = self.save()?;
                 if self.paranoid == Paranoid::FreshGame {
                     let next = Self::from_save(&bytes)?;
-                    self.install(next)?;
+                    self.install(next, false)?;
                 } else {
                     self.restore(&bytes)?;
                 }
@@ -223,7 +223,7 @@ impl<G: Game> Sim<G> {
     /// EXSIM v8: identity → typed args → schema → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         let mut w = bin::Encoder::prefixed(MAGIC);
-        w.begin_seq(8);
+        w.begin_seq(9);
         w.item();
         w.string(G::ID);
         w.item();
@@ -245,6 +245,11 @@ impl<G: Game> Sim<G> {
         w.end_seq();
         w.item();
         self.world.write_publications(&mut w);
+        w.item();
+        w.begin_seq(2);
+        // Two streamed fields share one sequence item; journal owns their framing.
+        self.world.write_journal(&mut w);
+        w.end_seq();
         w.end_seq();
         let bytes = w.finish();
         if bytes.len() > 128 * 1024 * 1024 {
@@ -257,21 +262,21 @@ impl<G: Game> Sim<G> {
     }
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let next = Self::candidate(bytes, Some(&self.world))?;
-        self.install(next)
+        self.install(next, false)
     }
     /// Compatible-state carry preserves current live arguments; structural/setup changes refuse.
     pub fn carry(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let mut next = Self::candidate(bytes, Some(&self.world))?;
+        let next = Self::candidate(bytes, Some(&self.world))?;
         if next.args.setup_changed(&self.args) {
             return Err(DataError::new("carry setup arguments differ"));
         }
-        let args = bin::to_vec(&self.args);
-        next.args = bin::from_slice(&args)?;
-        self.install(next)
+        self.install(next, true)
     }
-    fn install(&mut self, next: Self) -> Result<(), DataError> {
+    fn install(&mut self, next: Self, keep_args: bool) -> Result<(), DataError> {
         self.world.adopt(next.world)?;
-        self.args = next.args;
+        if !keep_args {
+            self.args = next.args;
+        }
         self.input = next.input;
         self.queue = next.queue;
         self.world_us = next.world_us;
@@ -340,6 +345,12 @@ impl<G: Game> Sim<G> {
         }
         item(&mut r)?;
         world.read_publications(&mut r)?;
+        item(&mut r)?;
+        r.begin_seq()?;
+        world.read_journal(&mut r)?;
+        if r.item()? {
+            return Err(DataError::new("extra journal data"));
+        }
         if r.item()? {
             return Err(DataError::new("extra Sim save data"));
         }

@@ -238,8 +238,16 @@ pub fn stick_axis(origin: [f32; 2], position: [f32; 2]) -> Result<[f32; 2], Data
     if !origin.into_iter().chain(position).all(f32::is_finite) {
         return Err(DataError::new("non-finite stick coordinate"));
     }
-    let x = (position[0] as f64 - origin[0] as f64) / 60.;
-    let y = (origin[1] as f64 - position[1] as f64) / 60.;
-    let length = libm::sqrt(x * x + y * y).max(1.);
-    Ok([(x / length) as f32, (y / length) as f32])
+    let x = (position[0] - origin[0]) / 60.;
+    let y = (origin[1] - position[1]) / 60.;
+    let squared = x * x + y * y;
+    if !squared.is_finite() {
+        return Err(DataError::new("stick offset outside finite range"));
+    }
+    let scale = if squared > 1. {
+        1. / libm::sqrtf(squared)
+    } else {
+        1.
+    };
+    Ok([x * scale, y * scale])
 }

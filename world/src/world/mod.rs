@@ -15,8 +15,6 @@ pub struct Entity {
 }
 impl Data for Entity {
     fn write(&self, w: &mut dyn Writer) {
-        // Ordinary codecs retain the same index/generation record. The authored
-        // projection records identity so interleaved spawn order is irrelevant.
         w.entity(self.index, self.generation);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -40,11 +38,9 @@ impl Default for Entity {
     }
 }
 impl Entity {
-    /// The stable ordering key, also used in agent targets such as #12.
     pub fn index(self) -> u32 {
         self.index
     }
-    /// The incarnation of this slot.
     pub fn generation(self) -> u32 {
         self.generation
     }
@@ -52,7 +48,6 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
-    /// Name or slot for a setup error.
     fn label(&self) -> String;
     /// Resolve a live entity without consuming its diagnostic label or reviving a stale handle.
     fn entity(&self, world: &World) -> Option<Entity>;
@@ -89,43 +84,24 @@ impl Target for &str {
     }
 }
 
-/// A named kind of per-entity data. Names must be unique within a world.
-/// Semantic state has no interior mutability; derives introduce none. A manual
-/// implementation that mutates semantic state through a shared reference is outside
-/// the [`Data`] contract: quiescence and the hash cache are undefined for it.
+/// Named per-entity Data, with unique names and no semantic interior mutability.
 pub trait Component: Data {
     /// Saved named fields exposed by the derive for declarative binding validation.
     #[doc(hidden)]
     const SAVED_FIELDS: &'static [&'static str] = &[];
-    /// Stable save-file and agent spelling.
     const NAME: &'static str;
     /// Register data this component produces, before restoring a saved world.
     fn register(_world: &mut World) {}
-    /// Refuse a component combination before changing the entity.
-    fn accepts(_world: &World, _entity: Entity) -> bool {
-        true
-    }
 }
-/// World-owned singleton data, named by the Resource derive.
-/// Semantic state has no interior mutability; derives introduce none. A manual
-/// implementation that mutates semantic state through a shared reference is outside
-/// the [`Data`] contract: quiescence and the hash cache are undefined for it.
+/// Named singleton Data; the same semantic immutability contract as Component.
 ///
-/// ```compile_fail
-/// use exact_world::{World, Component};
-/// #[derive(Default, Component)] struct Count(u32);
-/// World::new(60, 0).resource::<Count>();
-/// ```
 pub trait Resource: Data {
-    /// Stable save-file and agent spelling.
     const NAME: &'static str;
     /// Exclude executor bookkeeping from observed rest.
     const AMBIENT: bool = false;
 }
 
-/// One component or a tuple of components supplied to spawn.
 pub trait Bundle {
-    /// Insert this bundle into an existing entity.
     fn insert(self, world: &mut World, entity: Entity);
 }
 impl<C: Component> Bundle for C {
@@ -194,8 +170,6 @@ pub struct World {
     id: WorldId,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
-    // Tick-boundary phase, not saved.
-    pub(crate) in_tick: bool,
     state: State,
     // Derived lookup only; never serialized, hashed or observed.
     names: BTreeMap<String, BTreeSet<Entity>>,
@@ -207,6 +181,7 @@ pub struct World {
     // Executor-owned derived data, populated only by linked callers; never saved.
     derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<crate::Event>>,
+    session_journal: RefCell<VecDeque<crate::Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
@@ -234,7 +209,6 @@ impl World {
             id: WorldId(epoch.clone()),
             epoch,
             hash_cache: std::cell::Cell::new(None),
-            in_tick: false,
             state: State {
                 hz,
                 seed,
@@ -248,6 +222,7 @@ impl World {
             resources: BTreeMap::new(),
             derived: RefCell::new(BTreeMap::new()),
             journal: RefCell::new(VecDeque::new()),
+            session_journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
@@ -259,7 +234,6 @@ impl World {
             observed: None,
         }
     }
-    /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
         self.id.clone()
     }
@@ -272,7 +246,6 @@ impl World {
         }
         self
     }
-    /// Register singleton data before loading a save.
     pub fn register_resource<R: Resource>(&mut self) -> &mut Self {
         let reg = self.registration::<R>(R::NAME);
         reg.make_resource = Some(storage::make_cell::<R>);
@@ -374,7 +347,6 @@ impl World {
         self.record_change(e, crate::ChangeKind::Despawn);
         true
     }
-    /// Whether this exact incarnation is alive.
     #[inline]
     pub fn contains(&self, e: Entity) -> bool {
         self.state
@@ -382,11 +354,9 @@ impl World {
             .get(e.index as usize)
             .is_some_and(|s| s.alive && s.generation == e.generation)
     }
-    /// Number of living entities.
     pub fn len(&self) -> usize {
         self.state.slots.len() - self.state.free.0.len()
     }
-    /// Whether no entities are alive.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -419,7 +389,6 @@ impl World {
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.names.get(name)?.first().copied()
     }
-    /// The name of a living entity.
     pub fn name(&self, e: Entity) -> Option<&str> {
         if !self.contains(e) {
             return None;
@@ -443,9 +412,6 @@ impl World {
     /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
         if !self.contains(e) {
-            return false;
-        }
-        if !C::accepts(self, e) {
             return false;
         }
         self.change_room(2).expect("structural journal full");
@@ -486,7 +452,6 @@ impl World {
             .downcast_mut::<Storage<C>>()?
             .remove(e.index as usize)
     }
-    /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
@@ -519,7 +484,6 @@ impl World {
         self.get_mut::<C>(&target)
             .unwrap_or_else(|| missing::<C>(&target))
     }
-    /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
@@ -551,7 +515,6 @@ impl World {
             .map(|(e, _)| e)
             .collect()
     }
-    /// Insert or replace named singleton state.
     pub fn insert_resource<R: Resource>(&mut self, r: R) {
         self.register_resource::<R>();
         self.resources
@@ -584,11 +547,9 @@ impl World {
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
         self.resource_storage::<R>().get_mut().unwrap()
     }
-    /// Current fixed-step tick.
     pub fn tick(&self) -> u64 {
         self.state.tick
     }
-    /// Fixed steps per second.
     pub fn hz(&self) -> u32 {
         self.state.hz
     }
@@ -599,11 +560,9 @@ impl World {
             hz: self.hz(),
         }
     }
-    /// One fixed step, in seconds.
     pub fn dt(&self) -> f32 {
         1.0 / self.hz() as f32
     }
-    /// Simulation time; never wall time.
     pub fn seconds(&self) -> f64 {
         self.tick() as f64 / self.hz() as f64
     }
@@ -632,6 +591,9 @@ impl World {
         let mut budget = crate::json::LIMIT;
         value.validate(&mut budget, 0).expect("publication bounds");
         let mut p = self.published.borrow_mut();
+        for (_, value) in p.iter().filter(|(other, _)| other.as_str() != key) {
+            value.validate(&mut budget, 0).expect("publication bounds");
+        }
         assert!(
             p.contains_key(key) || p.len() < 256,
             "publication key limit (256)"
@@ -670,7 +632,6 @@ impl World {
     // Sim will own clock advancement; keep the primitive private to this crate.
     pub(crate) fn step_clock(&mut self) {
         self.mutated();
-        self.in_tick = false;
         self.state.tick = self
             .state
             .tick
@@ -744,10 +705,6 @@ impl World {
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_ownership(&mut r)?;
-        next.replacement = self
-            .replacement
-            .checked_add(1)
-            .expect("replacement exhausted");
         next.epoch.set(self.epoch.get().wrapping_add(1));
         self.adopt(next)?;
         Ok(())
