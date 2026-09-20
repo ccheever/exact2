@@ -1,4 +1,4 @@
-use super::{Lease, Ref, RefMut, Storage};
+use super::{Lease, Ref, RefMut, Storage, PAGE};
 use crate::{Component, Entity, World};
 use std::any::TypeId;
 use std::cell::Cell;
@@ -73,7 +73,9 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
         *slot = Some(id);
         let storage = world.storage::<C>();
         Ok(Self {
-            mask: storage.map_or(&[], |s| s.pages.mask()),
+            mask: storage
+                .filter(|s| s.raw.len() != 0)
+                .map_or(&[], |s| s.pages.mask()),
             storage,
             _lease: None,
             page: Cell::new(std::ptr::null_mut()),
@@ -100,8 +102,8 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
     }
     fn has(&self, index: usize) -> bool {
         self.mask
-            .get(index / 64)
-            .is_some_and(|bits| bits & (1 << (index % 64)) != 0)
+            .get(index / PAGE)
+            .is_some_and(|bits| bits & (1 << (index % PAGE)) != 0)
     }
 }
 macro_rules! owned_row {
@@ -343,13 +345,13 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             return None;
         }
         let i = entity.index() as usize;
-        let word = i / 64;
-        if word >= self.words || self.state.word(word) & (1 << (i % 64)) == 0 {
+        let word = i / PAGE;
+        if word >= self.words || self.state.word(word) & (1 << (i % PAGE)) == 0 {
             return None;
         }
         for &(a, b, with) in &self.filters[..self.filter_count] {
             let bits = a.get(word).copied().unwrap_or(0) | b.get(word).copied().unwrap_or(0);
-            if (bits & (1 << (i % 64)) != 0) != with {
+            if (bits & (1 << (i % PAGE)) != 0) != with {
                 return None;
             }
         }
@@ -432,7 +434,7 @@ fn next_index<Q: Query>(
             query.state.mark_page(i);
         }
     }
-    let index = (*word - 1) * 64 + bits.trailing_zeros() as usize;
+    let index = (*word - 1) * PAGE + bits.trailing_zeros() as usize;
     *bits &= *bits - 1;
     Some(index)
 }
@@ -452,5 +454,36 @@ impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
         // and the exclusive borrow of QueryBorrow keeps leases alive for every row.
         let item = unsafe { self.query.state.fetch(index) };
         Some((self.query.world.live_entity(index), item))
+    }
+}
+
+#[cfg(test)]
+mod cost_tests {
+    use super::*;
+    #[derive(Default, crate::Component)]
+    struct C;
+    #[test]
+    fn empty_required_columns_and_empty_worlds_prepare_zero_query_words() {
+        let mut w = World::new(60, 0);
+        w.register::<C>().unwrap();
+        let n = if cfg!(miri) { 321 } else { crate::MAX_ENTITIES };
+        for _ in 0..n {
+            w.spawn(()).unwrap();
+        }
+        let high = w.entity_at(n - 1).unwrap();
+        w.insert(high, C).unwrap();
+        assert!(w.query::<&C>().words > 0);
+        w.remove::<C>(high);
+        assert_eq!(
+            w.query::<&C>().words,
+            0,
+            "empty column scanned high-water words"
+        );
+        for i in 0..n {
+            w.despawn(w.entity_at(i).unwrap());
+        }
+        assert_eq!(w.query::<Option<&C>>().words, 0);
+        let e = w.spawn(C).unwrap();
+        assert_eq!(w.query::<&C>().iter().next().unwrap().0, e);
     }
 }

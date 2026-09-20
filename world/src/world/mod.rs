@@ -394,7 +394,7 @@ impl World {
         }
         let word = index as usize / 64;
         if word >= self.alive_mask.len() {
-            self.alive_mask.push(0);
+            self.alive_mask.resize(word + 1, 0);
         }
         self.alive_mask[word] |= 1 << (index % 64);
         self.entities_revision = self.entities_revision.wrapping_add(1);
@@ -436,6 +436,9 @@ impl World {
             }
         }
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
+        while self.alive_mask.last() == Some(&0) {
+            self.alive_mask.pop();
+        }
         self.state.free.0.insert(e.index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.record_change(e, crate::ChangeKind::Despawn);
@@ -981,6 +984,9 @@ impl World {
         }
         if seen != 15 {
             return Err(DataError::new("incomplete world save"));
+        }
+        while self.alive_mask.last() == Some(&0) {
+            self.alive_mask.pop();
         }
         self.rebuild_owners();
         Ok(())

@@ -593,3 +593,9 @@ and undamped oscillations do not become quiescent. exact-motion validates derive
 frequency squared in [1e-12, 1e12] and damping rate in [0, 1e6], refusing numerical
 overflow/underflow at construction and decode. Presentation still snaps at 10 s;
 World Spring reports no deadline when that cap is not permanently at rest.
+
+Empty required columns and empty worlds now prepare zero query words; empty
+page iteration also short-circuits. Nonempty sparse queries remain explicit
+O(highest-live-slot/64 × terms + rows); despawn visits at most 256 registered
+columns. First high-slot insertion pays the documented 75,000-byte directory
+plus one value chunk; its test name now states that bound honestly.

@@ -17,20 +17,23 @@ impl<'w, C: Component> Pages<'w, C> {
     }
     /// Allocated pages in ascending entity-index order, skipping empty pages.
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {
-        self.storage.into_iter().flat_map(|s| {
-            s.pages
-                .mask()
-                .iter()
-                .enumerate()
-                .filter(|(_, mask)| **mask != 0)
-                .map(|(i, mask)| Page {
-                    first: (i * PAGE) as u32,
-                    generation: s.pages.chunks()[i].generation.get(),
-                    mask,
-                    slots: s.pages.chunks()[i].ptr.cast::<C>(),
-                    _life: PhantomData,
-                })
-        })
+        self.storage
+            .filter(|s| s.raw.len() != 0)
+            .into_iter()
+            .flat_map(|s| {
+                s.pages
+                    .mask()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, mask)| **mask != 0)
+                    .map(|(i, mask)| Page {
+                        first: (i * PAGE) as u32,
+                        generation: s.pages.chunks()[i].generation.get(),
+                        mask,
+                        slots: s.pages.chunks()[i].ptr.cast::<C>(),
+                        _life: PhantomData,
+                    })
+            })
     }
 }
 

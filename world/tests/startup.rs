@@ -86,7 +86,7 @@ fn construction_activation_restore_counts() {
 }
 
 #[test]
-fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
+fn first_high_slot_insertion_allocates_bounded_directory_and_one_value_chunk() {
     let mut w = World::new(60, 0);
     w.register::<CellValue>().unwrap();
     for _ in 0..MAX_ENTITIES {
@@ -94,7 +94,7 @@ fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
     }
     let e = w.resolve("#199999").unwrap();
     let (_, counts) = counting::measure(|| w.insert(e, CellValue::default()).unwrap());
-    report("insert.slot199999", counts, (4, 80000));
+    report("insert.slot199999", counts, (4, 77536));
     assert_eq!(
         w.query::<&CellValue>()
             .iter()
