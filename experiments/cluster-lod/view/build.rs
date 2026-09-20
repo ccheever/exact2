@@ -1,4 +1,5 @@
 fn main() {
+    println!("cargo:rerun-if-changed=shaders");
     let mut failures = Vec::new();
     let mut count = 0;
     for entry in std::fs::read_dir("shaders").expect("shader directory") {

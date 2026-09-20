@@ -1,7 +1,7 @@
 # Cluster LOD — offline bake and CPU reference renderer
 
 Standalone experiment for LLP 1041.011 O1 / §5 Q2. L1 builds the file and numerical
-oracles; GPU rendering, timing and the interactive camera demonstration belong to L2.
+oracles; L2a adds Metal/WebGPU hardware rasterization and the CPU reference selector.
 The vendored meshoptimizer v1.2 and `demo/clusterlod.h` are unchanged.
 
 **Status:** L1 verified on Linux and this Mac; CPU reference renderer implemented; measurement sweep in progress.
@@ -24,13 +24,45 @@ cargo fmt --all -- --check
 cargo build -p clod-format --target wasm32-unknown-unknown
 ```
 
-CLI output is one JSON object; failures produce an `error` object and exit 1.
+Bake output is one JSON object. View outputs JSON lines; compare/pop report all
+pairs and a summary. Failures produce an `error` object and exit 1.
 All meshes, baked outputs, exported cuts and logs belong in
 `~/Library/Caches/exact2-cluster-lod/`, never in Git.
 
+### Renderer commands
+
+```sh
+cargo build -p clod-view
+asset="$HOME/Library/Caches/exact2-cluster-lod/out/washington-1.clod"
+out="$HOME/Library/Caches/exact2-cluster-lod/out/demo"
+target/debug/clod-view render "$asset" --out "$out/lit.png" --path hero --t 0.5
+target/debug/clod-view render "$asset" --out "$out/clusters.png" --view clusters --t 0.5
+target/debug/clod-view time "$asset" --out "$out/timing.png" --layout grid:400 --frames 7
+target/debug/clod-view compare "$asset" --out "$out/compare" --threshold-px 0.5,1,2,4,8 --t 0,0.25,0.5,0.75,1
+target/debug/clod-view pop "$asset" --out "$out/pop" --threshold-px 1 --steps 240
+cargo test --workspace --no-fail-fast -- --nocapture
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+cargo build -p clod-view --lib --target wasm32-unknown-unknown
+```
+
+Defaults: cluster mode, lit view, single layout, threshold 1 px, 2560×1440,
+45° vertical field of view, hero t=0. `--mode naive` uses the indexed baseline.
+Layouts: `single`, `ring:N`, `grid:N`, `field:N,seed`; N=1..10,000. Views:
+`lit|clusters|depth|triangles|instances|overdraw`. Explicit world-space camera:
+`--eye x,y,z --target x,y,z --fov degrees`. `--size WIDTHxHEIGHT` caps at 8192².
+The library accepts byte slices and caller-owned wgpu devices; I/O, timing,
+blocking map polling and PNG encoding live exclusively in the native binary.
+The browser's caller supplies cache-optimized baseline buffers if it needs naive
+mode; the native-only meshoptimizer FFI is not linked into the library or Wasm.
+
+The CLI is an offscreen demo: render arbitrary `--t` values or walk 240 samples
+with `pop`. There is no window or real-time interactive player in this lane.
+Runtime shader compilation is performed by wgpu from the build-validated WGSL.
+
 ## Format v1
 
-Little endian, magic `CLOD0001`, version 1. `clod-format/src/lib.rs` contains the
+Little endian, magic `CLOD0001`, version 1. `format/src/lib.rs` contains the
 authoritative `repr(C)`/`Pod` structs. Header and every top-level section begin on
 16-byte boundaries. Padding is zero. Section order is header, clusters, groups,
 page table, optional BVH, geometry pages. The header carries counts, byte offsets,
@@ -171,16 +203,31 @@ must be finite, nonnegative and less than `f32::MAX`.
     MAD(naive delta)) and the stronger mean absolute spatial residual of signed
     RGB deltas; saves before/after cluster and naive frames at the latter maximum.
 20. The format does not promise pixel-identical rasterization after triangle
-    reordering. On this Metal adapter allow threshold-zero max 1/255 and mean
-    <1e-6; measured mean is 1.77e-8 (rounding at identical geometry). The 1 px
+    reordering. On the procedural fixture allow threshold-zero max 1/255 and mean
+    <1e-6; final measured mean is 0 (earlier camera measured 1.77e-8). The 1 px
     procedural regression gate is mean <.008 and differing-pixel fraction <.20:
-    measured .00366/.124 before final path adjustment; this bounds image regression,
+    measured .003611/.12291; this bounds image regression,
     not Hausdorff distance or a guarantee that all changed pixels lie within 1 px.
 21. Visible-pair storage grows to a power-of-two high-water capacity per page,
     capped at 128 MiB. Reject a larger list rather than adding draws dependent
     on visibility. Baseline chunks cap indices at 128 MiB and vertices at 120 MiB.
     GPU residency counts allocated buffers/textures, with readback separate;
     driver overhead, shader binaries and allocator overhead are not measurable here.
+
+22. Keep only the current and worst frame pairs in memory in compare/pop and
+    encode the winning PNGs once at the end. This removes repeated PNG writes
+    from the camera sweep without changing the error equations. Adapter skips
+    write directly to stderr so libtest cannot hide them in its default capture.
+
+23. Evaluate shadow transforms as `light * (model * position)` in both paths and
+    mark clip positions invariant. An initial different multiplication grouping
+    caused 163/85 changed pixels (>2/255) in Gaul/Washington close-ups at threshold
+    zero. The corrected close-ups are exact. A probe preserving source triangle
+    order also makes the far images exact; cache optimization leaves one changed
+    pixel there (max 18/255 Gaul, 4/255 Washington). Keep the cache-optimized
+    baseline and allow at most 8 such pixels, max 20/255, mean <1e-7 on the scans.
+    `tests/real_assets.rs` checks both orders at t=0,.5,1; skips loudly if cached
+    scans or a GPU are unavailable. The standard procedural test needs no files.
 
 ## Results
 

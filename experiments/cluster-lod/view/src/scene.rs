@@ -54,9 +54,6 @@ impl AssetBounds {
     pub fn center(self) -> Vec3 {
         (self.min + self.max) * 0.5
     }
-    pub fn radius(self) -> f32 {
-        (self.max - self.min).length() * 0.5
-    }
 }
 #[derive(Clone, Debug)]
 pub struct Scene {

@@ -52,6 +52,9 @@ pub fn device_descriptor(timestamps: bool) -> wgpu::DeviceDescriptor<'static> {
 pub async fn request_device(
     timing: bool,
 ) -> Result<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)> {
+    if wgpu::Instance::enabled_backend_features().is_empty() {
+        return Err("NO ADAPTER: this target has no compiled Metal/WebGPU backend".into());
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::METAL | wgpu::Backends::BROWSER_WEBGPU,
         ..wgpu::InstanceDescriptor::new_without_display_handle()

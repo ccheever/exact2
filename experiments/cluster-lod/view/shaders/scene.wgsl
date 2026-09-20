@@ -11,7 +11,7 @@ struct Globals {
 @group(2) @binding(0) var shadow_map: texture_depth_2d;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 struct VertexOut {
-    @builtin(position) clip: vec4<f32>,
+    @invariant @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>, @location(1) normal: vec3<f32>,
     @location(2) color: vec4<f32>,
     @location(3) @interpolate(flat) ids: vec4<u32>,
@@ -46,7 +46,7 @@ fn pulled(v:u32, slot:u32) -> VertexOut {
     return vertex(p,geometry[address+3u],geometry[address+4u],item.y,vec4(item.x,clusters[base+28u],v/3u,item.y));
 }
 @vertex fn pull(@builtin(vertex_index) v:u32,@builtin(instance_index) slot:u32)->VertexOut { return pulled(v,slot); }
-@vertex fn shadow_pull(@builtin(vertex_index) v:u32,@builtin(instance_index) slot:u32)->@builtin(position) vec4<f32> {
+@vertex fn shadow_pull(@builtin(vertex_index) v:u32,@builtin(instance_index) slot:u32)->@invariant @builtin(position) vec4<f32> {
     let p=pulled(v,slot);
     if v>=clusters[visible[slot].x*32u+27u]*3u { return vec4(2.0,2.0,2.0,1.0); }
     return g.light_vp*vec4(p.world,1.0);
@@ -55,8 +55,9 @@ struct Input { @location(0) position:vec3<f32>, @location(1) normal:u32, @locati
 @vertex fn indexed(v:Input,@builtin(vertex_index) id:u32,@builtin(instance_index) instance:u32)->VertexOut {
     return vertex(v.position,v.normal,v.color,instance,vec4(0u,0u,id,instance));
 }
-@vertex fn shadow_indexed(v:Input,@builtin(instance_index) instance:u32)->@builtin(position) vec4<f32> {
-    return g.light_vp*transforms[instance]*vec4(v.position,1.0);
+@vertex fn shadow_indexed(v:Input,@builtin(instance_index) instance:u32)->@invariant @builtin(position) vec4<f32> {
+    let world=transforms[instance]*vec4(v.position,1.0);
+    return g.light_vp*world;
 }
 @vertex fn ground(@builtin(vertex_index) id:u32)->VertexOut {
     let corners=array(vec2(-1.0,-1.0),vec2(1.0,-1.0),vec2(-1.0,1.0),vec2(-1.0,1.0),vec2(1.0,-1.0),vec2(1.0,1.0));

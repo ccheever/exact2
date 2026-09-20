@@ -60,8 +60,11 @@ fn image_oracles() {
     let (device, queue, adapter) = match pollster::block_on(clod_view::request_device(false)) {
         Ok(result) => result,
         Err(e) if e.starts_with("NO ADAPTER:") => {
-            println!(
-                "SKIP GPU ORACLES LOUDLY: {e}; executed descriptor and transform tests, 0 images"
+            let _ = std::io::Write::write_fmt(
+                &mut std::io::stderr(),
+                format_args!(
+                    "SKIP GPU ORACLES: {e}; executed descriptor and transform tests, 0 images\n"
+                ),
             );
             assert!(failures.is_empty(), "{failures:?}");
             return;

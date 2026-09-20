@@ -6,7 +6,7 @@ mod prepare;
 mod readback;
 use clod_format::Reader;
 use clod_view::{
-    Mode, Renderer, View,
+    Mode, Renderer,
     scene::Scene,
     select::{self, Selection},
 };
@@ -154,26 +154,14 @@ fn sample(
             &scene.instances,
             &scene.light_camera(),
             2048,
-            threshold * 2.0,
+            (threshold * 2.0).min(f32::MAX / 2.0),
         )
     } else {
         Selection::default()
     };
     let shadow_selection_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    let frame = renderer.render(
-        scene,
-        &camera,
-        if renderer.mode == Mode::Naive
-            && matches!(options.view, View::Clusters | View::Depth | View::Triangles)
-        {
-            View::Lit
-        } else {
-            options.view
-        },
-        &selection,
-        &shadow,
-    )?;
+    let frame = renderer.render(scene, &camera, options.view, &selection, &shadow)?;
     let encode_ms = start.elapsed().as_secs_f64() * 1000.0;
     let (pixels, times) = readback::read(renderer, &frame)?;
     let s = frame.stats;
@@ -197,6 +185,7 @@ fn compare(
     let mut checked = 0;
     let mut worst = -1.0;
     let mut worst_info = json!(null);
+    let mut worst_frames = Vec::new();
     for &t in &o.times {
         let reference = match sample(naive, reader, scene, o, t, 0.0) {
             Ok(s) => s,
@@ -220,7 +209,6 @@ fn compare(
             if d.mean > worst {
                 worst = d.mean;
                 worst_info = line;
-                let dir = o.output_dir();
                 let mut difference = Vec::with_capacity(s.pixels.len());
                 for (a, b) in s
                     .pixels
@@ -232,16 +220,17 @@ fn compare(
                     }
                     difference.push(255);
                 }
-                for (name, pixels) in [
-                    ("worst-cluster.png", &s.pixels),
-                    ("worst-naive.png", &reference.pixels),
-                    ("worst-diff-10x.png", &difference),
-                ] {
-                    if let Err(e) = save(&dir.join(name), pixels, o.width, o.height) {
-                        failures.push(e);
-                    }
-                }
+                worst_frames = vec![
+                    ("worst-cluster.png", s.pixels),
+                    ("worst-naive.png", reference.pixels.clone()),
+                    ("worst-diff-10x.png", difference),
+                ];
             }
+        }
+    }
+    for (name, pixels) in worst_frames {
+        if let Err(e) = save(&o.output_dir().join(name), &pixels, o.width, o.height) {
+            failures.push(e);
         }
     }
     println!(
@@ -264,6 +253,7 @@ fn pop(
     o: &Options,
 ) -> Result<()> {
     let mut previous: Option<(Sample, Sample)> = None;
+    let mut worst_frames = Vec::new();
     let mut worst = -1.0;
     let mut worst_step = 0;
     let mut max_signed = f64::NEG_INFINITY;
@@ -317,19 +307,20 @@ fn pop(
             if metric > worst {
                 worst = metric;
                 worst_step = step;
-                for (name, pixels) in [
-                    ("pop-before.png", &pc.pixels),
-                    ("pop-after.png", &c.pixels),
-                    ("pop-naive-before.png", &pn.pixels),
-                    ("pop-naive-after.png", &n.pixels),
-                ] {
-                    if let Err(e) = save(&o.output_dir().join(name), pixels, o.width, o.height) {
-                        failures.push(e);
-                    }
-                }
+                worst_frames = vec![
+                    ("pop-before.png", pc.pixels.clone()),
+                    ("pop-after.png", c.pixels.clone()),
+                    ("pop-naive-before.png", pn.pixels.clone()),
+                    ("pop-naive-after.png", n.pixels.clone()),
+                ];
             }
         }
         previous = Some((c, n));
+    }
+    for (name, pixels) in worst_frames {
+        if let Err(e) = save(&o.output_dir().join(name), &pixels, o.width, o.height) {
+            failures.push(e);
+        }
     }
     println!(
         "{}",
