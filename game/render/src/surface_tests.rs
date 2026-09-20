@@ -579,24 +579,35 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
     assert_eq!(s.presentation.gestures, 1);
 }
 
-#[test]
-fn fresh_touch_region_matches_rendered_and_headless_worlds() {
-    struct Touch;
-    impl Game for Touch {
-        const ID: &'static str = "touch-parity";
-        type Args = ();
-        fn setup(w: &mut World, _: &()) {
-            w.spawn_named("player", Transform::default());
-        }
-        fn actions() -> exact_game::Actions {
-            exact_game::Actions::new().button_touch("act", exact_game::Region::Right)
-        }
-        fn tick(w: &mut World, i: &Input, _: &()) {
-            if i.held("act") {
-                w.get_mut::<Transform>("player").unwrap().position.x += 1.;
-            }
+struct Touch;
+impl Game for Touch {
+    const ID: &'static str = "touch-parity";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("player", Transform::default());
+    }
+    fn actions() -> exact_game::Actions {
+        exact_game::Actions::new().button_touch("act", exact_game::Region::Right)
+    }
+    fn tick(w: &mut World, i: &Input, _: &()) {
+        if i.held("act") {
+            w.get_mut::<Transform>("player").unwrap().position.x += 1.;
         }
     }
+}
+
+// Inspection is read-only; both parity tests must explicitly advance host time.
+fn touch_clock(surface: &mut WorldSurface<Touch>, now: f64) {
+    let reply = surface
+        .agent(&format!(
+            r#"{{"op":"clock","now":{now},"width":64,"height":64}}"#
+        ))
+        .unwrap();
+    assert!(!reply.contains("error"), "{reply}");
+}
+
+#[test]
+fn fresh_touch_region_matches_rendered_and_headless_worlds() {
     let Some(gpu) = gpu() else { return };
     let mut rendered = WorldSurface::<Touch>::default();
     let mut headless = WorldSurface::<Touch>::default();
@@ -614,9 +625,9 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
         });
     }
     fixture::render(&gpu, &mut rendered, &frame(17.)).unwrap();
-    headless
-        .agent(r#"{"op":"state","now":17,"width":64,"height":64}"#)
-        .unwrap();
+    touch_clock(&mut headless, 17.);
+    assert_eq!(rendered.sim().unwrap().world().tick(), 1);
+    assert_eq!(headless.sim().unwrap().world().tick(), 1);
     assert_eq!(
         rendered.sim().unwrap().global_position("player").unwrap().x,
         1.
@@ -625,6 +636,74 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
         rendered.sim().unwrap().world().hash(),
         headless.sim().unwrap().world().hash()
     );
+}
+
+#[test]
+fn fresh_touch_region_matches_headless_presentation_and_sim_each_tick() {
+    let mut headless = WorldSurface::<Touch>::default();
+    headless.bind(&[], Some(0.)).unwrap();
+    let mut reference = Sim::<Touch>::new(()).unwrap();
+    reference.advance(0., Clock::Seekable);
+    assert_eq!(
+        headless.sim().unwrap().world().hash(),
+        reference.world().hash()
+    );
+    assert_eq!(
+        headless.carry().unwrap().unwrap(),
+        reference.save().unwrap()
+    );
+
+    use exact_game::PointerPhase as E;
+    use exact_gpu::PointerPhase as H;
+    for (index, (phase, sim_phase, at_ms, now, x)) in [
+        (H::Down, E::Down, 0., 17., 1.),
+        (H::Move, E::Move, 17., 34., 2.),
+        (H::Up, E::Up, 34., 50., 2.),
+        (H::Down, E::Down, 50., 67., 3.),
+        (H::Cancel, E::Cancel, 67., 84., 3.),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        headless.input(&InputEvent::Pointer {
+            id: 1,
+            phase,
+            x: 48.,
+            y: 32.,
+            kind: exact_gpu::PointerKind::Touch,
+            buttons: 1,
+            at_ms,
+        });
+        reference.input(exact_game::InputEvent::Pointer {
+            id: 1,
+            phase: sim_phase,
+            x: 48.,
+            y: 32.,
+            at_ms,
+        });
+
+        // Incidental inspection dimensions and timestamps must not consume input.
+        let before = headless.carry().unwrap().unwrap();
+        let reply = headless
+            .agent(r#"{"op":"state","now":999999,"width":128,"height":64}"#)
+            .unwrap();
+        assert!(!reply.contains("error"), "{reply}");
+        assert_eq!(headless.carry().unwrap().unwrap(), before);
+
+        reference.viewport(64., 64.);
+        reference.advance(now, Clock::Seekable);
+        touch_clock(&mut headless, now);
+        let actual = headless.sim().unwrap();
+        assert_eq!(actual.world().tick(), index as u64 + 1);
+        assert_eq!(actual.global_position("player").unwrap().x, x);
+        assert_eq!(actual.world().hash(), reference.world().hash());
+        assert_eq!(actual.world().save(), reference.world().save());
+        // Includes authored base, input declarations, pending contacts and EXSIM time.
+        assert_eq!(
+            headless.carry().unwrap().unwrap(),
+            reference.save().unwrap()
+        );
+    }
 }
 
 #[test]

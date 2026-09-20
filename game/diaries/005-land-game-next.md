@@ -688,3 +688,65 @@ Affected core:
 - `native::placement_abi_tests::retiring_each_releases_textures_and_zero_frame_releases_a_capture`
 - `native::placement_abi_tests::replacement_lost_during_preparation_refuses_then_retries`
 - `native::placement_abi_tests::recovery_of_a_healthy_device_does_not_prepare_again`
+
+## LANDFIX1 — fresh touch parity on a real Mac GPU
+
+The unmodified reproducer failed on this Mac with the reported hashes:
+rendered `9202442258233057753`, headless `10118339518646435961`.
+A temporary test dumped `state world:*`-equivalent component JSON and resource/
+clock state at 0, 17, 34 and 50 ms, and compared rendered world bytes against
+a direct `Sim::new(())` given the same viewport and input. It was removed after
+diagnosis; local output is in `game/target/landfix1/diagnostic-canonical.log`.
+
+| Host ms | Rendered tick / player Transform.position.x | Headless test tick / x | Direct Sim tick / x |
+| --- | --- | --- | --- |
+| 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| 17 | 1 / 1 | 0 / 0 | 1 / 1 |
+| 34 | 2 / 2 | 0 / 0 | 2 / 2 |
+| 50 | 3 / 3 | 0 / 0 | 3 / 3 |
+
+The first mismatch is at 17 ms: world tick 1 versus 0, and
+`player.Transform.position.x` 1 versus 0. Resources are empty on every path;
+rendered and direct Sim world saves are byte-identical at all four samples.
+There is no tick-zero construction, authored-base or restore divergence.
+
+Root cause: `93782c1c` made inspection read-only, but the old renderer test
+still used `state(now:17,width:64,height:64)` as its headless frame.
+That neither advances the clock nor installs the input viewport, so the test
+compared an advanced rendered world to an untouched headless world.
+Restoring the old inspection side effect would violate the documented ownership/
+capture semantics and the existing engine regressions.
+
+The fix uses the explicit `clock` operation with dimensions, shared by the
+GPU test and a new device-free headless-presentation-versus-Sim regression.
+The original hash assertion remains; explicit tick assertions now precede it.
+The device-free case compares the initial hash and full EXSIM bytes, then
+tick, position, hash, world bytes and full EXSIM bytes after each of five
+touch down/move/up/down/cancel steps. Incidental timestamped state reads must
+leave the save unchanged. Before the clock fix, this new regression failed
+without requesting an adapter: expected tick 1, got 0.
+
+Verification (one fix round; prescribed Mac environment; Cargo run from `game/`):
+
+- `cargo test -p exact-game-render --lib fresh_touch_region -- --nocapture`:
+  2 passed, 0 failed, 0 ignored (GPU original and device-free regression).
+- `cargo test -p exact-game-render --lib`: 108 passed, 0 failed, 6 existing
+  ignored tests; the actual adapter executed the GPU tests.
+- `cargo test -p exact-game --no-fail-fast`: 452 passed, 0 failed, 8 existing
+  ignored tests across 28 suites, including 37 passing doctests.
+- `cargo test -p exact-game-render restoring_fox_uploads_zero_asset_bytes_after_ready -- --nocapture`:
+  exit 0. The real Fox acceptance ran and passed, without changes to that test
+  or its implementation. Its unfiltered library result was:
+
+```text
+running 1 test
+test surface::residency_tests::restoring_fox_uploads_zero_asset_bytes_after_ready ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 113 filtered out; finished in 0.22s
+```
+
+The named Fox command's integration-test binaries each had zero matching tests;
+they also exited successfully. Local full output is `game/target/landfix1/fox.log`;
+the engine and renderer results are beside it as `engine.log` and `render-lib.log`.
+Changed-file rustfmt, staged caps, boot and `git diff --check` passed.
+No runtime changes, pin changes, assertion removals, pushes or sub-agents.
