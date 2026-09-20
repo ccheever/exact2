@@ -90,6 +90,7 @@ fn idempotent_recursive_registration_runs_hook_once() {
 fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
     let mut w = World::new(60, 0);
     w.register::<Count>().unwrap();
+    let consumer = w.subscribe_changes().unwrap();
     let es: Vec<_> = (0..257).map(|_| w.spawn(()).unwrap()).collect();
     for pair in es.windows(2) {
         w.set_parent(pair[0], Some(pair[1])).unwrap();
@@ -107,8 +108,9 @@ fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
     w.reap_orphans().unwrap();
     assert!(w.is_empty());
     let removed: Vec<_> = w
-        .changes(0)
+        .changes(&consumer)
         .unwrap()
+        .events
         .filter(|e| e.kind == ChangeKind::Despawn)
         .map(|e| e.entity.index())
         .collect();
@@ -144,6 +146,8 @@ fn decoded_ownership_cycle_refuses_atomically() {
 fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restore() {
     let mut s = Sim::<Still>::new(()).unwrap();
     let w = s.world_mut();
+    let consumer = w.subscribe_changes().unwrap();
+    let start = w.change_cursor();
     let a = w.spawn(Count(1)).unwrap();
     let owner = w.spawn(()).unwrap();
     w.insert(a, Count(2)).unwrap();
@@ -154,8 +158,14 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
     assert_ne!(a.generation(), b.generation());
     let cursor = w.change_cursor();
     s.run(1000.).unwrap();
-    let retained: Vec<_> = s.world().changes(0).unwrap().cloned().collect();
-    assert_eq!(retained.len() as u64, cursor);
+    let retained: Vec<_> = s
+        .world()
+        .changes(&consumer)
+        .unwrap()
+        .events
+        .cloned()
+        .collect();
+    assert_eq!(retained.len() as u64, cursor - start);
     assert!(retained
         .iter()
         .any(|e| e.entity == a && matches!(e.kind, ChangeKind::Replace(_))));
@@ -169,21 +179,29 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
     s.restore(&bytes).unwrap();
     assert_eq!(
         s.world()
-            .changes(0)
+            .changes(&consumer)
             .unwrap()
+            .events
             .take(retained.len())
             .cloned()
             .collect::<Vec<_>>(),
         retained
     );
     assert_eq!(
-        s.world().changes(cursor).unwrap().last().unwrap().kind,
+        s.world()
+            .changes(&consumer)
+            .unwrap()
+            .events
+            .last()
+            .unwrap()
+            .kind,
         ChangeKind::Reset
     );
     let cursor = s.world().change_cursor();
-    s.world_mut().consume_changes(cursor).unwrap();
-    assert!(s.world().changes(0).is_err());
-    assert_eq!(s.world().changes(cursor).unwrap().count(), 0);
+    s.world_mut()
+        .acknowledge_changes(&consumer, cursor)
+        .unwrap();
+    assert_eq!(s.world().changes(&consumer).unwrap().events.count(), 0);
 }
 #[test]
 fn pending_io_is_distinct_from_saved_simulation_deadlines() {
@@ -459,17 +477,13 @@ fn full_entity_and_journal_limits_refuse_without_losing_events() {
     }
     assert!(w.spawn(()).is_err());
     assert_eq!(w.len(), MAX_ENTITIES);
-    let cursor = w.change_cursor();
-    w.consume_changes(cursor).unwrap();
+    let consumer = w.subscribe_changes().unwrap();
     let e = w.resolve("#0").unwrap();
     for n in 0..1_000_000 {
         w.insert(e, Count(n)).unwrap();
     }
-    // Ordinary components reserve one event; ownership edits reserve two.
-    let cursor = w.change_cursor();
-    assert!(w.insert(e, Count(0)).is_err());
-    assert_eq!(w.change_cursor(), cursor);
-    assert_eq!(w.changes(cursor - 1).unwrap().count(), 1);
+    w.insert(e, Count(0)).unwrap();
+    assert!(w.changes(&consumer).unwrap().resync);
 }
 
 #[test]
@@ -733,7 +747,7 @@ fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
 }
 
 #[test]
-fn refused_orphan_reap_cannot_repeat_game_logic() {
+fn lagging_consumer_cannot_refuse_orphan_reaping() {
     thread_local! { static TICKS: Cell<u32> = const { Cell::new(0) }; }
     struct G;
     impl Game for G {
@@ -755,14 +769,16 @@ fn refused_orphan_reap_cannot_repeat_game_logic() {
     }
     TICKS.set(0);
     let mut s = Sim::<G>::new(()).unwrap();
+    let consumer = s.world_mut().subscribe_changes().unwrap();
     let parent = s.world().named("parent").unwrap();
-    while s.world().change_cursor() < 999_999 {
+    while s.world().change_cursor() < 5000 {
         s.world_mut().insert(parent, Count(0)).unwrap();
     }
-    assert!(s.run(17.).is_err());
-    assert!(s.run(17.).is_err());
+    assert_eq!(s.run(17.).unwrap(), 1);
     assert_eq!(TICKS.get(), 1);
-    assert!(s.save().is_err());
+    assert!(s.world().is_empty());
+    assert!(s.world().changes(&consumer).unwrap().resync);
+    assert!(s.save().is_ok());
 }
 
 #[test]
@@ -826,4 +842,39 @@ fn sim_exact_restore_refuses_renamed_fields_and_carry_reports_adaptation() {
     assert!(new.carry(&saved).unwrap());
     assert_eq!(new.world().get::<After>("#0").unwrap().score, 0);
     assert!(!new.carry(&new.save().unwrap()).unwrap());
+}
+
+#[test]
+fn subscriptions_retain_the_minimum_ack_and_suffix_reads_have_exact_size() {
+    let mut w = World::new(60, 0);
+    let slow = w.subscribe_changes().unwrap();
+    let fast = w.subscribe_changes().unwrap();
+    for _ in 0..4000 {
+        w.spawn(()).unwrap();
+    }
+    let end = w.changes(&fast).unwrap().next;
+    w.acknowledge_changes(&fast, end - 1).unwrap();
+    assert_eq!(w.changes(&fast).unwrap().events.len(), 1);
+    assert_eq!(w.changes(&slow).unwrap().events.len(), 4000);
+    assert!(w.acknowledge_changes(&fast, end + 1).is_err());
+    let mut foreign = World::new(60, 0);
+    assert!(foreign.changes(&slow).is_err());
+    assert!(foreign.acknowledge_changes(&slow, 0).is_err());
+    for _ in 0..200 {
+        w.spawn(()).unwrap();
+    }
+    let old = w.changes(&slow).unwrap();
+    assert!(old.resync);
+    assert_eq!(old.events.len(), 0);
+    let end = old.next;
+    w.acknowledge_changes(&slow, end).unwrap();
+    assert!(!w.changes(&slow).unwrap().resync);
+    assert_eq!(w.changes(&fast).unwrap().events.len(), 201);
+    let mut consumers = vec![slow, fast];
+    for _ in 2..64 {
+        consumers.push(w.subscribe_changes().unwrap());
+    }
+    assert!(w.subscribe_changes().is_err());
+    consumers.pop();
+    assert!(w.subscribe_changes().is_ok());
 }

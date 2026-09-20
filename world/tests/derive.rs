@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/k1b-1")
+        .join("scratch/K1b-2")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {

@@ -12,7 +12,7 @@ pub mod storage;
 pub use storage::{Page, Pages, Query, QueryBorrow, QueryIter, QueryRows, Ref, RefMut, PAGE};
 mod world;
 pub use world::inspect::{Ambient, Readiness, Work};
-pub use world::journal::{Change, ChangeKind, Event, EventKind};
+pub use world::journal::{Change, ChangeConsumer, ChangeKind, Changes, Event, EventKind};
 pub use world::ownership::Parent;
 pub use world::{Bundle, Component, Entity, Resource, Target, World, WorldId};
 pub mod args;

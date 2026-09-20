@@ -1,7 +1,14 @@
 use super::*;
 type StaticText = std::borrow::Cow<'static, str>;
-/// Retained module journal capacity. Exhaustion refuses before the next edit.
-pub const CHANGE_LIMIT: usize = 1_000_000;
+/// Retained structural suffix. Lagging consumers resynchronize; edits never wait.
+pub const CHANGE_LIMIT: usize = 4096;
+/// Independent acknowledgement; dropping the handle releases its retention claim.
+pub struct ChangeConsumer(std::rc::Rc<std::cell::Cell<u64>>);
+pub struct Changes<'a> {
+    pub next: u64,
+    pub resync: bool,
+    pub events: std::collections::vec_deque::Iter<'a, Change>,
+}
 #[derive(Clone, Debug, Default, Data, PartialEq, Eq)]
 pub enum ChangeKind {
     #[default]
@@ -43,19 +50,22 @@ impl World {
         {
             return Err(DataError::new("journal cursor exhausted"));
         }
-        if self.changes.len().saturating_add(count) > CHANGE_LIMIT {
-            Err(DataError::new("structural journal full; consume changes"))
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
     pub(super) fn record_change(&mut self, entity: Entity, kind: ChangeKind) {
+        self.prune_changes();
         let sequence = self.change_next;
         self.change_next = sequence
             .checked_add(1)
             .expect("structural sequence exhausted");
         if kind != ChangeKind::Reset {
             self.event(EventKind::Structural(kind.clone(), entity));
+        }
+        if self.consumers.is_empty() {
+            return;
+        }
+        if self.changes.len() == CHANGE_LIMIT {
+            self.changes.pop_front();
         }
         self.changes.push_back(Change {
             sequence,
@@ -68,27 +78,62 @@ impl World {
     pub fn change_cursor(&self) -> u64 {
         self.change_next
     }
-    pub fn changes(&self, since: u64) -> Result<impl Iterator<Item = &Change>, DataError> {
-        if since > self.change_next
-            || self
-                .changes
-                .front()
-                .map_or(self.change_next, |c| c.sequence)
-                > since
-        {
-            return Err(DataError::new("structural cursor no longer retained"));
+    pub fn subscribe_changes(&mut self) -> Result<ChangeConsumer, DataError> {
+        self.prune_changes();
+        if self.consumers.len() == 64 {
+            return Err(DataError::new("structural consumer limit (64)"));
         }
-        Ok(self.changes.iter().filter(move |c| c.sequence >= since))
+        let cursor = std::rc::Rc::new(std::cell::Cell::new(self.change_next));
+        self.consumers.push(std::rc::Rc::downgrade(&cursor));
+        Ok(ChangeConsumer(cursor))
     }
-    /// Acknowledge every event before through. Multiple consumers acknowledge their minimum cursor.
-    pub fn consume_changes(&mut self, through: u64) -> Result<(), DataError> {
-        if through > self.change_next {
-            return Err(DataError::new("future structural cursor"));
+    pub fn changes(&self, consumer: &ChangeConsumer) -> Result<Changes<'_>, DataError> {
+        if !self
+            .consumers
+            .iter()
+            .any(|c| c.ptr_eq(&std::rc::Rc::downgrade(&consumer.0)))
+        {
+            return Err(DataError::new("consumer belongs to another world"));
         }
-        while self.changes.front().is_some_and(|c| c.sequence < through) {
-            self.changes.pop_front();
+        let first = self.change_next - self.changes.len() as u64;
+        let since = consumer.0.get();
+        let resync = since < first;
+        let offset = if resync {
+            self.changes.len()
+        } else {
+            (since - first) as usize
+        };
+        Ok(Changes {
+            next: self.change_next,
+            resync,
+            events: self.changes.range(offset..),
+        })
+    }
+    pub fn acknowledge_changes(
+        &mut self,
+        consumer: &ChangeConsumer,
+        through: u64,
+    ) -> Result<(), DataError> {
+        self.changes(consumer)?;
+        if through < consumer.0.get() || through > self.change_next {
+            return Err(DataError::new("invalid structural acknowledgement"));
         }
+        consumer.0.set(through);
+        self.prune_changes();
         Ok(())
+    }
+    fn prune_changes(&mut self) {
+        self.consumers.retain(|c| c.strong_count() != 0);
+        let min = self
+            .consumers
+            .iter()
+            .filter_map(|c| c.upgrade())
+            .map(|c| c.get())
+            .min()
+            .unwrap_or(self.change_next);
+        let first = self.change_next.saturating_sub(self.changes.len() as u64);
+        let count = min.saturating_sub(first).min(self.changes.len() as u64) as usize;
+        self.changes.drain(..count);
     }
     pub(super) fn event(&self, kind: EventKind) {
         let mut journal = self.journal.borrow_mut();
@@ -220,10 +265,8 @@ impl World {
             .replacement
             .checked_add(1)
             .ok_or_else(|| DataError::new("replacement exhausted"))?;
-        self.changes
-            .try_reserve(1)
-            .map_err(crate::data::limits::allocation)?;
         next.changes = std::mem::take(&mut self.changes);
+        next.consumers = std::mem::take(&mut self.consumers);
         next.change_next = self.change_next;
         next.record_change(Entity::default(), ChangeKind::Reset);
         next.session_journal = std::mem::take(&mut self.session_journal);
@@ -243,15 +286,20 @@ mod atomic_tests {
     #[derive(Default, crate::Component)]
     struct C(u32);
     #[test]
-    fn spawn_capacity_refusal_does_not_publish_an_empty_entity() {
+    fn no_consumer_retains_nothing_and_full_history_never_refuses_spawn() {
         let mut w = World::new(60, 0);
         w.register::<C>().unwrap();
-        w.changes.resize(CHANGE_LIMIT - 1, Change::default());
-        let before = w.hash();
-        let _ = catch_unwind(AssertUnwindSafe(|| w.spawn(C(7)).unwrap()));
-        assert!(w.is_empty());
-        assert_eq!(w.hash(), before);
-        assert_eq!(w.changes.len(), CHANGE_LIMIT - 1);
+        w.spawn(C(7)).unwrap();
+        assert_eq!(w.changes.capacity(), 0);
+        let consumer = w.subscribe_changes().unwrap();
+        for _ in 0..CHANGE_LIMIT {
+            w.spawn(C(7)).unwrap();
+        }
+        assert!(w.changes(&consumer).unwrap().resync);
+        assert_eq!(w.changes.len(), CHANGE_LIMIT);
+        drop(consumer);
+        w.spawn(()).unwrap();
+        assert!(w.changes.is_empty());
     }
     #[test]
     fn adopt_cursor_exhaustion_preserves_both_journals() {

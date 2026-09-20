@@ -155,3 +155,16 @@ reserve their admitted length once. The exact 10 KiB restore costs **80 allocati
 allocations are saved state/storage/journal strings, codec metadata and canonical
 re-encoding. Byte requests are not 10× smaller: decoded storage and the 10 KiB
 canonical comparison buffer are still owned. No wire/hash tags changed.
+
+Structural consumers use `subscribe_changes() -> Result<ChangeConsumer, DataError>`,
+`changes(&consumer) -> Result<Changes<'_>, DataError>` and
+`acknowledge_changes(&consumer, through)`. A batch has `next`, `resync` and an
+exact-size `events` iterator. There are at most 64 subscribers and 4,096 retained
+changes. No subscriber means no structural events allocated or retained. Dropped
+subscriptions are pruned on the next structural edit/subscription/acknowledgement.
+The minimum acknowledgement releases history; lag beyond the retained suffix
+returns an empty batch with `resync: true`. Rebuild derived state, then acknowledge
+`next`. Restore transfers subscriptions and appends Reset; gameplay edits never
+fail because a subscriber is slow. Reads index directly into the retained deque.
+Portable scalar math functions now directly re-export their libm implementations;
+this removes forwarding wrappers without changing signatures or arithmetic.
