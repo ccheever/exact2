@@ -185,7 +185,10 @@ fn resource_and_non_state_outputs() {
     w.publish("score", Published::Number(4.0));
     assert_eq!(w.journal_next(), n);
     assert_eq!(before, w.hash());
-    assert_eq!(w.published("score"), Some(Published::Number(4.0)));
+    assert_eq!(
+        w.publications().get("score").cloned(),
+        Some(Published::Number(4.0))
+    );
     for i in 0..5000 {
         w.log(&i.to_string()).unwrap();
     }

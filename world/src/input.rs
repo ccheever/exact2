@@ -152,7 +152,7 @@ impl Input {
         self.pressed.clear();
         self.released.clear();
     }
-    /// Simulate key membership using borrowed names before consuming any events.
+    /// Sim admission guarantees at most 64 keys; preflight borrows their names.
     /// Buttons and axes are already bounded by the 64 unique declarations.
     pub(crate) fn preflight<'a>(
         &'a self,

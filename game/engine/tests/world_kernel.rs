@@ -1,5 +1,5 @@
 //! Both libraries are dependencies of a temporary consumer, never of the root
-//! workspace or of one another. This is the only game-tree change for K1.
+//! workspace or of one another; the publication adapter has separate tests.
 use std::{fs, process::Command};
 #[test]
 fn generic_world_hash_and_data_are_identical_to_the_kernel() {

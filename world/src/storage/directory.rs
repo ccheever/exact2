@@ -94,8 +94,8 @@ impl Directory {
         }
     }
     pub(super) fn free(&mut self, index: usize) {
-        // SAFETY: the caller cleared all presence bits and transferred/dropped all
-        // values in this chunk. Directory exclusively owns the matching allocation.
+        // SAFETY: the caller retired this chunk or is dropping its owner. No lease
+        // survives; Directory exclusively owns the allocation with this layout.
         unsafe {
             let chunk = &mut *self.chunks.add(index);
             if !chunk.ptr.is_null() && self.layout.size() != 0 {

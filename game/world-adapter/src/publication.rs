@@ -1,33 +1,94 @@
 use exact_plan::Value;
-use exact_world::{Data, Number, Published, World, Writer};
+use exact_world::{Data, DataError, Number, Published, World, Writer};
 use std::rc::Rc;
 
-/// Preserve positional record/list tags when accepting a Contract value.
-pub fn from_contract(value: Value) -> Published {
-    match value {
-        Value::Unit => Published::Unit,
-        Value::Number(n) => Published::Number(n),
-        Value::Bool(b) => Published::Bool(b),
-        Value::Str(s) => Published::Str(s.to_string()),
-        Value::Option(v) => Published::Option(v.map(|v| Box::new(from_contract((*v).clone())))),
-        Value::List(v) => Published::List(v.iter().cloned().map(from_contract).collect()),
-        Value::Record(v) => Published::Record(v.iter().cloned().map(from_contract).collect()),
+// Admission precedes each allocation; no conversion may reserve an unbounded list.
+fn admit(
+    remaining: &mut usize,
+    depth: usize,
+    text: usize,
+    children: usize,
+) -> Result<(), DataError> {
+    *remaining = remaining
+        .checked_sub(64usize.saturating_add(text.saturating_mul(6)))
+        .ok_or_else(|| DataError::new("Contract conversion budget"))?;
+    if depth > 256 || children > *remaining / 64 {
+        return Err(DataError::new("Contract conversion depth/size limit"));
     }
+    Ok(())
 }
-/// Named objects need the app's declared Contract shape; they travel via JSON.
-pub fn to_contract(value: &Published) -> Option<Value> {
-    Some(match value {
+/// Preserve positional record/list tags within 65,536 bytes/visits and depth 256.
+pub fn from_contract(value: Value) -> Result<Published, DataError> {
+    let mut remaining = exact_world::json::LIMIT;
+    from_value(&value, &mut remaining, 0)
+}
+fn from_value(value: &Value, remaining: &mut usize, depth: usize) -> Result<Published, DataError> {
+    let text = value.as_str().map_or(0, str::len);
+    let children = match value {
+        Value::List(v) | Value::Record(v) => v.len(),
+        _ => 0,
+    };
+    admit(remaining, depth, text, children)?;
+    Ok(match value {
+        Value::Unit => Published::Unit,
+        Value::Number(n) => Published::Number(*n),
+        Value::Bool(b) => Published::Bool(*b),
+        Value::Str(s) => Published::Str(s.to_string()),
+        Value::Option(v) => Published::Option(
+            v.as_ref()
+                .map(|v| from_value(v, remaining, depth + 1).map(Box::new))
+                .transpose()?,
+        ),
+        Value::List(v) => Published::List(
+            v.iter()
+                .map(|v| from_value(v, remaining, depth + 1))
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Record(v) => Published::Record(
+            v.iter()
+                .map(|v| from_value(v, remaining, depth + 1))
+                .collect::<Result<_, _>>()?,
+        ),
+    })
+}
+/// Named objects require the app's declared shape and refuse positional conversion.
+pub fn to_contract(value: &Published) -> Result<Value, DataError> {
+    let mut remaining = exact_world::json::LIMIT;
+    to_value(value, &mut remaining, 0)
+}
+fn to_value(value: &Published, remaining: &mut usize, depth: usize) -> Result<Value, DataError> {
+    let text = match value {
+        Published::Str(s) => s.len(),
+        _ => 0,
+    };
+    let children = match value {
+        Published::List(v) | Published::Record(v) => v.len(),
+        _ => 0,
+    };
+    admit(remaining, depth, text, children)?;
+    Ok(match value {
         Published::Unit => Value::Unit,
         Published::Number(n) => Value::Number(*n),
         Published::Bool(b) => Value::Bool(*b),
         Published::Str(s) => Value::str(s),
-        Published::Option(v) => Value::Option(match v {
-            Some(v) => Some(Rc::new(to_contract(v)?)),
-            None => None,
-        }),
-        Published::List(v) => Value::list(v.iter().map(to_contract).collect::<Option<_>>()?),
-        Published::Record(v) => Value::record(v.iter().map(to_contract).collect::<Option<_>>()?),
-        Published::Object(_) => return None,
+        Published::Option(v) => Value::Option(
+            v.as_ref()
+                .map(|v| to_value(v, remaining, depth + 1).map(Rc::new))
+                .transpose()?,
+        ),
+        Published::List(v) => Value::list(
+            v.iter()
+                .map(|v| to_value(v, remaining, depth + 1))
+                .collect::<Result<_, _>>()?,
+        ),
+        Published::Record(v) => Value::record(
+            v.iter()
+                .map(|v| to_value(v, remaining, depth + 1))
+                .collect::<Result<_, _>>()?,
+        ),
+        Published::Object(_) => {
+            return Err(DataError::new("named record requires a Contract shape"))
+        }
     })
 }
 // One Data traversal; field names remain names until the app's shape decoder.
@@ -203,10 +264,10 @@ mod tests {
         );
         let owners = Rc::strong_count(&shared);
         for value in &cases {
-            let stored = from_contract(value.clone());
+            let stored = from_contract(value.clone()).unwrap();
             let expected = bin::to_vec(&stored).unwrap();
             assert_eq!(
-                bin::to_vec(&from_contract(to_contract(&stored).unwrap())).unwrap(),
+                bin::to_vec(&from_contract(to_contract(&stored).unwrap()).unwrap()).unwrap(),
                 expected
             );
             assert_eq!(expected, exact_game::bin::to_vec(value), "{value:?}");
@@ -251,8 +312,8 @@ mod record_tests {
         );
         assert_eq!(json(&w).unwrap(), r#"{"enabled":true,"values":[7.0,9.0]}"#);
         assert_eq!(
-            to_contract(&w.published("values").unwrap()),
-            Some(Value::list(vec![Value::Number(7.), Value::Number(9.)]))
+            to_contract(w.publications().get("values").unwrap()).unwrap(),
+            Value::list(vec![Value::Number(7.), Value::Number(9.)])
         );
         let before = w.save().unwrap();
         let record = Record {
@@ -302,4 +363,23 @@ pub fn json(world: &World) -> Result<String, exact_world::DataError> {
     }
     out.end_struct();
     out.finish()
+}
+
+#[cfg(test)]
+mod conversion_bounds {
+    use super::*;
+    #[test]
+    fn oversized_lists_strings_and_nesting_refuse_with_positive_controls() {
+        assert!(from_contract(Value::list(vec![Value::Unit; 65536])).is_err());
+        assert!(to_contract(&Published::List(vec![Published::Unit; 65536])).is_err());
+        assert!(from_contract(Value::str(&"a".repeat(65536))).is_err());
+        assert!(to_contract(&Published::Object(Default::default())).is_err());
+        let mut nested = Value::Unit;
+        for _ in 0..258 {
+            nested = Value::Option(Some(Rc::new(nested)));
+        }
+        assert!(from_contract(nested).is_err());
+        let small = Published::Record(vec![Published::Bool(true), Published::Number(7.)]);
+        assert_eq!(from_contract(to_contract(&small).unwrap()).unwrap(), small);
+    }
 }

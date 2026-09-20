@@ -305,15 +305,15 @@ removing event delivery fails the test. The old clone path fails the zero-alloca
 assertion with 68,751 allocations. New input-state capacity and event creation are
 not claimed to be allocation-free.
 
-| Fixture | Lane 1 | This lane |
+| Fixture | Before K1c | After K1c |
 |---|---:|---:|
 | Empty World | 1 / 24 | **1 / 24** |
-| 100-entity construction | 28 / 70,848 | **21 / 41,968** |
+| 100-entity construction | 21 / 42,400 | **21 / 41,968** |
 | First tick, including first publication | 3 / 640 | **3 / 640** |
-| 1,000 ticks with sparse edits among 200,000 entities | — | **0 / 0**, zero component visitor calls |
+| 1,000 ticks with sparse edits among 200,000 entities | 0 / 0 | **0 / 0**, zero component visitor calls |
 | 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 68,751 / 2,987,524 | **0 / 0** |
-| 1,000 ticks changing a publication every tick | — | **1,003 / 204,704** |
-| Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 46,873** |
+| 1,000 ticks changing a publication every tick | 1,003 / 204,704 | **1,003 / 204,704** |
+| Exact 10,240-byte restore | 80 / 47,297 | **80 / 46,873** |
 | First component at slot 199,999 | 4 / 3,064 | **4 / 77,536** |
 
 The 1,000-publication case pays for 1,000 saved event-key strings and three journal
@@ -325,7 +325,8 @@ Unchanged ownership reaping allocates nothing and leaves its status scratch
 unvisited; reverse chains, parent-slot recycling and later reuse exercise the
 unfavorable case. Spawning into a valid hierarchy also performs no ownership walk.
 
-Restore allocation calls drop **13×**. Requested bytes drop **2.26×**, not 10×.
+Relative to lane 1 (1,038 / 106,671), restore allocation calls remain **13×** lower
+and requested bytes **2.28×** lower. K1c preserves the 80 allocation calls.
 The histogram printed by the test locates the remaining requests: canonical
 re-encoding buffer growth requests 26,611 bytes; the Blob owns 6,176 bytes; the
 65-event journal backing requests 3,640; the component page 2,048; and the slot
@@ -359,14 +360,14 @@ Medians of seven samples, each with 100 traversals, on this same builder:
 
 | Shape / operation, ns/row | Engine (1,024 values) | Before (64 values) | Flat presence + 64 values |
 |---|---:|---:|---:|
-| Dense query | 1.203 | 1.928 | 1.295 |
-| Sparse query | 2.810 | 30.407 | 3.236 |
-| Dense runs | 1.023 | 0.936 | 0.704 |
-| Sparse runs | 55.700 | 34.959 | 2.836 |
+| Dense query | 1.211 | 1.928 | 1.309 |
+| Sparse query | 2.798 | 30.407 | 2.981 |
+| Dense runs | 1.034 | 0.936 | 0.704 |
+| Sparse runs | 58.212 | 34.959 | 2.910 |
 
 The engine column is the paired after measurement; its before medians were
 1.124/2.719 for dense/sparse queries and 1.028/55.983 for runs. The measured after
-ratios are 1.077× dense and 1.152× sparse. Both query targets pass; runs improve.
+ratios are 1.081× dense and 1.065× sparse. Both query targets pass; runs improve.
 
 Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
 for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes
@@ -392,6 +393,7 @@ tick, publication ticks and 1,000 sparse-edit ticks retain their prior counts.
 
 ```sh
 cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel
+cargo test --manifest-path game/Cargo.toml -p exact-world-adapter
 cargo test --manifest-path game/Cargo.toml --workspace --no-fail-fast
 cargo clippy --manifest-path game/Cargo.toml --workspace --all-targets -- -D warnings
 cargo fmt --manifest-path game/Cargo.toml --all -- --check
@@ -408,14 +410,14 @@ insertion histories across engines. It normalizes only the EXGAME header version
 the old engine's unpopulated column history is compared with new-kernel
 create/remove history. The separate 200k churn test checks history independence.
 
-World validation finishes with **95 passing tests**, including the two explicitly
+World validation finishes with **102 passing tests**, including the two explicitly
 run large controls and the lifecycle doctest; the derive test also checks 19
 compile-refusal cases. World/game clippy and formatting pass, the kernel builds
 for wasm32-unknown-unknown, and caps/boot pass. Root build/test/clippy stop at
 missing lean Hermes bakes. Authored game workspaces have 48 passes, three GPU
 failures and one ignored test.
 
-This box has no GPU adapter, Chrome or Apple SDK. The game workspace has 734
+This box has no GPU adapter, Chrome or Apple SDK. The game workspace has 737
 passing tests, 18 GPU-adapter failures and 25 ignored tests (including the optional
 throughput test, which was separately run). Bun has 146 passes, one skip and three
 browser-dependent failures. Seven consumer Linux proofs pass. Both Lanterns
@@ -431,8 +433,11 @@ The core authoring APIs remain `spawn`, `spawn_named`, `insert`, `remove`,
 admission is explicit and fallible where declared; name/generation validation
 precedes structural commit. `entity_at` now provides checked page-index lookup.
 For shared state use resources; `derived<T>()` is unsaved and cleared on replacement.
-For Contract delivery use `publish`, `publish_record`, `take_published`, `emit` and
-`take_messages`. The world hash excludes delivery queues; Sim saves retain them.
+For delivery use kernel `publish`, borrowed `publications`, `take_published`,
+`emit` and `take_messages`. The redundant cloning `published(key)` getter was
+removed; borrow `publications().get(key)` instead. Contract `publish_record` and
+value/message conversion belong to `exact-world-adapter::publication`. The world
+hash excludes delivery queues; Sim saves retain them.
 
 The merged log cursor replaces `journal(since)`, and structural batches expose
 `next` instead of the removed global `change_cursor()`. The `tree` and `children`
@@ -440,28 +445,32 @@ collection wrappers are removed: adapters can bound `entities().take(512)` and
 query Parent explicitly. Public method descriptions are consolidated in this
 included README; storage safety and mutation invariants remain beside the code.
 
-**The external-module seam is deferred by the production ceiling.** A tested
-prototype adds public erased component/resource traversal, isolated candidate
-editing/commit and bounded observation reports. Its three tests use only public
-APIs and cover both storage roles, partial-edit refusal, ownership cycles and
-oversized observation. It adds **125 production lines**. The patch and fixture
-are preserved in `~/lanes/gamenext/scratch/K1b-2/external-seams.patch` and
-`external.rs`, based on commit `b6a29ea`; they are review artifacts, not shipped APIs.
-With the final kernel they require **6,625 lines**. Moving the separate 125-line
-Contract record publication adapter (`RecordWriter` plus `publish_record`) out of
-core would fund them. This run preserves that API and its safety checks.
+The external seam is shipped and exercised by five public-only tests: erased
+component/resource visitation, candidate edits and atomic commit/refusal, bounded
+observation (including mostly empty maximal worlds), and resource revisions.
+The original three prototype tests landed with two additional adverse controls.
+Conversion of named Data records, positional Contract values and the untagged
+Contract message envelope moved to the real `game/world-adapter` crate. That
+adapter enforces conversion size/depth limits and is tested outside the root
+workspace, including byte/hash parity against the old engine.
 
 A kinds/space author can register types, hold independent structural cursors, use
-safe typed pages and resolve indices to live handles. A generic reload author
-still lacks public erased inspection/editing and candidate commit. An adapter
-still lacks bounded whole-world observation reports and resource-specific revisions.
-Typed clock/phase results, query `one()` and an analog-only action declaration
-remain deferred. No merge policy has been added to core.
+safe typed pages and resolve indices to live handles. Reload can use `visit`,
+`candidate`, `Candidate::edit` and `Candidate::commit`; merge policy remains
+external. Typed clock/phase results, query `one()` and analog-only declarations
+remain deferred under the production ceiling.
 
-The four review/design paths named in the lane brief were absent from this clone;
-the numbered brief and lane-1 handoff supplied the actionable findings. Production
-Rust is **6,500 lines**, excluding tests and cfg(test) modules; README is outside
-that ceiling. Reproduce the count with:
+`tests/fixtures/k1b-continuation.bin` was produced from commit `428436d` with the
+fixture in `tests/continuation.rs`. Five boundaries compare complete EXGAME v4
+and EXSIM v9 bytes plus World hashes after reversed insertion, recycled slots,
+resource changes, ownership, publications, pending assets and queued input. The
+separate cross-engine test still proves common grammar/hash parity.
+
+Production Rust is **6,500 lines**, excluding tests and cfg(test) modules. The
+count includes comments and blank lines; no production code was moved to another
+root crate. Shared slot-addressing and allocation-growth implementations replace
+duplicated code; preflighted spawn/despawn identities are reused at commit.
+README is outside that ceiling. Reproduce the count with:
 
 ```sh
 python3 - <<'PYCOUNT'

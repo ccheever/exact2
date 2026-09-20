@@ -674,8 +674,9 @@ same reverse component insertion order.
 
 The separate `exact-world-adapter` crate contains Contract publication conversion
 for the optional world kernel. `publication::publish_record(&World, &impl Data)`
-converts named Data fields; `from_contract(Value)` and `to_contract(&Published)`
-bridge positional Contract values; `publication::json(&World)` produces the named
+converts named Data fields; `from_contract(Value) -> Result<Published, DataError>` and
+`to_contract(&Published) -> Result<Value, DataError>` bridge positional Contract
+values with a 65,536-byte/visit, 256-level conversion budget; `publication::json(&World)` produces the named
 message envelope. The kernel itself publishes `Published` Data and exposes
 `visit`, isolated `Candidate` edits/commit, bounded `sample`, and resource-local
 revisions. This crate is a member of the game workspace only. Its tests compare

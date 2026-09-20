@@ -644,10 +644,6 @@ impl World {
         );
         messages.push(text);
     }
-    /// Last published kernel Data, including named objects.
-    pub fn published(&self, key: &str) -> Option<crate::Published> {
-        self.published.borrow().get(key).cloned()
-    }
     pub(crate) fn step_clock(&mut self) {
         self.mutated();
         self.state.tick = self
