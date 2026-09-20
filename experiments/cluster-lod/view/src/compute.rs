@@ -147,6 +147,7 @@ impl Compute {
                 (reader.pages.len() as u64 * 8 + 4) * 4,
                 wgpu::BufferUsages::STORAGE
                     | wgpu::BufferUsages::INDIRECT
+                    | wgpu::BufferUsages::COPY_DST
                     | wgpu::BufferUsages::COPY_SRC,
             );
             let counts = make(

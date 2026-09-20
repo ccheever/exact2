@@ -14,6 +14,7 @@ pub struct Options {
     pub mode: Mode,
     pub selector: Selector,
     pub cull: bool,
+    pub shadows: bool,
     pub capacity: Option<u32>,
     pub view: View,
     pub thresholds: Vec<f32>,
@@ -56,6 +57,7 @@ impl Options {
             mode: Mode::Cluster,
             selector: Selector::Gpu,
             cull: true,
+            shadows: true,
             capacity: None,
             view: View::Lit,
             steps: 240,
@@ -70,6 +72,13 @@ impl Options {
                 .ok_or_else(|| format!("missing value for {arg}"))?;
             match arg.as_str() {
                 "--out" => result.out = value.into(),
+                "--shadows" => {
+                    result.shadows = match value.as_str() {
+                        "on" => true,
+                        "off" => false,
+                        _ => return Err("shadows must be on|off".into()),
+                    }
+                }
                 "--layout" => result.layout = value,
                 "--select" => result.selector = Selector::parse(&value)?,
                 "--capacity" => result.capacity = Some(value.parse().map_err(|_| "bad capacity")?),

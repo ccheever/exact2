@@ -103,9 +103,10 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
         source_vertices: mesh.positions.len() as u32,
         source_triangles: (mesh.indices.len() / 3) as u32,
         flags: u32::from(
-            mesh.colors
-                .as_ref()
-                .is_some_and(|colors| colors.iter().any(|c| *c != [255; 4])),
+            pages
+                .iter()
+                .flat_map(|p| &p.vertices)
+                .any(|v| v.color != u32::MAX),
         ),
         root_count: groups.iter().map(|g| g.depth).max().unwrap_or(0) + 1,
         config,

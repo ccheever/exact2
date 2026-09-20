@@ -182,6 +182,10 @@ fn image_oracles() {
         json!({"oracle":"repeat_png","bytes":png_a.len(),"identical":png_a==png_b})
     );
     let (c1, s1) = draw(&mut cluster, 1.0, View::Lit);
+    check(
+        s1.triangles < s0.triangles / 2,
+        "LOD must reduce procedural triangles by at least 50% at 1 px",
+    );
     let d = readback::difference(&c1, &n0);
     println!(
         "{}",
@@ -220,4 +224,166 @@ fn image_oracles() {
         json!({"oracle":"image_summary","images":9,"debug_views":debug_count,"shader_files_validated_at_build":2,"failures":failures})
     );
     assert!(failures.is_empty(), "{}", failures.join("; "));
+}
+
+#[test]
+fn grid_distance_depth_and_scene_contract() {
+    let mut mesh = clod_bake::Mesh::default();
+    for (y, color) in [(0.01, [0, 255, 0, 255]), (0.0, [255, 0, 0, 255])] {
+        let base = mesh.positions.len() as u32;
+        mesh.positions
+            .extend([[-20.0, y, -20.0], [20.0, y, -20.0], [0.0, y, 20.0]]);
+        mesh.indices.extend([base, base + 1, base + 2]);
+        mesh.colors.get_or_insert_with(Vec::new).extend([color; 3]);
+    }
+    let baked = clod_bake::bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+    let reader = Reader::new(&baked.bytes).unwrap();
+    let mut scene = Scene::layout(&reader, "single").unwrap();
+    scene.instances = vec![Instance::new(Vec3::ZERO, Quat::IDENTITY, 1.0)];
+    let camera = Camera::perspective(
+        Vec3::new(0.0, -100.0, 0.0),
+        Vec3::ZERO,
+        1.0,
+        45f32.to_radians(),
+        0.002,
+        1000.0,
+    );
+    let depths = [0.0, 0.01].map(|y| camera.matrix.project_point3(Vec3::new(0.0, y, 0.0)).z);
+    let mut failures = Vec::new();
+    if depths[0] == depths[1] {
+        failures.push("depth separation rounds to the same float".into());
+    }
+    let (device, queue, _) = pollster::block_on(clod_view::request_device(false)).unwrap();
+    let baseline = prepare::baseline(&reader);
+    for mode in [Mode::Cluster, Mode::Naive] {
+        let mut renderer = Renderer::new(
+            device.clone(),
+            queue.clone(),
+            &reader,
+            Some(&baseline),
+            &scene,
+            [64, 64],
+            mode,
+        )
+        .unwrap();
+        let cut = select::select_culled(&reader, &scene.instances, &camera, 64, 0.0, false);
+        let frame = renderer
+            .render(&scene, &camera, View::Lit, &cut, &cut)
+            .unwrap();
+        let (pixels, _) = readback::read(&renderer, &frame).unwrap();
+        let p = &pixels[(24 * 64 + 32) * 4..(24 * 64 + 32) * 4 + 4];
+        println!(
+            "depth mode={mode:?} distance=100 separation=0.01 projected={depths:?} pixel={p:?}"
+        );
+        if p[0] <= p[1] {
+            failures.push(format!("depth {mode:?} far green wins {p:?}"));
+        }
+    }
+    scene.instances[0].matrix = Mat4::from_scale(Vec3::new(0.5, 2.0, 2.0)).to_cols_array();
+    let rejects = Renderer::new(
+        device.clone(),
+        queue.clone(),
+        &reader,
+        Some(&baseline),
+        &scene,
+        [16, 16],
+        Mode::Naive,
+    )
+    .is_err();
+    println!("nonuniform_scene_rejected={rejects}");
+    if !rejects {
+        failures.push("nonuniform scene accepted".into());
+    }
+    scene.instances = vec![
+        Instance::new(Vec3::ZERO, Quat::IDENTITY, 1.0),
+        Instance::new(Vec3::splat(10000.0), Quat::IDENTITY, 1.0),
+    ];
+    let mut renderer = Renderer::new(
+        device,
+        queue,
+        &reader,
+        Some(&baseline),
+        &scene,
+        [16, 16],
+        Mode::Naive,
+    )
+    .unwrap();
+    let frame = renderer
+        .render(
+            &scene,
+            &camera,
+            View::Lit,
+            &Selection::default(),
+            &Selection::default(),
+        )
+        .unwrap();
+    println!(
+        "naive_cull instances=2 expected_triangles=2 actual={}",
+        frame.stats.triangles
+    );
+    if frame.stats.triangles != 2 {
+        failures.push("naive instance culling absent".into());
+    }
+    let mut zero = clod_bake::Mesh {
+        positions: vec![[0.0; 3]; 3],
+        indices: vec![0, 1, 2],
+        ..Default::default()
+    };
+    let zero = clod_bake::bake(&mut zero, Config::default(), [0; 32]).unwrap();
+    let rejects = Scene::layout(&Reader::new(&zero.bytes).unwrap(), "single").is_err();
+    println!("zero_extent_rejected={rejects}");
+    if !rejects {
+        failures.push("zero extent accepted".into());
+    }
+    println!("regression_cases=5 failures={failures:?}");
+    assert!(failures.is_empty(), "{failures:?}");
+}
+
+#[test]
+fn baseline_limits_precede_gpu_allocation() {
+    let mut mesh = clod_bake::procedural::octasphere(0).unwrap();
+    let baked = clod_bake::bake(&mut mesh, Config::default(), [0; 32]).unwrap();
+    let mut reader = Reader::new(&baked.bytes).unwrap();
+    let scene = Scene::layout(&reader, "single").unwrap();
+    let mut baseline = prepare::baseline(&reader);
+    let (device, queue, _) = pollster::block_on(clod_view::request_device(false)).unwrap();
+    let oversized = vec![
+        reader.clusters[0];
+        128 * 1024 * 1024 / std::mem::size_of::<clod_format::Cluster>() + 1
+    ];
+    let original = reader.clusters;
+    reader.clusters = &oversized;
+    let accepted = Renderer::new(
+        device.clone(),
+        queue.clone(),
+        &reader,
+        Some(&baseline),
+        &scene,
+        [16, 16],
+        Mode::Naive,
+    )
+    .is_ok();
+    println!(
+        "naive_metadata_bytes={} accepted={accepted}",
+        std::mem::size_of_val(reader.clusters)
+    );
+    reader.clusters = original;
+    baseline[0].indices = vec![0; device.limits().max_buffer_size as usize / 4 + 1];
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let rejected = Renderer::new(
+        device.clone(),
+        queue,
+        &reader,
+        Some(&baseline),
+        &scene,
+        [16, 16],
+        Mode::Naive,
+    )
+    .is_err();
+    let gpu_error = pollster::block_on(scope.pop());
+    println!(
+        "baseline_index_bytes={} returned_error={rejected} gpu_allocation_error={gpu_error:?}",
+        std::mem::size_of_val(baseline[0].indices.as_slice())
+    );
+    assert!(accepted && rejected && gpu_error.is_none());
 }

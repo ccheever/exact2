@@ -40,22 +40,23 @@ pub fn read(renderer: &Renderer, frame: &Frame) -> Result<(Vec<u8>, Option<[f64;
                 .map_err(|e| e.to_string())?;
             let values: &[u64] = bytemuck::cast_slice(&mapped);
 
-            let scale = renderer.queue.get_timestamp_period() as f64 / 1e6;
             let offset = if frame.gpu_selected { 4 } else { 0 };
-            let elapsed = |i: usize| -> f64 {
-                match values[i + 1].checked_sub(values[i]) {
-                    Some(v) => v as f64 * scale,
-                    None => {
-                        eprintln!("invalid timestamp pair {i}: {values:?}");
-                        f64::NAN
-                    }
-                }
+            let elapsed = |i: usize| {
+                clod_view::timing::milliseconds(
+                    values[i],
+                    values[i + 1],
+                    renderer.queue.get_timestamp_period(),
+                )
             };
             let times = [
-                elapsed(offset),
-                elapsed(offset + 2),
-                if frame.gpu_selected { elapsed(0) } else { 0.0 },
-                if frame.gpu_selected { elapsed(2) } else { 0.0 },
+                if frame.shadows { elapsed(offset)? } else { 0.0 },
+                elapsed(offset + 2)?,
+                if frame.gpu_selected { elapsed(0)? } else { 0.0 },
+                if frame.gpu_selected && frame.shadows {
+                    elapsed(2)?
+                } else {
+                    0.0
+                },
             ];
             drop(mapped);
             buffer.unmap();

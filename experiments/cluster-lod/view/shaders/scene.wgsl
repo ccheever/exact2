@@ -74,6 +74,7 @@ fn hash_color(value:u32)->vec3<f32> {
     return vec3(f32(x&255u),f32((x>>8u)&255u),f32((x>>16u)&255u))/255.0*0.8+0.15;
 }
 fn shadow(world:vec3<f32>, n:vec3<f32>)->f32 {
+    if g.params.w==0u { return 1.0; }
     let p=g.light_vp*vec4(world+n*0.001,1.0); let q=p.xyz/p.w;
     let uv=q.xy*vec2(0.5,-0.5)+0.5;
     if any(uv<vec2(0.0)) || any(uv>vec2(1.0)) || q.z<0.0 || q.z>1.0 { return 1.0; }
@@ -85,6 +86,7 @@ fn shadow(world:vec3<f32>, n:vec3<f32>)->f32 {
 }
 fn filmic(x:vec3<f32>)->vec3<f32> { return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),vec3(0.0),vec3(1.0)); }
 @fragment fn shade(v:VertexOut)->@location(0) vec4<f32> {
+    if g.params.x==6u { return vec4(1.0); }
     let n=normalize(v.normal); let l=normalize(vec3(-0.5,-0.6,1.0));
     let is_ground=v.ids.x==0xffffffffu;
     if !is_ground {

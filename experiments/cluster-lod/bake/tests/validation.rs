@@ -423,3 +423,44 @@ fn loader_formats_and_cli() {
     std::fs::remove_dir_all(dir).expect("remove own fixtures");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+#[test]
+fn public_geometry_accessors_reject_overflow() {
+    let mut mesh = procedural::octasphere(0).unwrap();
+    let bytes = bake(&mut mesh, Config::default(), [0; 32]).unwrap().bytes;
+    let original = Reader::new(&bytes).unwrap();
+    let mut failures = Vec::new();
+    for case in 0..5 {
+        let mut pages = original.pages.to_vec();
+        let mut clusters = original.clusters.to_vec();
+        match case {
+            0 => {
+                pages[0].offset = u64::MAX;
+                pages[0].byte_length = 2;
+            }
+            1 => pages[0].byte_length = u64::MAX,
+            2 => {
+                clusters[0].vertex_offset = u32::MAX;
+                clusters[0].vertex_count = 2;
+            }
+            3 => {
+                clusters[0].triangle_offset = u32::MAX;
+                clusters[0].triangle_count = u32::MAX;
+            }
+            _ => clusters[0].page = u32::MAX,
+        }
+        let mut reader = Reader::new(&bytes).unwrap();
+        reader.pages = &pages;
+        reader.clusters = &clusters;
+        let rejected = matches!(
+            std::panic::catch_unwind(|| reader.geometry(0).is_none()),
+            Ok(true)
+        );
+        println!("accessor_overflow case={case} rejected={rejected}");
+        if !rejected {
+            failures.push(case);
+        }
+    }
+    println!("accessor_cases=5 failures={failures:?}");
+    assert!(failures.is_empty());
+}

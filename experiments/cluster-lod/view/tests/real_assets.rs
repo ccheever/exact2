@@ -27,7 +27,7 @@ fn real_asset_raster_oracles() {
         Err(e) => panic!("{e}"),
     };
     for asset in ["gaul", "washington"] {
-        let path = out.join(format!("{asset}-1.clod"));
+        let path = out.join(format!("{asset}-2.clod"));
         if !path.exists() {
             let _ = std::io::Write::write_fmt(
                 &mut std::io::stderr(),

@@ -19,6 +19,7 @@ pub enum View {
     Triangles,
     Instances,
     Overdraw,
+    Coverage,
 }
 impl View {
     pub fn parse(s: &str) -> Result<Self> {
@@ -29,6 +30,7 @@ impl View {
             "triangles" => Ok(Self::Triangles),
             "instances" => Ok(Self::Instances),
             "overdraw" => Ok(Self::Overdraw),
+            "coverage" => Ok(Self::Coverage),
             _ => Err("unknown view".into()),
         }
     }
@@ -63,9 +65,11 @@ pub async fn request_device(
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await
         .map_err(|e| format!("NO ADAPTER: {e}"))?;
-    let enabled = timing && adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+    if timing && !adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY) {
+        return Err("time requires TIMESTAMP_QUERY; adapter does not expose timestamps".into());
+    }
     let (device, queue) = adapter
-        .request_device(&device_descriptor(enabled))
+        .request_device(&device_descriptor(timing))
         .await
         .map_err(|e| e.to_string())?;
     Ok((device, queue, adapter.get_info()))
@@ -99,6 +103,9 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     pub mode: Mode,
+    pub culling: bool,
+    pub shadows: bool,
+    pub(crate) instance_sphere: [f32; 4],
     pub(crate) pages: Vec<PageGpu>,
     pub(crate) compute: Option<crate::compute::Compute>,
     pub(crate) dummy_draws: wgpu::Buffer,
@@ -188,11 +195,27 @@ impl Renderer {
         size: [u32; 2],
         mode: Mode,
     ) -> Result<Self> {
+        scene.validate()?;
         let [width, height] = size;
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err("size must be 1..8192".into());
         }
         let storage = wgpu::BufferUsages::STORAGE;
+        let limits = device.limits();
+        if std::mem::size_of_val(scene.instances.as_slice()) as u64
+            > limits.max_storage_buffer_binding_size
+        {
+            return Err("instance table exceeds storage binding limit".into());
+        }
+        if mode == Mode::Naive {
+            for b in baseline.ok_or("naive mode needs baseline")? {
+                if std::mem::size_of_val(b.vertices.as_slice()) as u64 > limits.max_buffer_size
+                    || std::mem::size_of_val(b.indices.as_slice()) as u64 > limits.max_buffer_size
+                {
+                    return Err("baseline chunk exceeds core buffer limit".into());
+                }
+            }
+        }
         let instances = buffer(
             &device,
             "instances",
@@ -200,7 +223,9 @@ impl Renderer {
             storage,
         );
         let cluster_bytes = bytemuck::cast_slice(reader.clusters);
-        if cluster_bytes.len() > 128 * 1024 * 1024 {
+        if mode == Mode::Cluster
+            && cluster_bytes.len() as u64 > limits.max_storage_buffer_binding_size
+        {
             return Err("cluster metadata exceeds core binding limit".into());
         }
         let clusters = buffer(
@@ -318,9 +343,6 @@ impl Renderer {
                     bytemuck::cast_slice(&b.indices),
                     wgpu::BufferUsages::INDEX,
                 );
-                if vertices.size() > 256 * 1024 * 1024 || indices.size() > 256 * 1024 * 1024 {
-                    return Err("baseline chunk exceeds core buffer limit".into());
-                }
                 static_bytes += vertices.size() + indices.size();
                 chunks.push(ChunkGpu {
                     vertices,
@@ -455,6 +477,8 @@ impl Renderer {
                     depth_write_enabled: Some(!overdraw),
                     depth_compare: Some(if overdraw {
                         wgpu::CompareFunction::Always
+                    } else if fragment.is_some() {
+                        wgpu::CompareFunction::Greater
                     } else {
                         wgpu::CompareFunction::Less
                     }),
@@ -591,6 +615,9 @@ impl Renderer {
             width,
             height,
             mode,
+            culling: true,
+            shadows: true,
+            instance_sphere: crate::select::CandidateIndex::new(reader).sphere,
             pages,
             compute: None,
             dummy_draws,

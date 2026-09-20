@@ -57,6 +57,8 @@ fn run() -> Result<()> {
             [options.width, options.height],
             mode,
         )?;
+        renderer.shadows = options.shadows;
+        renderer.culling = options.cull;
         if mode == Mode::Cluster && options.selector != Selector::Cpu {
             renderer.enable_gpu_selection(&reader, options.capacity)?;
         }
@@ -89,17 +91,20 @@ fn run() -> Result<()> {
                 )?;
             }
             let mut samples = Vec::new();
+            let mut last_pixels = Vec::new();
             for _ in 0..count {
-                samples.push(sample(
+                let latest = sample(
                     &mut renderer,
                     &reader,
                     &scene,
                     &options,
                     options.times[0],
                     options.thresholds[0],
-                )?);
+                )?;
+                last_pixels = latest.pixels;
+                samples.push(latest.report);
             }
-            let mut report = samples.last().expect("samples").report.clone();
+            let mut report = samples.last().expect("samples").clone();
             for key in [
                 "selection_ms",
                 "shadow_selection_ms",
@@ -111,10 +116,7 @@ fn run() -> Result<()> {
                 "gpu_main_ms",
                 "gpu_shadow_ms",
             ] {
-                let mut values: Vec<f64> = samples
-                    .iter()
-                    .filter_map(|s| s.report[key].as_f64())
-                    .collect();
+                let mut values: Vec<f64> = samples.iter().filter_map(|s| s[key].as_f64()).collect();
                 values.sort_by(f64::total_cmp);
                 if key.starts_with("gpu_") {
                     report["valid_timestamp_samples"][key] = json!(values.len());
@@ -132,12 +134,7 @@ fn run() -> Result<()> {
             } else {
                 options.out.join("frame.png")
             };
-            save(
-                &out,
-                &samples.last().expect("sample").pixels,
-                options.width,
-                options.height,
-            )?;
+            save(&out, &last_pixels, options.width, options.height)?;
             report["out"] = json!(out);
             println!("{report}");
         }
@@ -181,7 +178,11 @@ fn sample(
     };
     let selection_ms = start.elapsed().as_secs_f64() * 1000.0;
     let start = Instant::now();
-    let shadow = if renderer.mode == Mode::Cluster && !gpu {
+    let shadow = if renderer.mode == Mode::Cluster
+        && !gpu
+        && options.shadows
+        && options.view != View::Coverage
+    {
         select::select_culled(
             reader,
             &scene.instances,
@@ -209,6 +210,9 @@ fn sample(
     };
     let encode_ms = start.elapsed().as_secs_f64() * 1000.0;
     let (pixels, times) = readback::read(renderer, &frame)?;
+    if options.command == "time" && times.is_none() {
+        return Err("time received no GPU timestamps".into());
+    }
     let frame_completion_ms = start.elapsed().as_secs_f64() * 1000.0;
     let mut s = frame.stats;
     if gpu {
@@ -229,7 +233,7 @@ fn sample(
         s.overflow = cuts[0].overflow;
         s.shadow_overflow = cuts[1].overflow;
     }
-    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"ground_draws":1,"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"frame_completion_ms":frame_completion_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
+    let report = json!({"command":options.command,"mode":format!("{:?}",renderer.mode).to_lowercase(),"view":format!("{:?}",options.view).to_lowercase(),"layout":options.layout,"size":[options.width,options.height],"t":t,"threshold_px":threshold,"selected_clusters":s.selected_clusters,"triangles_drawn":s.triangles,"padding_triangles":s.padded_triangles,"submitted_vertices_or_indices":(s.triangles+s.padded_triangles)*3,"draws":s.draws,"shadows":options.shadows,"ground_draws":u32::from(options.view != View::Coverage),"shadow_clusters":s.shadow_clusters,"shadow_triangles":s.shadow_triangles,"shadow_padding":s.shadow_padding,"shadow_draws":s.shadow_draws,"selection_ms":selection_ms,"shadow_selection_ms":shadow_selection_ms,"encode_ms":encode_ms,"gpu_ms":times.map(|v|v.iter().sum::<f64>()),"gpu_select_ms":times.map(|v|v[2]+v[3]),"cpu_ms":selection_ms+shadow_selection_ms+encode_ms,"frame_completion_ms":frame_completion_ms,"selector":format!("{:?}",options.selector).to_lowercase(),"culling":cull,"capacity_per_instance":renderer.gpu_capacity_per_instance(),"candidates_tested":s.candidates,"shadow_candidates_tested":s.shadow_candidates,"overflow":s.overflow,"shadow_overflow":s.shadow_overflow,"gpu_main_ms":times.map(|v|v[1]),"gpu_shadow_ms":times.map(|v|v[0]),"bytes_resident_gpu":s.resident_bytes,"readback_bytes":s.readback_bytes,"eye":camera.eye.to_array()});
     Ok(Sample { pixels, report })
 }
 fn save(path: &Path, pixels: &[u8], width: u32, height: u32) -> Result<()> {

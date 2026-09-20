@@ -27,6 +27,7 @@ pub struct Frame {
     pub timestamps: Option<wgpu::Buffer>,
     pub row_bytes: u32,
     pub gpu_selected: bool,
+    pub shadows: bool,
     pub stats: FrameStats,
 }
 impl Renderer {
@@ -72,6 +73,39 @@ impl Renderer {
         shadow_selection: &Selection,
         gpu: Option<(f32, bool, bool)>,
     ) -> Result<Frame> {
+        let shadows = self.shadows && view != View::Coverage;
+        let cull = gpu.map_or(self.culling, |(_, c, _)| c) && view != View::Overdraw;
+        let ranges = |camera: &Camera| {
+            let mut ranges: Vec<std::ops::Range<u32>> = Vec::new();
+            let planes = camera.planes();
+            if self.mode == Mode::Naive {
+                for (i, instance) in scene.instances.iter().enumerate() {
+                    if cull
+                        && !crate::select::sphere_visible(
+                            self.instance_sphere,
+                            instance.transform(),
+                            instance.scale(),
+                            &planes,
+                        )
+                    {
+                        continue;
+                    }
+                    let i = i as u32;
+                    if let Some(last) = ranges.last_mut().filter(|r| r.end == i) {
+                        last.end += 1;
+                    } else {
+                        ranges.push(i..i + 1);
+                    }
+                }
+            }
+            ranges
+        };
+        let main_instances = ranges(camera);
+        let shadow_instances = if shadows {
+            ranges(&scene.light_camera())
+        } else {
+            Vec::new()
+        };
         if gpu.is_none() && self.compute.is_some() {
             return Err(
                 "CPU reference rendering needs its own renderer with CPU-owned lists".into(),
@@ -84,7 +118,7 @@ impl Renderer {
         }
         if self.mode == Mode::Cluster && gpu.is_none() {
             if selection.pages.len() != self.pages.len()
-                || shadow_selection.pages.len() != self.pages.len()
+                || (shadows && shadow_selection.pages.len() != self.pages.len())
             {
                 return Err("selection page count mismatch".into());
             }
@@ -122,7 +156,12 @@ impl Renderer {
             light_vp: scene.light_camera().matrix.to_cols_array(),
             eye: camera.eye.extend(1.0).to_array(),
             ground: [scene.center.x, scene.center.y, -0.015, scene.radius * 50.0],
-            params: [view as u32, self.max_depth, gpu.is_some() as u32, 0],
+            params: [
+                view as u32,
+                self.max_depth,
+                gpu.is_some() as u32,
+                shadows as u32,
+            ],
         };
         self.queue
             .write_buffer(&self.globals, 0, bytemuck::bytes_of(&globals));
@@ -143,16 +182,20 @@ impl Renderer {
                 brute,
                 0,
             );
-            compute.encode(
-                self,
-                &mut encoder,
-                &scene.light_camera(),
-                2048,
-                (threshold * 2.0).min(f32::MAX / 2.0),
-                cull,
-                brute,
-                1,
-            );
+            if shadows {
+                compute.encode(
+                    self,
+                    &mut encoder,
+                    &scene.light_camera(),
+                    2048,
+                    (threshold * 2.0).min(f32::MAX / 2.0),
+                    cull,
+                    brute,
+                    1,
+                );
+            } else {
+                encoder.clear_buffer(&compute.passes[1].draws, 0, None);
+            }
         }
         let writes = |start, end| {
             self.query
@@ -163,7 +206,7 @@ impl Renderer {
                     end_of_pass_write_index: Some(end),
                 })
         };
-        {
+        if shadows {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("sun shadow"),
                 color_attachments: &[],
@@ -188,6 +231,7 @@ impl Renderer {
                 &self.shadow_lists,
                 shadow_selection,
                 gpu.map(|_| 1),
+                &shadow_instances,
             );
         }
         let color_view = self.color.create_view(&Default::default());
@@ -197,7 +241,14 @@ impl Renderer {
                 depth_slice: None,
                 resolve_target: Some(&color_view),
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(if view == View::Overdraw {
+                    load: wgpu::LoadOp::Clear(if view == View::Coverage {
+                        wgpu::Color {
+                            r: 1.0,
+                            g: 0.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }
+                    } else if view == View::Overdraw {
                         wgpu::Color::BLACK
                     } else {
                         wgpu::Color {
@@ -216,7 +267,7 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
+                        load: wgpu::LoadOp::Clear(0.0),
                         store: wgpu::StoreOp::Discard,
                     }),
                     stencil_ops: None,
@@ -231,14 +282,22 @@ impl Renderer {
             pass.set_bind_group(1, &self.lists[0].bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
             // Keep one ground draw in every view and report it separately from geometry.
-            pass.set_pipeline(&self.ground);
-            pass.draw(0..6, 0..1);
+            if view != View::Coverage {
+                pass.set_pipeline(&self.ground);
+                pass.draw(0..6, 0..1);
+            }
             pass.set_pipeline(if view == View::Overdraw {
                 &self.overdraw
             } else {
                 &self.main
             });
-            self.draw(&mut pass, &self.lists, selection, gpu.map(|_| 0));
+            self.draw(
+                &mut pass,
+                &self.lists,
+                selection,
+                gpu.map(|_| 0),
+                &main_instances,
+            );
         }
         let row_bytes = (self.width * 4).div_ceil(256) * 256;
         let pixels = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -288,8 +347,9 @@ impl Renderer {
             None
         };
         self.queue.submit([encoder.finish()]);
-        let main_triangles = self.chunks.iter().map(|c| c.count as u64 / 3).sum::<u64>()
-            * self.instance_count as u64;
+        let source_triangles = self.chunks.iter().map(|c| c.count as u64 / 3).sum::<u64>();
+        let main_triangles =
+            source_triangles * main_instances.iter().map(|r| r.len() as u64).sum::<u64>();
         let mut stats = if self.mode == Mode::Cluster {
             FrameStats {
                 selected_clusters: selection.clusters,
@@ -309,12 +369,21 @@ impl Renderer {
         } else {
             FrameStats {
                 triangles: main_triangles,
-                draws: self.chunks.len() as u32,
-                shadow_triangles: main_triangles,
-                shadow_draws: self.chunks.len() as u32,
+                draws: (self.chunks.len() * main_instances.len()) as u32,
+                shadow_triangles: source_triangles
+                    * shadow_instances.iter().map(|r| r.len() as u64).sum::<u64>(),
+                shadow_draws: (self.chunks.len() * shadow_instances.len()) as u32,
                 ..Default::default()
             }
         };
+        if !shadows {
+            stats.shadow_clusters = 0;
+            stats.shadow_triangles = 0;
+            stats.shadow_padding = 0;
+            stats.shadow_draws = 0;
+            stats.shadow_candidates = 0;
+            stats.shadow_overflow = 0;
+        }
         stats.resident_bytes = self.static_bytes
             + if let Some(c) = &self.compute {
                 c.bytes
@@ -331,6 +400,7 @@ impl Renderer {
             timestamps,
             row_bytes,
             gpu_selected: gpu.is_some(),
+            shadows,
             stats,
         })
     }
@@ -340,6 +410,7 @@ impl Renderer {
         lists: &[crate::gpu::ListGpu],
         selection: &Selection,
         gpu: Option<usize>,
+        instances: &[std::ops::Range<u32>],
     ) {
         if self.mode == Mode::Cluster {
             for (id, list) in lists.iter().enumerate() {
@@ -361,7 +432,9 @@ impl Renderer {
             for chunk in &self.chunks {
                 pass.set_vertex_buffer(0, chunk.vertices.slice(..));
                 pass.set_index_buffer(chunk.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..chunk.count, 0, 0..self.instance_count);
+                for range in instances {
+                    pass.draw_indexed(0..chunk.count, 0, range.clone());
+                }
             }
         }
     }

@@ -9,3 +9,5 @@ pub use compute::Selector;
 pub use gpu::{Baseline, Mode, Renderer, View, device_descriptor, request_device};
 pub use render::{Frame, FrameStats};
 pub use wgpu;
+
+pub mod timing;

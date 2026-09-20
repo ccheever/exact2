@@ -50,10 +50,10 @@ pub fn encode(
     header.groups_offset = out.len() as u64;
     append(&mut out, groups)?;
     header.pages_offset = out.len() as u64;
-    out.resize(
-        align16(end_offset(out.len(), pages.len(), size_of::<Page>())?)?,
-        0,
-    );
+    let table_end = align16(end_offset(out.len(), pages.len(), size_of::<Page>())?)?;
+    out.try_reserve(table_end - out.len())
+        .map_err(|e| Error(e.to_string()))?;
+    out.resize(table_end, 0);
     header.nodes_offset = out.len() as u64;
     append(&mut out, nodes)?;
     header.geometry_offset = out.len() as u64;
@@ -86,4 +86,26 @@ pub fn encode(
     out[start..end].copy_from_slice(bytemuck::cast_slice(&table));
     Reader::new(&out)?;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn rejects_unaddressable_lengths_without_allocating() {
+        let mut failures = Vec::new();
+        for (start, count, stride) in [
+            (usize::MAX, 1, 1),
+            (0, usize::MAX, 128),
+            (isize::MAX as usize, 1, 1),
+        ] {
+            let result = super::end_offset(start, count, stride);
+            println!("writer_extent start={start} count={count} stride={stride} result={result:?}");
+            if result.is_ok() {
+                failures.push((start, count, stride));
+            }
+        }
+        let alignment = crate::reader::align16(usize::MAX).is_err();
+        println!("writer_overflow_cases=4 alignment_rejected={alignment} failures={failures:?}");
+        assert!(failures.is_empty() && alignment);
+    }
 }

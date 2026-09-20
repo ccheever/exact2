@@ -94,8 +94,13 @@ fn overlaps(reader: &Reader<'_>, selected: &[bool]) -> Vec<[usize; 2]> {
     let mut pairs = Vec::new();
     for (gi, g) in reader.groups.iter().enumerate().rev() {
         if let Some(a) = ancestor[gi] {
-            for ci in g.first_cluster as usize..(g.first_cluster + g.cluster_count) as usize {
-                if selected[ci] {
+            for (ci, &chosen) in selected
+                .iter()
+                .enumerate()
+                .take((g.first_cluster + g.cluster_count) as usize)
+                .skip(g.first_cluster as usize)
+            {
+                if chosen {
                     pairs.push([a, ci]);
                 }
                 let c = &reader.clusters[ci];
@@ -177,11 +182,10 @@ fn multi_fixture_closed_cuts() {
                 let cot = 1.0 / ((20.0 + unit(&mut rng) * 100.0).to_radians() * 0.5).tan();
                 let near = 0.001 + unit(&mut rng) * 0.099;
                 let height = 720.0 + unit(&mut rng) * 1440.0;
-                let threshold = if camera < 15 {
-                    thresholds[camera]
-                } else {
-                    10f32.powf(unit(&mut rng) * 3.0 - 1.0)
-                };
+                let threshold = thresholds
+                    .get(camera)
+                    .copied()
+                    .unwrap_or_else(|| 10f32.powf(unit(&mut rng) * 3.0 - 1.0));
                 let q: [f32; 4] = std::array::from_fn(|_| unit(&mut rng) * 2.0 - 1.0);
                 let length = q.iter().map(|x| x * x).sum::<f32>().sqrt();
                 let q = q.map(|x| x / length);
