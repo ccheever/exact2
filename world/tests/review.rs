@@ -112,3 +112,24 @@ fn five_empty_columns_do_not_change_observation_of_200k_entities() {
     assert_eq!(w.sample().unwrap().components, 1);
     assert_ne!(w.sample().unwrap().hash, before.hash);
 }
+
+#[test]
+fn extreme_rebased_clocks_refuse_without_mutation() {
+    let mut s = Sim::<Board>::new(()).unwrap();
+    s.run(17.).unwrap();
+    s.reconcile_input(0., &[]).unwrap();
+    let before = s.save().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        s.advance_to((i64::MAX / 1000) as f64)
+    }));
+    assert!(result.is_ok(), "clock overflow panicked");
+    assert!(result.unwrap().is_err());
+    assert_eq!(s.save().unwrap(), before);
+    s.reconcile_input((i64::MAX / 1000) as f64, &[]).unwrap();
+    let before = s.save().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| s.settle(2)));
+    assert!(result.is_ok(), "settle overflow panicked");
+    assert!(result.unwrap().is_err());
+    assert_eq!(s.save().unwrap(), before);
+    assert_eq!(s.world().observation(), None);
+}

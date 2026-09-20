@@ -158,8 +158,9 @@ impl<G: Game> Sim<G> {
             self.caller_us = target_us;
             return Ok(0);
         }
-        let offset = self.caller_us - self.world_us;
-        let simulation_us = target_us - offset;
+        let offset = self.caller_us as i128 - self.world_us as i128;
+        let simulation_us = i64::try_from(target_us as i128 - offset)
+            .map_err(|_| DataError::new("simulation clock overflow"))?;
         let target = (simulation_us as u128 * G::HZ as u128 / 1_000_000) as u64;
         let count = target
             .checked_sub(self.world.tick())
@@ -170,9 +171,12 @@ impl<G: Game> Sim<G> {
         for _ in 0..count {
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
             let due = self.queue.partition_point(|e| {
-                ((micros(e.at_ms()).unwrap() as i128 - offset as i128) * G::HZ as i128)
-                    < end as i128
+                ((micros(e.at_ms()).unwrap() as i128 - offset) * G::HZ as i128) < end as i128
             });
+            let next_world = i64::try_from(end.div_ceil(G::HZ as u128))
+                .map_err(|_| DataError::new("simulation clock overflow"))?;
+            let next_caller = i64::try_from(next_world as i128 + offset)
+                .map_err(|_| DataError::new("caller clock overflow"))?;
             // Preflight the bounded batch before any boundary state changes.
             self.apply_input(due)?;
             self.world.begin_tick();
@@ -181,8 +185,8 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans()?;
             self.world.step_clock();
             self.tick_failed = false;
-            self.world_us = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
-            self.caller_us = self.world_us + offset;
+            self.world_us = next_world;
+            self.caller_us = next_caller;
             if self.paranoid != Paranoid::Off {
                 let pending = self.world.published_pending.get();
                 let hash = self.world.hash();
@@ -242,6 +246,13 @@ impl<G: Game> Sim<G> {
         if max_ticks > 3600 {
             return Err(DataError::new("settle limit is 3600 ticks"));
         }
+        self.check_clock()?;
+        let offset = self.caller_us as i128 - self.world_us as i128;
+        let last =
+            ((self.world.tick() as u128 + max_ticks as u128) * 1_000_000).div_ceil(G::HZ as u128);
+        i64::try_from(last)
+            .and_then(|last| i64::try_from(last as i128 + offset))
+            .map_err(|_| DataError::new("settle clock overflow"))?;
         let start = self.world.tick();
         let mut before = None;
         for _ in 0..max_ticks {
@@ -260,7 +271,10 @@ impl<G: Game> Sim<G> {
                 Some(hash) => hash,
                 None => self.world.sample()?.hash,
             };
-            self.advance_us(next + self.caller_us - self.world_us)?;
+            self.advance_us(
+                i64::try_from(next as i128 + offset)
+                    .map_err(|_| DataError::new("settle clock overflow"))?,
+            )?;
             before = Some(self.world.observe(sample)?);
         }
         if self.world.quiescent() && self.queue.is_empty() {
