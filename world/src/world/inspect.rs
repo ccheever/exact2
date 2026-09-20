@@ -234,7 +234,12 @@ impl World {
         w.finish()
     }
     pub fn candidate(&self) -> Result<Candidate, DataError> {
-        Ok(Candidate(self.decoded(&self.save()?, None, false)?.0))
+        let mut next = self.decoded(&self.save()?, None, false)?.0;
+        *next.published.get_mut() = self.published.borrow().clone();
+        next.published_pending.set(self.published_pending.get());
+        *next.journal.get_mut() = self.journal.borrow().clone();
+        next.journal_next.set(self.journal_next());
+        Ok(Candidate(next))
     }
     pub fn take_messages(&self) -> Vec<String> {
         std::mem::take(&mut *self.messages.borrow_mut())
