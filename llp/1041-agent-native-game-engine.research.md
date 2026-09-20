@@ -246,3 +246,6 @@ No number in this document was measured.
 at Charlie's request: the rendering and content gap widens sharply, the agent-facing gap reverses,
 and the lane's oracle stays Godot. Desk research only; it proposes no work and moves nothing on
 `rules/NOT-DOING.md`.
+[LLP 1041.011](1041.011-cheap-distance-on-unreals-lead.research.md) follows it with the opposite
+question — which parts of that lead are cheaper to close than they look — and extracts one
+prioritization rule (its O6): implementation is cheap now, so the binding cost is the oracle.
