@@ -361,6 +361,9 @@ impl World {
                 .get(index as usize)
                 .map_or(0, |s| s.generation),
         };
+        if e.generation == u32::MAX {
+            return Err(DataError::new("entity generation exhausted"));
+        }
         self.change_room(1usize.saturating_add(bundle.preflight(self, e)?))?;
         self.mutation(|this| this.spawn_commit(e, name, bundle))
     }
@@ -628,7 +631,8 @@ impl World {
             "publication key limit (256)"
         );
         let stored = p.get_mut(key);
-        self.event(crate::EventKind::Published(key.into()));
+        self.event(crate::EventKind::Published(key.into()))
+            .expect("publication journal cursor");
         if let Some(stored) = stored {
             *stored = value;
         } else {
@@ -771,6 +775,14 @@ impl World {
     fn validate_state(&self) -> Result<(), DataError> {
         if self.hz() == 0 || self.state.slots.len() > crate::MAX_ENTITIES {
             return Err(DataError::new("hz must be positive"));
+        }
+        if self
+            .state
+            .slots
+            .iter()
+            .any(|s| s.alive && s.generation == u32::MAX)
+        {
+            return Err(DataError::new("live entity generation exhausted"));
         }
         let work = self.state.work.borrow();
         if work.len() > 64

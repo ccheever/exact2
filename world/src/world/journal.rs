@@ -71,7 +71,11 @@ impl World {
     pub(super) fn change_room(&self, count: usize) -> Result<(), DataError> {
         self.healthy()?;
         if self.change_next.checked_add(count as u64).is_none()
-            || self.journal_next.get().checked_add(count as u64).is_none()
+            || self
+                .journal_next
+                .get()
+                .checked_add(count as u64)
+                .is_none_or(|n| n == u64::MAX)
         {
             return Err(DataError::new("journal cursor exhausted"));
         }
@@ -84,7 +88,8 @@ impl World {
             .checked_add(1)
             .expect("structural sequence exhausted");
         if kind != ChangeKind::Reset {
-            self.event(EventKind::Structural(kind.clone(), entity));
+            self.event(EventKind::Structural(kind.clone(), entity))
+                .expect("preflighted journal cursor");
         }
         if self.consumers.is_empty() {
             return;
@@ -156,26 +161,30 @@ impl World {
         let count = min.saturating_sub(first).min(self.changes.len() as u64) as usize;
         self.changes.drain(..count);
     }
-    pub(super) fn event(&self, kind: EventKind) {
+    pub(super) fn event(&self, kind: EventKind) -> Result<(), DataError> {
+        self.healthy()?;
+        let index = self.journal_next.get();
+        let next = index
+            .checked_add(1)
+            .filter(|n| *n != u64::MAX)
+            .ok_or_else(|| DataError::new("journal cursor exhausted"))?;
         let mut journal = self.journal.borrow_mut();
         if journal.len() == 4096 {
             journal.pop_front();
         }
-        let index = self.journal_next.get();
-        self.journal_next
-            .set(index.checked_add(1).expect("journal cursor exhausted"));
+        self.journal_next.set(next);
         journal.push_back(Event {
             index,
             tick: self.tick(),
             kind,
         });
+        Ok(())
     }
     pub fn log(&self, message: &str) -> Result<(), DataError> {
         if message.len() > 4096 {
             return Err(DataError::new("log exceeds 4096 bytes"));
         }
-        self.event(EventKind::Message(message.into()));
-        Ok(())
+        self.event(EventKind::Message(message.into()))
     }
     pub fn logs(&self, mut cursor: LogCursor) -> Result<Logs, DataError> {
         let reset = cursor.replacement != self.replacement;
@@ -279,6 +288,9 @@ impl World {
     pub(crate) fn read_journal(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.required_item("missing journal cursor")?;
         self.journal_next.get_mut().read(r)?;
+        if self.journal_next() == u64::MAX {
+            return Err(DataError::new("journal cursor exhausted"));
+        }
         r.required_item("missing journal entries")?;
         let mut events: Vec<Event> = Vec::new();
         crate::data::limits::read_vec(r, &mut events, 4096)?;
@@ -378,5 +390,42 @@ mod atomic_tests {
         assert_eq!(w.changes, before);
         assert_eq!(w.logs(LogCursor::default()).unwrap(), logs);
         assert!(result.unwrap().is_err());
+    }
+}
+
+#[cfg(test)]
+mod review_tests {
+    use super::*;
+    #[test]
+    fn exhausted_game_cursor_refuses_without_losing_history() {
+        let mut w = World::new(60, 0);
+        for _ in 0..4096 {
+            w.log("kept").unwrap();
+        }
+        w.journal_next.set(u64::MAX);
+        for (i, e) in w.journal.get_mut().iter_mut().enumerate() {
+            e.index = u64::MAX - 4096 + i as u64;
+        }
+        let before = w.logs(LogCursor::default()).unwrap();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.log("refused")));
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_err());
+        assert_eq!(w.logs(LogCursor::default()).unwrap(), before);
+    }
+    #[test]
+    fn live_exhausted_generation_refuses_decode_and_reuse() {
+        let mut w = World::new(60, 0);
+        let e = w.spawn(()).unwrap();
+        w.state.slots[0].generation = u32::MAX;
+        let mut out = bin::Encoder::prefixed(super::super::MAGIC);
+        w.write(&mut out, true);
+        let bytes = out.finish().unwrap();
+        assert!(World::new(60, 0).load(&bytes).is_err());
+        w.state.slots[0].generation = u32::MAX - 1;
+        assert!(w.despawn(Entity {
+            generation: u32::MAX - 1,
+            ..e
+        }));
+        assert!(w.spawn(()).is_err());
     }
 }
