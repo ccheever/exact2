@@ -516,16 +516,16 @@ test('swipe recognition catches current overshoot unchanged then reverses in dis
 });
 test('swipe survives descendant capture transfer but cancels its own capture loss',async()=>{
   const result=await evaluate(`(() => {const run=loss=>{const f=(${motionFixture})();const m=f.motion,n=f.node;
-    const child=document.createElement('span');n.append(child);n.setPointerCapture=()=>{};n.hasPointerCapture=()=>false;
-    m.style(2,'translate:0px');m.attachSwipe(n,2,(name,fn)=>n.addEventListener(name,fn));
+    const child=document.createElement('span');n.append(child);n.setPointerCapture=()=>{};n.hasPointerCapture=()=>loss==='child';
+    f.controller.commit([f.snapshot()]);m.style(2,'translate:0px');m.attachSwipe(n,2,(name,fn)=>n.addEventListener(name,fn));
     const emit=(target,type,x)=>target.dispatchEvent(new PointerEvent(type,{bubbles:true,isPrimary:true,button:0,pointerId:7,clientX:x,clientY:0}));
     emit(child,'pointerdown',0);emit(child,'pointermove',10);
     emit(loss==='child'?child:n,'lostpointercapture',10);
-    const heldAfterLoss=f.held.size;
-    f.advance(20);emit(n,'pointermove',170);emit(n,'pointerup',170);
-    return {heldAfterLoss,actions:f.calls.filter(c=>c.op==='action').length,cancels:f.calls.filter(c=>c.op==='cancel').length};};
+    f.flush();const heldAfterLoss=f.held.size,pinAfterLoss=f.reports.at(-1).interaction;
+    f.advance(20);emit(n,'pointermove',170);emit(n,'pointerup',170);f.flush();
+    return {heldAfterLoss,pinAfterLoss,pinAfterUp:f.reports.at(-1).interaction,actions:f.calls.filter(c=>c.op==='action').length,cancels:f.calls.filter(c=>c.op==='cancel').length};};
     return [run('child'),run('owner')];})()`);
-  expect(result).toEqual([{heldAfterLoss:1,actions:1,cancels:0},{heldAfterLoss:0,actions:0,cancels:1}]);
+  expect(result).toEqual([{heldAfterLoss:1,pinAfterLoss:2,pinAfterUp:0,actions:1,cancels:0},{heldAfterLoss:0,pinAfterLoss:0,pinAfterUp:0,actions:0,cancels:1}]);
 });
 test('accepted final sample precedes action and deletion makes end harmless',async()=>{
   const result=await evaluate(`(() => {const f=(${motionFixture})();const m=f.motion,h=m.begin(2,'translate');f.onAction=()=>{m.destroy(2);f.node.remove();f.views.delete(2);f.held.delete(h.token);};const accepted=m.finish(h,[70,0],[20,0],true);return {accepted,ops:f.calls.map(c=>c.op),late:m.end(h,[0,0])};})()`);

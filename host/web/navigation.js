@@ -409,6 +409,9 @@ export function collectionController({ root, views, report, settled=()=>{},
   }
   function pointerUp(event) {
     if (event.pointerId !== interaction?.pointer || interaction?.lease) return;
+    // A child-to-ancestor capture transfer keeps the same contact and row pin.
+    if (event.type === 'lostpointercapture'
+        && event.composedPath().some(node => node.hasPointerCapture?.(event.pointerId))) return;
     interaction = null; focusChanged();
   }
   root.addEventListener('focusin', focusChanged, true);
