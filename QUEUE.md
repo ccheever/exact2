@@ -1,12 +1,5 @@
 # Queue
 
-- **Static browser driver exit** (2026-09-20): a Messages drive completes and
-  `s.close()` kills its Chrome, but Bun 1.4.2 can remain alive with three Unix
-  sockets and no network listeners. A recorded subprocess still had not exited
-  after 25 seconds; explicitly destroying child stdio did not fix it. Investigate
-  retained handles in the static carrier. Dev-URL drives exit normally. Evidence:
-  `/tmp/exact-messages-authoring/static-close.log` and `static-close-pid.json`.
-
 - **Reflow follow-ups** (2026-09-20, `apps/reflow`): the dragon is a hand-placed polygon; a traced silhouette (`shape-outside: <image>`, LLP 1043.000 stage 5) would let a real illustration be the exclusion. The wall's card positions are rebuilt whenever the column width changes (1,200 measurements, a few ms) rather than per column count. On the web, ordinary paragraphs (magazine, cards) are broken by the browser, so a column can end one line short of the cut; only flowed text goes through the shared walker there. Web `wasm-opt` was not on PATH for the numbers in the README.
 - **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md) r2): slices 1–2 are implemented. `list virtualized=true` has `reachstart`/`reachend`, Messages stress has a bounded mode, and the Messages conversation answer is at most 200 rows around a cursor. Still owed: the Grok code review (balance exhausted), a macOS/AppKit drive of the stress bounded mode, and the declared edge limitation below. Shared views/buffers/heap and generic whole-value reconciliation remain deferred (LLP 1027.003 §9).
 - **Messages durable writes are O(total records)** (found by LLP 1027.004 r2 D5): every mutation JSON-clones the whole model (`snapshot()`) and `persist` diffs every key; startup and each sync page `restore` everything; Snapback's 512-record edit cap refuses deleting or recovering a conversation over 512 messages. Belongs with the in-progress Snapback migration: persist changed records only, and chunk or raise the cap for bulk deletes.
