@@ -1104,3 +1104,18 @@ the caller's disabled-action setting around the synchronous assignments. No
 worker, admission, selection or raster-identity behavior changes; same-frame
 urgency and displayed hitches still require measurement, not an inference from
 moving commit work out of the publication stack.
+
+The implicit-transaction variant (`f8817516`) is also not retained. Five valid
+matched pairs gave candidate/base/Legend means of 4.00/3.67/3.17 ms/s and
+medians of 4.17/3.33/2.50. The first base and candidate trials failed the preset
+input-timing screen; all six observed pairs instead gave means of
+5.00/3.89/3.06. All raw trials remain in `smooth/implicit-f8817516-pilot-120hz`.
+Native 254 tests, reader/appearance controls and sampled rapid scroll passed,
+but moving publication into the implicit transaction did not earn its place.
+
+The next bounded experiment raises only the native pump's offscreen admission
+allowance from two rows to three. Visible and pinned rows remain exempt; the
+window, urgency, list/text alternation and two-worker cap are unchanged. The
+allowance also affects bounded retirement, so fewer reports alone would not
+establish a win. Diagnostic traces must first show reduced list/apply frequency
+without worse tails before another displayed-performance comparison is useful.

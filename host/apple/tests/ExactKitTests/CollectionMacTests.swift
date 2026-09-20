@@ -253,15 +253,15 @@ final class CollectionMacTests: XCTestCase {
         p.syncLists(limit: 2)
         XCTAssertEqual(limits, [2])
         p.pump()
-        XCTAssertEqual(limits, [2, 2], "pending work survives an unchanged geometry stamp")
+        XCTAssertEqual(limits, [2, 3], "pending work survives an unchanged geometry stamp")
         p.requestTextPublication()
         p.pump()
-        XCTAssertEqual(limits, [2, 2], "pending list work leaves a slice for text publication")
+        XCTAssertEqual(limits, [2, 3], "pending list work leaves a slice for text publication")
         p.pump()
-        XCTAssertEqual(limits, [2, 2, 2])
+        XCTAssertEqual(limits, [2, 3, 3])
         p.reset()
         p.pump()
-        XCTAssertEqual(limits, [2, 2, 2], "reset clears pending list identities and the pump flag")
+        XCTAssertEqual(limits, [2, 3, 3], "reset clears pending list identities and the pump flag")
     }
 
     func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutBudget() {

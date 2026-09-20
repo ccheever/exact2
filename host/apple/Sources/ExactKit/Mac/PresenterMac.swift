@@ -415,7 +415,7 @@ final class Presenter {
         if listSyncPending && !(textTurn && textPending) {
             listSyncPending = false
             let post = Self.signposts.beginInterval("pump-list")
-            syncLists(limit: ExactEnv.agentMode ? 0 : 2)
+            syncLists(limit: ExactEnv.agentMode ? 0 : 3)
             textTurn = true
             Self.signposts.endInterval("pump-list", post)
             return
