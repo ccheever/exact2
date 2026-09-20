@@ -214,11 +214,15 @@ final class Presenter {
             .insetBy(dx: -reach, dy: -reach).intersection(node.bounds)
     }
 
+    /// A paragraph's own visibleRect can include AppKit's overdraw. Urgency
+    /// follows the scroll document's clipped viewport instead.
+    func textIsVisible(_ node: NodeView) -> Bool { !textBand(node, reach: 0).isEmpty }
+
     /// The part of a paragraph whose text is painted: its band. A paragraph
     /// with none paints no text until it is admitted — unless it is on screen.
     func textVisibleRect(_ node: NodeView) -> NSRect {
         if let band = visibleText[node.id] { return band }
-        guard !textBand(node, reach: 0).isEmpty else { return .zero }
+        guard textIsVisible(node) else { return .zero }
         let band = textBand(node, reach: Self.textBandReach)
         visibleText[node.id] = band
         return band
@@ -237,7 +241,7 @@ final class Presenter {
         var rasters: [NodeView] = []
         for node in textViewportIndex!.candidates(reach: Self.textRasterReach) where node.needsTextRaster && node.rastersText {
             // On screen without pixels: now. Otherwise nearest first, a few a slice.
-            if !textBand(node, reach: 0).isEmpty { textRasters.ensure(node, urgent: true) }
+            if textIsVisible(node) { textRasters.ensure(node, urgent: true) }
             else { rasters.append(node) }
         }
         var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count

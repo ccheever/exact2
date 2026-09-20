@@ -22,11 +22,13 @@ final class TextMetricsTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
-            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "offscreen overdraw"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
         ], timers: false, motion: false, clock: nil, error: nil))
         let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
         XCTAssertTrue(visible.rastersText)
@@ -35,6 +37,14 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertFalse(presenter.root.visibleRect.intersects(offscreen.convert(offscreen.bounds, to: presenter.root)))
         XCTAssertTrue(visible.textRasterReady, "visible pixels cannot wait for a later slice")
         XCTAssertNil(offscreen.textRasterKey, "mounting must not also prepare speculative text")
+        let overdraw = try XCTUnwrap(presenter.views[4])
+        XCTAssertFalse(presenter.root.visibleRect.intersects(overdraw.convert(overdraw.bounds, to: presenter.root)))
+        XCTAssertNil(overdraw.textRasterKey)
+        // AppKit may request an offscreen layer before the next pump callback.
+        // Its raster must still belong to a worker, not synchronous overdraw.
+        overdraw.updateLayer()
+        XCTAssertNotNil(overdraw.textRasterKey)
+        XCTAssertFalse(overdraw.textRasterReady, "offscreen overdraw must not rasterize synchronously")
         presenter.settlePump()
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
     }

@@ -980,7 +980,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // AppKit asks for its overdraw as well as for what is on screen.
             // Only what is on screen without pixels is painted here, rather
             // than shown blank; the rest is a worker's.
-            presenter?.textRasters.ensure(self, urgent: !visibleRect.isEmpty)
+            if let presenter {
+                presenter.textRasters.ensure(self, urgent: presenter.textIsVisible(self))
+            }
             if textRaster != nil { presentTextRaster() } else { layer?.contents = nil }
         } else {
             layer?.contents = nil
