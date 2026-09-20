@@ -45,13 +45,6 @@ sits on that list carries the trade it would take.
   Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments; iOS hit-testing and any iOS run at all;
   Safari/Firefox; `shape-outside: <image>`; the 2,000-paragraph worst case regressed 5 → 54 ms a pass in the fix round.
 
-- **Apple text: keep the line-break boundaries in `TextShape`** (2026-09-18; LLP 1043 F7): under
-  `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over the whole paragraph at
-  every width (25–31 µs on a 79–120 µs snapshot, probe only); the boundaries depend on the text alone.
-  Confirm in a Markdown resize trace first.
-- **Internal event/property ID collisions** (Charlie, 2026-09-19): investigate assignment and cross-branch collision detection after navigation and video independently claimed host dispatch kind 14 (merged as navigation 14, media 19).
-  Audit the manually mirrored Rust/Swift/browser dispatch codes alongside generated kernel property IDs and plan event ordinals; determine how to keep assignments consistent and detect incompatible host/plan pairs without adding another declaration authority.
-
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
@@ -109,12 +102,6 @@ sits on that list carries the trade it would take.
   the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
   Since 2026-09-19 one tokenizer is shared (`TextEngine.lineBoundaries`), which removed
   making one per paragraph, a tenth of a first measure; the re-run per width is as it was.
-
-- **Text around shapes** (2026-09-18; LLP 1043.000, Draft RFC, not in `current/` — the set is full):
-  `wrap-flow` / `shape-outside` exclusions a paragraph flows around on both sides, per frame; kernel
-  resolves them after layout, a shared `exact-textflow` crate walks lines, Apple can start on CoreText
-  (a screenful at 1.1 ms a frame, measured). Ruled 2026-09-18 (§6): CSS names, always linked, Taffy to upstream 0.14 for
-  auto-height (stage 0, its own lane), `every(16, …)`; Claude builds stage 1 (definite-height flow, kernel + Apple) in `lane/textflow`.
 
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
