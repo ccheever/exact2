@@ -436,16 +436,16 @@ impl World {
     }
     /// Remove this entity only; descendants leave at the end of the tick.
     /// A panicking component destructor poisons the world; discard it afterward.
-    pub fn despawn(&mut self, e: Entity) -> bool {
+    pub fn despawn(&mut self, e: Entity) -> Result<bool, DataError> {
         if !self.contains(e) {
-            return false;
+            return Ok(false);
         }
-        self.change_room(1).expect("structural journal full");
+        self.change_room(1)?;
         let generation = e
             .generation
             .checked_add(1)
-            .expect("entity generation exhausted");
-        self.mutation(|this| this.despawn_commit(e, generation))
+            .ok_or_else(|| DataError::new("entity generation exhausted"))?;
+        Ok(self.mutation(|this| this.despawn_commit(e, generation)))
     }
     fn despawn_commit(&mut self, e: Entity, generation: u32) -> bool {
         if let Some(mut children) = self.owners.remove(&e) {
@@ -567,22 +567,22 @@ impl World {
             .insert(e.index as usize, c);
         Ok(true)
     }
-    pub fn remove<C: Component>(&mut self, e: Entity) -> Option<C> {
+    pub fn remove<C: Component>(&mut self, e: Entity) -> Result<Option<C>, DataError> {
         if !self.has::<C>(e) {
-            return None;
+            return Ok(None);
         }
-        self.change_room(2).expect("structural journal full");
+        self.change_room(2)?;
         self.record_change(e, crate::ChangeKind::Remove(C::NAME.into()));
         if TypeId::of::<C>() == TypeId::of::<Parent>() {
             let old = self.get::<Parent>(e).map(|p| p.entity());
             self.change_owner(e, old, None);
             self.record_change(e, crate::ChangeKind::Reparent(None));
         }
-        self.components
-            .get_mut(C::NAME)?
-            .any_mut()
-            .downcast_mut::<Storage<C>>()?
-            .remove(e.index as usize)
+        Ok(self
+            .components
+            .get_mut(C::NAME)
+            .and_then(|s| s.any_mut().downcast_mut::<Storage<C>>())
+            .and_then(|s| s.remove(e.index as usize)))
     }
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))

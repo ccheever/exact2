@@ -464,6 +464,32 @@ mod review_tests {
         assert_eq!(w.journal_next(), cursor);
     }
     #[test]
+    fn removal_cursor_exhaustion_returns_errors_without_changing_state() {
+        #[derive(Default, crate::Component)]
+        struct Kept(u32);
+        for structural in [false, true] {
+            let mut w = World::new(60, 0);
+            w.register::<Kept>().unwrap();
+            let e = w.spawn(Kept(7)).unwrap();
+            if structural {
+                w.change_next = u64::MAX;
+            } else {
+                w.journal_next.set(u64::MAX - 1);
+            }
+            let before = w.save().unwrap();
+            let despawn = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.despawn(e)));
+            assert!(despawn.is_ok(), "despawn panicked on cursor exhaustion");
+            assert!(despawn.unwrap().is_err());
+            let remove =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.remove::<Kept>(e)));
+            assert!(remove.is_ok(), "remove panicked on cursor exhaustion");
+            assert!(remove.unwrap().is_err());
+            assert!(w.contains(e));
+            assert_eq!(w.get::<Kept>(e).unwrap().0, 7);
+            assert_eq!(w.save().unwrap(), before);
+        }
+    }
+    #[test]
     fn live_exhausted_generation_refuses_decode_but_retired_slot_does_not_block_spawn() {
         let mut w = World::new(60, 0);
         let e = w.spawn(()).unwrap();
@@ -473,16 +499,18 @@ mod review_tests {
         let bytes = out.finish().unwrap();
         assert!(World::new(60, 0).load(&bytes).is_err());
         w.state.slots[0].generation = u32::MAX - 1;
-        assert!(w.despawn(Entity {
-            generation: u32::MAX - 1,
-            ..e
-        }));
+        assert!(w
+            .despawn(Entity {
+                generation: u32::MAX - 1,
+                ..e
+            })
+            .unwrap());
         let saved = w.save().unwrap();
         w.load(&saved).unwrap();
         let next = w.spawn(()).unwrap();
         assert_eq!(next.index(), 1);
         assert!(!w.contains(e));
-        w.despawn(next);
+        w.despawn(next).unwrap();
         assert_eq!(w.spawn(()).unwrap().index(), 1);
         assert_eq!(w.len(), 1);
     }

@@ -104,7 +104,7 @@ fn ownership_bounds_ancestry_and_reaps_reverse_chains() {
     assert_eq!(before, w.save().unwrap());
     assert!(w.try_query::<&mut Parent>().is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| w.get_mut::<Parent>(es[0]))).is_err());
-    w.despawn(es[256]);
+    w.despawn(es[256]).unwrap();
     w.reap_orphans().unwrap();
     assert!(w.is_empty());
     let removed: Vec<_> = w
@@ -152,7 +152,7 @@ fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restor
     let owner = w.spawn(()).unwrap();
     w.insert(a, Count(2)).unwrap();
     w.set_parent(a, Some(owner)).unwrap();
-    w.despawn(a);
+    w.despawn(a).unwrap();
     let b = w.spawn(Count(3)).unwrap();
     assert_eq!(a.index(), b.index());
     assert_ne!(a.generation(), b.generation());
@@ -360,7 +360,7 @@ fn borrowed_queries_and_safe_runs_cover_holes_padding_and_owned_data() {
         })
         .collect();
     for &i in &[0, 2, 3, 63, 64, 100] {
-        w.remove::<Padded>(es[i]);
+        w.remove::<Padded>(es[i]).unwrap();
     }
     let pages = w.pages::<Padded>();
     let rows: Vec<_> = pages
@@ -761,7 +761,7 @@ fn lagging_consumer_cannot_refuse_orphan_reaping() {
         }
         fn tick(w: &mut World, _: &Input, _: &()) {
             TICKS.set(TICKS.get() + 1);
-            w.despawn(w.named("parent").unwrap());
+            w.despawn(w.named("parent").unwrap()).unwrap();
         }
     }
     TICKS.set(0);

@@ -198,7 +198,7 @@ fn settle_at_max_entities_counts_only_live_components_and_slots() {
         w.insert(e, D).unwrap();
     }
     assert!(w.sample().unwrap_err().message.contains("probe budget")); // 1,000,001
-    w.remove::<E>(e).unwrap();
+    w.remove::<E>(e).unwrap().unwrap();
     assert_eq!(w.sample().unwrap().components, MAX_ENTITIES as u64 * 4); // exactly 1,000,000
     assert_eq!(sim.settle(1).unwrap(), 1);
 }

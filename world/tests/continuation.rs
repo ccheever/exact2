@@ -44,7 +44,7 @@ impl Game for Fixture {
             }
         }
         for i in (0..137).step_by(11) {
-            w.despawn(w.entity_at(i).unwrap());
+            w.despawn(w.entity_at(i).unwrap()).unwrap();
             w.spawn(Position {
                 x: -1,
                 label: "recycled".into(),

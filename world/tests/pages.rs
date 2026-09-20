@@ -46,7 +46,7 @@ fn write_generations_cover_mutable_rows_without_marking_other_pages() {
     let partial = generations(&w);
     assert_ne!(partial[0], owned[0]);
     assert_eq!(&partial[1..], &owned[1..]);
-    w.remove::<Item>(entities[PAGE + 7]);
+    w.remove::<Item>(entities[PAGE + 7]).unwrap();
     assert_ne!(generations(&w)[1], partial[1]);
     let saved = w.save().unwrap();
     let hash = w.hash();
@@ -127,7 +127,7 @@ fn zst_rows_retain_leases_after_iterator_drop_and_unwind() {
     assert_eq!(w.query::<&mut Flag>().iter().count(), es.len());
     DROPS.set(0);
     for &e in &es {
-        assert!(w.despawn(e));
+        assert!(w.despawn(e).unwrap());
     }
     assert_eq!(DROPS.get(), es.len());
     let reused = w.spawn(Flag).unwrap();
@@ -172,7 +172,7 @@ fn panicking_writers_and_row_bodies_release_leases_before_reuse() {
     assert_eq!(w.get::<Owned>(e).unwrap().0, "first changed");
     let bytes = w.save().unwrap();
     w.load(&bytes).unwrap();
-    w.despawn(e);
+    w.despawn(e).unwrap();
     let reused = w.spawn(Owned("second".into())).unwrap();
     assert_eq!(reused.index(), e.index());
     assert_ne!(reused, e);

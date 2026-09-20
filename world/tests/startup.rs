@@ -103,7 +103,7 @@ fn first_high_slot_insertion_allocates_bounded_directory_and_one_value_chunk() {
         [e]
     );
     assert_eq!(w.pages::<CellValue>().iter().count(), 1);
-    w.remove::<CellValue>(e);
+    w.remove::<CellValue>(e).unwrap();
     assert_eq!(w.pages::<CellValue>().iter().count(), 0);
 }
 
@@ -335,7 +335,7 @@ fn unchanged_ownership_reuses_scratch_and_churn_reaps_reverse_chains() {
         }
     });
     assert_eq!(counts, (0, 0));
-    w.despawn(root);
+    w.despawn(root).unwrap();
     w.spawn(()).unwrap(); // Recycled slot must not rescue descendants.
     w.reap_orphans().unwrap();
     assert!(!w.contains(child));
@@ -525,7 +525,7 @@ fn high_slot_empty_column_churn_reuses_all_backing() {
     }
     let (_, (allocations, bytes)) = counting::measure(|| {
         for n in 0..1000 {
-            assert_eq!(w.remove::<Transient>(high).unwrap().0[0], n + 1);
+            assert_eq!(w.remove::<Transient>(high).unwrap().unwrap().0[0], n + 1);
             w.insert(high, Transient([n + 2; 4])).unwrap();
         }
     });

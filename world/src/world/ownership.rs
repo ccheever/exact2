@@ -19,7 +19,7 @@ impl World {
                 self.insert(child, Parent(parent))?;
             }
             None => {
-                self.remove::<Parent>(child);
+                self.remove::<Parent>(child)?;
             }
         }
         Ok(())
@@ -153,7 +153,7 @@ impl World {
         }
         self.change_room(remove.len())?;
         for e in remove {
-            self.despawn(e);
+            self.despawn(e)?;
         }
         self.orphans.clear();
         Ok(())
@@ -180,14 +180,14 @@ mod budget_tests {
             w.ownership.borrow().is_empty(),
             "spawning cannot orphan an owner"
         );
-        w.despawn(transient);
+        w.despawn(transient).unwrap();
         w.reap_orphans().unwrap();
         w.ownership.get_mut().fill(42);
         for _ in 0..1000 {
             w.reap_orphans().unwrap();
         }
         assert!(w.ownership.borrow().is_empty());
-        w.despawn(root);
+        w.despawn(root).unwrap();
         w.reap_orphans().unwrap();
         assert!(!w.contains(child));
     }
@@ -202,12 +202,12 @@ mod budget_tests {
         w.set_parent(child, Some(root)).unwrap();
         for _ in 0..1000 {
             let unrelated = w.entity_at(100_000).unwrap();
-            w.despawn(unrelated);
+            w.despawn(unrelated).unwrap();
             w.reap_orphans().unwrap();
             w.spawn(()).unwrap();
         }
         assert!(w.ownership.borrow().is_empty());
-        w.despawn(root);
+        w.despawn(root).unwrap();
         w.reap_orphans().unwrap();
         assert!(!w.contains(child));
     }
@@ -222,7 +222,7 @@ mod budget_tests {
         let grandchild = w.entity_at(1).unwrap();
         w.set_parent(child, Some(root)).unwrap();
         w.set_parent(grandchild, Some(child)).unwrap();
-        w.despawn(root);
+        w.despawn(root).unwrap();
         w.spawn(()).unwrap(); // recycled root must not rescue the old subtree
         w.reap_orphans().unwrap();
         assert!(w.ownership.borrow().is_empty(), "reap scanned all slots");
@@ -242,7 +242,7 @@ mod budget_tests {
         // churn operations are necessary to exercise the unfavourable suffix.
         w.state.slots[last.index() as usize].generation = u32::MAX;
         let last = w.entity_at(last.index() as usize).unwrap();
-        w.despawn(parent);
+        w.despawn(parent).unwrap();
         w.orphans.insert(last);
         let cursor = w.journal_next();
         let result = catch_unwind(AssertUnwindSafe(|| w.reap_orphans()));
@@ -266,8 +266,8 @@ mod budget_tests {
         let parent = w.entity_at(0).unwrap();
         let child = w.entity_at(1).unwrap();
         w.set_parent(child, Some(parent)).unwrap();
-        assert!(w.despawn(parent));
-        assert!(w.despawn(child));
+        assert!(w.despawn(parent).unwrap());
+        assert!(w.despawn(child).unwrap());
         w.validate().unwrap();
         assert!(w.is_empty());
         let retired = w.save().unwrap();
@@ -281,7 +281,7 @@ mod budget_tests {
         let owner = w.spawn(()).unwrap();
         let live = w.spawn(()).unwrap();
         w.set_parent(live, Some(owner)).unwrap();
-        w.despawn(owner);
+        w.despawn(owner).unwrap();
         w.orphans.insert(child);
         w.reap_orphans().unwrap();
         assert!(!w.contains(live));

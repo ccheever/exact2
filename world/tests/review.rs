@@ -94,15 +94,15 @@ fn five_empty_columns_do_not_change_observation_of_200k_entities() {
     let high = w.entity_at(MAX_ENTITIES - 1).unwrap();
     let before = w.sample().unwrap();
     w.insert(high, A).unwrap();
-    w.remove::<A>(high);
+    w.remove::<A>(high).unwrap();
     w.insert(high, B).unwrap();
-    w.remove::<B>(high);
+    w.remove::<B>(high).unwrap();
     w.insert(high, C).unwrap();
-    w.remove::<C>(high);
+    w.remove::<C>(high).unwrap();
     w.insert(high, D).unwrap();
-    w.remove::<D>(high);
+    w.remove::<D>(high).unwrap();
     w.insert(high, E).unwrap();
-    w.remove::<E>(high);
+    w.remove::<E>(high).unwrap();
     let after = w.sample().unwrap();
     assert_eq!((after.hash, after.components), (before.hash, 0));
     let bytes = w.save().unwrap();
@@ -268,7 +268,7 @@ fn registration_collision_names_both_rust_types_and_stale_insert_refuses() {
         "{error}"
     );
     let stale = w.spawn(left::Same).unwrap();
-    w.despawn(stale);
+    w.despawn(stale).unwrap();
     assert!(w.insert(stale, left::Same).is_err());
 }
 
@@ -529,7 +529,7 @@ fn generated_simulations_round_trip_exact_bytes_and_hashes() {
                 1 => {
                     if let Some(e) = s.world().entities().last() {
                         if e.index() != 0 {
-                            s.world_mut().despawn(e);
+                            s.world_mut().despawn(e).unwrap();
                         }
                     }
                 }

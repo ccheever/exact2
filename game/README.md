@@ -716,3 +716,8 @@ Spring uses the core evaluator's public API, with module-local config admission
 (frequency squared 1e-12–1e12, damping rate 0–1e6) and a permanent-rest energy
 bound. Deadline search has at most 2,400 samples, returning `None` if no permanent
 rest is found within ten seconds. Core `exact-motion` retains its app behavior.
+
+The optional kernel's structural removals are fallible:
+`World::despawn(Entity) -> Result<bool, DataError>` and
+`World::remove::<C>(Entity) -> Result<Option<C>, DataError>`. Stale/absent targets
+return `Ok(false)`/`Ok(None)`; cursor exhaustion returns `Err` before mutation.

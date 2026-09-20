@@ -15,7 +15,7 @@ fn round_trip_preserves_ids_names_rng_resources_and_name_order() {
         .unwrap();
     let e = w.spawn_named("fox", (Health { hp: 15 },)).unwrap();
     let dead = w.spawn_named("dead", (Health { hp: 4 },)).unwrap();
-    w.despawn(dead);
+    w.despawn(dead).unwrap();
     w.insert_resource(Score(79)).unwrap();
     w.rng().next_u32();
     let bytes = w.save().unwrap();
@@ -152,7 +152,7 @@ fn empty_columns_are_not_continuation_state() {
     let e = clean.spawn(()).unwrap();
     assert_eq!(e, churned.spawn(()).unwrap());
     churned.insert(e, Health { hp: 42 }).unwrap();
-    churned.remove::<Health>(e);
+    churned.remove::<Health>(e).unwrap();
     assert_eq!(clean.hash(), churned.hash());
     assert_eq!(clean.save().unwrap(), churned.save().unwrap());
     churned.insert(e, Health { hp: 23 }).unwrap();

@@ -403,7 +403,7 @@ mod tests {
         let saved = w.save().unwrap();
         w.load(&saved).unwrap();
         assert_eq!(w.save().unwrap(), saved);
-        let removed = w.remove::<Padded>(e).unwrap();
+        let removed = w.remove::<Padded>(e).unwrap().unwrap();
         assert_eq!(
             (removed.byte, removed.owned.as_str(), removed.word),
             (3, "second", 4)
@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(DROPS.get(), 0);
         w.insert(e, Guard).unwrap();
         assert_eq!(DROPS.get(), 1);
-        let value = w.remove::<Guard>(e).unwrap();
+        let value = w.remove::<Guard>(e).unwrap().unwrap();
         assert_eq!(DROPS.get(), 1, "remove transfers ownership to its caller");
         drop(value);
         assert_eq!(DROPS.get(), 2);
@@ -465,7 +465,7 @@ mod tests {
         let e = w.spawn(Owner::new(1)).unwrap();
         w.insert(e, Owner::new(2)).unwrap();
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
-        let owner = w.remove::<Owner>(e).unwrap();
+        let owner = w.remove::<Owner>(e).unwrap().unwrap();
         assert_eq!(owner.id, 2);
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
         drop(owner);
@@ -552,7 +552,7 @@ mod tests {
                 text: "doomed".into(),
             })
             .unwrap();
-        assert!(catch_unwind(AssertUnwindSafe(|| w.despawn(e))).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| w.despawn(e).unwrap())).is_err());
         assert!(w.get::<Bomb>(e).is_none());
         assert!(w.validate().unwrap_err().message.contains("poisoned"));
     }
@@ -598,7 +598,7 @@ mod directory_tests {
                 .collect::<Vec<_>>(),
             [0, 63, 64, 8191, 8192]
         );
-        w.remove::<Wide>(high);
+        w.remove::<Wide>(high).unwrap();
         assert!(w
             .storage::<Wide>()
             .unwrap()

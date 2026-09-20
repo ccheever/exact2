@@ -111,6 +111,11 @@ pub fn throughput(label: &str, dense: bool) {
             "Published::Record(vec![Published::Bool(true),Published::Str(\"x\".into())])",
         )
         .replace("ENGINE", "exact_world")
+        .replace(
+            "w.despawn(entities[i]);",
+            "w.despawn(entities[i]).unwrap();",
+        )
+        .replace("w.despawn(es[i]);", "w.despawn(es[i]).unwrap();")
         .replace("w.hash()", "w.hash().unwrap()")
         .replace(
             "register::<Throughput>()",
@@ -143,7 +148,7 @@ pub fn throughput(label: &str, dense: bool) {
         );
     // Old EXGAME v3 retained empty columns. Compare canonical content against
     // the old engine's never-populated history, and exercise churn only in new.
-    let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>().unwrap(); w.insert(entities[1999], Temporary).unwrap(); w.remove::<Temporary>(entities[1999]); let mut history =");
+    let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>().unwrap(); w.insert(entities[1999], Temporary).unwrap(); w.remove::<Temporary>(entities[1999]).unwrap(); let mut history =");
     let fixture_new =
         fixture_new.replace("w.save()", "{ let mut b = w.save().unwrap(); b[7] = 3; b }");
     let fixture_new = fixture_new.replace(

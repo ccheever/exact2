@@ -28,20 +28,20 @@ fn generations_names_and_order_under_churn() {
     assert_eq!(w.resolve(&format!("fox#{}", second.index())), Some(second));
     assert_eq!(w.resolve(&format!("#{}", third.index())), Some(third));
     assert_eq!(w.resolve(&format!("fox#{}", third.index())), None);
-    w.despawn(second);
-    w.despawn(first);
+    w.despawn(second).unwrap();
+    w.despawn(first).unwrap();
     let recycled = w.spawn_named("fox", (A(4),)).unwrap();
     assert_eq!(recycled.index(), first.index());
     assert_eq!(recycled.generation(), first.generation() + 1);
     assert!(!w.contains(first));
     assert!(!w.has::<A>(first));
-    assert!(!w.despawn(first));
+    assert!(!w.despawn(first).unwrap());
     let mut rng = Rng::new(13);
     let mut entities = vec![recycled, third];
     for _ in 0..if cfg!(miri) { 64 } else { 2000 } {
         if !entities.is_empty() && rng.next_f32() < 0.45 {
             let i = rng.next_u32() as usize % entities.len();
-            w.despawn(entities.remove(i));
+            w.despawn(entities.remove(i)).unwrap();
         } else {
             entities.push(w.spawn((A(rng.next_u32()),)).unwrap());
         }
@@ -216,7 +216,7 @@ fn hierarchy_despawn_and_live_generations() {
             .collect::<Vec<_>>(),
         [child]
     );
-    assert!(w.despawn(root));
+    assert!(w.despawn(root).unwrap());
     assert!(w.contains(leaf));
     w.reap_orphans().unwrap();
     assert!(!w.contains(leaf));
@@ -285,13 +285,13 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     assert_eq!(count(1), 0);
     w.insert(e, value(2)).unwrap();
     assert_eq!(count(1), 1);
-    let removed = w.remove::<Counted>(e).unwrap();
+    let removed = w.remove::<Counted>(e).unwrap().unwrap();
     assert_eq!(count(2), 0);
     assert_eq!(w.pages::<Counted>().iter().count(), 0);
     drop(removed);
     assert_eq!(count(2), 1);
     w.insert(e, value(3)).unwrap();
-    w.despawn(e);
+    w.despawn(e).unwrap();
     assert_eq!(count(3), 1);
     let first = w.spawn((value(4),)).unwrap();
     for _ in 0..exact_world::PAGE {
@@ -299,7 +299,7 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     }
     let last = w.spawn((value(5),)).unwrap();
     assert_eq!(w.pages::<Counted>().iter().count(), 2);
-    assert!(w.remove::<Counted>(e).is_none()); // stale incarnation cannot remove #4
+    assert!(w.remove::<Counted>(e).unwrap().is_none()); // stale incarnation cannot remove #4
     assert!(w.get::<Counted>(e).is_none());
     assert!(w.get_mut::<Counted>(e).is_none());
     assert!(w.has::<Counted>(first));
@@ -346,7 +346,7 @@ fn mask_joins_across_words_pages_and_optional_only_queries() {
         }
     }
     for &e in entities.iter().step_by(11) {
-        w.despawn(e);
+        w.despawn(e).unwrap();
     }
     let expected: Vec<_> = entities
         .iter()
@@ -426,10 +426,10 @@ fn large_churn_has_history_independent_order_hash_and_save() {
         selected.sort_unstable();
         selected.dedup();
         for &i in &selected {
-            left.despawn(entities[i]);
+            left.despawn(entities[i]).unwrap();
         }
         for &i in selected.iter().rev() {
-            right.despawn(entities[i]);
+            right.despawn(entities[i]).unwrap();
         }
         for &i in &selected {
             let a = left.spawn(()).unwrap();
@@ -478,7 +478,7 @@ fn checked_slot_lookup_refuses_dead_and_out_of_range_indices() {
     let old = w.spawn(()).unwrap();
     assert_eq!(w.entity_at(old.index() as usize), Some(old));
     assert!(w.entity_at(usize::MAX).is_none());
-    w.despawn(old);
+    w.despawn(old).unwrap();
     assert!(w.entity_at(old.index() as usize).is_none());
     let new = w.spawn(()).unwrap();
     assert_eq!(w.entity_at(old.index() as usize), Some(new));

@@ -473,14 +473,14 @@ mod cost_tests {
         let high = w.entity_at(n - 1).unwrap();
         w.insert(high, C).unwrap();
         assert!(w.query::<&C>().words > 0);
-        w.remove::<C>(high);
+        w.remove::<C>(high).unwrap();
         assert_eq!(
             w.query::<&C>().words,
             0,
             "empty column scanned high-water words"
         );
         for i in 0..n {
-            w.despawn(w.entity_at(i).unwrap());
+            w.despawn(w.entity_at(i).unwrap()).unwrap();
         }
         assert_eq!(w.query::<Option<&C>>().words, 0);
         let e = w.spawn(C).unwrap();

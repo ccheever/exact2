@@ -189,6 +189,9 @@ Parent is an ownership edge, independent of spatial transforms. Only
 at most 256 edges, returning an error past that work bound before mutation. This
 bounds natural chain construction; it is not a global maximum depth, since reverse
 construction can form deeper valid chains. Validation still walks each edge once.
+`despawn(Entity) -> Result<bool, DataError>` and
+`remove::<C>(Entity) -> Result<Option<C>, DataError>` refuse exhausted cursors
+before mutation; stale/absent targets return Ok(false)/Ok(None).
 Despawn removes the entity immediately; descendants leave at the next reap in
 ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
 
