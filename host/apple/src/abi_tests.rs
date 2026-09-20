@@ -782,7 +782,8 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
   action move(dx: number, dy: number) writes x
     x = x + dx + dy
   view
-    box testId="pan" pan=move left=x
+    box
+      box testId="pan" pan=move position="relative" left=x
 "#,
     )
     .unwrap()
@@ -796,6 +797,10 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
     let n = bridge.dispatch(view, 20, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().carry().slots,
+        vec![("x".into(), Value::Number(80.))]
+    );
     assert_eq!(
         bridge
             .host

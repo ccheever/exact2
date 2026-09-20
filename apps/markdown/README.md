@@ -1181,3 +1181,11 @@ launches immutable digest-named copies, removes inherited Clippy settings and
 reports helper exit status/signal without retrying operations. The existing
 tooling suite's nine tests pass; restoring the mutable launch path fails the new
 rebuild control. Full workspace verification must run again on the fixed commit.
+
+At `ef56fda7`, build, lint, caps and boot passed. The workspace test run reached
+completion with one failure in the newly added pan ABI fixture: it expected a
+layout root's `left` inset to move the root, which Taffy places at the origin.
+The fixture now puts the relatively positioned pan target inside a container
+and checks the carried state as well as its frame; the focused test passes.
+Upstream `3ddd059e` is integrated, including owned mouse-release delivery across
+AppKit event wrappers. Its queue tests and the full integrated gate remain to run.
