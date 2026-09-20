@@ -267,7 +267,7 @@ for (const [name, html, files, expectCode, expect] of [
   const brokenCopyRefused = await rejects(() => copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')), error => error.message.includes('must be a real directory'));
   const shaderSource = join(dir, 'shader-source');
   const shaderTarget = join(dir, 'shader-target');
-  const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '../target/debug/exact-gpu-reflect');
+  const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '..', process.env.CARGO_TARGET_DIR ?? 'target', 'debug/exact-gpu-reflect');
   if (!existsSync(reflector)) spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: resolve(dirname(fileURLToPath(import.meta.url)), '..') });
   mkdirSync(shaderSource);
   writeFileSync(join(shaderSource, 'surface.wgsl'), '@compute @workgroup_size(1) fn main() {}\n');
