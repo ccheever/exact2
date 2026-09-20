@@ -127,7 +127,7 @@ mod publication_tests {
         let mut out = bin::Encoder::default();
         out.begin_struct();
         out.key("x");
-        crate::Published::List(vec![crate::Published::Unit; 1022]).write(&mut out);
+        crate::Published::List(vec![crate::Published::Unit; 1023]).write(&mut out);
         out.end_struct();
         let bytes = out.finish().unwrap();
         let mut w = World::new(60, 0);

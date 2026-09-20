@@ -80,7 +80,8 @@ This example is compiled as a doctest. Run it with
 ### State, identity and borrowing
 
 Data fields traverse in declaration order. Storage traverses in type-name order;
-queries return ascending entity slots. Hashing and binary encoding canonicalize
+queries return ascending entity slots. Empty required columns and empty worlds
+prepare zero query words; empty page iteration also short-circuits. Hashing and binary encoding canonicalize
 NaNs and preserve signed zero. Semantic Data has no interior mutability. Manual
 implementations must obey the visitor and admission contracts below. Explicit
 `hash() -> Result<u64, DataError>` always walks current Data; it no longer caches by the mutation epoch.
@@ -91,7 +92,7 @@ and returns its current live incarnation; dead and out-of-range indices return
 `None`. Names select the lowest live matching slot. `resolve` accepts a name,
 `#12`, or `name#12`; explicit index selectors take precedence over names.
 
-Registration is explicit and fallible. A short-name collision refuses and names
+Storage names admit 1–256 UTF-8 bytes. Registration is explicit and fallible. A short-name collision refuses and names
 both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
 including recursive registration. `Game::register` receives borrowed setup/restart
@@ -222,10 +223,12 @@ reanchors retained session messages after restored game history and reports rese
 
 ### Saves, codecs and admission
 
-World saves remain **EXGAME v4**; simulation saves remain **EXSIM v10**. This lane
-changes neither format nor generic Data/hash tags. Empty columns are omitted.
-EXSIM includes caller time separately from simulation time. Other envelope
-versions are refused, without migration.
+World saves remain **EXGAME v4**. **EXSIM v10** corrects lost publication delivery:
+byte 6 changes 09→0a, the outer sequence count at byte 8 changes 9→10, and one
+final boolean byte records pending delivery. Every previous payload field and
+hash remains unchanged. Other versions refuse without migration. The frozen v9
+inventory normalizes exactly those three changes and checks the new pending bit;
+empty, pending and drained delivery have independent restore/from-save/carry tests.
 
 `World::load/carry` on a Sim-owned world refuses; use the owning Sim.
 Exact restore reconstructs a candidate and requires canonical bytes to reproduce
@@ -253,7 +256,23 @@ refusal and `finish()` propagates the error. Record publication admits sequence
 backing, strings, numeric vectors and nesting before allocation. Custom Data
 writers must honor `stopped` and claim owned decode storage. Allocating defaults,
 including skipped fields, must declare `default_size` or implement an admitted
-`read_new`; a codec cannot bound arbitrary user code.
+`read_new`; a codec cannot bound arbitrary user code. Derive requires Data + Default
+on skipped fields and charges every reset. Enum read_new constructs the selected
+variant without invoking an unrelated manual enum Default. Manual enum defaults
+charge the largest variant; recursive enums require a derived unit Default or
+manual Data admission. Rust expands cfg and
+cfg_attr before derive; retained, absent and conditionally skipped fields are tested.
+Parser diagnostics still use invocation spans.
+
+Publication decode charges one shared 65,536-unit allowance before children,
+strings and object keys allocate; declared sequence lengths preflight it. Logical
+depth is 80, leaving room within the 256 codec frames. Root keys separately have
+the fixed 256 × 256-byte bound. Error paths truncate at 256 UTF-8 bytes; the small
+diagnostic reserve stays bounded independently of rejected payload size.
+`bin::read_into` stages a saved copy plus patch under one 256 MiB decode budget;
+it costs a complete encode/decode and preserves the destination on decode error.
+`World::hash`, `hash::of` and `Hasher::finish` return Result and refuse invalid
+values, excessive strings, decode claims and nesting beyond 256 frames.
 
 | Admission | Bound and refusal |
 |---|---|
@@ -286,7 +305,7 @@ permits. Retirement is saved in the existing generation/free fields (no wire cha
 rounds separately to the nearest microsecond, with half-microseconds rounded up.
 Sub-microsecond deltas are not accumulated before rounding. `alpha_inputs()` still
 returns `(tick, numerator, 1_000_000)`; typed clock/phase result types are deferred.
-Both paused and playing input use half-open timestamp boundaries. Clock rebasing
+Nonnumeric # suffixes resolve as names. Both paused and playing input use half-open timestamp boundaries. Clock rebasing
 and settle range-check in widened arithmetic before mutation, in debug and release.
 Pause advances caller time and reconciles held input without simulation ticks or
 retained resume edges. `reconcile_input(clock_ms, held)` atomically replaces held
@@ -294,11 +313,11 @@ state, clears edges/queued input and rebases caller time without a tick.
 
 Args fields default to Setup. `#[live]` changes subsequent ticks; either boolean
 `#[restart]` edge reconstructs the world. Registration sees only setup/restart
-fields. Derive supports typed portable scalars; nonfinite values and oversized text refuse
+fields. Derive accepts unqualified and std/core-qualified portable scalars; nonfinite values and oversized text refuse
 before mutation. Full-width integers remain typed core values; Contract safe-range
 checks belong to the adapter. Input exposes key, held,
 pressed, released and scalar axis state. Axis declarations still require a key
-pair; a dedicated analog-only declaration is deferred. `stick_axis` uses the
+pair; all declared keys share the runtime 128-byte bound. An analog-only declaration is deferred. `stick_axis` uses the
 60-point contact-offset rule; contact ownership belongs to a module.
 
 `Spring` and `Tween` are saved scalar motion over exact-motion. Tween uses its
@@ -310,234 +329,119 @@ halfway away from zero. `lerp` permits extrapolation, `smoothstep` clamps betwee
 distinct increasing edges, and `wrap_angle` returns [-pi, pi). `ease` uses a
 nonnegative time constant and snaps within 1e-4; zero lag arrives immediately.
 `Rng::next_u32` and `next_f32` are the deterministic RNG primitives.
+Spring settlement uses exact-motion’s decreasing energy bound; slow crossings
+and undamped oscillations cannot appear permanently settled. Config validation
+admits frequency squared in [1e-12, 1e12] and damping rate in [0, 1e6]. Presentation
+snaps at 10 seconds; World Spring reports no deadline if that cap is not at rest.
+Derived caches use 64 independent lazy cells, with at most 64 type-ID comparisons;
+replacement clears them. Reborrowing the same T exclusively still refuses.
 
 ## Measurements and reproduction
 
-Use the pinned Bun and the existing Cargo caches. Do not create another target
-directory. Before a cold build, check `df -h ~`; stop below 25 GiB free.
+Use the existing Cargo cache and shared target directory. Before a cold build,
+check `df -h ~`; stop below 25 GiB free. These counts are allocator calls and
+cumulative requested bytes, not resident memory, latency or first pixel.
 
-```sh
-export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH
-export EXACT_UPDATE_TRUST=development
-cargo test -p exact-world --test startup -- --nocapture
-cargo test -p exact-world --no-fail-fast
-cargo test -p exact-world -- --ignored
-cargo clippy -p exact-world -p exact-world-derive --all-targets -- -D warnings
-cargo fmt -p exact-world -p exact-world-derive -- --check
-```
-
-Counts below are allocation calls / cumulative requested bytes, including realloc
-requests, on this Linux 64-bit builder. Fixtures are constructed before measuring
-activation or restore. The test repeats restore and asserts identical counts.
-These are allocation/work counts, not first-pixel or GPU startup measurements.
-The input fixture establishes held state and reusable edge buffers and constructs
-all event strings/queue backing before counting the 1,000 consuming ticks. It
-checks 251 press/release edges and nonzero movement while assets remain pending;
-removing event delivery fails the test. The old clone path fails the zero-allocation
-assertion with 68,751 allocations. New input-state capacity and event creation are
-not claimed to be allocation-free.
-
-| Fixture | K1c | K1d |
+| Operation | K1d calls / bytes | K1e calls / bytes |
 |---|---:|---:|
-| Empty World | 1 / 24 | **1 / 24** |
-| 100-entity construction | 21 / 41,968 | **21 / 41,880** |
-| First tick, including first publication | 3 / 640 | **2 / 568** |
-| 1,000 ticks with sparse edits among 200,000 entities | 0 / 0 | **0 / 0**, zero component visitor calls |
-| 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 0 / 0 | **0 / 0** |
-| 1,000 ticks changing a publication every tick | 1,003 / 204,704 | **3 / 200,704** |
-| Exact 10,240-byte restore | 80 / 46,873 | **80 / 46,764** |
-| First component at slot 199,999 | 4 / 77,536 | **4 / 77,536** |
-| 1,000 empty-column remove/reinsert cycles at slot 199,999 | 2,000 / 77,048,000 | **0 / 0** |
+| Empty World | 1 / 24 | 1 / 24 |
+| 100-entity construction | 21 / 41,880 | 21 / 41,880 |
+| First tick with publication | 2 / 568 | 2 / 568 |
+| 1,000 changing-publication ticks | 3 / 200,704 | 3 / 200,704 |
+| Exact 10 KiB restore | 80 / 46,764 | 80 / 46,760 |
+| First 32-byte component at slot 199,999 | 4 / 77,536 | 4 / 77,536 |
+| 1,000 high-slot remove/reinsert cycles | 0 / 0 | 0 / 0 |
+| 1,000 sparse-edit ticks in 200k entities | 0 / 0 | 0 / 0 |
+| 1,000 prepared input-heavy ticks | 0 / 0 | 0 / 0 |
 
-The 1,000-publication case now pays only for three journal capacity growths. This is game-produced output, not hidden component observation.
-The 200,000-entity counter test subsequently performs three settle ticks and
-counts exactly 800,000 component writes: four boundaries, including the initial
-sample. That positive control catches an observer that simply returns nothing.
-Unchanged ownership reaping allocates nothing and leaves its status scratch
-unvisited; reverse chains, parent-slot recycling and later reuse exercise the
-unfavorable case. Spawning into a valid hierarchy also performs no ownership walk.
+Input fixtures prepare event strings, queue and edge buffers before counting;
+they assert press/release edges and movement while assets remain pending. Ordinary
+ticks perform zero Data writes; three explicit settle ticks perform 800,000 writes
+across four boundaries. The 200k owner-removal control reaps interleaved descendants
+without visiting ownership scratch, even after recycling the owner's slot.
+Hostile nested publications refused after 527–542 requested bytes, versus the
+reproduced 3,201,238 bytes for 100,000 Unit children before the fix.
 
-Relative to lane 1 (1,038 / 106,671), restore allocation calls remain **13×** lower
-and requested bytes **2.28×** lower. K1d preserves the 80 allocation calls.
-The histogram printed by the test locates the remaining requests, including the
-full canonical comparison encoding, the Blob, event backing and value chunk.
-Thirty-two nine-byte strings are saved CellValue event names. Sharing publication
-keys removes their steady-state allocations without changing any Data/hash tags.
+First high-slot insertion deliberately initializes at most 25,000 bytes of
+presence and 50,000 bytes of directory on this 64-bit host, plus one value chunk.
+Chunks and directory backing retain bounded high-water capacity until replacement.
+Nonempty queries cost O(highest-live-slot / 64 × terms + rows); runs cost
+O(directory chunks + runs + consumed values). Despawn visits at most 256 columns.
+The 200k reverse-insertion/recycled-generation benchmark compares complete storage
+implementations over 100 traversals and seven samples, checking every sum.
 
-Hashing a 4 MB numeric vector allocates **0 / 0**. Inspection of a 65,536-byte
-numeric vector allocates under 1,024 bytes; an oversized vector refuses before
-conversion. A million nested inspection values stop before 6,000 element visits.
-An already-refused inspection incurs zero further allocations. Unchanged work
-and publication updates allocate nothing across 1,000 repetitions and preserve
-mutation/journal generations. Clock tests distinguish per-delta rounding from
-accumulating fractional microseconds.
+Final quiet-run medians (ns/row) are diagnostic, not a significance claim:
 
-### Dense and sparse bulk readers
+| Operation | K1d kernel | K1e engine | K1e kernel |
+|---|---:|---:|---:|
+| Dense query | 1.312 | 1.124 | 1.316 |
+| Sparse query | 2.770 | 2.815 | 2.754 |
+| Dense runs | 0.695 | 1.025 | 0.697 |
+| Sparse runs | 2.933 | 55.953 | 2.937 |
+
+Counts do not regress. Dense query/runs differ +0.3%, sparse runs +0.1%, and sparse
+query -0.6%; these timings do not establish a statistically significant change.
+A prior run concurrent with other checks was slower (dense query 1.371).
 
 ```sh
+export PATH=$HOME/.cargo/bin:$HOME/.local/bin:$PATH EXACT_UPDATE_TRUST=development
+cargo test -p exact-world --test startup -- --nocapture
+cargo test -p exact-world -p exact-world-derive -p exact-motion --no-fail-fast
+cargo test -p exact-world -- --ignored
+cargo clippy -p exact-world -p exact-world-derive -p exact-motion --all-targets -- -D warnings
+cargo fmt -p exact-world -p exact-world-derive -p exact-motion -- --check
+cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel
 cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel \
   dense_and_sparse_page_throughput -- --ignored --nocapture
-```
-
-The fixture builds a temporary **release** consumer using the shared root target.
-It compares complete storage implementations, not an isolated page-size switch.
-Both have 200,000 slots, reversed insertion, every eleventh slot recycled, a
-40-byte component, and 100 traversals. Sparse rows occur at stride 97: 2,062 live
-values. Counts/sums are checked every traversal; clocks are diagnostic samples.
-
-Medians of seven samples, each with 100 traversals, on this same builder:
-
-| Shape / operation, ns/row | K1c engine | K1c kernel | K1d engine | K1d kernel |
-|---|---:|---:|---:|---:|
-| Dense query | 1.211 | 1.309 | 1.121 | 1.312 |
-| Sparse query | 2.798 | 2.981 | 2.804 | 2.770 |
-| Dense runs | 1.034 | 0.704 | 1.026 | 0.695 |
-| Sparse runs | 58.212 | 2.910 | 56.018 | 2.933 |
-
-Kernel dense queries changed +0.2%, sparse queries -7.1%, dense runs -1.3%,
-and sparse runs +0.8%. These are timing samples, not a significance claim. The
-paired kernel/engine query ratios are 1.170× dense and 0.988× sparse. Both query
-targets pass; allocation and work bounds have no regression.
-
-Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
-for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes
-at capacity on this 64-bit machine). New empty columns allocate neither. Once
-allocated, metadata and value chunks retain their bounded high-water backing until
-World destruction/replacement. Removal clears presence and drops the value without
-a directory scan; public page iteration and save accounting skip empty chunks. Only metadata is zeroed. Each 64-value chunk is
-allocated uninitialized and owns exactly the slots whose presence bits are set.
-Chunks keep separate write generations; typed runs skip holes with bit operations.
-
-64 values retain small-world allocation: a 40-byte component requests **2,560 B**
-per chunk (100 entities: 5,120 B); a 4-byte component requests **256 B** (100:
-512 B). A 1,024-value allocation would request 40,960/4,096 B immediately. Query
-joins scan flat words without chunk lookups; only matched words fetch pointers.
-The bounds remain 200,000 slots, eight terms and four filters; excess world/query
-admission refuses. Query work is O(slots/64 × terms + returned rows); runs cost
-O(directory chunks + present runs + values actually consumed).
-
-Counted construction is **21 / 41,880**, restore **80 / 46,764**, and first
-component at slot 199,999 is **4 / 77,536**. The last byte count rises deliberately
-with flat metadata; it still allocates only one value chunk. Empty World, first
-tick, publication ticks and 1,000 sparse-edit ticks retain their prior counts.
-
-### Parity and environment checks
-
-```sh
-cargo test --manifest-path game/Cargo.toml -p exact-game --test world_kernel
-cargo test --manifest-path game/Cargo.toml -p exact-world-adapter
 cargo test --manifest-path game/Cargo.toml --workspace --no-fail-fast
 cargo clippy --manifest-path game/Cargo.toml --workspace --all-targets -- -D warnings
 cargo fmt --manifest-path game/Cargo.toml --all -- --check
 (cd game && bun test)
 bun game/app/shells.mjs --test
-# Run each game/games/*/proof.mjs with linux, and game/tests/lanterns/proof.mjs linux.
+# Every game/games/*/proof.mjs and game/tests/lanterns/proof.mjs takes linux.
 ```
 
-The cross-engine fixture compares common World hashes, canonical world bytes and
-generic Data bytes. It covers recycled slots, floating-point edge cases, resources,
-delivery and temporary-column churn in the new kernel. It uses the **same reverse
-component insertion order** in both implementations; it does not compare opposite
-insertion histories across engines. It normalizes only the EXGAME header version;
-the old engine's unpopulated column history is compared with new-kernel
-create/remove history. The separate 200k churn test checks history independence.
-
-K1d ran 123 kernel tests successfully (including the doctest and compile probes),
-plus both ignored large controls separately. Cross-engine and all five frozen
-continuation boundaries pass unchanged. Game workspace: 740 pass, 25 ignored,
-18 fail exclusively for the missing GPU adapter. Authored-game tests: 48 pass,
-one ignored, three GPU failures. Bun: 146 pass, one skipped, three Chrome-dependent
-failures. Game and kernel clippy with warnings denied and formatting pass.
-
-Linux proofs pass for asset-fixture, Beacons, Greybox, particles-fixture,
-placement-fixture, skinned-fixture and sprites-fixture. Both Lanterns fixtures
-run but refuse empty pins; no parity claim is made. The cubes benchmark invokes
-Chrome even with `linux` and reached its 300-second external deadline.
-Root workspace build/test/clippy are blocked by the absent lean Hermes producer
-for weatherlight/fieldnotes. Caps passes all 785 sources; boot reports 88,699 JS
-bytes, 3,468 page bytes, two pre-pixel JS modules and one Wasm reference.
-The box has no GPU adapter, Chrome or Apple SDK. Rendering, GPU residency, real
-browser/Apple execution and first pixel cannot be certified here. F2 consolidation,
-complete-consumer artifact measurements and owner/judge acceptance remain open.
-
-### Unsafe boundary verification
-
-Nightly `1.100.0-nightly (feaadeeac 2026-09-19)` with Miri installed successfully.
-The final storage command passed seven tests; query/page commands passed thirteen.
-The same seven storage tests also passed under i686 Miri, plus its near-limit
-admission test. A direct wasm32 build executed through Bun preserved all five
-complete frozen checkpoint boundaries and matched native/i686 admission exactly:
-2,232 units accepts and 2,231 refuses. The redundant full i686 Miri continuation
-run was cancelled after this real wasm result; it is not counted as a pass.
-No undefined behavior was detected. This includes aligned ZST retained rows,
-lease unwind, padded/owned moves, slot reuse, rejecting readers and panicking drops.
-The 200k directory stress stays native; Miri's churn/overalignment sizes are reduced
-while still crossing chunks. The equal-address ZST allegation was not reproduced.
+Miri exercises leases, retained mutable rows, aligned ZSTs, owned/padded values,
+replacement, slot reuse, failed readers and selected unwind paths. The new empty
+query control uses 321 slots under Miri and 200,000 natively. No unsafe code moved
+outside storage; the allocator used by refusal tests is test-only storage support.
 
 ```sh
 cargo +nightly miri test -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
 cargo +nightly miri test -p exact-world --test pages --test ecs -- --test-threads=1 --skip resource_and_non_state_outputs
-cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --lib storage -- --test-threads=1 --skip presence_is_flat_bounded_and_values_stay_lazy_after_churn
+cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test data portable_admission
 ```
 
-The raw query `Fetch` trait and reference constructors are crate-private. External
-compile probes refuse both direct construction and a generic attempt to mint a
-`'static` row. Unsafe code remains confined to `world/src/storage/`.
+K1e Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage and 1 i686 admission
+executions passed, with no UB detected. A real wasm32 build executed through Bun
+passes all five frozen continuation boundaries and the 2,232-accept/2,231-refuse
+admission boundary. Generated simulations compare 2,048 complete save/load/save
+boundaries and hashes. These finite controls do not prove arbitrary manual Data.
 
-Derives require `Data + Default` on every field, including skipped fields, even when the
-outer type supplies its own manual Default. Tuple/container replacement and enum
-switching construct field defaults. The compile harness checks a skipped
-`NoDefault` field and requires the explicit diagnostic "Data fields require Data and Default,
-including skipped fields", naming its type. Field-spanned parser diagnostics remain
-deferred; this lane does not introduce a second parser or weaken the bounds.
+The temporary cross-engine consumer compares common Data/hash content and world
+bytes, normalizing only the EXGAME header. Both engines use the same reverse
+insertion order. Contract conversions remain in game/world-adapter, outside core;
+no root crate gained a dependency on the game workspace. F2 consolidation,
+nonspatial app startup/artifact evidence, deployed old-save cutover and owner/judge
+approval remain separate, unfinished admission work. This host has no GPU adapter,
+Chrome or Apple SDK; browser/Apple rendering and first pixel are unverified.
 
-## Public surface and remaining work
+Final kernel/derive/motion tests: 184 passed, two large controls passed separately;
+clippy denies warnings and formatting passes. Cross-engine and all six adapter
+tests pass. Game workspace: 740 passed, 25 ignored, 18 missing-GPU failures.
+Authored-game workspaces: 48 passed, one ignored, three missing-GPU failures.
+Bun: 145 passed initially, one skipped, four failures; the lane's long-name literal
+false positive was fixed and its check passes, leaving three Chrome failures.
+Seven Linux game proofs pass; both Lanterns fixtures execute but lack pins. Cubes
+requires Chrome and timed out. Root build/test/clippy require the absent lean
+Hermes producer. Caps passes; boot stays at 88,699 JS bytes, 3,468 page bytes,
+two pre-pixel modules and one Wasm reference. No game pins changed.
 
-The core authoring APIs remain `spawn`, `spawn_named`, `insert`, `remove`,
-`despawn`, typed component/resource leases, ordered queries and pages. Mutation
-admission is explicit and fallible where declared; name/generation validation
-precedes structural commit. `entity_at` now provides checked page-index lookup.
-For shared state use resources; `derived<T>()` is unsaved and cleared on replacement.
-Its 64 lazily initialized cells borrow independently; lookup inspects at most 64
-type IDs. Reborrowing the same T exclusively still refuses.
-For delivery use kernel `publish`, borrowed `publications`, `take_published`,
-`emit` and `take_messages`. The redundant cloning `published(key)` getter was
-removed; borrow `publications().get(key)` instead. Contract `publish_record` and
-value/message conversion belong to `exact-world-adapter::publication`. The world
-hash excludes delivery queues; Sim saves retain them.
-
-The merged log cursor replaces `journal(since)`, and structural batches expose
-`next` instead of the removed global `change_cursor()`. The `tree` and `children`
-collection wrappers are removed: adapters can bound `entities().take(512)` and
-query Parent explicitly. Public method descriptions are consolidated in this
-included README; storage safety and mutation invariants remain beside the code.
-
-The external seam is shipped and exercised by five public-only tests: erased
-component/resource visitation, candidate edits and atomic commit/refusal, bounded
-observation (including mostly empty maximal worlds), and resource revisions.
-The original three prototype tests landed with two additional adverse controls.
-Conversion of named Data records, positional Contract values and the untagged
-Contract message envelope moved to the real `game/world-adapter` crate. That
-adapter enforces conversion size/depth limits and is tested outside the root
-workspace, including byte/hash parity against the old engine.
-
-A kinds/space author can register types, hold independent structural cursors, use
-safe typed pages and resolve indices to live handles. Reload can use `visit`,
-`candidate`, `Candidate::edit` and `Candidate::commit`; merge policy remains
-external. Typed clock/phase results, query `one()` and analog-only declarations
-remain deferred under the production ceiling.
-
-`tests/fixtures/k1b-continuation.bin` was produced from commit `428436d` with the
-fixture in `tests/continuation.rs`. Five boundaries compare complete EXGAME v4
-and EXSIM v9 bytes plus World hashes after reversed insertion, recycled slots,
-resource changes, ownership, publications, pending assets and queued input. The
-separate cross-engine test still proves common grammar/hash parity.
-
-The ceiling is **7,500 lines for all handwritten kernel material**: production
-Rust in world/ and world/derive, README and both manifests. Tests alone are excluded;
-comments and blank lines count. K1d totals 7,311: 6,732 Rust + 555 README + 24 manifests.
-Reproduce the honest total with:
+K1e totals 7,479 lines: 6,989 Rust + 466 README + 24 manifests.
+The production ceiling is 7,500 handwritten lines: all production Rust under
+world/ including derive, this README and both manifests. Comments and blank lines
+count. Only tests and test-only allocator support are excluded. Reproduce with:
 
 ```sh
 python3 - <<'PYCOUNT'
@@ -560,48 +464,3 @@ print('Rust', rust, 'README', readme, 'manifests', manifests,
       'ALL HANDWRITTEN', rust + readme + manifests)
 PYCOUNT
 ```
-
-EXSIM v10 corrects lost publication delivery: byte 6 changes 09→0a, the outer
-sequence count at byte 8 changes 9→10, and one final boolean byte records pending
-delivery. EXGAME v4, hashes and all prior payload fields are unchanged. The frozen
-v9 inventory normalizes precisely these bytes; empty/pending/drained restore,
-from-save and carry have independent controls. v9 refuses; no migration ships.
-
-`bin::read_into(bytes, &mut value)` stages a saved copy and patch under one
-256 MiB decode allowance, replacing only on successful completion. This explicit
-patch path costs a complete encode/decode of the existing value.
-
-Publication loading charges one cumulative 65,536-unit allowance before nested
-children, strings and object keys allocate; declared child counts preflight it.
-Logical publication depth is 80 (at most 243 codec frames including Sim framing).
-Root keys separately have the fixed 256 × 256-byte bound. Error paths truncate
-on UTF-8 boundaries at 256 bytes; their fixed diagnostic reserve is outside the
-decoded-state budget and never grows with rejected payload size.
-
-Enum `read_new` constructs the incoming variant with admitted field defaults;
-it never invokes a manual enum Default for an unrelated variant. Skipped field
-defaults and every generated reset charge their declared size before construction.
-Manual allocating defaults must still fit their declared `Data::default_size`.
-
-Storage names admit 1–256 UTF-8 bytes before registration. `World::hash`,
-`hash::of` and `Hasher::finish` return `Result`; invalid values and nesting beyond
-256 frames refuse just as save/sample do. Accepted hash bytes are unchanged.
-The generated-simulation control checks 2,048 complete save/load/save boundaries.
-
-Spring settlement uses exact-motion’s decreasing energy bound, so slow crossings
-and undamped oscillations do not become quiescent. exact-motion validates derived
-frequency squared in [1e-12, 1e12] and damping rate in [0, 1e6], refusing numerical
-overflow/underflow at construction and decode. Presentation still snaps at 10 s;
-World Spring reports no deadline when that cap is not permanently at rest.
-
-Empty required columns and empty worlds now prepare zero query words; empty
-page iteration also short-circuits. Nonempty sparse queries remain explicit
-O(highest-live-slot/64 × terms + rows); despawn visits at most 256 registered
-columns. First high-slot insertion pays the documented 75,000-byte directory
-plus one value chunk; its test name now states that bound honestly.
-
-Rust expands field cfg/cfg_attr before derives: tests prove inactive fields are
-absent, active fields saved and cfg_attr(data(skip)) omitted. This allegation was
-not reproduced. Args now accepts qualified std/core scalar paths; parser errors
-still use invocation spans. Nonnumeric # suffixes resolve as names; action keys
-share the 128-byte runtime input bound, including both axis keys.

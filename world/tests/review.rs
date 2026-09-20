@@ -709,3 +709,26 @@ fn set_parent_refuses_a_small_cycle_before_mutating_or_journaling() {
     assert_eq!(w.journal_next(), cursor);
     assert_eq!(w.save().unwrap(), before);
 }
+
+#[test]
+fn admitted_publication_depth_always_fits_the_simulation_codec() {
+    for depth in [80, 81] {
+        let s = Sim::<Board>::new(()).unwrap();
+        let before = s.save().unwrap();
+        let mut value = Published::Unit;
+        for _ in 0..depth {
+            value = Published::List(vec![value]);
+        }
+        let result = s.world().publish("nested", value);
+        assert_eq!(result.is_ok(), depth == 80);
+        if result.is_ok() {
+            let bytes = s.save().unwrap();
+            assert_eq!(
+                Sim::<Board>::from_save(&bytes).unwrap().save().unwrap(),
+                bytes
+            );
+        } else {
+            assert_eq!(s.save().unwrap(), before);
+        }
+    }
+}
