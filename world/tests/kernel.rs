@@ -557,13 +557,13 @@ fn paranoid_preserves_drained_delivery() {
         type Args = ();
         fn setup(w: &mut World, _: &()) -> Result<(), DataError> {
             w.publish("fixed", 1u32)?;
-            w.emit("initial");
+            w.emit("initial")?;
             Ok(())
         }
         fn tick(w: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
             w.publish("fixed", 1u32)?;
             if w.tick() == 1 {
-                w.emit("second");
+                w.emit("second")?;
                 w.publish("fixed", 2u32)?;
             }
             Ok(())
@@ -961,17 +961,64 @@ fn merged_log_pages_admit_escaped_text_before_formatting() {
 }
 
 #[test]
+fn caller_clock_reads_round_trip_pauses_rebases_and_refusals() {
+    let mut s = Sim::<Counter>::new(Options::default()).unwrap();
+    assert_eq!(s.clock_ms(), 0.);
+    s.run(17.0005).unwrap();
+    assert_eq!(s.clock_ms(), 17.001);
+    s.advance_to(23.456).unwrap();
+    assert_eq!(s.clock_ms(), 23.456);
+    s.bind(Options {
+        paused: true,
+        ..Options::default()
+    })
+    .unwrap();
+    let tick = s.world().tick();
+    assert_eq!(s.advance_to(1000.123).unwrap(), 0);
+    assert_eq!(s.clock_ms(), 1000.123);
+    assert_eq!(s.world().tick(), tick);
+    s.reconcile_input(7.891, &[]).unwrap();
+    assert_eq!(s.clock_ms(), 7.891); // Explicit rebasing may retreat.
+    assert_eq!(s.world().tick(), tick);
+    let bytes = s.save().unwrap();
+    let fresh = Sim::<Counter>::from_save(&bytes).unwrap();
+    assert_eq!(fresh.clock_ms().to_bits(), s.clock_ms().to_bits());
+    assert_eq!(fresh.save().unwrap(), bytes);
+    s.run(900.).unwrap();
+    assert_eq!(s.clock_ms(), 907.891);
+    s.restore(&bytes).unwrap();
+    assert_eq!(s.clock_ms().to_bits(), fresh.clock_ms().to_bits());
+    assert_eq!(s.save().unwrap(), bytes);
+    s.run(123.).unwrap();
+    assert!(!s.carry(&bytes).unwrap());
+    assert_eq!(s.clock_ms().to_bits(), fresh.clock_ms().to_bits());
+    assert_eq!(s.save().unwrap(), bytes);
+    s.bind(Options::default()).unwrap();
+    s.run(17.).unwrap();
+    assert_eq!(s.clock_ms(), 24.891);
+    assert_eq!(s.world().tick(), tick + 1);
+    for target in [0., f64::NAN, f64::INFINITY, 10_000_000.] {
+        let before = s.save().unwrap();
+        assert!(s.advance_to(target).is_err());
+        assert_eq!(s.clock_ms(), 24.891);
+        assert_eq!(s.save().unwrap(), before);
+    }
+}
+#[test]
 fn clock_deltas_round_individually_to_microseconds() {
     let mut sim = Sim::<Still>::new(()).unwrap();
     for _ in 0..1000 {
         assert_eq!(sim.run(0.0004).unwrap(), 0);
     }
     assert_eq!(sim.alpha_inputs(), (0, 0, 1_000_000));
+    assert_eq!(sim.clock_ms(), 0.);
     sim.run(0.0005).unwrap();
     assert_eq!(sim.alpha_inputs(), (0, 60, 1_000_000));
+    assert_eq!(sim.clock_ms(), 0.001);
     assert!(sim.advance_to(0.0004).is_err());
     sim.run(0.0005).unwrap();
     assert_eq!(sim.alpha_inputs(), (0, 120, 1_000_000));
+    assert_eq!(sim.clock_ms(), 0.002);
 }
 
 #[test]

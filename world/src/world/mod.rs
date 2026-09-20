@@ -178,6 +178,8 @@ pub struct World {
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
     registry: BTreeMap<&'static str, Registration>,
+    registering: bool,
+    registration_before: Option<[u8; 256]>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     // Executor-owned derived data, populated only by linked callers; never saved.
@@ -226,6 +228,8 @@ impl World {
             names: BTreeMap::new(),
             rng,
             registry: BTreeMap::new(),
+            registering: false,
+            registration_before: None,
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
             derived: std::array::from_fn(|_| std::cell::OnceCell::new()),
@@ -255,22 +259,16 @@ impl World {
     }
     pub fn register<C: Component>(&mut self) -> Result<&mut Self, DataError> {
         let existed = self.registry.contains_key(C::NAME);
-        let reg = self.registration::<C>(C::NAME)?;
+        let reg = *self.registration::<C>(C::NAME)?;
         if reg.make.is_none() {
-            let ordinal = reg.ordinal;
-            // Fixed admission bounds the rollback snapshot without allocating or
-            // cloning state. Hooks only declare types, as required by the contract.
-            let mut before = [0u8; 256];
-            for r in self.registry.values() {
-                before[r.ordinal as usize] = 1
-                    | (u8::from(r.make.is_some()) * 2)
-                    | (u8::from(r.make_resource.is_some()) * 4);
-            }
-            if !existed {
-                before[ordinal as usize] = 0;
-            }
+            let outer = self.registration_before.take();
+            let registering = std::mem::replace(&mut self.registering, true);
             self.registry.get_mut(C::NAME).unwrap().make = Some(storage::make::<C>);
-            if let Err(error) = self.mutation(C::register) {
+            let result = self.mutation(C::register);
+            self.registering = registering;
+            let before = self.registration_before.take();
+            self.registration_before = outer;
+            if let Some(before) = before.filter(|_| result.is_err()) {
                 self.registry.retain(|_, r| {
                     let flags = before[r.ordinal as usize];
                     if flags & 2 == 0 {
@@ -283,12 +281,22 @@ impl World {
                     }
                     flags != 0
                 });
+            }
+            if let Err(error) = result {
+                if existed {
+                    self.registry.insert(C::NAME, reg);
+                } else {
+                    self.registry.remove(C::NAME);
+                }
                 return Err(error);
             }
         }
         Ok(self)
     }
     pub fn register_resource<R: Resource>(&mut self) -> Result<&mut Self, DataError> {
+        if R::NAME == "Rng" {
+            return Err(DataError::new("Rng is reserved for the built-in generator"));
+        }
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
         reg.resource_size = 64usize.saturating_add(R::default_size());
@@ -322,6 +330,18 @@ impl World {
         }
         if !self.registry.contains_key(name) && self.registry.len() == 256 {
             return Err(DataError::new("storage type limit (256)").at(name));
+        }
+        // A declaration-only hook needs rollback state only when it declares dependencies.
+        if self.registering && self.registration_before.is_none() {
+            let mut before = [0u8; 256];
+            for r in self.registry.values() {
+                #[cfg(test)]
+                registration_tests::VISITS.set(registration_tests::VISITS.get() + 1);
+                before[r.ordinal as usize] = 1
+                    | (u8::from(r.make.is_some()) * 2)
+                    | (u8::from(r.make_resource.is_some()) * 4);
+            }
+            self.registration_before = Some(before);
         }
         let ordinal = self.registry.len() as u8;
         Ok(self.registry.entry(name).or_insert(Registration {
@@ -553,7 +573,8 @@ impl World {
             self.change_owner(e, old, Some(parent.entity()));
             self.record_change(e, crate::ChangeKind::Reparent(Some(parent.entity())));
         }
-        let kind = if self.has::<C>(e) {
+        let inserted = !self.has::<C>(e);
+        let kind = if !inserted {
             crate::ChangeKind::Replace(C::NAME.into())
         } else {
             crate::ChangeKind::Insert(C::NAME.into())
@@ -566,24 +587,26 @@ impl World {
             .downcast_mut::<Storage<C>>()
             .unwrap()
             .insert(e.index as usize, c);
-        Ok(true)
+        Ok(inserted)
     }
     pub fn remove<C: Component>(&mut self, e: Entity) -> Result<Option<C>, DataError> {
         if !self.has::<C>(e) {
             return Ok(None);
         }
-        self.change_room(2)?;
+        self.change_room(1 + usize::from(TypeId::of::<C>() == TypeId::of::<Parent>()))?;
+        Ok(self.mutation(|this| this.remove_commit::<C>(e)))
+    }
+    fn remove_commit<C: Component>(&mut self, e: Entity) -> Option<C> {
         self.record_change(e, crate::ChangeKind::Remove(C::NAME.into()));
         if TypeId::of::<C>() == TypeId::of::<Parent>() {
             let old = self.get::<Parent>(e).map(|p| p.entity());
             self.change_owner(e, old, None);
             self.record_change(e, crate::ChangeKind::Reparent(None));
         }
-        Ok(self
-            .components
+        self.components
             .get_mut(C::NAME)
             .and_then(|s| s.any_mut().downcast_mut::<Storage<C>>())
-            .and_then(|s| s.remove(e.index as usize)))
+            .and_then(|s| s.remove(e.index as usize))
     }
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
@@ -754,15 +777,15 @@ impl World {
         self.published_cost.set(crate::json::LIMIT - budget);
         Ok(())
     }
-    pub fn emit(&self, text: impl Into<String>) {
+    pub fn emit(&self, text: impl Into<String>) -> Result<(), DataError> {
         let text = text.into();
         let mut messages = self.messages.borrow_mut();
-        assert!(
-            text.len() <= 4096 && messages.len() < 1024,
-            "message queue limit (1024 x 4096 bytes)"
-        );
+        if text.len() > 4096 || messages.len() >= 1024 {
+            return Err(DataError::new("message queue limit (1024 x 4096 bytes)"));
+        }
         messages.push(text);
         self.mutated();
+        Ok(())
     }
     pub(crate) fn step_clock(&mut self) {
         self.mutated();
@@ -1031,3 +1054,65 @@ pub(crate) mod journal;
 pub(crate) mod ownership;
 mod save;
 use save::Free;
+
+#[cfg(test)]
+mod registration_tests {
+    use super::*;
+    thread_local! { pub(super) static VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    #[derive(Default)]
+    struct C<const N: usize>;
+    impl<const N: usize> Data for C<N> {
+        fn write(&self, w: &mut dyn Writer) {
+            ().write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            ().read(r)
+        }
+    }
+    impl<const N: usize> Component for C<N> {
+        const NAME: &'static str = NAMES[N];
+    }
+    macro_rules! types {
+        ($($n:literal),*) => {
+            const NAMES: &[&str] = &[$(stringify!($n)),*];
+            fn declare(w: &mut World, n: usize) {
+                let calls: &[fn(&mut World)] = &[$(|w| { w.register::<C<$n>>().unwrap(); }),*];
+                for call in &calls[..n] { call(w); }
+            }
+        };
+    }
+    types!(
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+        25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+        48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70,
+        71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93,
+        94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112,
+        113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130,
+        131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148,
+        149, 150, 151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166,
+        167, 168, 169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184,
+        185, 186, 187, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201, 202,
+        203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220,
+        221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 235, 236, 237, 238,
+        239, 240, 241, 242, 243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255
+    );
+    #[test]
+    fn empty_registration_hooks_do_linear_rollback_work() {
+        let mut linear = true;
+        for n in [16, 64, 128, 256] {
+            let mut w = World::new(60, 0);
+            VISITS.set(0);
+            let (_, allocations) = crate::counting::measure(|| declare(&mut w, n));
+            let visits = VISITS.get();
+            println!(
+                "registration {n}: {visits} snapshot visits; {allocations:?} allocations/bytes"
+            );
+            assert_eq!(w.registry.len(), n);
+            linear &= visits <= n;
+        }
+        assert!(
+            linear,
+            "empty hooks must not scan previously declared types"
+        );
+    }
+}

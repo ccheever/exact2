@@ -75,6 +75,9 @@ impl Data for State {
             }
             .map_err(|e| e.at(field))?;
         }
+        if self.tick > 1 << 62 {
+            return Err(DataError::new("cursor beyond supported range"));
+        }
         Ok(())
     }
 }
@@ -163,12 +166,25 @@ mod publication_tests {
         // Exactly 1,024 values, with a reserved child that has its own child.
         let mut items = vec![Unit; 1022];
         items[0] = List(vec![Unit]);
-        let source = World::new(60, 0);
-        source.publish("x", List(items)).unwrap();
+        struct G;
+        impl crate::Game for G {
+            const ID: &'static str = "nested-publication-boundary";
+            type Args = ();
+            fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+                Ok(())
+            }
+            fn tick(_: &mut World, _: &crate::Input, _: &()) -> Result<(), DataError> {
+                Ok(())
+            }
+        }
+        let source = crate::Sim::<G>::new(()).unwrap();
+        let expected = List(items);
+        source.world().publish("x", expected.clone()).unwrap();
         let saved = source.save().unwrap();
-        let mut loaded = World::new(60, 0);
-        loaded.load(&saved).unwrap();
+        let mut loaded = crate::Sim::<G>::new(()).unwrap();
+        loaded.restore(&saved).unwrap();
         assert_eq!(loaded.save().unwrap(), saved);
+        assert_eq!(loaded.world().publications().get("x"), Some(&expected));
     }
     #[test]
     fn wide_unit_default_component_refuses_before_allocating_a_page() {

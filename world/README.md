@@ -11,7 +11,9 @@ Register saved types before constructing entities. Keep continuation state in
 components, resources and arguments; the game implementation itself is stateless.
 
 Use `?` to propagate kernel errors from `setup` and `tick`.
-A returned setup error refuses construction/restart; a returned tick error stops before reaping or advancing the tick, records the first failure in unsaved session logs, and refuses driving, saving or input with that error until restore, carry or bind-restart installs good state, while bounded state/tree/log inspection remains available.
+A returned setup error refuses construction or restart.
+A returned tick error stops before reaping or advancing the tick, logs the first failure, and refuses further driving, saving or input.
+Bounded state, tree and log inspection remain available until restore, carry or a bind restart installs healthy state.
 Never `.unwrap()` a kernel `Result` in game code: on wasm a panic aborts the module and every world in it.
 
 ```rust
@@ -37,7 +39,9 @@ impl Game for Board {
         Ok(())
     }
     fn tick(w: &mut World, _: &Input, args: &Options) -> Result<(), DataError> {
-        w.get_mut::<Counter>("counter").unwrap().points += args.increment;
+        if let Some(mut counter) = w.get_mut::<Counter>("counter") {
+            counter.points += args.increment;
+        }
         Ok(())
     }
 }
@@ -99,15 +103,19 @@ and returns its current live incarnation; dead and out-of-range indices return
 `#12`, or `name#12`; explicit index selectors take precedence over names.
 
 Storage names admit 1–256 UTF-8 bytes. Registration is explicit and fallible. A short-name collision refuses and names
-both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
+both full Rust types; stale-handle `insert` returns `Err`.
+`insert` returns `Ok(true)` for new membership and `Ok(false)` for replacement. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
 including recursive registration. A returned hook error restores all type
 declarations made by that call and its dependencies; retry runs the hook again.
 Hooks declare types only; arbitrary gameplay effects are not rolled back.
-Rollback uses a fixed 256-byte snapshot per nested hook; type count bounds recursion
-and registry work. Panics still poison. `Game::register` receives borrowed setup/restart
-arguments, without formatting them. Insertion never registers types implicitly.
+Rollback takes a fixed 256-byte snapshot only when a hook declares a dependency;
+empty hooks do no snapshot scan or allocation. Type count bounds nested work. Panics still poison. `Game::register` receives borrowed setup/restart
+arguments, without formatting them. Insertion requires declared types; `set_parent`
+implicitly declares the kernel-owned Parent after validating the edge.
 Registration and setup must not keep hidden continuation state.
+The resource name `Rng` is reserved for the built-in generator; wrap its Data in a
+game-named resource to save an additional independent stream.
 
 Shared and exclusive column leases enforce aliasing. Mutable queries are sealed;
 optional terms, filters, tuple joins and retained row guards preserve disjointness.
@@ -139,7 +147,8 @@ validation and reconstruction, and do not have the ordinary-tick cost.
 
 `observation() -> Option<bool>` distinguishes an unobserved boundary (`None`),
 observed change (`Some(false)`) and an observed unchanged tick (`Some(true)`).
-Mutable access, live argument binding and held-input reconciliation invalidate the report. `quiescent()` requires
+Mutable access, live argument binding and held-input reconciliation invalidate the report.
+Driving with no tick or applied input and draining an empty message queue preserve it. `quiescent()` requires
 an observed unchanged boundary and a current settle deadline.
 
 `settle(max_ticks)` samples the initial boundary once, then each completed
@@ -165,7 +174,7 @@ or resources (`None`) by saved type name. `candidate()` makes an isolated exact
 copy. `Candidate::edit(entity, name, bytes)` applies canonical field patches only
 to that copy; a failed edit poisons it. `commit(self, &mut World)` validates
 ownership and health before adoption. It refuses a different destination or a
-changed source boundary (including caller clock, input and delivery) before mutation.
+changed source boundary (including completed ticks, applied input and delivery) before mutation.
 Erased Parent edits refuse; ownership changes use `set_parent`. Publications, their pending flag, messages,
 and saved game history survive an untouched commit; session/structural replacement
 effects follow the ordinary adoption contract. Save/decode budgets apply to candidate
@@ -188,6 +197,8 @@ admits all keys, values and event cursors before changing anything; the adapter
 uses it for complete record updates. A single changed publication validates only
 its old/new values, using the retained aggregate cost; batches visit at most 512
 old/new entries within the shared 65,536-unit publication budget.
+`emit(text) -> Result<(), DataError>` queues up to 1,024 messages of at most
+4,096 bytes each; refusal preserves pending delivery.
 
 ### Ownership and structural consumers
 
@@ -201,6 +212,7 @@ construction can form deeper valid chains. Validation still walks each edge once
 before mutation; stale/absent targets return Ok(false)/Ok(None).
 Despawn removes the entity immediately; descendants leave at the next reap in
 ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
+`children(owner)` borrows live direct children in ascending slot order (including recycled slots); `parent(entity)` returns the live parent or `None`; both accept names or handles and allocate nothing, with O(log owners + children) and O(log types) work respectively under the existing admission bounds.
 
 A derived reverse-child index makes unrelated despawn O(log owners). Owner
 removal queues only its immediate children; reaping follows only that orphan
@@ -315,8 +327,10 @@ Overflow saturates to refusal; registration rejects a declaration above 256 MiB.
 This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
 layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations
-(such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
-live generation `u32::MAX` refuse decode; `log` returns an error before dropping
+(such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Saved tick and game-journal cursors above 2^62 refuse decode with
+`cursor beyond supported range`; 2^62 is accepted. Structural, session and replacement
+cursors are unsaved and cannot be supplied by a checkpoint. Runtime overflow checks
+remain defensive guards. Live generation `u32::MAX` refuses decode; `log` returns an error before dropping
 retained events. A dead exhausted slot is retired permanently. Spawn selects the lowest reusable
 free slot, skipping at most 200,000 retired indices, then appends if capacity
 permits. Retirement is saved in the existing generation/free fields (no wire change).
@@ -332,6 +346,7 @@ and settle range-check in widened arithmetic before mutation, in debug and relea
 Pause advances caller time and reconciles held input without simulation ticks or
 retained resume edges. `reconcile_input(clock_ms, held)` atomically replaces held
 state, clears edges/queued input and rebases caller time without a tick.
+`Sim::clock_ms() -> f64` reads the last accepted caller clock (`caller_us / 1000`), including pauses and rebases, preserved by restore/from_save/carry so hosts can resume from it.
 
 Args fields default to Setup. `#[live]` changes subsequent ticks; either boolean
 `#[restart]` edge reconstructs the world. Registration sees only setup/restart

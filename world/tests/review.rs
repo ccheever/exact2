@@ -27,7 +27,7 @@ fn untouched_and_edited_candidates_preserve_complete_continuation() {
         s.run(17.).unwrap();
         s.world().publish("score", 7u32).unwrap();
         s.world().log("saved game history").unwrap();
-        s.world().emit("pending delivery");
+        s.world().emit("pending delivery").unwrap();
         s.world().session_log("session history").unwrap();
         if drained {
             s.world().take_published();
@@ -322,10 +322,10 @@ fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
 
 #[test]
 fn stale_candidates_refuse_without_changing_continuation() {
-    for elapsed in [0.25, 17.] {
+    for elapsed in [17., 34.] {
         let mut s = Sim::<Board>::new(()).unwrap();
         s.world().publish("score", 7u32).unwrap();
-        s.world().emit("delivery");
+        s.world().emit("delivery").unwrap();
         let candidate = s.world().candidate().unwrap();
         s.run(elapsed).unwrap();
         let before = s.save().unwrap();
@@ -672,5 +672,104 @@ fn admitted_publication_depth_always_fits_the_simulation_codec() {
         } else {
             assert_eq!(s.save().unwrap(), before);
         }
+    }
+}
+
+#[test]
+fn no_op_driving_and_empty_delivery_preserve_candidates_and_observation() {
+    #[derive(Default, Args)]
+    struct Pause {
+        #[live]
+        paused: bool,
+    }
+    struct Idle;
+    impl Game for Idle {
+        const ID: &'static str = "no-op";
+        type Args = Pause;
+        fn setup(_: &mut World, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &Pause) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn paused(args: &Pause) -> bool {
+            args.paused
+        }
+    }
+    for paused in [false, true] {
+        for operation in 0..3 {
+            let mut s = Sim::<Idle>::new(Pause::default()).unwrap();
+            s.settle(1).unwrap();
+            // Live argument binding itself invalidates observation.
+            if paused {
+                s.bind(Pause { paused }).unwrap();
+            }
+            let observed = s.world().observation();
+            let epoch = s.world().mutation_epoch();
+            let c = s.world().candidate().unwrap();
+            match operation {
+                0 => {
+                    assert_eq!(s.run(0.).unwrap(), 0);
+                }
+                1 => {
+                    assert_eq!(s.run(0.25).unwrap(), 0);
+                }
+                _ => {
+                    assert!(s.world().take_messages().is_empty());
+                }
+            }
+            assert_eq!(s.world().mutation_epoch(), epoch);
+            assert_eq!(s.world().observation(), observed);
+            if !paused {
+                assert_eq!(observed, Some(true));
+            }
+            c.commit(s.world_mut()).unwrap();
+        }
+    }
+    // Applying due input while paused still changes the candidate boundary.
+    let mut s = Sim::<Idle>::new(Pause { paused: true }).unwrap();
+    s.input(InputEvent::Key {
+        code: "K".into(),
+        down: true,
+        at_ms: 0.,
+    })
+    .unwrap();
+    let c = s.world().candidate().unwrap();
+    s.run(1.).unwrap();
+    assert!(s.input_state().key("K"));
+    assert!(c.commit(s.world_mut()).is_err());
+    s.world().emit("delivery").unwrap();
+    let c = s.world().candidate().unwrap();
+    assert_eq!(s.world().take_messages(), ["delivery"]);
+    assert!(c.commit(s.world_mut()).is_err());
+}
+
+#[test]
+fn emitted_message_limits_refuse_without_panicking_or_changing_delivery() {
+    for oversized in [false, true] {
+        let w = World::new(60, 0);
+        let count = if oversized { 1 } else { 1024 };
+        for _ in 0..count {
+            let _ = w.emit("x".repeat(4096));
+        }
+        let before = w.save().unwrap();
+        let epoch = w.mutation_epoch();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.emit(if oversized {
+                "x".repeat(4097)
+            } else {
+                "one too many".into()
+            })
+        }));
+        assert!(result.is_ok(), "game-reachable admission must not panic");
+        assert!(result
+            .unwrap()
+            .unwrap_err()
+            .message
+            .contains("message queue limit"));
+        assert_eq!(w.save().unwrap(), before);
+        assert_eq!(w.mutation_epoch(), epoch);
+        assert_eq!(w.take_messages(), vec!["x".repeat(4096); count]);
+        w.validate().unwrap();
     }
 }
