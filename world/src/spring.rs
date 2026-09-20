@@ -91,9 +91,13 @@ impl Spring {
     pub fn velocity(&self, now: Now) -> f32 {
         self.sample(now).velocity as f32
     }
-    /// Whether displacement and speed satisfy exact-motion's rest threshold.
+    /// Whether all future displacement and speed stay below the rest threshold.
     pub fn at_rest(&self, now: Now) -> bool {
-        self.sample(now).at_rest()
+        self.config.rest_after(
+            self.start_value - self.target,
+            self.start_velocity,
+            now.tick.saturating_sub(self.start_tick) as f64 / now.hz as f64,
+        )
     }
 }
 

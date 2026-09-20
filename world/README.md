@@ -589,3 +589,9 @@ Storage names admit 1–256 UTF-8 bytes before registration. `World::hash`,
 `hash::of` and `Hasher::finish` return `Result`; invalid values and nesting beyond
 256 frames refuse just as save/sample do. Accepted hash bytes are unchanged.
 The generated-simulation control checks 2,048 complete save/load/save boundaries.
+
+Spring settlement uses exact-motion’s decreasing energy bound, so slow crossings
+and undamped oscillations do not become quiescent. exact-motion validates derived
+frequency squared in [1e-12, 1e12] and damping rate in [0, 1e6], refusing numerical
+overflow/underflow at construction and decode. Presentation still snaps at 10 s;
+World Spring reports no deadline when that cap is not permanently at rest.

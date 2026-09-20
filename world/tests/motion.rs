@@ -1,3 +1,4 @@
+use exact_world::Data;
 use exact_world::{bin, hash, math, Now, Rng, Spring, SpringConfig};
 
 #[test]
@@ -108,4 +109,20 @@ fn spring_refuses_nonfinite_scalar_state() {
         .is_err());
         assert_eq!(bin::to_vec(&s).unwrap(), before);
     }
+}
+
+#[test]
+fn undamped_spring_has_no_settle_deadline_despite_temporary_rest() {
+    let mut s = Spring::new(0.005)
+        .with_config(SpringConfig {
+            stiffness: 0.0324,
+            damping: 0.,
+            mass: 1.,
+        })
+        .unwrap();
+    s.set_target(Now { tick: 0, hz: 60 }, 0.);
+    for tick in [0, 450, 456, 500, 1050] {
+        assert_eq!(s.settle_tick(Now { tick, hz: 60 }), None);
+    }
+    assert!(s.value(Now { tick: 1050, hz: 60 }).abs() > 0.004);
 }

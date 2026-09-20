@@ -302,7 +302,9 @@ impl Running {
                 let displacement = self.from - self.to;
                 let x = config.sample(displacement.x, velocity.x, elapsed);
                 let y = config.sample(displacement.y, velocity.y, elapsed);
-                let at_rest = (x.at_rest() && y.at_rest()) || elapsed >= MAX_DURATION;
+                let at_rest = (config.rest_after(displacement.x, velocity.x, elapsed)
+                    && config.rest_after(displacement.y, velocity.y, elapsed))
+                    || elapsed >= MAX_DURATION;
                 if at_rest {
                     return RunningSample {
                         value: self.to,
