@@ -46,15 +46,8 @@ private final class BlurBackground: NSVisualEffectView {
 /// The web's rule (`overscroll-behavior: auto`); AppKit's default is to
 /// swallow it.
 final class ChainingScrollView: NSScrollView {
-    /// AppKit withdraws responsive scrolling from a subclass that overrides
-    /// `scrollWheel(with:)`, and then every frame of a gesture is driven from
-    /// the main thread (`NSScrollingBehaviorSingleThreadedVBL`), behind
-    /// whatever else that thread is doing — mounting list rows, above all.
-    /// The override below only *routes*: a gesture it keeps goes to `super`
-    /// whole, which is the contract AppKit asks for. Compatible, so a
-    /// contained scroller moves on AppKit's scrolling thread and the main
-    /// thread follows it (LLP 1002 D4; LLP 1044 F3).
-    override class var isCompatibleWithResponsiveScrolling: Bool { true }
+    // Isolated scheduling control: keep scrolling and publication on the main thread.
+    override class var isCompatibleWithResponsiveScrolling: Bool { false }
 
     /// Points per line for a wheel without precise deltas — the browser's
     /// tick.
