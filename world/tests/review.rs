@@ -215,3 +215,40 @@ fn owned_world_load_is_refused_before_changing_simulation() {
     assert!(s.world_mut().load(&bytes).is_err());
     assert_eq!(s.save().unwrap(), before);
 }
+
+#[derive(Default, Args)]
+struct Options {
+    #[live]
+    paused: bool,
+    label: String,
+}
+struct Configured;
+impl Game for Configured {
+    const ID: &'static str = "configured";
+    type Args = Options;
+    fn setup(_: &mut World, _: &Options) {}
+    fn tick(_: &mut World, _: &Input, _: &Options) {}
+}
+#[test]
+fn args_admission_and_live_carry_identity() {
+    assert!(Sim::<Configured>::new(Options {
+        label: "x".repeat(1_048_577),
+        ..Default::default()
+    })
+    .is_err());
+    let bytes = Sim::<Configured>::new(Options::default())
+        .unwrap()
+        .save()
+        .unwrap();
+    let mut s = Sim::<Configured>::new(Options {
+        paused: true,
+        ..Default::default()
+    })
+    .unwrap();
+    assert!(
+        s.carry(&bytes).unwrap(),
+        "retained live arguments change canonical bytes"
+    );
+    assert!(s.args().paused);
+    assert_ne!(s.save().unwrap(), bytes);
+}

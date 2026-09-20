@@ -467,6 +467,9 @@ fn expand_args(input: TokenStream) -> Result<String, String> {
             "i64" => Some(format!(
                 "!(-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&self.{field})"
             )),
+            "String" => Some(format!(
+                "self.{field}.len() > ::exact_world::data::MAX_LOAD_STRING"
+            )),
             _ => None,
         };
         if let Some(invalid) = invalid {

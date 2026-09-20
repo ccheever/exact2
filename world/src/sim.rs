@@ -334,7 +334,7 @@ impl<G: Game> Sim<G> {
         if next.args.setup_changed(&self.args) {
             return Err(DataError::new("carry setup arguments differ"));
         }
-        let changed = next.save()? != bytes;
+        let changed = next.save()? != bytes || bin::to_vec(&self.args)? != bin::to_vec(&next.args)?;
         self.install(next, true)?;
         Ok(changed)
     }
