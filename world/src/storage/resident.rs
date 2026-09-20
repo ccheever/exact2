@@ -49,8 +49,61 @@ enum Wide {
     Full([[u8; 32]; 32]),
 }
 #[repr(align(4096))]
-#[derive(Default, Data)]
+#[derive(Default)]
 struct Padded(bool);
+impl Data for Padded {
+    fn default_size() -> usize {
+        17 // Preserve the original derived portable declaration and wire shape.
+    }
+    fn write(&self, w: &mut dyn Writer) {
+        w.claim_decoded(crate::data::admit::<Self>());
+        write_padded(self.0, w);
+    }
+    fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        r.begin_seq()?;
+        r.required_item("missing padded value")?;
+        self.0.read(r)?;
+        if r.item()? {
+            return Err(DataError::new("extra padded value"));
+        }
+        Ok(())
+    }
+}
+// Forge portable bytes independently of the real writer's native admission.
+fn write_padded(value: bool, w: &mut dyn Writer) {
+    w.begin_seq(1);
+    w.item();
+    value.write(w);
+    w.end_seq();
+}
+#[test]
+fn manual_native_floors_precede_default_construction() {
+    fn check<T: Data>(value: T, budget: usize) {
+        let bytes = bin::to_vec(&value).unwrap();
+        assert!(decode::<T>("manual native floor", &bytes, budget).is_err());
+        let loaded = decode::<T>("manual native positive", &bytes, 1 << 20).unwrap();
+        assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+    }
+    // Debug builds copy the 128 KiB array through several generic Result frames.
+    std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(|| {
+            check(Padded(true), 256);
+            check(std::array::from_fn::<_, 32, _>(|_| Padded(true)), 8192);
+            check((Padded(true), Padded(false)), 1024);
+            fn patch<T: Data>(value: &mut T, budget: usize) {
+                let bytes = bin::to_vec(value).unwrap();
+                let allowance = LoadBudget::new(budget);
+                let mut reader = bin::Decoder::for_load(&bytes, Some(&allowance));
+                assert!(value.read(&mut reader).is_err());
+            }
+            patch(&mut std::array::from_fn::<_, 32, _>(|_| Padded(true)), 8192);
+            patch(&mut (Padded(true), Padded(false)), 1024);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
 #[test]
 fn wide_enum_and_padded_struct_vectors() {
     for budget in [1 << 20, MAX_LOAD_BYTES] {
@@ -68,7 +121,7 @@ fn wide_enum_and_padded_struct_vectors() {
         let mut w = bin::Encoder::default();
         w.begin_seq(70_000);
         for _ in 0..70_000 {
-            Padded(false).write(&mut w);
+            write_padded(false, &mut w);
         }
         w.end_seq();
         let bytes = w.finish().unwrap();
@@ -214,7 +267,7 @@ fn sparse_chunks(padded: bool) {
                 w.begin_seq(2);
                 w.entity(index as u32, 0);
                 if padded {
-                    Padded(false).write(&mut w);
+                    write_padded(false, &mut w);
                 } else {
                     0u8.write(&mut w);
                 }
@@ -333,7 +386,7 @@ fn padded_container_bytes(n: usize, map: bool, width: usize) -> Vec<u8> {
         } else {
             out.item();
         }
-        Padded(true).write(&mut out);
+        write_padded(true, &mut out);
     }
     if map {
         out.end_struct();
@@ -416,7 +469,7 @@ fn refused_boxed_resource_replacement_preserves_the_destination() {
     out.begin_seq(70_000);
     for _ in 0..70_000 {
         out.item();
-        Padded(true).write(&mut out);
+        write_padded(true, &mut out);
     }
     out.end_seq();
     out.end_seq();
@@ -463,7 +516,7 @@ fn padded_world_save_cannot_succeed_when_its_default_budget_load_refuses() {
     // A positive control must still save and load at both budgets.
     let mut small = World::new(60, 0);
     small.register::<Padded>().unwrap();
-    for _ in 0..128 {
+    for _ in 0..64 {
         small.spawn(Padded(true)).unwrap();
     }
     let bytes = small.save().unwrap();

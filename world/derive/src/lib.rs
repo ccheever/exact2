@@ -186,7 +186,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     let mut default_check = String::new();
     let (write, read) = if kind == "struct" {
         let b = body(tokens.get(2))?;
-        inline_size = default_size(&b).replace("default_size", "inline_size");
+        inline_size = default_size(&b).replace("default_size()", "INLINE_SIZE");
         default_check = check_defaults(&b);
         let access: Vec<_> = b
             .fields
@@ -219,9 +219,9 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             });
         }
         for arm in &arms {
-            inline_size += &format!(
-                ".max({})",
-                default_size(&arm.body).replace("default_size", "inline_size")
+            inline_size = format!(
+                "{{ let a = {inline_size}; let b = {}; if a > b {{ a }} else {{ b }} }}",
+                default_size(&arm.body).replace("default_size()", "INLINE_SIZE")
             );
             if !unit_default {
                 default_check += &check_defaults(&arm.body);
@@ -229,13 +229,17 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             }
         }
         if unit_default {
-            enum_size = inline_size.clone();
+            enum_size = "<Self as ::exact_world::Data>::INLINE_SIZE".into();
         }
         let mut write = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm {");
         read_new = String::from("fn read_new(r: &mut dyn ::exact_world::Reader) -> Result<Self, ::exact_world::DataError> { let arm = r.variant()?; let value = match arm {");
         for (index, arm) in arms.iter().enumerate() {
             let b = &arm.body;
+            let admitted = format!(
+                "({}).max(::exact_world::data::admit_inline::<Self>())",
+                default_size(b)
+            );
             let vars: Vec<_> = (0..b.fields.len()).map(|i| format!("v{i}")).collect();
             let pat = pattern(&arm.name, b, &vars);
             let refs: Vec<_> = vars.iter().map(|v| format!("*{v}")).collect();
@@ -247,13 +251,13 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             let write_pat = pattern(&arm.name, b, &write_vars);
             write += &format!(
                 "{write_pat} => {{ w.claim_decoded({}); w.variant({:?}, {index}); {} w.end_variant(); }},",
-                default_size(b),
+                admitted,
                 clean(&arm.name),
                 write_body(b, &refs)
             );
             let defaults = vec!["::exact_world::data::field_default()".to_owned(); b.fields.len()];
             let wildcards = vec!["_".to_owned(); b.fields.len()];
-            read_new += &format!("{:?} => {{ r.claim({})?; let mut value = {}; let {pat} = &mut value else {{ unreachable!() }}; {} value }},", clean(&arm.name), default_size(b), pattern(&arm.name, b, &defaults), read_body(b, &refs));
+            read_new += &format!("{:?} => {{ r.claim({})?; let mut value = {}; let {pat} = &mut value else {{ unreachable!() }}; {} value }},", clean(&arm.name), admitted, pattern(&arm.name, b, &defaults), read_body(b, &refs));
             let bind = if arms.len() == 1 {
                 format!("let {pat} = self; (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?;", read_body(b, &refs))
             } else {
@@ -263,7 +267,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 "{:?} => {{ if !::core::matches!(self, {}) {{ r.claim({})?; *self = {}; }} {bind} }},",
                 clean(&arm.name),
                 pattern(&arm.name, b, &wildcards),
-                default_size(b),
+                admitted,
                 pattern(&arm.name, b, &defaults)
             );
         }
@@ -277,11 +281,11 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     } else {
         enum_size
     };
-    let mut out = format!("const _: () = <{name} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;
+    let mut out = format!("const _: () = {{ let () = <{name} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC; ::exact_world::data::check_native_size::<{name}>(); }};
     impl ::exact_world::Data for {name} {{
     const CHECK_DEFAULT_ACYCLIC: () = {{ {default_check} }};
-    fn inline_size() -> ::core::primitive::usize {{ {inline_size} }}
-    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    const INLINE_SIZE: ::core::primitive::usize = {inline_size};
+    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(::exact_world::data::admit::<Self>()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -340,10 +344,7 @@ fn write_body(b: &Body, access: &[String]) -> String {
         )
     };
     for f in b.fields.iter().filter(|f| f.skip) {
-        s += &format!(
-            "w.claim_decoded(<{} as ::exact_world::Data>::default_size());",
-            f.ty
-        );
+        s += &format!("w.claim_decoded(::exact_world::data::admit::<{}>());", f.ty);
     }
     for (f, a) in b.fields.iter().zip(access).filter(|(f, _)| !f.skip) {
         if named {
@@ -369,10 +370,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
         .zip(access)
         .filter(|(f, _)| f.skip || !named)
     {
-        s += &format!(
-            "r.claim(<{} as ::exact_world::Data>::default_size())?;",
-            f.ty
-        );
+        s += &format!("r.claim(::exact_world::data::admit::<{}>())?;", f.ty);
         s += &format!("{a} = ::exact_world::data::field_default();");
     }
     s += if named {

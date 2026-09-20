@@ -281,15 +281,16 @@ remain unchanged. Numeric decoding still owns both raw and converted buffers;
 its cumulative budget counts both.
 
 1. A `Data` writer emits fields in declaration order and stops container loops on `Writer::stopped()`.
-2. Declare conservative portable `inline_size`/`default_size` units, including allocating
+2. Declare conservative portable `INLINE_SIZE`/`default_size` units, including allocating
    defaults and skipped-field resets; custom allocating `read_new` must claim before allocating.
 3. Read through `Reader`, propagate errors, and respect its allocation and nesting checks.
 
-Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
+Derive requires native size ≤ 4 × `Data::INLINE_SIZE` + 64 at compile time (including skipped fields); remove excess alignment/padding, box the large part, or implement `Data` with honest allocation declarations.
+`INLINE_SIZE: usize` replaces `inline_size()` so portable inline units are available to the const assertion; `default_size() -> usize` still includes allocating defaults.
 For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
 excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
 Allocation claims on both encode and decode use `max(portable units, native size)`.
-Default-construction charges remain unchanged. Maps charge 64 + key bytes + twice
+Default construction, array/tuple resets and derived fields use that same native floor; hidden allocations in dishonest manual defaults remain outside the bound. Maps charge 64 + key bytes + twice
 that value allowance per entry for half-empty nodes, plus one initial 12-value
 node allowance for allocation before amortization; the 1 MiB long-key control
 exceeded budget + 8,192 by 212 bytes without that initial allowance.

@@ -41,19 +41,17 @@ pub trait Data: Sized + Default + 'static {
     #[doc(hidden)]
     const CHECK_DEFAULT_ACYCLIC: () = ();
     /// Portable inline storage units, excluding allocations made by Default.
-    fn inline_size() -> usize {
-        Self::default_size()
-    }
+    const INLINE_SIZE: usize = 64;
     /// Architecture-independent admission units; manual implementations declare a
     /// conservative bound for their default and must not use native layout sizes.
     /// Construction-oriented decode. Allocation-free defaults may use this
     /// fallback; allocating manual defaults must override and claim first.
     fn default_size() -> usize {
-        64
+        Self::INLINE_SIZE
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
-        r.check_allocation(Self::default_size().max(1))?;
-        r.claim(Self::default_size())?;
+        r.check_allocation(admit::<Self>().max(1))?;
+        r.claim(admit::<Self>())?;
         let mut value = Self::default();
         value.read(r)?;
         Ok(value)
@@ -65,11 +63,59 @@ pub trait Data: Sized + Default + 'static {
 }
 
 // One native admission rule; portable declarations and allocating defaults stay intact.
-pub(crate) fn admit<T: Data>() -> usize {
+#[doc(hidden)]
+pub fn admit<T: Data>() -> usize {
     T::default_size().max(std::mem::size_of::<T>())
 }
-pub(crate) fn admit_inline<T: Data>() -> usize {
-    T::inline_size().max(std::mem::size_of::<T>())
+#[doc(hidden)]
+pub fn admit_inline<T: Data>() -> usize {
+    T::INLINE_SIZE.max(std::mem::size_of::<T>())
+}
+
+/// Compile-time derive guard; manual implementations own their allocation declarations.
+#[doc(hidden)]
+pub const fn check_native_size<T: Data>() {
+    let native = std::mem::size_of::<T>();
+    if native <= T::INLINE_SIZE.saturating_mul(4).saturating_add(64) {
+        return;
+    }
+    let parts = [
+        "native size ",
+        " exceeds 4× its saved size ",
+        " + 64: remove the alignment/padding, box the large part, or implement Data by hand with an honest default_size",
+    ];
+    let mut text = [0u8; 256];
+    let (mut part, mut len) = (0, 0);
+    while part < parts.len() {
+        let bytes = parts[part].as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            text[len] = bytes[i];
+            len += 1;
+            i += 1;
+        }
+        if part < 2 {
+            let number = if part == 0 { native } else { T::INLINE_SIZE };
+            let mut divisor = 1;
+            while number / divisor >= 10 {
+                divisor *= 10;
+            }
+            while divisor != 0 {
+                text[len] = b'0' + ((number / divisor) % 10) as u8;
+                len += 1;
+                divisor /= 10;
+            }
+        }
+        part += 1;
+    }
+    let (message, _) = text.split_at(len);
+    panic!(
+        "{}",
+        match std::str::from_utf8(message) {
+            Ok(message) => message,
+            Err(_) => "invalid size diagnostic",
+        }
+    );
 }
 
 /// A codec failure with a path from the root value to the offending field.
