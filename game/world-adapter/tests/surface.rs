@@ -546,3 +546,34 @@ fn native_owned_tick_one_failure_keeps_inspection_and_restart() {
     assert!(!abi::agent(id, r#"{"op":"clock","ticks":1}"#).contains("error"));
     abi::unload();
 }
+
+#[test]
+fn repeated_timestamp_is_noop_with_pending_delivery_and_maximum_input_queue() {
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    s.published();
+    assert!(s.advance(17.), "negative control: a later timestamp ticks");
+    for i in 0..1024 {
+        key(&mut s, 34., i % 2 == 0);
+    }
+    let before = s.carry().unwrap();
+    let (_, allocations) = counting::measure(|| {
+        for _ in 0..1000 {
+            assert!(
+                !s.advance(17.),
+                "same timestamp is a no-op, even with pending publication"
+            );
+        }
+    });
+    assert_eq!(allocations, (0, 0));
+    assert_eq!(s.carry().unwrap(), before);
+    assert!(
+        s.published().is_some(),
+        "the earlier publication remains deliverable"
+    );
+    assert!(
+        s.advance(34.),
+        "the queued inputs remain available to the next tick"
+    );
+    assert_ne!(s.carry().unwrap(), before);
+}

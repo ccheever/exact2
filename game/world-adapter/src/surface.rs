@@ -109,6 +109,9 @@ impl<G: Game> WorldSurface<G> {
             return Err(invalid("invalid clock"));
         }
         let dt = self.host.map_or(0., |old| now - old);
+        if dt == 0. && self.host.is_some() {
+            return Ok(false);
+        }
         if dt < 0. {
             return if self.seekable {
                 Err(invalid("host clock cannot retreat"))

@@ -172,6 +172,7 @@ impl AssetChanges {
 /// What an app implements per canvas.
 pub trait Surface {
     /// Advance owned state without presentation; true when state or delivery changed.
+    /// Repeated calls at the same timestamp must be no-ops and return false.
     fn advance(&mut self, _now_ms: f64) -> bool {
         false
     }

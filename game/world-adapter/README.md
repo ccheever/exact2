@@ -210,3 +210,9 @@ retreat. ResizeObserver only performs device presentation; owned worlds advance
 from paced frames or explicit agent clocks. `bun game/games/tally/live.mjs` runs
 baked Tally in Chromium from a human-clock boot, forces a real observer delivery
 before its first world frame, then prints two published tick counts one second apart.
+
+`Surface::advance(&mut self, now_ms: f64) -> bool` requires identical timestamps
+to be no-ops returning `false`. The adapter retains pending delivery and queued
+input for the next advancing call; 1,000 duplicate calls with the full 1,024-event
+queue perform zero allocations and change no saved bytes. Hosts may currently
+settle more than once at a timestamp.
