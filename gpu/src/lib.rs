@@ -172,11 +172,10 @@ impl AssetChanges {
 /// What an app implements per canvas.
 pub trait Surface {
     /// Advance owned state without presentation; true when state or delivery changed.
-    /// Repeated calls at the same timestamp must be no-ops and return false.
+    /// Repeated calls at the same timestamp must be no-ops returning false.
     fn advance(&mut self, _now_ms: f64) -> bool {
         false
     }
-
     /// Device work follows visibility: a hidden chart stops its ticker, a video
     /// stops decoding, and both resume when shown. This never advances saved
     /// state; events still arrive when the agent owns the clock.
