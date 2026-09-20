@@ -48,7 +48,7 @@ fn write_generations_cover_mutable_rows_without_marking_other_pages() {
     assert_eq!(&partial[1..], &owned[1..]);
     w.remove::<Item>(entities[PAGE + 7]);
     assert_ne!(generations(&w)[1], partial[1]);
-    let saved = w.save();
+    let saved = w.save().unwrap();
     let hash = w.hash();
     let presentation = w.replacement();
     w.load(&saved).unwrap();

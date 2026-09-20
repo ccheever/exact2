@@ -40,9 +40,11 @@ impl World {
         Err(DataError::new("ownership traversal exceeds entity bound"))
     }
     // A three-colour walk visits each edge at most twice, including reverse chains.
-    fn ownership_status(&self, r: &mut dyn Reader) -> Result<Vec<u8>, DataError> {
+    fn ownership_status(&self) -> Result<Vec<u8>, DataError> {
         let count = self.state.slots.len();
-        r.claim(count * (std::mem::size_of::<Option<Entity>>() + 1))?;
+        if count > crate::MAX_ENTITIES {
+            return Err(DataError::new("ownership entity limit"));
+        }
         let mut parents = vec![None; count];
         for (e, parent) in self.query::<&Parent>().iter() {
             parents[e.index() as usize] = Some(parent.entity());
@@ -78,11 +80,11 @@ impl World {
         }
         Ok(status)
     }
-    pub(crate) fn validate_ownership(&self, r: &mut dyn Reader) -> Result<(), DataError> {
+    pub(crate) fn validate_ownership(&self) -> Result<(), DataError> {
         if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
             return Ok(());
         }
-        if self.ownership_status(r)?.contains(&3) {
+        if self.ownership_status()?.contains(&3) {
             return Err(DataError::new("ownership has a dead parent"));
         }
         Ok(())
@@ -91,14 +93,14 @@ impl World {
     pub fn validate(&self) -> Result<(), DataError> {
         self.healthy()?;
         self.validate_state()?;
-        self.validate_ownership(&mut bin::Decoder::new(&[]))
+        self.validate_ownership()
     }
     /// Despawn leaves descendants until this boundary. Reap in ascending slot order.
     pub fn reap_orphans(&mut self) -> Result<(), DataError> {
         if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
             return Ok(());
         }
-        let status = self.ownership_status(&mut bin::Decoder::new(&[]))?;
+        let status = self.ownership_status()?;
         self.change_room(status.iter().filter(|&&s| s == 3).count())?;
         for (index, state) in status.into_iter().enumerate() {
             if state == 3 {
@@ -106,5 +108,38 @@ impl World {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod budget_tests {
+    use super::*;
+    #[test]
+    fn ownership_scratch_does_not_consume_the_state_decode_allowance() {
+        let mut w = World::new(60, 0);
+        let root = w.spawn(()).unwrap();
+        for _ in 0..100 {
+            let e = w.spawn(()).unwrap();
+            w.set_parent(e, Some(root)).unwrap();
+        }
+        let bytes = w.save().unwrap();
+        let decodes = |budget| {
+            let mut next = World::new(60, 0);
+            next.register::<Parent>().unwrap();
+            let mut r = bin::Decoder::with_budget(&bytes[8..], budget);
+            next.read(&mut r).and_then(|()| r.finish()).is_ok()
+        };
+        let (mut low, mut high) = (0, 1_000_000);
+        while low < high {
+            let mid = (low + high) / 2;
+            if decodes(mid) {
+                high = mid;
+            } else {
+                low = mid + 1;
+            }
+        }
+        assert!(!decodes(low - 1));
+        let budget = crate::data::LoadBudget::new(low);
+        w.load_in(&bytes, Some(&budget), false).unwrap();
     }
 }

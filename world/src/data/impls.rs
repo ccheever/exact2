@@ -89,6 +89,14 @@ impl<T: Data> Data for Vec<T> {
         macro_rules! bulk {
             ($ty:ty, $kind:ident, $bytes:expr) => {
                 if let Some(v) = any.downcast_ref::<Vec<$ty>>() {
+                    w.claim_decoded(
+                        v.len()
+                            .saturating_mul(std::mem::size_of::<$ty>())
+                            .saturating_mul(2),
+                    );
+                    if !w.allow_bytes(v.len().saturating_mul(std::mem::size_of::<$ty>())) {
+                        return;
+                    }
                     let bytes: Vec<u8> = v.iter().flat_map($bytes).collect();
                     w.bytes(BulkKind::$kind, &bytes);
                     return;
@@ -98,8 +106,16 @@ impl<T: Data> Data for Vec<T> {
         bulk!(u16, U16, |v: &u16| v.to_le_bytes());
         bulk!(u32, U32, |v: &u32| v.to_le_bytes());
         bulk!(f32, F32, |v: &f32| super::f32_bits(*v).to_le_bytes());
+        w.claim_decoded(
+            self.len()
+                .saturating_mul(std::mem::size_of::<T>())
+                .saturating_mul(4),
+        );
         w.begin_seq(self.len());
         for v in self {
+            if w.stopped() {
+                break;
+            }
             w.item();
             v.write(w);
         }
@@ -162,9 +178,7 @@ impl<T: Data> Data for Option<T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         if r.option()? {
-            let mut value = T::default();
-            value.read(r)?;
-            *self = Some(value);
+            *self = Some(T::read_new(r)?);
         } else {
             *self = None;
         }
@@ -175,6 +189,9 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
+    fn default_size() -> usize {
+        N.saturating_mul(T::default_size())
+    }
     fn moving(&self, now: crate::Now) -> bool {
         self.iter().any(|v| v.moving(now))
     }
@@ -197,6 +214,9 @@ where
 fn write_slice<T: Data>(values: &[T], w: &mut dyn Writer) {
     w.begin_seq(values.len());
     for v in values {
+        if w.stopped() {
+            break;
+        }
         w.item();
         v.write(w);
     }
@@ -216,6 +236,13 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
     Ok(())
 }
 impl<T: Data> Data for Box<T> {
+    fn default_size() -> usize {
+        std::mem::size_of::<Self>().saturating_add(T::default_size())
+    }
+    fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
+        r.claim(std::mem::size_of::<T>())?;
+        Ok(Box::new(T::read_new(r)?))
+    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         (**self).settle_tick(now)
     }
@@ -223,6 +250,7 @@ impl<T: Data> Data for Box<T> {
         (**self).moving(now)
     }
     fn write(&self, w: &mut dyn Writer) {
+        w.claim_decoded(Self::default_size().saturating_mul(2));
         (**self).write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -241,6 +269,10 @@ impl<T: Data> Data for BTreeMap<String, T> {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
+            w.claim_decoded(64 + std::mem::size_of::<T>());
+            if w.stopped() {
+                break;
+            }
             w.key(k);
             v.write(w);
         }
@@ -251,8 +283,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
         self.clear();
         while let Some(k) = r.field()? {
             r.claim(64 + std::mem::size_of::<T>())?;
-            let mut value = T::default();
-            value.read(r).map_err(|e| e.at(&k))?;
+            let value = T::read_new(r).map_err(|e| e.at(&k))?;
             self.insert(k, value);
         }
         Ok(())
@@ -261,6 +292,7 @@ impl<T: Data> Data for BTreeMap<String, T> {
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
+            fn default_size() -> usize { std::mem::size_of::<Self>() $(.saturating_add($T::default_size().saturating_sub(std::mem::size_of::<$T>())))* }
             fn moving(&self, now: crate::Now) -> bool { false $(|| self.$i.moving(now))* }
             fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {

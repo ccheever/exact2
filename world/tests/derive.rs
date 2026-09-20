@@ -68,6 +68,16 @@ fn replace(w: &World) {
         "Page presence was publicly replaceable"
     );
     assert!(String::from_utf8_lossy(&mask.stderr).contains("private"));
+    let static_fields = compile(
+        r#"use exact_world::*;
+#[derive(Default, Data)] struct Text { text: std::borrow::Cow<'static, str>, #[data(skip)] marker: &'static str }
+"#,
+    );
+    assert!(
+        static_fields.status.success(),
+        "{}",
+        String::from_utf8_lossy(&static_fields.stderr)
+    );
     let cases = [
         r###"fn main() {
 use exact_world::{World, Component};

@@ -82,7 +82,7 @@ fn idempotent_recursive_registration_runs_hook_once() {
         w.register::<Hook>().unwrap();
     }
     assert_eq!(CALLS.get(), 1);
-    w.load(&w.save()).unwrap();
+    w.load(&w.save().unwrap()).unwrap();
     assert_eq!(CALLS.get(), 1);
     assert_eq!(w.query::<&Hook>().iter().count(), 100);
 }
@@ -94,13 +94,13 @@ fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
     for pair in es.windows(2) {
         w.set_parent(pair[0], Some(pair[1])).unwrap();
     }
-    let before = w.save();
+    let before = w.save().unwrap();
     assert!(w
         .set_parent(es[256], Some(es[0]))
         .unwrap_err()
         .message
         .contains("cycle"));
-    assert_eq!(before, w.save());
+    assert_eq!(before, w.save().unwrap());
     assert!(w.try_query::<&mut Parent>().is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| w.get_mut::<Parent>(es[0]))).is_err());
     w.despawn(es[256]);
@@ -132,9 +132,13 @@ fn decoded_ownership_cycle_refuses_atomically() {
     w.register::<Count>().unwrap();
     w.register::<Parent>().unwrap();
     w.spawn_named("retained", ()).unwrap();
-    let before = w.save();
-    assert!(w.load(&bad.save()).unwrap_err().message.contains("cycle"));
-    assert_eq!(w.save(), before);
+    let before = w.save().unwrap();
+    assert!(w
+        .load(&bad.save().unwrap())
+        .unwrap_err()
+        .message
+        .contains("cycle"));
+    assert_eq!(w.save().unwrap(), before);
 }
 #[test]
 fn journal_retains_generations_replacements_and_reparent_across_ticks_and_restore() {
@@ -412,15 +416,18 @@ fn bounded_inspection_refuses_large_values_and_reading_is_passive() {
     let mut w = World::new(60, 0);
     w.register::<Count>().unwrap();
     let e = w.spawn(Count(4)).unwrap();
-    let before = w.save();
+    let before = w.save().unwrap();
     assert!(w.state(e).unwrap().contains('4'));
     assert_eq!(w.tree().0.len(), 1);
     assert!(!w.logs(0).unwrap().is_empty());
-    assert_eq!(w.save(), before);
+    assert_eq!(w.save().unwrap(), before);
     assert!(json::to_string(&"x".repeat(json::LIMIT + 1)).is_err());
     assert!(w.log(&"x".repeat(4097)).is_err());
     let budget = data::LoadBudget::new(32);
-    assert!(bin::from_slice_in::<Vec<u8>>(&bin::to_vec(&vec![1u8; 33]), Some(&budget)).is_err());
+    assert!(
+        bin::from_slice_in::<Vec<u8>>(&bin::to_vec(&vec![1u8; 33]).unwrap(), Some(&budget))
+            .is_err()
+    );
 }
 #[test]
 fn ambient_motion_deadlines_and_same_value_leases_do_not_hide_changes() {
@@ -580,11 +587,13 @@ fn input_refusal_preserves_the_entire_tick_boundary() {
 #[test]
 fn driver_refuses_external_world_clock_replacement_before_work() {
     let mut s = Sim::<Still>::new(()).unwrap();
-    s.world_mut().load(&World::new(30, 0).save()).unwrap();
-    let before = s.world().save();
+    s.world_mut()
+        .load(&World::new(30, 0).save().unwrap())
+        .unwrap();
+    let before = s.world().save().unwrap();
     assert!(s.save().is_err());
     assert!(s.run(17.).is_err());
-    assert_eq!(s.world().save(), before);
+    assert_eq!(s.world().save().unwrap(), before);
 }
 
 #[test]
@@ -754,4 +763,67 @@ fn refused_orphan_reap_cannot_repeat_game_logic() {
     assert!(s.run(17.).is_err());
     assert_eq!(TICKS.get(), 1);
     assert!(s.save().is_err());
+}
+
+#[test]
+fn save_refuses_strings_that_cannot_decode() {
+    let s = Sim::<Counter>::new(Options {
+        text: "x".repeat(data::MAX_LOAD_STRING + 1),
+        ..Options::default()
+    })
+    .unwrap();
+    assert!(s.save().is_err());
+}
+
+#[test]
+fn sim_exact_restore_refuses_renamed_fields_and_carry_reports_adaptation() {
+    #[derive(Default, Data)]
+    struct Before {
+        points: u32,
+    }
+    #[derive(Default, Data)]
+    struct After {
+        score: u32,
+    }
+    impl Component for Before {
+        const NAME: &'static str = "SavedCounter";
+    }
+    impl Component for After {
+        const NAME: &'static str = "SavedCounter";
+    }
+    struct OldGame;
+    struct NewGame;
+    impl Game for OldGame {
+        const ID: &'static str = "same-id";
+        type Args = ();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<Before>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn(Before { points: 123 }).unwrap();
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    impl Game for NewGame {
+        const ID: &'static str = "same-id";
+        type Args = ();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<After>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn(After { score: 7 }).unwrap();
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let saved = Sim::<OldGame>::new(()).unwrap().save().unwrap();
+    let mut new = Sim::<NewGame>::new(()).unwrap();
+    let before = new.save().unwrap();
+    assert!(Sim::<NewGame>::from_save(&saved).is_err());
+    assert!(new.restore(&saved).is_err());
+    assert_eq!(new.save().unwrap(), before);
+    assert!(new.carry(&saved).unwrap());
+    assert_eq!(new.world().get::<After>("#0").unwrap().score, 0);
+    assert!(!new.carry(&new.save().unwrap()).unwrap());
 }

@@ -34,9 +34,9 @@ assert_eq!(page.runs().next().unwrap().1[0].0, 2);
 | `set_parent(Entity, Option<Entity>) -> Result<(), DataError>`; `children(Entity) -> Vec<Entity>`; `validate()`, `reap_orphans() -> Result<(), DataError>` | Independent cycle validation; children and deferred destruction use ascending slot order; Parent cannot be mutated through ordinary leases. |
 | `change_cursor() -> u64`; `changes(since: u64) -> Result<impl Iterator<Item=&Change>, DataError>`; `consume_changes(through: u64) -> Result<(), DataError>` | Retained across ticks; generation-bearing spawn/despawn/insert/replace/remove/reparent/reset events. Consumers acknowledge their minimum cursor. |
 | `work(&str, Work) -> Result<(), DataError>`; `clear_work(&str)`; `busy(&'static str) -> Result<(), DataError>`; `readiness() -> Readiness`; `settle_tick() -> Option<u64>`; `quiescent() -> bool`; `derived<T: Default + 'static>() -> RefMut<T>` | Ready/Pending/Failed reasons and simulation Deadline data; busy expires each tick. Derived slots are unsaved and cleared on replacement. Ambient still saves/hashes but is excluded from rest observation. |
-| `Sim::<G>::new(G::Args)`, `from_values(&[Value])`, `from_save(&[u8]) -> Result<Sim<G>, DataError>`; `bind(G::Args)`, `input(InputEvent)`, `restore(&[u8])`, `carry(&[u8]) -> Result<(), DataError>` | Game has ID, HZ, ACTIONS, typed Args, register/setup/tick and optional validate/paused. Args fields default to setup; live updates ticks; either restart edge reconstructs. Carry requires compatible setup and preserves current live args. |
+| `Sim::<G>::new(G::Args)`, `from_values(&[Value])`, `from_save(&[u8]) -> Result<Sim<G>, DataError>`; `bind(G::Args)`, `input(InputEvent)`, `restore(&[u8]) -> Result<(), DataError>`; `carry(&[u8]) -> Result<bool, DataError>` | Game has ID, HZ, ACTIONS, typed Args, register/setup/tick and optional validate/paused. Args fields default to setup; live updates ticks; either restart edge reconstructs. Carry requires compatible setup and preserves current live args. |
 | `run(elapsed_ms: f64)`, `advance_to(clock_ms: f64)`, `settle(max_ticks: u32) -> Result<u64, DataError>`; `alpha_inputs() -> (u64,u32,u32)`; `paranoid(Paranoid) -> Self` | Passive fixed ticks; alpha is tick plus numerator/1,000,000. Save/FreshGame reconstruct after every tick, with no setup/asset rebuilding. Timestamped Key/Action/Axis/Blur events; Input key/held/pressed/released/axis; `stick_axis([f32;2],[f32;2]) -> Result<[f32;2],DataError>` preserves the 60-pixel contact-offset rule. |
-| `hash() -> u64`; `World::save() -> Vec<u8>`; `World::load(&[u8]) -> Result<(),DataError>`; `Sim::save() -> Result<Vec<u8>,DataError>`; `Data::{write(&mut dyn Writer), read(&mut dyn Reader) -> Result<(),DataError>}` | World EXGAME v3 remains byte-compatible. Sim EXSIM v8 refuses every other version. Binary/streaming hash share Data traversal; json is bounded output only. `bin::{to_vec,from_slice,read_into}` and `hash::of` work on generic Data. |
+| `hash() -> u64`; `World::save() -> Result<Vec<u8>, DataError>`; `World::load(&[u8]) -> Result<(),DataError>`; `Sim::save() -> Result<Vec<u8>,DataError>`; `Data::{write(&mut dyn Writer), read(&mut dyn Reader) -> Result<(),DataError>}` | World EXGAME v4 omits empty columns. Sim EXSIM v9 saves caller time separately. Both refuse other envelope versions. Binary/streaming hash share Data traversal; json is bounded output only. `bin::{to_vec,from_slice,read_into}` and `hash::of` work on generic Data. |
 | `publish(&str, impl Into<Published>)`; `publish_record(&impl Data)`; `published(&str) -> Option<Value>`; `take_published() -> Result<Option<String>,DataError>`; `emit(impl Into<String>)`; `take_messages() -> Vec<String>` | Positional Contract records remain distinct from lists and named publication objects. Game logs/publications/input/delivery survive Sim checkpoints. |
 | `state(Entity)`, `logs(since: u64)`, `publications() -> Result<String,DataError>`; `tree() -> (Vec<(Entity,Option<&str>,Option<Entity>)>,usize)`; `log(&str)`, `session_log(&str) -> Result<(),DataError>`; `journal(since: u64) -> Vec<Event>` | Game journal is saved by Sim, excluded from World hash. Session messages are unsaved, anchored before the next game cursor, merged in order by logs; replacement reanchors retained session messages after restored history. Structural Reset never enters saved history. |
 | `Spring::new(f32)`, `set_target(Now,f32)`, `value(Now) -> f32`; `Tween::new(f32)`, `to(Now,f32,f32)`, `value(Now) -> f32`; `rng() -> RefMut<Rng>`; `rand(Range<T>) -> T` | Saved scalar motion over exact-motion; Tween uses its cubic easing, no private smoothstep. RNG and libm scalar math retain deterministic operations. |
@@ -91,3 +91,28 @@ held state, clears edges and queued input, and rebases caller time without a tic
 its complete-state batch admits at most 1,024 events. Each delta rounds separately
 to microseconds. `world_mut` remains available for authoring, but save and clock
 operations refuse a replaced World whose tick/rate contradict the driver.
+
+`bin::to_vec`, `Encoder::finish`, and `World::save` now return `Result<Vec<u8>,
+DataError>`. Encoders refuse oversized strings, nesting, output and conservative
+decoded-allocation estimates before output growth; collections stop on refusal.
+World/Sim output is capped at 128 MiB, generic binary output at 256 MiB. Decode
+owns a 256 MiB state allowance; ownership scratch is separately bounded to 200,000
+slots (at most 2.6 MB on this 64-bit host). Capacity admission accounts native
+layouts; the bytes and hashes themselves remain portable.
+
+`Data::read_new` admits construction before calling defaults; boxed values claim
+before allocation. Derives expose `default_size` recursively through fields.
+A custom allocating Default must supply an adequate `default_size` in a manual
+Data implementation, or override `read_new` and claim before allocation. Manual
+writers must account owned decode storage through `Writer::claim_decoded` and
+honor `stopped`; arbitrary user code cannot be bounded by a codec.
+
+Exact loading requires the complete canonical saved grammar to reproduce byte
+for byte, including fields, value tags, schema roles, arguments and driver data.
+This refuses silent defaulting, skipping, or lossy conversion before installation.
+`World::carry` and `Sim::carry` explicitly permit field adaptation and return true
+when the reconstructed canonical content differs; Sim also preserves current live
+arguments and refuses setup drift. Exactness concerns saved content: compatible
+Rust representations with identical canonical encoding remain interchangeable.
+The extra validation pass raises the measured 10 KiB restore to 1,042 allocations /
+106,979 requested bytes; eliminating metadata churn remains lane 2 work.

@@ -73,7 +73,7 @@ fn construction_activation_restore_counts() {
     let bytes = sim.save().unwrap();
     assert_eq!(bytes.len(), 10240);
     let (restored, counts) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
-    report("restore.10KiB", counts, (997, 78262));
+    report("restore.10KiB", counts, (1042, 106979));
     assert_eq!(restored.world().hash(), sim.world().hash());
     assert_eq!(restored.save().unwrap(), bytes);
     let (_, again) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
@@ -100,4 +100,84 @@ fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
     assert_eq!(w.pages::<CellValue>().iter().count(), 1);
     w.remove::<CellValue>(e);
     assert_eq!(w.pages::<CellValue>().iter().count(), 0);
+}
+
+#[test]
+fn zero_budget_refuses_before_constructing_boxed_defaults() {
+    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    struct Large([u64; 1024]);
+    impl Default for Large {
+        fn default() -> Self {
+            DEFAULTS.set(DEFAULTS.get() + 1);
+            Self([0; 1024])
+        }
+    }
+    impl Data for Large {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0[0].write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0[0].read(r)
+        }
+    }
+    DEFAULTS.set(0);
+    let (_, counts) = counting::measure(|| {
+        assert!(bin::from_slice_in::<Box<Large>>(&[], Some(&data::LoadBudget::new(0))).is_err());
+    });
+    assert_eq!(
+        DEFAULTS.get(),
+        0,
+        "no allocation-producing Default before admission"
+    );
+    assert!(
+        counts.1 < 8192,
+        "box allocation happened before refusal: {counts:?}"
+    );
+}
+
+#[test]
+fn bounded_encoder_stops_before_payload_allocation_and_element_traversal() {
+    let values = vec![0u32; 1_000_000];
+    let (_, counts) = counting::measure(|| {
+        let mut encoder = bin::Encoder::bounded(64);
+        values.write(&mut encoder);
+        assert!(encoder.finish().is_err());
+    });
+    assert!(
+        counts.1 < 1024,
+        "bulk preflight allocated payload: {counts:?}"
+    );
+    let mut encoder = bin::Encoder::bounded(64);
+    vec![42u32].write(&mut encoder);
+    assert_eq!(
+        bin::from_slice::<Vec<u32>>(&encoder.finish().unwrap()).unwrap(),
+        [42]
+    );
+}
+
+#[test]
+fn nested_box_default_is_preflighted_before_allocating() {
+    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    struct Large([u64; 1024]);
+    impl Default for Large {
+        fn default() -> Self {
+            DEFAULTS.set(DEFAULTS.get() + 1);
+            Self([0; 1024])
+        }
+    }
+    impl Data for Large {
+        fn write(&self, w: &mut dyn Writer) {
+            self.0[0].write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0[0].read(r)
+        }
+    }
+    #[derive(Default, Data)]
+    struct Outer {
+        inner: Box<Large>,
+    }
+    DEFAULTS.set(0);
+    assert!(bin::from_slice_in::<Outer>(&[], Some(&data::LoadBudget::new(1024))).is_err());
+    assert_eq!(DEFAULTS.get(), 0);
 }

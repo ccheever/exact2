@@ -285,6 +285,7 @@ impl<G: Game> Sim<G> {
     /// EXSIM v9: identity → typed args → schema → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.check_clock()?;
+        self.world.validate()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
         w.begin_seq(10);
         w.item();
@@ -316,26 +317,24 @@ impl<G: Game> Sim<G> {
         w.item();
         self.caller_us.write(&mut w);
         w.end_seq();
-        let bytes = w.finish();
-        if bytes.len() > 128 * 1024 * 1024 {
-            return Err(DataError::new("save exceeds 128 MiB"));
-        }
-        Ok(bytes)
+        w.finish()
     }
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
-        Self::candidate(bytes)
+        Self::candidate(bytes, false)
     }
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let next = Self::candidate(bytes)?;
+        let next = Self::candidate(bytes, false)?;
         self.install(next, false)
     }
     /// Compatible-state carry preserves current live arguments; structural/setup changes refuse.
-    pub fn carry(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let next = Self::candidate(bytes)?;
+    pub fn carry(&mut self, bytes: &[u8]) -> Result<bool, DataError> {
+        let next = Self::candidate(bytes, true)?;
         if next.args.setup_changed(&self.args) {
             return Err(DataError::new("carry setup arguments differ"));
         }
-        self.install(next, true)
+        let changed = next.save()? != bytes;
+        self.install(next, true)?;
+        Ok(changed)
     }
     fn install(&mut self, next: Self, keep_args: bool) -> Result<(), DataError> {
         self.world.adopt(next.world)?;
@@ -349,7 +348,7 @@ impl<G: Game> Sim<G> {
         self.tick_failed = false;
         Ok(())
     }
-    fn candidate(bytes: &[u8]) -> Result<Self, DataError> {
+    fn candidate(bytes: &[u8], adapt: bool) -> Result<Self, DataError> {
         if bytes.len() > 128 * 1024 * 1024 {
             return Err(DataError::new("save exceeds 128 MiB"));
         }
@@ -382,7 +381,7 @@ impl<G: Game> Sim<G> {
         if !world.matches_schema(&schema) {
             return Err(DataError::new("schema disagrees with storage"));
         }
-        world.validate_ownership(&mut r)?;
+        world.validate_ownership()?;
         item(&mut r)?;
         let mut world_us = 0i64;
         world_us.read(&mut r)?;
@@ -425,7 +424,7 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("extra Sim save data"));
         }
         r.finish()?;
-        Ok(Self {
+        let next = Self {
             world,
             args,
             input,
@@ -435,6 +434,12 @@ impl<G: Game> Sim<G> {
             paranoid: Paranoid::Off,
             tick_failed: false,
             game: PhantomData,
-        })
+        };
+        if !adapt && next.save()? != bytes {
+            return Err(DataError::new(
+                "exact save identity differs; use carry for schema adaptation",
+            ));
+        }
+        Ok(next)
     }
 }

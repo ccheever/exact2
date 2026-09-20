@@ -22,7 +22,7 @@ fn spring_seeks_have_no_sampling_history() {
         let old_value = spring.value(Now { tick: 60, hz: 60 });
         spring.set_target(Now { tick: 60, hz: 60 }, 20.0);
         assert!((spring.value(Now { tick: 60, hz: 60 }) - old_value).abs() < 1e-12);
-        let loaded: Spring = bin::from_slice(&bin::to_vec(&spring)).unwrap();
+        let loaded: Spring = bin::from_slice(&bin::to_vec(&spring).unwrap()).unwrap();
         assert_eq!(
             loaded.value(Now { tick: 120, hz: 60 }).to_bits(),
             spring.value(Now { tick: 120, hz: 60 }).to_bits()
@@ -47,7 +47,7 @@ fn rng_is_reproducible_bounded_and_round_trips() {
         assert!((f32::MIN..f32::MAX).contains(&a.range(f32::MIN..f32::MAX)));
         b.range(f32::MIN..f32::MAX);
     }
-    let mut saved: Rng = bin::from_slice(&bin::to_vec(&a)).unwrap();
+    let mut saved: Rng = bin::from_slice(&bin::to_vec(&a).unwrap()).unwrap();
     assert_eq!(a.next_u32(), saved.next_u32());
     assert!(a.pick::<u8>(&[]).is_none());
     assert_eq!(a.pick(&[7]), Some(&7));
@@ -73,7 +73,7 @@ fn tween_uses_exact_motion_and_saved_deadline() {
     use exact_world::{Data, Tween};
     let mut t = Tween::new(-1.);
     t.to(Now { tick: 4, hz: 60 }, 3., 0.5);
-    let bytes = bin::to_vec(&t);
+    let bytes = bin::to_vec(&t).unwrap();
     let loaded: Tween = bin::from_slice(&bytes).unwrap();
     for tick in 4..35 {
         let progress = exact_motion::Easing::CubicBezier {
@@ -110,15 +110,15 @@ fn spring_refuses_nonfinite_scalar_state() {
             unreachable!()
         }
     }
-    assert!(bin::from_slice::<Spring>(&bin::to_vec(&Forged)).is_err());
+    assert!(bin::from_slice::<Spring>(&bin::to_vec(&Forged).unwrap()).is_err());
     for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         assert!(catch_unwind(|| Spring::new(value)).is_err());
         let mut s = Spring::new(1.);
-        let before = bin::to_vec(&s);
+        let before = bin::to_vec(&s).unwrap();
         assert!(catch_unwind(AssertUnwindSafe(
             || s.set_target(Now { tick: 0, hz: 60 }, value)
         ))
         .is_err());
-        assert_eq!(bin::to_vec(&s), before);
+        assert_eq!(bin::to_vec(&s).unwrap(), before);
     }
 }

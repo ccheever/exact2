@@ -72,8 +72,12 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
     // Old EXGAME v3 retained empty columns. Compare canonical content against
     // the old engine's never-populated history, and exercise churn only in new.
     let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>().unwrap(); w.insert(entities[1999], Temporary).unwrap(); w.remove::<Temporary>(entities[1999]); let mut history =");
-    let fixture_new = fixture_new.replace("w.save()", "{ let mut b = w.save(); b[7] = 3; b }");
+    let fixture_new = fixture_new.replace("w.save()", "{ let mut b = w.save().unwrap(); b[7] = 3; b }");
     let fixture_new = fixture_new.replace("w.load(&bytes)", "w.load(&{ let mut b = bytes.clone(); b[7] = 4; b })");
+    let fixture_new = fixture_new
+        .replace("bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] })", "bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] }).unwrap()")
+        .replace("bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3]))", "bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3])).unwrap()")
+        .replace("bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")]))", "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")])).unwrap()");
     let source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);
     fs::write(scratch.join("src/lib.rs"), source).unwrap();
     let output = Command::new("cargo")

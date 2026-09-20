@@ -25,6 +25,7 @@ pub fn resource(input: TokenStream) -> TokenStream {
 
 struct Field {
     name: String,
+    ty: String,
     skip: bool,
 }
 struct Body {
@@ -147,7 +148,12 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
         } else {
             i.to_string()
         };
-        fields.push(Field { name, skip });
+        let ty = f[if shape == Shape::Named { 2 } else { 0 }..]
+            .iter()
+            .cloned()
+            .collect::<TokenStream>()
+            .to_string();
+        fields.push(Field { name, ty, skip });
     }
     Ok(Body { fields, shape })
 }
@@ -171,7 +177,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         .get(2)
         .is_some_and(|t| punct(t, '<') || t.to_string() == "where")
         || tokens.iter().any(|t| t.to_string() == "where")
-        || has_lifetime(tokens)
     {
         return Err("Data does not support generics or lifetimes".into());
     }
@@ -237,9 +242,10 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 format!("if let {pat} = self {{ (|| -> ::core::result::Result<(), ::exact_world::DataError> {{ {} ::core::result::Result::Ok(()) }})().map_err(|e| e.at(&arm))?; }}", read_body(b, &refs))
             };
             read += &format!(
-                "{:?} => {{ if !::core::matches!(self, {}) {{ *self = {}; }} {bind} }},",
+                "{:?} => {{ if !::core::matches!(self, {}) {{ r.check_allocation({})?; *self = {}; }} {bind} }},",
                 clean(&arm.name),
                 pattern(&arm.name, b, &wildcards),
+                default_size(b),
                 pattern(&arm.name, b, &defaults)
             );
         }
@@ -249,7 +255,12 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         settle += "}";
         (write, read, moving, settle)
     };
-    let mut out = format!("impl ::exact_world::Data for {name} {{ fn moving(&self, now: ::exact_world::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let default_size = if kind == "struct" {
+        default_size(&body(tokens.get(2))?)
+    } else {
+        "::core::mem::size_of::<Self>()".into()
+    };
+    let mut out = format!("impl ::exact_world::Data for {name} {{ fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn moving(&self, now: ::exact_world::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         let saved_fields = if marker == "Component" && kind == "struct" {
             let fields = body(tokens.get(2))?.fields;
@@ -269,12 +280,12 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     }
     Ok(out)
 }
-fn has_lifetime(tokens: &[TokenTree]) -> bool {
-    tokens.iter().any(|t| match t {
-        TokenTree::Punct(p) => p.as_char() == '\'',
-        TokenTree::Group(g) => has_lifetime(&g.stream().into_iter().collect::<Vec<_>>()),
-        _ => false,
-    })
+fn default_size(b: &Body) -> String {
+    let mut size = "::core::mem::size_of::<Self>()".to_owned();
+    for f in b.fields.iter().filter(|f| !f.skip) {
+        size += &format!(".saturating_add(<{} as ::exact_world::Data>::default_size().saturating_sub(::core::mem::size_of::<{}>()))", f.ty, f.ty);
+    }
+    size
 }
 fn clean(name: &str) -> &str {
     name.strip_prefix("r#").unwrap_or(name)
@@ -310,7 +321,7 @@ fn write_body(b: &Body, access: &[String]) -> String {
         } else {
             s += "w.item();";
         }
-        s += &format!("::exact_world::Data::write(&{a}, w);");
+        s += &format!("if !w.stopped() {{ ::exact_world::Data::write(&{a}, w); }}");
     }
     s += if named {
         "w.end_struct();"

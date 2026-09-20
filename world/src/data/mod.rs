@@ -24,6 +24,17 @@ mod text;
 /// Platform-sized integers and unordered maps intentionally have no implementation.
 ///
 pub trait Data: Sized + Default + 'static {
+    /// Construction-oriented decode. Allocation-free defaults may use this
+    /// fallback; allocating manual defaults must override and claim first.
+    fn default_size() -> usize {
+        std::mem::size_of::<Self>()
+    }
+    fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
+        r.check_allocation(Self::default_size().max(1))?;
+        let mut value = Self::default();
+        value.read(r)?;
+        Ok(value)
+    }
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
         false
@@ -112,6 +123,14 @@ impl BulkKind {
 }
 
 pub trait Writer {
+    /// Conservative decode-allocation admission; hashes and inspection ignore it.
+    fn claim_decoded(&mut self, _bytes: usize) {}
+    fn stopped(&self) -> bool {
+        false
+    }
+    fn allow_bytes(&mut self, _bytes: usize) -> bool {
+        !self.stopped()
+    }
     fn entity(&mut self, index: u32, generation: u32) {
         self.begin_struct();
         self.field("index");

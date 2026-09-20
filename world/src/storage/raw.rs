@@ -32,8 +32,7 @@ impl Descriptor {
             drop_in_place: |p| unsafe { p.cast::<C>().drop_in_place() },
             write: |p, w| unsafe { &*p.cast::<C>() }.write(w),
             read_new: |p, r| {
-                let mut value = C::default();
-                value.read(r)?;
+                let value = C::read_new(r)?;
                 // SAFETY: caller supplies vacant, aligned storage for C.
                 unsafe { p.cast::<C>().write(value) };
                 Ok(())
@@ -268,8 +267,18 @@ impl RawStorage {
     }
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);
+        w.claim_decoded(
+            1024 + self.desc.layout.size()
+                + self
+                    .pages
+                    .len()
+                    .saturating_mul(1024 + self.page_layout.size()),
+        );
         w.begin_seq(self.len);
         for index in self.indices(None) {
+            if w.stopped() {
+                break;
+            }
             w.item();
             w.begin_seq(2);
             w.item();
@@ -385,9 +394,9 @@ mod tests {
             },
         )
         .unwrap();
-        let saved = w.save();
+        let saved = w.save().unwrap();
         w.load(&saved).unwrap();
-        assert_eq!(w.save(), saved);
+        assert_eq!(w.save().unwrap(), saved);
         let removed = w.remove::<Padded>(e).unwrap();
         assert_eq!(
             (removed.byte, removed.owned.as_str(), removed.word),
@@ -418,7 +427,7 @@ mod tests {
         drop(value);
         assert_eq!(DROPS.get(), 2);
         w.insert(e, Guard).unwrap();
-        let saved = w.save();
+        let saved = w.save().unwrap();
         w.load(&saved).unwrap();
         assert_eq!(DROPS.get(), 3, "load drops the old world");
         drop(w);
@@ -455,7 +464,7 @@ mod tests {
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1]));
         drop(owner);
         w.insert(e, Owner::new(3)).unwrap();
-        let bytes = w.save();
+        let bytes = w.save().unwrap();
         w.load(&bytes).unwrap();
         DROPPED.with_borrow(|ids| assert_eq!(ids, &[1, 2, 3]));
         assert_eq!(w.get::<Owner>(e).unwrap().id, 3);
@@ -480,9 +489,9 @@ mod tests {
             })
             .unwrap();
         }
-        let bytes = w.save();
+        let bytes = w.save().unwrap();
         w.load(&bytes).unwrap();
-        assert_eq!(w.save(), bytes);
+        assert_eq!(w.save().unwrap(), bytes);
         for (_, value) in &mut w.query::<&mut Aligned>() {
             assert_eq!((value as *mut Aligned as usize) % 128, 0);
             assert_eq!(value.text, "owned");

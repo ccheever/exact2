@@ -425,6 +425,10 @@ impl World {
             return false;
         }
         self.change_room(1).expect("structural journal full");
+        self.state.slots[e.index as usize]
+            .generation
+            .checked_add(1)
+            .expect("entity generation exhausted");
         self.mutation(|this| this.despawn_commit(e))
     }
     fn despawn_commit(&mut self, e: Entity) -> bool {
@@ -751,6 +755,11 @@ impl World {
     pub(crate) fn write(&self, w: &mut dyn Writer, delivery: bool) {
         w.begin_struct();
         w.field("state");
+        for slot in &self.state.slots {
+            if let Some(name) = &slot.name {
+                w.claim_decoded(512 + name.len());
+            }
+        }
         self.state.write(w);
         w.field("rng");
         self.rng.get().unwrap().write(w);
@@ -793,8 +802,8 @@ impl World {
         hash
     }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
-    pub fn save(&self) -> Vec<u8> {
-        self.healthy().expect("cannot save poisoned world");
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        self.validate()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
         self.write(&mut w, true);
         w.finish()
@@ -802,23 +811,34 @@ impl World {
     /// Atomically replace simulation state. Registered types survive the replacement;
     /// caches, publications and events do not. The entity table precedes storages.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        self.load_in(bytes, None)
+        self.load_in(bytes, None, false).map(|_| ())
+    }
+    /// Intentional field adaptation. True means the canonical saved content changed.
+    pub fn carry(&mut self, bytes: &[u8]) -> Result<bool, DataError> {
+        self.load_in(bytes, None, true)
     }
     pub(crate) fn load_in(
         &mut self,
         bytes: &[u8],
         budget: Option<&crate::data::limits::LoadBudget>,
-    ) -> Result<(), DataError> {
+        adapt: bool,
+    ) -> Result<bool, DataError> {
         let payload = Self::saved_payload(bytes)?;
         let mut next = Self::new(self.hz(), 0);
         next.registry = self.registry.clone();
         let mut r = bin::Decoder::for_load(payload, budget);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
-        next.validate_ownership(&mut r)?;
+        next.validate_ownership()?;
+        let changed = next.save()? != bytes;
+        if changed && !adapt {
+            return Err(DataError::new(
+                "exact save identity differs; use carry for schema adaptation",
+            ));
+        }
         next.epoch.set(self.epoch.get().wrapping_add(1));
         self.adopt(next)?;
-        Ok(())
+        Ok(changed)
     }
     pub(crate) fn saved_payload(bytes: &[u8]) -> Result<&[u8], DataError> {
         if bytes.len() > crate::data::MAX_LOAD_BYTES {

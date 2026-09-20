@@ -120,6 +120,10 @@ impl Stored {
 
 impl Data for Value {
     fn write(&self, w: &mut dyn Writer) {
+        w.claim_decoded(128);
+        if let Self::Str(s) = self {
+            w.claim_decoded(s.len());
+        }
         // Stored's derived variant framing, without an owned conversion tree.
         let (name, index) = match self {
             Self::Unit => ("Unit", 0),
@@ -220,18 +224,22 @@ mod tests {
         let owners = Rc::strong_count(&shared);
         for value in &cases {
             let stored = Stored::from(value.clone());
-            let expected = bin::to_vec(&stored);
-            assert_eq!(bin::to_vec(value), expected, "{value:?}");
+            let expected = bin::to_vec(&stored).unwrap();
+            assert_eq!(bin::to_vec(value).unwrap(), expected, "{value:?}");
             assert_eq!(hash::of(value), hash::of(&stored), "{value:?}");
             assert_eq!(json_stream(value), json_stream(&stored), "{value:?}");
             let decoded: Value = bin::from_slice(&expected).unwrap();
-            assert_eq!(bin::to_vec(&decoded), expected, "round trip {value:?}");
+            assert_eq!(
+                bin::to_vec(&decoded).unwrap(),
+                expected,
+                "round trip {value:?}"
+            );
         }
         assert_eq!(Rc::strong_count(&shared), owners);
         // List and Record have equal public JSON shapes but distinct saved tags.
         assert_ne!(
-            bin::to_vec(&Value::list(vec![])),
-            bin::to_vec(&Value::record(vec![]))
+            bin::to_vec(&Value::list(vec![])).unwrap(),
+            bin::to_vec(&Value::record(vec![])).unwrap()
         );
         assert_ne!(hash::of(&Value::Number(0.)), hash::of(&Value::Number(-0.)));
     }

@@ -34,7 +34,10 @@ enum Choice {
     TupleEmpty(),
 }
 fn round_trip<T: Data + PartialEq + std::fmt::Debug>(value: T) {
-    assert_eq!(bin::from_slice::<T>(&bin::to_vec(&value)).unwrap(), value);
+    assert_eq!(
+        bin::from_slice::<T>(&bin::to_vec(&value).unwrap()).unwrap(),
+        value
+    );
 }
 #[test]
 fn derive_shapes() {
@@ -94,9 +97,9 @@ fn numbers_nan_and_negative_zero() {
         f32::from_bits(0x7f80_0001),
     ] {
         assert_eq!(hash::of(&nan), hash::of(&f32::NAN));
-        assert_eq!(bin::to_vec(&nan), bin::to_vec(&f32::NAN));
+        assert_eq!(bin::to_vec(&nan).unwrap(), bin::to_vec(&f32::NAN).unwrap());
         assert_eq!(
-            bin::from_slice::<f32>(&bin::to_vec(&nan))
+            bin::from_slice::<f32>(&bin::to_vec(&nan).unwrap())
                 .unwrap()
                 .to_bits(),
             0x7fc0_0000
@@ -110,7 +113,7 @@ fn numbers_nan_and_negative_zero() {
     ] {
         assert_eq!(hash::of(&nan), hash::of(&f64::NAN));
         assert_eq!(
-            bin::from_slice::<f64>(&bin::to_vec(&nan))
+            bin::from_slice::<f64>(&bin::to_vec(&nan).unwrap())
                 .unwrap()
                 .to_bits(),
             0x7ff8_0000_0000_0000
@@ -118,7 +121,7 @@ fn numbers_nan_and_negative_zero() {
     }
     assert_ne!(hash::of(&0.0f32), hash::of(&-0.0f32));
     assert_eq!(
-        bin::from_slice::<f32>(&bin::to_vec(&-0.0f32))
+        bin::from_slice::<f32>(&bin::to_vec(&-0.0f32).unwrap())
             .unwrap()
             .to_bits(),
         (-0.0f32).to_bits()
@@ -126,8 +129,8 @@ fn numbers_nan_and_negative_zero() {
     round_trip((u64::MAX, i64::MIN, f32::MIN_POSITIVE, f64::MAX));
     round_trip((u8::MAX, u16::MAX, u32::MAX, i32::MIN));
     round_trip((i8::MIN, i16::MIN, -0.005f32, 1e-99f64));
-    assert!(bin::from_slice::<u8>(&bin::to_vec(&256u32)).is_err());
-    assert!(bin::from_slice::<u64>(&bin::to_vec(&-1i64)).is_err());
+    assert!(bin::from_slice::<u8>(&bin::to_vec(&256u32).unwrap()).is_err());
+    assert!(bin::from_slice::<u64>(&bin::to_vec(&-1i64).unwrap()).is_err());
 }
 
 #[test]
@@ -148,7 +151,8 @@ fn name_table_walks_unknown_fields() {
     let b = bin::to_vec(&Old {
         unknown: Inner { reused: 7 },
         kept: Inner { reused: 12 },
-    });
+    })
+    .unwrap();
     assert_eq!(bin::from_slice::<New>(&b).unwrap().kept.reused, 12);
 }
 

@@ -128,8 +128,7 @@ pub(crate) fn read_vec<T: Data>(
             return Err(DataError::new("sequence count exceeds load limit"));
         }
         reserve(r, v, 1)?;
-        let mut item = T::default();
-        item.read(r).map_err(|e| e.at(v.len()))?;
+        let item = T::read_new(r).map_err(|e| e.at(v.len()))?;
         v.push(item);
     }
     Ok(())

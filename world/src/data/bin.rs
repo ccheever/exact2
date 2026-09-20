@@ -6,25 +6,20 @@ use super::{f32_bits, f64_bits, Data, DataError, Number, Reader, Writer};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Encode one value, canonicalizing all NaNs while preserving negative zero.
-pub fn to_vec<T: Data>(value: &T) -> Vec<u8> {
+pub fn to_vec<T: Data>(value: &T) -> Result<Vec<u8>, DataError> {
     let mut w = Encoder::default();
     value.write(&mut w);
     w.finish()
 }
 /// Read one value over its defaults, rejecting trailing input.
 pub fn from_slice<T: Data>(bytes: &[u8]) -> Result<T, DataError> {
-    let mut v = T::default();
-    read_into(bytes, &mut v)?;
-    Ok(v)
+    from_slice_in(bytes, None)
 }
 /// Read a value using a shared allocation allowance when supplied.
 pub fn from_slice_in<T: Data>(bytes: &[u8], budget: Option<&LoadBudget>) -> Result<T, DataError> {
-    let mut value = T::default();
     let mut r = Decoder::for_load(bytes, budget);
-    value
-        .read(&mut r)
-        .and_then(|()| r.finish())
-        .map_err(|e| e.at(super::type_name::<T>()))?;
+    let value = T::read_new(&mut r).map_err(|e| e.at(super::type_name::<T>()))?;
+    r.finish()?;
     Ok(value)
 }
 /// Read into an existing value using Data's patch/replacement rules.
@@ -37,105 +32,193 @@ pub fn read_into<T: Data>(bytes: &[u8], value: &mut T) -> Result<(), DataError> 
 }
 
 /// A binary stream sink, usable for a world whose component types are erased.
-#[derive(Default)]
 pub struct Encoder {
     bytes: Vec<u8>,
     names: BTreeMap<String, u64>,
+    limit: usize,
+    decoded: usize,
+    depth: usize,
+    error: Option<DataError>,
+}
+impl Default for Encoder {
+    fn default() -> Self {
+        Self::bounded(MAX_LOAD_BYTES)
+    }
 }
 impl Encoder {
-    /// Encode after a file header in the same output buffer.
+    pub fn bounded(limit: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            names: BTreeMap::new(),
+            limit,
+            decoded: 0,
+            depth: 0,
+            error: None,
+        }
+    }
     pub(crate) fn prefixed(prefix: &[u8]) -> Self {
-        // Even an empty world includes its clock, entity table and RNG.
-        let mut w = Self {
-            bytes: Vec::with_capacity(128),
-            ..Self::default()
-        };
-        w.bytes.extend_from_slice(prefix);
+        let mut w = Self::bounded(128 * 1024 * 1024);
+        w.append(prefix);
         w
     }
-    pub fn finish(self) -> Vec<u8> {
-        self.bytes
+    pub fn finish(self) -> Result<Vec<u8>, DataError> {
+        self.error.map_or(Ok(self.bytes), Err)
+    }
+    fn fail(&mut self, message: &str) {
+        if self.error.is_none() {
+            self.error = Some(DataError::new(message));
+        }
+    }
+    fn append(&mut self, bytes: &[u8]) {
+        if !self.allow_bytes(bytes.len()) {
+            return;
+        }
+        let needed = self.bytes.len() + bytes.len();
+        if needed > self.bytes.capacity() {
+            let capacity = needed
+                .max(self.bytes.capacity().saturating_mul(2))
+                .min(self.limit);
+            if self
+                .bytes
+                .try_reserve_exact(capacity - self.bytes.len())
+                .is_err()
+            {
+                self.fail("cannot allocate encoded value");
+                return;
+            }
+        }
+        self.bytes.extend_from_slice(bytes);
+    }
+    fn enter(&mut self) {
+        self.claim_decoded(64);
+        self.depth += 1;
+        if self.depth > 256 {
+            self.fail("nesting exceeds 256");
+        }
+    }
+    fn leave(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
     }
     fn var(&mut self, mut n: u64) {
         while n >= 128 {
-            self.bytes.push(n as u8 | 128);
+            self.append(&[n as u8 | 128]);
             n >>= 7;
         }
-        self.bytes.push(n as u8);
+        self.append(&[n as u8]);
     }
     fn text(&mut self, s: &str) {
+        if s.len() > MAX_LOAD_STRING {
+            self.fail("string exceeds load limit");
+            return;
+        }
         self.var(s.len() as u64);
-        self.bytes.extend_from_slice(s.as_bytes());
+        self.append(s.as_bytes());
     }
     fn name(&mut self, s: &str) {
+        if self.stopped() {
+            return;
+        }
         if let Some(&i) = self.names.get(s) {
             self.var(i + 1);
         } else {
+            self.claim_decoded(64);
             self.var(0);
             self.text(s);
-            self.names.insert(s.into(), self.names.len() as u64);
+            if !self.stopped() {
+                self.names.insert(s.into(), self.names.len() as u64);
+            }
         }
     }
 }
 impl Writer for Encoder {
+    fn claim_decoded(&mut self, bytes: usize) {
+        self.decoded = self.decoded.saturating_add(bytes);
+        if self.decoded > MAX_LOAD_BYTES {
+            self.fail("encoded value exceeds decode allocation budget");
+        }
+    }
+    fn stopped(&self) -> bool {
+        self.error.is_some()
+    }
+    fn allow_bytes(&mut self, len: usize) -> bool {
+        if self.bytes.len().saturating_add(len) > self.limit {
+            self.fail("encoded size exceeds save limit");
+        }
+        !self.stopped()
+    }
     fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
-        self.bytes.push(12 + kind as u8);
+        self.claim_decoded(value.len().saturating_mul(2));
+        self.append(&[12 + kind as u8]);
         self.var(value.len() as u64);
-        self.bytes.extend_from_slice(value);
+        self.append(value);
     }
     fn boolean(&mut self, n: bool) {
-        self.bytes.push(u8::from(n));
+        self.append(&[u8::from(n)]);
     }
     fn number(&mut self, n: Number) {
         match n {
             Number::Unsigned(n) => {
-                self.bytes.push(2);
+                self.append(&[2]);
                 self.var(n);
             }
             Number::Signed(n) => {
-                self.bytes.push(3);
+                self.append(&[3]);
                 self.var(((n as u64) << 1) ^ ((n >> 63) as u64));
             }
             Number::F32(n) => {
-                self.bytes.push(4);
-                self.bytes.extend_from_slice(&f32_bits(n).to_le_bytes());
+                self.append(&[4]);
+                self.append(&f32_bits(n).to_le_bytes());
             }
             Number::F64(n) => {
-                self.bytes.push(5);
-                self.bytes.extend_from_slice(&f64_bits(n).to_le_bytes());
+                self.append(&[5]);
+                self.append(&f64_bits(n).to_le_bytes());
             }
         }
     }
     fn string(&mut self, s: &str) {
-        self.bytes.push(6);
+        self.claim_decoded(s.len());
+        self.append(&[6]);
         self.text(s);
     }
     fn begin_seq(&mut self, len: usize) {
-        self.bytes.push(7);
+        self.enter();
+        self.append(&[7]);
         self.var(len as u64);
     }
     fn item(&mut self) {}
-    fn end_seq(&mut self) {}
+    fn end_seq(&mut self) {
+        self.leave();
+    }
     fn begin_struct(&mut self) {
-        self.bytes.push(8);
+        self.enter();
+        self.append(&[8]);
     }
     fn field(&mut self, name: &str) {
-        self.bytes.push(1);
+        self.claim_decoded(64 + name.len());
+        self.append(&[1]);
         self.name(name);
     }
     fn end_struct(&mut self) {
-        self.bytes.push(0);
+        self.leave();
+        self.append(&[0]);
     }
     fn variant(&mut self, name: &str, index: u32) {
-        self.bytes.push(9);
+        self.claim_decoded(name.len());
+        self.enter();
+        self.append(&[9]);
         self.var(index.into());
         self.name(name);
     }
-    fn end_variant(&mut self) {}
-    fn option(&mut self, some: bool) {
-        self.bytes.push(if some { 11 } else { 10 });
+    fn end_variant(&mut self) {
+        self.leave();
     }
-    fn end_option(&mut self) {}
+    fn option(&mut self, some: bool) {
+        self.enter();
+        self.append(&[if some { 11 } else { 10 }]);
+    }
+    fn end_option(&mut self) {
+        self.leave();
+    }
 }
 
 /// A checked streaming cursor; nesting is bounded to protect untrusted saves.
@@ -161,7 +244,7 @@ impl<'a> Decoder<'a> {
             names: vec![],
             frames: vec![],
             budget: Budget::default(),
-            preflight_collections: false,
+            preflight_collections: true,
         }
     }
     /// An importing subsystem can tighten allocations without changing world saves.

@@ -56,7 +56,7 @@ fn generations_names_and_order_under_churn() {
     restored.register::<B>().unwrap();
     restored.register::<C>().unwrap();
     restored.register::<A>().unwrap();
-    restored.load(&w.save()).unwrap();
+    restored.load(&w.save().unwrap()).unwrap();
     let rows = |w: &World| {
         w.query::<&A>()
             .iter()
@@ -293,7 +293,7 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     assert!(w.get::<Counted>(e).is_none());
     assert!(w.get_mut::<Counted>(e).is_none());
     assert!(w.has::<Counted>(first));
-    let bytes = w.save();
+    let bytes = w.save().unwrap();
     let mut loaded = World::new(60, 0);
     loaded.register::<A>().unwrap();
     loaded.register::<B>().unwrap();
@@ -303,7 +303,7 @@ fn drops_exactly_present_slots_including_load_over_existing() {
     loaded.load(&bytes).unwrap();
     assert_eq!(count(6), 1);
     assert_eq!(loaded.get::<Counted>(last).unwrap().payload, "owned 5");
-    assert_eq!(loaded.save(), bytes);
+    assert_eq!(loaded.save().unwrap(), bytes);
     drop(loaded);
     assert_eq!(count(4), 1);
     assert_eq!(count(5), 1);
@@ -441,7 +441,7 @@ fn large_churn_has_history_independent_order_hash_and_save() {
         assert!(order.windows(2).all(|w| w[0] < w[1]));
     }
     assert_eq!(left.hash(), right.hash());
-    assert_eq!(left.save(), right.save());
+    assert_eq!(left.save().unwrap(), right.save().unwrap());
 }
 
 #[test]

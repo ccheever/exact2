@@ -10,10 +10,10 @@ fn cards(empty: bool) -> [(Vec<u8>, u64); 4] {
     let c = if empty { vec![] } else { vec![0x3f80_0000u32] };
     let d = if empty { vec![] } else { vec![1.0f32] };
     [
-        (bin::to_vec(&a), hash::of(&a)),
-        (bin::to_vec(&b), hash::of(&b)),
-        (bin::to_vec(&c), hash::of(&c)),
-        (bin::to_vec(&d), hash::of(&d)),
+        (bin::to_vec(&a).unwrap(), hash::of(&a)),
+        (bin::to_vec(&b).unwrap(), hash::of(&b)),
+        (bin::to_vec(&c).unwrap(), hash::of(&c)),
+        (bin::to_vec(&d).unwrap(), hash::of(&d)),
     ]
 }
 
@@ -63,7 +63,7 @@ fn bulk_kinds_refuse_every_other_kind_by_name_including_empty() {
 #[test]
 fn numeric_bulk_budget_counts_both_live_buffers() {
     fn check<T: Data + PartialEq + std::fmt::Debug>(values: Vec<T>) {
-        let bytes = bin::to_vec(&values);
+        let bytes = bin::to_vec(&values).unwrap();
         let size = std::mem::size_of::<T>()
             * values.len()
             * if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u8>() {
@@ -100,7 +100,7 @@ fn every_bulk_kind_skips_without_losing_the_following_value() {
     for (bytes, _) in cards(false) {
         let mut tail = bin::Encoder::default();
         tail.number(Number::Unsigned(42));
-        let bytes = [bytes, tail.finish()].concat();
+        let bytes = [bytes, tail.finish().unwrap()].concat();
         let mut r = bin::Decoder::new(&bytes);
         r.skip().unwrap();
         let mut value = 0u32;
@@ -121,4 +121,18 @@ fn matching_numeric_kind_still_refuses_partial_elements() {
         };
         assert!(error.message.contains("invalid byte length"), "{error}");
     }
+}
+
+#[test]
+fn encoder_refuses_small_wire_values_with_excessive_decoded_backing() {
+    // 600k absent options occupy only 600k wire bytes but their Vec backing
+    // exceeds 256 MiB at the decoder's geometric growth boundary.
+    let values: Vec<Option<[u64; 32]>> = (0..600_000).map(|_| None).collect();
+    assert!(exact_world::bin::to_vec(&values).is_err());
+    let small = vec![Some([7u64; 32])];
+    let bytes = exact_world::bin::to_vec(&small).unwrap();
+    assert_eq!(
+        exact_world::bin::from_slice::<Vec<Option<[u64; 32]>>>(&bytes).unwrap(),
+        small
+    );
 }

@@ -84,6 +84,7 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let value = self.get();
+        w.claim_decoded(1024 + std::mem::size_of::<Self>());
         w.begin_seq(usize::from(value.is_some()));
         if let Some(value) = value {
             w.item();
@@ -117,8 +118,7 @@ impl<C: Data> Erased for Singleton<C> {
         if !r.item()? {
             return Err(DataError::new("missing component"));
         }
-        let mut value = C::default();
-        value.read(r)?;
+        let value = C::read_new(r)?;
         if r.item()? {
             return Err(DataError::new("extra component entry value"));
         }
