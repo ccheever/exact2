@@ -487,10 +487,10 @@ The raw query `Fetch` trait and reference constructors are crate-private. Extern
 compile probes refuse both direct construction and a generic attempt to mint a
 `'static` row. Unsafe code remains confined to `world/src/storage/`.
 
-Derives require `Default` on every field, including skipped fields, even when the
+Derives require `Data + Default` on every field, including skipped fields, even when the
 outer type supplies its own manual Default. Tuple/container replacement and enum
 switching construct field defaults. The compile harness checks a skipped
-`NoDefault` field and requires the explicit diagnostic "Data fields require Default,
+`NoDefault` field and requires the explicit diagnostic "Data fields require Data and Default,
 including skipped fields", naming its type. Field-spanned parser diagnostics remain
 deferred; this lane does not introduce a second parser or weaken the bounds.
 
@@ -579,3 +579,8 @@ Logical publication depth is 80 (at most 243 codec frames including Sim framing)
 Root keys separately have the fixed 256 × 256-byte bound. Error paths truncate
 on UTF-8 boundaries at 256 bytes; their fixed diagnostic reserve is outside the
 decoded-state budget and never grows with rejected payload size.
+
+Enum `read_new` constructs the incoming variant with admitted field defaults;
+it never invokes a manual enum Default for an unrelated variant. Skipped field
+defaults and every generated reset charge their declared size before construction.
+Manual allocating defaults must still fit their declared `Data::default_size`.

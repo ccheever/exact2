@@ -34,6 +34,9 @@ pub fn field_default<T: FieldDefault>() -> T {
 /// currently supplies that only through length 32; Vec supports arbitrary lengths.
 /// Platform-sized integers and unordered maps intentionally have no implementation.
 ///
+#[diagnostic::on_unimplemented(
+    message = "Data fields require Data and Default, including skipped fields: {Self}"
+)]
 pub trait Data: Sized + Default + 'static {
     /// Architecture-independent admission units; manual implementations declare a
     /// conservative bound for their default and must not use native layout sizes.

@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/K1d")
+        .join("scratch/K1e")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {
@@ -91,7 +91,7 @@ impl Default for Record { fn default() -> Self { Self { omitted: NoDefault } } }
     let error = String::from_utf8_lossy(&missing_default.stderr);
     assert!(!missing_default.status.success());
     assert!(
-        error.contains("NoDefault") && error.contains("Data fields require Default"),
+        error.contains("NoDefault") && error.contains("Data fields require Data and Default"),
         "{error}"
     );
     // Presence is unsafe initialization evidence, never caller-replaceable.
@@ -111,7 +111,7 @@ fn replace(w: &World) {
     assert!(String::from_utf8_lossy(&mask.stderr).contains("private"));
     let static_fields = compile(
         r#"use exact_world::*;
-#[derive(Default, Data)] struct Text { text: std::borrow::Cow<'static, str>, #[data(skip)] marker: &'static str }
+#[derive(Default, Data)] struct Text { text: std::borrow::Cow<'static, str>, #[data(skip)] marker: std::borrow::Cow<'static, str> }
 "#,
     );
     assert!(

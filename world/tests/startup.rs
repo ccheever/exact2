@@ -596,3 +596,57 @@ fn refusing_nested_dynamic_paths_has_bounded_error_allocations() {
         .to_string()
         .contains("root.leaf"));
 }
+
+#[test]
+fn skipped_defaults_and_manual_enum_defaults_cannot_escape_decode_admission() {
+    thread_local! { static DEFAULTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+    struct Large(Vec<u8>);
+    impl Default for Large {
+        fn default() -> Self {
+            DEFAULTS.set(DEFAULTS.get() + 1);
+            Self(vec![0; 65_536])
+        }
+    }
+    impl Data for Large {
+        fn default_size() -> usize {
+            65_560
+        }
+        fn write(&self, w: &mut dyn Writer) {
+            self.0.write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0.read(r)
+        }
+    }
+    #[derive(Default, Data)]
+    struct Skipped {
+        #[data(skip)]
+        large: Box<Large>,
+    }
+    #[derive(Data)]
+    enum Choice {
+        Unit,
+        Large(Large),
+    }
+    impl Default for Choice {
+        fn default() -> Self {
+            Self::Large(Large::default())
+        }
+    }
+    let mut out = bin::Encoder::default();
+    out.begin_struct();
+    out.end_struct();
+    let bytes = out.finish().unwrap();
+    DEFAULTS.set(0);
+    assert!(bin::from_slice_in::<Skipped>(&bytes, Some(&data::LoadBudget::new(1024))).is_err());
+    assert_eq!(DEFAULTS.get(), 0, "skipped default allocated before claim");
+    let bytes = bin::to_vec(&Choice::Unit).unwrap();
+    DEFAULTS.set(0);
+    let value = bin::from_slice_in::<Choice>(&bytes, Some(&data::LoadBudget::new(1024))).unwrap();
+    assert!(matches!(value, Choice::Unit));
+    assert_eq!(
+        DEFAULTS.get(),
+        0,
+        "decoding an enum called its unrelated manual default"
+    );
+}
