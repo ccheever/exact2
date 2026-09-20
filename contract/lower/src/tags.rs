@@ -558,15 +558,25 @@ pub(crate) fn validate_list(
                 span,
             );
         }
-    } else if expanded
-        .iter()
-        .any(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
-    {
-        return super::err(
-            "lower-list-height",
-            "row height declarations belong on `list`",
-            span,
-        );
+    } else {
+        let heights: Vec<_> = expanded
+            .iter()
+            .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
+            .collect();
+        if !heights.is_empty() {
+            let collection = tag == "list"
+                && expanded
+                    .iter()
+                    .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+            let valid = collection
+                && heights.len() == 1
+                && heights[0].name == "estimated-item-height"
+                && matches!(heights[0].value, Expr::Number(n, _) if n.is_finite() && n > 0.0);
+            if !valid {
+                return super::err("lower-list-height",
+                    "virtualized lists accept one positive literal `estimated-item-height`; fixed row heights belong on non-virtualized lists", span);
+            }
+        }
     }
     if tag == "list"
         && !expanded

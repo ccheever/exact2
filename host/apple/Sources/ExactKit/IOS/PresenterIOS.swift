@@ -380,6 +380,9 @@ final class Presenter {
         defer { listSyncDepth -= 1 }
         listGeometry = listGeometry.filter { views[$0.key] != nil }
         for list in Array(listViews.values) {
+            // Shared collections use revisioned feedback, not the earlier
+            // item-height window protocol (which rejects their row tree).
+            guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
             guard views[list.id] === list, let scroll = list.scroll,
                   let content = list.container.subviews.first as? NodeView else { continue }

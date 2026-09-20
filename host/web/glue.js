@@ -631,7 +631,8 @@ function apply(batch) {
         el.style.cssText = op.css;
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
-        listView(el, op.id);
+        // Shared collections own geometry feedback, including authored estimates.
+        if (!collectionOp?.items.some(item => item.view === op.id)) listView(el, op.id);
         break;
       }
       case "props": {
