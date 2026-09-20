@@ -177,6 +177,14 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        if std::env::var_os("EXACT_WORLD_TIMING").is_some() {
+            if let Ok(at) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                eprintln!(
+                    "exact-world-startup: {{\"event\":\"plan_decoded\",\"unix_ms\":{}}}",
+                    at.as_secs_f64() * 1000.
+                );
+            }
+        }
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();

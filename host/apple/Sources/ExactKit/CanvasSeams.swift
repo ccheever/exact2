@@ -166,6 +166,43 @@ struct SurfaceCheckpointStore {
 }
 
 extension Canvases {
+    var hasOwnedSurfaces: Bool { entries.values.contains { live($0.view.id) === $0 } }
+
+    func createOwned(_ m: GpuModule, _ e: Entry) {
+        m.seekable?(session?.clock != nil)
+        let bytes = Array(e.name.utf8)
+        e.id = bytes.withUnsafeBufferPointer { m.createHeadless?($0.baseAddress, bytes.count) ?? 0 }
+        e.presentable = false
+        guard e.id != 0 else { fputs("exact world: \(m.error())\n", stderr); return }
+        lifecycle.deliver(e.id)
+        bindOwned(m, e)
+        e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
+    }
+
+    func bindOwned(_ m: GpuModule, _ e: Entry) {
+        guard bindSurface(m, e) == 0 else { fputs("exact world: \(m.error())\n", stderr); return }
+        ExactEnv.worldStamp("first_tick")
+        initializeOwnership(m, e)
+        restoreWorld(m, e)
+        messages(e)
+    }
+
+    /// advance's Bool signals delivery, not whether a live world needs future time.
+    func advanceOwned(now: Double) -> Bool {
+        guard let m = module, let advance = m.advance, visible || session?.clock != nil else { return false }
+        let previous = frameNow
+        frameNow = now
+        m.seekable?(session?.clock != nil)
+        defer { frameNow = previous }
+        for e in Array(entries.values) where live(e.view.id) === e {
+            if advance(e.id, now) { messages(e) }
+            let error = m.error()
+            if !error.isEmpty { fputs("exact world: \(error)\n", stderr); restoreJournal.append(["canvas":e.view.id, "lines":[error]]) }
+        }
+        return hasOwnedSurfaces
+    }
+
     func cancelControls(_ e: Entry) {
         guard let m = module else { e.controls.removeAll(); return }
         let owners=e.controls; e.controls.removeAll()
@@ -455,6 +492,7 @@ extension Canvases {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
                 surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
+                if m.ownershipOnly { ExactEnv.worldStamp("first_publication") }
             }
         }
         guard live(e.view.id) === e, let m = module, let take = m.messages else { return }
@@ -523,6 +561,7 @@ extension Canvases {
                 "placedChildren": children.filter { $0.placement != nil && !$0.placementHidden }.count,
                 "hiddenChildren": children.filter { $0.placementHidden }.count,
                 "hudChildren": children.filter { $0.placement == nil && !$0.placementHidden }.count]
+            if m.ownershipOnly { world["ownershipOnly"] = true; world["metalLayer"] = e.view.metal != nil }
             value["world"] = world
         }
         return value

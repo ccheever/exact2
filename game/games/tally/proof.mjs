@@ -3,7 +3,7 @@ import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import {proof} from '../../proof.mjs';
 process.env.CARGO_TARGET_DIR ??= resolve(import.meta.dir,'../../target');
-if (import.meta.main) await proof(import.meta, async ({open,check,equal,out,pin,pinSave})=>{
+if (import.meta.main) await proof(import.meta, async ({open,check,equal,out,pin,pinSave,host})=>{
   const state=async s=>(await s.state()).world[0];
   const play=async s=>{await s.tap('draw');await s.clock('+100');await s.tap('hold');await s.clock('+100');};
   const saved=resolve(out,'checkpoint.world'), final=resolve(out,'continued.world');
@@ -11,6 +11,10 @@ if (import.meta.main) await proof(import.meta, async ({open,check,equal,out,pin,
   const initial=await state(s);
   pin(initial.tick,initial);
   check('device-free world ready after binding and first tick',initial.ready===true);
+  if (host==='macos' || host==='ios') {
+    check('Apple ownership-only surface has no Metal layer',initial.ownershipOnly===true && initial.metalLayer===false);
+    check('Apple ownership-only surface never renders or captures',initial.presentation.sessionRenders===0 && initial.presentation.sessionCaptures===0);
+  }
   await s.clock('+1000');
   const next=await state(s);
   check('NEGATIVE CONTROL clock +1000 advances published ticks',next.published.ticks>initial.published.ticks);

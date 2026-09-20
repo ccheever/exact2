@@ -553,6 +553,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter = nil
     }
 
+    /// Allocate presentation only after the module's ABI identifies a device surface.
+    func createMetal() {
+        guard metal == nil else { return }
+        let m = MetalView(frame: .zero)
+        addSubview(m)
+        metal = m
+        m.frame = bounds
+        if let overlay { addSubview(overlay, positioned: .above, relativeTo: m) }
+    }
+
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
         firstDraw = presenter.session?.drawReceipt() ?? {}
@@ -564,9 +574,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
         if kind == "canvas" {
-            let m = MetalView(frame: .zero)
-            addSubview(m)
-            metal = m
             let o = FlippedView(frame: .zero)
             o.autoresizingMask = [.width, .height]
             addSubview(o)

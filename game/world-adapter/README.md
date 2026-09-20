@@ -29,7 +29,12 @@ ownership-only web and native headless ABIs. Live worlds join every frame.
 A mixed app containing a device-free world and a plain shader canvas has a device
 module and waits for its device.
 The default web registration has no device or asset storage; asset delivery refuses.
-Native registration uses the existing Linux ABI.
+Native registration also omits `gpu_load`, `gpu_create`, `gpu_render` and texture
+exports. ExactKit recognises that ABI on macOS/iOS, calls `gpu_load_headless` and
+`gpu_create_headless`, and drives `gpu_advance` from its existing display link.
+It allocates no Metal layer or device for an owned surface. Linux's required
+ownership, recovery and child-placement symbols remain available. The native
+device macro arm is unchanged.
 
 ## Bounds
 

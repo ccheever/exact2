@@ -26,7 +26,7 @@ if (firstPins && !repin) {
   console.log('No pins yet; filling the first baseline after every requested host and mode agrees.');
   repin = true;
 }
-const hosts = option('--hosts', repin || args.includes('--compare-saves') ? 'linux,web' : 'linux').split(',');
+const hosts = option('--hosts', repin || args.includes('--compare-saves') ? (previous.hosts?.length ? previous.hosts.join(',') : 'linux,web') : 'linux').split(',');
 if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','macos','ios'].includes(h))) {
   throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
 }

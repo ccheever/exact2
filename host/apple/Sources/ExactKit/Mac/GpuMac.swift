@@ -25,6 +25,7 @@ final class MetalView: NSView {
     }
     override init(frame: NSRect) {
         super.init(frame: frame)
+        ExactEnv.worldStamp("metal_layer_created")
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         autoresizingMask = [.width, .height]
@@ -177,6 +178,8 @@ final class Canvases {
     }
 
     private func create(_ m: GpuModule, _ e: Entry) {
+        if m.ownershipOnly { createOwned(m, e); return }
+        e.view.createMetal()
         guard let metal = e.view.metal, let layer = metal.layer else { return }
         layer.contentsScale = metal.window?.backingScaleFactor ?? 2
         let scale = Float(layer.contentsScale)
@@ -327,6 +330,7 @@ final class Canvases {
     }
 
     private func bindNow(_ m: GpuModule, _ e: Entry) {
+        if m.ownershipOnly { bindOwned(m, e); return }
         if bindSurface(m, e) != 0 {
             FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8))
             return
@@ -381,6 +385,7 @@ final class Canvases {
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
+        if module?.ownershipOnly == true { return visible && hasOwnedSurfaces }
         guard let m = module, visible else { return false }
         return entries.values.contains { e in
             e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true)
@@ -416,6 +421,7 @@ final class Canvases {
 
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
+        if module?.ownershipOnly == true { return advanceOwned(now: now) }
         guard let m = module, visible else { return false }
         let previous = frameNow
         frameNow = now

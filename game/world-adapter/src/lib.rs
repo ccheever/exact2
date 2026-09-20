@@ -26,10 +26,7 @@ macro_rules! module {
     };
     (@abi device) => { $crate::exact_gpu::module!(REGISTRY); };
     (@abi headless) => {
-        #[cfg(target_arch = "wasm32")]
         $crate::exact_gpu::module!(headless REGISTRY);
-        #[cfg(not(target_arch = "wasm32"))]
-        $crate::exact_gpu::module!(REGISTRY);
     };
 }
 

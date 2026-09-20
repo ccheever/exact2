@@ -56,6 +56,13 @@ final class GpuModule {
         return nil
     }
 
+    typealias HeadlessLoadFn = @convention(c) () -> Void
+    typealias HeadlessCreateFn = @convention(c) (UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias AdvanceFn = @convention(c) (UInt32, Double) -> Bool
+    var createHeadless: HeadlessCreateFn?
+    var advance: AdvanceFn?
+    var ownershipOnly: Bool { createHeadless != nil }
+
     typealias LoadFn = @convention(c) () -> UInt32
     typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UInt32, UInt32) -> UInt32
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
@@ -169,26 +176,26 @@ final class GpuModule {
         #endif
     }
 
-    let create: CreateFn
+    let create: CreateFn!
     let bind: BindFn
-    let render: RenderFn
-    let dirty: DirtyFn
+    let render: RenderFn!
+    let dirty: DirtyFn!
     let destroy: DestroyFn
     /// The canvas's children as pixels; whether the surface wants them (LLP 1014).
-    let texture: TextureFn
+    let texture: TextureFn!
     /// The children as a Metal texture the presenter rendered, imported as it
     /// is (LLP 1008 §9) — when the module exports it (Apple targets).
     let textureMetal: TextureMetalFn?
     /// The module's GPU work complete — before a texture it read is drawn
     /// into again.
     let sync: SyncFn?
-    let childrenMode: WantsFn
+    let childrenMode: WantsFn!
     /// A canvas's picture as pixels (LLP 1014, nested canvases).
-    let readback: ReadbackFn
+    let readback: ReadbackFn!
     /// Each child as its own texture, and where the surface put it (LLP 1014 D5).
     func wantsChildren(_ id: UInt32) -> UInt32 { (1...2).contains(childrenMode(id)) ? 1 : 0 }
     func wantsChildrenEach(_ id: UInt32) -> UInt32 { childrenMode(id) == 3 ? 1 : 0 }
-    private let childView: ChildFn
+    private let childView: ChildFn!
     func child(_ id: UInt32, _ index: UInt32, _ name: String, _ x: Float, _ y: Float, _ w: Float, _ h: Float, _ width: UInt32, _ height: UInt32, _ pixels: UnsafePointer<UInt8>?, _ count: Int) -> UInt32 {
         name.utf8CString.withUnsafeBufferPointer { bytes in
             bytes.baseAddress!.withMemoryRebound(to: UInt8.self, capacity: bytes.count) {
@@ -196,8 +203,8 @@ final class GpuModule {
             }
         }
     }
-    let childrenCount: CountFn
-    let placement: PlacementFn
+    let childrenCount: CountFn!
+    let placement: PlacementFn!
     /// A shader's text by name (LLP 1030 D8): validated, its interface
     /// checked against the module's; 0 on success, else `error()` says why.
     let shader: ShaderFn?
@@ -216,6 +223,34 @@ final class GpuModule {
         func sym<T>(_ name: String, _: T.Type) -> T? {
             guard let p = dlsym(handle, name) else { return nil }
             return unsafeBitCast(p, to: T.self)
+        }
+        // The same discriminator as the web: device modules export gpu_load.
+        // The ownership arm never requests a device or resolves presentation exports.
+        if sym("gpu_load", LoadFn.self) == nil {
+            guard let load = sym("gpu_load_headless", HeadlessLoadFn.self),
+                  let create = sym("gpu_create_headless", HeadlessCreateFn.self),
+                  let advance = sym("gpu_advance", AdvanceFn.self),
+                  let bind = sym("gpu_bind", BindFn.self), let bindAt = sym("gpu_bind_at", BindAtFn.self),
+                  let destroy = sym("gpu_destroy", DestroyFn.self),
+                  let lifecycle = sym("gpu_lifecycle", LifecycleFn.self), let seekable = sym("gpu_seekable", SeekableFn.self),
+                  let carry = sym("gpu_carry", WantsFn.self), let restore = sym("gpu_restore", RestoreFn.self),
+                  let wantsInput = sym("gpu_wants_input", WantsFn.self), let input = sym("gpu_input", BindFn.self),
+                  let published = sym("gpu_published", WantsFn.self), let messages = sym("gpu_messages", WantsFn.self),
+                  let agent = sym("gpu_agent", BindFn.self), let outPtr = sym("gpu_out_ptr", ErrorPtrFn.self),
+                  let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
+                return .failure(GpuLoadError(message: "\(path) is not an ownership-only module (missing exports)"))
+            }
+            let module = GpuModule(bind: bind, destroy: destroy, errorLen: errorLen, errorPtr: errorPtr,
+                wantsInput: wantsInput, input: input, messages: messages, published: published, agent: agent, outPtr: outPtr)
+            module.createHeadless = create; module.advance = advance; module.bindAt = bindAt
+            module.lifecycle = lifecycle; module.seekable = seekable; module.carry = carry; module.restore = restore
+            module.period = sym("gpu_period", PeriodFn.self)
+            load()
+            let error = module.error()
+            if !error.isEmpty { return .failure(GpuLoadError(message: "gpu_load_headless: \(error)")) }
+            ExactEnv.worldStamp("module_loaded")
+            ExactEnv.worldStamp("ownership_only_no_device")
+            return .success(module)
         }
         guard let load = sym("gpu_load", LoadFn.self), let create = sym("gpu_create", CreateFn.self), let bind = sym("gpu_bind", BindFn.self),
               let render = sym("gpu_render", RenderFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
@@ -248,9 +283,20 @@ final class GpuModule {
         self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
+    /// Presentation functions are absent, rather than callable stubs.
+    private init(bind: @escaping BindFn, destroy: @escaping DestroyFn, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn,
+                 wantsInput: @escaping WantsFn, input: @escaping BindFn, messages: @escaping WantsFn, published: @escaping WantsFn, agent: @escaping BindFn, outPtr: @escaping ErrorPtrFn) {
+        self.bind = bind; self.destroy = destroy; self.errorLen = errorLen; self.errorPtr = errorPtr
+        self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.published = published; self.agent = agent; self.outPtr = outPtr
+        create = nil; render = nil; dirty = nil; texture = nil; textureMetal = nil; sync = nil
+        childrenMode = nil; readback = nil; childView = nil; childrenCount = nil; placement = nil
+        shader = nil; validateShader = nil; clearShaders = nil
+    }
+
     /// A loaded module validates candidate shaders without changing its registry.
     static var loaded: GpuModule? { if case .success(let module)? = shared { return module }; return nil }
     func accepts(_ sources: [String: Data]) -> Bool {
+        if ownershipOnly { return sources.isEmpty }
         guard let validateShader, clearShaders != nil else { return false }
         for (name, text) in sources {
             let bytes = Array(name.utf8)

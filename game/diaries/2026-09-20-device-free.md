@@ -696,3 +696,161 @@ bun game/games/tally/proof.mjs macos
 bun game/games/tally/proof.mjs ios
 cargo test --manifest-path game/Cargo.toml -p exact-game-render surface_lifecycle -- --ignored
 ```
+
+## K7 — Apple ownership-only surfaces (2026-09-20)
+
+Worktree `exact2-wt-kernel-apple`, branch `lane/world-apple`, base `e3432d94`.
+Bun 1.3.12, `EXACT_UPDATE_TRUST=development`. No pushes, stash, sibling edits,
+subagents or determinism repins. Raw local evidence is under `target/k7/`;
+Tally's transcripts and checkpoint bytes are also under `game/games/tally/artifacts/`.
+
+### Implementation
+
+`exact_world_adapter::module!(Game)` now selects `exact_gpu::module!(headless
+REGISTRY)` on native as well as web. `gpu/src/native_owned.rs` supplies the native
+ownership ABI. The original native device macro arm is byte-for-byte unchanged
+(`native.rs`: one added dispatch arm, zero deleted lines). The built macOS and
+simulator Tally dylibs each have 29 `gpu_*` exports, with no `gpu_load`,
+`gpu_create`, `gpu_render`, texture, readback or shader exports. Caltrain retains
+41 exports. Linux's required headless, recovery, asset and child-placement symbols
+are retained; its real Tally proof passes.
+
+ExactKit recognises absence of `gpu_load`, matching the web. It requires the
+ownership exports, calls `gpu_load_headless`, and never requests a Metal device
+or subscribes to Metal device notifications. Shared `CanvasSeams` creates, binds,
+initialises clock ownership, restores, routes input/lifecycle, and delivers
+publications/messages. Both presenters dispatch owned surfaces to `gpu_advance`
+on their existing display links, including controlled-clock settlement; the bool
+means output changed, not that future live frames should stop. An owned surface
+is never presentable and never enters capture/readback/render.
+
+One necessary allocation change: `NodeView`'s three Metal-view allocation lines
+move to `createMetal()`, called only by device `create` after ABI recognition.
+The view takes the current bounds and stays below the existing overlay. Previously
+these lines allocated a CAMetalLayer before the module's kind could be known.
+All existing device loader/render/texture/recovery calls remain in their paths.
+No new device capability flag, core Cargo feature or frame scheduler was added.
+
+`EXACT_WORLD_TIMING` enables plan-decode, first-host-frame, module-loaded,
+first-tick and first-publication stamps. On macOS, process entry comes from
+`kinfo_proc.p_starttime`, including dyld/Swift startup. The native ownership load
+logs the actual device registry ID; MetalView construction is separately stamped.
+For these diagnostic runs, a temporary `scripts/agent.mjs` edit SIGKILLed and
+awaited the recorded native app on isolated close; the simulator app was killed
+before ending its socket, then its console was awaited. That cleanup-only edit
+was removed after validation; the delivered carrier is unchanged.
+The already-booted iPhone 17 Pro simulator was reused; no Simulator app was launched.
+
+Tally's Apple proof asserts ownership-only state, no Metal layer and zero
+renders/captures. `pins.json` adds macOS/iOS to verified hosts without changing any
+pin or original generation provenance. `game/prove.mjs --compare-saves` defaults
+to the pin file's recorded host list.
+
+### Baseline and ordinary surfaces
+
+The unmodified base could not build: undefined `triple` in `build.mjs`, missing
+`ExactEnv.agentFreezes`, and an obsolete product-path assumption with this Xcode.
+The baseline includes only those prerequisite repairs: define the existing
+platform triple, use SwiftPM's already-queried `--show-bin-path`, and define
+`agentFreezes = agentMode`. No surface implementation was changed for baseline.
+
+| Caltrain | Before | After |
+|---|---|---|
+| macOS full smoke | Aborts at held-pointer move: `no contact is down` | Same abort |
+| iOS full smoke | 5 focus/editor failures, 73.1 s | Identical 5 failures, 75.2 s |
+| iOS app Contract tests | 3 passed / 0 failed | 3 passed / 0 failed |
+| iOS canvas readback | 0.73% outside band, mean 0.28, 1206×360 | Identical |
+| iOS child captures | 4 | 4 |
+| iOS reported boot (single smoke, builds active) | 501.2 ms | 575.0 ms |
+
+The five iOS failures: retained editor beneath key handler; editor remains UIKit
+first responder; text update retains focus on Other; remount retains that focus;
+state agrees with tree focus. Both runs report held contact unsupported because
+no Simulator window is on screen. Both retain the 652-point scroll limit, 28 deck
+cards, linear width 75 at 125 ms, viewport 402×874 → 402×539, and keyboard height
+335. These single boot readings are not a startup regression experiment.
+The macOS abort prevents the later generic/canvas fixtures from running; no green
+full macOS smoke or complete device regression certification is claimed.
+The unchanged canvas/deck sections were also executed directly after the change:
+both pass, including button/input delivery, nested readback and placements.
+Readback is 0.52% outside the band, mean 0.50 at 840×240; 3 captures and 28 deck
+cards. Recorded app PIDs 82938 and 83203 were SIGKILLed and awaited. This adds
+real device-path coverage but does not replace the before/after full-smoke result.
+
+### Determinism and live pacing
+
+macOS, iOS simulator and Linux proofs pass with zero failures. First cold proof
+runs including builds: 268.607 s / 208.172 s / 155.567 s respectively. The final
+macOS rerun, including its incremental build, passes in 37.027 s.
+All three equal the existing Linux/web pins:
+
+- Tick 1: `0x32a9f7776ceb5052`.
+- Tick 85: `0x3d943e409a0493be`.
+- Continuation: 6,212 bytes; SHA-256
+  `694d95cceda9f88d5c9234ccdd2c53b01bcde155ff3f2ff87203e3bda44adb08`.
+
+Restore continuation hashes, entities and checkpoint bytes compare exactly.
+A separate macOS launch with `EXACT_AGENT=live` receives only state/log reads:
+published ticks rise **1 → 61** across one second, ownership remains human,
+`metalLayer=false`, and render/capture counts remain zero. Its assertion fails
+if the display link does not drive advance. Recorded PID 48508 was SIGKILLed and
+awaited. No clock command was issued.
+
+`game/tests/world-failure/proof.mjs` hard-codes web and has no host parameter;
+its macOS equivalent was not run. Apple failed-tick recovery remains unverified.
+The web proof was not rerun here; comparison is to its unchanged checked-in pins.
+
+### Startup — ten fresh macOS processes
+
+No local builds ran during sampling. All launches use human clock ownership.
+Times are milliseconds from OS process entry; median is the mean of the middle
+two observations and p95 is nearest-rank (the maximum for ten samples).
+
+| Event | Median ms | p95 ms |
+|---|---:|---:|
+| Plan decoded | 201.148 | 218.928 |
+| First host frame | 229.740 | 246.388 |
+| Module loaded | 279.919 | 296.861 |
+| First tick complete | 280.162 | 297.105 |
+| First publication accepted | 280.952 | 297.866 |
+| Bind work only | 0.066833 | 0.075584 |
+| Tick work only | 0.005771 | 0.006750 |
+
+The **100 ms process-to-interactive target is red**, with no owner-approved trade
+claimed. Bind/tick work is not substituted for process startup. All ten module
+loads log device registry ID **0**; there are **0** Metal-layer trace events,
+renders or captures. `target/k7/startup.json` contains all ten raw observations,
+trace lines and recorded PIDs (5099, 5175, 5209, 5303, 5332, 5395, 5474, 5494,
+5565, 5640). Each process was SIGKILLed and awaited. The carrier proof's optional
+macOS descendant audit timed out in `ps`; recorded child handles were still
+awaited and no live recorded children remained. No broad process kill was used.
+
+### Checks
+
+- `cargo build --workspace`: pass (14.55 s wall on final source).
+- `cargo test --workspace --no-fail-fast`: 1,060 passed, 1 failed, 5 ignored,
+  plus one doctest compile failure. The formatter failure is **not** the expected
+  Lanterns scene: it encounters `game/games/asset-fixture/app.json` missing
+  `app.id` first. That manifest is byte-identical to `e3432d94`; the isolated fmt
+  rerun reproduces it. No unrelated fixture or pin was edited.
+- Messages Apple doctest initially reported E0460, a newer `snapback4_device`
+  artifact after concurrent workspace build/check. A serial
+  `cargo test -p messages-apple --doc` rebuild passes (zero doctests); this is a
+  resolved validation-artifact mismatch, not a source fix.
+- Clippy, all targets with `-D warnings`: pass (74.19 s wall).
+- `cargo fmt --all -- --check`: pass.
+- `bun test ./host/web/tests`: 158 passed, 5 skipped, 0 failed, 9,386 expectations,
+  12 files, 16.06 s. Skips: two candidate-host bridges, two actual Tally wasm
+  tests without its web build, and the Caltrain web-build-dependent test.
+- The four Swift-source fixtures explicitly rerun via `xcrun`: 4 passed,
+  0 failed, 4 expectations, 6.16 s (`placement-apple.test.mjs`).
+- Caps: pass, 807 source files, 6 categories, 5 checks, 15/15 working-set and
+  7/10 foundation documents; 697 rule words, 268 vendored files excluded.
+- Boot: pass, 2 pre-pixel modules and 1 wasm reference. Diagnostic JS/page sizes
+  are 88,858 / 3,468 bytes; glue/navigation are 78,787 / 10,071 bytes.
+- Supplemental `bun test ./game/proof.test.mjs`: 93 passed, 2 failed,
+  1,200 expectations, 95 tests, 442.05 s. The Beacons/skinned-fixture Linux
+  development-versus-release proofs pass. The two native lifetime fixtures hit
+  their 4-second timeouts; both reproduce with the byte-identical base
+  `scripts/agent.mjs` restored (0 passed, 2 failed, 93 filtered, 8.10 s).
+  No carrier change is included in the delivered patch.

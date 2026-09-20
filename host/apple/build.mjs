@@ -533,6 +533,7 @@ function main(args) {
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
   const product = products[0];
+  const triple = ios ? (device ? 'arm64-apple-ios17.0' : iosTriple) : macTriple;
   const swiftBuildRoot = paths.scratch;
   const binDir = mkdtempSync(resolve(paths.namespace, '.products-'));
   cleanup.push(binDir);
@@ -568,7 +569,7 @@ function main(args) {
   for (const p of products) {
     runApple('swift', [...swiftArgs, '--product', p], { cwd: pkg, env });
     const executable = resolve(binDir, p);
-    copyFileSync(builtProduct(p, triple, swiftBuildRoot), executable);
+    copyFileSync(resolve(swiftBinDir, p), executable);
     assertAppleIdentity(app, executable, bakedCompat.id);
   }
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.

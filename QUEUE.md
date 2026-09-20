@@ -10,6 +10,14 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Apple Caltrain smoke baseline** (2026-09-20, K7): macOS aborts on an
+  unsupported held contact; iOS has five editor/focus failures. Both reproduce
+  before and after ownership-only surfaces; see the device-free diary's K7 receipt.
+
+- **Tally macOS startup** (2026-09-20, K7): ten-launch median publication is
+  280.952 ms from process entry (plan decoded at 201.148 ms), above 100 ms.
+  Bind/tick work is 0.067/0.006 ms; profile the Apple startup before admission.
+
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac

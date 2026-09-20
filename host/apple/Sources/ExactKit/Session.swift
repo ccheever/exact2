@@ -20,6 +20,7 @@ import QuartzCore
 public enum ExactEnv {
     public static let environment = ProcessInfo.processInfo.environment
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    public static let agentFreezes = agentMode
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a
@@ -49,6 +50,25 @@ public enum ExactEnv {
     /// Startup stamps, milliseconds from `main`, in order (the smoke prints them).
     nonisolated(unsafe) public static var stamps: [(String, Double)] = []
     public static func stamp(_ label: String) { stamps.append((label, wall())) }
+    /// Optional wall timestamps; process entry includes dyld and Swift startup.
+    nonisolated(unsafe) private static var worldSeen = Set<String>()
+    static func worldStamp(_ event: String) {
+        guard environment["EXACT_WORLD_TIMING"] != nil, worldSeen.insert(event).inserted else { return }
+        let at = Date().timeIntervalSince1970 * 1000
+        #if os(macOS)
+        if worldSeen.count == 1 {
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.stride
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+            if sysctl(&mib, 4, &info, &size, nil, 0) == 0 {
+                let t = info.kp_proc.p_starttime
+                let start = Double(t.tv_sec) * 1000 + Double(t.tv_usec) / 1000
+                fputs("exact-world-startup: {\"event\":\"process_entry\",\"unix_ms\":\(start)}\n", stderr)
+            }
+        }
+        #endif
+        fputs("exact-world-startup: {\"event\":\"\(event)\",\"unix_ms\":\(at)}\n", stderr)
+    }
 }
 
 /// What a session tells its host: a capability an action called (LLP 1005
@@ -679,6 +699,7 @@ public final class ExactSession {
     private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
+        ExactEnv.worldStamp("first_host_frame")
         guard activatedGeneration != drawnGeneration else { return }
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in

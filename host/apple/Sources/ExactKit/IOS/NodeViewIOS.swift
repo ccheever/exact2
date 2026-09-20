@@ -501,6 +501,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter = nil
     }
 
+    /// Allocate presentation only after the module's ABI identifies a device surface.
+    func createMetal() {
+        guard metal == nil else { return }
+        let m = MetalView(frame: .zero)
+        addSubview(m)
+        metal = m
+        m.frame = bounds
+        if let overlay { bringSubviewToFront(overlay) }
+    }
+
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
         firstDraw = presenter.session?.drawReceipt() ?? {}
@@ -519,9 +529,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // stale pixels.
         contentMode = .redraw
         if kind == "canvas" {
-            let m = MetalView(frame: .zero)
-            addSubview(m)
-            metal = m
             let o = PlainView(frame: .zero)
             o.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             addSubview(o)

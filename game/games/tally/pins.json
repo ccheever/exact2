@@ -9,7 +9,9 @@
   "game": "tally",
   "hosts": [
     "linux",
-    "web"
+    "web",
+    "macos",
+    "ios"
   ],
   "generated": "bun game/prove.mjs tally --repin --hosts linux,web",
   "at": "14227f40bc6b9321cd1dd4fd5d9d91b0de7415a3",

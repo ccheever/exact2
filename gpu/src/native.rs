@@ -461,6 +461,7 @@ pub fn error() -> String {
 /// The exports for one app's registry, C ABI (see LLP 1009 D2).
 #[macro_export]
 macro_rules! module {
+    (headless $registry:expr) => { $crate::native_owned_module!($registry); };
     ($registry:expr) => {
         thread_local! {
             static EXACT_GPU_OUT: ::std::cell::RefCell<Vec<u8>> = const { ::std::cell::RefCell::new(Vec::new()) };
