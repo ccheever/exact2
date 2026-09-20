@@ -137,7 +137,16 @@ impl<G: Game> Sim<G> {
     pub fn advance_to(&mut self, clock_ms: f64) -> Result<u64, DataError> {
         self.advance_us(micros(clock_ms)?)
     }
+    fn check_clock(&self) -> Result<(), DataError> {
+        if self.world.hz() != G::HZ
+            || self.world.tick() as u128 != self.world_us as u128 * G::HZ as u128 / 1_000_000
+        {
+            return Err(DataError::new("clock disagrees with world"));
+        }
+        Ok(())
+    }
     fn advance_us(&mut self, target_us: i64) -> Result<u64, DataError> {
+        self.check_clock()?;
         if target_us < self.world_us {
             return Err(DataError::new("clock cannot retreat"));
         }
@@ -152,17 +161,20 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("clock request exceeds 216000 ticks"));
         }
         for _ in 0..count {
+            let end = (self.world.tick() as u128 + 1) * 1_000_000;
+            let due = self
+                .queue
+                .partition_point(|e| (micros(e.at_ms()).unwrap() as u128 * G::HZ as u128) < end);
+            // Preflight the bounded batch before any boundary state changes.
+            let mut input = self.input.clone();
+            input.clear_edges();
+            for event in self.queue.iter().take(due) {
+                input.apply(event.clone())?;
+            }
             let before = self.world.observation_hash();
             self.world.begin_tick();
-            self.input.clear_edges();
-            let end = (self.world.tick() as u128 + 1) * 1_000_000;
-            while self
-                .queue
-                .front()
-                .is_some_and(|e| (micros(e.at_ms()).unwrap() as u128 * G::HZ as u128) < end)
-            {
-                self.input.apply(self.queue.pop_front().unwrap())?;
-            }
+            self.input = input;
+            self.queue.drain(..due);
             G::tick(&mut self.world, &self.input, &self.args);
             self.world.reap_orphans()?;
             self.world.step_clock();
@@ -224,6 +236,7 @@ impl<G: Game> Sim<G> {
     }
     /// EXSIM v8: identity → typed args → schema → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        self.check_clock()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
         w.begin_seq(9);
         w.item();

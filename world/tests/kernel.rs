@@ -537,3 +537,33 @@ fn paranoid_preserves_drained_delivery() {
     assert_eq!(off, run(Paranoid::Save));
     assert_eq!(off, run(Paranoid::FreshGame));
 }
+
+#[test]
+fn input_refusal_preserves_the_entire_tick_boundary() {
+    let mut s = Sim::<Counter>::new(Options::default()).unwrap();
+    s.world().busy("keep").unwrap();
+    for i in 0..65 {
+        s.input(InputEvent::Key {
+            code: format!("Key{i}"),
+            down: true,
+            at_ms: 0.,
+        })
+        .unwrap();
+    }
+    let before = s.save().unwrap();
+    for _ in 0..2 {
+        assert!(s.run(17.).unwrap_err().message.contains("held input limit"));
+        assert_eq!(s.save().unwrap(), before);
+        assert_eq!(s.world().tick(), 0);
+    }
+}
+
+#[test]
+fn driver_refuses_external_world_clock_replacement_before_work() {
+    let mut s = Sim::<Still>::new(()).unwrap();
+    s.world_mut().load(&World::new(30, 0).save()).unwrap();
+    let before = s.world().save();
+    assert!(s.save().is_err());
+    assert!(s.run(17.).is_err());
+    assert_eq!(s.world().save(), before);
+}
