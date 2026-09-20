@@ -196,8 +196,14 @@ impl<G: Game> Sim<G> {
             if let Err(error) = self.world.mutation(|w| G::tick(w, &self.input, &self.args)) {
                 let error = error.at(format_args!("tick {}", self.world.tick() + 1));
                 self.tick_error = Some(error.clone());
-                // Telemetry refusal must not replace the original tick failure.
-                let _ = self.world.session_log(&error.to_string());
+                // Log the longest UTF-8 prefix fitting 4096 bytes, retaining the full error.
+                let prefix = format!("{}: ", error.path);
+                let mut end = error.message.len().min(4096 - prefix.len());
+                while !error.message.is_char_boundary(end) {
+                    end -= 1;
+                }
+                self.world
+                    .session_log(&format!("{prefix}{}", &error.message[..end]))?;
                 return Err(error);
             }
             self.world.reap_orphans()?;

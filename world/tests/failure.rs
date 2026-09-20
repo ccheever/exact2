@@ -221,3 +221,30 @@ fn setup_refusal_drops_the_candidate_and_preserves_the_running_sim() {
     drop(s);
     assert_eq!(LIVE.get(), 0);
 }
+
+#[test]
+fn oversized_tick_error_logs_one_utf8_prefix_and_retains_the_full_error() {
+    struct Oversized;
+    impl Game for Oversized {
+        const ID: &'static str = "oversized-error";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) -> Result<(), DataError> {
+            Ok(())
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) -> Result<(), DataError> {
+            Err(DataError::new("雪".repeat(2000)))
+        }
+    }
+    let mut sim = Sim::<Oversized>::new(()).unwrap();
+    let error = sim.run(17.).unwrap_err();
+    assert_eq!(error.message, "雪".repeat(2000));
+    assert_eq!(sim.run(17.).unwrap_err(), error);
+    assert_eq!(sim.save().unwrap_err(), error);
+    let full = error.to_string();
+    let mut end = 4096;
+    while !full.is_char_boundary(end) {
+        end -= 1;
+    }
+    assert_eq!(failure_entries(sim.world(), &full[..end]), 1);
+    assert_eq!(failure_entries(sim.world(), &full[..end + 3]), 0);
+}

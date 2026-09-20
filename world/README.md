@@ -12,7 +12,7 @@ components, resources and arguments; the game implementation itself is stateless
 
 Use `?` to propagate kernel errors from `setup` and `tick`.
 A returned setup error refuses construction or restart.
-A returned tick error stops before reaping or advancing the tick, logs the first failure, and refuses further driving, saving or input.
+A returned tick error stops before reaping or advancing the tick, logs the first failure (the longest UTF-8 prefix within 4,096 bytes), and refuses further driving, saving or input.
 Bounded state, tree and log inspection remain available until restore, carry or a bind restart installs healthy state.
 Never `.unwrap()` a kernel `Result` in game code: on wasm a panic aborts the module and every world in it.
 
