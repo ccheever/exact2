@@ -165,6 +165,18 @@ fn built_in_motion_values_cannot_save_bytes_they_refuse() {
             "invalid SpringConfig was encoded"
         );
     }
+    #[derive(Default, Component)]
+    struct Motion(Tween);
+    let mut world = World::new(60, 0);
+    world.register::<Motion>().unwrap();
+    world
+        .spawn(Motion(Tween {
+            duration: -1.,
+            ..Default::default()
+        }))
+        .unwrap();
+    assert!(world.save().is_err());
+    assert!(world.sample().is_err());
     let value = Tween::new(5.);
     let bytes = bin::to_vec(&value).unwrap();
     assert_eq!(

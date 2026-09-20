@@ -91,6 +91,9 @@ impl Hasher {
     }
 }
 impl Writer for Hasher {
+    fn reject(&mut self, _: &str) {
+        self.refused = true;
+    }
     fn stopped(&self) -> bool {
         self.refused
     }
