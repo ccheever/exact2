@@ -9004,3 +9004,51 @@ no native rerun or evidence rewrite followed. Fresh cleanup proves 58 build PIDs
 no cleanup signals. Peak cumulative charge 811,466,752B stays below 2GiB; free disk
 remains above 76.968GB and ends near 77.19GB. One build, one capture, one cell;
 no retry, speedup claim or new physical 120 Hz claim.
+
+### 8.164 Current full-workload stacks confirm paths, not apply dominance
+
+One external sample reuses §8.163's unchanged `d0a450b0` product and full
+10,000-row/batch32 native recipe. Attachment waits for the first complete saved
+silent-before reply, validating running/windowed state, materialized rows, nil
+clock override and exact owned process identity. It adds no app requests or
+delays. All23 focused pure controls pass; source/capture verification remains
+2,075 source cards and297 captured files. No rebuild or production edit occurs.
+
+`sample` requests5s at2ms intervals and exits0 in6.421s including preparation and
+symbol processing, retaining583,256 bytes. Independent call-tree reconstruction
+conserves2,176 main-thread weights over1,932 nodes. Inclusive unions include
+1,998 `mach_msg2_trap`,20 `Presenter.apply`,7 `refreshVisibleText`,16 raster
+`ensure`,9 raster `render`,18 `TextEngine.measure` and2 collection-family
+weights. Only5 ensure and2 render weights lie inside Presenter.apply. One raster
+worker branch has1 weight. These overlapping counts are neither invocations nor
+CPU/wall durations. Missing optimized symbols do not prove missing work.
+
+The stacks confirm synchronous visible-text rendering during apply and AppKit
+updateLayer, alongside frame/scroll notifications, dictionary conversion,
+chrome/navigation and nested collection work. Twenty apply weights cannot rank
+those costs reliably. This sample excludes default startup workload but has no
+per-sample timestamps: silence, phase preparation and loaded resize cannot be
+attributed separately. Sampling disturbance is uncalibrated.
+
+All36 in-edge inputs/ACKs,18 signed40-unit wheels and54 resize chains complete;
+combined endpoints are ESTABLISHED and mode remains NOTESTABLISHED. Primary
+1,316 rows have0 omissions. Admitted geometry, tail position and mounted counts
+equal the unsampled baseline, but loaded revisions8→18 differ from9→19. Full
+histories preserve all10k rows and match retained histories at equal revisions.
+The eight literal-silence one-shots have whole median3.736/max7.256ms and apply
+median1.684/max4.221ms. Resize whole maxima are9.197/3.010/3.650ms; typing ACK
+maxima25.555/3.193/3.247ms. Frame-advance chains41/42/39 include noops.
+
+Shorter spans on unchanged code establish no speedup or sampler benefit. Keep
+§8.163's13.878ms one-shot tail and this25.555ms ACK tail. Next, directly time
+urgent raster preparation/render and nested collection feedback within actual
+update parents before selecting an optimization. No threading redesign follows
+from these sparse stacks; whole callback and physical120 remain unmeasured on
+the same60Hz display.
+
+`target/mac-messages-7594-sample-execution-v1/REPORT.md` (`3b3ea555`) and manifest
+`1590474b` retain205 files/71,038,526B, including independent stack and raw-chain
+reconstruction. One native cell and sampler exit0 without guard actions/retries.
+Fresh closure proves9 PIDs/8 groups absent, four owned UP releases, ports free and
+lock released. Peak observed charge82,022,400B stays below256MiB; free disk ends
+above77.12GB. Original baseline and both older sampler attempts remain intact.
