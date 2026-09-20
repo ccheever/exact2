@@ -277,7 +277,7 @@ function startCompiler() {
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';

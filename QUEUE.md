@@ -1,11 +1,5 @@
 # Queue
 
-- **Workspace dev-binary output collisions** (2026-09-20): several web app crates
-  auto-discover `src/bin/dev.rs` with the same `target/debug/dev` output. Parallel
-  `cargo build --workspace` failed removing that shared output with ENOENT; give
-  the existing binaries unique names and update their existing launch callers.
-  Evidence: `/tmp/exact-markdown-gates-486b5f83-nodebug/build.log`.
-
 - **Reflow follow-ups** (2026-09-20, `apps/reflow`): the dragon is a hand-placed polygon; a traced silhouette (`shape-outside: <image>`, LLP 1043.000 stage 5) would let a real illustration be the exclusion. On the web, ordinary paragraphs (magazine, cards) are broken by the browser, so a column can end one line short of the cut; only flowed text goes through the shared walker there. Web `wasm-opt` was not on PATH for the numbers in the README.
 - **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md) r2): slices 1–2 are implemented. `list virtualized=true` has `reachstart`/`reachend`, Messages stress has a bounded mode, and the Messages conversation answer is at most 200 rows around a cursor. Still owed: the Grok code review (balance exhausted), a macOS/AppKit drive of the stress bounded mode, and the declared edge limitation below. Shared views/buffers/heap and generic whole-value reconciliation remain deferred (LLP 1027.003 §9).
 - **Messages durable writes are O(total records)** (found by LLP 1027.004 r2 D5): every mutation JSON-clones the whole model (`snapshot()`) and `persist` diffs every key; startup and each sync page `restore` everything; Snapback's 512-record edit cap refuses deleting or recovering a conversation over 512 messages. Belongs with the in-progress Snapback migration: persist changed records only, and chunk or raise the cap for bulk deletes.

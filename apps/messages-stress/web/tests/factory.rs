@@ -111,7 +111,7 @@ fn built_dev_ignores_runtime_selector_and_writes_the_same_baked_plan() {
     let scratch = Scratch(path);
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../app.contract");
     let plan = scratch.0.join("app.plan");
-    let output = std::process::Command::new(env!("CARGO_BIN_EXE_dev"))
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_messages-stress-dev"))
         .args([
             source.as_os_str(),
             plan.as_os_str(),

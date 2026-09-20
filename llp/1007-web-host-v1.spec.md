@@ -386,10 +386,14 @@ that sorts after — and overrides — the one that replaced it.
 LLP 1004 D5 taken literally: an edit yields a new plan; the page restarts
 from it. `exact_web::dev::Session` watches one `.contract` file (a stat every
 10 ms; a save with identical bytes is not an edit), compiles, bakes against
-the app's data source, and writes the plan atomically. The app's `dev` bin
-(`apps/caltrain/web/src/bin/dev.rs`, one line) runs it as a resident process;
+the app's data source, and writes the plan atomically. The app's Cargo-default dev bin
+(`apps/caltrain/web/src/bin/caltrain-dev.rs`, one line) runs it as a resident process;
 `bun host/web/dev.mjs` runs that, serves `dist/` with `dev.js` added to the
 page, pushes each ready plan over server-sent events, and prints the numbers.
+Each in-repo adapter has an app-specific executable name so parallel workspace
+builds never overwrite another app’s `dev` output. Caltrain selects its adapter
+with `default-run` because it also has a metrics binary; single-binary packages,
+including external apps, use Cargo’s ordinary default selection.
 `dev.js` fetches the plan and calls `exact.reload(bytes)` → `exact_boot_plan`:
 a full teardown of the page and a boot of the new plan **carrying the old
 runner's state** (`Runner::carry` / `Runner::boot_carrying`, `Host::boot_with`):

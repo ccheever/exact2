@@ -1,4 +1,4 @@
-//! The resident dev driver for Reflow: `dev <source> <out>`.
+//! The resident dev driver for Reflow: `reflow-dev <source> <out>`.
 //! Run through `bun host/web/dev.mjs --app reflow`, which pushes each plan to the page.
 
 fn main() -> std::process::ExitCode {
