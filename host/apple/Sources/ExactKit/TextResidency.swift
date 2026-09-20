@@ -270,7 +270,10 @@ struct TextResidency {
     static let maxColdEntries = 4096
     static let maxLookupEntries = 8192
     static let maxIdentities = 4096
-    private static let cleanupQuota = 4
+    // A paragraph request crosses several cache operations. One entry and one
+    // identity per operation amortize dead metadata cleanup; hard caps below
+    // remain the bound even when references die just after a sweep.
+    private static let cleanupQuota = 1
     let softTargetBytes: Int
     private let catalog = TextCatalogIdentity()
     private struct Entry {

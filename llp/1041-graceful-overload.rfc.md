@@ -872,6 +872,22 @@ checkpoints, opaque font/shaping storage and allocator/RSS costs are not silentl
 counted as cold or refunded on cache eviction. Neither policy is a total-memory
 ceiling, a bound on arbitrary paragraph size, or a global two-width limit.
 
+**Apple incremental cleanup (2026-09-20):** a paragraph request crosses several
+residency operations. Each now examines one entry and one identity for dead weak
+metadata, down from four each. Cold eviction, source lifetime, lookup/identity
+count caps and checkpoint isolation keep their existing rules; dead metadata
+can take more operations to retire. The existing 10/100/1,000-history regression
+observed 29/25/33 maintenance visits for its hit/miss/accept sequence, versus
+99/97/97 before, with all 269 native tests passing. An isolated optimized
+40-reader-paragraph, 60-width ABBA probe (seven trials per group) measured
+baseline medians 61.68/61.42 µs per layout and candidate 51.96/49.43 µs. Logical
+cold payload and output checksums matched; 480 complete line/glyph snapshots
+also matched. These timings compare this cleanup change against the Unicode
+boundary-cache parent under the same run conditions, not against another app
+or a displayed-frame target. A preceding strong-entry weak-lookup shortcut had
+no consistent benefit and was not retained.
+
+
 **Actual Linux:** fourteen residency and seven existing text tests pass with
 strict all-targets Clippy on the frozen Ubuntu ARM64 source. Eighteen fresh
 processes compare the raster foundation with the four Linux residency files,
