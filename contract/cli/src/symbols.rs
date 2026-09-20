@@ -20,12 +20,15 @@ struct Reference {
     span: Span,
     to: usize,
 }
+type Names = BTreeMap<String, usize>;
+type Owners = BTreeMap<String, Names>;
 #[derive(Default)]
 struct Graph {
     definitions: Vec<Definition>,
     references: Vec<Reference>,
-    // Locals resolve by lexical stack; named declarations by namespace/owner.
-    index: BTreeMap<(&'static str, String, String, String), usize>,
+    // Nested namespace keys let queries borrow names instead of allocating
+    // temporary component/owner/name Strings for every lookup.
+    index: BTreeMap<&'static str, BTreeMap<String, Owners>>,
     ids: BTreeMap<String, Vec<usize>>,
 }
 impl Graph {
@@ -38,15 +41,19 @@ impl Graph {
         owner: Option<&str>,
     ) -> usize {
         let index = self.definitions.len();
-        self.index.insert(
-            (
-                kind,
-                component.unwrap_or("").into(),
-                owner.unwrap_or("").into(),
-                name.into(),
-            ),
-            index,
-        );
+        // Locals use the lexical stack; IDs use the multi-target index below.
+        // testId/provide are declarations only. All stay in navigation output,
+        // without unused entries in the named-declaration lookup index.
+        if !matches!(kind, "local" | "parameter" | "id" | "testId" | "provide") {
+            self.index
+                .entry(kind)
+                .or_default()
+                .entry(component.unwrap_or("").into())
+                .or_default()
+                .entry(owner.unwrap_or("").into())
+                .or_default()
+                .insert(name.into(), index);
+        }
         self.definitions.push(Definition {
             kind,
             name: name.into(),
@@ -67,12 +74,10 @@ impl Graph {
         owner: Option<&str>,
     ) -> Option<usize> {
         self.index
-            .get(&(
-                kind,
-                component.unwrap_or("").into(),
-                owner.unwrap_or("").into(),
-                name.into(),
-            ))
+            .get(kind)?
+            .get(component.unwrap_or(""))?
+            .get(owner.unwrap_or(""))?
+            .get(name)
             .copied()
     }
     fn refer(&mut self, span: Span, to: usize) {
