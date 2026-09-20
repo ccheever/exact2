@@ -955,8 +955,7 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
 }
 
-// Edit diagnostics own their captured inputs and outputs, including on callback failure.
-{
+{ // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
   let source, run, isolated = false, caught = false;
   try {
@@ -966,6 +965,7 @@ for (const [name, html, files, expectCode, expect] of [
         && f.env.CARGO_TARGET_DIR.startsWith(run + '/') && f.env.EXACT_WEB_DIST.startsWith(source + '/')
         && spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: f.app.dir, env: f.env, encoding: 'utf8' }).stdout.trim() === source;
       writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
+      for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
   } catch (error) { caught = error.message === 'expected diagnostic callback failure'; }

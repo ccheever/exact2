@@ -54,7 +54,7 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, rustBundle, rustPackage } from './rust.mjs';
-import { buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp } from './app.mjs';
+import { buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree } from './app.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
@@ -403,7 +403,7 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
     }
     return { ...source, tree, pathspec,
       workingSha256: sha256(Buffer.from(`exact2 working source tree v3\n${tree}\n`)), changes };
-  } finally { rmSync(scratch, { recursive: true, force: true }); }
+  } finally { removePrivateTree(scratch); }
 }
 
 /** The snapshot (LLP 1030.000 D3 item 1): capture every repository and every
@@ -447,7 +447,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
       appDir: canonicalPath(app.dir), appWorkspace: canonicalPath(app.workspace ?? app.dir), exactRoot: canonicalPath(exactRoot) });
     return snapshot;
   } catch (error) {
-    rmSync(captureRoot, { recursive: true, force: true });
+    removePrivateTree(captureRoot);
     throw error;
   }
 }
@@ -560,7 +560,7 @@ export function materializeSnapshot(snapshot, run, app) {
 export function disposeSnapshot(snapshot) {
   const capture = snapshotCaptures.get(snapshot);
   if (!capture) return;
-  rmSync(capture.captureRoot, { recursive: true, force: true });
+  removePrivateTree(capture.captureRoot);
   snapshotCaptures.delete(snapshot);
 }
 
@@ -1258,7 +1258,6 @@ async function deployCaptured(opts, capsule) {
 async function deploy(opts) {
   const locatedApp = resolveApp(opts._[0]);
   const snapshot = snapshotOf(locatedApp, opts);
-  const capture = snapshotCaptures.get(snapshot);
   try {
     const release = opts.release ?? defaultRelease(snapshot.id);
     const run = deployRun(locatedApp.target, release);
@@ -1287,7 +1286,7 @@ async function deploy(opts) {
     if (!consumed) refuse('the captured deploy publisher exited without consuming its private capsule');
     return child.status;
   } finally {
-    if (capture) rmSync(capture.captureRoot, { recursive: true, force: true });
+    disposeSnapshot(snapshot);
   }
 }
 

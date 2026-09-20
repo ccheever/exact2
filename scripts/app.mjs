@@ -510,6 +510,15 @@ export function pendingBuildInputs(build) {
   return changed;
 }
 
+/** Remove a private mkdtemp directory owned by this invocation. Bun 1.4.2's
+ * recursive rm can silently leave entries in large captured Git repositories. */
+export function removePrivateTree(path) {
+  const result = spawnSync('/bin/rm', ['-rf', '--', path], { encoding: 'utf8' });
+  if (result.status !== 0 || existsSync(path)) {
+    throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);
+  }
+}
+
 /** Diagnostics that edit inputs run on the deploy snapshot's closed source
  * graph. Build outputs and child process state belong to this invocation. */
 export async function withAppFixture(app, use) {
@@ -559,6 +568,6 @@ export async function withAppFixture(app, use) {
       origin: manifest.app.origin ?? null } });
   } finally {
     try { if (snapshot) disposeSnapshot(snapshot); }
-    finally { rmSync(run, { recursive: true, force: true }); }
+    finally { removePrivateTree(run); }
   }
 }
