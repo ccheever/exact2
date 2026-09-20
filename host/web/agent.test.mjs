@@ -517,3 +517,38 @@ test('initial flow loading cannot hold the first frame or module activation', as
   expect(f.logs.lines.at(-1)).toContain('textflow module: Error: flow unavailable');
   await boot;
 });
+
+test('module replacement drains current requests before swapping and rechecks supersession', async () => {
+  for (const result of ['accept', 'superseded', 'timeout']) {
+    const f = fixture(false), entered = deferred(), drained = deferred();
+    let current = true, swaps = 0;
+    f.waitForInflight = async deadline => {
+      expect(deadline).toBe(20010);
+      entered.resolve();
+      return drained.promise;
+    };
+    f.setInputReady = value => { f.inputReady = value; };
+    f.wasm.exact_boot_module = () => { swaps++; return '{"ops":[],"timers":true}'; };
+    const candidate = {realm:{id:1},receipt:new Uint8Array([1])};
+    const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
+    const outcome = update.then(value => ({value}), error => ({error}));
+    await entered.promise;
+    expect(swaps).toBe(0);
+    expect(f.views.size).toBe(1);
+    expect(f.inputReady).toBe(true);
+    if (result === 'superseded') current = false;
+    drained.resolve(result !== 'timeout');
+    const reply = await outcome;
+    if (result === 'accept') {
+      expect(reply.error).toBeUndefined();
+      expect(swaps).toBe(1);
+      expect(f.activeModule).toBe(candidate);
+    } else {
+      expect(swaps).toBe(0);
+      expect(f.views.size).toBe(1);
+      expect(f.activeModule).toBeNull();
+      if (result === 'timeout') expect(String(reply.error)).toContain('in-flight requests');
+      else expect(reply.value).toBeNull();
+    }
+  }
+});

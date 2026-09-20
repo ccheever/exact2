@@ -1303,6 +1303,14 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (flowLoading) await flowLoading;
   if (!current() || request !== bootAttempt) return null;
+  // A replacement must let the current executor finish its answers before
+  // the synchronous swap. Initial module readiness does not drain requests.
+  if (module) {
+    if (!(await waitForInflight(performance.now() + SETTLE_DEADLINE_MS))) {
+      throw new Error('module replacement waits for in-flight requests to settle; retry the update');
+    }
+    if (!current() || request !== bootAttempt) return null;
+  }
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
   let len;
   if (module) {
