@@ -221,7 +221,9 @@ impl<'a> Reader<'a> {
                 p.indices_offset as usize + p.index_count as usize,
                 length,
             )?;
-            has_color |= vertices.iter().any(|v| v.color != u32::MAX);
+            has_color |= vertices
+                .iter()
+                .any(|v| v.color & 0x00ff_ffff != 0x00ff_ffff);
             require(
                 vertices
                     .iter()

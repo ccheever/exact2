@@ -6,6 +6,8 @@ mod oracle;
 mod prepare;
 #[path = "bin/readback.rs"]
 mod readback;
+#[path = "bin/reel.rs"]
+mod reel;
 #[path = "bin/selection_readback.rs"]
 mod selection_readback;
 use clod_format::Reader;
@@ -39,10 +41,11 @@ fn run() -> Result<()> {
     let baseline = needs_naive.then(|| prepare::baseline(&reader));
     eprintln!(
         "{}",
-        json!({"stage":"load","seconds":start.elapsed().as_secs_f64(),"source_triangles":reader.header.source_triangles,"pages":reader.pages.len(),"instances":scene.instances.len(),"baseline_chunks":baseline.as_ref().map_or(0,Vec::len),"baseline_vertices":baseline.as_ref().map(|b|b.iter().map(|c|c.vertices.len()).sum::<usize>()),"camera_hero":scene.hero.to_array()})
+        json!({"stage":"load","seconds":start.elapsed().as_secs_f64(),"source_triangles":reader.header.source_triangles,"pages":reader.pages.len(),"instances":scene.instances.len(),"baseline_chunks":baseline.as_ref().map_or(0,Vec::len),"baseline_vertices":baseline.as_ref().map(|b|b.iter().map(|c|c.vertices.len()).sum::<usize>()),"camera_hero":scene.hero.to_array(),"median_source_edge_world":scene.median_edge,"minimum_distance_1440p_2px":scene.minimum_distance(options.fov)})
     );
-    let (device, queue, adapter) =
-        pollster::block_on(clod_view::request_device(options.command == "time"))?;
+    let (device, queue, adapter) = pollster::block_on(clod_view::request_device(
+        ["time", "reel"].contains(&options.command.as_str()),
+    ))?;
     eprintln!(
         "{}",
         json!({"adapter":adapter.name,"backend":format!("{:?}",adapter.backend),"features":format!("{:?}",device.features()),"limits":"wgpu::Limits::default()"})
@@ -58,6 +61,7 @@ fn run() -> Result<()> {
             mode,
         )?;
         renderer.shadows = options.shadows;
+        renderer.ao = options.ao;
         renderer.culling = options.cull;
         if mode == Mode::Cluster && options.selector != Selector::Cpu {
             renderer.enable_gpu_selection(&reader, options.capacity)?;
@@ -65,6 +69,7 @@ fn run() -> Result<()> {
         Ok::<_, String>(renderer)
     };
     match options.command.as_str() {
+        "reel" => reel::run(&mut create(options.mode)?, &reader, &scene, &options)?,
         "oracle" => oracle::run(
             &reader,
             &device,
@@ -160,6 +165,9 @@ fn sample(
     t: f32,
     threshold: f32,
 ) -> Result<Sample> {
+    let mut frame_scene = scene.clone();
+    frame_scene.fit_shadow(t);
+    let scene = &frame_scene;
     let camera = options.camera(scene, t);
     let gpu = renderer.mode == Mode::Cluster && options.selector != Selector::Cpu;
     let cull = options.cull && options.view != View::Overdraw;
@@ -187,7 +195,7 @@ fn sample(
             reader,
             &scene.instances,
             &scene.light_camera(),
-            2048,
+            clod_view::SHADOW_SIZE,
             (threshold * 2.0).min(f32::MAX / 2.0),
             cull,
         )

@@ -162,6 +162,16 @@ fn run() -> Result<Value> {
     let start = Instant::now();
     let (mut mesh, hash) = loaders::load(Path::new(&args[0]))?;
     let load = start.elapsed().as_secs_f64();
+    mesh.compute_normals();
+    let ao_start = Instant::now();
+    let (ao, proxy_triangles) = clod_bake::ao::bake(&mesh)?;
+    let ao_seconds = ao_start.elapsed().as_secs_f64();
+    let ao_min = ao.iter().copied().min().unwrap_or(255);
+    let ao_mean = ao.iter().map(|&v| v as u64).sum::<u64>() as f64 / ao.len() as f64;
+    let colors = mesh.colors.get_or_insert_with(|| vec![[255; 4]; ao.len()]);
+    for (color, value) in colors.iter_mut().zip(ao) {
+        color[3] = value;
+    }
     let baked = bake(&mut mesh, config, hash)?;
     let start = Instant::now();
     let mut out = BufWriter::new(File::create(&args[1])?);
@@ -173,7 +183,8 @@ fn run() -> Result<Value> {
     result["topology"] = json!({"checked":baked.topology[0],"rejected":baked.topology[1],"stopped":baked.topology[2]});
     result["input"] = json!(args[0]);
     result["output"] = json!(args[1]);
-    result["seconds"] = json!({"load":load,"normals":baked.normals_seconds,"build":baked.build_seconds,"encode":baked.encode_seconds,"write":write});
+    result["seconds"] = json!({"load":load,"normals":baked.normals_seconds,"ao":ao_seconds,"build":baked.build_seconds,"encode":baked.encode_seconds,"write":write});
+    result["ao"] = json!({"rays":mesh.positions.len()*16,"proxy_triangles":proxy_triangles,"min":ao_min,"mean":ao_mean});
     result["peak_rss_bytes"] = json!(rss());
     result["output_sha256"] = json!(hex(&Sha256::digest(&baked.bytes)));
     Ok(result)

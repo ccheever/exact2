@@ -1,3 +1,4 @@
+pub mod ao;
 mod ffi;
 pub mod loaders;
 mod packing;

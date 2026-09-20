@@ -3,7 +3,7 @@
 import { mkdirSync, appendFileSync, openSync, closeSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 const root=import.meta.dir;
-const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/F2');
+const out=join(process.env.HOME,'Library/Caches/exact2-cluster-lod/out/L3a');
 mkdirSync(out,{recursive:true});
 const mode=process.argv[2]??'verify';
 const commands=[];
@@ -16,18 +16,18 @@ if(mode==='verify') {
 } else if(mode==='bake') {
   commands.push(['build-baker',['cargo','build','--release','-p','clod-bake']]);
   for(const [asset,file] of [['gaul','smk-dying-gaul-kas1312/smk-190-inv-dying-gladiator.stl'],['washington','si-george-washington-greenough/george-washington-greenough-statue-(1840)-master-geometry.obj']]) {
-    for(let repeat=0;repeat<2;repeat++) commands.push([`${asset}-bake-${repeat}`,['target/release/clod-bake',join(out,'../../assets',file),join(out,'..',`${asset}-3${repeat?'-repeat':''}.clod`)]]);
+    for(let repeat=0;repeat<2;repeat++) commands.push([`${asset}-bake-${repeat}`,['target/release/clod-bake',join(out,'../../assets',file),join(out,'..',`${asset}-4${repeat?'-repeat':''}.clod`)]]);
   }
 } else if(mode==='images') {
   for(const asset of ['gaul','washington']) {
-    const source=join(out,'..',`${asset}-3.clod`);
+    const source=join(out,'..',`${asset}-4.clod`);
     commands.push([`${asset}-compare`,['target/debug/clod-view','compare',source,'--threshold-px','0.5,1,2,4,8','--t','0,0.25,0.5,0.75,1','--out',join(out,`${asset}-compare`)]]);
     commands.push([`${asset}-pop`,['target/debug/clod-view','pop',source,'--steps','240','--out',join(out,`${asset}-pop`)]]);
     for(const view of ['lit','clusters']) commands.push([`${asset}-close-${view}`,['target/debug/clod-view','render',source,'--t','1','--view',view,'--out',join(out,`${asset}-close-${view}.png`)]]);
   }
 } else if(mode==='sweep'||mode==='oracles') {
   for(const asset of ['gaul','washington']) {
-    const source=join(out,'..',`${asset}-3.clod`);
+    const source=join(out,'..',`${asset}-4.clod`);
     if(mode==='oracles') {
       commands.push([`${asset}-oracle`,['target/debug/clod-view','oracle',source,'--steps','64','--size','256x256']]);
       continue;

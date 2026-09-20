@@ -108,7 +108,7 @@ pub fn bake(mesh: &mut Mesh, config: Config, source_sha256: [u8; 32]) -> Result<
             pages
                 .iter()
                 .flat_map(|p| &p.vertices)
-                .any(|v| v.color != u32::MAX),
+                .any(|v| v.color & 0x00ff_ffff != 0x00ff_ffff),
         ),
         root_count: groups.iter().map(|g| g.depth).max().unwrap_or(0) + 1,
         config,

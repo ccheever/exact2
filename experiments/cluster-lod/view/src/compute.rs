@@ -320,7 +320,7 @@ impl Renderer {
     pub fn shadow_readback(&self) -> wgpu::Buffer {
         let read = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shadow oracle"),
-            size: 2048 * 2048 * 4,
+            size: u64::from(crate::SHADOW_SIZE).pow(2) * 4,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -336,13 +336,13 @@ impl Renderer {
                 buffer: &read,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(2048 * 4),
+                    bytes_per_row: Some(crate::SHADOW_SIZE * 4),
                     rows_per_image: None,
                 },
             },
             wgpu::Extent3d {
-                width: 2048,
-                height: 2048,
+                width: crate::SHADOW_SIZE,
+                height: crate::SHADOW_SIZE,
                 depth_or_array_layers: 1,
             },
         );

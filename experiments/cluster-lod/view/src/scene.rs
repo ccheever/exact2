@@ -62,6 +62,10 @@ pub struct Scene {
     pub radius: f32,
     pub hero: Vec3,
     pub hero_direction: Vec3,
+    pub median_edge: f32,
+    pub avenue: bool,
+    pub shadow_focus: Option<(Vec3, f32)>,
+    pub relief: Vec3,
 }
 impl Scene {
     pub fn validate(&self) -> Result<(), String> {
@@ -147,6 +151,19 @@ impl Scene {
             };
             let (p, angle, size) = match kind {
                 "single" => (Vec3::ZERO, 0.0, 1.0),
+                "avenue" => {
+                    if i == 0 {
+                        (Vec3::ZERO, 0.0, 1.0)
+                    } else {
+                        let row = ((i - 1) / 2) as f32;
+                        let side = if i % 2 == 1 { -1.0 } else { 1.0 };
+                        (
+                            Vec3::new(side * 3.2, -4.0 - row * 3.5, 0.0),
+                            -side * 0.12,
+                            1.0,
+                        )
+                    }
+                }
                 "ring" => {
                     let a = i as f32 / count as f32 * std::f32::consts::TAU;
                     let r = (count as f32 * 0.5).max(3.0);
@@ -199,6 +216,10 @@ impl Scene {
         let scene = Self {
             hero: first.transform_point3(hero),
             hero_direction: first.transform_vector3(direction).normalize(),
+            median_edge: crate::hero::median_edge(reader, scale),
+            avenue: kind == "avenue",
+            shadow_focus: None,
+            relief: first.transform_point3(Vec3::new(-0.27, -0.37, 0.43)),
             instances,
             center: (lo + hi) * 0.5,
             radius: (hi - lo).length() * 0.5,
@@ -208,25 +229,106 @@ impl Scene {
     }
     pub fn camera(&self, t: f32, aspect: f32, fov: f32) -> Camera {
         let t = t.clamp(0.0, 1.0);
-        let s = t * t * (3.0 - 2.0 * t);
+        // Two pixels per median source edge at 1440p; a larger artistic floor avoids scan holes.
+        let distance = self.minimum_distance(fov).max(0.38);
+        let close = self.hero
+            + if self.avenue {
+                Vec3::new(0.85, -0.35, 0.28).normalize() * (distance + 0.18)
+            } else {
+                self.hero_direction * distance
+            };
         let far = self.center
             + Vec3::new(0.85, -1.6, 0.85).normalize() * self.radius / (fov * 0.5).sin() * 1.1;
-        let close = self.hero + self.hero_direction * 0.055;
-        Camera::perspective(
-            far.lerp(close, s),
-            self.center.lerp(self.hero, s),
-            aspect,
-            fov,
-            0.002,
-            self.radius * 12.0 + 10.0,
-        )
+        let (eye, target) = if self.avenue {
+            let eye = crate::hero::spline(
+                t,
+                &[
+                    (0.0, Vec3::new(0.2, -30.0, 5.2)),
+                    (0.2, Vec3::new(0.0, -13.0, 2.1)),
+                    (0.4, Vec3::new(1.0, -3.4, 2.4)),
+                    (0.56, self.hero + Vec3::new(0.8, -1.35, 0.55)),
+                    (0.70, close),
+                    (0.79, close + Vec3::new(0.10, 0.07, 0.025)),
+                    (0.855, Vec3::new(0.40, -1.60, 1.25)),
+                    (
+                        0.94,
+                        self.relief + Vec3::new(-0.08, -(distance + 0.15), 0.09),
+                    ),
+                    (
+                        1.0,
+                        self.relief + Vec3::new(-0.08, -(distance + 0.15), 0.09),
+                    ),
+                ],
+            );
+            let target = crate::hero::spline(
+                t,
+                &[
+                    (0.0, Vec3::new(0.0, -12.0, 0.9)),
+                    (0.2, Vec3::new(0.0, 0.0, 0.95)),
+                    (0.4, Vec3::new(0.0, 0.0, 1.15)),
+                    (0.56, self.hero),
+                    (0.70, self.hero),
+                    (0.79, self.hero),
+                    (0.855, self.hero.lerp(self.relief, 0.46)),
+                    (0.94, self.relief),
+                    (1.0, self.relief),
+                ],
+            );
+            (eye, target)
+        } else {
+            let s = t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+            (far.lerp(close, s), self.center.lerp(self.hero, s))
+        };
+        Camera::perspective(eye, target, aspect, fov, 0.002, self.radius * 12.0 + 100.0)
+    }
+    pub fn minimum_distance(&self, fov: f32) -> f32 {
+        self.median_edge * 1440.0 / (4.0 * (fov * 0.5).tan())
+    }
+    /// Source-triangle clearance at deterministic path samples, accelerated by cluster spheres.
+    pub fn path_clearance(&self, reader: &Reader<'_>, steps: u32, fov: f32) -> (f32, f32) {
+        let bounds = AssetBounds::read(reader);
+        let center = bounds.center();
+        let radius = (bounds.max - bounds.min).length() * 0.5;
+        let mut minimum = f32::INFINITY;
+        let mut worst_t = 0.0;
+        for step in 0..steps {
+            let t = step as f32 / (steps - 1) as f32;
+            let eye = self.camera(t, 16.0 / 9.0, fov).eye;
+            for instance in &self.instances {
+                let scale = instance.scale();
+                let source_eye = instance.transform().inverse().transform_point3(eye);
+                if (source_eye.distance(center) - radius) * scale >= minimum {
+                    continue;
+                }
+                let distance =
+                    crate::hero::surface_distance(reader, source_eye, minimum / scale) * scale;
+                if distance < minimum {
+                    minimum = distance;
+                    worst_t = t;
+                }
+            }
+        }
+        (minimum, worst_t)
+    }
+    pub fn fit_shadow(&mut self, t: f32) {
+        if self.avenue {
+            let s = (t / 0.55).clamp(0.0, 1.0);
+            let s = s * s * s * (s * (s * 6.0 - 15.0) + 10.0);
+            self.shadow_focus = Some((
+                self.center.lerp(Vec3::new(0.0, 0.0, 0.9), s),
+                self.radius * 1.05 * (1.0 - s) + 1.7 * s,
+            ));
+        }
     }
     pub fn light_camera(&self) -> Camera {
-        let sun = Vec3::new(-0.5, -0.6, 1.0).normalize();
-        let r = self.radius * 1.05;
-        let eye = self.center + sun * r * 3.0;
-        let matrix = glam::camera::rh::proj::directx::orthographic(-r, r, -r, r, 0.01, r * 6.0)
-            * glam::camera::rh::view::look_at_mat4(eye, self.center, Vec3::Z);
+        let sun = Vec3::new(-0.75, -0.65, 0.85).normalize();
+        let (center, r) = self
+            .shadow_focus
+            .unwrap_or((self.center, self.radius * 1.05));
+        let depth = self.radius.max(r) * 6.0;
+        let eye = center + sun * depth * 0.5;
+        let matrix = glam::camera::rh::proj::directx::orthographic(-r, r, -r, r, 0.01, depth)
+            * glam::camera::rh::view::look_at_mat4(eye, center, Vec3::Z);
         Camera {
             eye,
             matrix,

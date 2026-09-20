@@ -208,7 +208,13 @@ pub fn run(
         );
         let mut cpu = create()?;
         let light = scene.light_camera();
-        let shadow = select::select(reader, &scene.instances, &light, 2048, 2.0);
+        let shadow = select::select(
+            reader,
+            &scene.instances,
+            &light,
+            clod_view::SHADOW_SIZE,
+            2.0,
+        );
         for step in 0..cameras {
             let camera = camera(&scene, step, cameras, size[0] as f32 / size[1] as f32);
             let reference = select::select(reader, &scene.instances, &camera, size[1], 1.0);
@@ -222,8 +228,15 @@ pub fn run(
             checked += 1;
             let (near, bad) =
                 compare_sets(reader, &scene, &camera, size[1], 1.0, &reference, &cuts[0]);
-            let (shadow_near, shadow_bad) =
-                compare_sets(reader, &scene, &light, 2048, 2.0, &shadow, &cuts[1]);
+            let (shadow_near, shadow_bad) = compare_sets(
+                reader,
+                &scene,
+                &light,
+                clod_view::SHADOW_SIZE,
+                2.0,
+                &shadow,
+                &cuts[1],
+            );
             near_total += near + shadow_near;
             if bad + shadow_bad > 0 {
                 failures.push(format!(
@@ -323,8 +336,14 @@ pub fn run(
             }
             if closed && shadow_near > 0 {
                 let (_, full) = gpu_frame(&mut gpu, reader, &scene, &camera, false)?;
-                let reference_light =
-                    select::select_culled(reader, &scene.instances, &light, 2048, 2.0, false);
+                let reference_light = select::select_culled(
+                    reader,
+                    &scene.instances,
+                    &light,
+                    clod_view::SHADOW_SIZE,
+                    2.0,
+                    false,
+                );
                 let affected: BTreeSet<_> = pair_set(&reference_light)
                     .symmetric_difference(&pair_set(&full[1]))
                     .map(|p| p[1])
@@ -371,7 +390,7 @@ pub fn run(
                     reader,
                     &scene.instances,
                     &light,
-                    2048,
+                    clod_view::SHADOW_SIZE,
                     (threshold * 2.0).min(f32::MAX / 2.0),
                     false,
                 );

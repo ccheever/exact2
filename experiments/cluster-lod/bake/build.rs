@@ -15,8 +15,10 @@ fn main() {
         .include(format!("{vendor}/demo"))
         .files(&sources)
         .file("src/shim.cpp")
+        .file("src/ao.cpp")
         .compile("clod_vendor");
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/ao.cpp");
     println!("cargo:rerun-if-changed=src/topology.h");
     println!("cargo:rerun-if-changed={vendor}");
 }

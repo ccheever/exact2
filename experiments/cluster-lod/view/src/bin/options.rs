@@ -21,6 +21,9 @@ pub struct Options {
     pub times: Vec<f32>,
     pub steps: u32,
     pub frames: u32,
+    pub seconds: f32,
+    pub fps: u32,
+    pub ao: bool,
     pub eye: Option<Vec3>,
     pub target: Option<Vec3>,
     pub fov: f32,
@@ -28,11 +31,11 @@ pub struct Options {
 impl Options {
     pub fn parse() -> Result<Self, String> {
         let mut args = std::env::args().skip(1);
-        let command = args
-            .next()
-            .ok_or("usage: clod-view <render|time|compare|pop|oracle> <file.clod> [options]")?;
-        if !["render", "time", "compare", "pop", "oracle"].contains(&command.as_str()) {
-            return Err("command must be render|time|compare|pop|oracle".into());
+        let command = args.next().ok_or(
+            "usage: clod-view <render|time|compare|pop|oracle|reel> <file.clod> [options]",
+        )?;
+        if !["render", "time", "compare", "pop", "oracle", "reel"].contains(&command.as_str()) {
+            return Err("command must be render|time|compare|pop|oracle|reel".into());
         }
         let file = args.next().ok_or("missing .clod file")?.into();
         let out = PathBuf::from(std::env::var("HOME").map_err(|e| e.to_string())?)
@@ -48,12 +51,23 @@ impl Options {
             } else {
                 vec![0.0]
             },
+            seconds: 40.0,
+            fps: 60,
+            ao: true,
+            layout: if command == "reel" {
+                "avenue:25".into()
+            } else {
+                "single".into()
+            },
+            out: if command == "reel" {
+                out.join("reel")
+            } else {
+                out
+            },
             command,
             file,
-            out,
             width: 2560,
             height: 1440,
-            layout: "single".into(),
             mode: Mode::Cluster,
             selector: Selector::Gpu,
             cull: true,
@@ -71,6 +85,15 @@ impl Options {
                 .next()
                 .ok_or_else(|| format!("missing value for {arg}"))?;
             match arg.as_str() {
+                "--seconds" => result.seconds = value.parse().map_err(|_| "bad seconds")?,
+                "--fps" => result.fps = value.parse().map_err(|_| "bad fps")?,
+                "--ao" => {
+                    result.ao = match value.as_str() {
+                        "on" => true,
+                        "off" => false,
+                        _ => return Err("ao must be on|off".into()),
+                    }
+                }
                 "--out" => result.out = value.into(),
                 "--shadows" => {
                     result.shadows = match value.as_str() {
@@ -107,6 +130,9 @@ impl Options {
                     result.height = h.parse().map_err(|_| "bad height")?;
                 }
                 "--path" => {
+                    if !std::env::args().any(|v| v == "--layout") {
+                        result.layout = "avenue:25".into();
+                    }
                     if value != "hero" {
                         return Err("only --path hero is supported".into());
                     }
@@ -131,6 +157,17 @@ impl Options {
             .any(|x| !x.is_finite() || !(0.0..=1.0).contains(x))
         {
             errors.push("t must be in 0..1");
+        }
+        if !result.seconds.is_finite()
+            || !(1.0..=600.0).contains(&result.seconds)
+            || !(1..=120).contains(&result.fps)
+        {
+            errors.push("reel seconds must be 1..600 and fps 1..120");
+        }
+        if result.command == "reel"
+            && (!result.width.is_multiple_of(2) || !result.height.is_multiple_of(2))
+        {
+            errors.push("reel dimensions must be even for yuv420p");
         }
         if result.steps < 2 || result.steps > 10000 {
             errors.push("steps must be 2..10000");

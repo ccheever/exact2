@@ -3,7 +3,7 @@ use bytemuck::{Pod, Zeroable};
 use clod_format::{Reader, Vertex};
 use wgpu::util::DeviceExt;
 
-pub const SHADOW_SIZE: u32 = 2048;
+pub const SHADOW_SIZE: u32 = 4096;
 pub type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -82,6 +82,7 @@ pub(crate) struct Globals {
     pub eye: [f32; 4],
     pub ground: [f32; 4],
     pub params: [u32; 4],
+    pub look: [f32; 4],
 }
 pub(crate) struct PageGpu {
     pub geometry: wgpu::Buffer,
@@ -105,6 +106,8 @@ pub struct Renderer {
     pub mode: Mode,
     pub culling: bool,
     pub shadows: bool,
+    pub ao: bool,
+    pub wipe: f32,
     pub(crate) instance_sphere: [f32; 4],
     pub(crate) pages: Vec<PageGpu>,
     pub(crate) compute: Option<crate::compute::Compute>,
@@ -126,6 +129,7 @@ pub struct Renderer {
     pub(crate) main: wgpu::RenderPipeline,
     pub(crate) overdraw: wgpu::RenderPipeline,
     pub(crate) ground: wgpu::RenderPipeline,
+    pub(crate) background: wgpu::RenderPipeline,
     pub(crate) shadow_pipeline: wgpu::RenderPipeline,
     pub(crate) query: Option<wgpu::QuerySet>,
     pub(crate) query_resolve: Option<wgpu::Buffer>,
@@ -521,6 +525,7 @@ impl Renderer {
             mode == Mode::Naive,
             true,
         );
+        let background = pipeline("background", Some("backdrop"), false, false);
         let ground = pipeline("ground", Some("shade"), false, false);
         let shadow_pipeline = pipeline(
             if mode == Mode::Cluster {
@@ -617,6 +622,8 @@ impl Renderer {
             mode,
             culling: true,
             shadows: true,
+            ao: true,
+            wipe: -1.0,
             instance_sphere: crate::select::CandidateIndex::new(reader).sphere,
             pages,
             compute: None,
@@ -638,6 +645,7 @@ impl Renderer {
             main,
             overdraw,
             ground,
+            background,
             shadow_pipeline,
             query,
             query_resolve,

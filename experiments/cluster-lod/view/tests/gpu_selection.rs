@@ -38,7 +38,7 @@ fn selection_oracles() {
 fn scan_shadow_culling_preserves_depth() {
     use clod_view::{Mode, Renderer, View, scene::Scene, select};
     let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Library/Caches/exact2-cluster-lod/out/washington-3.clod");
+        .join("Library/Caches/exact2-cluster-lod/out/washington-4.clod");
     if !path.exists() {
         eprintln!("SKIP scan shadow culling: asset absent; comparisons=0");
         return;
@@ -56,8 +56,21 @@ fn scan_shadow_culling_preserves_depth() {
     let scene = Scene::layout(&reader, "grid:400").unwrap();
     let camera = scene.camera(0.0, 1.0, 45f32.to_radians());
     let light = scene.light_camera();
-    let full = select::select_culled(&reader, &scene.instances, &light, 2048, 2.0, false);
-    let culled = select::select(&reader, &scene.instances, &light, 2048, 2.0);
+    let full = select::select_culled(
+        &reader,
+        &scene.instances,
+        &light,
+        clod_view::SHADOW_SIZE,
+        2.0,
+        false,
+    );
+    let culled = select::select(
+        &reader,
+        &scene.instances,
+        &light,
+        clod_view::SHADOW_SIZE,
+        2.0,
+    );
     let mut spheres = select::Selection {
         pages: vec![Vec::new(); reader.pages.len()],
         ..Default::default()

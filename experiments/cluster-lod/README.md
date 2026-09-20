@@ -80,10 +80,10 @@ requires `TIMESTAMP_QUERY`; it errors if unavailable or invalid. Rendering uses
 commands emit JSON lines, including errors with exit 1. `compare` and `pop` are
 measurement reports; the permanent quality gates are the cargo tests.
 
-## Format v3
+## Format v4
 
-Little endian, magic `CLOD0003`, version 3. Versions 1 and 2 are rejected because the
-accepted DAG changed. `format/src/lib.rs` defines the `repr(C)`/`Pod` records.
+Little endian, magic `CLOD0004`, version 4. Earlier versions are rejected; the spare
+vertex alpha byte now stores ambient visibility, and AO enters simplification. `format/src/lib.rs` defines the `repr(C)`/`Pod` records.
 Sections, in order: header, clusters, groups, page table, optional BVH, geometry.
 Section starts and page arrays align to 16 bytes; all padding is zero.
 
@@ -94,13 +94,13 @@ Section starts and page arrays align to 16 bytes; all padding is zero.
 | Group | 32 | Simplified bounds, depth, cluster range |
 | BVH node | 32 | Bounds, group or children; one root per depth |
 | Page | 80 | u64 extent, SHA-256, cluster/vertex/index ranges, reserved zeros |
-| Vertex | 20 | Float32 xyz, octahedral snorm16×2 normal, RGBA8 |
+| Vertex | 20 | Float32 xyz, octahedral snorm16×2 normal, RGB + AO8 |
 
 A cluster has at most 256 vertices and 128 triangles with three u8 local indices
 per triangle. Vertices then indices occupy each page; no cross-page pointers.
 Pages default to 32 MiB, configurable from 4 KiB to 128 MiB. All terminal groups
-must fit page zero. Positions retain source float32 bits. RGBA is low-byte red;
-`HAS_COLOR` is set iff at least one stored colour differs from opaque white.
+must fit page zero. Positions retain source float32 bits. RGB is low-byte red, AO is the high byte (255 = unoccluded);
+`HAS_COLOR` is set iff at least one stored RGB colour differs from white.
 Unpack normals by signed division by 32767, hemisphere unfold and normalization.
 
 The aligned, borrowing reader validates canonical section/page layout, all ranges,
@@ -144,6 +144,40 @@ does not enter the distance formula; the multi-fixture test applies random rigid
 orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
+
+L3a (2026-09-20): use 25 monuments in an avenue, shared-derivative quintic Hermite
+camera segments, a static final hold, and a median-edge-derived 1440p distance
+floor. Keep the existing single/ring/grid/field layouts for measurement. `--path
+hero` and `reel` choose the avenue unless `--layout` is explicit. One 4096² shadow
+map uses 25 weighted PCF taps; its crop follows the hero and retains the scene's
+full light depth, with a soft crop-edge fade. No cascade is needed for this reel.
+Warm wrapped diffuse, cool sky, warm ground bounce, broad low specular and ACES
+fit tonemapping light both the marble and a 12-colour muted debug palette.
+
+AO budget test: `cargo run --release -p clod-bake --example ao_budget -- <source>`:
+9,022,298 Washington vertices, 249,990 proxy triangles, 144,356,768 rays,
+13.484045458 s, minimum 0/255, mean 194.541543740/255. Accept AO: 16 fixed cosine
+hemisphere rays per vertex, radius 3.5% of extent, regular meshoptimizer proxy
+with 250,000 target triangles and 0.002 relative error, bias max(0.00008 extent,
+1.2 × proxy error), two integer adjacency smoothing passes. Up to 16 workers write
+disjoint vertices; sample sets, reductions and output order do not depend on worker
+count. No SSAO. Format v4 reassigns the spare alpha byte to AO; RGB remains colour,
+source transparency is outside this opaque-scan demo. Rays ignore back-facing proxy exits so an original vertex below a simplified
+face does not occlude itself. Ambient light retains a 22% floor. The CLI always bakes AO;
+the low-level writer accepts supplied AO, including neutral 255 in frozen geometry
+fixtures. Alpha is a weighted simplification attribute (weight 0.1), like RGB.
+
+The reel uses one raster pass with a screen-space diagonal palette wipe, a built-in
+5×7 font and a trailing 30-frame GPU-time median in the caption. Raw per-frame
+measurements remain in frames.jsonl. PNGs are the encoding source; two H.264 CRF16
+yuv420p outputs use the installed ffmpeg. All media stays in the cache. The installed ffmpeg 8.1 references missing
+libx265.215 (system x265 is ABI 217). Supply the exact ABI-215 library from the
+[Homebrew 4.1 bottle](https://ghcr.io/v2/homebrew/core/x265/manifests/4.1)
+in cache `out/reel/encoder-lib`, via `DYLD_LIBRARY_PATH`; no system file, binary,
+or signature is altered. Bottle SHA-256:
+`b8a5e68579e954f4bfd2917891880f5861537f87c6787caaf72af7419747450f`.
+The runtime was verified with `/opt/homebrew/bin/ffmpeg -version`, exit 0.
+
 
 F2 evidence: `cargo test -p clod-bake --test topology -- --nocapture`, with the
 rejection call temporarily removed, checked 21 fixtures, 10,815 cuts and

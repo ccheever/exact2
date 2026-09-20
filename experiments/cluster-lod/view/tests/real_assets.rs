@@ -27,7 +27,7 @@ fn real_asset_raster_oracles() {
         Err(e) => panic!("{e}"),
     };
     for asset in ["gaul", "washington"] {
-        let path = out.join(format!("{asset}-3.clod"));
+        let path = out.join(format!("{asset}-4.clod"));
         if !path.exists() {
             let _ = std::io::Write::write_fmt(
                 &mut std::io::stderr(),
@@ -107,7 +107,13 @@ fn real_asset_raster_oracles() {
         for t in [0.0, 0.5, 1.0] {
             let camera = scene.camera(t, 16.0 / 9.0, 45f32.to_radians());
             let selected = select(&reader, &scene.instances, &camera, 1440, 0.0);
-            let shadow = select(&reader, &scene.instances, &scene.light_camera(), 2048, 0.0);
+            let shadow = select(
+                &reader,
+                &scene.instances,
+                &scene.light_camera(),
+                clod_view::SHADOW_SIZE,
+                0.0,
+            );
             let cf = c
                 .render(&scene, &camera, View::Lit, &selected, &shadow)
                 .unwrap();

@@ -155,7 +155,13 @@ impl Renderer {
             vp: camera.matrix.to_cols_array(),
             light_vp: scene.light_camera().matrix.to_cols_array(),
             eye: camera.eye.extend(1.0).to_array(),
-            ground: [scene.center.x, scene.center.y, -0.015, scene.radius * 50.0],
+            ground: [scene.center.x, scene.center.y, -0.003, scene.radius * 100.0],
+            look: [
+                self.height as f32,
+                self.width as f32,
+                self.wipe,
+                self.ao as u32 as f32,
+            ],
             params: [
                 view as u32,
                 self.max_depth,
@@ -187,7 +193,7 @@ impl Renderer {
                     self,
                     &mut encoder,
                     &scene.light_camera(),
-                    2048,
+                    crate::SHADOW_SIZE,
                     (threshold * 2.0).min(f32::MAX / 2.0),
                     cull,
                     brute,
@@ -294,6 +300,10 @@ impl Renderer {
             pass.set_bind_group(1, &self.lists[0].bind, &[]);
             pass.set_bind_group(2, &self.shadow_bind, &[]);
             // Keep one ground draw in every view and report it separately from geometry.
+            if view != View::Coverage && view != View::Overdraw {
+                pass.set_pipeline(&self.background);
+                pass.draw(0..3, 0..1);
+            }
             if view != View::Coverage {
                 pass.set_pipeline(&self.ground);
                 pass.draw(0..6, 0..1);

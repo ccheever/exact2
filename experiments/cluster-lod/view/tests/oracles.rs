@@ -150,7 +150,7 @@ fn image_oracles() {
                 &reader,
                 &scene.instances,
                 &scene.light_camera(),
-                2048,
+                clod_view::SHADOW_SIZE,
                 threshold * 2.0,
             )
         } else {

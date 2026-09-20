@@ -209,7 +209,7 @@ fn inspect(
     cluster.culling = false;
     naive.culling = false;
     let out = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-        .join("Library/Caches/exact2-cluster-lod/out/F2/pinches")
+        .join("Library/Caches/exact2-cluster-lod/out/L3a/pinches")
         .join(format!("cut-{sweep_camera}"));
     std::fs::create_dir_all(&out).unwrap();
     let empty = Selection {

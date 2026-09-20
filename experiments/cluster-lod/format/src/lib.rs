@@ -7,8 +7,8 @@ use bytemuck::{Pod, Zeroable};
 pub use reader::{Error, Reader};
 pub use writer::{PageData, encode};
 
-pub const MAGIC: [u8; 8] = *b"CLOD0003";
-pub const VERSION: u32 = 3;
+pub const MAGIC: [u8; 8] = *b"CLOD0004";
+pub const VERSION: u32 = 4;
 pub const ORIGINAL: u32 = u32::MAX;
 pub const HAS_COLOR: u32 = 1;
 
