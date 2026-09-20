@@ -31,6 +31,26 @@ import { installProblems } from './install-page.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
+// @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
+// Groups preserve capability-based shipping; none of these imports enters boot.
+const WEB_HOST_GROUPS = {
+  base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
+    'http-body.js', 'media-glue.js', 'list-selection.js'],
+  module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
+  storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-sqlite.js',
+    'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
+  rust: ['rust-glue.js'],
+  gpu: ['gpu-glue.js'],
+};
+/** Public filename -> repo-relative source; omit groups to inventory every host file. */
+export function webHostFiles(...groups) {
+  return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
+    .flatMap(group => WEB_HOST_GROUPS[group]).map(name => [name,
+      name === 'module-prelude.js' ? 'js/src/prelude.js'
+        : name.startsWith('sqlite3.') ? 'node_modules/@sqlite.org/sqlite-wasm/dist/' + (name === 'sqlite3.mjs' ? 'index.mjs' : name)
+          : 'host/web/' + name]));
+}
+
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
@@ -341,17 +361,16 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of ['host/web/rust-glue.js','scripts/rust.mjs','host/web/glue.js','host/web/navigation.js','host/web/textflow-glue.js','host/web/timer-glue.js','host/web/input-glue.js','host/web/http-body.js','host/web/media-glue.js','host/web/list-selection.js','host/web/gpu-glue.js','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
+    for(const path of [...Object.values(webHostFiles('base','rust','gpu')),'scripts/app.mjs','scripts/rust.mjs','host/web/index.html','host/web/build.mjs']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
       add(storageTypes);
-      for (const path of ['host/web/module-glue.js', 'host/web/module-worker.js', 'js/src/prelude.js']) add(resolve(ROOT, path));
+      for (const path of Object.values(webHostFiles('module'))) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {
-      for (const path of ['host/web/storage-request.js', 'host/web/storage.js', 'host/web/storage-fs.js', 'host/web/storage-sqlite.js', 'host/web/storage-worker.js',
-        'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json',
-        'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs', 'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm']) add(resolve(ROOT, path));
+      for (const path of [...Object.values(webHostFiles('storage')),
+        'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json']) add(resolve(ROOT, path));
     }
   }
   const metadata={app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};

@@ -541,7 +541,7 @@ function attach(el, id, handlers) {
       on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
     } else if (kind === "pan") {
       let pan;
-      on("pointerdown", e => (pan ??= inputHandlers.pan(el, id, on))(e));
+      on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
@@ -1346,8 +1346,9 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   applyBatch(batch);
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
-  if (flowLoading) await flowLoading;
-  if (textflow) await textflow.settle();
+  // @ref LLP 1043.000 §3 D7 — an optional initial flow load cannot gate paint/readiness.
+  if (bytes && flowLoading) await flowLoading;
+  if (bytes && textflow) await textflow.settle();
   startClock();
   if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
   return performance.now() - t;
@@ -1437,6 +1438,11 @@ async function main() {
     requestAnimationFrame(async () => {
       loadGpuIfNeeded();
       if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
+      // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
+      loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
+        inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
+          dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
+      }).catch(console.error);
       try {
         if (typeof wasm.exact_module_artifact === 'function') {
           moduleLoader = await loadAfterPaint('./module-glue.js','moduleRuntime');
@@ -1444,10 +1450,6 @@ async function main() {
           const realm = await moduleLoader.prepare(payload, logicInfo, 0);
           activeModule = { ...payload, realm };
         }
-        inputHandlers = (await loadAfterPaint('./input-glue.js', 'createInputHandlers'))({
-          root, views, retiredViews, ready: () => inputReady, inertAncestor,
-          dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
-        });
         activateData();
       } catch (error) { root.dataset.error = String(error); console.error(error); }
       finally {
