@@ -2,6 +2,7 @@ use Inbox from "./models.contract"
 use NewMessageSheet from "./new-message-sheet.contract"
 use ReactionBadges from "./message-parts.contract"
 use ContactNameField from "./contact-fields.contract"
+use ContactDetails from "./contact-details.contract"
 
 // Messages: the router owns locations; UIKit owns the keyboard and scrolling.
 // @ref LLP 1038 §6, D8/D11 — state outside nav remains application state.
@@ -805,59 +806,16 @@ component Messages
                                 image "symbol:more" testId="more-symbol" font-size=17 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
                               text "More…" font-size=17 color="light-dark(#000000, #ffffff)"
         when e.name == "details"
-          column navigationKey=`${e.id}` navigationPresentation="fullscreen" navigationSource="contact-photo" testId="details-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" background-color="light-dark(#ffffff, #000000)" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
-            scroll testId="details-scroll" touch-action="pan-y" flex=1 min-height=0
-              column padding-left=16 padding-right=16 padding-bottom="calc(env(safe-area-inset-bottom) + 24px)" align-items="center"
-                column testId="details-avatar" width=80 height=80 border-radius=40 background-color=chat.color align-items="center" justify-content="center"
-                  when chat.initials != ""
-                    text chat.initials font-size=36 font-weight=600 color="#ffffff"
-                  else
-                    box width=32 height=36 scale=1.1 clip-path=personPath background-color="#ffffff"
-                text chat.name testId="details-name" width="100%" margin-top=4 font-size=28 line-height="33.666667px" font-weight=700 text-align="center" line-clamp=1
-                row margin-top=16 gap=20 height=48
-                  button disabled=true aria-label="Call" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
-                    box width=22 height=24 clip-path=callPath background-color="light-dark(#000000, #ffffff)"
-                  button disabled=true aria-label="Video call" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
-                    box width=24 height=18 clip-path="path('M 3 1 L 14 1 Q 17 1 17 4 L 17 14 Q 17 17 14 17 L 3 17 Q 0 17 0 14 L 0 4 Q 0 1 3 1 Z M 18 6 L 22 3 Q 24 2 24 4 L 24 14 Q 24 16 22 15 L 18 12 Z')" background-color="#bababc"
-                  button disabled=true aria-label="Email" width=48 height=48 border-radius=24 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="center"
-                    box width=24 height=18 clip-path="path('M 1 0 L 23 0 L 12 9 Z M 0 1 L 9 9 L 0 17 Z M 24 1 L 15 9 L 24 17 Z M 1 18 L 10 10 L 12 12 L 14 10 L 23 18 Z')" background-color="#bababc"
-                column width="100%" margin-top=20 gap=20
-                  when chat.contactAddress != ""
-                    row testId="details-address" height=70.666667 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" padding-left=16 padding-right=16 align-items="center"
-                      column flex=1 min-width=0
-                        row gap=5 align-items="center"
-                          text chat.contactKind font-size=13 color="#8e8e93"
-                          text "RECENT" font-size=9 font-weight=700 color="#ffffff" background-color="#8e8e93" border-radius=3 padding-left=3 padding-right=3
-                        text chat.contactAddress font-size=17 line-clamp=1
-                      when chat.contactKind == "phone"
-                        box width=12 height=14
-                          box position="absolute" left=-5 top=-5 width=22 height=24 scale=0.6 clip-path=callPath background-color="#8e8e93"
-                  when not chat.knownContact
-                    column border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)"
-                      button press=createContact testId="create-contact" aria-label="Create New Contact" position="relative" height=52 padding-left=16 padding-right=16 display="flex" align-items="center"
-                        text "Create New Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
-                        box position="absolute" bottom=0 left=16 right=16 height=1 background-color="light-dark(#d9d9dc, #38383a)"
-                      button disabled=true aria-label="Add to Existing Contact" height=52 padding-left=16 padding-right=16 display="flex" align-items="center"
-                        text "Add to Existing Contact" font-size=17 color="light-dark(#007aff, #0a84ff)"
-                  button press=muteThread(thread) testId="details-hide-alerts" role="switch" aria-label="Hide Alerts" aria-checked=chat.muted height=52 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" justify-content="space-between" padding-left=16 padding-right=14
-                    text "Hide Alerts" font-size=17
-                    box width=64 height=28 border-radius=14 background-color=(chat.muted ? "#34c759" : "#bababc")
-                      box testId="details-alerts-thumb" position="absolute" left=(chat.muted ? 26 : 2) top=2 width=36 height=24 border-radius=12 background-color="#ffffff"
-                  when chat.contactAddress != ""
-                    when chat.blocked
-                      button press=blockThread(false) testId="unblock-contact" aria-label="Unblock Contact" height=52 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" padding-left=16 padding-right=16
-                        text "Unblock Contact" font-size=17 color="#ff3b30"
-                    else
-                      button popovertarget="block-confirmation" testId="block-contact" aria-label="Block Contact" height=52 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" display="flex" align-items="center" padding-left=16 padding-right=16
-                        text "Block Contact" font-size=17 color="#ff3b30"
-            column id="block-confirmation" testId="block-confirmation" popover="auto" role="alertdialog" aria-label="Block Contact" position="absolute" width=240 box-sizing="border-box" padding=16 border-width=0 border-radius=28 background-color="light-dark(#efeff0, #1c1c1e)" gap=12
-              text "You will not receive phone calls, messages, email or FaceTime from blocked contacts." font-size=13 color="#8e8e93" text-align="center"
-              button destructive=true press=blockThread(true) popovertarget="block-confirmation" popovertargetaction="hide" testId="confirm-block-contact" color="#ff3b30" height=48 border-radius=24 background-color="light-dark(#ffffff, #38383a)"
-                text "Block Contact" font-size=17
-              button popovertarget="block-confirmation" popovertargetaction="hide" testId="cancel-block-contact" color="light-dark(#007aff, #0a84ff)" height=44
-                text "Cancel" font-size=17
-            button press=closeDetails id="back" testId="close-details" aria-label="Back to conversation" position="absolute" left=16 top="env(safe-area-inset-top)" width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
-              image "symbol:back" font-size=20 font-weight=600 tint-color="light-dark(#000000, #ffffff)"
+          ContactDetails(
+            routeKey=`${e.id}`,
+            chat=chat,
+            personPath=personPath,
+            callPath=callPath,
+            createContact=createContact,
+            toggleMute=muteThread(thread),
+            blockThread=blockThread,
+            closeDetails=closeDetails,
+          )
 
         when e.name == "newContact"
           column navigationKey=`${e.id}` navigationPresentation="modal" closedby="none" testId="new-contact-layer" position="absolute" top=0 left=0 right=0 bottom=0 background-color="light-dark(#f2f2f7, #000000)"
