@@ -1,0 +1,28 @@
+component ContactNameField
+  props
+    value: string
+    label: string
+    fieldId: string
+    write: action
+    separated: bool
+  view
+    row height=53 box-sizing="border-box" padding-left=16 padding-right=16 align-items="center"
+      input id=fieldId
+        testId=fieldId
+        aria-label=label
+        placeholder=label
+        value=value
+        change=write
+        autocapitalize="words"
+        font-size=17
+        height=22
+        flex=1
+        min-width=0
+        border-width=0
+      when separated
+        box position="absolute"
+          left=16
+          right=0
+          bottom=0
+          height=0.333333
+          background-color="light-dark(#e5e5e5, #38383a)"

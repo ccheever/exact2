@@ -1,3 +1,8 @@
+use Inbox from "./models.contract"
+use NewMessageSheet from "./new-message-sheet.contract"
+use ReactionBadges from "./message-parts.contract"
+use ContactNameField from "./contact-fields.contract"
+
 // Messages: the router owns locations; UIKit owns the keyboard and scrolling.
 // @ref LLP 1038 §6, D8/D11 — state outside nav remains application state.
 routes nav
@@ -6,117 +11,6 @@ routes nav
       details "/t/:thread/details"
         newContact "/t/:thread/contact"
     compose "/new"
-
-shape Person
-  id: string
-  name: string
-  initials: string
-  color: string
-  preview: string
-  time: string
-  unread: bool
-  draft: string
-  reply: string
-  muted: bool
-shape Inbox
-  people: list<Person>
-shape DeletedConversation
-  id: string
-  name: string
-  initials: string
-  color: string
-  count: number
-  days: number
-  chosen: bool
-  selection: string
-shape DeletedInbox
-  people: list<DeletedConversation>
-  targets: string
-  count: number
-shape Recipient
-  id: string
-  name: string
-  without: string
-shape Recipients
-  selected: list<Recipient>
-  people: list<Person>
-  target: string
-  canSend: bool
-  last: string
-  withoutLast: string
-  resolved: string
-shape SavedReaction
-  id: string
-  value: string
-  name: string
-  initials: string
-  color: string
-  own: bool
-  offset: number
-  edge: bool
-shape ReactionGroup
-  value: string
-  people: list<SavedReaction>
-  width: number
-shape Message
-  chosen: bool
-  selection: string
-  id: string
-  body: string
-  outgoing: bool
-  time: string
-  reaction: string
-  reactionCount: number
-  reactionEntries: list<SavedReaction>
-  reactionGroups: list<ReactionGroup>
-  reactionPanelWidth: number
-  day: string
-  timeLabel: string
-  delivery: string
-  reply: string
-  tail: bool
-  replyRoot: string
-  replyCount: number
-  sender: string
-  senderName: string
-  senderInitials: string
-  senderColor: string
-  showSender: bool
-shape ReactionChoice
-  id: string
-  value: string
-  label: string
-shape Conversation
-  earlier: string
-  later: string
-  hasEarlier: bool
-  hasLater: bool
-  selectionCount: number
-  selectedText: string
-  muted: bool
-  blocked: bool
-  knownContact: bool
-  contactKind: string
-  contactAddress: string
-  id: string
-  name: string
-  initials: string
-  color: string
-  messages: list<Message>
-  revision: number
-  scrollRevision: number
-  reactions: list<ReactionChoice>
-  replies: list<Message>
-  typingName: string
-  typingAvatar: string
-  typingRoot: string
-shape Change
-  revision: number
-  pending: bool
-shape ComposerDraft
-  thread: string
-  draft: string
-  reply: string
 
 component Messages
   state ticks = 0
@@ -747,15 +641,7 @@ component Messages
                           text "Show latest messages" font-size=14 color="light-dark(#007aff, #0a84ff)"
                       when chat.typingName != ""
                         row testId="typing-indicator" left=timestampCompensation aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
-                          when chat.typingAvatar != ""
-                            column width=28 height=28 border-radius=14 background-color="#76a998" align-items="center" justify-content="center"
-                              text chat.typingAvatar font-size=11 color="#ffffff" font-weight=600
-                          row width=68 height=36 border-radius=18 background-color="light-dark(#e9e9eb, #262629)" align-items="center" justify-content="center" gap=5
-                            box position="absolute" left=0 bottom=-2 width=12 height=12 border-radius=6 background-color="light-dark(#e9e9eb, #262629)"
-                            box position="absolute" left=-4 bottom=-6 width=6 height=6 border-radius=3 background-color="light-dark(#e9e9eb, #262629)"
-                            box testId="typing-dot-0" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 0 ? 1 : 0.45) scale=(typingPhase == 0 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
-                            box testId="typing-dot-1" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 1 ? 1 : 0.45) scale=(typingPhase == 1 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
-                            box testId="typing-dot-2" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 2 ? 1 : 0.45) scale=(typingPhase == 2 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="typing")
                     box width="50%"
               when replying != "" and not selecting
                 column testId="reply-thread" z-index=2 position="absolute" top=0 right=0 bottom=0 left=0 backgroundMaterial="ultra-thin" justify-content="center"
@@ -793,15 +679,7 @@ component Messages
                               text message.delivery testId=`reply-delivery-status-${message.id}` opacity=(selected == message.id ? 0 : 1) font-size=11 font-weight=600 color="#8e8e93" margin-top=6.333333 margin-right=20
                       when chat.typingName != "" and chat.typingRoot == replying
                         row testId="reply-typing-indicator" aria-label=`${chat.typingName} is typing` align-items="flex-end" gap=6 margin-top=4 margin-bottom=6 height=40 flex-shrink=0
-                          when chat.typingAvatar != ""
-                            column width=28 height=28 border-radius=14 background-color="#76a998" align-items="center" justify-content="center"
-                              text chat.typingAvatar font-size=11 color="#ffffff" font-weight=600
-                          row width=68 height=36 border-radius=18 background-color="light-dark(#e9e9eb, #262629)" align-items="center" justify-content="center" gap=5
-                            box position="absolute" left=0 bottom=-2 width=12 height=12 border-radius=6 background-color="light-dark(#e9e9eb, #262629)"
-                            box position="absolute" left=-4 bottom=-6 width=6 height=6 border-radius=3 background-color="light-dark(#e9e9eb, #262629)"
-                            box testId="reply-typing-dot-0" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 0 ? 1 : 0.45) scale=(typingPhase == 0 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
-                            box testId="reply-typing-dot-1" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 1 ? 1 : 0.45) scale=(typingPhase == 1 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
-                            box testId="reply-typing-dot-2" width=9 height=9 border-radius=4.5 background-color="light-dark(#8e8e93, #98989d)" opacity=(typingPhase == 2 ? 1 : 0.45) scale=(typingPhase == 2 ? 1 : 0.8) transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+                          TypingIndicator(avatar=chat.typingAvatar, phase=typingPhase, prefix="reply-typing")
             when attachments and not selecting
               row testId="attachments" gap=16 padding=16 justify-content="center" background-color="light-dark(#f2f2f7, #1c1c1e)" flex-shrink=0
                 button press=insert("😊") retainFocus=true testId="insert-smile" padding=12 border-radius=14 background-color="light-dark(#ffffff, #000000)"
@@ -1053,121 +931,22 @@ component Messages
                 text "Cancel" font-size=17
 
         when e.name == "compose"
-          NewMessageSheet(routeKey=`${e.id}`, contacts=contacts, recipientSelection=recipientSelection, recipientQuery=recipientQuery, newDraft=newDraft, showContacts=showContacts, personPath=personPath, editable=(chatThread != "" or contacts.target != ""), cancelNewMessage=cancelNewMessage, selectRecipient=selectRecipient, searchRecipient=searchRecipient, recipientKey=recipientKey, browseContacts=browseContacts, chooseRecipient=chooseRecipient, writeNew=writeNew, clearRecipientSelection=clearRecipientSelection, sendNewMessage=sendNewMessage)
-
-component NewMessageSheet
-  props
-    routeKey: string
-    contacts: Recipients
-    recipientSelection: string
-    recipientQuery: string
-    newDraft: string
-    showContacts: bool
-    personPath: string
-    editable: bool
-    cancelNewMessage: action
-    selectRecipient: action
-    searchRecipient: action
-    recipientKey: action
-    browseContacts: action
-    chooseRecipient: action
-    writeNew: action
-    clearRecipientSelection: action
-    sendNewMessage: action
-  view
-    column navigationKey=routeKey navigationPresentation="modal" closedby=(newDraft == "" ? "closerequest" : "none") testId="new-message-layer" position="absolute" top=0 left=0 right=0 bottom=0 z-index=10
-      box position="absolute" top="calc(env(safe-area-inset-top) + 40px)" left=0 right=0 bottom=0 background-color="light-dark(#ffffff, #1c1c1e)"
-      column testId="new-message-sheet" position="absolute" top="env(safe-area-inset-top)" left=0 right=0 bottom=0 border-radius=40 background-color="light-dark(#ffffff, #1c1c1e)" overflow="hidden"
-        row testId="compose-header" retainFocus=true height=80 flex-shrink=0 align-items="center" justify-content="center"
-          text "New Message" font-size=17 font-weight=600
-          button press=cancelNewMessage id="back" testId="cancel-new-message" aria-label="Close new message" position="absolute" right=16 top=16 width=44 height=44 border-radius=22 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
-            image "symbol:close" font-size=22 font-weight=400 tint-color="light-dark(#000000, #ffffff)"
-        row testId="recipient-field" margin-left=16 margin-right=16 min-height=48 border-radius=24 backgroundMaterial="glass" align-items="center" padding-left=14 padding-right=12 gap=6 flex-shrink=0
-          text "To:" font-size=15 color="#8e8e93" flex-shrink=0
-          row flex=1 min-width=0 flex-wrap="wrap" align-items="center" column-gap=4 padding-top=4 padding-bottom=4
-            each person in contacts.selected key=person.id
-              button press=selectRecipient(person.id, person.without) testId=`selected-recipient-${person.id}` aria-label=`${person.name}${recipientSelection == person.id ? ", selected" : ""}` background-color=(recipientSelection == person.id ? "light-dark(#007aff, #0a84ff)" : "#00000000") border-radius=4 max-width="100%" height=32 display="flex" align-items="center"
-                text person.name font-size=17 color=(recipientSelection == person.id ? "#ffffff" : "light-dark(#007aff, #0a84ff)") line-clamp=1
-            input id="recipient-search" testId="recipient-search" autocapitalize="none" autocorrect="off" spellcheck="false" value=recipientQuery change=searchRecipient key=recipientKey aria-label="To" font-size=17 color="light-dark(#000000, #ffffff)" flex=1 min-width=36 height=40 border-width=0
-          button press=browseContacts testId="choose-contact" aria-label="Add contact" width=28 height=28 border-radius=14 background-color="light-dark(#e5e5ea, #48484a)" display="flex" align-items="center" justify-content="center"
-            box width=14 height=14
-              box position="absolute" left=6 top=0 width=2 height=14 border-radius=1 background-color="light-dark(#000000, #ffffff)"
-              box position="absolute" left=0 top=6 width=14 height=2 border-radius=1 background-color="light-dark(#000000, #ffffff)"
-        scroll testId="recipient-results" flex=1 min-height=0 keyboardDismissMode="interactive" margin-top=8
-          when recipientQuery != "" or showContacts
-            column padding-left=28 padding-right=20
-              each person in contacts.people key=person.id
-                button press=chooseRecipient(person.id) testId=`recipient-${person.id}` aria-label=person.name height=64 display="flex" align-items="center" gap=12 border-bottom-style="solid" border-bottom-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
-                  column width=36 height=36 border-radius=18 background-color=person.color align-items="center" justify-content="center" flex-shrink=0
-                    when person.initials != ""
-                      text person.initials font-size=14 color="#ffffff"
-                    else
-                      box width=32 height=36 scale=0.55 clip-path=personPath background-color="#ffffff"
-                  text person.name font-size=17 line-clamp=1 color="light-dark(#007aff, #0a84ff)"
-              when length(contacts.people) == 0
-                text "No Results" font-size=17 color="#8e8e93" text-align="center" padding=24
-        column padding-left=16 padding-right=16 padding-top=0 padding-bottom=16 flex-shrink=1 min-height=40.333333
-          row gap=12 align-items="flex-end" min-height=0
-            button disabled=true aria-label="Add attachment" width=40 height=40 border-radius=20 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center"
-              image "symbol:add" font-size=22 font-weight=400 tint-color="#b4b4b7"
-            row testId="new-composer-surface" flex=1 min-width=0 min-height=40.333333 max-height="100%" align-self="stretch" box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6.333333 padding-top=6 padding-bottom=6 gap=5
-              textarea id="new-composer" testId="new-composer" disabled=(not editable) value=newDraft change=writeNew focus=clearRecipientSelection placeholder=(contacts.target == "" ? "" : "iMessage") aria-label="New message" color="light-dark(#000000, #ffffff)" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
-              button press=sendNewMessage retainFocus=true disabled=(not contacts.canSend) testId="send-new-message" aria-label="Send message" width=38 height=28 box-sizing="border-box" padding-left=(newDraft == "" ? 10 : 0) border-radius=14 background-color=(newDraft == "" ? "#00000000" : (contacts.canSend ? "light-dark(#007aff, #0a84ff)" : "light-dark(#e9e9eb, #3a3a3c)")) display="flex" align-items="center" justify-content="center"
-                when newDraft != ""
-                  image "symbol:send" font-size=17 font-weight=700 tint-color=(contacts.canSend ? "#ffffff" : "light-dark(#b4b4b7, #8e8e93)")
-                else
-                  image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
-        box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
-
-// A zero-width side slot preserves the balloon's percentage width and gesture target.
-component ReactionBadges
-  props
-    message: Message
-    prefix: string
-    hidden: bool
-    open: action
-  view
-    box width=0 height=0 flex-shrink=0 z-index=3 opacity=(hidden ? 0 : 1)
-      each entry in message.reactionEntries key=entry.id
-        button press=open retainFocus=true testId=(entry.edge ? `${prefix}-${message.id}` : `${prefix}-${message.id}-${entry.id}`) aria-label=`${entry.name}: ${entry.value} reaction` position="absolute" left=(message.outgoing ? -15 + entry.offset : -21 - entry.offset) top=-28 width=36 height=36 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#ffffff, #000000)" background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)") display="flex" align-items="center" justify-content="center" z-index=(100 - entry.offset)
-          when entry.edge
-            box position="absolute" left=(message.outgoing ? 2 : 23) top=27 width=11 height=11 border-radius=5.5 background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)")
-            box position="absolute" left=(message.outgoing ? -2 : 33) top=38 width=5 height=5 border-radius=2.5 background-color=(entry.own ? "#008cff" : "light-dark(#e9e9eb, #262629)")
-          ReactionArtwork(value=entry.value, extent=32, emojiSize=19)
-
-component MessageBody
-  props
-    body: string
-    outgoing: bool
-    selecting: bool
-    finish: action
-  view
-    column min-width=0
-      text body white-space="pre-wrap" overflow-wrap="break-word" font-size=17 line-height="20px" color=(outgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") text-align="left" opacity=(selecting ? 0 : 1)
-      when selecting
-        textarea id="selected-message-text" testId="selected-message-text" readonly=true value=body blur=finish aria-label="Selected message text" position="absolute" top=0 left=0 width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 font-size=17 line-height="20px" color=(outgoing ? "#ffffff" : "light-dark(#000000, #ffffff)") caret-color=(outgoing ? "#ffffff" : "auto")
-
-// Standard Tapbacks use the reference's resting artwork; other choices remain emoji.
-component ReactionArtwork
-  props
-    value: string
-    extent: number
-    emojiSize: number
-  view
-    when value == "❤️" or value == "👍" or value == "👎" or value == "haha" or value == "‼️" or value == "❓"
-      image (value == "❤️" ? "assets/tapbacks/heart.png" : (value == "👍" ? "assets/tapbacks/like.png" : (value == "👎" ? "assets/tapbacks/dislike.png" : (value == "haha" ? "assets/tapbacks/laugh.png" : (value == "‼️" ? "assets/tapbacks/emphasis.png" : "assets/tapbacks/question.png"))))) width=extent height=extent object-fit="contain"
-    else
-      text value font-size=emojiSize
-
-component ContactNameField
-  props
-    value: string
-    label: string
-    fieldId: string
-    write: action
-    separated: bool
-  view
-    row height=53 box-sizing="border-box" padding-left=16 padding-right=16 align-items="center"
-      input id=fieldId testId=fieldId aria-label=label placeholder=label value=value change=write autocapitalize="words" font-size=17 height=22 flex=1 min-width=0 border-width=0
-      when separated
-        box position="absolute" left=16 right=0 bottom=0 height=0.333333 background-color="light-dark(#e5e5e5, #38383a)"
+          NewMessageSheet(
+            routeKey=`${e.id}`,
+            contacts=contacts,
+            recipientSelection=recipientSelection,
+            recipientQuery=recipientQuery,
+            newDraft=newDraft,
+            showContacts=showContacts,
+            personPath=personPath,
+            editable=(chatThread != "" or contacts.target != ""),
+            cancelNewMessage=cancelNewMessage,
+            selectRecipient=selectRecipient,
+            searchRecipient=searchRecipient,
+            recipientKey=recipientKey,
+            browseContacts=browseContacts,
+            chooseRecipient=chooseRecipient,
+            writeNew=writeNew,
+            clearRecipientSelection=clearRecipientSelection,
+            sendNewMessage=sendNewMessage
+          )

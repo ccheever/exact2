@@ -1,0 +1,158 @@
+use Message from "./models.contract"
+
+// A zero-width side slot preserves the balloon's percentage width and gesture target.
+component ReactionBadges
+  props
+    message: Message
+    prefix: string
+    hidden: bool
+    open: action
+  view
+    box width=0 height=0 flex-shrink=0 z-index=3 opacity=(hidden ? 0: 1)
+      each entry in message.reactionEntries key = entry.id
+        button press=open
+          retainFocus=true
+          testId=(entry.edge ? `${prefix}-${message.id}`: `${prefix}-${message.id}-${entry.id}`)
+          aria-label=`${entry.name}: ${entry.value} reaction`
+          position="absolute"
+          left=(message.outgoing ? - 15 + entry.offset: - 21 - entry.offset)
+          top=- 28
+          width=36
+          height=36
+          box-sizing="border-box"
+          border-radius=18
+          border-style="solid"
+          border-width=1
+          border-color="light-dark(#ffffff, #000000)"
+          background-color=(entry.own ? "#008cff": "light-dark(#e9e9eb, #262629)")
+          display="flex"
+          align-items="center"
+          justify-content="center"
+          z-index=(100 - entry.offset)
+          when entry.edge
+            box position="absolute"
+              left=(message.outgoing ? 2: 23)
+              top=27
+              width=11
+              height=11
+              border-radius=5.5
+              background-color=(entry.own ? "#008cff": "light-dark(#e9e9eb, #262629)")
+            box position="absolute"
+              left=(message.outgoing ? - 2: 33)
+              top=38
+              width=5
+              height=5
+              border-radius=2.5
+              background-color=(entry.own ? "#008cff": "light-dark(#e9e9eb, #262629)")
+          ReactionArtwork(value=entry.value, extent=32, emojiSize=19)
+
+component MessageBody
+  props
+    body: string
+    outgoing: bool
+    selecting: bool
+    finish: action
+  view
+    column min-width=0
+      text body white-space="pre-wrap"
+        overflow-wrap="break-word"
+        font-size=17
+        line-height="20px"
+        color=(outgoing ? "#ffffff": "light-dark(#000000, #ffffff)")
+        text-align="left"
+        opacity=(selecting ? 0: 1)
+      when selecting
+        textarea id="selected-message-text"
+          testId="selected-message-text"
+          readonly=true
+          value=body
+          blur=finish
+          aria-label="Selected message text"
+          position="absolute"
+          top=0
+          left=0
+          width="100%"
+          height="100%"
+          box-sizing="border-box"
+          padding=0
+          border-width=0
+          font-size=17
+          line-height="20px"
+          color=(outgoing ? "#ffffff": "light-dark(#000000, #ffffff)")
+          caret-color=(outgoing ? "#ffffff": "auto")
+
+// Standard Tapbacks use the reference's resting artwork; other choices remain emoji.
+component ReactionArtwork
+  props
+    value: string
+    extent: number
+    emojiSize: number
+  view
+    when value == "❤️" or value == "👍" or value == "👎" or value == "haha" or value == "‼️" or value == "❓"
+      image(value == "❤️" ? "assets/tapbacks/heart.png": (value == "👍" ? "assets/tapbacks/like.png": (value == "👎" ? "assets/tapbacks/dislike.png": (value == "haha" ? "assets/tapbacks/laugh.png": (value == "‼️" ? "assets/tapbacks/emphasis.png": "assets/tapbacks/question.png"))))) width=extent
+        height=extent
+        object-fit="contain"
+    else
+      text value font-size=emojiSize
+
+
+// The caller owns the indicator row's placement and accessible label.
+component TypingIndicator
+  props
+    avatar: string
+    phase: number
+    prefix: string
+  view
+    when avatar != ""
+      column width=28
+        height=28
+        border-radius=14
+        background-color="#76a998"
+        align-items="center"
+        justify-content="center"
+        text avatar font-size=11 color="#ffffff" font-weight=600
+    row width=68
+      height=36
+      border-radius=18
+      background-color="light-dark(#e9e9eb, #262629)"
+      align-items="center"
+      justify-content="center"
+      gap=5
+      box position="absolute"
+        left=0
+        bottom=- 2
+        width=12
+        height=12
+        border-radius=6
+        background-color="light-dark(#e9e9eb, #262629)"
+      box position="absolute"
+        left=- 4
+        bottom=- 6
+        width=6
+        height=6
+        border-radius=3
+        background-color="light-dark(#e9e9eb, #262629)"
+      box testId=`${prefix}-dot-0`
+        width=9
+        height=9
+        border-radius=4.5
+        background-color="light-dark(#8e8e93, #98989d)"
+        opacity=(phase == 0 ? 1: 0.45)
+        scale=(phase == 0 ? 1: 0.8)
+        transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+      box testId=`${prefix}-dot-1`
+        width=9
+        height=9
+        border-radius=4.5
+        background-color="light-dark(#8e8e93, #98989d)"
+        opacity=(phase == 1 ? 1: 0.45)
+        scale=(phase == 1 ? 1: 0.8)
+        transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
+      box testId=`${prefix}-dot-2`
+        width=9
+        height=9
+        border-radius=4.5
+        background-color="light-dark(#8e8e93, #98989d)"
+        opacity=(phase == 2 ? 1: 0.45)
+        scale=(phase == 2 ? 1: 0.8)
+        transition="opacity 300ms ease-in-out, scale 300ms ease-in-out"
