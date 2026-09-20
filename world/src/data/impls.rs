@@ -273,7 +273,7 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
-            w.claim_decoded(64 + T::default_size());
+            w.claim_decoded(64usize.saturating_add(T::default_size()));
             if w.stopped() {
                 break;
             }
@@ -286,7 +286,11 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
         r.begin_struct()?;
         self.clear();
         while let Some(k) = r.field()? {
-            r.claim(64 + k.len() + T::default_size())?;
+            r.claim(
+                64usize
+                    .saturating_add(k.len())
+                    .saturating_add(T::default_size()),
+            )?;
             let value = T::read_new(r).map_err(|e| e.at(k))?;
             self.insert(k.into(), value);
         }

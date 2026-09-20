@@ -137,7 +137,11 @@ pub(crate) fn read_map<T: Data, K: Ord + for<'a> From<&'a str>>(
         if values.len() == limit || key.len() > key_bytes {
             return Err(DataError::new("map count/key limit"));
         }
-        r.claim(64 + key.len() + T::default_size())?;
+        r.claim(
+            64usize
+                .saturating_add(key.len())
+                .saturating_add(T::default_size()),
+        )?;
         let value = T::read_new(r).map_err(|e| e.at(key))?;
         values.insert(key.into(), value);
     }

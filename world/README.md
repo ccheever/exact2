@@ -296,6 +296,7 @@ Admission uses architecture-independent wire units, not `size_of`: scalar widths
 24 units for text/container headers, 16 plus fields for derived records, and fixed
 metadata/chunk accounting. `Data::default_size()` declares those units, including
 allocating defaults; manual implementations must supply conservative fixed values.
+Overflow saturates to refusal; registration rejects a declaration above 256 MiB.
 This is a wire/work allowance, not a resident-memory measurement of arbitrary Rust
 layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixture. Ownership scratch has its separate entity bound. Requests
 past admission return errors, except programmer-facing infallible operations

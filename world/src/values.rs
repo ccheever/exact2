@@ -88,7 +88,7 @@ impl Published {
                     let mut v = std::collections::BTreeMap::new();
                     while let Some(k) = r.field()? {
                         charge(budget, k.len().saturating_mul(6))?;
-                        r.claim(64 + k.len())?;
+                        r.claim(64usize.saturating_add(k.len()))?;
                         let value = Self::read_bounded(r, budget, depth + 1)?;
                         v.insert(k.into(), value);
                     }

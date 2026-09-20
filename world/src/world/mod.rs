@@ -266,7 +266,7 @@ impl World {
     pub fn register_resource<R: Resource>(&mut self) -> Result<&mut Self, DataError> {
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
-        reg.resource_size = 64 + R::default_size();
+        reg.resource_size = 64usize.saturating_add(R::default_size());
         reg.ambient = R::AMBIENT;
         Ok(self)
     }
@@ -275,6 +275,11 @@ impl World {
         name: &'static str,
     ) -> Result<&mut Registration, DataError> {
         self.healthy()?;
+        if C::default_size() > crate::data::MAX_LOAD_BYTES {
+            return Err(DataError::new(
+                "declared storage admission exceeds load budget",
+            ));
+        }
         if name.is_empty() || name.len() > 256 {
             return Err(DataError::new("storage name must contain 1..=256 bytes"));
         }
@@ -749,7 +754,7 @@ impl World {
                 break;
             }
             if let Some(name) = &slot.name {
-                w.claim_decoded(512 + name.len());
+                w.claim_decoded(512usize.saturating_add(name.len()));
             }
         }
         self.state.write(w);
@@ -909,7 +914,7 @@ impl World {
                         if slot.alive {
                             self.alive_mask[index / 64] |= 1 << (index % 64);
                             if let Some(name) = &slot.name {
-                                r.claim(512 + name.len())?;
+                                r.claim(512usize.saturating_add(name.len()))?;
                                 self.names.entry(name.clone()).or_default().insert(Entity {
                                     index: index as u32,
                                     generation: slot.generation,

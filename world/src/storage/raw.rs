@@ -236,15 +236,17 @@ impl RawStorage {
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);
         w.claim_decoded(
-            1024 + (self.desc.wire_size)()
-                + self.pages.mask().len() * 72
-                + self
-                    .pages
-                    .mask()
-                    .iter()
-                    .filter(|mask| **mask != 0)
-                    .count()
-                    .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
+            1024usize
+                .saturating_add((self.desc.wire_size)())
+                .saturating_add(self.pages.mask().len().saturating_mul(72))
+                .saturating_add(
+                    self.pages
+                        .mask()
+                        .iter()
+                        .filter(|mask| **mask != 0)
+                        .count()
+                        .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
+                ),
         );
         w.begin_seq(self.len);
         for index in self.indices(None) {
@@ -293,8 +295,8 @@ impl RawStorage {
             }
             r.required_item("missing component")?;
             let page = e.index() as usize / PAGE;
-            let backing = self.pages.growth_bytes(page)
-                + if self
+            let backing = self.pages.growth_bytes(page).saturating_add(
+                if self
                     .pages
                     .chunks()
                     .get(page)
@@ -303,7 +305,8 @@ impl RawStorage {
                     PAGE.saturating_mul((self.desc.wire_size)())
                 } else {
                     0
-                };
+                },
+            );
             r.claim(backing)?;
             // SAFETY: correctly aligned scratch, initialized only on success.
             unsafe { (self.desc.read_new)(value.bytes.get(), r) }

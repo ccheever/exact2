@@ -88,7 +88,7 @@ impl World {
             if values.len() == 256 || key.len() > 256 {
                 return Err(DataError::new("publication count/key limit"));
             }
-            r.claim(64 + key.len())?;
+            r.claim(64usize.saturating_add(key.len()))?;
             let value = crate::Published::read_bounded(r, &mut budget, 0)?;
             values.insert(key.into(), value);
         }

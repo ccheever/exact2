@@ -204,7 +204,7 @@ impl Writer for Encoder {
         self.append(&[8]);
     }
     fn field(&mut self, name: &'static str) {
-        self.claim_decoded(64 + name.len());
+        self.claim_decoded(64usize.saturating_add(name.len()));
         self.append(&[1]);
         self.name(name.into());
     }
@@ -215,7 +215,7 @@ impl Writer for Encoder {
         if self.stopped() {
             return;
         }
-        self.claim_decoded(64 + name.len());
+        self.claim_decoded(64usize.saturating_add(name.len()));
         self.append(&[1]);
         self.name(name.to_owned().into());
     }
@@ -435,7 +435,7 @@ impl<'a> Reader<'a> for Decoder<'a> {
     fn shared_string(&mut self) -> Result<std::rc::Rc<str>, DataError> {
         self.tag(6, "expected a string")?;
         let text = self.text()?;
-        self.claim(text.len() + 16)?;
+        self.claim(text.len().saturating_add(16))?;
         Ok(text.into())
     }
     fn begin_seq(&mut self) -> Result<(), DataError> {
