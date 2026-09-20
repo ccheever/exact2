@@ -61,7 +61,6 @@ struct Layout<'a> {
     by_line: Vec<Vec<usize>>,
     indents: Vec<usize>,
     levels: Vec<usize>,
-    positions: BTreeMap<Span, usize>,
     attributes: BTreeSet<Span>,
     type_angles: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
@@ -73,7 +72,6 @@ impl<'a> Layout<'a> {
         let mut by_line = vec![Vec::new(); lines.len()];
         let mut indents = vec![0; lines.len()];
         let mut levels = vec![0; lines.len()];
-        let mut positions = BTreeMap::new();
         let mut depth: usize = 0;
         let mut brackets: usize = 0;
         let mut widths: BTreeMap<usize, Vec<(usize, usize)>> = BTreeMap::new();
@@ -98,7 +96,6 @@ impl<'a> Layout<'a> {
                         widths.entry(width).or_default().push((line, indents[line]));
                     }
                     by_line[line].push(i);
-                    positions.insert(t.span, i);
                     if matches!(t.kind, TokenKind::Punct("(" | "[" | "{")) {
                         brackets += 1;
                     } else if closing {
@@ -150,12 +147,19 @@ impl<'a> Layout<'a> {
             by_line,
             indents,
             levels,
-            positions,
             attributes: BTreeSet::new(),
             type_angles: BTreeSet::new(),
             breaks: BTreeMap::new(),
             opaque,
         }
+    }
+
+    // Ordinary tokens are already grouped in source order for rendering.
+    fn position(&self, span: Span) -> Option<usize> {
+        let line = self.by_line.get(span.line.checked_sub(1)? as usize)?;
+        line.binary_search_by_key(&span, |&i| self.tokens[i].span)
+            .ok()
+            .map(|at| line[at])
     }
 
     fn file(&mut self, file: &File) {
@@ -192,7 +196,7 @@ impl<'a> Layout<'a> {
     }
 
     fn ty(&mut self, ty: &TypeExpr) -> usize {
-        let start = self.positions[&ty.span()];
+        let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
@@ -218,9 +222,8 @@ impl<'a> Layout<'a> {
                     // The button's normalized text child has its parent's
                     // span, but no corresponding source tag of its own.
                     if self
-                        .positions
-                        .get(span)
-                        .is_some_and(|i| text(&self.tokens[*i], self.lines) == tag)
+                        .position(*span)
+                        .is_some_and(|i| text(&self.tokens[i], self.lines) == tag)
                     {
                         let mut last_positional = positional.iter().map(|e| e.span()).max();
                         if tag == "button" {
@@ -273,7 +276,7 @@ impl<'a> Layout<'a> {
     ) {
         self.attributes.extend(attrs.iter().map(|a| a.span));
         let Some(last) = attrs.last() else { return };
-        let start = self.positions[&span];
+        let start = self.position(span).unwrap();
         let mut end = start;
         let mut brackets = 0usize;
         for (i, t) in self.tokens.iter().enumerate().skip(start) {
@@ -317,7 +320,7 @@ impl<'a> Layout<'a> {
                     let delta = (indent + 1).saturating_sub(self.levels[line]);
                     let until = attrs
                         .get(at + 1)
-                        .map_or(end, |next| self.positions[&next.span]);
+                        .map_or(end, |next| self.position(next.span).unwrap());
                     let last_line = self.tokens[..until]
                         .iter()
                         .rev()
@@ -344,10 +347,9 @@ impl<'a> Layout<'a> {
             let attr_equals = b == "=" && self.attributes.contains(&previous.span);
             let after_attr_equals = a == "="
                 && self
-                    .positions
-                    .range(..previous.span)
-                    .next_back()
-                    .is_some_and(|(span, _)| self.attributes.contains(span));
+                    .position(previous.span)
+                    .and_then(|i| self.tokens[..i].iter().rfind(|t| ordinary(t)))
+                    .is_some_and(|t| self.attributes.contains(&t.span));
             let tight = attr_equals
                 || after_attr_equals
                 || self.type_angles.contains(&token.span)

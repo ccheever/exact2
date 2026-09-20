@@ -199,6 +199,13 @@ test "é test"
 }
 
 #[test]
+fn argument_equals_on_the_next_line_keeps_attribute_spacing() {
+    let src = "component A\n  view\n    Row(\n      first\n      = \"雪\",\n      second\n      = 2\n    )\n";
+    let expected = "component A\n  view\n    Row(\n      first\n      =\"雪\",\n      second\n      =2\n    )\n";
+    assert_eq!(preserved(src), expected);
+}
+
+#[test]
 fn positionals_after_named_attributes_stay_on_the_elements_head() {
     let long = "A long accessible label that pushes this otherwise valid element header beyond one hundred columns";
     for tag in ["text", "button"] {
