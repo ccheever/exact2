@@ -954,6 +954,7 @@ impl Parser {
                             attrs: Vec::new(),
                             children: Vec::new(),
                             span,
+                            instance: 0,
                         },
                     );
                 }
@@ -963,6 +964,7 @@ impl Parser {
                     attrs,
                     children,
                     span,
+                    instance: 0,
                 })
             }
         }

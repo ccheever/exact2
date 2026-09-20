@@ -57,7 +57,7 @@ fn bake_checks_computed_auto_height_and_zero_flex_on_virtual_lists() {
     for attrs in ["height=bound", "flex=grow"] {
         let plan = contract::compile(&source(&format!("virtualized=true {attrs}"))).unwrap();
         match contract::bake(plan, Rows).unwrap_err() {
-            BakeError::Lint { id, message } => {
+            BakeError::Lint { id, message, .. } => {
                 assert_eq!(id, "bake-scroll-unbounded");
                 assert!(message.contains("testId=\"collection\""), "{message}");
             }

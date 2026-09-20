@@ -454,6 +454,12 @@ pub enum Node {
         children: Vec<Node>,
         /// Where.
         span: Span,
+        /// The inliner's (LLP 1035.005 D3): the index into
+        /// [`Expanded::instances`](crate::Expanded::instances) of the
+        /// component instantiation this element was expanded in — the
+        /// root's own elements are 0, a used component's are its use's;
+        /// 0 as parsed. No pass but the development map reads it.
+        instance: u32,
     },
     /// `Name(arg=expr, …)`, with the nodes indented under it filling the
     /// component's `slot` (LLP 1017 P4b).

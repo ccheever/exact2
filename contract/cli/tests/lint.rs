@@ -90,7 +90,7 @@ fn bake_refuses_a_scroll_that_only_a_row_could_have_bounded_and_did_not() {
     let plan = contract::compile(src).unwrap();
     let e = contract::bake(plan, NoData).unwrap_err();
     match e {
-        BakeError::Lint { id, message } => {
+        BakeError::Lint { id, message, .. } => {
             assert_eq!(id, "bake-scroll-unbounded");
             assert!(message.contains("testId=\"rows\""), "{message}");
         }
@@ -114,7 +114,7 @@ fn bake_refuses_a_pressable_with_zero_area() {
     let plan = contract::compile(src).unwrap();
     let e = contract::bake(plan, NoData).unwrap_err();
     match e {
-        BakeError::Lint { id, message } => {
+        BakeError::Lint { id, message, .. } => {
             assert_eq!(id, "bake-zero-size");
             assert!(message.contains("testId=\"go\""), "{message}");
         }

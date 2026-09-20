@@ -24,7 +24,9 @@ pub mod expr;
 mod fonts;
 mod media;
 mod routes;
+mod sites;
 pub mod tags;
+pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, UnOp};
@@ -118,6 +120,7 @@ pub fn compiler_identity() -> u64 {
 
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
+    sites: Option<Sites>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -165,6 +168,32 @@ pub fn lower(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
+    lower_with_sites(checked, _analysis, asset_root, false).map(|(plan, _)| plan)
+}
+
+/// Lower with development-only source sites, separate from the plan bytes.
+pub fn lower_mapped(
+    checked: &Checked<'_>,
+    analysis: &Analysis,
+    asset_root: Option<&Path>,
+) -> Result<(Plan, Sites), LowerError> {
+    if checked.expanded.instances.is_empty() {
+        return err(
+            "lower-source-sites",
+            "mapped lowering needs check_mapped source provenance",
+            checked.expanded.root.span,
+        );
+    }
+    lower_with_sites(checked, analysis, asset_root, true)
+        .map(|(plan, sites)| (plan, sites.expect("sites requested")))
+}
+
+fn lower_with_sites(
+    checked: &Checked<'_>,
+    _analysis: &Analysis,
+    asset_root: Option<&Path>,
+    capture_sites: bool,
+) -> Result<(Plan, Option<Sites>), LowerError> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
         file,
@@ -175,6 +204,7 @@ pub fn lower(
     let root_types = &types.components[0];
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
+        sites: capture_sites.then(|| Sites::declared(ex)),
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -409,11 +439,12 @@ pub fn lower(
             l.b.set_slot_owner(l.slots[i], region);
         }
     }
-    l.b.finish().map_err(|e| LowerError {
+    let plan = l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),
         span: root.span,
-    })
+    })?;
+    Ok((plan, l.sites))
 }
 
 impl<'a> Lowerer<'a> {
@@ -505,6 +536,7 @@ impl<'a> Lowerer<'a> {
                 attrs,
                 children,
                 span,
+                instance,
             } => {
                 let Some(t) = tags::tag(tag) else {
                     return err("lower-unknown-tag", format!("unknown tag `{tag}`"), *span);
@@ -515,6 +547,7 @@ impl<'a> Lowerer<'a> {
                 // `class=Name` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
                 let mut expanded: Vec<Attr> = Vec::new();
+                let mut class_name = None;
                 if let Some(c) = attrs.iter().find(|a| a.name == "class") {
                     let Expr::Ident(name, _) = &c.value else {
                         return err(
@@ -530,12 +563,14 @@ impl<'a> Lowerer<'a> {
                             c.span,
                         );
                     };
+                    class_name = Some(name);
                     expanded.extend(
                         style
                             .into_iter()
                             .filter(|s| !attrs.iter().any(|a| a.name == s.name)),
                     );
                 }
+                let class_len = expanded.len();
                 expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                 // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
                 if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
@@ -654,8 +689,12 @@ impl<'a> Lowerer<'a> {
                         positional[1].span(),
                     );
                 }
+                let mut origins = self
+                    .sites
+                    .as_ref()
+                    .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(&expanded)?;
-                for a in &expanded {
+                for (index, a) in expanded.iter().enumerate() {
                     self.attr(
                         tag,
                         a,
@@ -666,17 +705,34 @@ impl<'a> Lowerer<'a> {
                         &mut surface,
                         font.as_ref(),
                     )?;
+                    if let Some(origins) = &mut origins {
+                        let origin = if index < class_len {
+                            Origin::Class(class_name.expect("class attribute").clone())
+                        } else {
+                            Origin::Own
+                        };
+                        origins.resize(bindings.len(), origin);
+                    }
                 }
                 // Two bindings for one row — a style's and the node's own, a
                 // tag's fixed row and an attribute — the last one wins.
                 let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
                 let mut deduped: Vec<BindingsRow> = Vec::new();
-                for b in bindings.drain(..) {
+                let mut deduped_origins = origins.as_ref().map(|_| Vec::new());
+                for (index, b) in bindings.drain(..).enumerate() {
                     match seen.get(&(b.kind as u8, b.id)) {
-                        Some(&i) => deduped[i] = b,
+                        Some(&i) => {
+                            deduped[i] = b;
+                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
+                                to[i] = from[index].clone();
+                            }
+                        }
                         None => {
                             seen.insert((b.kind as u8, b.id), deduped.len());
                             deduped.push(b);
+                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
+                                to.push(from[index].clone());
+                            }
                         }
                     }
                 }
@@ -722,6 +778,15 @@ impl<'a> Lowerer<'a> {
                     &handler_refs,
                     surface,
                 );
+                if let Some(sites) = &mut self.sites {
+                    debug_assert_eq!(sites.nodes.len(), id.0 as usize);
+                    sites.nodes.push(sites::node_site(
+                        *span,
+                        *instance,
+                        &bindings,
+                        deduped_origins.as_deref().expect("site origins"),
+                    ));
+                }
                 self.nodes(children, Some(id), arm, scope, locals, Some(tag))
             }
             Node::Use { name, span, .. } => err(

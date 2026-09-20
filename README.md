@@ -57,6 +57,7 @@ make sense to do next.
 
 ```sh
 cargo run -q -p contract -- build apps/messages/app.contract --json
+cargo run -q -p contract -- build apps/messages/app.contract -o /tmp/messages.plan --map
 cargo run -q -p contract -- symbols apps/messages/app.contract
 cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
 cargo run -q -p contract -- fmt --check apps/messages/app.contract
@@ -79,6 +80,18 @@ means no source range, and a null file means no file is associated. No prose is
 mixed into JSON, including argument and output-write failures. Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
+
+`build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
+SHA-256 of the plan bytes. Each plan node has its original file and range,
+component call-site chain, and the winning style row's origin (`own`,
+`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
+including state and actions lifted from child components. Maps are separate
+files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
+`compile_path_mapped` and `compile_path_source_mapped` return the map alongside
+the plan; `SourceMap::bake_error` resolves measured layout refusals, and
+`SourceMap::json` takes the final encoded bytes after baking. A consumer must
+verify the map's digest against the plan actually accepted by its session.
+Automatic dev-loop emission and driver display are still pending.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result

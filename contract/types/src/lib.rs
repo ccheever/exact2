@@ -912,6 +912,15 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 
 /// Check a file: shared declarations, then every component.
 pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
+    check_with_sites(file, false)
+}
+
+/// Check with development source provenance retained for mapped lowering.
+pub fn check_mapped(file: &File) -> Result<Checked<'_>, TypeError> {
+    check_with_sites(file, true)
+}
+
+fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, TypeError> {
     if file.components.is_empty() {
         return err(
             "analyze-no-component",
@@ -929,7 +938,12 @@ pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
     // are checked standalone as views over their props.
     // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
     // child's own declarations, lifted in — what lowering will lower.
-    let expanded = contract_syntax::expand(file).map_err(|e| TypeError {
+    let expanded = if capture_sites {
+        contract_syntax::expand_mapped(file)
+    } else {
+        contract_syntax::expand(file)
+    }
+    .map_err(|e| TypeError {
         id: e.id,
         message: e.message,
         span: e.span,

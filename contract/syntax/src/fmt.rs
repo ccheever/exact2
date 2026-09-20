@@ -212,6 +212,7 @@ impl<'a> Layout<'a> {
                     attrs,
                     children,
                     span,
+                    ..
                 } => {
                     // The button's normalized text child has its parent's
                     // span, but no corresponding source tag of its own.

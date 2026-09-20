@@ -26,7 +26,7 @@ pub mod parser;
 mod spans;
 
 pub use ast::*;
-pub use inline::{expand, inline, Expanded};
+pub use inline::{expand, expand_mapped, inline, Expanded, Instance};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, parse_source, SyntaxError};
 pub use spans::VisitSpans;
