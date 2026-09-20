@@ -284,7 +284,9 @@ impl World {
         ))
     }
     pub fn take_messages(&self) -> Vec<String> {
-        self.mutated();
+        if !self.messages.borrow().is_empty() {
+            self.mutated();
+        }
         std::mem::take(&mut *self.messages.borrow_mut())
     }
     pub fn publications(&self) -> std::cell::Ref<'_, BTreeMap<std::rc::Rc<str>, crate::Published>> {
