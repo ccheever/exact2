@@ -23,19 +23,37 @@ pub mod fmt;
 pub mod inline;
 pub mod lexer;
 pub mod parser;
+mod spans;
 
 pub use ast::*;
 pub use inline::{expand, inline, Expanded};
 pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{parse, SyntaxError};
+pub use parser::{parse, parse_source, SyntaxError};
+pub use spans::VisitSpans;
 
-/// A source position, 1-based.
+/// A token range in one source file. Lines and byte columns are 1-based.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, PartialOrd, Ord)]
 pub struct Span {
     /// Line.
     pub line: u32,
-    /// Column.
+    /// Inclusive byte column.
     pub col: u32,
+    /// Exclusive byte column; equal to `col` for a structural position.
+    pub end_col: u32,
+    /// File identity assigned by the loader; zero for a standalone source.
+    pub source_id: u32,
+}
+
+impl Span {
+    /// An empty position in a standalone source.
+    pub const fn point(line: u32, col: u32) -> Self {
+        Self {
+            line,
+            col,
+            end_col: col,
+            source_id: 0,
+        }
+    }
 }
 
 impl std::fmt::Display for Span {

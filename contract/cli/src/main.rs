@@ -35,7 +35,7 @@ fn types(args: &[String]) -> ExitCode {
     }
     let result = contract::compile_path(std::path::Path::new(&args[0]))
         .map_err(|e| e.to_string())
-        .and_then(|plan| contract::typescript(&plan));
+        .and_then(|plan| contract::typescript(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if let Some(output) = args.get(2) {
@@ -49,7 +49,7 @@ fn types(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("{}:{error}", args[0]);
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }
@@ -135,7 +135,7 @@ fn build(args: &[String]) -> ExitCode {
     let plan = match contract::compile_path(std::path::Path::new(input)) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{input}:{e}");
+            eprintln!("{e}");
             return ExitCode::from(1);
         }
     };

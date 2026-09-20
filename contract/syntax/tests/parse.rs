@@ -314,3 +314,19 @@ fn a_component_uses_arguments_may_span_lines_inside_its_parentheses() {
     );
     assert_eq!(children.len(), 1);
 }
+
+#[test]
+fn source_identity_reaches_nested_ast_ranges_without_changing_syntax() {
+    use contract_syntax::{parse_source, VisitSpans};
+    let expected = parse(APP).unwrap();
+    let mut tagged = parse_source(APP, 29).unwrap();
+    let mut count = 0;
+    tagged.visit_spans(&mut |span| {
+        assert_eq!(span.source_id, 29, "{span:?}");
+        assert!(span.end_col >= span.col, "{span:?}");
+        span.source_id = 0;
+        count += 1;
+    });
+    assert!(count > 60, "{count}");
+    assert_eq!(tagged, expected);
+}

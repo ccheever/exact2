@@ -23,7 +23,7 @@ fn trivia(src: &str) -> Vec<String> {
         } else {
             let suffix = code
                 .last()
-                .map_or(line, |t| &line[t.end_col as usize - 1..]);
+                .map_or(line, |t| &line[t.span.end_col as usize - 1..]);
             if suffix.trim_start().starts_with("//") {
                 out.push(format!(
                     "comment:{count}:{}:{}",

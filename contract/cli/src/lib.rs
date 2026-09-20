@@ -15,6 +15,7 @@
 pub mod compat;
 mod logic;
 mod receipt;
+mod sources;
 mod typescript;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
@@ -25,7 +26,7 @@ pub use logic::rust_entry;
 pub use receipt::write_development_artifacts;
 pub use typescript::typescript;
 
-use contract_syntax::{Expr, File, Step, TestDecl, UseDecl};
+use contract_syntax::{Expr, File, Span, Step, TestDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -76,17 +77,18 @@ pub struct CompileError {
     pub id: String,
     /// What went wrong.
     pub message: String,
-    /// Line, column.
-    pub span: (u32, u32),
+    /// Original token range, including its compilation-local source identity.
+    pub span: Span,
+    /// Resolved file path, absent only when compiling standalone source text.
+    pub file: Option<PathBuf>,
 }
 
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}:{} [{}] {}",
-            self.span.0, self.span.1, self.id, self.message
-        )
+        if let Some(file) = &self.file {
+            write!(f, "{}:", file.display())?;
+        }
+        write!(f, "{} [{}] {}", self.span, self.id, self.message)
     }
 }
 
@@ -100,7 +102,8 @@ macro_rules! from_pass {
                     pass: $pass,
                     id: e.id.to_string(),
                     message: e.message,
-                    span: (e.span.line, e.span.col),
+                    span: e.span,
+                    file: None,
                 }
             }
         }
@@ -125,7 +128,8 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
                 "`use {} from \"{}\"` needs this file's own path to resolve: compile it with `contract build <file>` (`compile_path`)",
                 u.name, u.path
             ),
-            span: (u.span.line, u.span.col),
+            span: u.span,
+            file: None,
         });
     }
     compile_file(file, None)
@@ -142,8 +146,9 @@ pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
     let src = std::fs::read_to_string(path).map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
-        message: format!("{}: {e}", path.display()),
-        span: (0, 0),
+        message: e.to_string(),
+        span: Span::default(),
+        file: Some(path.to_path_buf()),
     })?;
     compile_path_source(path, &src)
 }
@@ -160,22 +165,18 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         pass: "use",
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", source_root.display()),
-        span: (0, 0),
+        span: Span::default(),
+        file: Some(path.to_path_buf()),
     })?;
-    let root_key = path.canonicalize().unwrap_or_else(|_| {
-        path.file_name()
-            .map(|name| app_root.join(name))
-            .unwrap_or_else(|| app_root.clone())
-    });
-    let mut seen = vec![root_key];
-    let file = load_source(path, src, &app_root, &mut seen)?;
-    let mut plan = compile_file(file, Some(&app_root))?;
+    let (file, sources) = sources::load(path, src, &app_root)?;
+    let mut plan = compile_file(file, Some(&app_root)).map_err(|e| sources.resolve(e))?;
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
             id: "app-manifest".into(),
             message,
-            span: (0, 0),
+            span: Span::default(),
+            file: Some(path.to_path_buf()),
         })?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
             return Err(CompileError {
@@ -185,7 +186,8 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
                     "the plan names app {}, but app.json names {}",
                     plan.app_id, manifest.id
                 ),
-                span: (0, 0),
+                span: Span::default(),
+                file: Some(path.to_path_buf()),
             });
         }
         plan.app_id = manifest.id;
@@ -305,179 +307,6 @@ fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileEr
     let types = contract_types::check(&file)?;
     let analysis = contract_analyze::check(&file, &types)?;
     Ok(contract_lower::lower(&file, &types, &analysis, asset_root)?)
-}
-
-fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
-    CompileError {
-        pass: "use",
-        id: id.into(),
-        message,
-        span: (u.span.line, u.span.col),
-    }
-}
-
-fn load_source(
-    path: &Path,
-    src: &str,
-    app_root: &Path,
-    seen: &mut Vec<PathBuf>,
-) -> Result<File, CompileError> {
-    let mut file = contract_syntax::parse(src)?;
-    contract_analyze::check_routes_root(&file, seen.len() == 1)?;
-    let uses = std::mem::take(&mut file.uses);
-    let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    for u in &uses {
-        validate_use_path(u)?;
-        let target = dir.join(&u.path);
-        let key = target.canonicalize().map_err(|e| {
-            use_error(
-                "contract-use-unreadable",
-                format!(
-                    "`use {} from \"{}\"`: {}: {e}",
-                    u.name,
-                    u.path,
-                    target.display()
-                ),
-                u,
-            )
-        })?;
-        if !key.starts_with(app_root) {
-            return Err(use_error(
-                "contract-use-path",
-                format!(
-                    "`use {} from \"{}\"` leaves the app directory",
-                    u.name, u.path
-                ),
-                u,
-            ));
-        }
-        if key.extension().and_then(|extension| extension.to_str()) != Some("contract") {
-            return Err(use_error(
-                "contract-use-path",
-                format!(
-                    "`use {} from \"{}\"` resolves to a file that is not `.contract`",
-                    u.name, u.path
-                ),
-                u,
-            ));
-        }
-        if seen.contains(&key) {
-            return Err(use_error(
-                "contract-use-cycle",
-                format!(
-                    "`use {} from \"{}\"` returns to a file already being loaded",
-                    u.name, u.path
-                ),
-                u,
-            ));
-        }
-        let used_src = std::fs::read_to_string(&key).map_err(|e| {
-            use_error(
-                "contract-use-unreadable",
-                format!(
-                    "`use {} from \"{}\"`: {}: {e}",
-                    u.name,
-                    u.path,
-                    key.display()
-                ),
-                u,
-            )
-        })?;
-        seen.push(key.clone());
-        let used = load_source(&key, &used_src, app_root, seen)?;
-        seen.pop();
-        let known = used.components.iter().any(|c| c.name == u.name)
-            || used.shapes.iter().any(|s| s.name == u.name)
-            || used.styles.iter().any(|s| s.name == u.name)
-            || used.fns.iter().any(|f| f.name == u.name);
-        if !known {
-            return Err(use_error(
-                "contract-use-unknown",
-                format!(
-                    "`{}` declares no component, shape, or style `{}`",
-                    u.path, u.name
-                ),
-                u,
-            ));
-        }
-        merge(&mut file, used, u)?;
-    }
-    Ok(file)
-}
-
-fn validate_use_path(u: &UseDecl) -> Result<(), CompileError> {
-    let Some(relative) = u.path.strip_prefix("./") else {
-        return Err(use_error(
-            "contract-use-path",
-            format!(
-                "`use {} from \"{}\"` needs a portable path beginning `./`",
-                u.name, u.path
-            ),
-            u,
-        ));
-    };
-    if relative.is_empty()
-        || u.path.contains('\\')
-        || relative
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(use_error(
-            "contract-use-path",
-            format!(
-                "`use {} from \"{}\"` must stay below its file with no `..` segments",
-                u.name, u.path
-            ),
-            u,
-        ));
-    }
-    Ok(())
-}
-
-fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
-    let dup = |what: &str, name: &str| {
-        use_error(
-            "contract-use-duplicate",
-            format!("`use {}` brings a {what} `{name}` that this file already has, declared differently", u.name),
-            u,
-        )
-    };
-    for f in from.fonts {
-        match into.fonts.iter().find(|x| x.name == f.name) {
-            Some(x) if *x == f => {}
-            Some(_) => return Err(dup("font", &f.name)),
-            None => into.fonts.push(f),
-        }
-    }
-    for s in from.shapes {
-        match into.shapes.iter().find(|x| x.name == s.name) {
-            Some(x) if *x == s => {}
-            Some(_) => return Err(dup("shape", &s.name)),
-            None => into.shapes.push(s),
-        }
-    }
-    for s in from.styles {
-        match into.styles.iter().find(|x| x.name == s.name) {
-            Some(x) if *x == s => {}
-            Some(_) => return Err(dup("style", &s.name)),
-            None => into.styles.push(s),
-        }
-    }
-    for f in from.fns {
-        match into.fns.iter().find(|x| x.name == f.name) {
-            Some(x) if *x == f => {}
-            Some(_) => return Err(dup("fn", &f.name)),
-            None => into.fns.push(f),
-        }
-    }
-    for c in from.components {
-        match into.components.iter().find(|x| x.name == c.name) {
-            Some(x) if *x == c => {}
-            Some(_) => return Err(dup("component", &c.name)),
-            None => into.components.push(c),
-        }
-    }
-    Ok(())
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

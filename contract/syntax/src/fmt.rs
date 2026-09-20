@@ -36,7 +36,7 @@ pub fn format(src: &str) -> Result<String, SyntaxError> {
         return Err(SyntaxError {
             id: "fmt-token-change",
             message: "formatting would change a source token; source was not written".into(),
-            span: Span { line: 1, col: 1 },
+            span: Span::point(1, 1),
         });
     }
     parse(&out)?;
@@ -51,7 +51,7 @@ fn ordinary(t: &Token) -> bool {
 }
 
 fn text<'a>(t: &Token, lines: &[&'a str]) -> &'a str {
-    &lines[t.span.line as usize - 1][t.span.col as usize - 1..t.end_col as usize - 1]
+    &lines[t.span.line as usize - 1][t.span.col as usize - 1..t.span.end_col as usize - 1]
 }
 
 struct Layout<'a> {
@@ -398,7 +398,7 @@ impl<'a> Layout<'a> {
                 previous = Some(t);
             }
             let suffix = if let Some(last) = previous {
-                &raw[last.end_col as usize - 1..]
+                &raw[last.span.end_col as usize - 1..]
             } else {
                 raw
             };

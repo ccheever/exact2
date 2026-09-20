@@ -70,7 +70,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         return err(
             "analyze-no-component",
             "a file needs a component",
-            Span { line: 1, col: 1 },
+            Span::point(1, 1),
         );
     };
     if !root.props.is_empty() {

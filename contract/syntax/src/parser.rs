@@ -41,7 +41,18 @@ impl std::fmt::Display for SyntaxError {
 
 /// Parse one file.
 pub fn parse(src: &str) -> Result<File, SyntaxError> {
-    let tokens = Lexer::tokenize(src, 1)?;
+    parse_source(src, 0)
+}
+
+/// Parse a file with the loader's source identity on every token and error.
+pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
+    let tokens = Lexer::tokenize_at(
+        src,
+        Span {
+            source_id,
+            ..Span::point(1, 1)
+        },
+    )?;
     let mut p = Parser { tokens, pos: 0 };
     p.file()
 }
@@ -1181,7 +1192,22 @@ impl Parser {
                 parts.push(TemplatePart::Text(std::mem::take(&mut text)));
             }
             let inner = &after[..end];
-            let tokens = Lexer::tokenize(inner, span.line)?;
+            // `raw` starts after the backtick. Keep byte offsets through Unicode
+            // prefixes, repeated interpolations, and recursively nested templates.
+            let col = span.col + 1 + (raw.len() - after.len()) as u32;
+            let mut tokens = Lexer::tokenize_at(
+                inner,
+                Span {
+                    source_id: span.source_id,
+                    ..Span::point(span.line, col)
+                },
+            )?;
+            // A template fragment ends at its closing brace, not the next file
+            // line. In particular, `${}` must report that brace's position.
+            tokens.last_mut().unwrap().span = Span {
+                source_id: span.source_id,
+                ..Span::point(span.line, col + inner.len() as u32)
+            };
             let mut sub = Parser { tokens, pos: 0 };
             let e = sub.expr()?;
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {

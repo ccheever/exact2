@@ -770,7 +770,7 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         return err(
             "analyze-no-component",
             "a file needs a component",
-            Span { line: 1, col: 1 },
+            Span::point(1, 1),
         );
     }
     for s in &file.shapes {
