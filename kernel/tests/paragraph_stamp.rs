@@ -305,6 +305,55 @@ fn detaching_a_container_refreshes_descendant_inheritance_before_becoming_root()
 }
 
 #[test]
+fn attaching_an_orphan_container_only_remeasures_changed_inherited_values() {
+    let mut k = fixture();
+    k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    apply(&mut k, &[children(1, &[2, 5, 6])]);
+    let before = [stamp(&k, 8), stamp(&k, 9)];
+    apply(&mut k, &[children(1, &[2, 5, 6, 7])]);
+    for (id, old) in [8, 9].into_iter().zip(before) {
+        let now = stamp(&k, id);
+        assert!(old.same_metrics(&now), "same inherited values at {id}");
+        assert_ne!(old.paint_source_revision(), now.paint_source_revision());
+    }
+    k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+    rebuilt.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    for id in [7, 8, 9] {
+        assert_eq!(k.node(id).unwrap().frame, rebuilt.node(id).unwrap().frame);
+    }
+
+    // A detached subtree still follows its new parent's changed values, while
+    // a descendant's authored override continues to stop propagation.
+    apply(
+        &mut k,
+        &[
+            children(1, &[2, 5, 6]),
+            Op::ClearStyle {
+                id: 7,
+                mask: StyleMask::of(StyleId::FontSize),
+            },
+            font(1, 24.0),
+        ],
+    );
+    let inherited = stamp(&k, 8);
+    let overridden = stamp(&k, 9);
+    assert_eq!(k.node(8).unwrap().text_style().font_size, 16.0);
+    apply(&mut k, &[children(1, &[2, 5, 6, 7])]);
+    assert!(!inherited.same_metrics(&stamp(&k, 8)));
+    assert!(overridden.same_metrics(&stamp(&k, 9)));
+    assert_eq!(k.node(8).unwrap().text_style().font_size, 24.0);
+    assert_eq!(k.node(9).unwrap().text_style().font_size, 18.0);
+    assert_eq!(k.node(8).unwrap().source_of(StyleId::FontSize), Some(1));
+    k.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    let mut rebuilt = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+    rebuilt.compute_layout(1, Offer::MAX_CONTENT).unwrap();
+    for id in [7, 8, 9] {
+        assert_eq!(k.node(id).unwrap().frame, rebuilt.node(id).unwrap().frame);
+    }
+}
+
+#[test]
 fn reset_reuse_independent_kernels_and_rehydrate_do_not_alias() {
     let mut k = fixture();
     let first = stamp(&k, 5);

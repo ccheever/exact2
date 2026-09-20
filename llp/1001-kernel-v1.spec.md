@@ -447,10 +447,12 @@ a `<div>`; a paragraph's `direction` and `text_align` inherit into its
 measurement too. Invalidation is the kernel's: a write to an inherited row
 marks and touches every logical descendant that does not set the row itself
 (text rows remeasure its paragraph, the rest repaint), stopping under an
-override; a child moved between parents propagates only the rows whose
-computed value differs, and an orphan re-attached is re-derived in full. The
-receipt therefore names what an inherited change reached; no host re-derives
-descendants per frame. A light/dark pair is preserved for the host to resolve.
+override. Attaching or moving a child propagates only rows whose computed
+value differs, including an orphan's own/default values before attachment.
+Ancestry changes still invalidate paragraph paint/source metadata and a moved
+text node's measure ownership. The receipt names what an inherited change
+reached; no host re-derives descendants per frame. A light/dark pair is
+preserved for the host to resolve.
 `kernel/tests/apply.rs` holds colour (reparenting, cleared overrides) and the
 text rows (a bare, a bold and a small run; the touched set after an ancestor
 change, a move and a clear; an identical write touching nothing).

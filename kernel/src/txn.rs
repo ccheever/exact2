@@ -502,17 +502,14 @@ pub fn apply(
                 }
                 // A child arriving from another parent takes its inherited
                 // rows from its new ancestors: remember what it computed
-                // under the old ones, to propagate only what differs. One
-                // arriving from no parent (an orphan, a fresh node) is
-                // re-derived in full.
-                let moved: Vec<(u32, Option<StyleProps>)> = new
+                // under the old ones, to propagate only what differs. Orphans
+                // and fresh nodes already compute their own/default rows too.
+                let moved: Vec<(u32, StyleProps)> = new
                     .iter()
                     .copied()
                     .filter(|n| arena.parent(*n) != Some(slot))
                     .map(|n| {
-                        let before = arena
-                            .parent(n)
-                            .map(|_| arena.computed_style(n, StyleMask::INHERITED));
+                        let before = arena.computed_style(n, StyleMask::INHERITED);
                         (n, before)
                     })
                     .collect();
@@ -539,14 +536,7 @@ pub fn apply(
                 touched.insert(slot);
                 receipt.layout_invalidated = true;
                 for (orphan, before) in detached {
-                    inherited_after_move(
-                        arena,
-                        layout,
-                        orphan,
-                        Some(before),
-                        &mut touched,
-                        &mut receipt,
-                    );
+                    inherited_after_move(arena, layout, orphan, before, &mut touched, &mut receipt);
                 }
                 for (m, before) in moved {
                     inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
@@ -627,7 +617,7 @@ fn inherited_after_move(
     arena: &mut NodeArena,
     layout: &mut LayoutTree,
     slot: u32,
-    before: Option<StyleProps>,
+    before: StyleProps,
     touched: &mut BTreeSet<u32>,
     receipt: &mut CommitReceipt,
 ) {
@@ -637,19 +627,13 @@ fn inherited_after_move(
         invalidate_text(arena, layout, slot);
     }
     invalidate_text_sources(arena, slot);
-    let changed = match before {
-        Some(before) => {
-            let after = arena.computed_style(slot, StyleMask::INHERITED);
-            let mut changed = StyleMask::EMPTY;
-            for id in StyleMask::INHERITED.iter() {
-                if before.get(id) != after.get(id) {
-                    changed.set(id);
-                }
-            }
-            changed
+    let after = arena.computed_style(slot, StyleMask::INHERITED);
+    let mut changed = StyleMask::EMPTY;
+    for id in StyleMask::INHERITED.iter() {
+        if before.get(id) != after.get(id) {
+            changed.set(id);
         }
-        None => StyleMask::INHERITED.minus(arena.style(slot).mask),
-    };
+    }
     if !changed.is_empty() {
         inherited_changed(arena, layout, slot, changed, receipt);
         touched.insert(slot);
