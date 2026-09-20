@@ -4,7 +4,7 @@
 use crate::CompileError;
 use contract_syntax::{File, UseDecl, VisitSpans};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -97,6 +97,10 @@ impl Loader<'_> {
         contract_analyze::check_routes_root(&file, self.active.len() == 1)?;
         let uses = std::mem::take(&mut file.uses);
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        // A use merges the entire dependency. Subsequent names from that file
+        // need checking, but must not recursively expand its imports again.
+        // Keep only export names here, never a second transitive AST.
+        let mut merged: HashMap<PathBuf, HashSet<String>> = HashMap::new();
         for u in &uses {
             validate_use_path(u)?;
             let target = dir.join(&u.path);
@@ -142,6 +146,10 @@ impl Loader<'_> {
                     u,
                 ));
             }
+            if let Some(names) = merged.get(&key) {
+                check_use_name(u, names.contains(&u.name))?;
+                continue;
+            }
             let used = if let Some(cached) = self.cache.get(&key) {
                 cached.clone()
             } else {
@@ -171,19 +179,36 @@ impl Loader<'_> {
                 || used.shapes.iter().any(|s| s.name == u.name)
                 || used.styles.iter().any(|s| s.name == u.name)
                 || used.fns.iter().any(|f| f.name == u.name);
-            if !known {
-                return Err(use_error(
-                    "contract-use-unknown",
-                    format!(
-                        "`{}` declares no component, shape, style, or function `{}`",
-                        u.path, u.name
-                    ),
-                    u,
-                ));
+            check_use_name(u, known)?;
+            if uses.len() > 1 {
+                let names = used
+                    .components
+                    .iter()
+                    .map(|c| c.name.clone())
+                    .chain(used.shapes.iter().map(|s| s.name.clone()))
+                    .chain(used.styles.iter().map(|s| s.name.clone()))
+                    .chain(used.fns.iter().map(|f| f.name.clone()))
+                    .collect();
+                merged.insert(key, names);
             }
             merge(&mut file, used, u)?;
         }
         Ok(file)
+    }
+}
+
+fn check_use_name(u: &UseDecl, known: bool) -> Result<(), CompileError> {
+    if known {
+        Ok(())
+    } else {
+        Err(use_error(
+            "contract-use-unknown",
+            format!(
+                "`{}` declares no component, shape, style, or function `{}`",
+                u.path, u.name
+            ),
+            u,
+        ))
     }
 }
 
