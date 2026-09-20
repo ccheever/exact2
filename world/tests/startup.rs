@@ -473,7 +473,7 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
         const ID: &'static str = "active-input";
         const HZ: u32 = 1000;
         const ACTIONS: &'static [Action] = &[
-            Action::button("jump", &["key63"]),
+            Action::button("jump", &["key15"]),
             Action::axis("drive", "KeyA", "KeyD"),
         ];
         type Args = ();
@@ -498,7 +498,7 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
     }
     let mut sim = Sim::<Active>::new(()).unwrap();
     // Worst admitted held set, controller active, and assets still loading.
-    let mut held: Vec<_> = (0..64)
+    let mut held: Vec<_> = (0..16)
         .map(|i| InputEvent::Key {
             code: format!("key{i:02}"),
             down: true,
@@ -514,7 +514,7 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
     // Establish both edge buffers before counting steady tick execution.
     for (at_ms, down) in [(0., false), (1., true)] {
         sim.input(InputEvent::Key {
-            code: "key63".into(),
+            code: "key15".into(),
             down,
             at_ms,
         })
@@ -526,7 +526,7 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
         let at_ms = 2.5 + i as f64;
         let event = if i % 2 == 0 {
             InputEvent::Key {
-                code: "key63".into(),
+                code: "key15".into(),
                 down: i % 4 == 2,
                 at_ms,
             }
@@ -540,7 +540,7 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
         sim.input(event).unwrap();
     }
     let (ticks, counts) = counting::measure(|| sim.run(1000.).unwrap());
-    report("input.1000_ticks_64_held_axis_1000_events", counts, (0, 0));
+    report("input.1000_ticks_16_held_axis_1000_events", counts, (0, 0));
     assert_eq!(ticks, 1000);
     let c = sim.world().get::<Controller>("#0").unwrap();
     assert_eq!(c.ticks, 1002);

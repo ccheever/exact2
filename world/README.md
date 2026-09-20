@@ -135,12 +135,12 @@ successful ticks remain committed if a later tick in the request is refused.
 
 An ordinary tick performs **zero component visitor/hash calls**. Its kernel cost
 is O(game-touched work + bounded input bookkeeping), independent of untouched
-component values and world size. Input sets have at most 64 entries and the
+component values and world size. Input holds at most 16 keys, with 64 action/button/axis entries, and the
 pending queue at most 1,024 events. Due batches are preflighted against a stack
-array of 64 borrowed key names, then consumed by moving event ownership. No held
-strings, maps or edge buffers are cloned per tick. Admission is O(events × 64);
-edge derivation is O(events × actions × held keys), with each factor explicitly
-bounded. A 65th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
+array of 16 borrowed key names, then consumed by moving event ownership. No held
+strings, maps or edge buffers are cloned per tick. Admission is O(events × (actions + held keys)); edge derivation is
+O(events × actions × (actions + buttons + bindings × held keys)).
+A 17th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
 traversal; this is work the game requested. Changing publications also creates
 saved journal events. `Paranoid::Save` and `FreshGame` explicitly add full saves,
 validation and reconstruction, and do not have the ordinary-tick cost.
@@ -313,6 +313,8 @@ Requests beyond the following work/storage bounds return errors.
 | Game and session log retention | 4,096 each; loss/reset is reported |
 | Inspection output / log page | 65,536 bytes/visits / at most 512 records |
 | Work / busy / derived slots | 64 each; reasons 256 bytes, at most 8 reported |
+| Held keys / bindings per action / actions | 16 / 8 / 64; excess refuses before applying input |
+| Input edge work per batch | ≤ 16,777,216 binding/key comparisons (2 × 1,024 × 64 × 8 × 16); including action/button/axis/edge scans < 60M string comparisons, each ≤ 128 bytes |
 | Input / emitted messages | 1,024 queued each; messages 4,096 bytes |
 | Clock advance / settle | 216,000 / 3,600 ticks per request |
 | Binary/world/simulation output | Generic 256 MiB; World and Sim 128 MiB |
