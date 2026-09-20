@@ -1384,3 +1384,17 @@ test('fixed consumer and trial evidence are excluded from other games but own lo
   expect(fixed).toContain('game/tests/lanterns/game.rs');
   expect(fixed).not.toContain('game/tests/lanterns/logic/tests/difficult_moment.rs');
 });
+
+test('world manifests refuse presentation dependencies before generating shells', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'k6-world-shell-'));
+  try {
+    mkdirSync(resolve(dir,'logic/src'),{recursive:true});
+    writeFileSync(resolve(dir,'logic/src/lib.rs'),`impl Game for Tally { const ID: &'static str = "tally"; }`);
+    writeFileSync(resolve(dir,'logic/Cargo.toml'),'[package]\nname="tally-logic"\nworkspace="../.shells"\n');
+    for(const option of ['audio','assets']) {
+      writeFileSync(resolve(dir,'app.json'),JSON.stringify({name:'Tally',id:'com.exact.tally',game:{crate:'tally-logic',type:'Tally',world:true,[option]:true}}));
+      expect(()=>gameShells(dir,gameDefaults(dir).game,import.meta.dir)).toThrow('ownership-only worlds');
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
+});

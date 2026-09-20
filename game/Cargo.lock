@@ -361,6 +361,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "exact-app-shell"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-gpu",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
@@ -377,6 +389,7 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-app-shell",
  "exact-game",
  "exact-gpu",
  "exact-kernel",

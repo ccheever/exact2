@@ -563,6 +563,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-app-shell"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-gpu",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-apple"
 version = "0.1.0"
 dependencies = [
@@ -601,6 +611,7 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-app-shell",
  "exact-game",
  "exact-gpu",
  "exact-runner",

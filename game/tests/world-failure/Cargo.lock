@@ -500,6 +500,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-app-shell"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-gpu",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
 name = "exact-apple"
 version = "0.1.0"
 dependencies = [
@@ -520,33 +530,6 @@ dependencies = [
  "exact-runner",
  "serde_json",
 ]
-
-[[package]]
-name = "exact-game"
-version = "0.1.0"
-dependencies = [
- "exact-game-derive",
- "exact-motion",
- "exact-plan",
- "glam",
- "libm",
- "ryu",
-]
-
-[[package]]
-name = "exact-game-app"
-version = "0.1.0"
-dependencies = [
- "contract",
- "exact-game",
- "exact-gpu",
- "exact-runner",
- "serde_json",
-]
-
-[[package]]
-name = "exact-game-derive"
-version = "0.1.0"
 
 [[package]]
 name = "exact-gpu"
@@ -847,15 +830,6 @@ dependencies = [
  "khronos_api",
  "log",
  "xml-rs",
-]
-
-[[package]]
-name = "glam"
-version = "0.33.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e762b9b188634fc508d4ec54b62ea3d352c43fd431d18d05d46f559f217f4725"
-dependencies = [
- "libm",
 ]
 
 [[package]]
@@ -2973,8 +2947,8 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 name = "world-failure-apple"
 version = "0.1.0"
 dependencies = [
+ "exact-app-shell",
  "exact-apple",
- "exact-game-app",
  "exact-runner",
 ]
 
@@ -2982,7 +2956,6 @@ dependencies = [
 name = "world-failure-gpu"
 version = "0.1.0"
 dependencies = [
- "exact-game-app",
  "exact-world-adapter",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -2994,7 +2967,7 @@ dependencies = [
 name = "world-failure-linux"
 version = "0.1.0"
 dependencies = [
- "exact-game-app",
+ "exact-app-shell",
  "exact-linux",
  "exact-runner",
 ]
@@ -3010,7 +2983,7 @@ dependencies = [
 name = "world-failure-web"
 version = "0.1.0"
 dependencies = [
- "exact-game-app",
+ "exact-app-shell",
  "exact-runner",
  "exact-web",
 ]

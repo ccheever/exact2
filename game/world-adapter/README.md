@@ -122,3 +122,9 @@ requested bytes; the sampled Sim save is 3,623 bytes.
 These browser measurements require no GPU; device attachment, shaders and pixels
 still need real WebGPU Chrome. API limits are above; experiment decisions, exact
 pin changes, the plain-surface audit and validation results are in the diary.
+
+World shells use `exact-app-shell` for the Contract bake and this adapter for
+argument declarations. Neither the four generated Tally shells nor the adapter's
+tests depend on `exact-game`, `exact-game-app` or `exact-game-render`.
+`game.world: true` with `game.audio: true` or `game.assets: true` refuses during
+manifest resolution; these require a device game module.

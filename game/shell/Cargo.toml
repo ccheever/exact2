@@ -1,15 +1,13 @@
 [package]
-name = "exact-game-app"
+name = "exact-app-shell"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
-exact-app-shell = { path = "../shell" }
 contract = { path = "../../contract/cli" }
 exact-runner = { path = "../../runner" }
-exact-game = { path = "../engine" }
 exact-gpu = { path = "../../gpu" }
 serde_json = "1"
 

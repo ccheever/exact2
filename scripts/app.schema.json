@@ -13,6 +13,10 @@
       "description": "Generate the game's GPU, web and Apple shells from the logic package and Game type.",
       "required": ["crate", "type"],
       "additionalProperties": false,
+      "oneOf": [
+        { "required": ["world"], "properties": { "world": { "enum": [true] }, "audio": { "enum": [false] }, "assets": { "enum": [false] } } },
+        { "properties": { "world": { "enum": [false] } } }
+      ],
       "properties": {
         "world": { "type": "boolean", "description": "Use exact-world's device-free surface adapter." },
         "audio": { "type": "boolean" },

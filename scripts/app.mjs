@@ -132,7 +132,6 @@ export function validate(value, node, at, root) {
   if (node.oneOf) {
     const fits = node.oneOf.filter((alt) => validate(value, alt, at, root).length === 0);
     if (fits.length !== 1) problems.push(`${where}: ${JSON.stringify(value)} matches ${fits.length} of the allowed forms (needs exactly one)`);
-    return problems;
   }
   const types = node.type ? [].concat(node.type) : null;
   const actual = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
