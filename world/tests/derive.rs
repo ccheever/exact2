@@ -81,6 +81,19 @@ fn escape<Q: Query>(w: &World) -> Q::Item<'static> {
         "{}",
         String::from_utf8_lossy(&raw.stderr)
     );
+    let missing_default = compile(
+        r#"use exact_world::*;
+struct NoDefault;
+#[derive(Data)] struct Record { #[data(skip)] omitted: NoDefault }
+impl Default for Record { fn default() -> Self { Self { omitted: NoDefault } } }
+"#,
+    );
+    let error = String::from_utf8_lossy(&missing_default.stderr);
+    assert!(!missing_default.status.success());
+    assert!(
+        error.contains("NoDefault") && error.contains("Default"),
+        "{error}"
+    );
     // Presence is unsafe initialization evidence, never caller-replaceable.
     let mask = compile(
         r#"use exact_world::*;

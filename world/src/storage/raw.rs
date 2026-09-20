@@ -354,6 +354,37 @@ mod tests {
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
+    fn failed_reader_drops_its_owned_partial_value_without_publishing_presence() {
+        use crate::{Data, DataError, Reader, Writer};
+        #[derive(Default)]
+        struct Fails(String);
+        impl Data for Fails {
+            fn write(&self, w: &mut dyn Writer) {
+                self.0.write(w);
+            }
+            fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+                self.0.read(r)?;
+                if self.0 == "refuse" {
+                    return Err(DataError::new("reader refused"));
+                }
+                Ok(())
+            }
+        }
+        impl Component for Fails {
+            const NAME: &'static str = "Fails";
+        }
+        let mut w = World::new(60, 0);
+        w.register::<Fails>().unwrap();
+        let e = w.spawn(Fails("refuse".into())).unwrap();
+        let bad = w.save().unwrap();
+        w.get_mut::<Fails>(e).unwrap().0 = "kept".into();
+        let good = w.save().unwrap();
+        assert!(w.load(&bad).is_err());
+        assert_eq!(w.save().unwrap(), good);
+        w.load(&good).unwrap();
+        assert_eq!(w.get::<Fails>(e).unwrap().0, "kept");
+    }
+    #[test]
     fn padded_values_move_replace_remove_and_load() {
         #[repr(C)]
         #[derive(Default, Component)]
