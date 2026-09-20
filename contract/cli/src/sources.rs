@@ -2,10 +2,11 @@
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3.
 
 use crate::CompileError;
-use contract_syntax::{File, UseDecl, VisitSpans};
+use contract_syntax::{File, NameSpans, UseDecl, VisitSpans};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 pub(crate) struct Sources {
@@ -64,22 +65,24 @@ pub(crate) fn load(
             imports: Vec::new(),
         },
         active: vec![root_key],
+        files: Vec::new(),
         cache: HashMap::new(),
     };
-    let file = loader
+    let exports = loader
         .load_source(path, src, 0)
         .map_err(|e| loader.sources.resolve(e))?;
+    let file = loader.materialize(&exports);
     Ok((file, loader.sources))
 }
 
 struct Loader<'a> {
     app_root: &'a Path,
     sources: Sources,
-    // Keep one unmerged AST per file; caching transitive merged trees would
-    // retain quadratically many declarations along a long import chain.
-    // Only the active stack decides cycles, even when parsing is cached.
+    // Keep each source AST once. Completed imports share declaration indices,
+    // never copies of transitive syntax trees. Only the active stack decides cycles.
     active: Vec<PathBuf>,
-    cache: HashMap<PathBuf, File>,
+    files: Vec<File>,
+    cache: HashMap<PathBuf, Rc<Exports>>,
 }
 impl Loader<'_> {
     fn load_source(
@@ -87,20 +90,15 @@ impl Loader<'_> {
         path: &Path,
         src: &str,
         source_id: u32,
-    ) -> Result<File, CompileError> {
+    ) -> Result<Rc<Exports>, CompileError> {
         let file = contract_syntax::parse_source(src, source_id)?;
-        self.sources.imports.extend(file.uses.iter().cloned());
-        self.load_file(path, file)
-    }
-
-    fn load_file(&mut self, path: &Path, mut file: File) -> Result<File, CompileError> {
         contract_analyze::check_routes_root(&file, self.active.len() == 1)?;
-        let uses = std::mem::take(&mut file.uses);
+        self.sources.imports.extend(file.uses.iter().cloned());
+        let mut exports = Exports::new(&file, source_id as usize);
+        let uses = file.uses.clone();
+        self.files.push(file);
         let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        // A use merges the entire dependency. Subsequent names from that file
-        // need checking, but must not recursively expand its imports again.
-        // Keep only export names here, never a second transitive AST.
-        let mut merged: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+        let mut merged = HashSet::new();
         for u in &uses {
             validate_use_path(u)?;
             let target = dir.join(&u.path);
@@ -146,12 +144,8 @@ impl Loader<'_> {
                     u,
                 ));
             }
-            if let Some(names) = merged.get(&key) {
-                check_use_name(u, names.contains(&u.name))?;
-                continue;
-            }
             let used = if let Some(cached) = self.cache.get(&key) {
-                cached.clone()
+                Rc::clone(cached)
             } else {
                 let used_src = std::fs::read_to_string(&key).map_err(|e| {
                     use_error(
@@ -167,33 +161,49 @@ impl Loader<'_> {
                 })?;
                 let source_id = self.sources.paths.len() as u32;
                 self.sources.paths.push(key.clone());
-                let used = contract_syntax::parse_source(&used_src, source_id)?;
-                self.sources.imports.extend(used.uses.iter().cloned());
-                self.cache.insert(key.clone(), used.clone());
+                self.active.push(key.clone());
+                let used = self.load_source(&key, &used_src, source_id)?;
+                self.active.pop();
+                self.cache.insert(key.clone(), Rc::clone(&used));
                 used
             };
-            self.active.push(key.clone());
-            let used = self.load_file(&key, used)?;
-            self.active.pop();
-            let known = used.components.iter().any(|c| c.name == u.name)
-                || used.shapes.iter().any(|s| s.name == u.name)
-                || used.styles.iter().any(|s| s.name == u.name)
-                || used.fns.iter().any(|f| f.name == u.name);
-            check_use_name(u, known)?;
-            if uses.len() > 1 {
-                let names = used
-                    .components
-                    .iter()
-                    .map(|c| c.name.clone())
-                    .chain(used.shapes.iter().map(|s| s.name.clone()))
-                    .chain(used.styles.iter().map(|s| s.name.clone()))
-                    .chain(used.fns.iter().map(|f| f.name.clone()))
-                    .collect();
-                merged.insert(key, names);
+            check_use_name(u, used.contains(&self.files, &u.name))?;
+            if merged.insert(key) {
+                exports.merge(&used, &self.files, u)?;
             }
-            merge(&mut file, used, u)?;
         }
-        Ok(file)
+        Ok(Rc::new(exports))
+    }
+
+    fn materialize(&mut self, exports: &Exports) -> File {
+        if self.files.len() == 1 {
+            let mut file = self.files.pop().unwrap();
+            file.uses.clear();
+            return file;
+        }
+        let mut names = NameSpans::default();
+        for file in &mut self.files {
+            names.names.extend(std::mem::take(&mut file.names.names));
+            names
+                .sources
+                .extend(std::mem::take(&mut file.names.sources));
+        }
+        macro_rules! declarations {
+            ($field:ident) => {
+                take_declarations(&mut self.files, &exports.$field, |file| &mut file.$field)
+            };
+        }
+        File {
+            names,
+            routes: self.files[0].routes.take(),
+            tests: std::mem::take(&mut self.files[0].tests),
+            uses: Vec::new(),
+            fonts: declarations!(fonts),
+            shapes: declarations!(shapes),
+            styles: declarations!(styles),
+            fns: declarations!(fns),
+            components: declarations!(components),
+        }
     }
 }
 
@@ -252,52 +262,126 @@ fn validate_use_path(u: &UseDecl) -> Result<(), CompileError> {
     Ok(())
 }
 
-fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
-    into.names.names.extend(from.names.names);
-    into.names.sources.extend(from.names.sources);
-    let dup = |what: &str, name: &str| {
-        use_error(
-            "contract-use-duplicate",
-            format!("`use {}` brings a {what} `{name}` that this file already has, declared differently", u.name),
-            u,
-        )
-    };
-    for f in from.fonts {
-        match into.fonts.iter().find(|x| x.name == f.name) {
-            Some(x) if same_declaration(x, &f) => {}
-            Some(_) => return Err(dup("font", &f.name)),
-            None => into.fonts.push(f),
+// (source identity, declaration index within that source's namespace).
+type Declaration = (usize, usize);
+struct Exports {
+    fonts: Vec<Declaration>,
+    shapes: Vec<Declaration>,
+    styles: Vec<Declaration>,
+    fns: Vec<Declaration>,
+    components: Vec<Declaration>,
+}
+impl Exports {
+    fn new(file: &File, source: usize) -> Self {
+        let indices = |len| (0..len).map(|index| (source, index)).collect();
+        Self {
+            fonts: indices(file.fonts.len()),
+            shapes: indices(file.shapes.len()),
+            styles: indices(file.styles.len()),
+            fns: indices(file.fns.len()),
+            components: indices(file.components.len()),
         }
     }
-    for s in from.shapes {
-        match into.shapes.iter().find(|x| x.name == s.name) {
-            Some(x) if same_declaration(x, &s) => {}
-            Some(_) => return Err(dup("shape", &s.name)),
-            None => into.shapes.push(s),
-        }
+
+    fn contains(&self, files: &[File], name: &str) -> bool {
+        self.components
+            .iter()
+            .any(|&(s, i)| files[s].components[i].name == name)
+            || self
+                .shapes
+                .iter()
+                .any(|&(s, i)| files[s].shapes[i].name == name)
+            || self
+                .styles
+                .iter()
+                .any(|&(s, i)| files[s].styles[i].name == name)
+            || self.fns.iter().any(|&(s, i)| files[s].fns[i].name == name)
     }
-    for s in from.styles {
-        match into.styles.iter().find(|x| x.name == s.name) {
-            Some(x) if same_declaration(x, &s) => {}
-            Some(_) => return Err(dup("style", &s.name)),
-            None => into.styles.push(s),
+
+    fn merge(&mut self, from: &Self, files: &[File], u: &UseDecl) -> Result<(), CompileError> {
+        macro_rules! merge {
+            ($field:ident, $what:literal) => {
+                merge_declarations(
+                    files,
+                    &mut self.$field,
+                    &from.$field,
+                    |file| &file.$field,
+                    |decl| &decl.name,
+                    $what,
+                    u,
+                )?;
+            };
         }
+        merge!(fonts, "font");
+        merge!(shapes, "shape");
+        merge!(styles, "style");
+        merge!(fns, "fn");
+        merge!(components, "component");
+        Ok(())
     }
-    for f in from.fns {
-        match into.fns.iter().find(|x| x.name == f.name) {
-            Some(x) if same_declaration(x, &f) => {}
-            Some(_) => return Err(dup("fn", &f.name)),
-            None => into.fns.push(f),
-        }
+}
+
+fn merge_declarations<T: Clone + PartialEq + VisitSpans>(
+    files: &[File],
+    into: &mut Vec<Declaration>,
+    from: &[Declaration],
+    declarations: fn(&File) -> &[T],
+    name: fn(&T) -> &str,
+    what: &str,
+    u: &UseDecl,
+) -> Result<(), CompileError> {
+    if from.is_empty() {
+        return Ok(());
     }
-    for c in from.components {
-        match into.components.iter().find(|x| x.name == c.name) {
-            Some(x) if same_declaration(x, &c) => {}
-            Some(_) => return Err(dup("component", &c.name)),
-            None => into.components.push(c),
+    let mut existing = HashMap::with_capacity(into.len() + from.len());
+    for &(source, index) in into.iter() {
+        existing
+            .entry(name(&declarations(&files[source])[index]))
+            .or_insert((source, index));
+    }
+    for &(source, index) in from {
+        let incoming = &declarations(&files[source])[index];
+        match existing.get(name(incoming)) {
+            Some(&(s, i)) if (s, i) == (source, index)
+                || same_declaration(&declarations(&files[s])[i], incoming) => {}
+            Some(_) => return Err(use_error(
+                "contract-use-duplicate",
+                format!("`use {}` brings a {what} `{}` that this file already has, declared differently", u.name, name(incoming)),
+                u,
+            )),
+            None => {
+                into.push((source, index));
+                existing.insert(name(incoming), (source, index));
+            }
         }
     }
     Ok(())
+}
+
+// Each selected declaration appears once, so the final AST can take ownership
+// from its source instead of cloning the same syntax at every import edge.
+fn take_declarations<T>(
+    files: &mut [File],
+    selected: &[Declaration],
+    declarations: fn(&mut File) -> &mut Vec<T>,
+) -> Vec<T> {
+    let mut slots: Vec<Vec<Option<T>>> = files
+        .iter_mut()
+        .map(|file| {
+            std::mem::take(declarations(file))
+                .into_iter()
+                .map(Some)
+                .collect()
+        })
+        .collect();
+    selected
+        .iter()
+        .map(|&(source, index)| {
+            slots[source][index]
+                .take()
+                .expect("unique declaration identity")
+        })
+        .collect()
 }
 
 fn same_declaration<T: Clone + PartialEq + VisitSpans>(a: &T, b: &T) -> bool {

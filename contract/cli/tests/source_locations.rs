@@ -341,3 +341,47 @@ fn symlink_aliases_share_identity_and_still_detect_cycles() {
         "contract-use-cycle"
     );
 }
+
+#[test]
+fn overlapping_import_subgraphs_keep_transitive_exports_and_source_identity() {
+    let app = App::new("overlapping-dag");
+    for index in 0..28 {
+        let imports: String = [index + 1, index + 2]
+            .into_iter()
+            .filter(|next| *next < 28)
+            .map(|next| format!("use value{next} from \"./part{next}.contract\"\n"))
+            .collect();
+        app.write(
+            &format!("part{index}.contract"),
+            &format!("{imports}fn value{index}(): number = {index}\n"),
+        );
+    }
+    let source = "use value0 from \"./part0.contract\"\nuse value27 from \"./part1.contract\"\ncomponent App\n  view\n    text `${value0() + value27()}`\n";
+    let root = app.write("app.contract", source);
+    let imported = contract::compile_path(&root).unwrap();
+    let flat = contract::compile("fn value0(): number = 0\nfn value27(): number = 27\ncomponent App\n  view\n    text `${value0() + value27()}`\n").unwrap();
+    assert_eq!(imported.encode(), flat.encode());
+    let symbols: serde_json::Value =
+        serde_json::from_str(&contract::symbols_json(&root).unwrap()).unwrap();
+    let leaves: Vec<_> = symbols["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|definition| definition["name"] == "value27")
+        .collect();
+    assert_eq!(leaves.len(), 1);
+    assert_eq!(
+        leaves[0]["file"],
+        app.0
+            .join("part27.contract")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    let refused = source.replace("use value27 from", "use App from");
+    let error = contract::compile_path_source(&root, &refused).unwrap_err();
+    assert_eq!(error.id, "contract-use-unknown");
+    assert_eq!(error.span.line, 2);
+    assert_eq!(error.file.as_deref(), Some(root.as_path()));
+}
