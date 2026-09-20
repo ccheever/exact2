@@ -4,13 +4,14 @@
     "85": "0x3d943e409a0493be"
   },
   "saves": {
-    "continuation": "5e48162a4e3c959e83b205d74a78642b052de101033214e6099042026173f0de"
+    "continuation": "694d95cceda9f88d5c9234ccdd2c53b01bcde155ff3f2ff87203e3bda44adb08"
   },
   "game": "tally",
   "hosts": [
     "linux",
     "web"
   ],
-  "generated": "bun game/prove.mjs tally --hosts linux,web",
-  "at": "f1426ff018314ef084f9317c4382f0017846633a"
+  "generated": "bun game/prove.mjs tally --repin --hosts linux,web",
+  "at": "14227f40bc6b9321cd1dd4fd5d9d91b0de7415a3",
+  "reason": "K4 removes only the 16-byte WorldSurface envelope; checkpoint is the Sim save"
 }
