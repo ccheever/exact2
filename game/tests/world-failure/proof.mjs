@@ -13,6 +13,14 @@ const children=[];
 const s=await open({host:'web',onProcess:child=>children.push(child)});
 try {
   assert.equal((await s.state()).world[0].tick,1);
+  const firstTarget=await s.target('first-failure');
+  const firstState=()=>s.op({op:'state',...firstTarget,world:true});
+  const first=(await firstState()).world;
+  assert.equal(first.tick,0);assert.equal(first.failed,true);
+  assert.match(first.error,/tick 1.*fixture tick refused/);
+  assert.ok((await s.op({op:'tree',...firstTarget,world:true})).entities);
+  await assert.rejects(s.op({op:'clock',...firstTarget,world:true,ticks:1}),/fixture tick refused/);
+
   const target=await s.target('world');
   await assert.rejects(s.op({op:'clock',...target,world:true,ticks:216000}),/fixture tick refused/);
   const failed=(await s.state()).world[0];
@@ -33,7 +41,9 @@ try {
   assert.equal(restarted.tick,1);
   assert.equal(restarted.failed,false);
   assert.equal(restarted.ready,true);
-  console.log('PASS: unhashable failed world retains original error; state/tree/logs and page action survive; timed bind restarts (17 assertions)');
+  const recovered=(await firstState()).world;
+  assert.equal(recovered.tick,1);assert.equal(recovered.failed,false);
+  console.log('PASS: tick-1 bind retains inspection and restart; unhashable failed world retains original error; state/tree/logs and page action survive; timed bind restarts (25 assertions)');
 } finally {
   closeFilesystemReader();
   await s.close(); // SIGKILL the recorded browser process group, then await it.

@@ -135,7 +135,12 @@ pub fn bind_at(id: u32, text: &str, at: Option<f64>) -> bool {
     with(id, |e| {
         crate::binding::admit(text)?;
         let values = crate::binding::values(e.surface.as_ref(), text)?;
-        e.surface.bind(&values, at).map_err(|e| e.0)
+        e.surface.bind(&values, at).map_err(|e| e.0)?;
+        // A successful bind can retain an initialized, failed simulation.
+        if let Some(SurfaceError(error)) = e.surface.take_error() {
+            refuse(error);
+        }
+        Ok(())
     })
     .is_some()
 }
@@ -382,6 +387,52 @@ mod tests {
         assert!(error().contains("limit"));
         assert!(messages(id).is_none());
         assert!(error().contains("limit"));
+        unload();
+    }
+}
+
+#[cfg(test)]
+mod first_tick_tests {
+    use super::*;
+    #[derive(Default)]
+    struct Failed {
+        error: Option<SurfaceError>,
+    }
+    impl Surface for Failed {
+        fn render(
+            &mut self,
+            _: &crate::Frame,
+            _: &crate::wgpu::Device,
+            _: &crate::wgpu::Queue,
+            _: &crate::wgpu::TextureView,
+            _: crate::wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+        fn bind(&mut self, _: &[crate::Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            self.error = Some(SurfaceError("tick 1 original failure".into()));
+            Ok(())
+        }
+        fn take_error(&mut self) -> Option<SurfaceError> {
+            self.error.take()
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some("failed but inspectable".into())
+        }
+    }
+    #[test]
+    fn successful_bind_preserves_a_latched_tick_error_and_the_instance() {
+        static REGISTRY: Registry = Registry {
+            surfaces: &[("failed", 0, || Box::<Failed>::default())],
+            shaders: &[],
+        };
+        unload();
+        load_headless(&REGISTRY);
+        let id = create_headless("failed");
+        assert!(bind(id, "[]"));
+        assert_eq!(error(), "tick 1 original failure");
+        assert_eq!(agent(id, "{}"), "failed but inspectable");
+        assert!(error().is_empty());
         unload();
     }
 }

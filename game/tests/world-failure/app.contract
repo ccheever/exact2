@@ -13,6 +13,8 @@ component Failure
     column width="100%" height="100%"
       canvas surface=world(restart=restart) testId="world" width=300 height=100
         text `Tick ${hud.ticks}` testId="ticks"
+      canvas surface=world(restart=restart, first_tick=not restart) testId="first-failure" width=300 height=100
+        text "Tick-one failure remains inspectable"
       button testId="alive" press=click
         text `Clicks ${clicks}`
       button testId="restart" press=reset

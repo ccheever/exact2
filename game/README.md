@@ -732,7 +732,9 @@ omits it. Binding takes the first fixed tick and publishes immediately. Agent `s
 `Game::setup` and `Game::tick` for the optional kernel return `Result<(), DataError>`;
 propagate failures with `?`. `WorldSurface` reports a tick failure once through
 `take_error()`, retains `state.world.failed` and `error` for inspection, and refuses
-clock driving until restore. Failed ticks do not deliver partial publications.
+clock driving until restore or setup restart. A first-tick failure still binds the
+initialized world successfully, preserving the same inspection and recovery path
+through the web and native owned ABIs. Failed ticks do not deliver partial publications.
 
 The device-free adapter's checkpoint is exactly `Sim::save()`; its existing
 `Surface::carry` / `restore` signatures are unchanged. The adapter reads

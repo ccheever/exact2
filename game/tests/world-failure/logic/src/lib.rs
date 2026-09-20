@@ -4,6 +4,7 @@ pub struct Fails;
 #[derive(Default, Args)]
 pub struct Options {
     restart: bool,
+    first_tick: bool,
 }
 #[derive(Default, Component)]
 struct Marker;
@@ -21,8 +22,8 @@ impl Game for Fails {
         w.publish("ticks", 0u32)?;
         Ok(())
     }
-    fn tick(w: &mut World, _: &Input, _: &Options) -> Result<(), DataError> {
-        if w.tick() == 2 {
+    fn tick(w: &mut World, _: &Input, args: &Options) -> Result<(), DataError> {
+        if w.tick() == if args.first_tick { 0 } else { 2 } {
             w.despawn(
                 w.named("owner")
                     .ok_or_else(|| DataError::new("missing owner"))?,

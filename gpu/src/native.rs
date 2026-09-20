@@ -289,7 +289,19 @@ pub fn bind(id: u32, values: &str) -> u32 {
 
 /// Bind inputs at an optional host commit clock.
 pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> u32 {
-    match with(|m| m.bind_json(id, values, at_ms)) {
+    match with(|m| {
+        let bound = m.bind_json(id, values, at_ms);
+        if bound && OWNED.get() {
+            if let Some(error) = m
+                .instances
+                .get_mut(&id)
+                .and_then(|i| i.surface.take_error())
+            {
+                m.error = crate::native_owned::error(error.0);
+            }
+        }
+        bound
+    }) {
         Some(true) => 0,
         _ => 1,
     }

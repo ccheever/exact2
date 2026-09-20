@@ -224,7 +224,8 @@ fn oversized_returned_error_is_bounded_without_losing_failed_inspection() {
         }
     }
     let mut s = WorldSurface::<LargeError>::default();
-    assert!(s.bind(&[], Some(0.)).unwrap_err().0.contains("truncated"));
+    s.bind(&[], Some(0.))
+        .expect("an initialized failed world remains bound");
     assert!(s.take_error().unwrap().0.len() < 4200);
     assert!(s.take_error().is_none());
     let state: serde_json::Value =
@@ -514,4 +515,34 @@ fn live_host_retreat_is_zero_ticks_but_controlled_clock_stays_strict() {
         .unwrap()
         .contains("cannot retreat"));
     assert_eq!(s.carry().unwrap(), before);
+}
+
+#[test]
+fn native_owned_tick_one_failure_keeps_inspection_and_restart() {
+    use exact_gpu::native as abi;
+    static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("world", 2, || {
+            Box::<WorldSurface<failing::Fails>>::default()
+        })],
+        shaders: &[],
+    };
+    abi::load_owned(&REGISTRY);
+    let id = abi::create_headless("world");
+    assert_ne!(id, 0);
+    assert_eq!(abi::bind_at(id, "[false,true]", Some(0.)), 0);
+    assert!(abi::error().contains("fixture tick refused"));
+    assert!(abi::error().is_empty());
+    let state = abi::agent(id, r#"{"op":"state"}"#);
+    assert!(
+        state.contains("fixture tick refused") && state.contains(r#""failed":true"#),
+        "{state}"
+    );
+    assert!(abi::agent(id, r#"{"op":"tree"}"#).contains("entities"));
+    assert!(abi::agent(id, r#"{"op":"clock","ticks":1}"#).contains("fixture tick refused"));
+    assert!(abi::messages(id).is_none());
+    assert!(abi::published(id).is_none());
+    assert_eq!(abi::bind_at(id, "[true,false]", Some(1000.)), 0);
+    assert!(abi::agent(id, r#"{"op":"state"}"#).contains(r#""failed":false"#));
+    assert!(!abi::agent(id, r#"{"op":"clock","ticks":1}"#).contains("error"));
+    abi::unload();
 }

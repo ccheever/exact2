@@ -69,3 +69,25 @@ test('a resize before the first paced frame never advances ownership time', asyn
   f.paint(17);
   assert.equal(stamps.length,1, 'negative control: the paced frame still drives');
 });
+
+const failureJS=new URL('../../../game/tests/world-failure/dist/gpu.js',import.meta.url);
+(existsSync(failureJS)?test:test.skip)('baked tick-one failure stays bound through the web carrier and restarts',async()=>{
+  const module=await import(failureJS.href);
+  await module.default({module_or_path:readFileSync(new URL('gpu_bg.wasm',failureJS))});
+  module.gpu_unload();
+  const f=await fixture({gpu:{...module,gpu_load:undefined}});
+  try {
+    f.create(1,'world',{first_tick:true,restart:false});
+    const first=f.exact.gpu.agent(1,{op:'state'});
+    assert.equal(first?.world.failed,true,'creation must retain the initialized failed world');
+    assert.match(first.world.error,/tick 1.*fixture tick refused/);
+    assert.equal(first.world.tick,0);
+    assert.ok(f.exact.gpu.agent(1,{op:'tree'}).entities);
+    assert.match(f.exact.gpu.agent(1,{op:'clock',ticks:1}).error,/fixture tick refused/);
+    assert.equal(module.gpu_messages(f.exact.entries()[0].id),undefined);
+    assert.equal(module.gpu_published(f.exact.entries()[0].id),undefined);
+    f.exact.gpu.surface(1,'world',{first_tick:false,restart:true});
+    assert.equal(f.exact.gpu.agent(1,{op:'state'}).world.failed,false);
+    assert.equal(f.exact.gpu.agent(1,{op:'state'}).world.tick,1);
+  } finally {module.gpu_unload();}
+});

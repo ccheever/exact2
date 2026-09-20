@@ -465,8 +465,13 @@ impl<G: Game> Surface for WorldSurface<G> {
         #[cfg(not(target_arch = "wasm32"))]
         let bound = started.map(|_| std::time::Instant::now());
         if self.sim_mut().map_err(error)?.world().tick() == 0 {
-            self.run((1_000_000. / G::HZ as f64).ceil() / 1000.)
-                .map_err(error)?;
+            if let Err(e) = self.run((1_000_000. / G::HZ as f64).ceil() / 1000.) {
+                if self.failed.is_none() {
+                    return Err(error(e));
+                }
+                // Construction succeeded. Retain the failed simulation for inspection
+                // and recovery, reporting its first tick through take_error instead.
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         if let (Some(started), Some(bound)) = (started, bound) {
