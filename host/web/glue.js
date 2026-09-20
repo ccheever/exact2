@@ -760,6 +760,17 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
+        else if (op.name === "openURL") {
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
+            console.error("exact: openURL requires one string");
+          } else {
+            try {
+              const target = new URL(op.args[0]);
+              if (!["http:", "https:", "mailto:", "tel:"].includes(target.protocol)) throw Error("unsupported external URL scheme");
+              window.open(target.href, "_blank", "noopener,noreferrer");
+            } catch (error) { console.error("exact: openURL refused", String(error)); }
+          }
+        }
         else if (op.name === "copyText") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
             console.error("exact: copyText requires one string");
