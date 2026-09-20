@@ -226,10 +226,10 @@ fn typed_binary_args_versions_and_truncation_are_atomic() {
     args.read(&mut r).unwrap();
     assert_eq!(args.seed, 9_007_199_254_740_991);
     assert_eq!(args.text, "hello\0🌕");
-    for version in [0, 1, 2, 3, 4, 5, 6, 7, 9, 255] {
+    for version in [0, 1, 2, 3, 4, 5, 6, 7, 8, 255] {
         let mut bad = bytes.clone();
         bad[6] = version;
-        assert!(s.restore(&bad).unwrap_err().message.contains("EXSIM v8"));
+        assert!(s.restore(&bad).unwrap_err().message.contains("EXSIM v9"));
         assert_eq!(s.save().unwrap(), bytes);
     }
     for end in 0..bytes.len() {
@@ -566,4 +566,91 @@ fn driver_refuses_external_world_clock_replacement_before_work() {
     assert!(s.save().is_err());
     assert!(s.run(17.).is_err());
     assert_eq!(s.world().save(), before);
+}
+
+#[test]
+fn paused_absolute_and_delta_clocks_drop_time_and_edges() {
+    let run = |absolute| {
+        let mut s = Sim::<Counter>::new(Options::default()).unwrap();
+        s.input(InputEvent::Key {
+            code: "KeyA".into(),
+            down: true,
+            at_ms: 0.,
+        })
+        .unwrap();
+        s.run(1000.).unwrap();
+        s.bind(Options {
+            paused: true,
+            ..Options::default()
+        })
+        .unwrap();
+        for (down, at_ms) in [(false, 2000.), (true, 3000.), (false, 4000.)] {
+            s.input(InputEvent::Key {
+                code: "KeyA".into(),
+                down,
+                at_ms,
+            })
+            .unwrap();
+        }
+        if absolute {
+            s.advance_to(10_000.).unwrap();
+        } else {
+            s.run(9000.).unwrap();
+        }
+        assert_eq!(s.world().tick(), 60);
+        assert!(!s.input_state().held("add"));
+        assert!(!s.input_state().pressed("add"));
+        assert!(!s.input_state().released("add"));
+        s.bind(Options::default()).unwrap();
+        if absolute {
+            s.advance_to(10_017.).unwrap();
+        } else {
+            s.run(17.).unwrap();
+        }
+        assert_eq!(s.world().tick(), 61);
+        assert!(!s.input_state().pressed("add"));
+        let bytes = s.save().unwrap();
+        let mut fresh = Sim::<Counter>::from_save(&bytes).unwrap();
+        fresh.run(17.).unwrap();
+        s.run(17.).unwrap();
+        assert_eq!(fresh.save().unwrap(), s.save().unwrap());
+        bytes
+    };
+    assert_eq!(run(false), run(true));
+}
+
+#[test]
+fn reconcile_input_is_atomic_and_never_simulates() {
+    let mut s = Sim::<Counter>::new(Options::default()).unwrap();
+    s.input(InputEvent::Key {
+        code: "KeyA".into(),
+        down: true,
+        at_ms: 0.,
+    })
+    .unwrap();
+    s.run(17.).unwrap();
+    s.input(InputEvent::Key {
+        code: "KeyA".into(),
+        down: true,
+        at_ms: 99_999.,
+    })
+    .unwrap();
+    let before = s.save().unwrap();
+    let bad: Vec<_> = (0..65)
+        .map(|i| InputEvent::Key {
+            code: format!("{i}"),
+            down: true,
+            at_ms: 0.,
+        })
+        .collect();
+    assert!(s.reconcile_input(5000., &bad).is_err());
+    assert_eq!(s.save().unwrap(), before);
+    s.reconcile_input(5000., &[]).unwrap();
+    assert_eq!(s.world().tick(), 1);
+    assert!(!s.input_state().held("add"));
+    assert!(!s.input_state().pressed("add"));
+    assert!(!s.input_state().released("add"));
+    s.advance_to(5017.).unwrap();
+    assert_eq!(s.world().tick(), 2);
+    assert!(!s.input_state().held("add"));
 }

@@ -43,10 +43,11 @@ pub struct Sim<G: Game> {
     input: Input,
     queue: VecDeque<InputEvent>,
     world_us: i64,
+    caller_us: i64,
     paranoid: Paranoid,
     game: PhantomData<G>,
 }
-const MAGIC: &[u8] = b"EXSIM\0\x08";
+const MAGIC: &[u8] = b"EXSIM\0\x09";
 const MAX_TICKS: u64 = 216_000;
 fn micros(ms: f64) -> Result<i64, DataError> {
     if !ms.is_finite() || ms < 0. || ms > (i64::MAX / 1000) as f64 {
@@ -75,6 +76,7 @@ impl<G: Game> Sim<G> {
             input,
             queue: VecDeque::new(),
             world_us: 0,
+            caller_us: 0,
             paranoid: Paranoid::Off,
             game: PhantomData,
         })
@@ -112,6 +114,7 @@ impl<G: Game> Sim<G> {
             self.input = next.input;
             self.queue = next.queue;
             self.world_us = 0;
+            self.caller_us = 0;
         } else {
             self.args = args;
         }
@@ -129,7 +132,7 @@ impl<G: Game> Sim<G> {
     }
     pub fn run(&mut self, elapsed_ms: f64) -> Result<u64, DataError> {
         let target = self
-            .world_us
+            .caller_us
             .checked_add(micros(elapsed_ms)?)
             .ok_or_else(|| DataError::new("clock overflow"))?;
         self.advance_us(target)
@@ -147,13 +150,23 @@ impl<G: Game> Sim<G> {
     }
     fn advance_us(&mut self, target_us: i64) -> Result<u64, DataError> {
         self.check_clock()?;
-        if target_us < self.world_us {
+        if target_us < self.caller_us {
             return Err(DataError::new("clock cannot retreat"));
         }
         if G::paused(&self.args) {
+            let due = self
+                .queue
+                .partition_point(|e| micros(e.at_ms()).unwrap() <= target_us);
+            let input = self.staged_input(due)?;
+            self.input = input;
+            self.input.clear_edges();
+            self.queue.drain(..due);
+            self.caller_us = target_us;
             return Ok(0);
         }
-        let target = (target_us as u128 * G::HZ as u128 / 1_000_000) as u64;
+        let offset = self.caller_us - self.world_us;
+        let simulation_us = target_us - offset;
+        let target = (simulation_us as u128 * G::HZ as u128 / 1_000_000) as u64;
         let count = target
             .checked_sub(self.world.tick())
             .ok_or_else(|| DataError::new("clock disagrees with world"))?;
@@ -162,15 +175,12 @@ impl<G: Game> Sim<G> {
         }
         for _ in 0..count {
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
-            let due = self
-                .queue
-                .partition_point(|e| (micros(e.at_ms()).unwrap() as u128 * G::HZ as u128) < end);
+            let due = self.queue.partition_point(|e| {
+                ((micros(e.at_ms()).unwrap() as i128 - offset as i128) * G::HZ as i128)
+                    < end as i128
+            });
             // Preflight the bounded batch before any boundary state changes.
-            let mut input = self.input.clone();
-            input.clear_edges();
-            for event in self.queue.iter().take(due) {
-                input.apply(event.clone())?;
-            }
+            let input = self.staged_input(due)?;
             let before = self.world.observation_hash();
             self.world.begin_tick();
             self.input = input;
@@ -179,6 +189,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans()?;
             self.world.step_clock();
             self.world_us = (self.world.tick() as u128 * 1_000_000).div_ceil(G::HZ as u128) as i64;
+            self.caller_us = self.world_us + offset;
             if self.paranoid != Paranoid::Off {
                 let pending = self.world.published_pending.get();
                 let hash = self.world.hash();
@@ -200,8 +211,34 @@ impl<G: Game> Sim<G> {
             }
             self.world.observe(before);
         }
-        self.world_us = target_us;
+        self.world_us = simulation_us;
+        self.caller_us = target_us;
         Ok(count)
+    }
+    fn staged_input(&self, due: usize) -> Result<Input, DataError> {
+        let mut input = self.input.clone();
+        input.clear_edges();
+        for event in self.queue.iter().take(due) {
+            input.apply(event.clone())?;
+        }
+        Ok(input)
+    }
+    /// Replace held input and rebase caller time without a tick. Clears all queued
+    /// events and edges; at most 1024 events describing the complete held state.
+    pub fn reconcile_input(&mut self, clock_ms: f64, held: &[InputEvent]) -> Result<(), DataError> {
+        let caller_us = micros(clock_ms)?;
+        if held.len() > 1024 {
+            return Err(DataError::new("input reconciliation limit (1024)"));
+        }
+        let mut input = Input::new(G::ACTIONS)?;
+        for event in held {
+            input.apply(event.clone())?;
+        }
+        input.clear_edges();
+        self.input = input;
+        self.queue.clear();
+        self.caller_us = caller_us;
+        Ok(())
     }
     /// Adapter inputs only; no display pacing, look-ahead or frame policy.
     pub fn alpha_inputs(&self) -> (u64, u32, u32) {
@@ -226,7 +263,7 @@ impl<G: Game> Sim<G> {
                 return Err(DataError::new("paused simulation cannot settle"));
             }
             let next = ((self.world.tick() as u128 + 1) * 1_000_000).div_ceil(G::HZ as u128) as i64;
-            self.advance_us(next)?;
+            self.advance_us(next + self.caller_us - self.world_us)?;
         }
         if self.world.quiescent() && self.queue.is_empty() {
             Ok(self.world.tick() - start)
@@ -234,11 +271,11 @@ impl<G: Game> Sim<G> {
             Err(DataError::new("settle tick budget exhausted"))
         }
     }
-    /// EXSIM v8: identity → typed args → schema → world → driver/delivery data.
+    /// EXSIM v9: identity → typed args → schema → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.check_clock()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
-        w.begin_seq(9);
+        w.begin_seq(10);
         w.item();
         w.string(G::ID);
         w.item();
@@ -265,6 +302,8 @@ impl<G: Game> Sim<G> {
         // Two streamed fields share one sequence item; journal owns their framing.
         self.world.write_journal(&mut w);
         w.end_seq();
+        w.item();
+        self.caller_us.write(&mut w);
         w.end_seq();
         let bytes = w.finish();
         if bytes.len() > 128 * 1024 * 1024 {
@@ -295,6 +334,7 @@ impl<G: Game> Sim<G> {
         self.input = next.input;
         self.queue = next.queue;
         self.world_us = next.world_us;
+        self.caller_us = next.caller_us;
         Ok(())
     }
     fn candidate(bytes: &[u8], live: Option<&World>) -> Result<Self, DataError> {
@@ -303,7 +343,7 @@ impl<G: Game> Sim<G> {
         }
         let payload = bytes
             .strip_prefix(MAGIC)
-            .ok_or_else(|| DataError::new("unsupported Sim save version; expected EXSIM v8"))?;
+            .ok_or_else(|| DataError::new("unsupported Sim save version; expected EXSIM v9"))?;
         let mut r = bin::Decoder::with_budget(payload, 256 * 1024 * 1024);
         r.begin_seq()?;
         fn item(r: &mut dyn Reader) -> Result<(), DataError> {
@@ -366,6 +406,12 @@ impl<G: Game> Sim<G> {
         if r.item()? {
             return Err(DataError::new("extra journal data"));
         }
+        item(&mut r)?;
+        let mut caller_us = 0i64;
+        caller_us.read(&mut r)?;
+        if caller_us < 0 {
+            return Err(DataError::new("invalid caller clock"));
+        }
         if r.item()? {
             return Err(DataError::new("extra Sim save data"));
         }
@@ -376,6 +422,7 @@ impl<G: Game> Sim<G> {
             input,
             queue: queue.into(),
             world_us,
+            caller_us,
             paranoid: Paranoid::Off,
             game: PhantomData,
         })
