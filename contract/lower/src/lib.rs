@@ -1319,32 +1319,8 @@ impl<'a> Lowerer<'a> {
                 // prop names the real action here: its arity is checked now,
                 // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
                 let params = self.root.actions[ai].params.len();
-                let payload = if event == "transformgeometry" {
-                    4
-                } else if event == "transformrelease" {
-                    6
-                } else if matches!(event, "scroll" | "pan" | "heightrelease" | "reorderdrop") {
-                    2
-                } else {
-                    usize::from(matches!(
-                        event,
-                        "change"
-                            | "key"
-                            | "hover"
-                            | "message"
-                            | "timeupdate"
-                            | "durationchange"
-                            | "error"
-                            | "navigate"
-                    ))
-                };
-                let valid = if matches!(event, "reachstart" | "reachend") {
-                    args.is_empty() && params == 0
-                } else if event == "navigate" {
-                    args.is_empty() && params <= 1
-                } else {
-                    args.len() + payload == params
-                };
+                let valid = contract_analyze::handler_arity(event, args.len())
+                    .is_some_and(|range| range.contains(&params));
                 if !valid {
                     return err(
                         "lower-handler-arity",

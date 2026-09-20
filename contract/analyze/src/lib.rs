@@ -14,9 +14,20 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod arity;
+
 use contract_syntax::{Component, Expr, File, Node, Span, Stmt};
 use contract_types::{Ref, Scope, Ty, Types};
 use std::collections::BTreeSet;
+
+/// Another authored location needed to understand a rejection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Related {
+    /// Original source identity and token range.
+    pub span: Span,
+    /// Why this location is relevant.
+    pub note: String,
+}
 
 /// A typed rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,11 +38,17 @@ pub struct AnalyzeError {
     pub message: String,
     /// Where.
     pub span: Span,
+    /// Other declarations or bindings involved in this rejection.
+    pub related: Vec<Related>,
 }
 
 impl std::fmt::Display for AnalyzeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
+        write!(f, "{} [{}] {}", self.span, self.id, self.message)?;
+        for related in &self.related {
+            write!(f, "\n  {}: {}", related.span, related.note)?;
+        }
+        Ok(())
     }
 }
 
@@ -40,6 +57,7 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
         id,
         message: message.into(),
         span,
+        related: Vec::new(),
     })
 }
 
@@ -87,6 +105,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         id: e.id,
         message: e.message,
         span: e.span,
+        related: Vec::new(),
     })?;
     for (ci, c) in file.components.iter().enumerate() {
         let ct = &types.components[ci];
@@ -96,6 +115,7 @@ pub fn check(file: &File, types: &Types) -> Result<Analysis, AnalyzeError> {
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
+    arity::check(file, types, &expanded.root)?;
     Ok(Analysis {})
 }
 
@@ -234,6 +254,25 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
     }
 }
 
+/// The permitted action parameter counts after an event appends its payload.
+/// `None` means that this event forbids the supplied explicit arguments.
+/// Analysis and lowering share this rule, including navigate's optional payload.
+pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusive<usize>> {
+    if matches!(attr, "reachstart" | "reachend") {
+        return (given == 0).then_some(0..=0);
+    }
+    if attr == "navigate" {
+        return (given == 0).then_some(0..=1);
+    }
+    let payload = match attr {
+        "transformgeometry" => 4,
+        "transformrelease" => 6,
+        "scroll" | "pan" | "heightrelease" | "reorderdrop" => 2,
+        _ => usize::from(handler_payload(attr).is_some()),
+    };
+    Some(given + payload..=given + payload)
+}
+
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
     for n in nodes {
         match n {
@@ -340,22 +379,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
     }
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if matches!(r, Ref::Action(_)) {
-        let payload = if attr == "transformgeometry" {
-            4
-        } else if attr == "transformrelease" {
-            6
-        } else if matches!(attr, "scroll" | "pan" | "heightrelease" | "reorderdrop") {
-            2
-        } else {
-            usize::from(handler_payload(attr).is_some())
-        };
-        let valid = if matches!(attr, "reachstart" | "reachend") {
-            given == 0 && params.is_empty()
-        } else if attr == "navigate" {
-            given == 0 && params.len() <= 1
-        } else {
-            given + payload == params.len()
-        };
+        let valid = handler_arity(attr, given).is_some_and(|range| range.contains(&params.len()));
         if !valid {
             return err(
                 "analyze-handler-arity",

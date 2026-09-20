@@ -145,6 +145,7 @@ pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
         message: e.to_string(),
         span: Span::default(),
         file: Some(path.into()),
+        related: Box::new([]),
     })?;
     let root = path
         .parent()
@@ -157,6 +158,7 @@ pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
             message: e.to_string(),
             span: Span::default(),
             file: Some(path.into()),
+            related: Box::new([]),
         })?;
     let (file, sources) = sources::load(path, &src, &root)?;
     let types = if file.components.is_empty() {

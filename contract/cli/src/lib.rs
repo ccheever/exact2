@@ -70,6 +70,17 @@ impl From<RunnerError> for BakeError {
 /// The viewport the lint lays the first frame out at: a phone, in points.
 pub const LINT_VIEWPORT: (f32, f32) = (390.0, 844.0);
 
+/// A related authored location, with its own independently resolved file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RelatedLocation {
+    /// Original token range and compilation-local file identity.
+    pub span: Span,
+    /// Resolved source path, absent for standalone source text.
+    pub file: Option<PathBuf>,
+    /// Why this declaration or binding is relevant.
+    pub note: String,
+}
+
 /// Any rejection from any pass, with its stable id and span.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
@@ -83,13 +94,15 @@ pub struct CompileError {
     pub span: Span,
     /// Resolved file path, absent only when compiling standalone source text.
     pub file: Option<PathBuf>,
+    /// Other authored declarations or bindings involved in this rejection.
+    pub related: Box<[RelatedLocation]>,
 }
 
 impl CompileError {
     /// A machine-readable diagnostic (LLP 1035.005 D2). Columns are one-based
     /// UTF-8 byte offsets with an exclusive end; zero means no source range.
-    /// Standalone source has a null file. Related locations are empty until a
-    /// compiler pass supplies them; no location is guessed from message text.
+    /// Standalone source has a null file. Every related location owns its file;
+    /// no location is guessed from message text.
     pub fn to_json(&self) -> String {
         serde_json::json!({
             "id": self.id,
@@ -98,7 +111,13 @@ impl CompileError {
             "line": self.span.line,
             "col": self.span.col,
             "end_col": self.span.end_col,
-            "related": [],
+            "related": self.related.iter().map(|related| serde_json::json!({
+                "file": related.file.as_ref().map(|file| file.to_string_lossy()),
+                "line": related.span.line,
+                "col": related.span.col,
+                "end_col": related.span.end_col,
+                "note": related.note,
+            })).collect::<Vec<_>>(),
         })
         .to_string()
     }
@@ -109,7 +128,15 @@ impl std::fmt::Display for CompileError {
         if let Some(file) = &self.file {
             write!(f, "{}:", file.display())?;
         }
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
+        write!(f, "{} [{}] {}", self.span, self.id, self.message)?;
+        for related in self.related.iter() {
+            write!(f, "\n  ")?;
+            if let Some(file) = &related.file {
+                write!(f, "{}:", file.display())?;
+            }
+            write!(f, "{}: {}", related.span, related.note)?;
+        }
+        Ok(())
     }
 }
 
@@ -125,6 +152,7 @@ macro_rules! from_pass {
                     message: e.message,
                     span: e.span,
                     file: None,
+                    related: Box::new([]),
                 }
             }
         }
@@ -133,7 +161,26 @@ macro_rules! from_pass {
 
 from_pass!(contract_syntax::SyntaxError, "syntax");
 from_pass!(contract_types::TypeError, "types");
-from_pass!(contract_analyze::AnalyzeError, "analyze");
+impl From<contract_analyze::AnalyzeError> for CompileError {
+    fn from(error: contract_analyze::AnalyzeError) -> Self {
+        Self {
+            pass: "analyze",
+            id: error.id.into(),
+            message: error.message,
+            span: error.span,
+            file: None,
+            related: error
+                .related
+                .into_iter()
+                .map(|related| RelatedLocation {
+                    span: related.span,
+                    file: None,
+                    note: related.note,
+                })
+                .collect(),
+        }
+    }
+}
 from_pass!(contract_lower::LowerError, "lower");
 
 /// Compile one source text to a validated plan. A text has no path, so a
@@ -151,6 +198,7 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
             ),
             span: u.span,
             file: None,
+            related: Box::new([]),
         });
     }
     compile_file(file, None)
@@ -170,6 +218,7 @@ pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
         message: e.to_string(),
         span: Span::default(),
         file: Some(path.to_path_buf()),
+        related: Box::new([]),
     })?;
     compile_path_source(path, &src)
 }
@@ -188,6 +237,7 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         message: format!("{}: {e}", source_root.display()),
         span: Span::default(),
         file: Some(path.to_path_buf()),
+        related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
     let mut plan = compile_file(file, Some(&app_root)).map_err(|e| sources.resolve(e))?;
@@ -198,6 +248,7 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
             message,
             span: Span::default(),
             file: Some(path.to_path_buf()),
+            related: Box::new([]),
         })?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
             return Err(CompileError {
@@ -209,6 +260,7 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
                 ),
                 span: Span::default(),
                 file: Some(path.to_path_buf()),
+                related: Box::new([]),
             });
         }
         plan.app_id = manifest.id;

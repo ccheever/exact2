@@ -40,6 +40,7 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
         message,
         span: contract_syntax::Span::default(),
         file: file.map(Into::into),
+        related: Box::new([]),
     }
 }
 

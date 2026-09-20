@@ -72,8 +72,9 @@ an edge to each matching declaration; dynamic IDs have no static target.
 
 `build --json` writes one diagnostics array to stdout: `[]` on success, or a
 stable `id`, `message`, original `file`, `line`, `col`, `end_col`, and `related`
-array per refusal. Compilation currently returns the first refusal; related
-locations remain empty. Locations use the same byte columns as symbols; zero
+array per refusal. Compilation returns the first refusal. Action-interface
+mismatches link the invocation, declaration and caller binding, each with its
+own source file, including forwarded props and injected actions. Locations use the same byte columns as symbols; zero
 means no source range, and a null file means no file is associated. No prose is
 mixed into JSON, including argument and output-write failures. Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
