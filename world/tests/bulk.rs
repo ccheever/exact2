@@ -124,41 +124,19 @@ fn matching_numeric_kind_still_refuses_partial_elements() {
 }
 
 #[test]
-fn encoder_refuses_small_wire_values_with_excessive_decoded_backing() {
-    // 600k absent options occupy only 600k wire bytes but their Vec backing
-    // exceeds 256 MiB at the decoder's geometric growth boundary.
+fn saving_does_not_preprove_loadability() {
+    // A compact save can exceed a particular reader's resident-byte budget.
     let values: Vec<Option<[u64; 32]>> = (0..600_000).map(|_| None).collect();
-    assert!(exact_world::bin::to_vec(&values).is_err());
+    let bytes = exact_world::bin::to_vec(&values).unwrap();
+    assert!(bin::from_slice_in::<Vec<Option<[u64; 32]>>>(
+        &bytes,
+        Some(&exact_world::data::LoadBudget::new(1 << 20))
+    )
+    .is_err());
     let small = vec![Some([7u64; 32])];
     let bytes = exact_world::bin::to_vec(&small).unwrap();
     assert_eq!(
         exact_world::bin::from_slice::<Vec<Option<[u64; 32]>>>(&bytes).unwrap(),
         small
     );
-}
-
-#[test]
-fn bulk_hash_and_encoder_share_the_decoded_allowance_boundary() {
-    use exact_world::{
-        data::{Bulk, MAX_LOAD_BYTES},
-        Writer,
-    };
-    for value in [
-        Bulk::U8(&[1, 2, 3]),
-        Bulk::U16(&[1, 2, 3]),
-        Bulk::U32(&[1, 2, 3]),
-        Bulk::F32(&[1., 2., 3.]),
-    ] {
-        let (_, len) = value.shape();
-        for remaining in [len * 2 - 1, len * 2] {
-            let mut encoder = bin::Encoder::default();
-            let mut hasher = hash::Hasher::default();
-            encoder.claim_decoded(MAX_LOAD_BYTES - remaining);
-            hasher.claim_decoded(MAX_LOAD_BYTES - remaining);
-            encoder.bytes(value);
-            hasher.bytes(value);
-            assert_eq!(encoder.finish().is_ok(), remaining == len * 2);
-            assert_eq!(hasher.finish().is_ok(), remaining == len * 2);
-        }
-    }
 }

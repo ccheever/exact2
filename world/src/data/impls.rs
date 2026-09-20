@@ -118,15 +118,6 @@ impl<T: Data> Data for Vec<T> {
         bulk!(u16, U16);
         bulk!(u32, U32);
         bulk!(f32, F32);
-        w.claim_decoded(
-            if self.is_empty() {
-                0
-            } else {
-                self.len().max(4)
-            }
-            .saturating_mul(T::default_size())
-            .saturating_mul(2),
-        );
         write_slice(self, w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -207,7 +198,6 @@ where
         N.saturating_mul(T::default_size())
     }
     fn write(&self, w: &mut dyn Writer) {
-        w.claim_decoded(Self::default_size().saturating_mul(2));
         write_slice(self, w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -256,7 +246,6 @@ impl<T: Data> Data for Box<T> {
         crate::storage::boxed(T::read_new(r)?)
     }
     fn write(&self, w: &mut dyn Writer) {
-        w.claim_decoded(Self::default_size().saturating_mul(2));
         (**self).write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -274,7 +263,6 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
-            w.claim_decoded(64usize.saturating_add(T::default_size()));
             if w.stopped() {
                 break;
             }
@@ -301,7 +289,6 @@ macro_rules! tuple {
             fn inline_size() -> usize { 16usize $(.saturating_add($T::inline_size()))* }
             fn default_size() -> usize { 16usize $(.saturating_add($T::default_size()))* }
                     fn write(&self, w: &mut dyn Writer) {
-                w.claim_decoded(Self::default_size().saturating_mul(2));
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
             fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {

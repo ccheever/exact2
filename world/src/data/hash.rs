@@ -21,7 +21,6 @@ pub struct Hasher {
     limit: u64,
     refused: bool,
     depth: usize,
-    decoded: usize,
 }
 impl Default for Hasher {
     fn default() -> Self {
@@ -33,7 +32,6 @@ impl Default for Hasher {
             limit: u64::MAX,
             refused: false,
             depth: 0,
-            decoded: 0,
         }
     }
 }
@@ -102,17 +100,12 @@ impl Hasher {
     fn enter(&mut self) {
         self.depth += 1;
         self.refused |= self.depth > 256;
-        self.claim_decoded(64);
     }
     fn leave(&mut self) {
         self.depth = self.depth.saturating_sub(1);
     }
 }
 impl Writer for Hasher {
-    fn claim_decoded(&mut self, bytes: usize) {
-        self.decoded = self.decoded.saturating_add(bytes);
-        self.refused |= self.decoded > super::MAX_LOAD_BYTES;
-    }
     fn reject(&mut self, _: &str) {
         self.refused = true;
     }
@@ -122,7 +115,6 @@ impl Writer for Hasher {
 
     fn bytes(&mut self, value: super::Bulk<'_>) {
         let (kind, len) = value.shape();
-        self.claim_decoded(len.saturating_mul(2));
         if !self.allow(len.saturating_add(9)) {
             return;
         }
@@ -158,7 +150,6 @@ impl Writer for Hasher {
     }
     fn string(&mut self, s: &str) {
         self.refused |= s.len() > super::MAX_LOAD_STRING;
-        self.claim_decoded(s.len());
         self.raw(&[6]);
         self.raw(&(s.len() as u64).to_le_bytes());
         self.raw(s.as_bytes());

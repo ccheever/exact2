@@ -7,7 +7,6 @@ impl Data for Free {
     fn write(&self, w: &mut dyn Writer) {
         w.begin_seq(self.0.len());
         for i in &self.0 {
-            w.claim_decoded(64);
             if w.stopped() {
                 break;
             }

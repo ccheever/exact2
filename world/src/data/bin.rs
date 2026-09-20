@@ -35,7 +35,6 @@ pub struct Encoder {
     bytes: Vec<u8>,
     names: BTreeMap<std::borrow::Cow<'static, str>, u64>,
     limit: usize,
-    decoded: usize,
     budget: Option<Budget>,
     depth: usize,
     error: Option<DataError>,
@@ -58,7 +57,6 @@ impl Encoder {
             bytes: Vec::new(),
             names: BTreeMap::new(),
             limit,
-            decoded: 0,
             budget: None,
             depth: 0,
             error: None,
@@ -115,7 +113,6 @@ impl Encoder {
         self.bytes.extend_from_slice(bytes);
     }
     fn enter(&mut self) {
-        self.claim_decoded(64);
         self.depth += 1;
         if self.depth > 256 {
             self.fail("nesting exceeds 256");
@@ -146,7 +143,6 @@ impl Encoder {
         if let Some(&i) = self.names.get(s.as_ref()) {
             self.var(i + 1);
         } else {
-            self.claim_decoded(64);
             if !self.allocation(super::limits::map_bytes::<std::borrow::Cow<str>, u64>()) {
                 return;
             }
@@ -162,18 +158,12 @@ impl Writer for Encoder {
     fn reject(&mut self, message: &str) {
         self.fail(message);
     }
-    fn claim_decoded(&mut self, bytes: usize) {
-        self.decoded = self.decoded.saturating_add(bytes);
-        if self.decoded > MAX_LOAD_BYTES {
-            self.fail("encoded value exceeds decode allocation budget");
-        }
-    }
+
     fn stopped(&self) -> bool {
         self.error.is_some()
     }
     fn bytes(&mut self, value: super::Bulk<'_>) {
         let (kind, len) = value.shape();
-        self.claim_decoded(len.saturating_mul(2));
         if !self.allow_bytes(len) {
             return;
         }
@@ -208,7 +198,6 @@ impl Writer for Encoder {
         }
     }
     fn string(&mut self, s: &str) {
-        self.claim_decoded(s.len());
         self.append(&[6]);
         self.text(s);
     }
@@ -226,7 +215,6 @@ impl Writer for Encoder {
         self.append(&[8]);
     }
     fn field(&mut self, name: &'static str) {
-        self.claim_decoded(64usize.saturating_add(name.len()));
         self.append(&[1]);
         self.name(name.into());
     }
@@ -237,7 +225,6 @@ impl Writer for Encoder {
         if self.stopped() {
             return;
         }
-        self.claim_decoded(64usize.saturating_add(name.len()));
         self.append(&[1]);
         if self.allocation(name.len()) {
             self.name(name.to_owned().into());
@@ -248,7 +235,6 @@ impl Writer for Encoder {
         self.append(&[0]);
     }
     fn variant(&mut self, name: &'static str, index: u32) {
-        self.claim_decoded(name.len());
         self.enter();
         self.append(&[9]);
         self.var(index.into());

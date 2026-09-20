@@ -100,8 +100,16 @@ struct RecordWriter {
     spent: usize,
 }
 impl RecordWriter {
+    fn claim(&mut self, bytes: usize) {
+        self.spent = self.spent.saturating_add(bytes);
+        assert!(
+            self.spent <= exact_world::json::LIMIT,
+            "publication traversal limit"
+        );
+    }
+
     fn push(&mut self, value: Published) {
-        self.claim_decoded(64);
+        self.claim(64);
         match self.stack.last_mut() {
             Some(Published::Object(fields)) => {
                 fields.insert(self.fields.pop().expect("record field"), value);
@@ -122,13 +130,6 @@ impl RecordWriter {
     }
 }
 impl Writer for RecordWriter {
-    fn claim_decoded(&mut self, bytes: usize) {
-        self.spent = self.spent.saturating_add(bytes);
-        assert!(
-            self.spent <= exact_world::json::LIMIT,
-            "publication traversal limit"
-        );
-    }
     fn unit(&mut self) {
         self.push(Published::Unit);
     }
@@ -157,17 +158,17 @@ impl Writer for RecordWriter {
         }));
     }
     fn string(&mut self, v: &str) {
-        self.claim_decoded(v.len());
+        self.claim(v.len());
         self.push(Published::Str(v.into()));
     }
     fn bytes(&mut self, value: exact_world::data::Bulk<'_>) {
-        self.claim_decoded(value.numbers().size_hint().0.saturating_mul(64));
+        self.claim(value.numbers().size_hint().0.saturating_mul(64));
         self.push(Published::List(
             value.numbers().map(Published::Number).collect(),
         ));
     }
     fn begin_seq(&mut self, len: usize) {
-        self.claim_decoded(len.saturating_mul(64));
+        self.claim(len.saturating_mul(64));
         self.begin(Published::List(Vec::with_capacity(len)));
     }
     fn item(&mut self) {}
@@ -181,7 +182,7 @@ impl Writer for RecordWriter {
         self.key(name);
     }
     fn key(&mut self, name: &str) {
-        self.claim_decoded(name.len());
+        self.claim(name.len());
         self.fields.push(name.into());
     }
     fn end_struct(&mut self) {

@@ -246,8 +246,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
             write += &format!(
-                "{write_pat} => {{ w.claim_decoded({}); w.variant({:?}, {index}); {} w.end_variant(); }},",
-                default_size(b),
+                "{write_pat} => {{ w.variant({:?}, {index}); {} w.end_variant(); }},",
                 clean(&arm.name),
                 write_body(b, &refs)
             );
@@ -280,7 +279,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     impl ::exact_world::Data for {name} {{
     const CHECK_DEFAULT_ACYCLIC: () = {{ {default_check} }};
     fn inline_size() -> ::core::primitive::usize {{ {inline_size} }}
-    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -338,12 +337,6 @@ fn write_body(b: &Body, access: &[String]) -> String {
             b.fields.iter().filter(|f| !f.skip).count()
         )
     };
-    for f in b.fields.iter().filter(|f| f.skip) {
-        s += &format!(
-            "w.claim_decoded(<{} as ::exact_world::Data>::default_size());",
-            f.ty
-        );
-    }
     for (f, a) in b.fields.iter().zip(access).filter(|(f, _)| !f.skip) {
         if named {
             s += &format!("w.field({:?});", clean(&f.name));

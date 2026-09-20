@@ -805,14 +805,6 @@ impl World {
     pub(crate) fn write(&self, w: &mut dyn Writer, delivery: bool) {
         w.begin_struct();
         w.field("state");
-        for slot in &self.state.slots {
-            if w.stopped() {
-                break;
-            }
-            if let Some(name) = &slot.name {
-                w.claim_decoded(512usize.saturating_add(name.len()));
-            }
-        }
         self.state.write(w);
         w.field("rng");
         self.rng.get().unwrap().write(w);

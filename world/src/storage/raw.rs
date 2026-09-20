@@ -11,7 +11,6 @@ use std::{
 
 struct Descriptor {
     layout: Layout,
-    wire_size: fn() -> usize,
     move_to: unsafe fn(*mut u8, *mut u8),
     swap: unsafe fn(*mut u8, *mut u8),
     drop_in_place: unsafe fn(*mut u8),
@@ -22,7 +21,6 @@ impl Descriptor {
     const fn of<C: Data>() -> Self {
         Self {
             layout: Layout::new::<C>(),
-            wire_size: C::default_size,
             // SAFETY: callers supply a live C with the matching layout and lease.
             move_to: |src, dst| unsafe { dst.cast::<C>().write(src.cast::<C>().read()) },
             swap: |a, b| unsafe {
@@ -244,19 +242,6 @@ impl RawStorage {
     }
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         let _lease = self.lease(false);
-        w.claim_decoded(
-            1024usize
-                .saturating_add((self.desc.wire_size)())
-                .saturating_add(self.pages.mask().len().saturating_mul(72))
-                .saturating_add(
-                    self.pages
-                        .mask()
-                        .iter()
-                        .filter(|mask| **mask != 0)
-                        .count()
-                        .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
-                ),
-        );
         w.begin_seq(self.len);
         for index in self.indices(None) {
             if w.stopped() {

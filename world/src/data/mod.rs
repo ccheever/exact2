@@ -148,8 +148,6 @@ pub trait Writer {
     fn reject(&mut self, message: &str) {
         panic!("{message}");
     }
-    /// Conservative decode-allocation admission; hashes and inspection ignore it.
-    fn claim_decoded(&mut self, _bytes: usize) {}
     fn stopped(&self) -> bool {
         false
     }
