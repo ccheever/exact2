@@ -221,7 +221,7 @@ reanchors retained session messages after restored game history and reports rese
 
 ### Saves, codecs and admission
 
-World saves remain **EXGAME v4**; simulation saves remain **EXSIM v9**. This lane
+World saves remain **EXGAME v4**; simulation saves remain **EXSIM v10**. This lane
 changes neither format nor generic Data/hash tags. Empty columns are omitted.
 EXSIM includes caller time separately from simulation time. Other envelope
 versions are refused, without migration.
@@ -557,3 +557,9 @@ print('Rust', rust, 'README', readme, 'manifests', manifests,
       'ALL HANDWRITTEN', rust + readme + manifests)
 PYCOUNT
 ```
+
+EXSIM v10 corrects lost publication delivery: byte 6 changes 09→0a, the outer
+sequence count at byte 8 changes 9→10, and one final boolean byte records pending
+delivery. EXGAME v4, hashes and all prior payload fields are unchanged. The frozen
+v9 inventory normalizes precisely these bytes; empty/pending/drained restore,
+from-save and carry have independent controls. v9 refuses; no migration ships.

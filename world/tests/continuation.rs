@@ -95,9 +95,15 @@ pub fn inventory() -> Vec<u8> {
     let mut out = Vec::new();
     for _ in 0..5 {
         let world = sim.world().save().unwrap();
-        let driver = sim.save().unwrap();
+        let mut driver = sim.save().unwrap();
         assert!(world.starts_with(b"EXGAME\0\x04"));
-        assert!(driver.starts_with(b"EXSIM\0\x09"));
+        assert!(driver.starts_with(b"EXSIM\0\x0a"));
+        // v10 adds only the pending bit: normalize the independently frozen v9
+        // continuation inventory while explicitly checking that new bit.
+        assert_eq!(driver.pop(), Some(u8::from(sim.world().tick() != 0)));
+        driver[6] = 9;
+        assert_eq!(driver[8], 10);
+        driver[8] = 9;
         out.extend_from_slice(&sim.world().hash().to_le_bytes());
         for bytes in [world, driver] {
             out.extend_from_slice(&(bytes.len() as u64).to_le_bytes());

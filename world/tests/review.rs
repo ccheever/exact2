@@ -409,3 +409,34 @@ fn erased_parent_edits_refuse_even_valid_reparenting() {
     let patch = bin::to_vec(&*w.get::<Parent>(child).unwrap()).unwrap();
     assert!(candidate.edit(Some(child), "Parent", &patch).is_err());
 }
+
+#[test]
+fn sim_checkpoints_preserve_empty_pending_and_drained_publications() {
+    for published in [false, true] {
+        for drained in [false, true] {
+            let s = Sim::<Board>::new(()).unwrap();
+            if published {
+                s.world().publish("score", 7u32);
+            }
+            if drained {
+                s.world().take_published();
+            }
+            let bytes = s.save().unwrap();
+            let mut fresh = Sim::<Board>::from_save(&bytes).unwrap();
+            for mode in 0..3 {
+                match mode {
+                    1 => fresh.restore(&bytes).unwrap(),
+                    2 => {
+                        fresh.carry(&bytes).unwrap();
+                    }
+                    _ => (),
+                }
+                assert_eq!(fresh.save().unwrap(), bytes);
+                assert_eq!(
+                    fresh.world().take_published().is_some(),
+                    published && !drained
+                );
+            }
+        }
+    }
+}

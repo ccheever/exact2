@@ -44,7 +44,7 @@ pub struct Sim<G: Game> {
     tick_failed: bool,
     game: PhantomData<G>,
 }
-const MAGIC: &[u8] = b"EXSIM\0\x09";
+const MAGIC: &[u8] = b"EXSIM\0\x0a";
 const MAX_TICKS: u64 = 216_000;
 fn micros(ms: f64) -> Result<i64, DataError> {
     if !ms.is_finite() || ms < 0. || ms > (i64::MAX / 1000) as f64 {
@@ -191,7 +191,6 @@ impl<G: Game> Sim<G> {
             self.world_us = next_world;
             self.caller_us = next_caller;
             if self.paranoid != Paranoid::Off {
-                let pending = self.world.published_pending.get();
                 let hash = self.world.hash();
                 let bytes = self.save()?;
                 if self.paranoid == Paranoid::FreshGame {
@@ -200,7 +199,6 @@ impl<G: Game> Sim<G> {
                 } else {
                     self.restore(&bytes)?;
                 }
-                self.world.published_pending.set(pending);
                 assert_eq!(
                     hash,
                     self.world.hash(),
@@ -287,12 +285,12 @@ impl<G: Game> Sim<G> {
             Err(DataError::new("settle tick budget exhausted"))
         }
     }
-    /// EXSIM v9: identity → typed args → world → driver/delivery data.
+    /// EXSIM v10: identity → typed args → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.check_clock()?;
         self.world.validate()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
-        w.begin_seq(9);
+        w.begin_seq(10);
         w.item();
         w.string(G::ID);
         w.item();
@@ -322,6 +320,8 @@ impl<G: Game> Sim<G> {
         w.end_seq();
         w.item();
         self.caller_us.write(&mut w);
+        w.item();
+        self.world.published_pending.get().write(&mut w);
         w.end_seq();
         w.finish()
     }
@@ -359,7 +359,7 @@ impl<G: Game> Sim<G> {
         }
         let payload = bytes
             .strip_prefix(MAGIC)
-            .ok_or_else(|| DataError::new("unsupported Sim save version; expected EXSIM v9"))?;
+            .ok_or_else(|| DataError::new("unsupported Sim save version; expected EXSIM v10"))?;
         let mut r = bin::Decoder::with_budget(payload, 256 * 1024 * 1024);
         r.begin_seq()?;
         r.required_item("incomplete Sim save")?;
@@ -411,6 +411,8 @@ impl<G: Game> Sim<G> {
         if caller_us < 0 {
             return Err(DataError::new("invalid caller clock"));
         }
+        r.required_item("missing publication delivery state")?;
+        world.published_pending.set(r.boolean()?);
         if r.item()? {
             return Err(DataError::new("extra Sim save data"));
         }
