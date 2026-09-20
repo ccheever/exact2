@@ -296,3 +296,37 @@ fn live_ticks_never_visit_components_and_settle_samples_each_boundary_once() {
     assert_eq!(sim.world().observation(), None);
     assert_eq!(VISITS.get(), 800_000);
 }
+
+#[test]
+fn unchanged_ownership_reuses_scratch_and_churn_reaps_reverse_chains() {
+    let mut w = World::new(60, 0);
+    let child = w.spawn(()).unwrap();
+    let middle = w.spawn(()).unwrap();
+    for _ in 2..200_000 {
+        w.spawn(()).unwrap();
+    }
+    let root = w.resolve("#199999").unwrap();
+    w.set_parent(child, Some(middle)).unwrap();
+    w.set_parent(middle, Some(root)).unwrap();
+    w.reap_orphans().unwrap();
+    let (_, counts) = counting::measure(|| {
+        for _ in 0..1000 {
+            w.reap_orphans().unwrap();
+        }
+    });
+    assert_eq!(counts, (0, 0));
+    w.despawn(root);
+    w.spawn(()).unwrap(); // Recycled slot must not rescue descendants.
+    w.reap_orphans().unwrap();
+    assert!(!w.contains(child));
+    assert!(!w.contains(middle));
+    let fresh = w.spawn(()).unwrap();
+    w.set_parent(fresh, Some(w.resolve("#199999").unwrap()))
+        .unwrap();
+    let (_, counts) = counting::measure(|| w.reap_orphans().unwrap());
+    assert_eq!(
+        counts,
+        (0, 0),
+        "changed ownership also reuses its high-water scratch"
+    );
+}

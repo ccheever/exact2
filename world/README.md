@@ -139,3 +139,9 @@ boundary and each subsequent boundary once. Ordinary ticks visit zero component
 values except those gameplay touches; ownership work is addressed separately.
 The 200,000-entity startup regression counts zero writes across 1,000 live ticks
 and 800,000 writes across three explicitly observed ticks (four boundaries).
+
+Ownership reaping gates on entity and Parent revisions. Unchanged ticks do no
+slot walk and allocate nothing. Changed boundaries reuse one byte per slot of
+scratch; each edge is followed at most twice through the Parent query (a page
+lookup costs O(log allocated pages)). Validation shares that scratch. A reversed
+chain at slot 199,999 and generation recycling exercise the destructive case.

@@ -40,16 +40,16 @@ impl World {
         Err(DataError::new("ownership traversal exceeds entity bound"))
     }
     // A three-colour walk visits each edge at most twice, including reverse chains.
-    fn ownership_status(&self) -> Result<Vec<u8>, DataError> {
+    fn ownership_status(&self) -> Result<std::cell::RefMut<'_, Vec<u8>>, DataError> {
         let count = self.state.slots.len();
         if count > crate::MAX_ENTITIES {
             return Err(DataError::new("ownership entity limit"));
         }
-        let mut parents = vec![None; count];
-        for (e, parent) in self.query::<&Parent>().iter() {
-            parents[e.index() as usize] = Some(parent.entity());
-        }
-        let mut status = vec![0u8; count];
+        let mut parents = self.query::<&Parent>();
+        let mut parent = |at| parents.get(self.entity_at(at)).map(|p| p.entity());
+        let mut status = self.ownership.borrow_mut();
+        status.resize(count, 0);
+        status.fill(0);
         for start in 0..count {
             if status[start] != 0 || !self.state.slots[start].alive {
                 continue;
@@ -63,7 +63,7 @@ impl World {
                     break status[at];
                 }
                 status[at] = 1;
-                match parents[at] {
+                match parent(at) {
                     None => break 2,
                     Some(parent) if !self.contains(parent) => break 3,
                     Some(parent) => at = parent.index() as usize,
@@ -72,7 +72,7 @@ impl World {
             at = start;
             while status[at] == 1 {
                 status[at] = result;
-                match parents[at] {
+                match parent(at) {
                     Some(p) if self.contains(p) => at = p.index() as usize,
                     _ => break,
                 }
@@ -97,10 +97,11 @@ impl World {
     }
     /// Despawn leaves descendants until this boundary. Reap in ascending slot order.
     pub fn reap_orphans(&mut self) -> Result<(), DataError> {
-        if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+        let key = (self.entities_revision(), self.revision::<Parent>());
+        if self.reaped == key || self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
             return Ok(());
         }
-        let status = self.ownership_status()?;
+        let mut status = self.ownership_status()?;
         if status
             .iter()
             .enumerate()
@@ -109,11 +110,15 @@ impl World {
             return Err(DataError::new("entity generation exhausted"));
         }
         self.change_room(status.iter().filter(|&&s| s == 3).count())?;
-        for (index, state) in status.into_iter().enumerate() {
+        let states = std::mem::take(&mut *status);
+        drop(status);
+        for (index, &state) in states.iter().enumerate() {
             if state == 3 {
                 self.despawn(self.entity_at(index));
             }
         }
+        *self.ownership.get_mut() = states;
+        self.reaped = (self.entities_revision(), self.revision::<Parent>());
         Ok(())
     }
 }
@@ -121,6 +126,22 @@ impl World {
 #[cfg(test)]
 mod budget_tests {
     use super::*;
+    #[test]
+    fn unchanged_boundary_does_not_visit_ownership_slots() {
+        let mut w = World::new(60, 0);
+        let root = w.spawn(()).unwrap();
+        let child = w.spawn(()).unwrap();
+        w.set_parent(child, Some(root)).unwrap();
+        w.reap_orphans().unwrap();
+        w.ownership.get_mut().fill(42);
+        for _ in 0..1000 {
+            w.reap_orphans().unwrap();
+        }
+        assert_eq!(*w.ownership.borrow(), [42, 42]);
+        w.despawn(root);
+        w.reap_orphans().unwrap();
+        assert!(!w.contains(child));
+    }
     #[test]
     fn orphan_generation_exhaustion_refuses_before_removing_any_child() {
         use std::panic::{catch_unwind, AssertUnwindSafe};

@@ -193,6 +193,8 @@ pub struct World {
     changes: VecDeque<crate::Change>,
     change_next: u64,
     observed: Option<(u64, bool)>,
+    ownership: RefCell<Vec<u8>>,
+    reaped: (u64, u64),
     poisoned: bool,
 }
 const SINGLETON: Entity = Entity {
@@ -235,6 +237,8 @@ impl World {
             changes: VecDeque::new(),
             change_next: 0,
             observed: None,
+            ownership: RefCell::new(Vec::new()),
+            reaped: (0, 0),
             poisoned: false,
         }
     }
@@ -801,7 +805,7 @@ impl World {
                 .state
                 .slots
                 .iter()
-                .any(|s| s.name.as_ref().is_some_and(|n| n.len() > 256))
+                .any(|s| s.name.as_ref().is_some_and(|n| n.len() > 256 || !s.alive))
         {
             return Err(DataError::new("world text/reason limit"));
         }
@@ -814,14 +818,6 @@ impl World {
             .map(|(i, _)| i as u32);
         if !free.eq(self.state.free.0.iter().copied()) {
             return Err(DataError::new("free list disagrees with entity table"));
-        }
-        if self
-            .state
-            .slots
-            .iter()
-            .any(|s| !s.alive && s.name.is_some())
-        {
-            return Err(DataError::new("dead entity has a name"));
         }
         Ok(())
     }
