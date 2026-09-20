@@ -18,12 +18,21 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Actual native list scrollport; measured rows are read from kernel layout.
-    pub fn list_viewport(&mut self, view: u32, geometry: exact_runner::ListViewport<'_>) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.list_viewport(view, geometry));
+    pub fn list_viewport(
+        &mut self,
+        view: u32,
+        geometry: exact_runner::ListViewport<'_>,
+        create_limit: Option<usize>,
+    ) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.list_viewport_within(view, geometry, create_limit)
+        });
         self.emit(out)
+    }
+
+    /// Whether the list's last report left budgeted work over: 1 or 0.
+    pub fn list_pending(&self, view: u32) -> u32 {
+        u32::from(self.host.as_ref().is_some_and(|h| h.list_pending(view)))
     }
 
     /// Resolve an opaque list key, or return the absent-index sentinel.

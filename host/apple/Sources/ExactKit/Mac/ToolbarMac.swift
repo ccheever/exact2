@@ -105,7 +105,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         defer { syncing = false }
         prepare()
         guard let window, presenter.root.window === window else { reset(); return }
-        let owners = presenter.views.values.filter {
+        let owners = presenter.carrying("toolbarPlacement").filter {
             $0.props["toolbarPlacement"] == "window" && $0.props["accessibilityRole"] == "toolbar"
                 && visible($0) && $0.window === window
         }

@@ -19,7 +19,7 @@ mod delivery;
 mod kept;
 mod lists;
 pub mod router;
-pub use lists::{ListTextPosition, ListViewport};
+pub use lists::{ListStatus, ListTextPosition, ListViewport};
 mod settlement;
 mod viewport;
 pub use carry::Carried;

@@ -353,7 +353,7 @@ final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
-    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32) -> Void)?
+    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var interacting: UInt32 = 0
     private var listGeometry: [UInt32: [Double]] = [:]
     private var listViews: [UInt32: NodeView] = [:]
@@ -392,7 +392,7 @@ final class Presenter {
                 + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
             if listGeometry[list.id] == stamp { continue }
             listGeometry[list.id] = stamp
-            onList?(list.id, top, height, width, origin, focus, interaction)
+            _ = onList?(list.id, top, height, width, origin, focus, interaction, 0)
         }
     }
     var onSubmit: ((UInt32) -> Void)?

@@ -417,11 +417,12 @@ public final class ExactSession {
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
-        presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction in
-            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction)
+        presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction, limit in
+            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction, limit: limit)
             // Scrolling within the mounted window changes no native views.
             // Avoid running every presenter's batch-finalization pass for it.
             if !batch.ops.isEmpty || batch.error != nil { apply(batch) }
+            return runtime.listPending(id)
         }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }

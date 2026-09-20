@@ -72,6 +72,12 @@ pub(crate) struct Mirror {
     content: Option<(f32, f32)>,
 }
 
+/// How many report/layout rounds one list geometry report may take to settle.
+/// A round that creates rows at the estimate is followed by one that reads
+/// their real heights, which can in turn admit more rows; a document of many
+/// zero-height rows continues at the presenter's next report instead.
+const LIST_SETTLE_ROUNDS: usize = 8;
+
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
@@ -88,6 +94,10 @@ pub struct Host<D: DataSource> {
     height_drag: Option<HeightDrag>,
     transform_drags: TransformDrags,
     content_region: Option<crate::content_region::RegionState>,
+    /// The last list report stopped before its rows' heights were read back
+    /// (a registered content region publishes as it lays out, so a report is
+    /// one round there): the window wants another report.
+    list_unsettled: bool,
     height_projection: Option<(NodeKey, f32)>,
     #[cfg(test)]
     layout_calls: usize,
@@ -307,6 +317,7 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             content_region,
+            list_unsettled: false,
             height_projection: None,
             #[cfg(test)]
             layout_calls: 0,
@@ -684,13 +695,101 @@ impl<D: DataSource> Host<D> {
 
     /// Native list geometry; row heights come from the same kernel layout
     /// that supplied the presenter's frames, never a second text measurer.
+    ///
+    /// A created row is an estimate until it is laid out, and the kernel is
+    /// what lays it out — so the window settles here, in one call: report,
+    /// lay out, read the rows back, report again until nothing changes. The
+    /// presenter gets one batch carrying final frames. It used to take a
+    /// second report from AppKit's frames, and with it a second JSON batch,
+    /// a second `Presenter.apply` and its whole-tree passes, for every
+    /// change that created a row (LLP 1044 F7).
     pub fn list_viewport(
         &mut self,
         view: ViewId,
         geometry: exact_runner::ListViewport<'_>,
     ) -> String {
+        self.list_viewport_within(view, geometry, None)
+    }
+
+    /// [`Host::list_viewport`] creating at most `create_limit` rows beyond
+    /// those the scrollport shows (`Runner::list_viewport_within`); the budget
+    /// is the call's, across its settling rounds. [`Host::list_pending`] then
+    /// says whether the window wants another report.
+    pub fn list_viewport_within(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+        create_limit: Option<usize>,
+    ) -> String {
+        let mut receipts: Vec<Timed> = Vec::new();
+        let mut error = None;
+        let mut top = geometry.top;
+        // The report's budget is for the call, not for each round of it: what
+        // a round creates comes off what the next may. Rows the scrollport
+        // shows are outside any budget, so they still settle here.
+        let mut budget = create_limit;
+        self.list_unsettled = false;
+        for _ in 0..LIST_SETTLE_ROUNDS {
+            let rows = self.list_rows(view);
+            let round = exact_runner::ListViewport {
+                rows: &rows,
+                top,
+                ..geometry
+            };
+            match self.runner.list_viewport_within(view, round, budget) {
+                Ok(receipt)
+                    if receipt.created.is_empty()
+                        && receipt.destroyed.is_empty()
+                        && receipt.touched.is_empty() =>
+                {
+                    break;
+                }
+                Ok(receipt) => {
+                    receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    });
+                    // A registered content region publishes as it computes:
+                    // one round here, and `list_pending` asks for the next.
+                    if self.content_region.is_some() {
+                        self.list_unsettled = true;
+                        break;
+                    }
+                    if let Err(e) = self.compute_roots() {
+                        error = Some(e);
+                        break;
+                    }
+                    if let Some(status) = self.runner.list_status(view) {
+                        // Measuring can move the offset to hold the reading key.
+                        top = status.top;
+                        budget = budget.map(|left| left.saturating_sub(status.created));
+                    }
+                }
+                Err(e) => {
+                    error = Some(format!("{e:?}"));
+                    break;
+                }
+            }
+        }
+        if receipts.is_empty() && error.is_none() {
+            return self.finish(Batch::new(), None);
+        }
+        self.commit(&receipts, error)
+    }
+
+    /// Whether a list's last report left rows to create or retire under its budget.
+    pub fn list_pending(&self, view: ViewId) -> bool {
+        self.list_unsettled
+            || self
+                .runner
+                .list_status(view)
+                .is_some_and(|status| status.pending)
+    }
+
+    /// A windowed list's mounted row wrappers and their laid-out heights.
+    fn list_rows(&self, view: ViewId) -> Vec<(ViewId, f64)> {
         let kernel = self.runner.kernel();
-        let rows: Vec<_> = kernel
+        kernel
             .node(view)
             .and_then(|list| list.children().first().copied())
             .and_then(|content| kernel.node(content))
@@ -701,28 +800,22 @@ impl<D: DataSource> Host<D> {
                     .filter_map(|id| kernel.node(id).map(|row| (id, row.frame.height as f64)))
                     .collect()
             })
-            .unwrap_or_default();
-        let geometry = exact_runner::ListViewport {
-            rows: &rows,
-            ..geometry
-        };
-        match self.runner.list_viewport(view, geometry) {
-            Ok(receipt)
-                if receipt.created.is_empty()
-                    && receipt.destroyed.is_empty()
-                    && receipt.touched.is_empty() =>
-            {
-                self.finish(Batch::new(), None)
-            }
-            Ok(receipt) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Err(error) => self.commit(&[], Some(format!("{error:?}"))),
+            .unwrap_or_default()
+    }
+
+    /// Lay every root out without publishing anything to the presenter.
+    fn compute_roots(&mut self) -> Result<(), String> {
+        self.sync_height_owner()?;
+        let sample = self.height_sample()?;
+        let projection = self.presented_height(sample);
+        let (w, h) = self.viewport;
+        for root in self.runner.roots() {
+            self.runner
+                .kernel_mut()
+                .compute_layout_presented(root, Offer::definite(w, h), projection)
+                .map_err(|e| format!("layout: {e:?}"))?;
         }
+        Ok(())
     }
 
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a

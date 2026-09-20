@@ -102,6 +102,12 @@ let size = NSSize(width: windowDimension("width", fallback: 420), height: window
 let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
 // Present the reading surface at its final size as soon as it is ready.
 window.animationBehavior = .none
+// Nothing restores this window — a session boots its plan and the frame has
+// its own autosave below — so AppKit's restoration has nothing to keep for it.
+// Left on, a scroll view invalidates restorable state as it scrolls and AppKit
+// flushes it every so often on the main thread, waiting on the window server
+// as it does: 19 and 25 ms, measured, at the same second of two scrolls.
+window.isRestorable = false
 ExactEnv.stamp("NSWindow")
 window.title = ExactEnv.appName
 if !agentMode && !smoke && !windowConfig.isEmpty {

@@ -47,6 +47,25 @@ fn percentage_reader_matches_browser_and_has_no_phantom_scroll_range() {
     }
 }
 
+/// The reader with its scroller made an ordinary box, so that its flex row
+/// owes it an intrinsic probe: a flex item's automatic minimum is its
+/// min-content size unless it is a scroll container, whose minimum is zero.
+/// Taffy used to make that probe for every item and discard it where it was
+/// not needed — the scroller included, which is how the reader itself came to
+/// exercise the cache rule below. It is measured only where it is used now
+/// (vendor/taffy, patch 7), so these regressions ask for it. `max-width` still
+/// clamps the column, and every length asserted below is unchanged.
+fn probed(mut ops: Vec<exact_kernel::Op>) -> Vec<exact_kernel::Op> {
+    ops.push(reader::style(
+        2,
+        &[
+            (exact_kernel::StyleId::OverflowX, reader::text("visible")),
+            (exact_kernel::StyleId::OverflowY, reader::text("visible")),
+        ],
+    ));
+    ops
+}
+
 #[test]
 fn intrinsic_probe_is_remeasured_at_the_definite_content_width() {
     use exact_kernel::{AxisOffer, Kernel, TextMeasureRequest, TextMeasurer, TextMetrics};
@@ -61,7 +80,8 @@ fn intrinsic_probe_is_remeasured_at_the_definite_content_width() {
     }
     let measurements = Rc::new(RefCell::new(Vec::new()));
     let mut k = Kernel::new(Box::new(Tracked(measurements.clone())));
-    k.apply(0, 1, &reader::initial(false, true, true)).unwrap();
+    k.apply(0, 1, &probed(reader::initial(false, true, true)))
+        .unwrap();
     k.compute_layout(1, Offer::definite(720.0, 800.0)).unwrap();
     let initial = measurements.borrow().len();
     // 720 border-box - 64 column padding - 28 code padding = 628.
@@ -100,7 +120,7 @@ fn matching_paragraph_offers_do_not_cross_the_measurer_twice() {
     }
     let calls = Calls::default();
     let mut kernel = Kernel::new(Box::new(Tracked(calls.clone())));
-    let mut ops = reader::initial(false, true, true);
+    let mut ops = probed(reader::initial(false, true, true));
     ops.push(Op::SetProp {
         id: 205,
         prop: PropId::Text,
@@ -121,4 +141,37 @@ fn matching_paragraph_offers_do_not_cross_the_measurer_twice() {
             "duplicate measurement: {calls:?}"
         );
     }
+}
+
+#[test]
+fn a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use() {
+    // vendor/taffy patch 7. A scroll container's automatic minimum size is
+    // zero, so the flex row holding the reader owes it no min-content pass.
+    // Taffy made one anyway and discarded it: the scroller's whole content
+    // laid out at no width, every paragraph wrapped a word to a line, on
+    // every layout pass — and, the two passes sharing one cache slot, every
+    // row laid out again at its real width after it (LLP 1044 F6).
+    use exact_kernel::{AxisOffer, Kernel, TextMeasureRequest, TextMeasurer, TextMetrics};
+    use std::{cell::RefCell, rc::Rc};
+    struct Tracked(Rc<RefCell<Vec<AxisOffer>>>);
+    impl TextMeasurer for Tracked {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            self.0.borrow_mut().push(request.width);
+            reader::measurer().measure(request)
+        }
+    }
+    let offers = Rc::new(RefCell::new(Vec::new()));
+    let mut k = Kernel::new(Box::new(Tracked(offers.clone())));
+    k.apply(0, 1, &reader::initial(false, true, true)).unwrap();
+    k.compute_layout(1, Offer::definite(720.0, 800.0)).unwrap();
+    let offers = offers.borrow();
+    assert!(!offers.is_empty(), "the fixture must measure its text");
+    for offer in offers.iter() {
+        assert_eq!(
+            *offer,
+            AxisOffer::Definite(628.0),
+            "only the column's content width is ever offered: {offers:?}"
+        );
+    }
+    assert_eq!(k.node(4).unwrap().frame.height, 5974.0);
 }

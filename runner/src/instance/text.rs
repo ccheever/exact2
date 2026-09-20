@@ -133,6 +133,16 @@ impl Tree {
             .index(key)
     }
 
+    /// A windowed list's held offset and the state of its last report.
+    pub fn list_status(&self, view: ViewId) -> Option<crate::ListStatus> {
+        Some(
+            list_region(&self.children, view, &mut Vec::new())?
+                .window
+                .as_ref()?
+                .status(),
+        )
+    }
+
     /// Text for all rows, or two stable UTF-16 endpoints, without mutation.
     pub fn list_text(
         &self,

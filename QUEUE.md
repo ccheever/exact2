@@ -44,10 +44,47 @@ sits on that list carries the trade it would take.
   sweep, raster budget and Messages acceptance. Memory and construction cost trigger it now; further Messages
   decorative artwork/material/timing polish waits. The fixed-height web slice does not complete the native/consumer sweep.
 
-- **Markdown performance comparison** (2026-09-18): repeat matched first-content
-  and scrolling-hitch trials across real documents; measure process memory.
-  Exact-offer measurement reuse halves callback traffic but has only a modest
-  CPU benefit; verify its scrolling traces against Legend and profile what remains.
+- **Markdown scrolling, on the 120 Hz machine** (2026-09-19): scrolling now measures
+  ahead of Legend on an M4 Pro at 60 Hz with input synthesized in-process
+  (`apps/markdown/README.md`: inputs committed later than one 120 Hz frame, of
+  2,400 — 624 before, 6 now, 84 for Legend). Owed, all needing HID and Instruments
+  permission: the same comparison at 120 Hz with real wheel and trackpad input
+  under the Hitches instrument, which at 60 Hz no longer separates the two (0, 2, 1
+  hitches against Legend's 1, 0, 0, three of the four being the scroll's first
+  frame in either app); responsive scrolling for a contained list, which cannot be
+  driven from inside the process and is what keeps Legend's scroll off its main
+  thread. Repeat first-content and memory with this build.
+- **A list paragraph is typeset twice** (2026-09-19): in black to be measured, then
+  in its colours to be painted, because `TextShapeKey` carries the paint; only the
+  line breaks are handed over. 0.7 ms at the median in the fill unit that paints a
+  row, 3 ms at worst. A shape whose colour comes from the context at draw time
+  would serve both, for a paragraph of one colour at least.
+- **A row of many inline runs is the longest fill unit** (2026-09-19): 7 ms at the
+  99th percentile against 2.6 at the median, about 0.5 ms in the runner and kernel
+  and 0.35 ms in the presenter per created view, and every inline run is a
+  `NodeView` that is never mounted.
+- **AppKit's first persistent-state flush** (2026-09-19): about sixteen seconds after
+  launch the main thread waits 20–30 ms on Launch Services inside
+  `-[NSPersistentUIManager flushAllChanges]`; mid-scroll it is a dropped frame.
+  `isRestorable = false` removed the later flushes, not this one. An
+  `NSApplication` that encodes and invalidates nothing, registering
+  `ApplePersistenceIgnoreState`, and asking Launch Services first off the main
+  thread each changed nothing. Legend does not show it.
+- **Rationed list reports on iOS** (2026-09-19; LLP 1010 §6): UIKit also scrolls on
+  the thread that lays out; `PresenterIOS` still reports a whole window inside the
+  scroll callback and paints text when first seen. The runner and host halves are
+  shared (`list_viewport_within`, one-call settle); the presenter half is not made.
+- **A jump lands on rows built synchronously** (2026-09-19): a scroller drag or a
+  250,000-point jump builds a scrollport of rows in one report, 30–55 ms. The rows
+  are never blank; the frame is late. Paint them first and fill the rest, or show
+  the estimate's geometry for a frame.
+- **`Cargo.lock` names a `ureq` no published ibex allows** (2026-09-19): the lock has
+  3.4.2; every ibex commit pins `=3.4.0`, so `--locked` fails on a machine with a
+  clean ibex. It is a non-Apple dependency. Either publish the ibex change or
+  re-resolve the lock.
+- **The Swift test target did not compile at `6214c47`** (2026-09-19):
+  `TextGeometryTests` still tested `TextCache`, removed by `e095df53`. The one test
+  was deleted; nothing replaced what it covered, if `TextResidency` needs it.
 
 - **Apple text: cache the line-break boundaries per spec** (2026-09-18; LLP 1043 F7):
   under `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over
@@ -170,8 +207,9 @@ sits on that list carries the trade it would take.
    tables, and syntax highlighting. macOS drag selection across paragraphs and copy
    now use CoreText's existing lines. Keyboard selection extension and bidi selection
    geometry still need dedicated fixtures. Variable-height windowing and scroll
-   anchoring now run; repeated external startup and scrolling comparisons against
-   Legend remain the performance bar (see `apps/markdown/README.md`). At a 420-point
+   anchoring now run; startup against Legend is still a tie, and scrolling is
+   ahead on one 60 Hz machine (see `apps/markdown/README.md` and the 120 Hz item
+   above). At a 420-point
    window width, the open folder pane leaves the text cramped and clips header
    controls; the reader needs a compact layout at that width.
    During verification the macOS timer-step smoke once read width 50 at t=1250

@@ -919,7 +919,14 @@ fn determine_flex_base_size(
         let style_min_main_size =
             child.min_size.or(child.overflow.map(Overflow::maybe_into_automatic_min_size).into()).main(dir);
 
-        child.resolved_minimum_main_size = style_min_main_size.unwrap_or({
+        // EXACT PATCH (LLP 1010 §6): measure the min-content size only when it is
+        // used. Upstream passes this block to `unwrap_or`, which evaluates it
+        // eagerly: every flex item was laid out once more under min-content even
+        // with an explicit minimum, or the zero automatic minimum of a scroll
+        // container, and the result discarded. For a scroll container that probe
+        // lays out its whole content at width zero, and evicts the content's own
+        // cached layout on every pass. See vendor/taffy/EXACT-PATCHES.md.
+        child.resolved_minimum_main_size = style_min_main_size.unwrap_or_else(|| {
             let min_content_main_size = {
                 let child_available_space = Size::MIN_CONTENT.with_cross(dir, cross_axis_available_space);
 

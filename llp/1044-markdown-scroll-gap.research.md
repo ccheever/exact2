@@ -356,3 +356,52 @@ summaries; `phase-probe/` with the probe sources, the three patches
 `EXACT_UPDATE_TRUST=development` at `ed541b82` (29 s cold here); the probe is one
 `swiftc` line (`build-probe.sh`, ~70 s). The experiment worktree and binaries were
 removed.
+
+## 7. Afterwards — 2026-09-19
+
+The suggestions in §4 were carried out the next day, on a different machine (an
+M4 Pro, 60 Hz), by measurement; `apps/markdown/README.md` has the results and
+`llp/1010` §6 the list behaviour as built. What this document got right, and what
+it left open:
+
+- **F6's open question was the largest cause.** "Which Taffy cache entries miss,
+  and why, was not run down." They missed because vendored Taffy measured a flex
+  item's min-content size whether or not it used it (`unwrap_or` evaluates its
+  argument). The reader's `list` is a `flex: 1` scroll container, so every
+  layout laid its whole content out at width zero — the width-0 and −64 offers
+  of F6 — and the zero-width and real-width requests share one cache slot per
+  node, so every row was laid out again at its real width. Larger memos (§4.1)
+  hid the cost; making the measurement lazy removed it: 59,682 measure calls
+  over three seconds of scrolling became 614. `vendor/taffy/EXACT-PATCHES.md`,
+  patch 7.
+- **§4.2(b), §4.3 and §4.4 were done as written**: the fill moved out of the
+  bounds-change notification to a budgeted turn after the commit; retirement
+  rides with creation; the host settles in one call.
+- **§4.2(a), responsive scrolling, is still untested.** It cannot be driven from
+  inside the process: AppKit's concurrent tracking takes its events from the
+  window server. It needs this lane's HID permission.
+- **F8 ruled out strip painting too early.** Removing the per-tick invalidation
+  saved little (V4) because AppKit still painted each paragraph when it was
+  first seen, inside that frame's commit. Painting a paragraph into its own layer
+  contents in the turn that mounts it took text out of the frame: the median
+  trackpad frame went from 4.1 ms to 2.0.
+- **§4.5, a relayout boundary, was not needed** once the zero-width pass was gone:
+  an unchanged row is a cache hit at its wrapper and its leaves are not visited.
+- **§4.6**: rows were flattened (a paragraph is one `text`), not coarsened.
+
+Against Legend on that machine, with the same synthesized input in both
+processes: inputs committed later than one 120 Hz frame, of 2,400, were 624
+before, 6 after, and 84 for Legend. The Hitches instrument at 60 Hz no longer
+separates the two (three ten-second runs each: 0, 2, 1 hitches against 1, 0, 0,
+three of those four being the first frame of the scroll in either app), and F2's
+pattern is gone: one Exact hitch in thirty seconds follows an app update, of
+8.73 ms.
+
+What a row still costs, from a profile of that build, is where a later pass
+would look. A fill unit that creates a row is 2.6 ms at the median and 7 ms at
+the 99th percentile, about 0.5 ms in the runner and kernel and 0.35 ms in the
+presenter for each view it creates; the long ones are paragraphs of many inline
+runs, each of which is a `NodeView`. And a paragraph is typeset twice: once in
+black to be measured, once in its colours to be painted (`TextShapeKey` carries
+the paint), 0.7 ms at the median in the unit that paints it.
+

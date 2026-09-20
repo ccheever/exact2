@@ -11,21 +11,6 @@ import AppKit
 final class TextGeometryTests: XCTestCase {
     private let engine = TextEngine(resolve: { _ in nil })
 
-    func testTextCacheRecencyAndCheckpointRemainIndependent() {
-        var cache = TextCache<Int, String>()
-        for i in 0..<4096 { cache.put(i, "value-\(i)") }
-        var checkpoint = cache
-        for i in 0..<512 { XCTAssertEqual(cache.get(i), "value-\(i)") }
-        cache.put(4096, "new")
-        XCTAssertEqual(cache.get(0), "value-0")
-        XCTAssertNil(cache.get(512), "the oldest untouched entries are evicted")
-        XCTAssertEqual(checkpoint.get(512), "value-512")
-        XCTAssertNil(checkpoint.get(4096))
-        cache.put(0, "changed")
-        XCTAssertEqual(checkpoint.get(0), "value-0")
-        XCTAssertLessThanOrEqual(cache.count, 4096)
-    }
-
     #if os(macOS)
     func testEmptyContainerReleasesPaintAndKeepsItsChildren() {
         let presenter = Presenter()
@@ -49,6 +34,74 @@ final class TextGeometryTests: XCTestCase {
             node.applyStyle([:])
             XCTAssertFalse(node.wantsUpdateLayer)
         }
+    }
+
+    /// A paragraph in a windowed list holds its own picture, painted by the same
+    /// `draw`, so that a row mounted ahead of the scrollport can be painted
+    /// before it is seen (LLP 1044). Everything else keeps AppKit's drawing.
+    func testAWindowedListParagraphOwnsItsPictureAndItIsWhatDrawPaints() throws {
+        let session = ExactApp.shared.makeSession(label: "owned-paragraph")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.presenter.viewport
+        defer { session.destroy(); window.close() }
+        let words = "Exact measures the paragraph it paints, one line box at a time. "
+        let type: [String: Any] = ["font_size": 16.0, "line_height": 1.5, "text_color": [20.0, 20.0, 20.0, 255.0]]
+        session.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "list", "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "text", "style": type, "props": ["text": String(repeating: words, count: 3)]],
+            ["op": "create", "id": 6, "kind": "text", "style": type, "props": ["text": words]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2, 6]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 600.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 96.0],
+            ["op": "frame", "id": 5, "x": 12.0, "y": 0.0, "w": 376.0, "h": 96.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 210.0, "w": 400.0, "h": 48.0],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let row = try XCTUnwrap(session.presenter.views[5]), loose = try XCTUnwrap(session.presenter.views[6])
+        XCTAssertTrue(row.ownsContents)
+        XCTAssertTrue(row.wantsUpdateLayer)
+        XCTAssertFalse(loose.ownsContents, "only a list's bounded rows are painted whole")
+        XCTAssertFalse(loose.wantsUpdateLayer)
+
+        // The picture is `draw`'s, at one point per pixel and at two.
+        for scale in [CGFloat(1), 2] {
+            row.paintContents(scale: scale)
+            let owned = try XCTUnwrap(row.layer?.contents) as! CGImage
+            XCTAssertEqual(owned.width, Int(376 * scale))
+            XCTAssertEqual(owned.height, Int(96 * scale))
+            XCTAssertEqual(row.layer?.contentsScale, scale)
+            let reference = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: owned.width, pixelsHigh: owned.height,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            reference.size = row.bounds.size
+            row.cacheDisplay(in: row.bounds, to: reference)
+            func ink(_ image: CGImage) -> [UInt8] {
+                var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+                bytes.withUnsafeMutableBytes { buffer in
+                    let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
+                        bytesPerRow: image.width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                    context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+                }
+                return bytes
+            }
+            let a = ink(owned), b = ink(try XCTUnwrap(reference.cgImage))
+            XCTAssertGreaterThan(a.filter { $0 != 0 }.count, 500, "the paragraph painted at \(scale)x")
+            let differing = zip(a, b).filter { abs(Int($0) - Int($1)) > 2 }.count
+            XCTAssertEqual(differing, 0, "owned picture and draw differ at \(scale)x")
+        }
+
+        // Taller than a layer should hold, a paragraph keeps the visible strips.
+        session.apply(Batch(ops: [["op": "frame", "id": 5, "x": 12.0, "y": 0.0, "w": 376.0, "h": 5000.0]], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertFalse(row.ownsContents)
+        XCTAssertFalse(row.wantsUpdateLayer)
     }
 
     func testInlineTextDefersLayersAndCanBecomeAParagraphAgain() {

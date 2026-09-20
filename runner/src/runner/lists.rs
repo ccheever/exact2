@@ -18,6 +18,18 @@ pub struct ListViewport<'a> {
     pub rows: &'a [(ViewId, f64)],
 }
 
+/// Where a windowed list stands after its last geometry report.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ListStatus {
+    /// The scroll offset held; measuring rows can move it to keep the reading
+    /// key still, and a host settling several rounds reports from here.
+    pub top: f64,
+    /// Rows the last report created.
+    pub created: usize,
+    /// The window still has rows to create or retire under its budget.
+    pub pending: bool,
+}
+
 /// A text position that survives retirement of a list row's native views.
 #[derive(Debug, Clone, Copy)]
 pub struct ListTextPosition<'a> {
@@ -33,6 +45,11 @@ impl<D: DataSource> Runner<D> {
     /// Resolve an opaque row key without materializing that row.
     pub fn list_index(&self, view: ViewId, key: &str) -> Option<usize> {
         self.tree.as_ref()?.list_index(view, key)
+    }
+
+    /// A windowed list's offset, and what its last report did and left undone.
+    pub fn list_status(&self, view: ViewId) -> Option<ListStatus> {
+        self.tree.as_ref()?.list_status(view)
     }
 
     /// Copy all logical text, or the range between two stable endpoints.
@@ -69,6 +86,21 @@ impl<D: DataSource> Runner<D> {
         view: ViewId,
         geometry: ListViewport<'_>,
     ) -> Result<CommitReceipt, RunnerError> {
+        self.list_viewport_within(view, geometry, None)
+    }
+
+    /// [`Runner::list_viewport`] under a budget: `create_limit` is how many
+    /// rows this report may create beyond those the scrollport itself shows,
+    /// or `None` for the whole window at once. A host that scrolls on the
+    /// thread that lays out fills its overscan a few rows at a time, between
+    /// frames; rows the reader can see are never rationed.
+    /// [`ListStatus::pending`] says whether the window wants another report.
+    pub fn list_viewport_within(
+        &mut self,
+        view: ViewId,
+        geometry: ListViewport<'_>,
+        create_limit: Option<usize>,
+    ) -> Result<CommitReceipt, RunnerError> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
         }
@@ -96,7 +128,7 @@ impl<D: DataSource> Runner<D> {
         {
             return Err(RunnerError::UnknownView(view));
         }
-        self.update_tree(|tree, u| tree.update_list(u, view, geometry))
+        self.update_tree(|tree, u| tree.update_list(u, view, geometry, create_limit))
     }
 
     /// Re-evaluate every site and apply one batch. A failure here means the

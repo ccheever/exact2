@@ -119,6 +119,42 @@ final class PageScrollView: NSScrollView {
     }
 }
 
+/// Which live views carry the few props the chrome passes look for.
+///
+/// Navigation, menus, segments, the toolbar, shortcuts and context panels
+/// each used to read every view on every batch to find their own — a
+/// navigation stack, a popover, a tab list — and a reader's rows are none of
+/// those. A scrolling list applies a batch many times a second, so the passes
+/// were a fifth of its long frames (LLP 1044 F4). They visit what this names.
+struct ChromeIndex {
+    static let keys = ["navigationBack", "inert", "popover", "popovertarget",
+                       "contextTarget", "toolbarPlacement", "accessibilityKeyShortcuts"]
+    /// Props a pass reads for one value. Every list row has a role and every
+    /// `main` or `header` a tag, so these are indexed by that value, never by
+    /// presence.
+    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog")]
+    private var byKey: [String: Set<UInt32>] = [:]
+
+    mutating func note(_ id: UInt32, props: [String: String]) {
+        for key in Self.keys {
+            if props[key] != nil { byKey[key, default: []].insert(id) } else { byKey[key]?.remove(id) }
+        }
+        for (name, key, value) in Self.values {
+            if props[key] == value { byKey[name, default: []].insert(id) } else { byKey[name]?.remove(id) }
+        }
+    }
+    mutating func forget(_ id: UInt32) {
+        for key in byKey.keys { byKey[key]?.remove(id) }
+    }
+    func ids(_ key: String) -> Set<UInt32> { byKey[key] ?? [] }
+    /// Whether anything that can hide a view or make it inert is mounted:
+    /// only the passes over these ever set either.
+    var hidesOrInerts: Bool {
+        ["navigationBack", "inert", "tag:dialog", "popover", "toolbarPlacement", "role:tablist"]
+            .contains { !(byKey[$0]?.isEmpty ?? true) }
+    }
+}
+
 final class Presenter {
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
@@ -127,6 +163,18 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    private(set) var chrome = ChromeIndex()
+    /// A view's props were written (`NodeView.props`' own observer).
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    /// Views carrying an indexed prop, in id order (the passes' old order was
+    /// a dictionary's, which is none).
+    func carrying(_ key: String) -> [NodeView] {
+        chrome.ids(key).sorted().compactMap { views[$0] }
+    }
+    /// Scroll containers: the only views with a position to keep across a batch.
+    var scrollers: Set<UInt32> = []
+    /// Views with an authored offset waiting for their frames.
+    var pendingScrolls: Set<UInt32> = []
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
@@ -174,14 +222,34 @@ final class Presenter {
             object: viewport.contentView, queue: .main) { [weak self] _ in self?.refreshVisibleText(); self?.transformGeometry.changed() }
     }
 
-    deinit { if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) } }
+    deinit {
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        if let listFillObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), listFillObserver, .commonModes) }
+        listFillWake?.invalidate()
+    }
 
     /// Layer-backed AppKit can ask an offscreen paragraph to repaint on resize.
     /// Shape/paint only visible text; scrolling invalidates the newly exposed area.
     func textVisibleRect(_ node: NodeView) -> NSRect {
-        node.convert(viewport.contentView.bounds, from: viewport.contentView)
+        if paintsWhole(node) { return node.bounds }
+        return node.convert(viewport.contentView.bounds, from: viewport.contentView)
             .intersection(node.bounds).intersection(node.visibleRect)
     }
+
+    /// A windowed list mounts a bounded run of rows, so its paragraphs can each
+    /// be painted once, whole, when they mount — in the turn between frames
+    /// that created them (`fillLists`) — and a scroll then only moves finished
+    /// layers. Painting the strip a scroll exposes, every frame, was most of
+    /// what a scrolling frame cost. A paragraph taller than this many points
+    /// keeps the strips: its layer would be too large to hold. An eager
+    /// `scroll` of thousands of paragraphs keeps them too.
+    static let wholeParagraphLimit: CGFloat = 4096
+    func paintsWhole(_ node: NodeView) -> Bool {
+        node.bounds.height <= Self.wholeParagraphLimit && node.inWindowedList
+    }
+    /// Text views a list's reports mounted, waiting for a turn between frames
+    /// to paint them before they show. One that shows first is AppKit's.
+    var unpainted: [NodeView] = []
 
     func refreshVisibleText() {
         // Bounds notifications can arrive while a batch is still changing the
@@ -189,7 +257,7 @@ final class Presenter {
         guard !applying else { return }
         if textViewportIndex == nil { textViewportIndex = TextViewportIndex(selection.paragraphs) }
         var next: [UInt32: NSRect] = [:]
-        for node in textViewportIndex!.candidates() {
+        for node in textViewportIndex!.candidates() where !paintsWhole(node) {
             let rect = textVisibleRect(node)
             guard !rect.isEmpty else { continue }
             next[node.id] = rect
@@ -249,6 +317,10 @@ final class Presenter {
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        chrome = ChromeIndex()
+        scrollers.removeAll()
+        pendingScrolls.removeAll()
+        keyLoopTimer?.invalidate(); keyLoopTimer = nil
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
@@ -257,6 +329,8 @@ final class Presenter {
         textViewportIndex = nil
         listGeometry.removeAll()
         listViews.removeAll()
+        listPending.removeAll()
+        unpainted.removeAll()
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -312,53 +386,152 @@ final class Presenter {
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
-    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32) -> Void)?
+    /// A list's geometry, a row budget (`exact.h`), and back: whether rows remain.
+    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var onListIndex: ((UInt32, String) -> Int?)?
     var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
     var interacting: UInt32 = 0
     private var listGeometry: [UInt32: [Double]] = [:]
     private var listViews: [UInt32: NodeView] = [:]
     private var listSyncDepth = 0
-    private var listSyncQueued = false
+    /// Lists whose window still has rows to create or retire.
+    private var listPending: Set<UInt32> = []
+    private var listFillScheduled = false
+    private var listFillObserver: CFRunLoopObserver?
+    private var listFillWake: Timer?
 
-    /// Fill and measure the row window before paint. Unusual documents with
-    /// many zero-height rows continue next turn instead of recursing forever.
-    func syncLists() {
-        guard !applying else { return }
-        guard listSyncDepth < 8 else {
-            if !listSyncQueued {
-                listSyncQueued = true
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.listSyncQueued = false
-                    self.syncLists()
-                }
-            }
-            return
+    private struct ListReport {
+        let top, height, width, origin: Double
+        let focus, interaction: UInt32
+        let stamp: [Double]
+        /// Mounted rows reach a quarter of a scrollport past both of its ends.
+        let covered: Bool
+        /// Mounted rows reach both ends of the scrollport itself.
+        let shown: Bool
+    }
+
+    private func report(_ list: NodeView) -> ListReport? {
+        guard views[list.id] === list, let scroll = list.scroll,
+              let content = list.container.subviews.first as? NodeView else { return nil }
+        var responder = root.window?.firstResponder as? NSView
+        if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
+        while responder != nil && !(responder is NodeView) { responder = responder?.superview }
+        let focused = responder as? NodeView
+        let focus = focused?.isDescendant(of: list) == true ? focused!.id : 0
+        let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
+        let top = Double(scroll.contentView.bounds.minY)
+        let height = Double(scroll.contentSize.height)
+        let width = Double(content.frame.width)
+        let origin = Double(content.frame.minY)
+        let rows = content.container.subviews.compactMap { $0 as? NodeView }
+        let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
+            + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
+        // Rows are in document order. A quarter of a scrollport of them past
+        // each end is room for several frames of travel before any is owed.
+        let extent = Double(content.frame.height)
+        func reaches(_ margin: Double) -> Bool {
+            rows.first.map { Double($0.frame.minY) <= max(0, top - origin - margin) } == true
+                && rows.last.map { Double($0.frame.maxY) >= min(extent, top - origin + height + margin) } == true
         }
-        listSyncDepth += 1
-        defer { listSyncDepth -= 1 }
+        return ListReport(top: top, height: height, width: width, origin: origin, focus: focus,
+                          interaction: interaction, stamp: stamp, covered: reaches(height / 4), shown: reaches(0))
+    }
+
+    /// One geometry report. The window settles inside it (the host lays the
+    /// rows out and reads them back), so the rows it leaves are the stamp.
+    private func send(_ list: NodeView, _ first: ListReport, limit: UInt32) {
+        var r = first, more = false
+        for _ in 0..<8 {
+            listSyncDepth += 1
+            more = onList?(list.id, r.top, r.height, r.width, r.origin, r.focus, r.interaction, limit) ?? false
+            listSyncDepth -= 1
+            guard let after = report(list) else { break }
+            listGeometry[list.id] = after.stamp
+            // An unrationed report settles here, as it always has: the host
+            // asks again only where it could not read its rows back itself.
+            if limit == 0, more { r = after; more = false; continue }
+            // Measuring rows can move the offset to hold the reading key, and
+            // the rows this report made are the ones its own offset showed.
+            // Moved onto rows that are not there, report from where it now is.
+            if after.shown || after.top == r.top { break }
+            r = after
+        }
+        if more { listPending.insert(list.id) } else { listPending.remove(list.id) }
+        if more || !unpainted.isEmpty { scheduleListFill() }
+    }
+
+    /// A report creates the rows its scrollport shows and one more (`exact.h`:
+    /// a limit of two). An agent reads the tree a wheel leaves, so its reports
+    /// fill the whole window at once, as they always have (LLP 1012).
+    private var listLimit: UInt32 { ExactEnv.agentMode ? 0 : 2 }
+
+    /// Report each list whose geometry changed, before paint. `scrolled`: the
+    /// platform moved an offset and nothing else happened. Such a report is
+    /// owed now only when mounted rows no longer reach past the scrollport;
+    /// otherwise the window is filled between frames (`fillLists`), so the
+    /// frame that moves the content does no list work at all (LLP 1044 §4.2).
+    func syncLists(scrolled: Bool = false) {
+        guard !applying, listSyncDepth == 0 else { return }
         listGeometry = listGeometry.filter { views[$0.key] != nil }
+        listPending = listPending.filter { views[$0] != nil }
         for list in Array(listViews.values) {
-            guard views[list.id] === list, let scroll = list.scroll,
-                  let content = list.container.subviews.first as? NodeView else { continue }
-            var responder = root.window?.firstResponder as? NSView
-            if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
-            while responder != nil && !(responder is NodeView) { responder = responder?.superview }
-            let focused = responder as? NodeView
-            let focus = focused?.isDescendant(of: list) == true ? focused!.id : 0
-            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
-            let top = Double(scroll.contentView.bounds.minY)
-            let height = Double(scroll.contentSize.height)
-            let width = Double(content.frame.width)
-            let origin = Double(content.frame.minY)
-            let rows = content.container.subviews.compactMap { $0 as? NodeView }
-            let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
-                + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
-            if listGeometry[list.id] == stamp { continue }
-            listGeometry[list.id] = stamp
-            onList?(list.id, top, height, width, origin, focus, interaction)
+            guard let r = report(list), listGeometry[list.id] != r.stamp else { continue }
+            if scrolled, r.covered, !ExactEnv.agentMode {
+                listPending.insert(list.id)
+                scheduleListFill()
+                continue
+            }
+            send(list, r, limit: listLimit)
         }
+    }
+
+    /// Between frames: after Core Animation has committed the frame the scroll
+    /// produced (its observer is order 2,000,000; this one follows it), spend a
+    /// little of the time before the next one on the window (`fillLists`).
+    private func scheduleListFill() {
+        listFillScheduled = true
+        if listFillObserver == nil {
+            let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, 2_500_000) { [weak self] _, _ in
+                guard let self, self.listFillScheduled else { return }
+                self.listFillScheduled = false
+                self.fillLists()
+            }
+            CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+            listFillObserver = observer
+        }
+        // Asked for from inside the observer, the run loop is about to sleep
+        // with this still owed: wake it for the next pass.
+        if listFillWake == nil {
+            let wake = Timer(timeInterval: 0.002, repeats: false) { [weak self] _ in self?.listFillWake = nil }
+            RunLoop.main.add(wake, forMode: .common)
+            listFillWake = wake
+        }
+    }
+
+    /// One turn between frames: about a quarter of a frame, spent a unit at a
+    /// time so that an expensive row cannot make the turn long. A unit paints
+    /// one paragraph an earlier unit mounted, or asks a list for one more row.
+    /// Rows differ by an order of magnitude — a table row, a page-long
+    /// paragraph — so the turn is rationed by the clock and not by a count.
+    private func fillLists() {
+        guard !applying, listSyncDepth == 0 else { scheduleListFill(); return }
+        let refresh = Double(viewport.window?.screen?.maximumFramesPerSecond ?? 60)
+        let budget = min(0.004, 0.25 / max(refresh, 30)), started = CACurrentMediaTime()
+        repeat {
+            if !unpainted.isEmpty {
+                let node = unpainted.removeFirst()   // oldest first: nearest the scrollport
+                // Still mounted, still unpainted: a fast scroll may have shown
+                // it first, and AppKit painted it then.
+                if views[node.id] === node, node.superview != nil, node.ownsContents, node.layer?.contents == nil {
+                    node.paintContents()
+                    node.needsDisplay = false
+                }
+            } else if let id = listPending.first {
+                guard let list = listViews[id], let r = report(list) else { listPending.remove(id); continue }
+                send(list, r, limit: listLimit)
+            } else { return }
+        } while CACurrentMediaTime() - started < budget
+        if !unpainted.isEmpty || !listPending.isEmpty { scheduleListFill() }
     }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
@@ -423,7 +596,7 @@ final class Presenter {
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
         toolbar.prepare()
-        for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
+        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
@@ -437,7 +610,7 @@ final class Presenter {
                 waiting = []
                 geometry?()
                 for (id, f) in q where views[id] != nil { f() }
-                syncLists()
+                syncLists()   // a no-op inside a list's own report: it settled in the host
                 refreshVisibleText()
             }
         }
@@ -479,6 +652,7 @@ final class Presenter {
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
+                if v.kind == "text", listSyncDepth > 0 { unpainted.append(v) }
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "style":
@@ -516,6 +690,9 @@ final class Presenter {
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
                 let gone = views.removeValue(forKey: id)
+                chrome.forget(id)
+                scrollers.remove(id)
+                pendingScrolls.remove(id)
                 listViews.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":
@@ -564,24 +741,28 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
-        for node in views.values {
-            if !collections.owns(node.id) { node.restoreScrollPosition() }
-            if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+        for id in scrollers.union(pendingScrolls) {
+            guard let node = views[id] else { continue }
+            if !collections.owns(id) { node.restoreScrollPosition() }
+            if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(id) }
             node.applyPendingScroll()
         }
+        pendingScrolls.removeAll()
         segments.sync()
         menus.sync()
         positionContexts()
         toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
-        if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) { syncKeyViewLoop() }
+        if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) {
+            keyViewLoopChanged(whileScrolling: listSyncDepth > 0)
+        }
     }
 
     /// Align an enclosing context panel's preview with its source, while
     /// keeping the panel inside the visible viewport.
     private func positionContexts() {
-        for preview in views.values {
+        for preview in carrying("contextTarget") {
             guard let target = preview.props["contextTarget"],
                   let source = views.values.first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }
@@ -601,6 +782,29 @@ final class Presenter {
 
     /// The view that takes Tab for this node: an input's field, else itself.
     private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
+
+    private var keyLoopTimer: Timer?
+    /// Sequential focus follows the batch that changed it — except a batch that
+    /// only moved a list's window, which a scroll applies many times a second
+    /// and each of which would walk and sort the whole tree. Nobody tabs
+    /// mid-scroll: the rebuild waits for the scroll to pause, and a Tab that
+    /// arrives first runs it (`flushKeyViewLoop`, from the view's key monitor).
+    func keyViewLoopChanged(whileScrolling: Bool) {
+        guard whileScrolling else {
+            keyLoopTimer?.invalidate(); keyLoopTimer = nil
+            syncKeyViewLoop()
+            return
+        }
+        if let keyLoopTimer { keyLoopTimer.fireDate = Date(timeIntervalSinceNow: 0.15); return }
+        let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in self?.flushKeyViewLoop() }
+        RunLoop.main.add(timer, forMode: .common)
+        keyLoopTimer = timer
+    }
+    func flushKeyViewLoop() {
+        guard keyLoopTimer != nil else { return }
+        keyLoopTimer?.invalidate(); keyLoopTimer = nil
+        syncKeyViewLoop()
+    }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused

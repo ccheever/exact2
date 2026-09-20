@@ -46,7 +46,129 @@ welcome document and says so for anything else.
 
 ## Performance work in progress — 2026-09-18
 
-Latest comparison: **no established user-visible Exact advantage yet**.
+### Scrolling against Legend — 2026-09-19
+
+**Scrolling now measures ahead of Legend on the one machine and method
+available to this pass; nothing here is a 120 Hz or a real-input result.** An
+M4 Pro Mac mini, two 60 Hz displays, an agent session without Accessibility,
+event-posting or screen-capture permission. So input is synthesized inside each
+process by an injected library (`DYLD_INSERT_LIBRARIES`; both apps are ad-hoc
+signed without the hardened runtime): the same 120 wheel events a second of 30
+points, the same 2.34 MB document (the 40 largest `llp/*.md`), a 900×700 window,
+20 seconds, three interleaved rounds. Legend is `2b7b91d9`, ARM64 Release, with
+the one build-only edit recorded above. Medians, with the range of the three:
+
+| Wheel path: input to commit, 2,400 inputs a run | Exact `6214c47` | Exact now | Legend |
+| --- | ---: | ---: | ---: |
+| p50, ms | 3.69 | 1.97 | 3.43 |
+| p95, ms | 13.74 | 2.88 | 7.85 |
+| p99, ms | 20.18 | 5.56 | 13.78 |
+| max, ms | 30.2 | 32.8 | 27.6 |
+| Inputs later than 8.33 ms | 624 (498–689) | 6 (4–7) | 84 (26–94) |
+| Inputs later than 16.67 ms | 60 (44–68) | 3 (1–3) | 3 (2–5) |
+| Refreshes showing space no row covers | 0 | 0 | 0 (0–1) |
+
+An input is *late* when more than one 120 Hz frame passes between the moment it
+was due and the end of the Core Animation commit that follows its delivery: a
+refresh-rate-independent stand-in for a hitch, read from a run-loop observer
+ordered just after Core Animation's.
+
+| Trackpad path: vsync to commit, 1,200 frames a run | Exact `6214c47` | Exact now |
+| --- | ---: | ---: |
+| p50, ms | 5.36 | 1.98 |
+| p95, ms | 10.37 | 4.29 |
+| p99, ms | 11.64 | 5.82 |
+| max, ms | 12.8 | 8.6 |
+| Frames longer than 8.33 ms | 271 (254–338) | 1 |
+
+A phased gesture is AppKit's to scroll, from its own display link on the main
+thread, so this is what a finger gets. Legend has no column: its scroll view
+uses AppKit's responsive scrolling, which takes events from the window server
+and ignores the `changed` events an in-process driver can deliver.
+
+Under the Animation Hitches instrument, at 60 Hz, three interleaved ten-second
+runs each of this build and Legend:
+
+| Animation Hitches, 60 Hz, three runs | Exact now | Legend |
+| --- | ---: | ---: |
+| App updates in the scroll | 600, 600, 600 | 108, 127, 115 |
+| App update p50, ms | 0.87, 0.83, 0.81 | 2.70, 2.79, 2.61 |
+| App update p95, ms | 4.03, 4.10, 3.93 | 6.80, 6.41, 7.61 |
+| App update p99, ms | 5.55, 5.53, 5.83 | 7.89, 7.42, 8.48 |
+| App update max, ms | 8.08, 8.73, 9.14 | 7.92, 9.84, 13.57 |
+| Hitches counted in the scroll | 0, 2, 1 | 1, 0, 0 |
+
+Every hitch is one 16.67 ms frame, and each was read for what it is
+(`probe/hitchrows.py`). Three of the four are the first frame of the scroll,
+within 40 ms of its start, in Exact twice and in Legend once: the instrument's
+view of a display pipeline leaving idle. The fourth is Exact's, 2.2 seconds into
+a run, marked "potentially expensive app update", in the run whose longest
+update was 8.73 ms. So at 60 Hz the instrument does not separate the two: past
+the first frame, one hitch in thirty seconds of Exact and none in Legend. Exact
+updates on every frame, since it scrolls on the main thread; Legend only when it
+mounts rows, since AppKit scrolls it concurrently. That difference is what the
+120 Hz machine has to judge. An earlier series, on the build before the
+window-restoration change below, counted 1, 1 and 4 for Exact and none for Legend.
+
+**What was wrong**, in the order measurement found it (`llp/1044` F4–F7 asked the
+questions; none of this was the parser, JSON or view creation):
+
+1. **Every layout laid the whole mounted list out twice.** Vendored Taffy passed
+   its min-content measurement of a flex item to `unwrap_or`, which evaluates
+   it whether or not it is used. The reader's `list` is a `flex: 1` scroll
+   container, whose automatic minimum is zero: on every pass its content was
+   laid out at no width, every paragraph wrapped a word to a line, and that
+   evicted each row's cached layout so it was laid out again at its real width.
+   Measure-function calls over three seconds of scrolling: 59,682 → 614
+   (`vendor/taffy/EXACT-PATCHES.md`, patch 7).
+2. **A created row took two batches.** The host now lays out, reads the rows back
+   and reports again inside one `exact_list` call; the presenter gets one batch
+   with final frames.
+3. **`Presenter.apply` read every view, several times, on every batch** — for a
+   navigation stack, a popover, a tab list, a toolbar, a shortcut, a context
+   panel, the key-view loop — 18% of the main thread's long periods at
+   `6214c47`. The passes visit a small index
+   of the props they look for, kept by an observer on `NodeView.props`; the
+   key-view loop waits for a scroll to pause.
+4. **The window was filled inside the frame that scrolled.** A report now
+   creates the rows the scrollport shows and one more
+   (`Runner::list_viewport_within`); the rest of the window is filled between
+   frames, from a run-loop observer ordered after Core Animation's commit, a unit
+   at a time against a quarter-frame budget. Rows that left go with a report that
+   creates, never in a report of their own (45% of reports before). An agent's
+   reports stay whole and synchronous.
+5. **Text was painted on every frame.** AppKit paints a view's layer when the
+   view can first be seen and will not be asked sooner, so each frame painted
+   the strips the scroll exposed and a long paragraph's first paint was a long
+   frame. A paragraph in a windowed list now renders `draw` into its own layer
+   contents in the turn that mounted it (pixel-identical to `draw` at 1× and 2×,
+   and across a switch to dark mid-scroll); the frames that follow only move it.
+   Paragraphs taller than 4,096 points, and every paragraph outside a list, keep
+   the strips.
+6. **A row was four views deep.** A paragraph is now one `text` with its own
+   padding and the reading column's measure; flexing text says `min-width=0`.
+   153 nodes at boot → 118. That exposed a kernel bug: a padded `text` that
+   flexes was wrapped at its border box and painted in its content box, a line
+   short (`kernel/src/layout.rs`; `a_padded_text_that_flexes_wraps_in_its_content_box`).
+7. **The window was restorable.** Scrolling invalidates AppKit's restorable
+   state, and its flush waits on the window server on the main thread — 19 and
+   25 ms at the same second of two runs. Nothing restores this window.
+
+Zero refreshes showed uncovered space in any run, including a reversal, a
+250,000-point jump and 48,000 points a second. A jump still builds the rows it
+lands on synchronously (one stall of 30–55 ms).
+
+**Not established:** anything at 120 Hz; anything with HID input; responsive
+scrolling (an opt-in was tried and cannot be driven from inside the process);
+iOS, where the same presenter changes were not made. One 20–30 ms main-thread
+wait remains about sixteen seconds after launch — AppKit's first persistent-state
+flush, asking Launch Services about the app — and four attempts at it changed
+nothing; Legend does not show it. Sources, raw runs and the probe are under
+`target/markdown-comparison/scroll-smoothness-20260919/`.
+
+### Startup and memory — 2026-09-18
+
+Latest startup comparison: **no established user-visible Exact advantage yet**.
 The latest external startup series uses Exact `e98722ab…`, including the
 empty-container, flattened-row and parser improvements below. Thirty alternating
 fresh processes per app and document, warm filesystem caches, 900×700 windows:

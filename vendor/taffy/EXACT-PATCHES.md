@@ -2,7 +2,7 @@
 
 - **Upstream:** `taffy` 0.9.2 from crates.io
   (`https://github.com/DioxusLabs/taffy`, tag `v0.9.2`).
-- **Why vendored:** six behavioral/API/performance patches (below) that the high-level
+- **Why vendored:** seven behavioral/API/performance patches (below) that the high-level
   `TaffyTree` API gives us no way to apply from the outside. Wired in via
   `[patch.crates-io]` in the root `Cargo.toml`, so `kernel/Cargo.toml` still
   declares a normal `taffy = "0.9"` dependency.
@@ -236,3 +236,50 @@ upstream generated conformance corpus has not been rerun for this patch.
 The current [upstream implementation](https://github.com/DioxusLabs/taffy/blob/main/src/compute/flexbox.rs)
 also omits these floors (checked 2026-09-11). This is the bounded correction to
 our 0.9.2 copy, not an import of upstream's other intrinsic-sizing changes.
+
+## Patch 7: the automatic minimum is measured only where it is used (LLP 1010 §6, LLP 1044 F6)
+
+**Implementer:** Claude (Fable 5.1), 2026-09-19.
+
+`src/compute/flexbox.rs`, `determine_flex_base_size`: the block that measures a
+flex item's min-content main size is passed to `unwrap_or_else` rather than
+`unwrap_or`. Upstream's `style_min_main_size.unwrap_or({ … measure_child_size … })`
+evaluates its argument before the call, so every flex item was laid out once
+more under min-content and the answer discarded whenever the item already had a
+minimum: an authored `min-width`/`min-height`, or the zero automatic minimum of
+a scroll container (css-flexbox-1 §4.5). Layout results are unchanged; one
+layout of the item's subtree per pass is not made.
+
+For a scroll container that discarded pass is its whole content laid out with
+no width. The Markdown reader is a `list` with `flex: 1` in a row: on every
+layout — every scroll-driven window change — every mounted row was laid out at
+width zero, each paragraph wrapped a word to a line, and then, because the
+zero-width and real-width requests share one cache slot per node, every row was
+laid out again at its real width. Measured on a 2.3 MB document, three seconds
+of scrolling at 3,600 px/s: measure-function calls 59,682 → 614, of which calls
+on rows that had not changed 57,793 → 9; text measurements that reached
+CoreText 694 → 455. Busy periods of the main thread over 8.33 ms fell by about
+half in interleaved runs.
+
+**Held by** `kernel/tests/reader.rs`,
+`a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use`: the
+reader fixture offers its text only the column's content width. It fails on the
+upstream form, which also offers min-content. The two intrinsic-cache
+regressions beside it (patch 1) took their probe from this discarded pass; they
+now run the fixture with its scroller made an ordinary box, which owes the probe
+under CSS, and assert the same lengths. `intrinsic_probe_is_remeasured_at_the_definite_content_width`
+still fails with patch 1's cache rule removed (checked 2026-09-19).
+
+The upstream suite at `v0.9.2`, run over this `src/` with and without the
+patch (2026-09-19, `cargo test --release --no-fail-fast`), gives the same
+result both ways: 2,181 passed, 6 failed, 4 ignored, the same six names.
+2,056 of the 2,060 generated fixtures pass. The six predate this patch:
+`caching::measure_count_flexbox` and `measure_count_grid` count 7 leaf
+measurements where upstream expects 4 (patch 1's cache rule declines the
+intrinsic promotion they were counting), and the border-box and content-box
+forms of `block_aspect_ratio_fill_max_height` and
+`absolute_aspect_ratio_fill_max_width` follow patch 5's replaced-element
+constraints. Patch 1's note that the full suite passes is older than both.
+
+**Upstream status:** Exact-local; upstreamable as a performance fix with no
+behavioral change.

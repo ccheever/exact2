@@ -183,7 +183,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textChildren: [NodeView] = []
     var cachedTextSpec: Spec?
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var props: [String: String] = [:]
+    /// Every write reaches the presenter's chrome index, whoever makes it.
+    var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: [String: Any] = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = []
@@ -544,6 +545,23 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
 
+    /// Whether a windowed `list` is above this view. Asked on every draw; a
+    /// view never moves between lists, so the first answer given in a window
+    /// stands. A row's views are assembled before the row is attached, and
+    /// AppKit asks `wantsUpdateLayer` while they are: that answer is not kept.
+    private var windowedList: Bool?
+    var inWindowedList: Bool {
+        if let windowedList { return windowedList }
+        guard window != nil else { return false }
+        var ancestor = superview
+        while let view = ancestor {
+            if let node = view as? NodeView, node.kind == "list" { windowedList = true; return true }
+            ancestor = view.superview
+        }
+        windowedList = false
+        return false
+    }
+
     /// Where children go: the scroll document view, or this view.
     var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? self }
 
@@ -632,7 +650,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
-        presenter?.syncLists(); repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
+        presenter?.syncLists(scrolled: true); repaintThrough(); presenter?.refreshVisibleText(); queueScrollEvent()
     }
     private var scrollEventQueued = false
     private var lastScrollEvent = CGPoint.zero
@@ -911,8 +929,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
-        for k in clear { props.removeValue(forKey: k) }
-        for (k, v) in set { props[k] = v }
+        if pendingScrollTop != nil || pendingScrollLeft != nil { presenter?.pendingScrolls.insert(id) }
+        // One assignment, so one index update, however many keys moved.
+        var next = props
+        for k in clear { next.removeValue(forKey: k) }
+        for (k, v) in set { next[k] = v }
+        props = next
         applyTextArea()
         if let f = field {
             // `type` changed between password and text: a secure field is a
@@ -951,13 +973,53 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // Empty container layers carry geometry and children, with no bitmap.
     private var hasBoxPaint = false
     override var wantsUpdateLayer: Bool {
-        !hasBoxPaint && !Capture.capturing && kind != "text" && kind != "image"
-            && kind != "canvas" && kind != "iframe"
+        ownsContents || (!hasBoxPaint && !Capture.capturing && kind != "text" && kind != "image"
+            && kind != "canvas" && kind != "iframe")
     }
     override func updateLayer() {
-        layer?.contents = nil
+        if ownsContents { paintContents() } else { layer?.contents = nil }
         repaintThrough()
         if presenter?.views[id] === self { firstDraw() }
+    }
+
+    /// A paragraph in a windowed list holds its own picture (LLP 1044 §4.2).
+    ///
+    /// AppKit paints a view's layer when the view can first be seen, inside
+    /// the commit of the frame that shows it, and will not be asked sooner:
+    /// an offscreen view's layer is left dirty. So a scroll painted text on
+    /// every frame, and a long paragraph's first paint was a long frame. A
+    /// paragraph whose list mounts it ahead of the scrollport instead renders
+    /// `draw` into a bitmap in the turn between frames that created it
+    /// (`Presenter.fillLists`), and the frames that follow only move it.
+    /// Anything that invalidates the view comes back through `updateLayer`.
+    /// A capture, a canvas's child and a region's paragraph keep `draw`.
+    var ownsContents: Bool {
+        !Capture.capturing && kind == "text" && isParagraph && presenter?.paintsWhole(self) == true
+            && canvasAbove == nil && presenter?.session?.regions.owns(self) != true
+    }
+    func paintContents(scale: CGFloat? = nil) {
+        guard let layer else { return }
+        let scale = scale ?? window?.backingScaleFactor ?? layer.contentsScale
+        let width = Int((bounds.width * scale).rounded(.up)), height = Int((bounds.height * scale).rounded(.up))
+        guard width > 0, height > 0,
+              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: window?.colorSpace?.cgColorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { layer.contents = nil; return }
+        // The view's own space: points, y down.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: scale, y: -scale)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        effectiveAppearance.performAsCurrentDrawingAppearance { draw(bounds) }
+        NSGraphicsContext.restoreGraphicsState()
+        layer.contentsScale = scale
+        layer.contentsGravity = .topLeft
+        layer.contents = context.makeImage()
+    }
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if ownsContents { needsDisplay = true }
     }
 
     func applyStyle(_ s: [String: Any]) {
@@ -1000,12 +1062,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
             addSubview(sv)
             scroll = sv
+            presenter?.scrollers.insert(id)
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
             sv.removeFromSuperview()
             scroll = nil
+            presenter?.scrollers.remove(id)
         }
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
