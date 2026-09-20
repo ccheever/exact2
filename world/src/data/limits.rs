@@ -1,4 +1,4 @@
-use super::{Data, DataError, Reader};
+use super::{admit, Data, DataError, Reader};
 use std::{cell::Cell, rc::Rc};
 
 pub const MAX_LOAD_ENTITIES: usize = crate::MAX_ENTITIES;
@@ -77,13 +77,7 @@ pub(crate) fn reserve<T: Data>(
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
-    // Keep portable/default admission, with native padding as a lower bound.
-    grow(
-        v,
-        extra,
-        T::default_size().max(std::mem::size_of::<T>()),
-        |bytes| r.claim(bytes),
-    )
+    grow(v, extra, admit::<T>(), |bytes| r.claim(bytes))
 }
 fn grow<T>(
     v: &mut Vec<T>,
@@ -143,10 +137,13 @@ pub(crate) fn read_map<T: Data, K: Ord + for<'a> From<&'a str>>(
         if values.len() == limit || key.len() > key_bytes {
             return Err(DataError::new("map count/key limit"));
         }
+        if values.is_empty() {
+            r.claim(admit::<T>().saturating_mul(12))?;
+        }
         r.claim(
             64usize
                 .saturating_add(key.len())
-                .saturating_add(T::default_size()),
+                .saturating_add(admit::<T>().saturating_mul(2)),
         )?;
         let value = T::read_new(r).map_err(|e| e.at(key))?;
         values.insert(key.into(), value);

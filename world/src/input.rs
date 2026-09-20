@@ -92,7 +92,7 @@ impl Data for Input {
         r.begin_struct()?;
         while let Some(field) = r.field()? {
             match field {
-                "keys" => read_vec(r, &mut self.keys, 64)?,
+                "keys" => read_vec(r, &mut self.keys, 16)?,
                 "buttons" => read_vec(r, &mut self.buttons, 64)?,
                 "axes" => read_map(r, &mut self.axes, 64, 128)?,
                 "pressed" => read_vec(r, &mut self.pressed, 64)?,
@@ -110,13 +110,15 @@ impl Input {
         }
         for (i, a) in actions.iter().enumerate() {
             if a.name.len() > 128
-                || a.keys.len() > 64
+                || a.keys.len() > 8
                 || a.keys.iter().any(|k| k.len() > 128)
                 || a.axis_keys
                     .is_some_and(|(a, b)| a.len() > 128 || b.len() > 128)
                 || actions[..i].iter().any(|old| old.name == a.name)
             {
-                return Err(DataError::new("invalid action declarations"));
+                return Err(DataError::new(
+                    "invalid action declarations (8 bindings per action, 128 bytes per name/key)",
+                ));
             }
         }
         Ok(Self {
@@ -186,13 +188,13 @@ impl Input {
         self.pressed.clear();
         self.released.clear();
     }
-    /// Sim admission guarantees at most 64 keys; preflight borrows their names.
+    /// Sim admission guarantees at most 16 keys; preflight borrows their names.
     /// Buttons and axes are already bounded by the 64 unique declarations.
     pub(crate) fn preflight<'a>(
         &'a self,
         events: impl Iterator<Item = &'a InputEvent>,
     ) -> Result<(), DataError> {
-        let mut keys = [None; 64];
+        let mut keys = [None; 16];
         for (slot, key) in keys.iter_mut().zip(&self.keys) {
             *slot = Some(key.as_str());
         }
@@ -210,7 +212,7 @@ impl Input {
                             *keys
                                 .iter_mut()
                                 .find(|key| key.is_none())
-                                .ok_or_else(|| DataError::new("held input limit (64)"))? =
+                                .ok_or_else(|| DataError::new("held input limit (16)"))? =
                                 Some(code)
                         }
                         _ => {}
@@ -251,7 +253,7 @@ impl Input {
     }
     pub(crate) fn validate_saved(&mut self, actions: &'static [Action]) -> Result<(), DataError> {
         self.actions = Self::new(actions)?.actions;
-        if self.keys.len() > 64
+        if self.keys.len() > 16
             || self.buttons.len() > 64
             || self.axes.len() > 64
             || self.pressed.len() > 64
@@ -314,4 +316,95 @@ pub fn stick_axis(origin: [f32; 2], position: [f32; 2]) -> Result<[f32; 2], Data
         1.
     };
     Ok([x * scale, y * scale])
+}
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    #[test]
+    fn hardware_input_limits_refuse_before_applying_or_restoring() {
+        const BAD: &[Action] = &[Action::button("too-many", &["a"; 9])];
+        assert!(Input::new(BAD).is_err());
+        const GOOD: &[Action] = &[Action::button("ok", &["a"; 8])];
+        let input = Input::new(GOOD).unwrap();
+        let events: Vec<_> = (0..17)
+            .map(|i| InputEvent::Key {
+                code: format!("key{i}"),
+                down: true,
+                at_ms: 0.,
+            })
+            .collect();
+        input.preflight(events[..16].iter()).unwrap();
+        assert!(input
+            .preflight(events.iter())
+            .unwrap_err()
+            .message
+            .contains("16"));
+        assert!(input.keys.is_empty());
+        let mut hostile = Input {
+            keys: (0..17).map(|i| format!("key{i:02}")).collect(),
+            ..Input::default()
+        };
+        assert!(hostile.validate_saved(&[]).is_err());
+        let bytes = crate::bin::to_vec(&hostile).unwrap();
+        assert!(crate::bin::from_slice::<Input>(&bytes).is_err());
+    }
+    #[test]
+    #[ignore = "worst admitted input batch timing"]
+    fn worst_admitted_input_batch() {
+        let key = |suffix| format!("{}{:03}", "x".repeat(125), suffix);
+        let bindings = Box::leak(
+            (0..8)
+                .map(|i| &*Box::leak(key(i).into_boxed_str()))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        );
+        let actions = Box::leak(
+            (0..64)
+                .map(|i| Action::button(Box::leak(key(i).into_boxed_str()), bindings))
+                .collect::<Vec<_>>()
+                .into_boxed_slice(),
+        );
+        let mut input = Input::new(actions).unwrap();
+        for i in 8..24 {
+            input.apply(InputEvent::Key {
+                code: key(i),
+                down: true,
+                at_ms: 0.,
+            });
+        }
+        let events: Vec<_> = (0..1024)
+            .map(|_| InputEvent::Key {
+                code: key(23),
+                down: true,
+                at_ms: 0.,
+            })
+            .collect();
+        let start = std::time::Instant::now();
+        input.preflight(events.iter()).unwrap();
+        for event in events {
+            input.apply(event);
+        }
+        println!(
+            "worst_input_64_actions_8_bindings_16_keys_1024_events: {:?}",
+            start.elapsed()
+        );
+        assert_eq!(input.keys.len(), 16);
+        assert!(input.pressed.is_empty());
+        input.apply(InputEvent::Key {
+            code: key(8),
+            down: false,
+            at_ms: 0.,
+        });
+        input.apply(InputEvent::Key {
+            code: key(7),
+            down: true,
+            at_ms: 0.,
+        });
+        assert_eq!(
+            input.pressed.len(),
+            64,
+            "nonmatching benchmark still computes real edges"
+        );
+    }
 }

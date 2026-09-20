@@ -1,5 +1,5 @@
 use super::BulkKind;
-use super::{Data, DataError, Number, Reader, Writer};
+use super::{admit, admit_inline, Data, DataError, Number, Reader, Writer};
 use std::any::Any;
 use std::collections::BTreeMap;
 
@@ -124,7 +124,7 @@ impl<T: Data> Data for Vec<T> {
             } else {
                 self.len().max(4)
             }
-            .saturating_mul(T::default_size())
+            .saturating_mul(admit::<T>())
             .saturating_mul(2),
         );
         write_slice(self, w);
@@ -253,11 +253,15 @@ impl<T: Data> Data for Box<T> {
         8usize.saturating_add(T::default_size())
     }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
-        r.claim(T::default_size())?;
+        r.claim(admit::<T>())?;
         Ok(Box::new(T::read_new(r)?))
     }
     fn write(&self, w: &mut dyn Writer) {
-        w.claim_decoded(Self::default_size().saturating_mul(2));
+        w.claim_decoded(
+            admit_inline::<Self>()
+                .saturating_add(admit::<T>())
+                .saturating_mul(2),
+        );
         (**self).write(w);
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
@@ -274,8 +278,17 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
+        if !self.is_empty() {
+            // Cover a node's 11 slots plus alignment before per-entry charges amortize it.
+            w.claim_decoded(admit::<T>().saturating_mul(12));
+        }
         for (k, v) in self {
-            w.claim_decoded(64usize.saturating_add(T::default_size()));
+            // Nodes may be half empty: reserve two native values per entry.
+            w.claim_decoded(
+                64usize
+                    .saturating_add(k.as_ref().len())
+                    .saturating_add(admit::<T>().saturating_mul(2)),
+            );
             if w.stopped() {
                 break;
             }
@@ -288,10 +301,13 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
         r.begin_struct()?;
         self.clear();
         while let Some(k) = r.field()? {
+            if self.is_empty() {
+                r.claim(admit::<T>().saturating_mul(12))?;
+            }
             r.claim(
                 64usize
                     .saturating_add(k.len())
-                    .saturating_add(T::default_size()),
+                    .saturating_add(admit::<T>().saturating_mul(2)),
             )?;
             let value = T::read_new(r).map_err(|e| e.at(k))?;
             self.insert(k.into(), value);

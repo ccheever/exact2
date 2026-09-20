@@ -590,7 +590,7 @@ fn paranoid_preserves_drained_delivery() {
 fn input_refusal_preserves_the_entire_tick_boundary() {
     let mut s = Sim::<Counter>::new(Options::default()).unwrap();
     s.world().busy("keep").unwrap();
-    for i in 0..65 {
+    for i in 0..17 {
         s.input(InputEvent::Key {
             code: format!("Key{i}"),
             down: true,
@@ -686,7 +686,7 @@ fn reconcile_input_is_atomic_and_never_simulates() {
     })
     .unwrap();
     let before = s.save().unwrap();
-    let bad: Vec<_> = (0..65)
+    let bad: Vec<_> = (0..17)
         .map(|i| InputEvent::Key {
             code: format!("{i}"),
             down: true,

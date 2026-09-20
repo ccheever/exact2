@@ -19,22 +19,10 @@ fn measured<T>(
     result.unwrap()
 }
 fn decode<T: Data>(label: &str, bytes: &[u8], budget: usize) -> Result<T, DataError> {
-    let mut destination = T::default();
-    let before = bin::to_vec(&destination).unwrap();
     let allowance = LoadBudget::new(budget);
-    let result = measured(label, budget, || {
+    measured(label, budget, || {
         bin::from_slice_in::<T>(bytes, Some(&allowance))
-    });
-    match result {
-        Ok(next) => {
-            destination = next;
-            Ok(destination)
-        }
-        Err(e) => {
-            assert_eq!(bin::to_vec(&destination).unwrap(), before);
-            Err(e)
-        }
-    }
+    })
 }
 #[test]
 fn huge_count_tiny_input_and_huge_string_length() {
@@ -330,4 +318,198 @@ fn allocating_derived_defaults_are_admitted() {
             assert!(loaded.is_err());
         }
     }
+}
+
+fn padded_container_bytes(n: usize, map: bool, width: usize) -> Vec<u8> {
+    let mut out = bin::Encoder::default();
+    if map {
+        out.begin_struct();
+    } else {
+        out.begin_seq(n);
+    }
+    for i in 0..n {
+        if map {
+            out.key(&format!("key{i:0width$}"));
+        } else {
+            out.item();
+        }
+        Padded(true).write(&mut out);
+    }
+    if map {
+        out.end_struct();
+    } else {
+        out.end_seq();
+    }
+    out.finish().unwrap()
+}
+fn padded_container(map: bool) {
+    let mut bounded = true;
+    for (n, width) in [(1024, 5), (1024, 6), (70_000, 6)] {
+        let bytes = padded_container_bytes(n, map, width);
+        for budget in [1 << 20, MAX_LOAD_BYTES] {
+            let allowance = LoadBudget::new(budget);
+            let (result, peak, _) = crate::counting::peak(|| {
+                if map {
+                    bin::from_slice_in::<std::collections::BTreeMap<String, Padded>>(
+                        &bytes,
+                        Some(&allowance),
+                    )
+                    .map(|values| {
+                        assert_eq!(values.len(), n);
+                        assert!(values.values().all(|v| v.0));
+                    })
+                } else {
+                    bin::from_slice_in::<Vec<Box<Padded>>>(&bytes, Some(&allowance)).map(|values| {
+                        assert_eq!(values.len(), n);
+                        assert!(values.iter().all(|v| v.0));
+                    })
+                }
+            });
+            println!(
+                "padded {} n={n} key_width={width}: budget={budget} peak={peak} accepted={}",
+                if map { "map" } else { "boxes" },
+                result.is_ok()
+            );
+            bounded &= peak <= budget + 8192;
+            if n == 1024 && budget == MAX_LOAD_BYTES {
+                result.unwrap();
+            }
+        }
+    }
+    assert!(bounded, "padded container exceeded a measured budget");
+}
+#[test]
+fn boxed_padded_values_charge_native_payloads() {
+    padded_container(false);
+}
+#[test]
+fn mapped_padded_values_charge_half_empty_nodes() {
+    padded_container(true);
+}
+
+#[derive(Default, Resource)]
+struct Boxes(Vec<Box<Padded>>);
+#[test]
+fn refused_boxed_resource_replacement_preserves_the_destination() {
+    // Forge the expensive candidate without allocating it in the source world.
+    let mut out = bin::Encoder::default();
+    out.begin_struct();
+    out.field("state");
+    out.begin_struct();
+    out.end_struct();
+    out.field("rng");
+    World::new(60, 0).rng().write(&mut out);
+    out.field("components");
+    out.begin_struct();
+    out.end_struct();
+    out.field("resources");
+    out.begin_struct();
+    out.key("Boxes");
+    out.begin_seq(1);
+    out.item();
+    out.begin_seq(2);
+    out.item();
+    out.entity(0, 0);
+    out.item();
+    out.begin_seq(1);
+    out.item();
+    out.begin_seq(70_000);
+    for _ in 0..70_000 {
+        out.item();
+        Padded(true).write(&mut out);
+    }
+    out.end_seq();
+    out.end_seq();
+    out.end_seq();
+    out.end_seq();
+    out.end_struct();
+    out.end_struct();
+    let mut bytes = b"EXGAME\0\x04".to_vec();
+    bytes.extend(out.finish().unwrap());
+    for budget in [1 << 20, MAX_LOAD_BYTES] {
+        let mut destination = World::new(60, 17);
+        destination.register_resource::<Boxes>().unwrap();
+        destination
+            .insert_resource(Boxes(vec![Box::new(Padded(false))]))
+            .unwrap();
+        destination.spawn_named("keep", ()).unwrap();
+        let error = load(&mut destination, "boxed replacement", &bytes, budget, true).unwrap_err();
+        assert!(error.message.contains("budget"), "{error}");
+        assert!(!destination.resource::<Boxes>().0[0].0);
+        assert!(destination.named("keep").is_some());
+    }
+}
+#[test]
+fn padded_world_save_cannot_succeed_when_its_default_budget_load_refuses() {
+    let mut source = World::new(60, 0);
+    source.register::<Padded>().unwrap();
+    for _ in 0..70_000 {
+        source.spawn(Padded(true)).unwrap();
+    }
+    let saved = source.save();
+    println!("70000 padded components: save accepted={}", saved.is_ok());
+    if let Ok(bytes) = saved {
+        let mut destination = World::new(60, 0);
+        destination.register::<Padded>().unwrap();
+        load(
+            &mut destination,
+            "padded save/load",
+            &bytes,
+            MAX_LOAD_BYTES,
+            false,
+        )
+        .unwrap();
+    }
+    // A positive control must still save and load at both budgets.
+    let mut small = World::new(60, 0);
+    small.register::<Padded>().unwrap();
+    for _ in 0..128 {
+        small.spawn(Padded(true)).unwrap();
+    }
+    let bytes = small.save().unwrap();
+    for budget in [1 << 20, MAX_LOAD_BYTES] {
+        let mut destination = World::new(60, 0);
+        destination.register::<Padded>().unwrap();
+        load(
+            &mut destination,
+            "padded world positive",
+            &bytes,
+            budget,
+            false,
+        )
+        .unwrap();
+        assert_eq!(destination.save().unwrap(), bytes);
+    }
+}
+#[test]
+fn registration_refuses_oversized_or_overflowing_native_pages_without_construction() {
+    struct Huge<const N: usize>([u8; N]);
+    impl<const N: usize> Default for Huge<N> {
+        fn default() -> Self {
+            panic!("registration must not construct Huge")
+        }
+    }
+    impl<const N: usize> Data for Huge<N> {
+        fn default_size() -> usize {
+            1
+        }
+        fn write(&self, w: &mut dyn Writer) {
+            w.boolean(false);
+        }
+        fn read(&mut self, _: &mut dyn Reader) -> Result<(), DataError> {
+            Ok(())
+        }
+    }
+    impl<const N: usize> Component for Huge<N> {
+        const NAME: &'static str = "Huge";
+    }
+    let mut destination = World::new(60, 0);
+    let before = destination.save().unwrap();
+    assert!(destination
+        .register::<Huge<{ MAX_LOAD_BYTES / PAGE + 1 }>>()
+        .is_err());
+    assert!(destination.register::<Huge<{ 1 << 25 }>>().is_err()); // Layout overflow on i686/wasm32.
+    assert_eq!(destination.save().unwrap(), before);
+    destination.register::<Padded>().unwrap();
+    destination.spawn(Padded(true)).unwrap();
 }

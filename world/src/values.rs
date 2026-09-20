@@ -2,7 +2,7 @@ use crate::{bin, Data, DataError, Reader};
 
 /// Kernel publication Data. List and positional Record retain distinct saved tags;
 /// named Object fields remain names until an external adapter supplies a shape.
-#[derive(Debug, Clone, Default, PartialEq, Data)]
+#[derive(Debug, Clone, Default, Data)]
 pub enum Published {
     #[default]
     Unit,
@@ -13,6 +13,20 @@ pub enum Published {
     List(Vec<Published>),
     Record(Vec<Published>),
     Object(std::collections::BTreeMap<String, Published>),
+}
+impl PartialEq for Published {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Unit, Self::Unit) => true,
+            (Self::Number(a), Self::Number(b)) => a.to_bits() == b.to_bits(),
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::Str(a), Self::Str(b)) => a == b,
+            (Self::Option(a), Self::Option(b)) => a == b,
+            (Self::List(a), Self::List(b)) | (Self::Record(a), Self::Record(b)) => a == b,
+            (Self::Object(a), Self::Object(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 impl Published {
     pub(crate) fn read_bounded(

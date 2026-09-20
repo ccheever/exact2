@@ -12,7 +12,7 @@ components, resources and arguments; the game implementation itself is stateless
 
 Use `?` to propagate kernel errors from `setup` and `tick`.
 A returned setup error refuses construction or restart.
-A returned tick error stops before reaping or advancing the tick, logs the first failure, and refuses further driving, saving or input.
+A returned tick error stops before reaping or advancing the tick, logs the first failure (the longest UTF-8 prefix within 4,096 bytes), and refuses further driving, saving or input.
 Bounded state, tree and log inspection remain available until restore, carry or a bind restart installs healthy state.
 Never `.unwrap()` a kernel `Result` in game code: on wasm a panic aborts the module and every world in it.
 
@@ -135,12 +135,12 @@ successful ticks remain committed if a later tick in the request is refused.
 
 An ordinary tick performs **zero component visitor/hash calls**. Its kernel cost
 is O(game-touched work + bounded input bookkeeping), independent of untouched
-component values and world size. Input sets have at most 64 entries and the
+component values and world size. Input holds at most 16 keys, with 64 action/button/axis entries, and the
 pending queue at most 1,024 events. Due batches are preflighted against a stack
-array of 64 borrowed key names, then consumed by moving event ownership. No held
-strings, maps or edge buffers are cloned per tick. Admission is O(events × 64);
-edge derivation is O(events × actions × held keys), with each factor explicitly
-bounded. A 65th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
+array of 16 borrowed key names, then consumed by moving event ownership. No held
+strings, maps or edge buffers are cloned per tick. Admission is O(events × (actions + held keys)); edge derivation is
+O(events × actions × (actions + buttons + bindings × held keys)).
+A 17th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
 traversal; this is work the game requested. Changing publications also creates
 saved journal events. `Paranoid::Save` and `FreshGame` explicitly add full saves,
 validation and reconstruction, and do not have the ordinary-tick cost.
@@ -197,8 +197,8 @@ admits all keys, values and event cursors before changing anything; the adapter
 uses it for complete record updates. A single changed publication validates only
 its old/new values, using the retained aggregate cost; batches visit at most 512
 old/new entries within the shared 65,536-unit publication budget.
-`emit(text) -> Result<(), DataError>` queues up to 1,024 messages of at most
-4,096 bytes each; refusal preserves pending delivery.
+`emit(text: impl AsRef<str>) -> Result<(), DataError>` queues up to 1,024 messages of at most
+4,096 bytes each; size/count admission precedes copying and refusal preserves pending delivery.
 
 ### Ownership and structural consumers
 
@@ -288,7 +288,13 @@ its cumulative budget counts both.
 Derive supplies these checks, including skipped defaults; arbitrary manual code is not bounded.
 For the hostile inputs measured below, decoding peaks at ≤ the caller's byte budget + 8,192 bytes,
 excluding input and existing state; this counts requested heap bytes, not allocator metadata or RSS.
-Native vector, component-chunk and directory layouts are admission floors beside portable units.
+Allocation claims on both encode and decode use `max(portable units, native size)`.
+Default-construction charges remain unchanged. Maps charge 64 + key bytes + twice
+that value allowance per entry for half-empty nodes, plus one initial 12-value
+node allowance for allocation before amortization; the 1 MiB long-key control
+exceeded budget + 8,192 by 212 bytes without that initial allowance.
+Component registration checks `Layout::array::<C>(64)` and refuses overflow or > 256 MiB.
+System out-of-memory may abort, as with ordinary Rust allocation.
 `bin::read_into` stages a saved copy and patch under one budget, preserving the destination on error.
 Publication decode additionally admits 65,536 shared units and depth 80 before child allocation.
 Requests beyond the following work/storage bounds return errors.
@@ -299,7 +305,11 @@ Requests beyond the following work/storage bounds return errors.
 | Huge string length | 58 | 58 |
 | Wide enum vector | 104 | 104 |
 | 4096-aligned struct vector | 104 | 104 |
-| 20,000 map keys | 660,520 | 3,741,120 |
+| 20,000 map keys | 658,369 | 3,741,120 |
+| 1,024 boxed 4096-aligned values | 1,024,104 | 4,202,560 |
+| 1,024 mapped 4096-aligned values (8-byte keys) | 1,007,376 | 8,606,888 |
+| 70,000 boxed / mapped padded values | 104 / 1,007,494 | 266,075,112 / 266,557,860 |
+| Refused boxed-resource replacement | 1,504 | 266,076,512 |
 | 200,000 entity slots | 744 | 10,622,040 |
 | Nested publications, depths 8 / 40 / 81 | 551 | 551 |
 | Sparse 1 KiB components, eight types | 1,216 | 253,205,256 |
@@ -313,6 +323,8 @@ Requests beyond the following work/storage bounds return errors.
 | Game and session log retention | 4,096 each; loss/reset is reported |
 | Inspection output / log page | 65,536 bytes/visits / at most 512 records |
 | Work / busy / derived slots | 64 each; reasons 256 bytes, at most 8 reported |
+| Held keys / bindings per action / actions | 16 / 8 / 64; excess refuses before applying input |
+| Input edge work per batch | ≤ 16,777,216 binding/key comparisons (2 × 1,024 × 64 × 8 × 16); including action/button/axis/edge scans < 60M string comparisons, each ≤ 128 bytes |
 | Input / emitted messages | 1,024 queued each; messages 4,096 bytes |
 | Clock advance / settle | 216,000 / 3,600 ticks per request |
 | Binary/world/simulation output | Generic 256 MiB; World and Sim 128 MiB |
@@ -324,8 +336,7 @@ rejects declarations above 256 MiB. Ownership scratch has its separate entity bo
 past admission return errors, except programmer-facing infallible operations
 (such as conflicting borrow use) which panic. Journal capacity does not cause mutation refusal. Saved tick and game-journal cursors above 2^62 refuse decode with
 `cursor beyond supported range`; 2^62 is accepted. Structural, session and replacement
-cursors are unsaved and cannot be supplied by a checkpoint. Runtime overflow checks
-remain defensive guards. Live generation `u32::MAX` refuses decode; `log` returns an error before dropping
+cursors are unsaved and cannot be supplied by a checkpoint. Runtime game-journal admission uses the same limit before mutation. Live generation `u32::MAX` refuses decode; `log` returns an error before dropping
 retained events. A dead exhausted slot is retired permanently. Spawn selects the lowest reusable
 free slot, skipping at most 200,000 retired indices, then appends if capacity
 permits. Retirement is saved in the existing generation/free fields (no wire change).
@@ -444,6 +455,9 @@ cargo +nightly miri test -p exact-world --test admission -- --test-threads=1
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test admission -- --test-threads=1
 ```
 
+K5 retained mutable ZST collect/write control passes x86-64 and i686 under both
+Stacked and Tree Borrows; all four runs report `1 passed; 0 failed`, with no pointer changes.
+
 K1f Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage, 1 i686 portable-boundary
 and 12 x86-64/i686 admission executions passed, with no UB detected (42 total).
 A real wasm32 build executed through Bun
@@ -482,6 +496,16 @@ does not include game, and Caltrain's normal dependency tree does not include wo
 K1f totals 7,254 lines: 6,738 Rust + 493 README + 23 manifests, down from 7,479.
 The extracted optional motion module adds 335 separate lines (326 Rust + 9 manifest)
 under the same exclusions; kernel plus module totals 7,589, up 110 from old core alone.
+K5 retains the startup/allocation counts above, including 80 / 46,760 for 10 KiB
+restore and 84 / 46,766 for carry; all three prepared 1,000-tick controls stay 0 / 0.
+The 4,866,081-byte restore median is 94.57 ms (20 release runs); worst admitted input
+is 70.96 ms in release (128-byte names, 64 actions, 8 bindings, 16 keys, 1,024 events).
+Kernel/derive: 186 passed, plus both large controls; wasm executes all five frozen
+save/hash boundaries and refuses native page-layout overflow. Game tests: 758 passed,
+18 missing-GPU failures, 25 ignored; game clippy/fmt pass. Bun: 145 passed, 1 skipped,
+4 failures (two missing Chrome, two disk refusals). Below 25 GiB free, cold root builds
+and the remaining Linux proofs stopped; GPU/Apple/browser execution is unverified.
+
 The production ceiling is 7,500 handwritten lines: all production Rust under
 world/ including derive, this README and both manifests. Comments and blank lines
 count. Only tests and test-only allocator support are excluded. Reproduce with:

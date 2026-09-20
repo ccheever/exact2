@@ -7,6 +7,8 @@ use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+pub(crate) const CURSOR_LIMIT: u64 = 1 << 62;
+
 /// A slot and its incarnation; a recycled index never revives a stale entity.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Entity {
@@ -258,6 +260,11 @@ impl World {
         self.id.clone()
     }
     pub fn register<C: Component>(&mut self) -> Result<&mut Self, DataError> {
+        let layout = std::alloc::Layout::array::<C>(crate::PAGE)
+            .map_err(|_| DataError::new("component page layout overflow"))?;
+        if layout.size() > crate::data::MAX_LOAD_BYTES {
+            return Err(DataError::new("component page exceeds load budget"));
+        }
         let existed = self.registry.contains_key(C::NAME);
         let reg = *self.registration::<C>(C::NAME)?;
         if reg.make.is_none() {
@@ -299,7 +306,7 @@ impl World {
         }
         let reg = self.registration::<R>(R::NAME)?;
         reg.make_resource = Some(storage::make_cell::<R>);
-        reg.resource_size = 64usize.saturating_add(R::default_size());
+        reg.resource_size = 64usize.saturating_add(crate::data::admit::<R>());
         reg.ambient = R::AMBIENT;
         Ok(self)
     }
@@ -308,7 +315,7 @@ impl World {
         name: &'static str,
     ) -> Result<&mut Registration, DataError> {
         self.healthy()?;
-        if C::default_size() > crate::data::MAX_LOAD_BYTES {
+        if crate::data::admit::<C>() > crate::data::MAX_LOAD_BYTES {
             return Err(DataError::new(
                 "declared storage admission exceeds load budget",
             ));
@@ -777,13 +784,13 @@ impl World {
         self.published_cost.set(crate::json::LIMIT - budget);
         Ok(())
     }
-    pub fn emit(&self, text: impl Into<String>) -> Result<(), DataError> {
-        let text = text.into();
+    pub fn emit(&self, text: impl AsRef<str>) -> Result<(), DataError> {
+        let text = text.as_ref();
         let mut messages = self.messages.borrow_mut();
         if text.len() > 4096 || messages.len() >= 1024 {
             return Err(DataError::new("message queue limit (1024 x 4096 bytes)"));
         }
-        messages.push(text);
+        messages.push(text.to_owned());
         self.mutated();
         Ok(())
     }

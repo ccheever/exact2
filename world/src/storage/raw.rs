@@ -11,7 +11,7 @@ use std::{
 
 struct Descriptor {
     layout: Layout,
-    wire_size: fn() -> usize,
+    admitted_size: fn() -> usize,
     move_to: unsafe fn(*mut u8, *mut u8),
     swap: unsafe fn(*mut u8, *mut u8),
     drop_in_place: unsafe fn(*mut u8),
@@ -22,7 +22,7 @@ impl Descriptor {
     const fn of<C: Data>() -> Self {
         Self {
             layout: Layout::new::<C>(),
-            wire_size: C::default_size,
+            admitted_size: crate::data::admit::<C>,
             // SAFETY: callers supply a live C with the matching layout and lease.
             move_to: |src, dst| unsafe { dst.cast::<C>().write(src.cast::<C>().read()) },
             swap: |a, b| unsafe {
@@ -237,7 +237,7 @@ impl RawStorage {
         let _lease = self.lease(false);
         w.claim_decoded(
             1024usize
-                .saturating_add((self.desc.wire_size)())
+                .saturating_add((self.desc.admitted_size)())
                 .saturating_add(self.pages.mask().len().saturating_mul(72))
                 .saturating_add(
                     self.pages
@@ -245,7 +245,10 @@ impl RawStorage {
                         .iter()
                         .filter(|mask| **mask != 0)
                         .count()
-                        .saturating_mul(PAGE.saturating_mul((self.desc.wire_size)())),
+                        .saturating_mul(
+                            PAGE.saturating_mul((self.desc.admitted_size)())
+                                .max(self.pages.layout.size()),
+                        ),
                 ),
         );
         w.begin_seq(self.len);
@@ -274,12 +277,12 @@ impl RawStorage {
             r.check_allocation(
                 count
                     .div_ceil(PAGE)
-                    .checked_mul(PAGE.saturating_mul((self.desc.wire_size)()))
+                    .checked_mul(PAGE.saturating_mul((self.desc.admitted_size)()))
                     .ok_or_else(|| DataError::new("allocation size overflow"))?,
             )?;
         }
         let mut last = None;
-        r.claim((self.desc.wire_size)().max(self.desc.layout.size()))?;
+        r.claim((self.desc.admitted_size)())?;
         let mut value = Value {
             bytes: Bytes::new(self.desc.layout),
             desc: self.desc,
@@ -302,7 +305,7 @@ impl RawStorage {
                     .get(page)
                     .is_none_or(|p| p.ptr.is_null())
                 {
-                    PAGE.saturating_mul((self.desc.wire_size)())
+                    PAGE.saturating_mul((self.desc.admitted_size)())
                         .max(self.pages.layout.size())
                 } else {
                     0
