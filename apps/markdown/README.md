@@ -1136,3 +1136,15 @@ rows over bounded slices. The `.35` urgent threshold remains unchanged; the
 shorter runway still risks urgent bursts, especially on short rows and fast
 reversals. Normal/double-speed and dense-row controls plus diagnostic tails and
 physical timing must decide whether this combination earns its place.
+
+The delayed-refill variant (`ac5385d0`) is not retained. All four alternating
+diagnostic traces passed the input/focus/content screens, but candidate reports
+were 239/239 versus 247/247 for baseline, only 3.2% fewer. Total list-pump time
+was 343/369 ms versus 354/354 ms, with no consistent tail reduction. Decoded
+apply operation totals were almost unchanged (21,446 versus 21,452): delaying
+the trigger made more consecutive bounded continuations, not substantially less
+work. Native 254 tests, seven Rust list tests, reader and appearance controls,
+and eight sampled baseline/candidate forward/reversal captures passed, including
+32-point rows. No physical-hitch pilot was run for this rejected mechanism test.
+Evidence remains in `smooth/tails/bounded-refill-*` and
+`smooth/bounded-refill-reversal-ac5385d0`; the one-viewport refill threshold returns.
