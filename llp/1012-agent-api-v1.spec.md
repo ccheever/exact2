@@ -391,6 +391,10 @@ assets, its Linux binary, its bundle id — through `scripts/app.mjs`
 (weird-castle's `node exact.mjs agent …`). The web carrier needs nothing: `dist/`
 holds whatever was built last.
 
+Carrier deadlines are cancelled when their operation settles. A completed
+startup, frame wait or shutdown leaves no timeout keeping the driver alive;
+an operation that does not settle still takes its existing bounded fallback.
+
 `runner/src/agent.rs` (`handle` → `tree`/`state`/`logs`; `typed_json`; a
 one-pass top-level JSON field scanner — string tokens and nested objects are
 stepped over, surrogate pairs decode, no serde); `runner/src/runner.rs`

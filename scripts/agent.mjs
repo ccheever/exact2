@@ -58,6 +58,15 @@ import { resolveApp } from './app.mjs';
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A completed operation must release its deadline too, so an otherwise closed
+// driver does not stay alive until a losing timeout expires.
+async function waitAtMost(operation, ms, onTimeout) {
+  let timer;
+  const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
+  try { return await Promise.race([operation, deadline]); }
+  finally { clearTimeout(timer); }
+}
+
 /** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
  * The locator discovers candidates; the node's same-reply digest decides whether
  * one is compatible. Identical plans can have different formatting/ranges, so
@@ -240,7 +249,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
   const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
   const close = async () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, sleep(2000)]);
+    await waitAtMost(exited, 2000);
     server.close();
     rmSync(profile, { recursive: true, force: true });
   };
@@ -281,7 +290,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
-    const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
+    const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
@@ -506,7 +515,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
   let readyTimeout;
   try {
     const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
@@ -609,9 +618,9 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
   const exited = new Promise((r) => socket.on('close', () => { lines.fail('the app hung up; ' + hostLines.join('\n')); r(); }));
   const close = async () => {
     try { socket.end(); } catch {}
-    await Promise.race([exited, sleep(2000)]);
+    await waitAtMost(exited, 2000);
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    await Promise.race([consoleExited, sleep(1000)]);
+    await waitAtMost(consoleExited, 1000);
     if (!consoleDone) {
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
@@ -619,7 +628,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    const ready = await Promise.race([lines.next(), sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    const ready = await waitAtMost(lines.next(), 20000, () => { throw new Error('the app never became ready; ' + hostLines.join('\n')); });
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     pid = ready.pid ?? null;
@@ -736,7 +745,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     const closeWithPointer = async () => {
       if (pointer) {
         // Never leave the operator's mouse button down.
-        if (contact && contactDesktop) { try { await Promise.race([pointer.ask({ op: 'up', ...contactDesktop }), sleep(1000)]); } catch {} }
+        if (contact && contactDesktop) { try { await waitAtMost(pointer.ask({ op: 'up', ...contactDesktop }), 1000); } catch {} }
         try { pointer.child.stdin.end(); pointer.child.kill('SIGTERM'); } catch {}
       }
       await close();

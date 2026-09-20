@@ -15,6 +15,31 @@ const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.co
 const inspected = planDigest => ({id: 1, site: 0, planDigest, props: {testId:'bubble'}, type:'Text', style: {
   color: {value:'red',source:'dynamic'}, 'font-size': {value:14,source:'inherited',from:2}}});
 
+test('driver deadlines release their timer on success, rejection and timeout', async () => {
+  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
+  const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
+  const timers = new Set();
+  const wait = vm.runInNewContext(`(${implementation})`, {
+    setTimeout(callback) { timers.add(callback); return callback; },
+    clearTimeout(callback) { timers.delete(callback); },
+  });
+  expect(await wait(Promise.resolve('ready'), 20000)).toBe('ready');
+  expect(timers.size).toBe(0);
+  const failed = new Error('app exited');
+  await expect(wait(Promise.reject(failed), 20000)).rejects.toBe(failed);
+  expect(timers.size).toBe(0);
+  const pending = new Promise(() => {});
+  const closed = wait(pending, 2000);
+  expect(timers.size).toBe(1);
+  [...timers][0]();
+  expect(await closed).toBeUndefined();
+  expect(timers.size).toBe(0);
+  const late = wait(pending, 20000, () => { throw failed; });
+  [...timers][0]();
+  await expect(late).rejects.toBe(failed);
+  expect(timers.size).toBe(0);
+});
+
 test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
   const a = 'a'.repeat(64), b = 'b'.repeat(64), reader = sourceMapReader(path);
