@@ -17,6 +17,7 @@ pub struct WorldSurface<G: Game> {
     restored: bool,
     publish: bool,
     error: Option<SurfaceError>,
+    failed: Option<String>,
     logs: LogCursor,
 }
 impl<G: Game> Default for WorldSurface<G> {
@@ -31,6 +32,7 @@ impl<G: Game> Default for WorldSurface<G> {
             restored: false,
             publish: false,
             error: None,
+            failed: None,
             logs: LogCursor::default(),
         }
     }
@@ -72,8 +74,22 @@ impl<G: Game> WorldSurface<G> {
             .as_mut()
             .ok_or_else(|| invalid("world has not been bound"))
     }
+    // A zero-delta drive distinguishes a refused request from a failed simulation.
+    // Only the latter survives inspection and reports once through take_error.
+    fn record_failure(&mut self) {
+        if self.failed.is_none() {
+            if let Some(e) = self.sim.as_mut().and_then(|sim| sim.run(0.).err()) {
+                self.failed = Some(e.to_string());
+                self.error = Some(error(e));
+            }
+        }
+    }
     fn run(&mut self, ms: f64) -> Result<(), DataError> {
-        self.sim_mut()?.run(ms)?;
+        let result = self.sim_mut()?.run(ms);
+        if result.is_err() {
+            self.record_failure();
+        }
+        result?;
         self.caller += (ms * 1000.).round() / 1000.;
         Ok(())
     }
@@ -110,6 +126,9 @@ impl<G: Game> WorldSurface<G> {
             .and_then(Request::as_str)
             .ok_or_else(|| invalid("missing op"))?;
         if op == "clock" {
+            if let Some(e) = &self.failed {
+                return Err(invalid(e));
+            }
             let now = number(&q, "now")?;
             if let Some(owner) = q.get("owner").and_then(Request::as_str) {
                 if !matches!(owner, "agent" | "human") {
@@ -122,6 +141,9 @@ impl<G: Game> WorldSurface<G> {
             } else if q.get("settle").and_then(Request::as_bool) == Some(true) {
                 let before = self.sim_mut()?.world().tick();
                 let result = self.sim_mut()?.settle(3600);
+                if result.is_err() {
+                    self.record_failure();
+                }
                 let after = self.sim_mut()?.world().tick();
                 self.caller += (after - before) as f64 * 1000. / G::HZ as f64;
                 result?;
@@ -178,10 +200,20 @@ impl<G: Game> WorldSurface<G> {
                 G::HZ.write(&mut out);
                 out.field("hash");
                 out.string(&format!("0x{:016x}", world.hash()?));
+                out.field("failed");
+                self.failed.is_some().write(&mut out);
+                out.field("error");
+                if let Some(e) = &self.failed {
+                    out.string(e);
+                } else {
+                    out.unit();
+                }
                 out.field("ready");
-                (world.tick() > 0).write(&mut out);
+                (world.tick() > 0 && self.failed.is_none()).write(&mut out);
                 out.field("readyReasons");
-                if world.tick() > 0 {
+                if let Some(e) = &self.failed {
+                    vec![e.clone()]
+                } else if world.tick() > 0 {
                     Vec::<String>::new()
                 } else {
                     vec!["first tick pending".into()]
@@ -370,6 +402,7 @@ impl<G: Game> Surface for WorldSurface<G> {
             self.host = None;
         }
         self.error = None;
+        self.failed = None;
         Ok(())
     }
     fn take_error(&mut self) -> Option<SurfaceError> {
@@ -422,7 +455,9 @@ impl<G: Game> Surface for WorldSurface<G> {
             _ => return,
         };
         if let Err(e) = self.sim_mut().and_then(|s| s.input(e)) {
-            self.error = Some(error(e));
+            if self.failed.is_none() {
+                self.error = Some(error(e));
+            }
         }
     }
     fn messages(&mut self) -> Vec<String> {
@@ -431,6 +466,9 @@ impl<G: Game> Surface for WorldSurface<G> {
             .map_or_else(Vec::new, |s| s.world().take_messages())
     }
     fn published(&mut self) -> Option<String> {
+        if self.failed.is_some() {
+            return None;
+        }
         let w = self.sim.as_ref()?.world();
         if w.take_published().is_none() && !self.publish {
             return None;

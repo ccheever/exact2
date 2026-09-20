@@ -137,7 +137,12 @@ pub fn input(id: u32, text: &str) -> bool {
 pub fn agent(id: u32, text: &str) -> String {
     with(id, |e| {
         admit(text)?;
-        Ok(e.surface.agent(text).unwrap_or_default())
+        let reply = e.surface.agent(text).unwrap_or_default();
+        // Keep the structured agent reply when this call discovers a tick failure.
+        if let Some(SurfaceError(error)) = e.surface.take_error() {
+            refuse(error);
+        }
+        Ok(reply)
     })
     .unwrap_or_default()
 }

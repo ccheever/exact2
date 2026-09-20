@@ -106,3 +106,51 @@ fn counted_tally_construction_first_tick_restore() {
     assert!(restore.0 < 500 && restore.1 < 200_000);
     assert_eq!(tally::Tally::HZ, 60);
 }
+
+#[path = "../../tests/world-failure/logic/src/lib.rs"]
+mod failing;
+#[test]
+fn tick_failure_reports_once_and_remains_inspectable_until_restore() {
+    let mut s = WorldSurface::<failing::Fails>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    let saved = s.carry().unwrap().unwrap();
+    let reply = s.agent(r#"{"op":"clock","ticks":216000}"#).unwrap();
+    assert!(reply.contains("fixture tick refused"), "{reply}");
+    assert_eq!(s.sim().unwrap().world().tick(), 2);
+    assert!(s.take_error().unwrap().0.contains("tick 3"));
+    assert!(s.take_error().is_none());
+    let state = s.agent(r#"{"op":"state"}"#).unwrap();
+    assert!(
+        state.contains(r#""failed":true"#) && state.contains("fixture tick refused"),
+        "{state}"
+    );
+    assert!(state.contains(r#""ready":false"#));
+    assert!(s.agent(r#"{"op":"tree"}"#).unwrap().contains("entities"));
+    assert!(s
+        .agent(r#"{"op":"logs"}"#)
+        .unwrap()
+        .contains("fixture tick refused"));
+    for q in [
+        r#"{"op":"clock","ticks":1}"#,
+        r#"{"op":"clock","owner":"human"}"#,
+        r#"{"op":"clock","reload":true}"#,
+    ] {
+        assert!(s.agent(q).unwrap().contains("fixture tick refused"));
+        assert!(s.take_error().is_none());
+    }
+    assert!(s.carry().is_err());
+    assert!(
+        s.published().is_none(),
+        "failed ticks must not publish partial state"
+    );
+    s.restore(&saved, Restore::Open).unwrap();
+    assert!(s
+        .agent(r#"{"op":"state"}"#)
+        .unwrap()
+        .contains(r#""failed":false"#));
+    assert!(!s
+        .agent(r#"{"op":"clock","ticks":1}"#)
+        .unwrap()
+        .contains("error"));
+    assert_eq!(s.sim().unwrap().world().tick(), 2);
+}

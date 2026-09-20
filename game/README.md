@@ -729,3 +729,8 @@ ordinary `exact_gpu::Surface` lifecycle without presentation. `module!(G)` regis
 omits it. Binding takes the first fixed tick and publishes immediately. Agent `state`, `tree`,
 `clock`, `logs`, input, carry and restore are device-free. See
 [Tally](games/tally/app.contract) and the [adapter contract and measurements](world-adapter/README.md).
+
+`Game::setup` and `Game::tick` for the optional kernel return `Result<(), DataError>`;
+propagate failures with `?`. `WorldSurface` reports a tick failure once through
+`take_error()`, retains `state.world.failed` and `error` for inspection, and refuses
+clock driving until restore. Failed ticks do not deliver partial publications.

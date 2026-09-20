@@ -34,25 +34,22 @@ impl Game for Tally {
         w.register_resource::<Round>()?;
         Ok(())
     }
-    fn setup(w: &mut World, args: &Options) {
+    fn setup(w: &mut World, args: &Options) -> Result<(), DataError> {
         w.reseed(args.seed as u64);
-        w.spawn_named("hand", Owner).unwrap();
-        w.spawn_named("pile", Owner).unwrap();
-        w.spawn_named("held", Owner).unwrap();
-        w.insert_resource(Round::default()).unwrap();
+        w.spawn_named("hand", Owner)?;
+        w.spawn_named("pile", Owner)?;
+        w.spawn_named("held", Owner)?;
+        w.insert_resource(Round::default())?;
         let mut deck = Vec::new();
         for i in 0..12 {
-            deck.push(
-                w.spawn_named(format!("card-{i}"), Card { value: i + 1 })
-                    .unwrap(),
-            );
+            deck.push(w.spawn_named(format!("card-{i}"), Card { value: i + 1 })?);
         }
         w.resource_mut::<Round>().deck = deck;
-        reset(w);
+        reset(w)
     }
-    fn tick(w: &mut World, input: &Input, _: &Options) {
+    fn tick(w: &mut World, input: &Input, _: &Options) -> Result<(), DataError> {
         if input.pressed("reset") {
-            reset(w);
+            reset(w)?;
         }
         if !w.resource::<Round>().over {
             if input.pressed("draw") {
@@ -62,7 +59,7 @@ impl Game for Tally {
                     r.drawn += 1;
                     card
                 };
-                w.set_parent(card, w.named("hand")).unwrap();
+                w.set_parent(card, w.named("hand"))?;
             }
             let total: u32 = hand(w).iter().sum();
             if total > 21 {
@@ -79,7 +76,7 @@ impl Game for Tally {
                     .map(|(e, _)| e)
                     .collect();
                 for e in cards {
-                    w.set_parent(e, w.named("held")).unwrap();
+                    w.set_parent(e, w.named("held"))?;
                 }
             }
             if w.resource::<Round>().drawn == 12 {
@@ -87,7 +84,7 @@ impl Game for Tally {
             }
         }
         let round = w.resource::<Round>();
-        w.publish("score", round.score).unwrap();
+        w.publish("score", round.score)?;
         w.publish(
             "hand",
             Published::List(
@@ -96,11 +93,11 @@ impl Game for Tally {
                     .map(|v| Published::Number(v as f64))
                     .collect(),
             ),
-        )
-        .unwrap();
-        w.publish("pile_count", 12 - round.drawn).unwrap();
-        w.publish("over", round.over).unwrap();
-        w.publish("ticks", (w.tick() + 1) as f64).unwrap();
+        )?;
+        w.publish("pile_count", 12 - round.drawn)?;
+        w.publish("over", round.over)?;
+        w.publish("ticks", (w.tick() + 1) as f64)?;
+        Ok(())
     }
 }
 fn hand(w: &World) -> Vec<u32> {
@@ -113,17 +110,18 @@ fn hand(w: &World) -> Vec<u32> {
         .map(|(_, c)| c.value)
         .collect()
 }
-fn reset(w: &mut World) {
+fn reset(w: &mut World) -> Result<(), DataError> {
     let mut deck = w.resource::<Round>().deck.clone();
     for i in (1..deck.len()).rev() {
         let j = w.rng().next_u32() as usize % (i + 1);
         deck.swap(i, j);
     }
     for &e in &deck {
-        w.set_parent(e, w.named("pile")).unwrap();
+        w.set_parent(e, w.named("pile"))?;
     }
     *w.resource_mut::<Round>() = Round {
         deck,
         ..Default::default()
     };
+    Ok(())
 }
