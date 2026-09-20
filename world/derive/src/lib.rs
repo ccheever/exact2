@@ -328,7 +328,7 @@ fn read_body(b: &Body, access: &[String]) -> String {
         .zip(access)
         .filter(|(f, _)| f.skip || !named)
     {
-        s += &format!("if !r.patching() {{ {a} = ::core::default::Default::default(); }}");
+        s += &format!("{a} = ::core::default::Default::default();");
     }
     s += if named {
         "r.begin_struct()?; while let ::core::option::Option::Some(field) = r.field()? { match field.as_str() {"
@@ -361,10 +361,6 @@ fn read_body(b: &Body, access: &[String]) -> String {
         s += "index += 1;";
     }
     s += "}";
-    if !named {
-        let len = b.fields.iter().filter(|f| !f.skip).count();
-        s += &format!("if r.strict() && index != {len} {{ return ::core::result::Result::Err(::exact_world::DataError::new(\"wrong tuple length\")); }}");
-    }
     s
 }
 

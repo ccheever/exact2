@@ -79,6 +79,9 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
+    fn unit(&mut self) {
+        self.push("null");
+    }
     fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
         if value.len() > LIMIT {
             self.fail("inspection bulk exceeds limit");
@@ -167,11 +170,6 @@ impl Writer for Encoder {
     fn end_option(&mut self) {
         self.end_seq();
     }
-}
-pub fn quote_into(text: &mut String, s: &str) {
-    let mut w = Encoder::default();
-    w.string(s);
-    text.push_str(&w.finish().expect("inspection string limit"));
 }
 pub(crate) fn rounded(n: f64) -> f64 {
     let scaled = n * 10000.;

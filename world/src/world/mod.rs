@@ -52,23 +52,27 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
-    /// Entity identity used in typed-boundary diagnostics.
-    fn describe(&self, world: &World) -> String {
-        format!("entity {:?} {:?}", self.label(), self.entity(world))
-    }
     /// Name or slot for a setup error.
     fn label(&self) -> String;
     /// Resolve a live entity without consuming its diagnostic label or reviving a stale handle.
     fn entity(&self, world: &World) -> Option<Entity>;
 }
-impl Target for Entity {
-    fn describe(&self, world: &World) -> String {
-        format!(
-            "entity {:?} {:?}",
-            world.name(*self).unwrap_or("<unnamed or absent>"),
-            self
-        )
+impl<T: Target> Target for &T {
+    fn label(&self) -> String {
+        (*self).label()
     }
+    fn entity(&self, world: &World) -> Option<Entity> {
+        (*self).entity(world)
+    }
+}
+fn missing<C: Component>(target: &impl Target) -> ! {
+    panic!(
+        "entity `{}` requires component `{}`",
+        target.label(),
+        C::NAME
+    )
+}
+impl Target for Entity {
     fn label(&self) -> String {
         format!("#{}", self.index())
     }
@@ -108,8 +112,9 @@ pub trait Component: Data {
 /// the [`Data`] contract: quiescence and the hash cache are undefined for it.
 ///
 /// ```compile_fail
-/// use exact_world::{World, Transform};
-/// World::new(60, 0).resource::<Transform>();
+/// use exact_world::{World, Component};
+/// #[derive(Default, Component)] struct Count(u32);
+/// World::new(60, 0).resource::<Count>();
 /// ```
 pub trait Resource: Data {
     /// Stable save-file and agent spelling.
@@ -176,7 +181,7 @@ struct Registration {
 /// Retained, opaque identity for derived caches. Moves keep it; new worlds differ.
 /// Holding a token prevents its identity from being recycled after the world drops.
 #[derive(Clone, Debug)]
-pub struct WorldId(std::rc::Rc<()>);
+pub struct WorldId(std::rc::Rc<std::cell::Cell<u64>>);
 impl PartialEq for WorldId {
     fn eq(&self, other: &Self) -> bool {
         std::rc::Rc::ptr_eq(&self.0, &other.0)
@@ -226,7 +231,7 @@ impl World {
         let mut rng = storage::Singleton::new("Rng", epoch.clone());
         rng.insert(Rng::new(seed));
         Self {
-            id: WorldId(std::rc::Rc::new(())),
+            id: WorldId(epoch.clone()),
             epoch,
             hash_cache: std::cell::Cell::new(None),
             in_tick: false,
@@ -300,6 +305,7 @@ impl World {
     }
     /// Spawn with an agent-visible name. Repeated names resolve lowest-index first.
     pub fn spawn_named(&mut self, name: impl AsRef<str>, bundle: impl Bundle) -> Entity {
+        assert!(name.as_ref().len() <= 256, "entity name exceeds 256 bytes");
         self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
     fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
@@ -505,31 +511,13 @@ impl World {
         );
         self.storage::<C>()?.get_mut(e.index as usize)
     }
-    /// Require a component, reporting both the target and component on failure.
     pub fn require<C: Component>(&self, target: impl Target) -> Ref<'_, C> {
-        target
-            .entity(self)
-            .and_then(|e| self.get::<C>(e))
-            .unwrap_or_else(|| {
-                panic!(
-                    "entity `{}` requires component `{}`",
-                    target.label(),
-                    C::NAME
-                )
-            })
+        self.get::<C>(&target)
+            .unwrap_or_else(|| missing::<C>(&target))
     }
-    /// Mutably require a component; the guard locks its component column.
     pub fn require_mut<C: Component>(&self, target: impl Target) -> RefMut<'_, C> {
-        target
-            .entity(self)
-            .and_then(|e| self.get_mut::<C>(e))
-            .unwrap_or_else(|| {
-                panic!(
-                    "entity `{}` requires component `{}`",
-                    target.label(),
-                    C::NAME
-                )
-            })
+        self.get_mut::<C>(&target)
+            .unwrap_or_else(|| missing::<C>(&target))
     }
     /// Construct an entity-ordered join and acquire its storage borrows now.
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
@@ -640,7 +628,14 @@ impl World {
         self.publish_value(key, value.into().0);
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
+        assert!(key.len() <= 256, "publication key exceeds 256 bytes");
+        let mut budget = crate::json::LIMIT;
+        value.validate(&mut budget, 0).expect("publication bounds");
         let mut p = self.published.borrow_mut();
+        assert!(
+            p.contains_key(key) || p.len() < 256,
+            "publication key limit (256)"
+        );
         let stored = p.get_mut(key);
         if stored.as_deref() == Some(&value) {
             return;
@@ -656,7 +651,13 @@ impl World {
     }
     /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
-        self.messages.borrow_mut().push(text.into());
+        let text = text.into();
+        let mut messages = self.messages.borrow_mut();
+        assert!(
+            text.len() <= 4096 && messages.len() < 1024,
+            "message queue limit (1024 x 4096 bytes)"
+        );
+        messages.push(text);
     }
     /// Last scalar, list or positional Contract value published under a key.
     /// Named nested records remain in take_published/agent JSON until shaped by the app.
@@ -766,6 +767,21 @@ impl World {
         if self.hz() == 0 || self.state.slots.len() > crate::MAX_ENTITIES {
             return Err(DataError::new("hz must be positive"));
         }
+        let work = self.state.work.borrow();
+        if work.len() > 64
+            || work
+                .iter()
+                .any(|(k, v)| k.len() > 256 || matches!(v, crate::Work::Failed(s) if s.len() > 256))
+            || self.state.busy.borrow().len() > 64
+            || self.state.busy.borrow().iter().any(|s| s.len() > 256)
+            || self
+                .state
+                .slots
+                .iter()
+                .any(|s| s.name.as_ref().is_some_and(|n| n.len() > 256))
+        {
+            return Err(DataError::new("world text/reason limit"));
+        }
         let free = self
             .state
             .slots
@@ -819,7 +835,12 @@ impl World {
                     }
                 }
                 "rng" => self.rng().read(r)?,
-                "messages" => self.messages.borrow_mut().read(r)?,
+                "messages" => {
+                    crate::data::limits::read_vec(r, self.messages.get_mut(), 1024)?;
+                    if self.messages.get_mut().iter().any(|m| m.len() > 4096) {
+                        return Err(DataError::new("message exceeds 4096 bytes"));
+                    }
+                }
                 "components" | "resources" => {
                     if seen & 1 == 0 {
                         return Err(DataError::new("entity table must precede storage"));
@@ -829,17 +850,7 @@ impl World {
                         let (&key, reg) =
                             self.registry.get_key_value(name.as_str()).ok_or_else(|| {
                                 DataError::new(format!(
-                                    "unregistered {} `{name}`; call world.{}::<{name}>() in Game::register",
-                                    if field == "resources" {
-                                        "resource"
-                                    } else {
-                                        "component"
-                                    },
-                                    if field == "resources" {
-                                        "register_resource"
-                                    } else {
-                                        "register"
-                                    }
+                                    "unregistered storage `{name}`; declare it in Game::register"
                                 ))
                             })?;
                         let resource = field == "resources";
@@ -851,12 +862,10 @@ impl World {
                         };
                         let make = make.ok_or_else(|| {
                             DataError::new(format!(
-                                "`{name}` is registered as a {}; call world.{}::<{name}>() in Game::register to load {}",
-                                if resource { "component" } else { "resource" },
-                                if resource { "register_resource" } else { "register" },
-                                if resource { "resources" } else { "components" }
+                                "storage kind differs for `{name}`; declare it in Game::register"
                             ))
                         })?;
+                        r.claim(1024)?;
                         let mut s = make(key, self.epoch.clone());
                         s.read(r, &|e| {
                             if resource {

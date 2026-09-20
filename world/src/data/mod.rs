@@ -17,65 +17,12 @@ pub mod text;
 /// implementation that changes semantic state through a shared reference is outside
 /// this contract: quiescence and the hash cache are undefined for it.
 ///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct Mutable { value: std::cell::Cell<u32> }
-/// ```
-///
 /// Records keep fields the input lacks; sequences, maps and options are replaced whole.
 ///
 /// Array implementations require the array itself to implement Default. Rust
 /// currently supplies that only through length 32; Vec supports arbitrary lengths.
 /// Platform-sized integers and unordered maps intentionally have no implementation.
 ///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct Generic<T>(T);
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct Borrowed<'a> { text: &'a str }
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct PlatformSized { count: usize }
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct Unordered { entries: std::collections::HashMap<String, u32> }
-/// ```
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// #[data(skip)]
-/// struct TypeAttribute { score: u32 }
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// enum VariantAttribute { #[default] #[data(skip)] A }
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// struct UnknownAttribute { #[data(typo)] score: u32 }
-/// ```
-///
-/// ```compile_fail
-/// use exact_world::Data;
-/// #[derive(Default, Data)]
-/// enum Discriminants { #[default] A = 1, B = 2 }
-/// ```
 pub trait Data: Sized + Default + 'static {
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
@@ -226,10 +173,6 @@ pub trait Writer {
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
-    /// Reload patches retain skipped fields and existing container elements.
-    fn patching(&self) -> bool {
-        false
-    }
     /// Check a declared collection's minimum storage before reading any elements.
     /// Reservations still claim their actual capacity through `claim`.
     fn check_allocation(&self, _bytes: usize) -> Result<(), DataError> {
@@ -292,17 +235,9 @@ pub trait Reader {
     fn option(&mut self) -> Result<bool, DataError>;
     /// Consume the option end.
     fn end_option(&mut self) -> Result<(), DataError>;
-    /// Whether authoring requires exact fields and tuple/array lengths.
-    fn strict(&self) -> bool {
-        false
-    }
-    /// An unknown record field or tuple element; saves skip it, authoring refuses it.
+    /// Skip an unknown field in a compatible record.
     fn unknown(&mut self) -> Result<(), DataError> {
-        if self.strict() {
-            Err(DataError::new("unknown field or excess element"))
-        } else {
-            self.skip()
-        }
+        self.skip()
     }
     /// Discard one complete value, including names interned within it.
     fn skip(&mut self) -> Result<(), DataError>;

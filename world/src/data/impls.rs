@@ -123,7 +123,8 @@ impl<T: Data> Data for Vec<T> {
                             ">"
                         )));
                     }
-                    // Reader::bytes already claimed WIDTH * element count.
+                    // The raw payload and typed destination coexist during conversion.
+                    r.claim(bytes.len())?;
                     let mut out = Vec::new();
                     out.try_reserve_exact(bytes.len() / WIDTH)
                         .map_err(super::limits::allocation)?;
@@ -161,13 +162,9 @@ impl<T: Data> Data for Option<T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         if r.option()? {
-            if r.patching() {
-                self.get_or_insert_with(T::default).read(r)?;
-            } else {
-                let mut value = T::default();
-                value.read(r)?;
-                *self = Some(value);
-            }
+            let mut value = T::default();
+            value.read(r)?;
+            *self = Some(value);
         } else {
             *self = None;
         }
@@ -190,9 +187,7 @@ where
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_seq()?;
-        if !r.patching() {
-            *self = Self::default();
-        }
+        *self = Self::default();
         read_slice(self, r)
     }
 }
@@ -214,15 +209,9 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
         if let Some(v) = values.get_mut(i) {
             v.read(r).map_err(|e| e.at(i))?;
         } else {
-            if r.strict() {
-                return Err(DataError::new("wrong array length"));
-            }
             r.skip()?;
         }
         i += 1;
-    }
-    if r.strict() && i != values.len() {
-        return Err(DataError::new("wrong array length"));
     }
     Ok(())
 }
@@ -259,21 +248,12 @@ impl<T: Data> Data for BTreeMap<String, T> {
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         r.begin_struct()?;
-        if !r.patching() {
-            self.clear();
-        }
+        self.clear();
         while let Some(k) = r.field()? {
             r.claim(64 + std::mem::size_of::<T>())?;
-            if r.patching() {
-                self.entry(k.clone())
-                    .or_default()
-                    .read(r)
-                    .map_err(|e| e.at(&k))?;
-            } else {
-                let mut value = T::default();
-                value.read(r).map_err(|e| e.at(&k))?;
-                self.insert(k, value);
-            }
+            let mut value = T::default();
+            value.read(r).map_err(|e| e.at(&k))?;
+            self.insert(k, value);
         }
         Ok(())
     }
@@ -292,7 +272,6 @@ macro_rules! tuple {
                     match i { $($i => self.$i.read(r).map_err(|e| e.at(i))?,)* _ => r.unknown().map_err(|e| e.at(i))?, }
                     i += 1;
                 }
-                if r.strict() && i != $n { return Err(DataError::new("wrong tuple length")); }
                 Ok(())
             }
         }

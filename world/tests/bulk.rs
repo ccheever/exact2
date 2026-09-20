@@ -61,10 +61,16 @@ fn bulk_kinds_refuse_every_other_kind_by_name_including_empty() {
 }
 
 #[test]
-fn numeric_bulk_budget_counts_destination_once() {
+fn numeric_bulk_budget_counts_both_live_buffers() {
     fn check<T: Data + PartialEq + std::fmt::Debug>(values: Vec<T>) {
         let bytes = bin::to_vec(&values);
-        let size = std::mem::size_of::<T>() * values.len();
+        let size = std::mem::size_of::<T>()
+            * values.len()
+            * if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u8>() {
+                1
+            } else {
+                2
+            };
         for remaining in [size - 1, size] {
             let mut r = bin::Decoder::new(&bytes);
             r.claim(exact_world::data::MAX_LOAD_BYTES - remaining)

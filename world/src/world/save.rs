@@ -91,40 +91,58 @@ impl World {
         }
         w.end_seq();
     }
-    pub(crate) fn read_schema(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        r.begin_seq()?;
-        let mut count = 0;
-        while r.item()? {
-            count += 1;
-            if count > 512 {
-                return Err(DataError::new("schema type limit"));
-            }
-            let mut entry = (String::new(), false);
-            entry.read(r)?;
-            if entry.0 == "Parent" {
+    pub(crate) fn read_schema(
+        &mut self,
+        r: &mut dyn Reader,
+    ) -> Result<Vec<(String, bool)>, DataError> {
+        let mut schema: Vec<(String, bool)> = Vec::new();
+        limits::read_vec(r, &mut schema, 512)?;
+        let mut seen = BTreeSet::new();
+        for (name, resource) in &schema {
+            if name == "Parent" {
                 self.register::<Parent>();
             }
-            if entry.0 == "Ambient" {
+            if name == "Ambient" {
                 self.register::<crate::Ambient>();
             }
             let reg = self
                 .registry
-                .get(entry.0.as_str())
-                .ok_or_else(|| DataError::new("unregistered schema type").at(&entry.0))?;
-            if if entry.1 {
+                .get(name.as_str())
+                .ok_or_else(|| DataError::new("unregistered schema type").at(name))?;
+            if (if *resource {
                 reg.make_resource.is_none()
             } else {
                 reg.make.is_none()
-            } {
-                return Err(DataError::new("schema storage kind differs"));
+            }) || !seen.insert((name, *resource))
+            {
+                return Err(DataError::new("schema kind differs or repeats"));
             }
+            r.claim(128)?;
         }
-        Ok(())
+        Ok(schema)
+    }
+    pub(crate) fn matches_schema(&self, schema: &[(String, bool)]) -> bool {
+        self.components
+            .keys()
+            .map(|s| (*s, false))
+            .chain(self.resources.keys().map(|s| (*s, true)))
+            .eq(schema.iter().map(|(s, r)| (s.as_str(), *r)))
     }
     pub(crate) fn write_publications(&self, w: &mut dyn Writer) {
         self.published.borrow().write(w);
     }
     pub(crate) fn read_publications(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        self.published.get_mut().read(r)
+        self.published.get_mut().read(r)?;
+        if self.published.get_mut().len() > 256
+            || self.published.get_mut().keys().any(|k| k.len() > 256)
+        {
+            return Err(DataError::new("publication count/key limit"));
+        }
+        let mut budget = crate::json::LIMIT;
+        for value in self.published.get_mut().values() {
+            value.validate(&mut budget, 0)?;
+        }
+        self.published_pending.set(true);
+        Ok(())
     }
 }

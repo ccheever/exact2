@@ -1,12 +1,12 @@
 use super::{Data, DataError, Reader};
 use std::{cell::Cell, rc::Rc};
 
-/// Maximum entity slots accepted by a world save: 16 million, including dead slots.
-pub const MAX_LOAD_ENTITIES: usize = 16 * 1024 * 1024;
-/// Maximum decoded UTF-8 bytes in any one string: 64 MiB.
-pub const MAX_LOAD_STRING: usize = 64 * 1024 * 1024;
-/// Maximum input bytes and accounted decoded allocations per decoder: 2 GiB.
-pub const MAX_LOAD_BYTES: usize = 2 * 1024 * 1024 * 1024;
+/// Maximum entity slots accepted by a world save: 200,000, including dead slots.
+pub const MAX_LOAD_ENTITIES: usize = crate::MAX_ENTITIES;
+/// Maximum decoded UTF-8 bytes in any one string: 1 MiB.
+pub const MAX_LOAD_STRING: usize = 1024 * 1024;
+/// Maximum input bytes and accounted decoded allocations per decoder: 256 MiB.
+pub const MAX_LOAD_BYTES: usize = 256 * 1024 * 1024;
 
 /// One explicit cumulative allowance across nested binary/JSON/world decoders.
 /// Cloning the handle shares consumption; it never replenishes the allowance.
@@ -121,22 +121,6 @@ pub(crate) fn read_vec<T: Data>(
             n.checked_mul(std::mem::size_of::<T>())
                 .ok_or_else(|| DataError::new("allocation size overflow"))?,
         )?;
-    }
-    if r.patching() {
-        let mut index = 0;
-        while r.item()? {
-            if index == limit {
-                return Err(DataError::new("sequence count exceeds load limit"));
-            }
-            if index == v.len() {
-                reserve(r, v, 1)?;
-                v.push(T::default());
-            }
-            v[index].read(r).map_err(|e| e.at(index))?;
-            index += 1;
-        }
-        v.truncate(index);
-        return Ok(());
     }
     v.clear();
     while r.item()? {

@@ -307,9 +307,12 @@ impl<G: Game> Sim<G> {
         }
         G::register(&mut world, SetupArgs(&args));
         item(&mut r)?;
-        world.read_schema(&mut r)?;
+        let schema = world.read_schema(&mut r)?;
         item(&mut r)?;
         world.read(&mut r)?;
+        if !world.matches_schema(&schema) {
+            return Err(DataError::new("schema disagrees with storage"));
+        }
         world.validate_ownership(&mut r)?;
         item(&mut r)?;
         let mut world_us = 0i64;

@@ -79,6 +79,9 @@ impl World {
         Ok(status)
     }
     pub(crate) fn validate_ownership(&self, r: &mut dyn Reader) -> Result<(), DataError> {
+        if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+            return Ok(());
+        }
         if self.ownership_status(r)?.contains(&3) {
             return Err(DataError::new("ownership has a dead parent"));
         }

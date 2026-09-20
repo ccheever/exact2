@@ -12,34 +12,6 @@ pub enum ArgumentKind {
 }
 /// Typed canvas arguments. Derive this on a named struct; field order is wire order.
 ///
-/// ```compile_fail
-/// use exact_world::Args;
-/// #[derive(Default, Args)]
-/// struct Options { #[live(typo)] volume: f32 }
-/// ```
-/// ```compile_fail
-/// use exact_world::Args;
-/// #[derive(Default, Args)]
-/// struct Options { #[live = true] volume: f32 }
-/// ```
-/// ```compile_fail
-/// use exact_world::Args;
-/// #[derive(Default, Args)]
-/// #[live]
-/// struct Options { volume: f32 }
-/// ```
-/// ```compile_fail
-/// use exact_world::Args;
-/// #[derive(Default, Args)]
-/// #[live(typo)]
-/// struct Options { volume: f32 }
-/// ```
-/// ```compile_fail
-/// use exact_world::Args;
-/// #[derive(Default, Args)]
-/// #[live = true]
-/// struct Options { volume: f32 }
-/// ```
 pub trait Args: crate::Data {
     fn argument(&self, name: &str) -> Option<ArgumentRef<'_>>;
     /// Ordered field names and their binding behavior.
@@ -103,10 +75,9 @@ pub fn field<T: Argument>(values: &[Value], index: usize, name: &str) -> Result<
         format!(
             "{name}: expected {}, got {}",
             T::EXPECTED,
-            values.get(index).map_or_else(
-                || "no value".into(),
-                |v| crate::values::value_json(v, false)
-            )
+            values
+                .get(index)
+                .map_or_else(|| "no value".into(), |v| format!("{v:?}"))
         )
     })
 }

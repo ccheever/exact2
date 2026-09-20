@@ -58,35 +58,62 @@ impl Stored {
             Self::Object(_) => return None,
         })
     }
-    pub(crate) fn append_json(&self, out: &mut String, rounded: bool) {
+    pub(crate) fn validate(&self, remaining: &mut usize, depth: usize) -> Result<(), DataError> {
+        let cost = match self {
+            Self::Str(s) => 64usize.saturating_add(s.len().saturating_mul(6)),
+            _ => 64,
+        };
+        *remaining = remaining
+            .checked_sub(cost)
+            .ok_or_else(|| DataError::new("publication exceeds 65536 bytes/visits"))?;
+        if depth > 256 {
+            return Err(DataError::new("publication depth limit"));
+        }
         match self {
             Self::Object(fields) => {
-                out.push('{');
-                for (i, (key, value)) in fields.iter().enumerate() {
-                    if i != 0 {
-                        out.push(',');
-                    }
-                    crate::json::quote_into(out, key);
-                    out.push(':');
-                    value.append_json(out, rounded);
+                for (k, v) in fields {
+                    *remaining = remaining
+                        .checked_sub(k.len().saturating_mul(6))
+                        .ok_or_else(|| DataError::new("publication key limit"))?;
+                    v.validate(remaining, depth + 1)?;
                 }
-                out.push('}');
             }
             Self::List(items) | Self::Record(items) => {
-                out.push('[');
-                for (i, value) in items.iter().enumerate() {
-                    if i != 0 {
-                        out.push(',');
-                    }
-                    value.append_json(out, rounded);
+                for v in items {
+                    v.validate(remaining, depth + 1)?;
                 }
-                out.push(']');
             }
-            Self::Option(Some(v)) => v.append_json(out, rounded),
-            Self::Unit | Self::Option(None) => out.push_str("null"),
-            Self::Str(s) => crate::json::quote_into(out, s),
-            Self::Number(n) => number_json(out, *n, rounded),
-            Self::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Self::Option(Some(v)) => v.validate(remaining, depth + 1)?,
+            Self::Number(n) if !n.is_finite() => {
+                return Err(DataError::new("non-finite publication"))
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    pub(crate) fn inspect(&self, w: &mut dyn Writer) {
+        match self {
+            Self::Object(fields) => {
+                w.begin_struct();
+                for (k, v) in fields {
+                    w.field(k);
+                    v.inspect(w);
+                }
+                w.end_struct();
+            }
+            Self::List(items) | Self::Record(items) => {
+                w.begin_seq(items.len());
+                for v in items {
+                    w.item();
+                    v.inspect(w);
+                }
+                w.end_seq();
+            }
+            Self::Option(Some(v)) => v.inspect(w),
+            Self::Unit | Self::Option(None) => w.unit(),
+            Self::Str(s) => w.string(s),
+            Self::Number(n) => w.number(crate::Number::F64(*n)),
+            Self::Bool(b) => w.boolean(*b),
         }
     }
 }
@@ -238,43 +265,6 @@ macro_rules! numbers {
     })*};
 }
 numbers!(u8, u16, u32, i8, i16, i32, f32, f64);
-
-fn number_json(out: &mut String, n: f64, rounded: bool) {
-    if !n.is_finite() {
-        out.push_str("null");
-        return;
-    }
-    let start = out.len();
-    let n = if rounded { crate::json::rounded(n) } else { n };
-    crate::data::text::shortest(out, n, !rounded).unwrap();
-    if out[start..].ends_with(".0") {
-        out.truncate(out.len() - 2);
-    }
-}
-pub(crate) fn value_json(v: &Value, rounded: bool) -> String {
-    let mut out = String::new();
-    append_value(&mut out, v, rounded);
-    out
-}
-fn append_value(out: &mut String, v: &Value, rounded: bool) {
-    match v {
-        Value::Unit | Value::Option(None) => out.push_str("null"),
-        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-        Value::Number(n) => number_json(out, *n, rounded),
-        Value::Str(s) => crate::json::quote_into(out, s),
-        Value::Option(Some(v)) => append_value(out, v, rounded),
-        Value::List(v) | Value::Record(v) => {
-            out.push('[');
-            for (i, value) in v.iter().enumerate() {
-                if i != 0 {
-                    out.push(',');
-                }
-                append_value(out, value, rounded);
-            }
-            out.push(']');
-        }
-    }
-}
 
 // One Data traversal; field names remain names until the app's shape decoder.
 #[derive(Default)]

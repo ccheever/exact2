@@ -147,7 +147,6 @@ pub struct Decoder<'a> {
     frames: Vec<Frame<'a>>,
     budget: Budget,
     preflight_collections: bool,
-    patching: bool,
 }
 enum Frame<'a> {
     Seq(u64),
@@ -165,7 +164,6 @@ impl<'a> Decoder<'a> {
             frames: vec![],
             budget: Budget::default(),
             preflight_collections: false,
-            patching: false,
         }
     }
     /// An importing subsystem can tighten allocations without changing world saves.
@@ -267,9 +265,6 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
-    fn patching(&self) -> bool {
-        self.patching
-    }
     fn check_allocation(&self, bytes: usize) -> Result<(), DataError> {
         if self.preflight_collections {
             self.budget.check(bytes)

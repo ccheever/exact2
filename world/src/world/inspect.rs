@@ -18,6 +18,7 @@ pub enum Readiness {
     Pending(Vec<String>),
     Failed(Vec<String>),
 }
+pub type TreeRow<'a> = (Entity, Option<&'a str>, Option<Entity>);
 impl World {
     pub fn mutation_epoch(&self) -> u64 {
         self.epoch.get()
@@ -193,7 +194,7 @@ impl World {
         w.finish()
     }
     /// Entity ordered ownership tree rows, capped at 512, with an explicit omitted count.
-    pub fn tree(&self) -> (Vec<(Entity, Option<&str>, Option<Entity>)>, usize) {
+    pub fn tree(&self) -> (Vec<TreeRow<'_>>, usize) {
         let rows = self
             .entities()
             .take(512)
@@ -205,19 +206,21 @@ impl World {
         std::mem::take(&mut *self.messages.borrow_mut())
     }
     pub fn publications(&self) -> Result<String, DataError> {
-        let mut out = String::from("{");
-        for (i, (k, v)) in self.published.borrow().iter().enumerate() {
-            if i != 0 {
-                out.push(',');
-            }
-            crate::json::quote_into(&mut out, k);
-            out.push(':');
-            v.append_json(&mut out, false);
+        let mut w = crate::json::Encoder::default();
+        w.begin_struct();
+        for (key, value) in self.published.borrow().iter() {
+            w.field(key);
+            value.inspect(&mut w);
         }
-        out.push('}');
-        if out.len() > crate::json::LIMIT {
-            return Err(DataError::new("publication output limit"));
+        w.end_struct();
+        w.finish()
+    }
+    pub fn take_published(&self) -> Result<Option<String>, DataError> {
+        if !self.published_pending.get() {
+            return Ok(None);
         }
-        Ok(out)
+        let result = self.publications()?;
+        self.published_pending.set(false);
+        Ok(Some(result))
     }
 }
