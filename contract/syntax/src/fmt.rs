@@ -5,7 +5,9 @@
 //! no second literal scanner or expression printer is involved. Existing
 //! physical breaks remain, including comments and blank groups at file edges.
 
-use crate::{parse, Attr, File, Lexer, Node, Span, SyntaxError, Token, TokenKind, TypeExpr};
+use crate::{
+    parser::parse_tokens, Attr, File, Lexer, Node, Span, SyntaxError, Token, TokenKind, TypeExpr,
+};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The preferred width; indivisible literals and comments may exceed it.
@@ -14,8 +16,7 @@ pub const WIDTH: usize = 100;
 /// Format valid Contract source without changing literal spelling or order.
 /// Formatting is explicit: no compiler or development loop calls this.
 pub fn format(src: &str) -> Result<String, SyntaxError> {
-    let file = parse(src)?;
-    let tokens = Lexer::tokenize(src, 1)?;
+    let (file, tokens) = parse_tokens(Lexer::tokenize(src, 1)?)?;
     let lines: Vec<&str> = src.lines().collect();
     let mut layout = Layout::new(&tokens, &lines);
     layout.file(&file);
@@ -39,7 +40,7 @@ pub fn format(src: &str) -> Result<String, SyntaxError> {
             span: Span::point(1, 1),
         });
     }
-    parse(&out)?;
+    parse_tokens(after)?;
     Ok(out)
 }
 
