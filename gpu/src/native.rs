@@ -147,6 +147,11 @@ pub fn load_headless(registry: &'static Registry) {
     MODULE.with(|m| *m.borrow_mut() = Some(module));
 }
 
+/// Advance owned state without rendering or agent inspection.
+pub fn advance(id: u32, now_ms: f64) -> bool {
+    with(|m| m.advance(id, now_ms)).unwrap_or(false)
+}
+
 /// Create a surface without presentation; zero means refusal.
 pub fn create_headless(name: &str) -> u32 {
     with(|m| m.create_headless(name)).flatten().unwrap_or(0)
@@ -485,6 +490,10 @@ macro_rules! module {
         /// Release all instances and module TLS before unloading the library.
         #[no_mangle]
         pub extern "C" fn gpu_unload() { $crate::native::unload(); }
+
+        /// Advance owned state without rendering or agent inspection.
+        #[no_mangle]
+        pub extern "C" fn gpu_advance(id: u32, now_ms: f64) -> bool { $crate::native::advance(id, now_ms) }
 
         /// Load ownership without a GPU.
         #[no_mangle]

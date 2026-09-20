@@ -2,7 +2,10 @@
 #![allow(missing_docs)]
 use crate::{json, Lifecycle, Registry, Restore, Surface, SurfaceError};
 use std::{cell::RefCell, collections::BTreeMap};
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
+#[cfg(not(target_arch = "wasm32"))]
+type JsValue = String;
 struct Entry {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
@@ -19,7 +22,23 @@ thread_local! {
     static ERROR: RefCell<String> = const { RefCell::new(String::new()) };
 }
 fn refuse(e: impl ToString) {
-    ERROR.with(|s| *s.borrow_mut() = e.to_string());
+    let mut text = e.to_string();
+    if text.len() > 4096 {
+        let mut end = 4096;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str(" (truncated)");
+    }
+    ERROR.with(|s| *s.borrow_mut() = text);
+}
+fn output(text: &str) -> Result<(), String> {
+    if text.len() > 65_536 {
+        Err("surface returned text limit (65536 bytes)".into())
+    } else {
+        Ok(())
+    }
 }
 fn with<T>(id: u32, f: impl FnOnce(&mut Entry) -> Result<T, String>) -> Option<T> {
     let result = OWNED.with(|m| {
@@ -29,12 +48,22 @@ fn with<T>(id: u32, f: impl FnOnce(&mut Entry) -> Result<T, String>) -> Option<T
             .and_then(|m| m.entries.get_mut(&id))
             .ok_or("no such surface")?;
         let result = f(entry)?;
-        entry.messages.extend(entry.surface.messages());
-        if let Some(value) = entry.surface.published() {
-            entry.published = Some(value);
-        }
         if let Some(SurfaceError(e)) = entry.surface.take_error() {
             return Err(e);
+        }
+        let messages = entry.surface.messages();
+        let bytes = entry
+            .messages
+            .iter()
+            .chain(&messages)
+            .try_fold(0usize, |n, s| n.checked_add(s.len()));
+        if messages.len() + entry.messages.len() > 1024 || bytes.is_none_or(|n| n > 65_536) {
+            return Err("surface messages limit (1024 / 65536 bytes)".into());
+        }
+        entry.messages.extend(messages);
+        if let Some(value) = entry.surface.published() {
+            output(&value)?;
+            entry.published = Some(value);
         }
         Ok(result)
     });
@@ -45,36 +74,6 @@ fn with<T>(id: u32, f: impl FnOnce(&mut Entry) -> Result<T, String>) -> Option<T
             None
         }
     }
-}
-fn admit(text: &str) -> Result<(), String> {
-    if text.len() > 16_384 {
-        return Err("surface request exceeds 16384 bytes".into());
-    }
-    let (mut depth, mut string, mut escape) = (0u32, false, false);
-    for b in text.bytes() {
-        if string {
-            if escape {
-                escape = false;
-            } else if b == b'\\' {
-                escape = true;
-            } else if b == b'"' {
-                string = false;
-            }
-        } else {
-            match b {
-                b'"' => string = true,
-                b'[' | b'{' => {
-                    depth += 1;
-                    if depth > 64 {
-                        return Err("surface request exceeds depth 64".into());
-                    }
-                }
-                b']' | b'}' => depth = depth.saturating_sub(1),
-                _ => {}
-            }
-        }
-    }
-    Ok(())
 }
 pub fn load_headless(registry: &'static Registry) {
     OWNED.with(|m| {
@@ -115,12 +114,17 @@ pub fn create_headless(name: &str) -> u32 {
         m.next
     })
 }
+pub fn advance(id: u32, now_ms: f64) -> bool {
+    error();
+    with(id, |e| Ok(e.surface.advance(now_ms))).unwrap_or(false)
+}
 pub fn bind(id: u32, text: &str) -> bool {
     bind_at(id, text, None)
 }
 pub fn bind_at(id: u32, text: &str, at: Option<f64>) -> bool {
+    error();
     with(id, |e| {
-        admit(text)?;
+        crate::binding::admit(text)?;
         let values = crate::binding::values(e.surface.as_ref(), text)?;
         e.surface.bind(&values, at).map_err(|e| e.0)
     })
@@ -128,7 +132,7 @@ pub fn bind_at(id: u32, text: &str, at: Option<f64>) -> bool {
 }
 pub fn input(id: u32, text: &str) -> bool {
     with(id, |e| {
-        admit(text)?;
+        crate::binding::admit(text)?;
         e.surface.input(&json::parse_input(text)?);
         Ok(())
     })
@@ -136,21 +140,41 @@ pub fn input(id: u32, text: &str) -> bool {
 }
 pub fn agent(id: u32, text: &str) -> String {
     with(id, |e| {
-        admit(text)?;
+        crate::binding::admit(text)?;
         let reply = e.surface.agent(text).unwrap_or_default();
         // Keep the structured agent reply when this call discovers a tick failure.
         if let Some(SurfaceError(error)) = e.surface.take_error() {
             refuse(error);
         }
+        output(&reply)?;
         Ok(reply)
     })
     .unwrap_or_default()
 }
 pub fn carry(id: u32) -> Result<Option<Vec<u8>>, JsValue> {
-    with(id, |e| e.surface.carry().map_err(|e| e.0)).ok_or_else(|| JsValue::from_str(&error()))
+    with(id, |e| {
+        let bytes = e.surface.carry().map_err(|e| e.0)?;
+        if bytes.as_ref().is_some_and(|b| b.len() > 256 * 1024 * 1024) {
+            return Err("surface carry limit (256 MiB)".into());
+        }
+        Ok(bytes)
+    })
+    .ok_or_else(|| {
+        #[cfg(target_arch = "wasm32")]
+        {
+            JsValue::from_str(&error())
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            error()
+        }
+    })
 }
 pub fn restore(id: u32, bytes: &[u8], mode: u32) -> bool {
     with(id, |e| {
+        if bytes.len() > 256 * 1024 * 1024 {
+            return Err("surface restore limit (256 MiB)".into());
+        }
         e.surface.restore(
             bytes,
             match mode {
@@ -192,7 +216,12 @@ pub fn published(id: u32) -> Option<String> {
 }
 pub fn messages(id: u32) -> Option<String> {
     with(id, |e| {
-        Ok((!e.messages.is_empty()).then(|| json::strings(&std::mem::take(&mut e.messages))))
+        let value =
+            (!e.messages.is_empty()).then(|| json::strings(&std::mem::take(&mut e.messages)));
+        if let Some(text) = &value {
+            output(text)?;
+        }
+        Ok(value)
     })
     .flatten()
 }
@@ -236,4 +265,41 @@ pub fn asset(_: u32, _: &str, _: Option<&[u8]>) -> bool {
 pub fn asset_failed(_: u32, _: &str, _: &str) -> bool {
     refuse("device-free module has no assets");
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Large;
+    impl Surface for Large {
+        fn bind(&mut self, _: &[crate::Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            Some("x".repeat(65_537))
+        }
+        fn published(&mut self) -> Option<String> {
+            Some("x".repeat(65_537))
+        }
+        fn messages(&mut self) -> Vec<String> {
+            vec!["x".repeat(65_537)]
+        }
+    }
+    static REGISTRY: Registry = Registry {
+        surfaces: &[("large", 0, || Box::new(Large))],
+        shaders: &[],
+    };
+    #[test]
+    fn returned_data_is_bounded_before_crossing_the_owned_abi() {
+        unload();
+        load_headless(&REGISTRY);
+        let id = create_headless("large");
+        assert_eq!(agent(id, "{}"), "");
+        assert!(error().contains("limit"));
+        assert!(published(id).is_none());
+        assert!(error().contains("limit"));
+        assert!(messages(id).is_none());
+        assert!(error().contains("limit"));
+        unload();
+    }
 }

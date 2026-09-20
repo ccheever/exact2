@@ -18,9 +18,10 @@ test('ordinary app HTML is byte-identical to the K3 bake, including metadata esc
   assert.ok(Buffer.from(page(ordinary)).equals(before));
   assert.equal(page(ordinary).includes('modulepreload'),false);
 });
-test('only manifest-declared surface modules preload the JS and credential-matched wasm fetch',()=>{
+test('only ownership-only modules preload the JS and credential-matched wasm fetch',()=>{
   for(const world of [true,false]) {
     const document=page({...ordinary,game:{crate:'fixture-logic',type:'Fixture',world}});
+    if (!world) { assert.equal(document,page(ordinary));continue; }
     assert.equal((document.match(/rel="modulepreload" href="gpu.js"/g)??[]).length,1);
     assert.equal((document.match(/rel="preload" as="fetch" crossorigin href="gpu_bg.wasm"/g)??[]).length,1);
     assert.ok(document.indexOf('modulepreload')<document.indexOf('<script type="module"'));

@@ -47,63 +47,6 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
     with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
 }
 
-/// Own surfaces immediately, before adapter/device acquisition.
-pub fn load_headless(registry: &'static Registry) {
-    MODULE.with(|m| {
-        m.borrow_mut().get_or_insert_with(|| Module::new(registry));
-    });
-}
-
-/// Create surface ownership without a canvas or device.
-pub fn create_headless(name: &str) -> u32 {
-    with(|m| m.create_headless(name)).flatten().unwrap_or(0)
-}
-
-/// Attach presentation to existing ownership; never construct or bind a surface.
-pub fn attach(id: u32, canvas: web_sys::HtmlCanvasElement, width: u32, height: u32) -> bool {
-    with(|m| {
-        let result = (|| -> Result<(), String> {
-            let gpu = m.gpu.as_ref().ok_or("no device")?;
-            let inst = m.instances.get_mut(&id).ok_or("unknown surface")?;
-            if let Some(why) = crate::shaders::missing(m.registry.shaders) {
-                return Err(why);
-            }
-            let target = gpu
-                .instance
-                .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-                .map_err(|e| e.to_string())?;
-            let mut config = target
-                .get_default_config(&gpu.adapter, width.max(1), height.max(1))
-                .ok_or("adapter cannot present to target")?;
-            if let Some(format) = target
-                .get_capabilities(&gpu.adapter)
-                .formats
-                .into_iter()
-                .find(|f| !f.is_srgb())
-            {
-                config.format = format;
-                config.view_formats.clear();
-            }
-            config.present_mode = wgpu::PresentMode::AutoVsync;
-            target.configure(&gpu.device, &config);
-            inst.surface.device_ready();
-            inst.surface
-                .prepare_assets(&gpu.device, &gpu.queue, config.format);
-            inst.presentation = Some(target);
-            inst.config = Some(config);
-            inst.dirty = true;
-            Ok(())
-        })();
-        if let Err(error) = result {
-            m.error = error;
-            false
-        } else {
-            true
-        }
-    })
-    .unwrap_or(false)
-}
-
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -421,12 +364,7 @@ pub fn error() -> String {
 #[macro_export]
 macro_rules! module {
     ($registry:expr) => {
-        $crate::module!(@owned $registry, web);
-        /// Attach a device to an existing surface ID.
-        #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_attach(id: u32, canvas: ::web_sys::HtmlCanvasElement, width: u32, height: u32) -> bool {
-            $crate::web::attach(id, canvas, width, height)
-        }
+        $crate::module!(@common $registry, web);
         /// Create the device.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub async fn gpu_load() -> Result<(), ::wasm_bindgen::JsValue> {
@@ -484,14 +422,19 @@ macro_rules! module {
         }
 
     };
-    (headless $registry:expr) => { $crate::module!(@owned $registry, web_owned); };
-    (@owned $registry:expr, $backend:ident) => {
-        /// Take ownership of the registry without acquiring a device.
+    (headless $registry:expr) => {
+        $crate::module!(@common $registry, web_owned);
+        /// Take ownership without a device.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_load_headless() { $crate::$backend::load_headless(&$registry); }
-        /// Create a surface with no presentation target. `0` on failure.
+        pub fn gpu_load_headless() { $crate::web_owned::load_headless(&$registry); }
+        /// Create owned state without presentation.
         #[::wasm_bindgen::prelude::wasm_bindgen]
-        pub fn gpu_create_headless(name: &str) -> u32 { $crate::$backend::create_headless(name) }
+        pub fn gpu_create_headless(name: &str) -> u32 { $crate::web_owned::create_headless(name) }
+        /// Advance owned state; true means state or delivery changed.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_advance(id: u32, now_ms: f64) -> bool { $crate::web_owned::advance(id, now_ms) }
+    };
+    (@common $registry:expr, $backend:ident) => {
         /// Bind inputs (a JSON array). `true` on success.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_bind(id: u32, values: &str) -> bool {

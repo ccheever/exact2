@@ -22,9 +22,7 @@ pub fn decode_args<A: Args>(values: &[Value]) -> Result<A, DataError> {
         out.field(name);
         match (args.argument(name), value) {
             (Some(ArgumentRef::Bool(_)), Value::Bool(v)) => out.boolean(*v),
-            (Some(ArgumentRef::Text(_)), value) if value.as_str().is_some() => {
-                out.string(value.as_str().unwrap())
-            }
+            (Some(ArgumentRef::Text(_)), Value::Str(value)) => out.string(value),
             (
                 Some(
                     kind @ (ArgumentRef::Unsigned(_)

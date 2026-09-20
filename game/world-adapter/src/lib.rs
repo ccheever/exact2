@@ -1,6 +1,7 @@
 //! Contract conversions for the external world surface adapter.
 #![deny(unsafe_code)]
 pub mod args;
+mod logs;
 pub mod publication;
 mod surface;
 pub use surface::WorldSurface;
@@ -82,15 +83,13 @@ mod atomic_publication {
         w.publish("a", 0u32).unwrap();
         let before = w.publications().clone();
         let cursor = w.journal_next();
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::publication::publish_record(
-                &w,
-                &Record {
-                    a: 1,
-                    z: "x".repeat(11_000),
-                },
-            )
-        }))
+        assert!(crate::publication::publish_record(
+            &w,
+            &Record {
+                a: 1,
+                z: "x".repeat(11_000),
+            },
+        )
         .is_err());
         assert_eq!(*w.publications(), before);
         assert_eq!(w.journal_next(), cursor);
@@ -98,26 +97,29 @@ mod atomic_publication {
 }
 
 /// Emit the shell's argument declaration without constructing a world or device.
-pub fn emit_declaration<G: exact_world::Game>(app_dir: &str) {
+pub fn emit_declaration<G: exact_world::Game>(
+    app_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     use exact_world::Args;
     let rows: Vec<_> = G::Args::FIELDS
         .iter()
-        .zip(args::argument_values(&G::Args::default()).unwrap())
+        .zip(args::argument_values(&G::Args::default())?)
         .map(|((name, _), value)| {
             let value = match value {
                 exact_plan::Value::Number(n) => serde_json::json!(n),
                 exact_plan::Value::Bool(b) => serde_json::json!(b),
                 exact_plan::Value::Str(s) => serde_json::json!(s.as_ref()),
-                _ => panic!("unsupported default"),
+                _ => return Err(exact_world::DataError::new("unsupported argument default")),
             };
-            serde_json::json!({"name":name,"default":value})
+            Ok(serde_json::json!({"name":name,"default":value}))
         })
-        .collect();
-    let path = std::path::PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap())
+        .collect::<Result<_, _>>()?;
+    let path = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR")?)
         .join(app_dir)
         .join(".shells/surfaces.json");
-    let text = serde_json::to_string_pretty(&serde_json::json!({"world":rows})).unwrap() + "\n";
+    let text = serde_json::to_string_pretty(&serde_json::json!({"world":rows}))? + "\n";
     if std::fs::read_to_string(&path).ok().as_deref() != Some(&text) {
-        std::fs::write(path, text).unwrap();
+        std::fs::write(path, text)?;
     }
+    Ok(())
 }

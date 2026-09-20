@@ -29,6 +29,7 @@ use std::sync::{
 pub use exact_plan::Value;
 pub use wgpu;
 
+mod advance;
 mod binding;
 mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
@@ -170,6 +171,11 @@ impl AssetChanges {
 
 /// What an app implements per canvas.
 pub trait Surface {
+    /// Advance owned state without presentation; true when state or delivery changed.
+    fn advance(&mut self, _now_ms: f64) -> bool {
+        false
+    }
+
     /// Device work follows visibility: a hidden chart stops its ticker, a video
     /// stops decoding, and both resume when shown. This never advances saved
     /// state; events still arrive when the agent owns the clock.
@@ -579,6 +585,9 @@ impl Module {
         factory: Factory,
         presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) -> Option<u32> {
+        if self.instances.len() >= 256 || self.next == u32::MAX {
+            return self.fail("surface ownership limit (256) or ID exhaustion");
+        }
         self.next += 1;
         let id = self.next;
         let mut surface = factory();
@@ -731,7 +740,6 @@ impl Module {
         }
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
-            return None;
         }
         reply
     }
@@ -1480,7 +1488,7 @@ pub mod fixture;
 pub mod native;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", test))]
 #[doc(hidden)]
 pub mod web_owned;
 

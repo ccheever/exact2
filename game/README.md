@@ -673,14 +673,13 @@ common Data/hash content, including temporary-column churn; both sides use the
 same reverse component insertion order.
 
 The separate `exact-world-adapter` crate contains Contract publication conversion
-for the optional world kernel. `publication::publish_record(&World, &impl Data)`
+for the optional world kernel. `publication::publish_record(&World, &impl Data) -> Result<(), DataError>`
 converts named Data fields; `from_contract(Value) -> Result<Published, DataError>` and
 `to_contract(&Published) -> Result<Value, DataError>` bridge positional Contract
 values with a 65,536-byte/visit, 256-level conversion budget; `publication::json(&World)` produces the named
 message envelope. The kernel itself publishes `Published` Data and exposes
 `visit`, isolated `Candidate` edits/commit, bounded `sample`, and resource-local
-revisions. This crate is a member of the game workspace only. Its tests compare
-publication wire bytes/hashes against the engine and exercise bounded conversion.
+revisions. This crate is a member of the game workspace only. Its tests use only `exact-world` for publication round trips and bounded conversion.
 
 K1d keeps Contract argument conversion in `exact-world-adapter::args`:
 `decode_args::<A>(&[Value]) -> Result<A, DataError>`,
@@ -740,3 +739,9 @@ The device-free adapter's checkpoint is exactly `Sim::save()`; its existing
 `Sim::clock_ms()` instead of shadowing caller time. Old `EXSURF` envelopes refuse.
 Tally reads `World::children("hand")` in slot order; its saved `Round.deck` retains
 the shuffled draw order. See the [adapter contract](world-adapter/README.md).
+
+The device-free frame drive uses `Surface::advance(&mut self, now_ms: f64) -> bool`
+(default `false`), exported as `gpu_advance(id, now_ms) -> bool` by ownership-only
+web and native registrations. It calls `Sim::advance_to` without agent JSON, hash
+or observation. `emit_declaration::<G>(app_dir)` returns `Result<(), Box<dyn Error>>`
+so a shell can report invalid defaults or filesystem refusal at bake.

@@ -51,6 +51,7 @@ impl Abi {
         unsafe {
             for name in [
                 "gpu_load_headless",
+                "gpu_advance",
                 "gpu_recover",
                 "gpu_child_view",
                 "gpu_children_count",
@@ -133,6 +134,9 @@ impl Abi {
                     .unwrap_or("invalid surface error output".into()),
             ),
         }
+    }
+    fn advance(&self, id: u32, now: f64) -> bool {
+        unsafe { self.symbol::<unsafe extern "C" fn(u32, f64) -> bool>(b"gpu_advance")(id, now) }
     }
     fn agent(&self, id: u32, q: &Value) -> Value {
         let n = self.text(b"gpu_agent", id, &q.to_string());
@@ -417,6 +421,7 @@ impl Surfaces {
             }
         }
         for (&view, c) in &mut self.canvases {
+            changed |= abi.advance(c.id, host.now());
             checkpoints::requests(c, view, abi, host, compat);
             let mut delivered = false;
             for _ in 0..16 {
@@ -878,6 +883,7 @@ mod tests {
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
+bool gpu_advance(uint32_t id, double now) { return false; }
 uint32_t gpu_recover(void) { return 0; }
 uint32_t gpu_child_view(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }

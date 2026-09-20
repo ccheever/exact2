@@ -23,6 +23,7 @@ pub(crate) fn values(
     surface: &dyn crate::Surface,
     text: &str,
 ) -> Result<Vec<crate::Value>, String> {
+    admit(text)?;
     let (names, values) = json::parse_bindings(text)?;
     let mut fields = surface.arguments();
     let Some(names) = names else {
@@ -48,4 +49,35 @@ pub(crate) fn values(
         *target = value;
     }
     Ok(fields.into_iter().map(|(_, value)| value).collect())
+}
+
+pub(crate) fn admit(text: &str) -> Result<(), String> {
+    if text.len() > 16_384 {
+        return Err("surface request exceeds 16384 bytes".into());
+    }
+    let (mut depth, mut string, mut escape) = (0u32, false, false);
+    for b in text.bytes() {
+        if string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                string = false;
+            }
+        } else {
+            match b {
+                b'"' => string = true,
+                b'[' | b'{' => {
+                    depth += 1;
+                    if depth > 64 {
+                        return Err("surface request exceeds depth 64".into());
+                    }
+                }
+                b']' | b'}' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }

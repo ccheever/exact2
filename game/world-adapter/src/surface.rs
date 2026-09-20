@@ -1,7 +1,7 @@
 //! Device-free ownership. Presentation and host pacing never enter kernel state.
 use crate::{args, publication};
 use exact_gpu::{InputEvent, Lifecycle, PointerPhase, Restore, Surface, SurfaceError, Value};
-use exact_world::{json, Args, Data, DataError, Game, LogCursor, Paranoid, Sim, Writer};
+use exact_world::{json, Args, Data, DataError, Game, Paranoid, Sim, Writer};
 struct Request(Vec<(String, Value)>);
 impl Request {
     fn get(&self, name: &str) -> Option<&Value> {
@@ -21,7 +21,7 @@ pub struct WorldSurface<G: Game> {
     publish: bool,
     error: Option<SurfaceError>,
     failed: Option<String>,
-    logs: LogCursor,
+    logs: crate::logs::History,
 }
 impl<G: Game> Default for WorldSurface<G> {
     fn default() -> Self {
@@ -35,7 +35,7 @@ impl<G: Game> Default for WorldSurface<G> {
             publish: false,
             error: None,
             failed: None,
-            logs: LogCursor::default(),
+            logs: crate::logs::History::default(),
         }
     }
 }
@@ -104,7 +104,7 @@ impl<G: Game> WorldSurface<G> {
         result?;
         Ok(())
     }
-    fn advance(&mut self, now: f64) -> Result<(), DataError> {
+    fn advance_to(&mut self, now: f64) -> Result<bool, DataError> {
         if !now.is_finite() || now < 0. {
             return Err(invalid("invalid clock"));
         }
@@ -112,13 +112,24 @@ impl<G: Game> WorldSurface<G> {
         if dt < 0. {
             return Err(invalid("host clock cannot retreat"));
         }
-        if self.seekable || !(self.hidden || self.interrupted) {
-            self.run(dt)?;
-        }
+        let ticks = if self.seekable || !(self.hidden || self.interrupted) {
+            let sim = self.sim_mut()?;
+            let result = sim.advance_to(sim.clock_ms() + dt);
+            if result.is_err() {
+                self.record_failure();
+            }
+            result?
+        } else {
+            0
+        };
         self.host = Some(now);
-        Ok(())
+        self.publish |= self.sim_mut()?.world().take_published().is_some();
+        Ok(ticks > 0 || self.publish)
     }
     fn stamp(&self, now: f64) -> f64 {
+        if !now.is_finite() || now < 0. {
+            return f64::NAN;
+        }
         self.sim.as_ref().map_or(0., Sim::clock_ms)
             + self.host.map_or(0., |old| (now - old).max(0.))
     }
@@ -146,9 +157,15 @@ impl<G: Game> WorldSurface<G> {
                 if !matches!(owner, "agent" | "human") {
                     return Err(invalid("unknown clock owner"));
                 }
+                let sim = self.sim_mut()?;
+                sim.reconcile_input(sim.clock_ms(), &[])?;
                 self.seekable = owner == "agent";
                 self.host = now;
             } else if q.get("reload").and_then(Value::as_bool) == Some(true) {
+                if q.get("releaseInput").and_then(Value::as_bool) == Some(true) {
+                    let sim = self.sim_mut()?;
+                    sim.reconcile_input(sim.clock_ms(), &[])?;
+                }
                 self.host = now;
             } else if q.get("settle").and_then(Value::as_bool) == Some(true) {
                 let result = self.sim_mut()?.settle(3600);
@@ -164,7 +181,7 @@ impl<G: Game> WorldSurface<G> {
                 self.run(ticks * 1000. / G::HZ as f64)?;
                 self.host = now.or(self.host);
             } else if let Some(now) = now {
-                self.advance(now)?;
+                self.advance_to(now)?;
             }
         }
         let sim = self
@@ -172,13 +189,23 @@ impl<G: Game> WorldSurface<G> {
             .as_ref()
             .ok_or_else(|| invalid("world has not been bound"))?;
         let world = sim.world();
+        if op == "logs" {
+            let since = number(&q, "since")?.unwrap_or(0.);
+            if since.fract() != 0. || since > 9_007_199_254_740_991. {
+                return Err(invalid("invalid log cursor"));
+            }
+            return self.logs.read(world, since as u64);
+        }
         let mut out = json::Encoder::default();
         out.begin_struct();
         out.field("tick");
         world.tick().write(&mut out);
         match op {
             "state" | "tree" if q.get("entity").and_then(Value::as_str).is_some() => {
-                let name = q.get("entity").and_then(Value::as_str).unwrap();
+                let name = q
+                    .get("entity")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| invalid("missing entity"))?;
                 if name != "*" {
                     let e = world
                         .resolve(name)
@@ -208,7 +235,11 @@ impl<G: Game> WorldSurface<G> {
                 out.field("hz");
                 G::HZ.write(&mut out);
                 out.field("hash");
-                out.string(&format!("0x{:016x}", world.hash()?));
+                if self.failed.is_some() {
+                    out.unit();
+                } else {
+                    out.string(&format!("0x{:016x}", world.hash()?));
+                }
                 out.field("failed");
                 self.failed.is_some().write(&mut out);
                 out.field("error");
@@ -261,40 +292,35 @@ impl<G: Game> WorldSurface<G> {
                     out.field("reload");
                     out.begin_struct();
                     out.field("values");
-                    let values = args::argument_values(sim.args())?
-                        .into_iter()
-                        .map(publication::from_contract)
-                        .collect::<Result<Vec<_>, _>>()?;
-                    values.write(&mut out);
+                    let values = args::argument_values(sim.args())?;
+                    out.begin_seq(values.len());
+                    for value in values {
+                        out.item();
+                        publication::inspect(&publication::from_contract(value)?, &mut out);
+                    }
+                    out.end_seq();
                     out.field("names");
-                    G::Args::FIELDS
-                        .iter()
-                        .map(|(name, _)| name.to_string())
-                        .collect::<Vec<_>>()
-                        .write(&mut out);
+                    out.begin_seq(G::Args::FIELDS.len());
+                    for (name, _) in G::Args::FIELDS {
+                        out.item();
+                        out.string(name);
+                    }
+                    out.end_seq();
                     out.field("setupIndices");
-                    G::Args::FIELDS
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, (_, kind))| *kind == exact_world::args::ArgumentKind::Setup)
-                        .map(|(i, _)| i as u32)
-                        .collect::<Vec<_>>()
-                        .write(&mut out);
+                    out.begin_seq(0);
+                    for (i, (_, kind)) in G::Args::FIELDS.iter().enumerate() {
+                        if *kind == exact_world::args::ArgumentKind::Setup {
+                            out.item();
+                            (i as u32).write(&mut out);
+                        }
+                    }
+                    out.end_seq();
+                    out.field("releasedInput");
+                    (q.get("releaseInput").and_then(Value::as_bool) == Some(true)).write(&mut out);
+                    out.field("rebased");
+                    out.boolean(true);
                     out.end_struct();
                 }
-            }
-            "logs" => {
-                let page = world.logs(self.logs)?;
-                self.logs = page.next;
-                out.field("lines");
-                out.begin_seq(1);
-                out.item();
-                out.string(&page.entries);
-                out.end_seq();
-                out.field("reset");
-                page.reset.write(&mut out);
-                out.field("truncated");
-                page.truncated.write(&mut out);
             }
             _ => return Err(invalid(format!("unsupported world operation: {op}"))),
         }
@@ -302,11 +328,23 @@ impl<G: Game> WorldSurface<G> {
         out.finish()
     }
     fn entities(&self, out: &mut dyn Writer) -> Result<(), DataError> {
-        let w = self.sim.as_ref().unwrap().world();
+        let w = self
+            .sim
+            .as_ref()
+            .ok_or_else(|| invalid("world has not been bound"))?
+            .world();
         out.field("game");
         out.string(G::ID);
         out.field("hash");
-        out.string(&format!("0x{:016x}", w.hash()?));
+        if let Some(error) = &self.failed {
+            out.unit();
+            out.field("failed");
+            out.boolean(true);
+            out.field("error");
+            out.string(error);
+        } else {
+            out.string(&format!("0x{:016x}", w.hash()?));
+        }
         out.field("entities");
         out.begin_seq(w.entities().take(512).count());
         for e in w.entities().take(512) {
@@ -330,6 +368,31 @@ impl<G: Game> WorldSurface<G> {
     }
 }
 impl<G: Game> Surface for WorldSurface<G> {
+    fn advance(&mut self, now_ms: f64) -> bool {
+        if self.failed.is_some() {
+            return false;
+        }
+        match self.advance_to(now_ms) {
+            Ok(changed) => changed,
+            Err(e) => {
+                if self.error.is_none() {
+                    self.error = Some(error(e));
+                }
+                false
+            }
+        }
+    }
+    fn render(
+        &mut self,
+        frame: &exact_gpu::Frame,
+        _: &exact_gpu::wgpu::Device,
+        _: &exact_gpu::wgpu::Queue,
+        _: &exact_gpu::wgpu::TextureView,
+        _: exact_gpu::wgpu::TextureFormat,
+    ) -> bool {
+        Surface::advance(self, frame.now_ms);
+        self.failed.is_none()
+    }
     fn lifecycle(&mut self, event: Lifecycle) {
         match event {
             Lifecycle::Hidden => self.hidden = true,
@@ -352,27 +415,44 @@ impl<G: Game> Surface for WorldSurface<G> {
         G::Args::FIELDS
             .iter()
             .map(|(name, _)| *name)
-            .zip(args::argument_values(&G::Args::default()).expect("default arguments"))
+            .zip(
+                args::argument_values(&G::Args::default())
+                    .unwrap_or_else(|_| vec![Value::Unit; G::Args::FIELDS.len()]),
+            )
             .collect()
     }
     fn bind(&mut self, values: &[Value], at_ms: Option<f64>) -> Result<(), SurfaceError> {
+        if at_ms.is_some_and(|at| !at.is_finite() || at < 0.) {
+            return Err(error("invalid bind clock"));
+        }
         #[cfg(not(target_arch = "wasm32"))]
         let started = (self.sim.is_none() && std::env::var_os("EXACT_WORLD_TIMING").is_some())
             .then(std::time::Instant::now);
         let args = args::decode_args::<G::Args>(values).map_err(error)?;
         G::validate(&args).map_err(error)?;
         if self.sim.is_some() {
-            if let Some(at) = at_ms {
-                self.advance(at).map_err(error)?;
+            let restart = self
+                .sim
+                .as_ref()
+                .is_some_and(|sim| sim.args().setup_changed(&args));
+            if !restart || self.failed.is_none() {
+                if let Some(at) = at_ms {
+                    self.advance_to(at).map_err(error)?;
+                }
             }
             self.sim_mut().map_err(error)?.bind(args).map_err(error)?;
+            if restart {
+                self.failed = None;
+                self.error = None;
+                self.host = at_ms;
+            }
         } else {
             self.sim = Some(Sim::new(args).map_err(error)?.paranoid(paranoid()));
             self.host = at_ms;
         }
         #[cfg(not(target_arch = "wasm32"))]
         let bound = started.map(|_| std::time::Instant::now());
-        if self.sim.as_ref().unwrap().world().tick() == 0 {
+        if self.sim_mut().map_err(error)?.world().tick() == 0 {
             self.run((1_000_000. / G::HZ as f64).ceil() / 1000.)
                 .map_err(error)?;
         }
@@ -465,6 +545,9 @@ impl<G: Game> Surface for WorldSurface<G> {
         }
     }
     fn messages(&mut self) -> Vec<String> {
+        if self.failed.is_some() {
+            return Vec::new();
+        }
         self.sim
             .as_ref()
             .map_or_else(Vec::new, |s| s.world().take_messages())

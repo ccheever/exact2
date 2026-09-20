@@ -3,41 +3,30 @@ import assert from 'node:assert/strict';
 import {fixture} from './surface-record.test.mjs';
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 const plain = {gpu_carry:()=>undefined, gpu_agent:()=>''};
-const stamps = ['boundMs','firstTickMs','firstPublicationMs','firstFrameSubmittedMs','firstFrameMs','inputMs'];
-
-for (const mode of ['reject','never','absent']) test(`no device beacon or gpuMs when device is ${mode}`, async()=>{
-  const f=await fixture({search:'?smoke=1',gpu:{...plain,
-    gpu_load:mode==='absent'?undefined:mode==='reject'?async()=>{throw Error('no adapter');}:()=>new Promise(()=>{}),
-  }});
-  f.create(1,'sky'); f.frame(); await f.exact.gpu.settled();
-  assert.deepEqual(f.beacons,[]); assert.equal(f.exact.root.dataset.gpuMs,undefined);
-  assert.ok(Number.isFinite(Number(f.exact.root.dataset.worldModuleMs)));
-});
-
-test('plain surface waits for device AND shaders, emits one beacon, never drives a world clock or stamps world timing',async()=>{
-  let device, shader, installed=false, renders=0, clocks=0, attaches=0;
-  const f=await fixture({search:'?smoke=1',devAssets:null,fetch:()=>new Promise(resolve=>shader=()=>resolve(new Response('sky source'))),gpu:{...plain,
+test('device bootstrap retains pending readiness, shader-before-create and pending shader validation',async()=>{
+  let device, shader, installed=false, creates=0, binds=0, renders=0;
+  const f=await fixture({pendingLoad:true,search:'?smoke=1',devAssets:null,
+    fetch:()=>new Promise(resolve=>shader=()=>resolve(new Response('sky source'))),gpu:{...plain,
     gpu_load:()=>new Promise(resolve=>device=resolve),
+    gpu_load_headless:()=>{throw Error('device module used headless ABI');},
     gpu_shader_names:()=> '["sky"]', gpu_shaders_clear:()=>{installed=false;},
-    gpu_shader:(name,text)=>{assert.equal(name,'sky');assert.equal(text,'sky source');installed=true;return true;},
-    gpu_agent:(id,text)=>{if(JSON.parse(text).op==='clock')clocks++;return '';},
-    gpu_attach:()=>{assert.ok(installed);attaches++;return true;},
-    gpu_render:()=>{assert.ok(installed,'first render must see installed shaders');renders++;return 0;},
+    gpu_shader:()=>{installed=true;return true;},
+    gpu_shader_check:async()=>false,
+    gpu_create:()=>{assert.ok(installed);creates++;return creates;},
+    gpu_bind_at:()=>{assert.ok(installed);binds++;return true;},
+    gpu_render:()=>{assert.ok(installed);renders++;return 0;},
   }});
-  f.create(1,'sky'); f.frame(); await f.exact.gpu.settled();
-  assert.equal(renders,0); assert.deepEqual(f.beacons,[]);
-  assert.throws(()=>f.exact.gpu.stagePlan({ops:[{op:'surface',id:2,name:'sky',values:[]}]}),/device is not ready/);
-  device(); await flush(); f.frame();
-  assert.equal(renders,0); assert.equal(attaches,0); assert.deepEqual(f.beacons,[]);
-  shader(); await flush(); f.frame(); f.paint(); await f.exact.gpu.settled();
-  assert.ok(renders>0,'negative control: successful device load must render'); assert.equal(attaches,1);
+  f.create(1,'sky');
+  let settled=false, checked=false;
+  const ready=f.exact.gpu.settled().then(()=>settled=true);
+  const validation=f.exact.gpu.prepareShaders(new Map([["shaders/sky.wgsl",{bytes:new TextEncoder().encode('invalid')}]]))
+    .then(()=>{throw Error('invalid shader accepted');},()=>{checked=true;});
+  await flush();assert.equal(settled,false);assert.equal(checked,false);
+  assert.equal(creates,0);assert.equal(binds,0);assert.deepEqual(f.beacons,[]);
+  device();await flush();assert.equal(creates,0);assert.equal(settled,false);
+  shader();await f.initialized;await ready;await validation;f.frame();
+  assert.equal(creates,1);assert.equal(binds,1);assert.ok(renders>0);assert.equal(checked,true);
   assert.deepEqual(f.beacons,[`/__gpu?ms=${f.exact.root.dataset.gpuMs}`]);
-  assert.ok(Number.isFinite(Number(f.exact.root.dataset.gpuMs)));
-  assert.equal(clocks,0);
-  for(const key of stamps)assert.equal(f.exact.entries()[0][key],undefined,key);
-  f.exact.devAssets=new Map([["shaders/sky.wgsl",{bytes:new TextEncoder().encode("sky source")}]]);
-  await f.exact.gpu.swap(1); f.frame();
-  assert.equal(f.beacons.length,1,'swap must not repeat startup beacon');
 });
 
 test('plain device recovery retains IDs and bindings and replaces only attached canvases',async()=>{

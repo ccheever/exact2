@@ -284,3 +284,185 @@ fn checkpoint_is_sim_save_and_clock_is_canonical_after_fractional_settle_and_res
     assert!(restored.restore(b"EXSURF\0\x01", Restore::Open).is_err());
     assert_eq!(restored.carry().unwrap(), before);
 }
+
+#[derive(Default, exact_world::Args)]
+struct FailureArgs {
+    restart: bool,
+}
+struct BrokenOwnership;
+impl Game for BrokenOwnership {
+    const ID: &'static str = "broken-ownership";
+    type Args = FailureArgs;
+    fn setup(w: &mut exact_world::World, _: &FailureArgs) -> Result<(), exact_world::DataError> {
+        w.register::<tally::Owner>()?;
+        let parent = w.spawn_named("owner", tally::Owner)?;
+        let child = w.spawn_named("child", tally::Owner)?;
+        w.set_parent(child, Some(parent))?;
+        Ok(())
+    }
+    fn tick(
+        w: &mut exact_world::World,
+        _: &exact_world::Input,
+        _: &FailureArgs,
+    ) -> Result<(), exact_world::DataError> {
+        if w.tick() > 0 {
+            w.despawn(w.named("owner").unwrap())?;
+            w.emit("must not escape")?;
+            return Err(exact_world::DataError::new("original failure"));
+        }
+        Ok(())
+    }
+}
+#[test]
+fn broken_ownership_failure_is_inspectable_and_timestamped_restart_recovers() {
+    let mut s = WorldSurface::<BrokenOwnership>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    assert!(s
+        .agent(r#"{"op":"clock","ticks":1}"#)
+        .unwrap()
+        .contains("original failure"));
+    assert!(s.sim().unwrap().world().hash().is_err());
+    for op in ["state", "tree"] {
+        let text = s.agent(&format!(r#"{{"op":"{op}"}}"#)).unwrap();
+        assert!(
+            text.contains("original failure") && text.contains(r#""failed":true"#),
+            "{text}"
+        );
+        assert!(
+            text.contains("child") || text.contains("resources"),
+            "{text}"
+        );
+    }
+    assert!(s.messages().is_empty());
+    s.bind(&[Value::Bool(true)], Some(1000.)).unwrap();
+    assert_eq!(s.sim().unwrap().world().tick(), 1);
+    assert!(s.sim().unwrap().world().hash().is_ok());
+    assert!(s.take_error().is_none());
+}
+#[test]
+fn reload_uses_plain_values_indices_and_releases_sim_input() {
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.bind(&[Value::Number(7.)], Some(0.)).unwrap();
+    key(&mut s, 1., true);
+    clock(&mut s, 17.);
+    assert!(s.sim().unwrap().input_state().key("KeyD"));
+    let text = s
+        .agent(r#"{"op":"clock","reload":true,"releaseInput":true,"now":17}"#)
+        .unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(reply["reload"]["values"], serde_json::json!([7.]));
+    assert_eq!(reply["reload"]["setupIndices"], serde_json::json!([0]));
+    assert!(!s.sim().unwrap().input_state().key("KeyD"));
+}
+#[test]
+fn log_transport_repeats_since_and_returns_real_lines_and_cursors() {
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    let read = |s: &mut WorldSurface<tally::Tally>, since| -> serde_json::Value {
+        serde_json::from_str(
+            &s.agent(&format!(r#"{{"op":"logs","since":{since}}}"#))
+                .unwrap(),
+        )
+        .unwrap()
+    };
+    let page = read(&mut s, 0);
+    assert!(
+        page["from"].is_number() && page["next"].is_number(),
+        "{page}"
+    );
+    assert!(!page["lines"].as_array().unwrap().is_empty());
+    assert_eq!(page, read(&mut s, 0));
+    assert_eq!(
+        read(&mut s, page["next"].as_u64().unwrap())["lines"],
+        serde_json::json!([])
+    );
+}
+thread_local! { static WRITES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+#[derive(Default)]
+struct Counted(u32);
+impl exact_world::Data for Counted {
+    fn write(&self, w: &mut dyn exact_world::Writer) {
+        WRITES.with(|n| n.set(n.get() + 1));
+        self.0.write(w);
+    }
+    fn read(&mut self, r: &mut dyn exact_world::Reader) -> Result<(), exact_world::DataError> {
+        self.0.read(r)
+    }
+}
+#[derive(Default, exact_world::Component)]
+struct IdleComponent(Counted);
+struct Idle;
+impl Game for Idle {
+    const ID: &'static str = "idle";
+    type Args = ();
+    fn setup(w: &mut exact_world::World, _: &()) -> Result<(), exact_world::DataError> {
+        w.register::<IdleComponent>()?;
+        for _ in 0..1000 {
+            w.spawn(IdleComponent::default())?;
+        }
+        Ok(())
+    }
+    fn tick(
+        _: &mut exact_world::World,
+        _: &exact_world::Input,
+        _: &(),
+    ) -> Result<(), exact_world::DataError> {
+        Ok(())
+    }
+}
+#[test]
+fn thousand_idle_advances_allocate_and_observe_nothing_but_really_tick() {
+    let mut s = WorldSurface::<Idle>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    s.published();
+    WRITES.with(|n| n.set(0));
+    let (_, cost) = counting::measure(|| {
+        for i in 1..=1000 {
+            assert!(Surface::advance(&mut s, i as f64 * 17.));
+        }
+    });
+    assert_eq!(cost, (0, 0));
+    assert_eq!(WRITES.with(|n| n.get()), 0);
+    assert!(s.sim().unwrap().world().tick() > 1000);
+    assert!(!Surface::advance(&mut s, 17000.));
+    s.agent(r#"{"op":"state"}"#);
+    assert_eq!(
+        WRITES.with(|n| n.get()),
+        1000,
+        "inspection is the positive observation control"
+    );
+}
+
+#[test]
+fn native_headless_abi_retains_failure_reply_inspection_and_restart() {
+    use exact_gpu::native as abi;
+    static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("world", 1, || {
+            Box::new(WorldSurface::<BrokenOwnership>::default())
+        })],
+        shaders: &[],
+    };
+    abi::load_headless(&REGISTRY);
+    let id = abi::create_headless("world");
+    assert_ne!(id, 0);
+    assert_eq!(abi::bind_at(id, "[]", Some(0.)), 0);
+    assert!(!abi::advance(id, 17.));
+    assert!(abi::error().contains("original failure"));
+    assert!(abi::agent(id, r#"{"op":"state"}"#).contains("original failure"));
+    assert!(abi::agent(id, r#"{"op":"tree"}"#).contains("child"));
+    assert!(abi::messages(id).is_none());
+    assert_eq!(abi::bind_at(id, "[true]", Some(1000.)), 0);
+    assert!(abi::agent(id, r#"{"op":"state"}"#).contains(r#""failed":false"#));
+    abi::unload();
+}
+#[test]
+fn host_input_with_nonfinite_stamp_refuses_without_mutation() {
+    let mut s = WorldSurface::<tally::Tally>::default();
+    s.bind(&[], Some(0.)).unwrap();
+    let before = s.carry().unwrap();
+    for stamp in [f64::NAN, f64::INFINITY, -1.] {
+        key(&mut s, stamp, true);
+        assert!(s.take_error().is_some(), "stamp={stamp}");
+        assert_eq!(s.carry().unwrap(), before);
+    }
+}

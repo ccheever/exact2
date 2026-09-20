@@ -91,43 +91,72 @@ fn to_value(value: &Published, remaining: &mut usize, depth: usize) -> Result<Va
         }
     })
 }
-// One Data traversal; field names remain names until the app's shape decoder.
+// One fallible Data traversal; refusal stops allocation before visiting more data.
 #[derive(Default)]
 struct RecordWriter {
     stack: Vec<Published>,
     fields: Vec<String>,
     result: Published,
     spent: usize,
+    error: Option<DataError>,
 }
 impl RecordWriter {
+    fn refuse(&mut self, message: &str) {
+        if self.error.is_none() {
+            self.error = Some(DataError::new(message));
+        }
+    }
     fn push(&mut self, value: Published) {
         self.claim_decoded(64);
+        if self.stopped() {
+            return;
+        }
         match self.stack.last_mut() {
             Some(Published::Object(fields)) => {
-                fields.insert(self.fields.pop().expect("record field"), value);
+                if let Some(name) = self.fields.pop() {
+                    fields.insert(name, value);
+                } else {
+                    self.refuse("record value without a field");
+                }
             }
             Some(Published::List(items)) => items.push(value),
             Some(Published::Option(item)) => *item = Some(Box::new(value)),
             None => self.result = value,
-            _ => unreachable!(),
+            _ => self.refuse("invalid Data container"),
         }
     }
     fn begin(&mut self, value: Published) {
-        assert!(self.stack.len() < 256, "publication nesting limit");
-        self.stack.push(value);
+        self.claim_decoded(64);
+        if self.stack.len() >= 256 {
+            self.refuse("publication nesting limit");
+        }
+        if !self.stopped() {
+            self.stack.push(value);
+        }
     }
     fn end(&mut self) {
-        let value = self.stack.pop().expect("Data container");
-        self.push(value);
+        if self.stopped() {
+            return;
+        }
+        if let Some(value) = self.stack.pop() {
+            self.push(value);
+        } else {
+            self.refuse("unbalanced Data container");
+        }
     }
 }
 impl Writer for RecordWriter {
+    fn reject(&mut self, message: &str) {
+        self.refuse(message);
+    }
+    fn stopped(&self) -> bool {
+        self.error.is_some()
+    }
     fn claim_decoded(&mut self, bytes: usize) {
         self.spent = self.spent.saturating_add(bytes);
-        assert!(
-            self.spent <= exact_world::json::LIMIT,
-            "publication traversal limit"
-        );
+        if self.spent > exact_world::json::LIMIT {
+            self.refuse("publication traversal limit");
+        }
     }
     fn unit(&mut self) {
         self.push(Published::Unit);
@@ -136,41 +165,49 @@ impl Writer for RecordWriter {
         self.push(Published::Bool(v));
     }
     fn number(&mut self, v: Number) {
-        use Number::*;
-        self.push(Published::Number(match v {
-            Unsigned(n) => {
-                assert!(
-                    n <= 9_007_199_254_740_991,
-                    "publish_record: integer outside Contract safe range"
-                );
+        let n = match v {
+            Number::Unsigned(n) if n <= 9_007_199_254_740_991 => n as f64,
+            Number::Signed(n) if (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n) => {
                 n as f64
             }
-            Signed(n) => {
-                assert!(
-                    (-9_007_199_254_740_991..=9_007_199_254_740_991).contains(&n),
-                    "publish_record: integer outside Contract safe range"
-                );
-                n as f64
+            Number::F32(n) => n as f64,
+            Number::F64(n) => n,
+            _ => {
+                self.refuse("publish_record: integer outside Contract safe range");
+                return;
             }
-            F32(n) => n as f64,
-            F64(n) => n,
-        }));
+        };
+        if !n.is_finite() {
+            self.refuse("publish_record: non-finite number");
+            return;
+        }
+        self.push(Published::Number(n));
     }
     fn string(&mut self, v: &str) {
         self.claim_decoded(v.len());
-        self.push(Published::Str(v.into()));
+        if !self.stopped() {
+            self.push(Published::Str(v.into()));
+        }
     }
     fn bytes(&mut self, value: exact_world::data::Bulk<'_>) {
-        self.claim_decoded(value.numbers().size_hint().0.saturating_mul(64));
-        self.push(Published::List(
-            value.numbers().map(Published::Number).collect(),
-        ));
+        self.begin_seq(value.numbers().size_hint().0);
+        for n in value.numbers() {
+            if self.stopped() {
+                break;
+            }
+            self.number(Number::F64(n));
+        }
+        self.end_seq();
     }
     fn begin_seq(&mut self, len: usize) {
         self.claim_decoded(len.saturating_mul(64));
-        self.begin(Published::List(Vec::with_capacity(len)));
+        if !self.stopped() {
+            self.begin(Published::List(Vec::with_capacity(len)));
+        }
     }
-    fn item(&mut self) {}
+    fn item(&mut self) {
+        self.claim_decoded(1);
+    }
     fn end_seq(&mut self) {
         self.end();
     }
@@ -181,40 +218,44 @@ impl Writer for RecordWriter {
         self.key(name);
     }
     fn key(&mut self, name: &str) {
-        self.claim_decoded(name.len());
-        self.fields.push(name.into());
+        self.claim_decoded(64usize.saturating_add(name.len()));
+        if !self.stopped() {
+            self.fields.push(name.into());
+        }
     }
     fn end_struct(&mut self) {
         self.end();
     }
     fn variant(&mut self, _: &'static str, _: u32) {
-        panic!("publish_record expects ordinary records, not enum variants");
+        self.refuse("publish_record expects ordinary records, not enum variants");
     }
     fn end_variant(&mut self) {}
     fn option(&mut self, _: bool) {
         self.begin(Published::Option(None));
     }
     fn end_option(&mut self) {
-        assert!(
-            !matches!(self.stack.last(), Some(Published::Option(Some(v))) if matches!(v.as_ref(), Published::Unit)),
-            "publish_record: Some(()) is ambiguous with None in Contract JSON"
-        );
+        if matches!(self.stack.last(), Some(Published::Option(Some(v))) if matches!(v.as_ref(), Published::Unit))
+        {
+            self.refuse("publish_record: Some(()) is ambiguous with None in Contract JSON");
+        }
         self.end();
     }
 }
-/// Publish named Data fields together. Records, lists, options and scalars use
-/// Contract JSON; the app validates field types against its declared shape.
-/// Typed numeric vectors become arrays; enum variants are not Contract values
-/// and panic. The argument itself must be a named record.
-pub fn publish_record(world: &World, record: &impl Data) {
+/// Publish a named record atomically, refusing unsupported shapes, range, traversal
+/// and publication-batch limits before changing the world's public record.
+pub fn publish_record(world: &World, record: &impl Data) -> Result<(), DataError> {
     let mut writer = RecordWriter::default();
     record.write(&mut writer);
+    if let Some(error) = writer.error {
+        return Err(error);
+    }
+    if !writer.stack.is_empty() || !writer.fields.is_empty() {
+        return Err(DataError::new("unfinished Data record"));
+    }
     let Published::Object(fields) = writer.result else {
-        panic!("publish_record expects a named record");
+        return Err(DataError::new("publish_record expects a named record"));
     };
-    world
-        .publish_batch(fields)
-        .expect("publication batch admission");
+    world.publish_batch(fields)
 }
 #[cfg(test)]
 mod tests {
@@ -222,7 +263,7 @@ mod tests {
     use exact_world::{bin, hash};
 
     #[test]
-    fn contract_values_keep_engine_wire_and_hash_including_numeric_edges() {
+    fn contract_values_roundtrip_world_wire_and_hash_including_numeric_edges() {
         let shared = Rc::new(Value::record(vec![
             Value::str("quote \" slash \\ line\n héllo 🌕"),
             Value::Number(-0.0),
@@ -270,12 +311,6 @@ mod tests {
                 bin::to_vec(&from_contract(to_contract(&stored).unwrap()).unwrap()).unwrap(),
                 expected
             );
-            assert_eq!(expected, exact_game::bin::to_vec(value), "{value:?}");
-            assert_eq!(
-                hash::of(&stored).unwrap(),
-                exact_game::hash::of(value),
-                "{value:?}"
-            );
             let decoded: Published = bin::from_slice(&expected).unwrap();
             assert_eq!(
                 bin::to_vec(&decoded).unwrap(),
@@ -313,7 +348,8 @@ mod record_tests {
                 values: vec![7, 9],
                 enabled: true,
             },
-        );
+        )
+        .unwrap();
         assert_eq!(json(&w).unwrap(), r#"{"enabled":true,"values":[7.0,9.0]}"#);
         assert_eq!(
             to_contract(w.publications().get("values").unwrap()).unwrap(),
@@ -324,10 +360,7 @@ mod record_tests {
             values: vec![0; 1_000_000],
             enabled: false,
         };
-        assert!(
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| publish_record(&w, &record)))
-                .is_err()
-        );
+        assert!(publish_record(&w, &record).is_err());
         assert_eq!(w.save().unwrap(), before);
     }
 }

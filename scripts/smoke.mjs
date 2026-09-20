@@ -679,7 +679,7 @@ try {
   // 6. The pixels when asked, and the GPU module where the host renders it
   // (a canvas is on the page; headless Chrome has WebGPU).
   if (shot) console.log(JSON.stringify(await s.screenshot(shot)));
-  if (host === 'web' && appHasCanvas) {
+  if (host === 'web' && appHasCanvas && (await s.state()).surfaceModule !== 'ownership-only') {
     let g = s.gpuMs();
     for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = s.gpuMs(); }
     check(g != null, 'a canvas is on the page but the GPU module did not load (no beacon; WebGPU unavailable in this Chrome?)');

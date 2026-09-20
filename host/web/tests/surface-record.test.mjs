@@ -16,7 +16,7 @@ export async function fixture(options = {}) {
   let mutations = Promise.resolve(), frame;
   const window = new EventTarget();
   const document = { createElement: kind => new Element(kind), head: { append() {} }, activeElement:{}, hidden:false, baseURI:"http://fixture/", addEventListener() {} };
-  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.now ?? (() => 0), devAssets: options.devAssets === undefined ? [] : options.devAssets,
+  const exact = { compat:{inputs:{app:options.app ?? "fixture.app"}}, message: (host,text) => checkpointMessages.push([host,text]), mutate: fn => { const p = mutations.then(fn); mutations = p.catch(() => {}); return p; }, views, root: { dataset: {} }, now: options.live ? undefined : options.now ?? (() => 0), devAssets: options.devAssets === undefined ? [] : options.devAssets,
     stageCurrent: options.stageCurrent ?? (()=>({batch:{ops:[]},commit(){order.push('host commit');},abort(){order.push('host abort');},present(){}})),
     stageSurfaceRecord(name, json) { stagedRecords.push([name, json]); return options.stageSurfaceRecord?.(name, json) ?? {ops:[]}; },
     writeIn: text => text, wasm: { exact_surface_record(text) {
@@ -100,17 +100,18 @@ export async function fixture(options = {}) {
       exact.pendingSurfaces.push({id,name:`surface-${id}`,values:[],generation:0});
     }
   }
-  await new (Object.getPrototypeOf(async function() {}).constructor)(
+  const initialized = new (Object.getPrototypeOf(async function() {}).constructor)(
     'assetDelivery', 'assetName', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'localStorage', 'navigator', 'fetch',
     source + `;exact.entries = () => [...surfaces.values()]; exact.checkpoint = (view,kind) => checkpoint(surfaces.get(view),kind); exact.finishCheckpoint = (view,error) => finishRestore(surfaces.get(view),gpu,error); exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
   )(settings => assetDelivery({...settings, ...options.delivery}), assetName, { exact }, async version => version ? lifecycleDouble(options.candidate ? await options.candidate(version, {...nextGpu}) : {...nextGpu}) : gpu, document, Element, 3, Observer, Observer, cb=>{if(cb.name === "frame") frame=cb;frames.set(++frameId,cb);return frameId;}, id=>frames.delete(id), { search: options.search ?? '' }, { error: (...args) => diagnostics.push(args.join(' ')), warn: (...args) => diagnostics.push(args.join(' ')), info() {} }, window, {getItem:key=>storage.get(key) ?? null,setItem:(key,value)=>storage.set(key,value)}, {sendBeacon:url=>beacons.push(url)}, options.fetch ?? globalThis.fetch);
+  if (!options.pendingLoad) await initialized;
   await new Promise(resolve => setTimeout(resolve, 0));
   function create(id, name = 'world', values = []) {
     const el = new Element("host"); el.canvas = new Element(); el.canvas.parent = el;
     views.set(id, el); exact.gpu.surface(id, name, values); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, beacons, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, stagedRecords, observers, mutation: () => [...observers].forEach(o => o.callback([])),
+  return { initialized, window, document, exact, beacons, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, checkpointMessages, storage, restored, stagedRecords, observers, mutation: () => [...observers].forEach(o => o.callback([])),
     paint(at = performance.now()) { const callbacks=[...frames.values()]; frames.clear(); for(const cb of callbacks) cb(at); },
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
@@ -223,7 +224,7 @@ test('bootstrap restores pending bytes before staging its first render', async (
 });
 test('a failed later staged surface does not consume a pending file carry', async () => {
   let count = 0;
-  const f = await fixture({gpu:{gpu_load_headless(){throw new Error("ownership unavailable");}}, nextGpu:{gpu_create:()=>++count===2 ? 0 : count}});
+  const f = await fixture({gpu:{gpu_load(){throw new Error("device unavailable");}}, nextGpu:{gpu_create:()=>++count===2 ? 0 : count}});
   f.exact.worldCarry = new Uint8Array([7]); f.create(1); f.create(2,'other');
   await assert.rejects(f.exact.gpu.swap(1), /create/);
   assert.deepEqual(f.exact.worldCarry,new Uint8Array([7]));

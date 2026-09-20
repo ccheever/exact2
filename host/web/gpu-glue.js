@@ -27,8 +27,7 @@ const surfaces = new Map(); // view id -> surface, input listeners and journal c
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
-let loaded = false, owned = false;
-const deviceModules = new WeakSet();
+let loaded = false;
 let recoveringDevice;
 let pendingCutover;
 let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
@@ -177,9 +176,10 @@ function installCanvas(old, entry) {
   if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
 }
 function recoverDevice() {
+  if (gpu && !gpu.gpu_load) return;
   if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
   lossDuringRecovery = false;
-  const module = gpu, entries = [...surfaces.values()].filter(e => e.id && !e.headless);
+  const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, checkpointObserver:null, unlisten:null}]);
   const detached = new Set();
   recoveringDevice = (async () => {
@@ -227,19 +227,20 @@ function recoverDevice() {
 }
 
 function render(entry, now) {
-  if ((hidden && !exact.now) || (recoveringDevice && !entry.headless)) return;
+  if (!gpu.gpu_load) {
+    if (hidden && !exact.now) return;
+    const changed = gpu.gpu_advance(entry.id, clockFor(now));
+    const error = gpu.gpu_error();
+    entry.renderedAt = clockFor(now); entry.wants = !error;
+    if (error) { exact.devError?.(error); return; }
+    if (changed) { entry.firstTickMs ??= performance.now(); messages(entry); }
+    return;
+  }
+  if ((hidden && !exact.now) || recoveringDevice) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
-  if (entry.headless) {
-    if (!entry.stateful) { entry.wants = false; return; }
-    const reply = JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"clock", now:clockFor(now), width:w, height:h})) || "null");
-    if (reply?.error) { entry.wants = false; exact.devError?.(reply.error); return; }
-    entry.renderedAt = clockFor(now); entry.wants = true;
-    entry.firstTickMs ??= performance.now();
-    messages(entry); return;
-  }
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r < 2) {
     exact.drawCallback?.(frameRaw, clockFor(now), frameGeneration, entry.view);
@@ -251,9 +252,9 @@ function render(entry, now) {
     return;
   }
   if (r === 2) console.error("exact gpu:", gpu.gpu_error());
-  const initial = entry.stateful && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed ? JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world : null;
+  const initial = entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed ? JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:"state"})) || "null")?.world : null;
   if (initial?.assets?.some(a => a.state === "Failed")) entry.firstFrameFailed = true;
-  if (entry.stateful && r !== 2 && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed && !initial?.loading?.length) {
+  if (r !== 2 && entry.firstFrameSubmittedMs === undefined && !entry.firstFrameFailed && !initial?.loading?.length) {
     entry.firstFrameSubmittedMs = performance.now();
     entry.inputMs = performance.getEntriesByName('exact-agent-input').at(-1)?.startTime ?? null;
     // A rendering opportunity after submission, not a GPU timestamp or scanout.
@@ -318,19 +319,23 @@ function create(entry, module, carry, mode = 1) {
   const { w, h, s } = size(entry.host);
   entry.el.width = Math.max(1, Math.round(w * s));
   entry.el.height = Math.max(1, Math.round(h * s));
-  entry.headless = !deviceModules.has(module);
-  entry.id = entry.headless ? module.gpu_create_headless(entry.name) : module.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
+  if (!module.gpu_load) {
+    entry.id = module.gpu_create_headless(entry.name);
+    entry.wants = true;
+  } else {
+  entry.id = module.gpu_create(entry.name, entry.el, entry.el.width, entry.el.height);
+  }
   if (!entry.id) throw new Error(`surface ${entry.name}: create: ${module.gpu_error()}`);
   module.gpu_lifecycle(entry.id, hidden ? 0 : 1);
   if (!module.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.())) throw new Error(`surface ${entry.name}: bind: ${module.gpu_error()}`);
-  const bound = performance.now();
-  const initial = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
-  entry.stateful = Boolean(initial);
-  entry.deviceFree = initial?.presentation === "none";
-  entry.headless ||= entry.deviceFree;
+  if (!module.gpu_load) {
+    entry.stateful = true;
+    entry.boundMs = performance.now();
+    entry.firstTickMs = entry.boundMs;
+  } else {
+  entry.stateful = Boolean(JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world);
   if (!entry.stateful) entry.stateful = module.gpu_carry(entry.id) !== undefined;
-  if (entry.stateful) entry.boundMs = bound;
-  if (initial?.tick > 0) entry.firstTickMs = entry.boundMs;
+  }
   if (exact.now && entry.stateful) {
     const owner = JSON.parse(module.gpu_agent(entry.id, JSON.stringify({op:"clock",owner:"agent",now:exact.now()})) || "null");
     entry.ownership = owner?.ownership ?? {unavailable:"module does not acknowledge clock owner"};
@@ -373,7 +378,7 @@ function restorePending(entry, module = gpu, carrier = exact) {
 }
 
 function ensure(entry) {
-  if (entry.id || !owned) return;
+  if (entry.id || !loaded) return;
   if (recoveringDevice) { recoveringDevice.then(() => { if (surfaces.get(entry.view) === entry) ensure(entry); }); return; }
   try {
     create(entry, gpu, entry.carry);
@@ -421,10 +426,8 @@ function messages(entry, drainAssets = true) {
   finishRestore(entry, gpu);
   reportRestore(entry);
   const record = gpu.gpu_published(entry.id);
-  if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) {
-    surfaceRecord(entry.name, record);
-    if (entry.stateful) entry.firstPublicationMs ??= performance.now();
-  }
+  if (record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) surfaceRecord(entry.name, record);
+  if (!gpu.gpu_load && record !== undefined && live(entry.view) === entry && publishers.get(entry.name) === entry) entry.firstPublicationMs ??= performance.now();
   const texts = gpu.gpu_messages(entry.id);
   if (texts === undefined) return;
   for (const text of JSON.parse(texts)) {
@@ -693,7 +696,10 @@ function worlds(request) {
           firstFrameMeaning: 'rendering opportunity after GPU submission; not scanout',
           resources: performance.getEntriesByType('resource')
             .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
-            .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, durationMs: r.duration, transferBytes: r.transferSize, encodedBytes: r.encodedBodySize, bytes: r.decodedBodySize })),
+            .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, bytes: r.decodedBodySize })),
+          resourceTransfers: performance.getEntriesByType('resource')
+            .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
+            .map(r => ({name:new URL(r.name).pathname, durationMs:r.duration, transferBytes:r.transferSize, encodedBytes:r.encodedBodySize})),
         };
       }
       out.push({ ...world, canvas: view });
@@ -735,7 +741,7 @@ exact.gpu = {
     return {world,releasedInput:true};
   },
   resumeClock(controlled) {
-    if (!owned) return;
+    if (!loaded) return;
     gpu.gpu_seekable(controlled);
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     for (const entry of surfaces.values()) entry.wants = true;
@@ -796,6 +802,7 @@ exact.gpu = {
       if (summary?.world) node.world = summary.world;
     }
     if (request.op === "state") {
+      if (!gpu.gpu_load) reply.surfaceModule = "ownership-only";
       reply.reload = diagnostics();
       const world = worlds({ op: "state" });
       if (world.length) reply.world = world;
@@ -941,18 +948,21 @@ exact.gpu = {
 };
 
 function shaderRows(assets, module = gpu) {
-  const names = new Set(JSON.parse(module.gpu_shader_names?.() ?? "[]")), decoder = new TextDecoder("utf-8", { fatal: true });
+  if (!module.gpu_load) return [];
+  const names = new Set(JSON.parse(module.gpu_shader_names())), decoder = new TextDecoder("utf-8", { fatal: true });
   return [...assets].filter(([path]) => path.startsWith("shaders/") && path.endsWith(".wgsl"))
     .map(([path, card]) => [path.slice(8, -5), decoder.decode(card.bytes)])
     .filter(([name]) => names.has(name));
 }
 function replaceShaders(rows, module = gpu) {
-  module.gpu_shaders_clear?.();
+  if (!module.gpu_load) return;
+  module.gpu_shaders_clear();
   for (const [name, text] of rows) if (!module.gpu_shader(name, text)) throw new Error(module.gpu_error());
 }
 async function loadShaders(module) {
+  if (!module.gpu_load) return [];
   const rows = [];
-  if (exact.devAssets === null) for (const name of JSON.parse(module.gpu_shader_names?.() ?? "[]")) {
+  if (exact.devAssets === null) for (const name of JSON.parse(module.gpu_shader_names())) {
     const r = await fetch(new URL(`./shaders/${name}.wgsl`, import.meta.url));
     if (!r.ok) throw new Error(`shaders/${name}.wgsl: HTTP ${r.status}`);
     rows.push([name, await r.text()]);
@@ -1019,8 +1029,13 @@ function validateStage(entry, module, at, releaseInput = true, assets = exact.de
     throw new Error(`surface ${entry.name}: stateful executor has no safe staging contract`);
   }
   supplyChildren(entry, module, true);
-  if (entry.headless && !entry.stateful) throw new Error(`surface ${entry.name}: device is not ready for candidate validation`);
-  if (!entry.headless && module.gpu_render(entry.id, w, h, s, at) >= 2) throw new Error(`surface ${entry.name}: render: ${module.gpu_error()}`);
+  if (!module.gpu_load) {
+    module.gpu_advance(entry.id, at);
+    const error = module.gpu_error();
+    if (error) throw new Error(`surface ${entry.name}: advance: ${error}`);
+  } else {
+  if (module.gpu_render(entry.id, w, h, s, at) >= 2) throw new Error(`surface ${entry.name}: render: ${module.gpu_error()}`);
+  }
   const after = JSON.parse(module.gpu_agent(entry.id, '{"op":"state"}') || "null")?.world;
   if (after?.ready === false) throw new Error(`surface ${entry.name}: candidate not ready: ${JSON.stringify(after.readyReasons)}`);
   const publication = module.gpu_published(entry.id);
@@ -1116,7 +1131,7 @@ function successfulSwap(start, artifact, entries, intent, extra = {}) {
 // A candidate Contract boot has not touched the DOM. Names only identify a
 // world when unique on BOTH sides; duplicates never silently lose their carry.
 function stagePlan(batch, beforeSlots = {}, afterSlots = {}, assets = exact.devAssets) {
-  if (!owned) throw new Error("surface module is not ready for a transactional plan restart");
+  if (!loaded) throw new Error("GPU is not ready for a transactional plan restart");
   if (batch.ops.some(op => ["store", "command", "storage"].includes(op.op))) throw new Error("candidate plan has irreversible effects; restart required");
   const rows = batch.ops.filter(op => op.op === "surface"), staged = new Map(), start = performance.now();
   const old = [...surfaces.values()], at = clockFor(frameAt ?? start);
@@ -1175,10 +1190,13 @@ async function swap(version, options) {
     reload.phase = "loading";
     next = await loadModule(version);
     assertCurrent();
-    const ownership = next.gpu_load ? ["load", "create", "render"] : ["load_headless", "create_headless"];
-    for (const name of [...ownership,"unload","destroy","bind_at","restore","carry","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
-    if (next.gpu_load) { await next.gpu_load(); deviceModules.add(next); }
-    else next.gpu_load_headless();
+    if (!next.gpu_load) {
+      for (const name of ["load_headless","create_headless","advance","unload","destroy","bind_at","restore","carry","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
+      next.gpu_load_headless();
+    } else {
+    for (const name of ["load","unload","create","destroy","bind_at","restore","carry","render","agent","seekable","published","messages"]) if (typeof next[`gpu_${name}`] !== "function") throw new Error(`GPU ABI missing gpu_${name}; rebuild/relaunch required`);
+    await next.gpu_load();
+    }
     assertCurrent();
     // The game Presentation trait discards audio under this flag. No physical
     // input, durable checkpoint observer or app message ingress is attached.
@@ -1231,7 +1249,7 @@ async function swap(version, options) {
     const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
     try { hostStage?.commit(); hostCommitted = true; hostStage?.present(); }
     finally { exact.applyDepth = depth; }
-    owned = true; loaded = deviceModules.has(next); exact.gpu.version = version;
+    loaded = true; exact.gpu.version = version;
     next.gpu_seekable(Boolean(exact.now));
     for (const [old, entry] of staged) {
       // Transferred child styles still belong to the same Contract nodes.
@@ -1275,12 +1293,22 @@ try {
   const version = exact.gpuVersion ?? 0;
   gpu = await loadModule(version);
   exact.root.dataset.worldModuleMs = performance.now().toFixed(3);
-  gpu.gpu_load_headless();
-  owned = true;
-  gpu.gpu_seekable(Boolean(exact.now));
+  if (!gpu.gpu_load) {
+    gpu.gpu_load_headless();
+    gpu.gpu_seekable(Boolean(exact.now));
+  } else {
+  await gpu.gpu_load();
+  if (exact.now) gpu.gpu_seekable(true);
+  replaceShaders(await loadShaders(gpu));
+  }
   exact.gpu.version = version;
   reload.loaded = exact.gpuArtifacts?.get(version) ?? { version, identity:"unavailable: static host did not provide artifact receipt" };
+  loaded = true;
 } catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
+if (!gpu || gpu.gpu_load) {
+if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
+if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
+}
 try {
   const waiting = [...surfaces.values()];
   const report = error => { exact.devError?.(String(error)); console.error("exact gpu:", error); };
@@ -1288,22 +1316,6 @@ try {
     try { exact.gpu.surface(s.id, s.name, s.values); } catch (error) { report(error); }
   }
   exact.pendingSurfaces = [];
+  // A refused initial surface must not prevent independent canvases from loading.
   for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }
-} finally { finishReady(owned); }
-// Device acquisition must never hold the ownership promise or discard live worlds.
-if (owned && gpu.gpu_load) {
-  const module = gpu;
-  Promise.resolve().then(() => module.gpu_load()).then(async () => {
-    replaceShaders(await loadShaders(module), module);
-    if (module !== gpu) return;
-    deviceModules.add(module); loaded = true;
-    exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
-    if (new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
-    for (const entry of surfaces.values()) if (entry.id && entry.headless && !entry.deviceFree) {
-      if (module.gpu_attach(entry.id, entry.el, entry.el.width, entry.el.height)) {
-        entry.headless = false; entry.wants = true;
-      } else console.error("exact gpu attach:", module.gpu_error());
-    }
-    schedule();
-  }).catch(error => { console.warn("exact gpu device unavailable; worlds remain active:", error); });
-}
+} finally { finishReady(loaded); }

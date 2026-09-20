@@ -254,6 +254,7 @@ async function openWeb({ plan, world, worldMode = 'open', size = [420, 900], url
         contact = null;
         if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
         touch = false;
+        hostLines.length = 0; gpuMs = null;
         const deadline = Date.now() + 30000;
         if (warm) {
           // Warm startup measurement uses a real reload in this same profile.
@@ -269,7 +270,6 @@ async function openWeb({ plan, world, worldMode = 'open', size = [420, 900], url
           }
           await call('Page.navigate', {url:page.href});
         }
-        hostLines.length = 0; gpuMs = null;
         let boot;
         while ((boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null)) == null) {
           if (Date.now() > deadline) throw new Error('the reused page never booted');

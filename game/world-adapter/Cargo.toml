@@ -10,5 +10,3 @@ exact-plan = { path = "../../plan" }
 exact-gpu = { path = "../../gpu" }
 serde_json = "1"
 
-[dev-dependencies]
-exact-game = { path = "../engine" }
