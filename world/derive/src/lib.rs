@@ -180,7 +180,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     {
         return Err("Data does not support generics or lifetimes".into());
     }
-    let (write, read, moving, settle) = if kind == "struct" {
+    let (write, read, settle) = if kind == "struct" {
         let b = body(tokens.get(2))?;
         let access: Vec<_> = b
             .fields
@@ -190,7 +190,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         (
             write_body(&b, &access),
             read_body(&b, &access),
-            moving_body(&b, &access),
             settle_body(&b, &access),
         )
     } else {
@@ -213,7 +212,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             });
         }
         let mut write = String::from("match self {");
-        let mut moving = String::from("match self {");
         let mut settle = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm.as_str() {");
         for (index, arm) in arms.iter().enumerate() {
@@ -227,7 +225,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 .map(|(v, f)| if f.skip { "_".into() } else { v.clone() })
                 .collect();
             let write_pat = pattern(&arm.name, b, &write_vars);
-            moving += &format!("{write_pat} => {},", moving_body(b, &refs));
             settle += &format!("{write_pat} => {},", settle_body(b, &refs));
             write += &format!(
                 "{write_pat} => {{ w.variant({:?}, {index}); {} w.end_variant(); }},",
@@ -251,30 +248,18 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         }
         write += "}";
         read += "_ => return ::core::result::Result::Err(::exact_world::DataError::new(::std::format!(\"unknown variant {}\", arm))), } r.end_variant()?;";
-        moving += "}";
         settle += "}";
-        (write, read, moving, settle)
+        (write, read, settle)
     };
     let default_size = if kind == "struct" {
         default_size(&body(tokens.get(2))?)
     } else {
         "::core::mem::size_of::<Self>()".into()
     };
-    let mut out = format!("impl ::exact_world::Data for {name} {{ fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn moving(&self, now: ::exact_world::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_world::Data for {name} {{ fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn settle_tick(&self, now: ::exact_world::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ w.claim_decoded(<Self as ::exact_world::Data>::default_size()); if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
-        let saved_fields = if marker == "Component" && kind == "struct" {
-            let fields = body(tokens.get(2))?.fields;
-            let names: Vec<_> = fields
-                .iter()
-                .filter(|f| !f.skip)
-                .map(|f| clean(&f.name))
-                .collect();
-            format!("const SAVED_FIELDS: &'static [&'static str] = &{names:?};")
-        } else {
-            String::new()
-        };
         out += &format!(
-            "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; {saved_fields} }}",
+            "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
             clean(&name)
         );
     }
@@ -373,21 +358,6 @@ fn read_body(b: &Body, access: &[String]) -> String {
     }
     s += "}";
     s
-}
-
-fn moving_body(b: &Body, access: &[String]) -> String {
-    let parts: Vec<_> = b
-        .fields
-        .iter()
-        .zip(access)
-        .filter(|(f, _)| !f.skip)
-        .map(|(_, a)| format!("::exact_world::Data::moving(&{a}, now)"))
-        .collect();
-    if parts.is_empty() {
-        "false".into()
-    } else {
-        parts.join(" || ")
-    }
 }
 
 fn settle_body(b: &Body, access: &[String]) -> String {

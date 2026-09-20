@@ -108,9 +108,6 @@ impl Data for Spring {
         // there has no known deadline. Do not claim the cap is a resting state.
         (tick > now.tick && self.at_rest(Now { tick, ..now })).then_some(tick)
     }
-    fn moving(&self, now: Now) -> bool {
-        !self.at_rest(now)
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         w.field("target");

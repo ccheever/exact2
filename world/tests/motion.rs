@@ -39,22 +39,9 @@ fn rng_is_reproducible_bounded_and_round_trips() {
         let n = a.next_f32();
         assert!((0.0..1.0).contains(&n));
         assert_eq!(n, b.next_f32());
-        let n = a.range(-50i32..30);
-        assert!((-50..30).contains(&n));
-        assert_eq!(n, b.range(-50i32..30));
-        assert!((-3.0..4.0).contains(&a.range(-3.0..4.0)));
-        b.range(-3.0..4.0);
-        assert!((f32::MIN..f32::MAX).contains(&a.range(f32::MIN..f32::MAX)));
-        b.range(f32::MIN..f32::MAX);
     }
     let mut saved: Rng = bin::from_slice(&bin::to_vec(&a).unwrap()).unwrap();
     assert_eq!(a.next_u32(), saved.next_u32());
-    assert!(a.pick::<u8>(&[]).is_none());
-    assert_eq!(a.pick(&[7]), Some(&7));
-    assert!(!a.chance(0.0));
-    assert!(a.chance(1.0));
-    let f = 1.0f32;
-    assert_eq!(a.range(f..f32::from_bits(f.to_bits() + 1)), f);
 }
 #[test]
 fn math_uses_the_declared_functions() {

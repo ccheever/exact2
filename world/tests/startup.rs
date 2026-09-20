@@ -55,7 +55,7 @@ fn construction_activation_restore_counts() {
     let (ticks, counts) = counting::measure(|| sim.run(17.).unwrap());
     report("activation.first_tick", counts, (3, 640));
     assert_eq!(ticks, 1);
-    assert_eq!(sim.world().require::<CellValue>("#99").number, 100);
+    assert_eq!(sim.world().get::<CellValue>("#99").unwrap().number, 100);
     let mut sim = Sim::<Board<32>>::new(()).unwrap();
     sim.run(17.).unwrap();
     sim.world_mut().insert_resource(Blob::default()).unwrap();

@@ -1,17 +1,11 @@
 use crate::{
-    args::SetupArgs, bin, Action, Args, Data, DataError, Input, InputEvent, Reader, Value, World,
-    Writer,
+    args::SetupArgs, bin, Action, Args, Data, DataError, Input, InputEvent, Reader, World, Writer,
 };
 use std::{collections::VecDeque, marker::PhantomData};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
 pub struct Now {
     pub tick: u64,
     pub hz: u32,
-}
-impl Now {
-    pub fn seconds(self) -> f32 {
-        self.tick as f32 * (1. / self.hz as f32)
-    }
 }
 /// A stateless game. All continuation state belongs in saved kernel Data.
 pub trait Game: 'static {
@@ -84,12 +78,6 @@ impl<G: Game> Sim<G> {
             tick_failed: false,
             game: PhantomData,
         })
-    }
-    pub fn from_values(values: &[Value]) -> Result<Self, DataError> {
-        let mut defaults = G::Args::default().values();
-        crate::args::arity(values, G::Args::FIELDS).map_err(DataError::new)?;
-        defaults[..values.len()].clone_from_slice(values);
-        Self::new(G::Args::decode(&defaults).map_err(DataError::new)?)
     }
     pub fn world(&self) -> &World {
         &self.world
@@ -282,18 +270,16 @@ impl<G: Game> Sim<G> {
             Err(DataError::new("settle tick budget exhausted"))
         }
     }
-    /// EXSIM v9: identity → typed args → schema → world → driver/delivery data.
+    /// EXSIM v9: identity → typed args → world → driver/delivery data.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
         self.check_clock()?;
         self.world.validate()?;
         let mut w = bin::Encoder::prefixed(MAGIC);
-        w.begin_seq(10);
+        w.begin_seq(9);
         w.item();
         w.string(G::ID);
         w.item();
         self.args.write(&mut w);
-        w.item();
-        self.world.write_schema(&mut w);
         w.item();
         self.world.write(&mut w, true);
         w.item();
@@ -375,12 +361,7 @@ impl<G: Game> Sim<G> {
         let mut world = World::new(G::HZ, 0);
         G::register(&mut world, SetupArgs(&args))?;
         item(&mut r)?;
-        let schema = world.read_schema(&mut r)?;
-        item(&mut r)?;
         world.read(&mut r)?;
-        if !world.matches_schema(&schema) {
-            return Err(DataError::new("schema disagrees with storage"));
-        }
         world.validate_ownership()?;
         item(&mut r)?;
         let mut world_us = 0i64;

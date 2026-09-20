@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/k1")
+        .join("scratch/k1b-1")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {
@@ -160,10 +160,33 @@ struct Options { volume: f32 }"###,
 #[live = true]
 struct Options { volume: f32 }"###,
     ];
-    for source in cases {
+    // Trait refusals are the public boundary: outside crates cannot add Data
+    // for usize/Cell/HashMap because both trait and type would be foreign.
+    let diagnostics = [
+        "Resource",
+        "cannot move out of `query`",
+        "cannot borrow `query` as mutable",
+        "cannot move out of `pages`",
+        "Data",
+        "does not support generics or lifetimes",
+        "does not support generics or lifetimes",
+        "Data",
+        "Data",
+        "data attribute is only meaningful on a field",
+        "data attribute is only meaningful on a field",
+        "unknown data attribute",
+        "explicit enum discriminants",
+        "without arguments",
+        "without arguments",
+        "attribute is only meaningful on a field",
+        "attribute is only meaningful on a field",
+        "attribute is only meaningful on a field",
+    ];
+    for (source, diagnostic) in cases.into_iter().zip(diagnostics) {
         let output = compile(source);
         let error = String::from_utf8_lossy(&output.stderr);
         assert!(!output.status.success(), "accepted {source}");
+        assert!(error.contains(diagnostic), "expected {diagnostic}: {error}");
         assert!(
             !error.contains("can't find crate") && !error.contains("unresolved import"),
             "false refusal: {error}"

@@ -136,3 +136,45 @@ fn zst_rows_retain_leases_after_iterator_drop_and_unwind() {
     drop(w);
     assert_eq!(DROPS.get(), es.len() + 1);
 }
+
+#[test]
+fn panicking_writers_and_row_bodies_release_leases_before_reuse() {
+    use exact_world::{Data, DataError, Reader, Writer};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    thread_local! { static PANIC: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
+    #[derive(Default)]
+    struct Owned(String);
+    impl Data for Owned {
+        fn write(&self, w: &mut dyn Writer) {
+            assert!(!PANIC.get(), "writer panic");
+            self.0.write(w);
+        }
+        fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+            self.0.read(r)
+        }
+    }
+    impl Component for Owned {
+        const NAME: &'static str = "Owned";
+    }
+    let mut w = World::new(60, 0);
+    w.register::<Owned>().unwrap();
+    let e = w.spawn(Owned("first".into())).unwrap();
+    // A partial writer never owns the slot: the shared lease unwinds while the
+    // initialized String remains owned by its presence bit (Miri-style audit).
+    assert!(catch_unwind(AssertUnwindSafe(|| w.save())).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        let mut rows = w.query::<&mut Owned>().into_iter();
+        rows.next().unwrap().0.push_str(" changed");
+        panic!("row body");
+    }))
+    .is_err());
+    PANIC.set(false);
+    assert_eq!(w.get::<Owned>(e).unwrap().0, "first changed");
+    let bytes = w.save().unwrap();
+    w.load(&bytes).unwrap();
+    w.despawn(e);
+    let reused = w.spawn(Owned("second".into())).unwrap();
+    assert_eq!(reused.index(), e.index());
+    assert_ne!(reused, e);
+    assert_eq!(w.get::<Owned>(reused).unwrap().0, "second");
+}

@@ -21,7 +21,7 @@ mod values;
 pub use values::Published;
 pub mod math;
 mod rng;
-pub use rng::{RangeValue, Rng};
+pub use rng::Rng;
 mod spring;
 pub use spring::Spring;
 mod tween;

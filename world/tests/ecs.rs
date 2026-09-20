@@ -39,8 +39,8 @@ fn generations_names_and_order_under_churn() {
     let mut rng = Rng::new(13);
     let mut entities = vec![recycled, third];
     for _ in 0..2000 {
-        if !entities.is_empty() && rng.chance(0.45) {
-            let i = rng.range(0..entities.len() as u32) as usize;
+        if !entities.is_empty() && rng.next_f32() < 0.45 {
+            let i = rng.next_u32() as usize % entities.len();
             w.despawn(entities.remove(i));
         } else {
             entities.push(w.spawn((A(rng.next_u32()),)).unwrap());
@@ -192,7 +192,7 @@ fn resource_and_non_state_outputs() {
     assert_eq!(w.journal(0).len(), 512);
     assert_eq!(w.hz(), 120);
     assert_eq!(w.tick(), 0);
-    assert_eq!(w.seconds(), 0.0);
+    assert_eq!(w.tick() as f64 / w.hz() as f64, 0.0);
 }
 #[test]
 fn hierarchy_despawn_and_live_generations() {

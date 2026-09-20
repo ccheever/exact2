@@ -38,7 +38,7 @@ impl Game for Counter {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         let random = w.rng().next_u32() as u64;
         let n = {
-            let mut c = w.require_mut::<Count>("counter");
+            let mut c = w.get_mut::<Count>("counter").unwrap();
             c.0 = c.0.wrapping_add(random + u64::from(input.pressed("add")));
             c.0
         };
@@ -366,7 +366,7 @@ fn borrowed_queries_and_safe_runs_cover_holes_padding_and_owned_data() {
     assert!(q.get(es[3]).is_none());
     drop(q);
     assert_eq!(w.get::<Padded>(es[5]).unwrap().n, 900);
-    assert_eq!(QueryBorrow::<&Padded>::matching_count(&w).unwrap().0, 124);
+    assert_eq!(w.query::<&Padded>().iter().count(), 124);
 }
 #[test]
 fn input_edges_axes_boundaries_and_queue_limits() {
@@ -457,17 +457,17 @@ fn full_entity_and_journal_limits_refuse_without_losing_events() {
     for _ in 0..MAX_ENTITIES {
         w.spawn(()).unwrap();
     }
-    assert!(catch_unwind(AssertUnwindSafe(|| w.spawn(()).unwrap())).is_err());
+    assert!(w.spawn(()).is_err());
     assert_eq!(w.len(), MAX_ENTITIES);
     let cursor = w.change_cursor();
     w.consume_changes(cursor).unwrap();
     let e = w.resolve("#0").unwrap();
-    for n in 0..999_999 {
+    for n in 0..1_000_000 {
         w.insert(e, Count(n)).unwrap();
     }
-    // insert reserves two events so ownership can always journal its edge too.
+    // Ordinary components reserve one event; ownership edits reserve two.
     let cursor = w.change_cursor();
-    assert!(catch_unwind(AssertUnwindSafe(|| w.insert(e, Count(0)).unwrap())).is_err());
+    assert!(w.insert(e, Count(0)).is_err());
     assert_eq!(w.change_cursor(), cursor);
     assert_eq!(w.changes(cursor - 1).unwrap().count(), 1);
 }
@@ -728,7 +728,7 @@ fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
         .is_err());
     assert_eq!(old.save().unwrap(), before);
     old.restore(&saved).unwrap();
-    assert_eq!(old.world().require::<New>("#0").0, 7);
+    assert_eq!(old.world().get::<New>("#0").unwrap().0, 7);
     assert_eq!(old.save().unwrap(), saved);
 }
 

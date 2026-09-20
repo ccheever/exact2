@@ -80,61 +80,6 @@ impl Data for State {
 }
 
 impl World {
-    pub(crate) fn write_schema(&self, w: &mut dyn Writer) {
-        w.begin_seq(
-            self.components.values().filter(|s| s.len() != 0).count() + self.resources.len(),
-        );
-        for (resource, storages) in [(false, &self.components), (true, &self.resources)] {
-            for (name, _) in storages.iter().filter(|(_, s)| s.len() != 0) {
-                w.item();
-                w.begin_seq(2);
-                w.item();
-                w.string(name);
-                w.item();
-                resource.write(w);
-                w.end_seq();
-            }
-        }
-        w.end_seq();
-    }
-    pub(crate) fn read_schema(
-        &mut self,
-        r: &mut dyn Reader,
-    ) -> Result<Vec<(String, bool)>, DataError> {
-        let mut schema: Vec<(String, bool)> = Vec::new();
-        limits::read_vec(r, &mut schema, 512)?;
-        let mut seen = BTreeSet::new();
-        for (name, resource) in &schema {
-            if name == "Parent" {
-                self.register::<Parent>()?;
-            }
-            if name == "Ambient" {
-                self.register::<crate::Ambient>()?;
-            }
-            let reg = self
-                .registry
-                .get(name.as_str())
-                .ok_or_else(|| DataError::new("unregistered schema type").at(name))?;
-            if (if *resource {
-                reg.make_resource.is_none()
-            } else {
-                reg.make.is_none()
-            }) || !seen.insert((name, *resource))
-            {
-                return Err(DataError::new("schema kind differs or repeats"));
-            }
-            r.claim(128)?;
-        }
-        Ok(schema)
-    }
-    pub(crate) fn matches_schema(&self, schema: &[(String, bool)]) -> bool {
-        self.components
-            .iter()
-            .filter(|(_, s)| s.len() != 0)
-            .map(|(s, _)| (*s, false))
-            .chain(self.resources.keys().map(|s| (*s, true)))
-            .eq(schema.iter().map(|(s, r)| (s.as_str(), *r)))
-    }
     pub(crate) fn write_publications(&self, w: &mut dyn Writer) {
         self.published.borrow().write(w);
     }

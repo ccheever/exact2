@@ -48,37 +48,15 @@ impl Entity {
 
 /// An entity handle or a name resolved in this world.
 pub trait Target {
-    fn label(&self) -> String;
-    /// Resolve a live entity without consuming its diagnostic label or reviving a stale handle.
+    /// Resolve a live entity without reviving a stale handle.
     fn entity(&self, world: &World) -> Option<Entity>;
 }
-impl<T: Target> Target for &T {
-    fn label(&self) -> String {
-        (*self).label()
-    }
-    fn entity(&self, world: &World) -> Option<Entity> {
-        (*self).entity(world)
-    }
-}
-fn missing<C: Component>(target: &impl Target) -> ! {
-    panic!(
-        "entity `{}` requires component `{}`",
-        target.label(),
-        C::NAME
-    )
-}
 impl Target for Entity {
-    fn label(&self) -> String {
-        format!("#{}", self.index())
-    }
     fn entity(&self, world: &World) -> Option<Entity> {
         world.contains(*self).then_some(*self)
     }
 }
 impl Target for &str {
-    fn label(&self) -> String {
-        (*self).into()
-    }
     fn entity(&self, world: &World) -> Option<Entity> {
         world.resolve(self)
     }
@@ -86,9 +64,6 @@ impl Target for &str {
 
 /// Named per-entity Data, with unique names and no semantic interior mutability.
 pub trait Component: Data {
-    /// Saved named fields exposed by the derive for declarative binding validation.
-    #[doc(hidden)]
-    const SAVED_FIELDS: &'static [&'static str] = &[];
     const NAME: &'static str;
     /// Register data this component produces, before restoring a saved world.
     fn register(_world: &mut World) -> Result<(), DataError> {
@@ -487,13 +462,6 @@ impl World {
             generation: self.state.slots[index].generation,
         }
     }
-    /// Count living components matching a predicate, without changing the world.
-    pub fn count<T: Component>(&self, mut predicate: impl FnMut(&T) -> bool) -> u32 {
-        self.query::<&T>()
-            .iter()
-            .filter(|(_, item)| predicate(item))
-            .count() as u32
-    }
     /// The lowest-index living entity bearing this name, in O(log distinct names).
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.names.get(name)?.first().copied()
@@ -585,14 +553,6 @@ impl World {
         );
         self.storage::<C>()?.get_mut(e.index as usize)
     }
-    pub fn require<C: Component>(&self, target: impl Target) -> Ref<'_, C> {
-        self.get::<C>(&target)
-            .unwrap_or_else(|| missing::<C>(&target))
-    }
-    pub fn require_mut<C: Component>(&self, target: impl Target) -> RefMut<'_, C> {
-        self.get_mut::<C>(&target)
-            .unwrap_or_else(|| missing::<C>(&target))
-    }
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
@@ -673,27 +633,9 @@ impl World {
             hz: self.hz(),
         }
     }
-    pub fn dt(&self) -> f32 {
-        1.0 / self.hz() as f32
-    }
-    pub fn seconds(&self) -> f64 {
-        self.tick() as f64 / self.hz() as f64
-    }
     /// The world's only source of simulation randomness.
     pub fn rng(&self) -> RefMut<'_, Rng> {
         self.rng.get_mut().unwrap()
-    }
-    /// Draw one value and release the random column before returning.
-    pub fn rand<T: crate::RangeValue>(&self, range: std::ops::Range<T>) -> T {
-        self.rng().range(range)
-    }
-    /// One Bernoulli trial, with probability in [0, 1].
-    pub fn chance(&self, p: f32) -> bool {
-        self.rng().chance(p)
-    }
-    /// Choose a slice element, releasing the random column before returning.
-    pub fn pick<'a, T>(&self, items: &'a [T]) -> Option<&'a T> {
-        self.rng().pick(items)
     }
     /// Publish to the app and journal only changes to this key.
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
@@ -935,6 +877,17 @@ impl World {
                     }
                     r.begin_struct()?;
                     while let Some(name) = r.field()? {
+                        if !self.registry.contains_key(name.as_str()) {
+                            match name.as_str() {
+                                "Parent" => {
+                                    self.register::<Parent>()?;
+                                }
+                                "Ambient" => {
+                                    self.register::<crate::Ambient>()?;
+                                }
+                                _ => {}
+                            }
+                        }
                         let (&key, reg) =
                             self.registry.get_key_value(name.as_str()).ok_or_else(|| {
                                 DataError::new(format!(

@@ -71,9 +71,6 @@ impl Data for std::borrow::Cow<'static, str> {
     }
 }
 impl<T: Data> Data for Vec<T> {
-    fn moving(&self, now: crate::Now) -> bool {
-        self.iter().any(|v| v.moving(now))
-    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.iter()
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
@@ -166,9 +163,6 @@ impl<T: Data> Data for Option<T> {
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.as_ref().map_or(Some(now.tick), |v| v.settle_tick(now))
     }
-    fn moving(&self, now: crate::Now) -> bool {
-        self.as_ref().is_some_and(|v| v.moving(now))
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.option(self.is_some());
         if let Some(v) = self {
@@ -191,9 +185,6 @@ where
 {
     fn default_size() -> usize {
         N.saturating_mul(T::default_size())
-    }
-    fn moving(&self, now: crate::Now) -> bool {
-        self.iter().any(|v| v.moving(now))
     }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.iter()
@@ -246,9 +237,6 @@ impl<T: Data> Data for Box<T> {
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         (**self).settle_tick(now)
     }
-    fn moving(&self, now: crate::Now) -> bool {
-        (**self).moving(now)
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.claim_decoded(Self::default_size().saturating_mul(2));
         (**self).write(w);
@@ -259,9 +247,6 @@ impl<T: Data> Data for Box<T> {
     }
 }
 impl<T: Data> Data for BTreeMap<String, T> {
-    fn moving(&self, now: crate::Now) -> bool {
-        self.values().any(|v| v.moving(now))
-    }
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
         self.values()
             .try_fold(now.tick, |at, v| Some(at.max(v.settle_tick(now)?)))
@@ -293,7 +278,6 @@ macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
             fn default_size() -> usize { std::mem::size_of::<Self>() $(.saturating_add($T::default_size().saturating_sub(std::mem::size_of::<$T>())))* }
-            fn moving(&self, now: crate::Now) -> bool { false $(|| self.$i.moving(now))* }
             fn settle_tick(&self, now: crate::Now) -> Option<u64> { Some(now.tick $(.max(self.$i.settle_tick(now)?))*) }
             fn write(&self, w: &mut dyn Writer) {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();

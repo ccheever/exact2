@@ -35,18 +35,10 @@ pub trait Data: Sized + Default + 'static {
         value.read(r)?;
         Ok(value)
     }
-    /// Whether any nested spring is still moving. Derives walk non-transient fields.
-    fn moving(&self, _now: crate::Now) -> bool {
-        false
-    }
     /// First resting world tick, or None for unsettled work without a deadline.
     /// Derives combine nested deadlines; this is inspected only on agent reads.
     fn settle_tick(&self, now: crate::Now) -> Option<u64> {
-        if self.moving(now) {
-            None
-        } else {
-            Some(now.tick)
-        }
+        Some(now.tick)
     }
     /// Write fields in declaration order, omitting transient fields.
     fn write(&self, w: &mut dyn Writer);

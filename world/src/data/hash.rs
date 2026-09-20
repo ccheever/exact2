@@ -13,19 +13,14 @@ pub fn of<T: Data>(value: &T) -> u64 {
 }
 
 /// Incremental value hash; not suitable for authentication.
-#[derive(Clone, Default)]
-pub struct Hasher {
-    stream: Stream,
-}
-
 #[derive(Clone)]
-struct Stream {
+pub struct Hasher {
     state: u64,
     tail: [u8; 8],
     used: usize,
     len: u64,
 }
-impl Default for Stream {
+impl Default for Hasher {
     fn default() -> Self {
         Self {
             state: 0x9e37_79b9_7f4a_7c15,
@@ -40,11 +35,11 @@ fn mix(mut n: u64) -> u64 {
     n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
     n ^ (n >> 31)
 }
-impl Stream {
+impl Hasher {
     fn lane(&mut self, n: u64) {
         self.state = mix(self.state ^ n).rotate_left(27);
     }
-    fn bytes(&mut self, mut b: &[u8]) {
+    fn raw(&mut self, mut b: &[u8]) {
         self.len = self.len.wrapping_add(b.len() as u64);
         if self.used != 0 {
             let n = (8 - self.used).min(b.len());
@@ -69,15 +64,6 @@ impl Stream {
     /// Finalize without changing the writer, so snapshots are cheap.
     pub fn finish(&self) -> u64 {
         mix(self.state ^ mix(u64::from_le_bytes(self.tail)) ^ self.len)
-    }
-}
-impl Hasher {
-    fn raw(&mut self, bytes: &[u8]) {
-        self.stream.bytes(bytes);
-    }
-    /// Finalize the canonical stream without changing it.
-    pub fn finish(&self) -> u64 {
-        self.stream.finish()
     }
 }
 impl Writer for Hasher {

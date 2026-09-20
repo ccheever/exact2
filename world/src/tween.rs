@@ -64,15 +64,14 @@ impl Tween {
     }
 }
 impl Data for Tween {
-    fn moving(&self, now: Now) -> bool {
-        self.start_value != self.target && now.tick < self.deadline(now)
-    }
     fn settle_tick(&self, now: Now) -> Option<u64> {
-        Some(if self.moving(now) {
-            self.deadline(now)
-        } else {
-            now.tick
-        })
+        Some(
+            if self.start_value != self.target && now.tick < self.deadline(now) {
+                self.deadline(now)
+            } else {
+                now.tick
+            },
+        )
     }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();

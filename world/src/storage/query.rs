@@ -19,8 +19,6 @@ pub trait Query: sealed::Sealed {
     type Item<'a>;
     /// Guarded rows from consuming iteration; each guard keeps its column leased.
     type Owned<'w>;
-    /// Human-readable component names.
-    fn names() -> String;
     /// # Safety
     /// Acquire the state’s leases and mark its page first. The index must match, and may be yielded only once
     /// while this state lives.
@@ -120,9 +118,6 @@ macro_rules! reference {
         impl<'q, C: Component> Query for $form {
             type Item<'a> = $item;
             type Owned<'w> = $owned;
-            fn names() -> String {
-                C::NAME.into()
-            }
             unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
                 let make = || $guard {
                     ptr: state.ptr(index),
@@ -227,7 +222,6 @@ macro_rules! tuples {
         impl<$($T: Query),+> Query for ($($T,)+) {
             type Item<'a> = ($($T::Item<'a>,)+);
             type Owned<'w> = ($($T::Owned<'w>,)+);
-            fn names() -> String { [$($T::names(),)+].join(", ") }
             unsafe fn owned<'w>(state: &Self::State<'w>, index: usize) -> Self::Owned<'w> {
                 // SAFETY: the caller yields each matched index once; construction rejects aliases.
                 unsafe { ($($T::owned(&state.$i, index),)+) }
@@ -297,21 +291,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             words,
         }
     }
-    // Structural singleton lookup uses the same presence-mask join without
-    // borrowing values or marking pages. It remains valid during an edit.
-    pub fn matching_count(world: &'w World) -> Result<(usize, Option<Entity>), String> {
-        let state = Q::prepare(world, &mut [None; 8])?;
-        let mut count = 0;
-        let mut found = None;
-        for word in 0..state.words().min(world.alive_mask.len()) {
-            let bits = world.alive_mask[word] & state.word(word);
-            count += bits.count_ones() as usize;
-            if bits != 0 {
-                found = Some(world.entity_at(word * 64 + bits.trailing_zeros() as usize));
-            }
-        }
-        Ok((count, found))
-    }
     /// Keep entities carrying C, without borrowing its values.
     pub fn with<C: Component>(mut self) -> Self {
         let mask = self.world.storage::<C>().map(|s| &s.raw);
@@ -364,12 +343,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
         self.state.mark_page(i / super::PAGE);
         // SAFETY: live identity, masks and unique query borrow protect this row.
         Some(unsafe { self.state.fetch(i) })
-    }
-    /// The sole item, or None. Multiple matches are refused in every build.
-    pub fn one(&mut self) -> Option<Q::Item<'_>> {
-        let count = self.iter().count();
-        assert!(count <= 1, "expected one {}, found {}", Q::names(), count);
-        self.iter().next().map(|(_, item)| item)
     }
     /// Visit each matching entity once, yielding plain references.
     pub fn iter(&mut self) -> QueryIter<'_, 'w, Q> {
