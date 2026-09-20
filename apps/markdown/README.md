@@ -1189,3 +1189,12 @@ The fixture now puts the relatively positioned pan target inside a container
 and checks the carried state as well as its frame; the focused test passes.
 Upstream `3ddd059e` is integrated, including owned mouse-release delivery across
 AppKit event wrappers. Its queue tests and the full integrated gate remain to run.
+
+All five workspace gates pass at `0ca9fdfb` with clean published dependencies.
+The subsequent upstream collection-ownership fix (`f8bb0cc2`) is adapted to the
+retained bounded scheduler: common-owned lists cannot report through the legacy
+path, retain its pending work, or schedule its coverage checks. Ownership is
+rechecked after a synchronous report callback. Existing legacy scheduling tests
+now use noncollection fixtures; a takeover regression covers both callback and
+between-report transitions. This integration still requires native and workspace
+validation and does not establish a displayed-performance improvement.

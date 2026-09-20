@@ -12,13 +12,16 @@ final class CollectionMacTests: XCTestCase {
     private func batch(_ ops: [[String: Any]]) -> Batch {
         Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil)
     }
-    private func fixture() -> (Presenter, NodeView) {
+    private func fixture(collection: Bool = true, estimatedItemHeight: String? = nil,
+                         configure: (Presenter) -> Void = { _ in }) -> (Presenter, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()
         p.viewport.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        configure(p)
         p.apply(batch([
-            ["op": "collections", "items": [snapshot()]],
-            ["op": "create", "id": 1, "kind": "list"],
+            ["op": "collections", "items": collection ? [snapshot()] : []],
+            ["op": "create", "id": 1, "kind": "list",
+             "props": estimatedItemHeight.map { ["estimatedItemHeight": $0] } ?? [:]],
             ["op": "create", "id": 2, "kind": "view"],
             ["op": "create", "id": 3, "kind": "view"],
             ["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_left": 10.0, "padding_right": 10.0, "padding_top": 20.0]],
@@ -32,8 +35,16 @@ final class CollectionMacTests: XCTestCase {
         return (p, p.views[1]!)
     }
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
-        let (p, list) = fixture()
+        var legacyReports: [UInt32] = []
+        let (p, list) = fixture(estimatedItemHeight: "24") { p in
+            p.onList = { id, _, _, _, _, _, _, _ in
+                legacyReports.append(id)
+                return false
+            }
+        }
         defer { p.collections.reset() }
+        XCTAssertTrue(p.collections.owns(list.id))
+        XCTAssertTrue(legacyReports.isEmpty, "collection ownership must precede initial legacy reporting")
         XCTAssertTrue(list.handlers.isEmpty)
         let clip = try XCTUnwrap(list.scroll?.contentView)
         clip.scroll(to: NSPoint(x: 0, y: 120))
@@ -52,6 +63,19 @@ final class CollectionMacTests: XCTestCase {
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
+        XCTAssertTrue(legacyReports.isEmpty, "collection geometry uses only common feedback")
+    }
+    func testOrdinaryListStillReportsLegacyGeometryOnInitialApply() {
+        var legacyReports: [UInt32] = []
+        let (p, list) = fixture(collection: false, estimatedItemHeight: "24") { p in
+            p.onList = { id, _, _, _, _, _, _, _ in
+                legacyReports.append(id)
+                return false
+            }
+        }
+        defer { p.collections.reset() }
+        XCTAssertFalse(p.collections.owns(list.id))
+        XCTAssertEqual(legacyReports, [list.id])
     }
     func testFeedbackMembershipCommitsContinueOnLaterTurnsWithoutScroll() {
         let (p, _) = fixture()
@@ -239,7 +263,7 @@ final class CollectionMacTests: XCTestCase {
         wait(for: [done], timeout: 1)
     }
     func testBudgetPendingReportsSameGeometryWithoutRecursiveAdmission() {
-        let (p, list) = fixture()
+        let (p, list) = fixture(collection: false)
         defer { p.reset() }
         list.props["estimatedItemHeight"] = "24"
         var limits: [UInt32] = []
@@ -266,7 +290,7 @@ final class CollectionMacTests: XCTestCase {
 
     func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutBudget() {
         for covered in [false, true] {
-            let (p, list) = fixture()
+            let (p, list) = fixture(collection: false)
             defer { p.reset() }
             p.apply(batch([
                 ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 3000.0],
@@ -295,7 +319,7 @@ final class CollectionMacTests: XCTestCase {
     }
 
     func testSynchronousSettlementUsesUnlimitedReportsAndRetirementClearsPending() {
-        let (p, list) = fixture()
+        let (p, list) = fixture(collection: false)
         defer { p.reset() }
         list.props["estimatedItemHeight"] = "24"
         var limits: [UInt32] = []
@@ -315,6 +339,34 @@ final class CollectionMacTests: XCTestCase {
         p.apply(batch([["op": "destroy", "id": Int(list.id)]]))
         p.pump()
         XCTAssertEqual(limits.count, beforeRetirement, "destroyed lists cannot retain a pending report")
+    }
+
+    func testCommonOwnershipRetiresLegacyPendingWorkAndGeometry() {
+        for duringReport in [false, true] {
+            let (p, list) = fixture(collection: false)
+            defer { p.reset() }
+            list.props["estimatedItemHeight"] = "24"
+            var reports = 0
+            let takeover = batch([["op": "collections", "items": [snapshot()]]])
+            p.onList = { _, _, _, _, _, _, _, _ in
+                reports += 1
+                if duringReport && reports == 1 { p.apply(takeover) }
+                return true
+            }
+            p.syncLists(limit: 2)
+            if !duringReport { p.apply(takeover) }
+            XCTAssertTrue(p.collections.owns(list.id))
+            p.pump(); p.pump()
+            XCTAssertEqual(reports, 1, "common ownership must stop legacy continuations")
+            // Remove common ownership without apply's automatic legacy sync,
+            // so an obsolete pump continuation is observable independently.
+            p.collections.beginBatch(batch([["op": "collections", "items": []]]))
+            p.collections.endBatch()
+            p.pump()
+            XCTAssertEqual(reports, 1, "the previous owner's pending work was retired")
+            p.syncLists(limit: 2)
+            XCTAssertEqual(reports, 2, "returning legacy ownership must report even unchanged geometry")
+        }
     }
 
 }

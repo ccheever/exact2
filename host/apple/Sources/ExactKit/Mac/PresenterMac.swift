@@ -443,6 +443,7 @@ final class Presenter {
     private func coverLists() {
         listCovers.removeAll(keepingCapacity: true)
         for list in listViews.values {
+            guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
                   let content = list.container.subviews.first as? NodeView else { continue }
             let rows = content.container.subviews.compactMap { $0 as? NodeView }
@@ -469,6 +470,7 @@ final class Presenter {
     private func listsNeed() -> ListNeed {
         var need = ListNeed.nothing
         for list in listViews.values {
+            guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil, let scroll = list.scroll else { continue }
             guard let cover = listCovers[list.id] else { return .now }
             let visible = scroll.contentView.bounds, port = visible.height
@@ -618,9 +620,10 @@ final class Presenter {
         guard !applying, listSyncDepth == 0 else { return }
         listSyncDepth += 1
         defer { listSyncDepth -= 1 }
-        listGeometry = listGeometry.filter { views[$0.key] != nil }
-        listPending = listPending.filter { views[$0] != nil }
+        listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
+        listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
         for list in Array(listViews.values) {
+            guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
             guard views[list.id] === list, let scroll = list.scroll,
                   let content = list.container.subviews.first as? NodeView else { continue }
@@ -642,7 +645,13 @@ final class Presenter {
                 if listGeometry[list.id] == stamp && !listPending.contains(list.id) { break }
                 listGeometry[list.id] = stamp
                 let more = onList?(list.id, top, height, width, origin, focus, interaction, reportLimit) ?? false
-                guard views[list.id] === list else { listPending.remove(list.id); break }
+                // The callback can transfer ownership in a nested batch while
+                // recursive list synchronization is suppressed.
+                guard views[list.id] === list, !collections.owns(list.id) else {
+                    listPending.remove(list.id)
+                    listGeometry.removeValue(forKey: list.id)
+                    break
+                }
                 if more { listPending.insert(list.id) } else { listPending.remove(list.id) }
                 // Applying a report can anchor or clamp the native scrollport.
                 // Nested reports are suppressed, so cover that changed visible
