@@ -178,3 +178,30 @@ fn panicking_writers_and_row_bodies_release_leases_before_reuse() {
     assert_ne!(reused, e);
     assert_eq!(w.get::<Owned>(reused).unwrap().0, "second");
 }
+
+#[test]
+fn collected_mutable_zst_rows_can_all_be_written_within_and_across_pages() {
+    #[repr(align(128))]
+    #[derive(Default, Component, Debug, PartialEq, Eq)]
+    struct Tag;
+    for count in [3, PAGE * 2 + 3] {
+        let mut w = World::new(60, 0);
+        w.register::<Tag>().unwrap();
+        for _ in 0..count {
+            w.spawn(Tag).unwrap();
+        }
+        let mut rows: Vec<_> = w.query::<&mut Tag>().into_iter().collect();
+        assert_eq!(rows.len(), count);
+        assert!(w.try_query::<&Tag>().is_err());
+        let mut references: Vec<&mut Tag> = rows.iter_mut().map(|row| &mut **row).collect();
+        for tag in &mut references {
+            **tag = Tag;
+        }
+        for tag in references.into_iter().rev() {
+            assert_eq!(*tag, Tag);
+            *tag = Tag;
+        }
+        drop(rows);
+        assert_eq!(w.query::<&Tag>().iter().count(), count);
+    }
+}

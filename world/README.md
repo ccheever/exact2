@@ -445,6 +445,9 @@ cargo +nightly miri test -p exact-world --test admission -- --test-threads=1
 cargo +nightly miri test --target i686-unknown-linux-gnu -p exact-world --test admission -- --test-threads=1
 ```
 
+K5 retained mutable ZST collect/write control passes x86-64 and i686 under both
+Stacked and Tree Borrows; all four runs report `1 passed; 0 failed`, with no pointer changes.
+
 K1f Miri: 8 x86-64 storage, 13 page/ECS, 8 i686 storage, 1 i686 portable-boundary
 and 12 x86-64/i686 admission executions passed, with no UB detected (42 total).
 A real wasm32 build executed through Bun
