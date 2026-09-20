@@ -174,6 +174,41 @@ impl Raster {
     }
 }
 
+// A new path mask is zero outside its control bounds. Include AA slack;
+// tiny-skia tiles above 8191 pixels, so retain full-mask work beyond that range.
+fn intersect_mask(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform) {
+    let (width, height) = (mask.width() as usize, mask.height() as usize);
+    let bounds = if width <= 8191 && height <= 8191 {
+        path.clone().transform(dev).and_then(|p| {
+            let b = p.bounds();
+            let edges = [b.left(), b.top(), b.right(), b.bottom()];
+            edges
+                .iter()
+                .all(|v| v.is_finite() && v.abs() <= 8191.0)
+                .then(|| {
+                    [
+                        (b.left().floor() - 2.0).clamp(0.0, width as f32) as usize,
+                        (b.top().floor() - 2.0).clamp(0.0, height as f32) as usize,
+                        (b.right().ceil() + 2.0).clamp(0.0, width as f32) as usize,
+                        (b.bottom().ceil() + 2.0).clamp(0.0, height as f32) as usize,
+                    ]
+                })
+        })
+    } else {
+        None
+    };
+    let [left, top, right, bottom] = bounds.unwrap_or([0, 0, width, height]);
+    for y in top..bottom {
+        let span = y * width + left..y * width + right;
+        for (a, b) in mask.data_mut()[span.clone()]
+            .iter_mut()
+            .zip(&parent.data()[span])
+        {
+            *a = (u16::from(*a) * u16::from(*b) / 255) as u8;
+        }
+    }
+}
+
 fn solid(c: [u8; 4]) -> Paint<'static> {
     let mut p = Paint::default();
     p.set_color(Color::from_rgba8(c[0], c[1], c[2], c[3]));
@@ -443,9 +478,7 @@ impl Backend for Raster {
         };
         mask.fill_path(&path, FillRule::Winding, true, self.device(ts));
         if let Some(parent) = self.clips.last() {
-            for (a, b) in mask.data_mut().iter_mut().zip(parent.data()) {
-                *a = (u16::from(*a) * u16::from(*b) / 255) as u8;
-            }
+            intersect_mask(&mut mask, parent, &path, self.device(ts));
         }
         self.clips.push(Rc::new(mask));
         self.text_clips
@@ -523,4 +556,61 @@ impl Backend for Raster {
             .take()
             .ok_or_else(|| "no frame begun".to_string())
     }
+}
+
+#[test]
+fn css_clip_intersection_matches_full_mask_for_curves_transforms_and_tiling() {
+    let mut curve = PathBuilder::new();
+    curve.move_to(-12.25, 7.75);
+    curve.cubic_to(110.5, -18.25, -35.0, 88.5, 75.25, 64.75);
+    curve.quad_to(12.5, 110.25, -12.25, 7.75);
+    curve.close();
+    let paths = [
+        PathBuilder::from_rect(Rect::from_xywh(8.25, 9.5, 27.75, 31.25).unwrap()),
+        curve.finish().unwrap(),
+    ];
+    let transforms = [
+        Transform::identity(),
+        Transform::from_translate(-35.5, 19.25),
+        Transform::from_scale(0.25, 1.75),
+        Transform::from_row(-1.0, 0.3, 0.6, 1.1, 50.0, 30.0),
+        Transform::from_rotate(37.0),
+        Transform::from_translate(9000.0, 0.0),
+        Transform::from_scale(0.0, 0.0),
+        Transform::from_scale(f32::INFINITY, 1.0),
+    ];
+    let mut changed = 0;
+    for (width, height) in [(64, 51), (137, 93), (8192, 3), (3, 8192)] {
+        for path in &paths {
+            for dev in transforms {
+                let mut original = Mask::new(width, height).unwrap();
+                original.fill_path(path, FillRule::Winding, true, dev);
+                for kind in 0..3 {
+                    let mut parent = Mask::new(width, height).unwrap();
+                    for (i, byte) in parent.data_mut().iter_mut().enumerate() {
+                        *byte = match kind {
+                            0 => 255,
+                            1 => (i.wrapping_mul(37) % 256) as u8,
+                            _ => {
+                                if i % 7 == 0 {
+                                    255
+                                } else {
+                                    0
+                                }
+                            }
+                        };
+                    }
+                    let mut expected = original.clone();
+                    for (a, b) in expected.data_mut().iter_mut().zip(parent.data()) {
+                        *a = (u16::from(*a) * u16::from(*b) / 255) as u8;
+                    }
+                    changed += usize::from(expected.data() != original.data());
+                    let mut actual = original.clone();
+                    intersect_mask(&mut actual, &parent, path, dev);
+                    assert_eq!(actual.data(), expected.data(), "{width}x{height} {dev:?}");
+                }
+            }
+        }
+    }
+    assert!(changed > 40, "parents must change real nonempty coverage");
 }

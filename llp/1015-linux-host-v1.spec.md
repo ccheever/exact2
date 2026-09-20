@@ -150,6 +150,16 @@ run every check on the CPU backend. **The CPU backend** (`raster.rs`) is
 the tiny-skia code r1 described, behind the same trait: masks for clips,
 a layer pixmap for opacity, swash glyph bitmaps for text.
 
+CSS path masks intersect their parent only within transformed control bounds,
+rounded outward with two pixels of antialiasing slack. Viewports or transformed
+coordinates beyond 8,191 pixels keep the full-mask calculation, as do failed
+transforms. Mask dimensions and floor-rounded alpha multiplication are unchanged.
+A 192-case regression covers curves, transforms, parent coverage and tiled
+fallbacks; 24 app screenshots and their layouts match the previous renderer.
+Two paired release comparisons of Textflow's 120-frame Dancer workload on this
+Mac measured about 8–9% lower frame cost (the second: 5.97 → 5.42 ms).
+These are headless CPU measurements, not physical display cadence.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's
