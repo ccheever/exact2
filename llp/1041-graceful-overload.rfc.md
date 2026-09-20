@@ -8437,3 +8437,51 @@ raw CSV`27069f7f`, report`d80d9947` and result seal`3fe0fe69`; lead arithmetic i
 product for a fresh baseline cell and changes one candidate copy path. Existing
 RGB captures observe the source Pixmap/VNC image, not a DRM XRGB readback; byte
 tests establish the swizzle contract. NativeSplit's separate allowance stays3/3.
+
+### 8.153 Packed KMS copy: byte contract preserved, app comparison refused
+
+The selected candidate changes only the inner expression in Linux `copy_xrgb`;
+source cropping, strides, destination pitch, row order and bounds checks stay
+unchanged. It writes the same B/G/R/255 bytes without unsafe or alignment-specific
+access. Five permanent fixed-byte controls cover transparency, odd pitch and
+unaligned guards, a17-pixel tail, zero/larger requested extents and overlapping
+in-bounds destination rows. The isolated ordinary-buffer result is §8.152;
+application benefit remains unestablished.
+
+A single optimized candidate app build takes42.212s. Its2,006 source paths differ
+from the original control only at the copy expression; stock tiny-skia, generated
+entry/plan/compat and fonts remain equal. Fresh control13ad then candidate4eef
+run once. Control passes; candidate fails the unchanged wheel reader after
+observations. Offered picture167 is superseded by timer4312/ACK168, followed by
+pointer completions4321/4323 with dirty=true before wheel1337/4324. The reader
+refuses that uncertified live state. Actual predecessor168→169 scrolls−40, but
+this partial fact does not replace acceptance. Candidate final-fence success is
+not persisted. No reader weakening, retry or successful paired-gain claim follows.
+
+Separate saved-trace arithmetic retains mixed copy wall spans. Idle/loaded/
+recovery copy sums are10.135→12.148 /20.390→18.738 /11.646→11.845ms. Loaded complete
+timer copy medians are1.019108→1.027880ms, despite the lower aggregate loaded-copy
+median. Loaded timer whole maxima are12.273426→10.561794ms with7/8→6/8 misses;
+silent cohorts contain7→8 complete turns, and full final History revisions differ
+17→16. All three setup RGBs match, but final RGBs are not a matched-state comparison.
+RGB observes the source Pixmap/VNC, not the DRM XRGB destination. These failed-pair
+diagnostics establish neither application gain, CPU savings nor physical120Hz.
+
+Validation compiles the complete current Linux host production library on actual
+AArch64 Linux and links five unchanged test bodies against its real copy function.
+All five pass; formatting and both strict Clippy checks pass. This is direct Rust
+library/dispatcher execution, not Cargo/libtest or the full cfg(test) suite.
+The first attempt stopped before tests on an omitted shared executor source;
+the second adds only that unchanged file and passes without a production/test fix.
+Nineteen pinned warm externs are reused without rebuilding dependencies. Sources,
+products and recorded warm identities remain unchanged, with all owned groups
+released. MAIN`target/kms-copy-existing-module-validation-v2` preserves input
+`8900ecec`, library`b5c066cd` and test executable`768704a1`; v1 failure remains.
+This selects the small byte-equivalent expression for its isolated throughput
+result, with no application speedup claim.
+
+Private ink-pair failure seal`928bc286`/report`9210fb8c` and separate diagnostic
+seal`4f6ebb33`/report`d2aa3867` preserve both raw runs and the refusal. All12 recorded
+PIDs/eight groups retire, port5941 is free; native−15 is intentional cleanup.
+MAIN`target/fill-eligibility-evaluation` retains independent source/identity reads.
+NativeSplit's separate reference allowance remains3/3.
