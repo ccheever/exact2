@@ -84,6 +84,12 @@ fn construction_activation_restore_counts() {
     assert_eq!(restored.save().unwrap(), bytes);
     let (_, again) = counting::measure(|| Sim::<Board<32>>::from_save(&bytes).unwrap());
     assert_eq!(again, counts, "counts are deterministic, not time samples");
+    let (_, restore_counts) = counting::measure(|| sim.restore(&bytes).unwrap());
+    println!("restore.existing.10KiB: {restore_counts:?}");
+    let (changed, carry_counts) = counting::measure(|| sim.carry(&bytes).unwrap());
+    report("carry.10KiB", carry_counts, (84, 46766));
+    assert!(!changed);
+    assert_eq!(sim.save().unwrap(), bytes);
 }
 
 #[test]

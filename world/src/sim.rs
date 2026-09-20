@@ -337,18 +337,18 @@ impl<G: Game> Sim<G> {
         w.finish()
     }
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
-        Self::candidate(bytes, false)
+        Self::candidate(bytes, false).map(|(next, _)| next)
     }
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let next = Self::candidate(bytes, false)?;
+        let (next, _) = Self::candidate(bytes, false)?;
         self.install(next, false)
     }
     pub fn carry(&mut self, bytes: &[u8]) -> Result<bool, DataError> {
-        let next = Self::candidate(bytes, true)?;
+        let (next, changed) = Self::candidate(bytes, true)?;
         if next.args.setup_changed(&self.args) {
             return Err(DataError::new("carry setup arguments differ"));
         }
-        let changed = next.save()? != bytes || bin::to_vec(&self.args)? != bin::to_vec(&next.args)?;
+        let changed = changed || bin::to_vec(&self.args)? != bin::to_vec(&next.args)?;
         self.install(next, true)?;
         Ok(changed)
     }
@@ -368,7 +368,7 @@ impl<G: Game> Sim<G> {
         drop((old_world, old_args));
         Ok(())
     }
-    fn candidate(bytes: &[u8], adapt: bool) -> Result<Self, DataError> {
+    fn candidate(bytes: &[u8], adapt: bool) -> Result<(Self, bool), DataError> {
         if bytes.len() > 128 * 1024 * 1024 {
             return Err(DataError::new("save exceeds 128 MiB"));
         }
@@ -445,12 +445,12 @@ impl<G: Game> Sim<G> {
             tick_error: None,
             game: PhantomData,
         };
-        let canonical = next.save()?;
-        if !adapt && canonical != bytes {
+        let changed = next.save()? != bytes;
+        if !adapt && changed {
             return Err(DataError::new(
                 "exact save identity differs; use carry for schema adaptation",
             ));
         }
-        Ok(next)
+        Ok((next, changed))
     }
 }
