@@ -512,7 +512,8 @@ impl<'a> Reader<'a> for Decoder<'a> {
                 self.number()?;
             }
             Some(6) => {
-                self.string()?;
+                self.byte()?;
+                self.text()?;
             }
             Some(12..=15) => {
                 self.byte()?;

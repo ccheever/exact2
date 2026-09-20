@@ -544,3 +544,27 @@ fn hostile_input_lengths_refuse_before_payload_allocation() {
         "allocated {allocated} before the 64-key refusal"
     );
 }
+
+#[test]
+fn removed_strings_are_skipped_without_payload_allocation() {
+    #[derive(Default, Data)]
+    struct Before {
+        removed: String,
+        kept: u32,
+    }
+    #[derive(Default, Data)]
+    struct After {
+        kept: u32,
+    }
+    let bytes = bin::to_vec(&Before {
+        removed: "x".repeat(1_048_576),
+        kept: 42,
+    })
+    .unwrap();
+    let (after, (_, allocated)) = counting::measure(|| bin::from_slice::<After>(&bytes).unwrap());
+    assert_eq!(after.kept, 42);
+    assert!(
+        allocated < 4096,
+        "allocated {allocated} to discard a string"
+    );
+}
