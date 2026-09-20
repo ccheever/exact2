@@ -625,6 +625,25 @@ reversal and release. Exact's current drag-to-offset response still differs
 from the native Messages large-title list; enabling bounce does not establish
 matching native title motion.
 
+**Orthogonal carousels** (2026-09-19, Shop): `fitScroll` now derives forced
+vertical bounce from the current content geometry. It remains enabled for
+vertical overflow and for short containers without horizontal overflow; it is
+disabled when only the horizontal axis has travel (a half-point tolerance
+ignores subpixel extent noise). CSS makes the carousel's otherwise-visible
+vertical axis compute to auto, represented here as scroll. Unconditionally
+forcing vertical bounce on that axis swallowed Mac-hosted iOS wheel input.
+The source Shop page scrolled under that same input. Direct CUA checks verify
+vertical wheel scrolling in both directions over review cards, horizontal
+dragging, preserved horizontal position after page scrolling, and vertical
+wheel scrolling over the product gallery. UIKit still owns all motion; no
+pan recognizer, offset forwarding or deceleration change was added. A first
+candidate that rejected perpendicular pan starts did not fix the wheel case
+and was removed. AgentIOS wheel tests explicitly route to an ancestor and do
+not establish this physical UIKit behavior. Physical-iPhone acceptance,
+measured frame pacing and comprehensive nested boundary behavior remain open.
+Evidence is the Shop task's `.evidence/nested-scroll-checkpoint.json` and
+`work/reference/nested-scroll-fixed-*.png` captures.
+
 **Native swipe rows** (2026-09-10, Messages; `SwipeActionsIOS.swift`). An
 explicit `swipeContent` id on a scroll node requests a UIKit cell around that
 full-size descendant. `swipeLeading` and `swipeTrailing` list descendant press

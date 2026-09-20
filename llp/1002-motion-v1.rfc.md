@@ -386,3 +386,5 @@ clippy `-D warnings` and fmt clean, both crates on `wasm32-unknown-unknown`,
 `caps` green. D2 and D6 reversed a line Charlie wrote in `rules/NOT-DOING.md`;
 he confirmed both on 2026-08-28 and this document became Accepted. The spring
 `duration: 0` rule (LLP 1003 §4) stands as built; he expressed no view on it.
+
+**Shop gallery coalesced pan (Codex, 2026-09-19).** UIKit translation already measures from touch-down. The photo adapter previously subtracted the entire translation received at `.began`; a coalesced began/ended pair at the same position therefore applied zero displacement despite valid geometry and an accepted hold. The adapter now preserves that movement. The formerly failing Mac-hosted iOS drag, repeated bounded panning and double-tap return to fit pass in the Shop clone. This is a native mouse-delivered iOS gesture check, not physical-iPhone, pinch or frame-pacing evidence.
