@@ -18,8 +18,10 @@ impl Fixture {
         path
     }
     fn query(&self, source: &str) -> Value {
-        serde_json::from_str(&contract::symbols_json(&self.write("app.contract", source)).unwrap())
-            .unwrap()
+        serde_json::from_str(
+            &contract::symbols_json(&self.write("app.contract", source), None).unwrap(),
+        )
+        .unwrap()
     }
 }
 impl Drop for Fixture {
@@ -322,7 +324,8 @@ fn imported_fonts_keep_their_declaration_and_use_locations() {
         "only-font.contract",
         "font \"Brand\" = \"assets/brand.otf\"\n",
     );
-    let module: Value = serde_json::from_str(&contract::symbols_json(&only_font).unwrap()).unwrap();
+    let module: Value =
+        serde_json::from_str(&contract::symbols_json(&only_font, None).unwrap()).unwrap();
     assert_eq!(defs(&module).len(), 1);
     assert!(refs(&module).is_empty());
     assert_eq!(spelling(&defs(&module)[0]), "\"Brand\"");
@@ -339,8 +342,99 @@ fn navigation_uses_build_import_refusals_including_cached_name_checks_and_cycles
     ] {
         let root=f.write("app.contract",source);
         let build=contract::compile_path(&root).unwrap_err();
-        let query=contract::symbols_json(&root).unwrap_err();
+        let query=contract::symbols_json(&root, None).unwrap_err();
         assert_eq!(build,query);
+        assert_eq!(query, contract::symbols_json(&root, Some("absent")).unwrap_err());
+    }
+}
+
+#[test]
+fn exact_name_queries_preserve_ambiguous_definitions_and_reference_targets() {
+    let f = Fixture::new("named");
+    let root = f.write("app.contract", SOURCE);
+    let full: Value = serde_json::from_str(&contract::symbols_json(&root, None).unwrap()).unwrap();
+    for name in [
+        "textValue",
+        "label",
+        "item",
+        "App",
+        "entry",
+        "absent",
+        "TextValue",
+        "",
+    ] {
+        let named: Value =
+            serde_json::from_str(&contract::symbols_json(&root, Some(name)).unwrap()).unwrap();
+        let expected: Vec<_> = defs(&full).iter().filter(|d| d["name"] == name).collect();
+        assert_eq!(defs(&named).iter().collect::<Vec<_>>(), expected);
+        let expected: Vec<_> = refs(&full).iter().filter(|r| r["name"] == name).collect();
+        assert_eq!(refs(&named).len(), expected.len());
+        for (actual, original) in refs(&named).iter().zip(expected) {
+            assert_eq!(target(&named, actual), target(&full, original));
+            for key in ["kind", "name", "file", "line", "col", "end_col"] {
+                assert_eq!(actual[key], original[key]);
+            }
+        }
+    }
+    // A matching declaration does not hide an unrelated type error.
+    let bad = f.write(
+        "bad.contract",
+        "component App\n  derive broken = missing\n  view\n    text \"ok\"\n",
+    );
+    assert_eq!(
+        contract::symbols_json(&bad, None).unwrap_err(),
+        contract::symbols_json(&bad, Some("App")).unwrap_err()
+    );
+}
+
+#[test]
+fn cli_named_queries_accept_literal_names_and_keep_json_read_only() {
+    let f = Fixture::new("named-cli");
+    let source = "font \"Élan Display\" = \"assets/font.otf\"\ncomponent App\n  view\n    text \"font\" font-family=\"Élan Display\"\n    input id=\"--entry\"\n";
+    let root = f.write("app.contract", source);
+    for (name, definitions, references) in
+        [("Élan Display", 1, 1), ("--entry", 1, 0), ("missing", 0, 0)]
+    {
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["symbols", root.to_str().unwrap(), "--name", name])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stderr.is_empty());
+        let graph: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(defs(&graph).len(), definitions);
+        assert_eq!(refs(&graph).len(), references);
+        for reference in refs(&graph) {
+            assert_eq!(reference["to"], 0);
+        }
+    }
+    assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
+    assert_eq!(std::fs::read_dir(&f.0).unwrap().count(), 1);
+    for args in [
+        vec!["symbols", root.to_str().unwrap(), "--name"],
+        vec!["symbols", root.to_str().unwrap(), "--wrong", "App"],
+        vec!["symbols", root.to_str().unwrap(), "--name", "App", "extra"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("--name"));
+    }
+    for flag in ["--help", "-h"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["symbols", flag])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert!(output.stderr.is_empty());
+        assert!(String::from_utf8_lossy(&output.stdout).contains("--name <exact-name>"));
     }
 }
 

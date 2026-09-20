@@ -95,20 +95,41 @@ impl Graph {
             }
         }
     }
-    fn json(&self, sources: &Sources) -> String {
+    fn json(&self, sources: &Sources, name: Option<&str>) -> String {
         // Emit the existing graph directly, without cloning every name and
         // filename into a second tree of JSON objects.
-        let mut out = Vec::with_capacity((self.definitions.len() + self.references.len()) * 128);
+        let mut out = Vec::with_capacity(if name.is_some() {
+            0
+        } else {
+            (self.definitions.len() + self.references.len()) * 128
+        });
+        let mut selected = name.map(|_| vec![None; self.definitions.len()]);
         out.extend_from_slice(b"{\"definitions\":[");
+        let mut count = 0;
         for (i, definition) in self.definitions.iter().enumerate() {
-            if i != 0 {
+            if name.is_some_and(|name| definition.name != name) {
+                continue;
+            }
+            if let Some(selected) = &mut selected {
+                selected[i] = Some(count);
+            }
+            if count != 0 {
                 out.push(b',');
             }
             write_symbol(&mut out, sources, definition, definition.span, None);
+            count += 1;
         }
         out.extend_from_slice(b"],\"references\":[");
-        for (i, reference) in self.references.iter().enumerate() {
-            if i != 0 {
+        count = 0;
+        for reference in &self.references {
+            let to = match &selected {
+                Some(selected) => match selected[reference.to] {
+                    Some(to) => to,
+                    None => continue,
+                },
+                None => reference.to,
+            };
+            if count != 0 {
                 out.push(b',');
             }
             write_symbol(
@@ -116,8 +137,9 @@ impl Graph {
                 sources,
                 &self.definitions[reference.to],
                 reference.span,
-                Some(reference.to),
+                Some(to),
             );
+            count += 1;
         }
         out.extend_from_slice(b"]}");
         String::from_utf8(out).expect("JSON serialization is UTF-8")
@@ -162,7 +184,9 @@ fn quote(out: &mut Vec<u8>, value: &str) {
 /// Uses the build's import policy and type checker. No plan or bake is produced.
 /// Local bindings, parameters and shape fields are included; built-in names have
 /// no authored definition. Repeated ID declarations produce multiple edges.
-pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
+/// `name` selects every exact matching declaration and its references, with `to`
+/// indices local to that response. Validation still covers the whole source graph.
+pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileError> {
     let src = std::fs::read_to_string(path).map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
@@ -216,7 +240,7 @@ pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
         }
     }
     r.file(expanded.as_ref().map(|e| &e.root));
-    Ok(r.graph.json(&sources))
+    Ok(r.graph.json(&sources, name))
 }
 
 struct Resolver<'a> {

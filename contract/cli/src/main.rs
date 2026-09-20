@@ -14,7 +14,7 @@ mod diff;
 
 const USAGE: &str = "usage:
   contract build <file.contract> [-o <file.plan>] [--json] [--map (requires -o)]
-  contract symbols <file.contract>
+  contract symbols <file.contract> [--name <exact-name>]
   contract fmt [--check | --stdout] <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
   contract test <file.test.contract>
@@ -41,15 +41,22 @@ fn main() -> ExitCode {
 }
 
 fn symbols(args: &[String]) -> ExitCode {
-    let [input] = args else {
-        eprintln!("usage: contract symbols <file.contract>");
-        return ExitCode::from(2);
+    const USAGE: &str = "usage: contract symbols <file.contract> [--name <exact-name>]";
+    let (input, name) = match args {
+        [flag] if matches!(flag.as_str(), "--help" | "-h") => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        [input] if !input.starts_with('-') => (input, None),
+        [input, flag, name] if !input.starts_with('-') && flag == "--name" => {
+            (input, Some(name.as_str()))
+        }
+        _ => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
     };
-    if input.starts_with('-') {
-        eprintln!("usage: contract symbols <file.contract>");
-        return ExitCode::from(2);
-    }
-    match contract::symbols_json(std::path::Path::new(input)) {
+    match contract::symbols_json(std::path::Path::new(input), name) {
         Ok(json) => {
             println!("{json}");
             ExitCode::SUCCESS

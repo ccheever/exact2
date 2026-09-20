@@ -362,7 +362,7 @@ fn overlapping_import_subgraphs_keep_transitive_exports_and_source_identity() {
     let flat = contract::compile("fn value0(): number = 0\nfn value27(): number = 27\ncomponent App\n  view\n    text `${value0() + value27()}`\n").unwrap();
     assert_eq!(imported.encode(), flat.encode());
     let symbols: serde_json::Value =
-        serde_json::from_str(&contract::symbols_json(&root).unwrap()).unwrap();
+        serde_json::from_str(&contract::symbols_json(&root, None).unwrap()).unwrap();
     let leaves: Vec<_> = symbols["definitions"]
         .as_array()
         .unwrap()

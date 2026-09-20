@@ -59,6 +59,7 @@ make sense to do next.
 cargo run -q -p contract -- build apps/messages/app.contract --json
 cargo run -q -p contract -- build apps/messages/app.contract -o /tmp/messages.plan --map
 cargo run -q -p contract -- symbols apps/messages/app.contract
+cargo run -q -p contract -- symbols apps/messages/app.contract --name selectRecipient
 cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
 cargo run -q -p contract -- fmt --check apps/messages/app.contract
 ```
@@ -66,10 +67,15 @@ cargo run -q -p contract -- fmt --check apps/messages/app.contract
 `symbols` prints JSON with `definitions` and `references`. Each reference's
 `to` is an index into `definitions`; locations include the original file,
 1-based line and byte column, and an exclusive `end_col`. Component interfaces,
-local bindings, parameters, typed shape fields and literal IDs are navigable.
-Shared shape/function/style files can be queried directly. The query uses the
+local bindings, parameters, typed shape fields, font families and literal IDs are navigable.
+Shared shape/function/style/font files can be queried directly. The query uses the
 compiler's import and type rules and writes no files. Repeated literal IDs have
 an edge to each matching declaration; dynamic IDs have no static target.
+
+`--name <exact-name>` returns all matching definitions across scopes and their
+references, with `to` indices into that response's smaller `definitions` array.
+Names are exact and case-sensitive, not patterns; no match returns empty arrays.
+The complete source graph is still checked. `symbols --help` shows the syntax.
 
 `build --json` writes one diagnostics array to stdout: `[]` on success, or a
 stable `id`, `message`, original `file`, `line`, `col`, `end_col`, and `related`
