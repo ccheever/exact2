@@ -81,7 +81,7 @@ impl World {
         Ok(status)
     }
     pub(crate) fn validate_ownership(&self) -> Result<(), DataError> {
-        if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+        if self.storage::<Parent>().is_none_or(|s| s.len() == 0) {
             return Ok(());
         }
         if self.ownership_status()?.contains(&3) {
@@ -97,7 +97,7 @@ impl World {
     }
     /// Despawn leaves descendants until this boundary. Reap in ascending slot order.
     pub fn reap_orphans(&mut self) -> Result<(), DataError> {
-        if !self.reap_dirty || self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+        if !self.reap_dirty || self.storage::<Parent>().is_none_or(|s| s.len() == 0) {
             return Ok(());
         }
         let mut status = self.ownership_status()?;

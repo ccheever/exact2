@@ -55,17 +55,7 @@ impl Budget {
         Ok(out)
     }
     pub fn reserve<T>(&mut self, v: &mut Vec<T>) -> Result<(), DataError> {
-        if v.len() == v.capacity() {
-            let capacity = v.capacity().saturating_mul(2).max(4);
-            self.claim(
-                (capacity - v.capacity())
-                    .checked_mul(std::mem::size_of::<T>())
-                    .ok_or_else(|| DataError::new("allocation size overflow"))?,
-            )?;
-            v.try_reserve_exact(capacity - v.len())
-                .map_err(allocation)?;
-        }
-        Ok(())
+        grow(v, 1, |bytes| self.claim(bytes))
     }
     pub fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         let remaining = self
@@ -87,13 +77,20 @@ pub(crate) fn reserve<T>(
     v: &mut Vec<T>,
     extra: usize,
 ) -> Result<(), DataError> {
+    grow(v, extra, |bytes| r.claim(bytes))
+}
+fn grow<T>(
+    v: &mut Vec<T>,
+    extra: usize,
+    mut claim: impl FnMut(usize) -> Result<(), DataError>,
+) -> Result<(), DataError> {
     let need = v
         .len()
         .checked_add(extra)
         .ok_or_else(|| DataError::new("length overflow"))?;
     if need > v.capacity() {
         let capacity = need.max(v.capacity().saturating_mul(2)).max(4);
-        r.claim(
+        claim(
             (capacity - v.capacity())
                 .checked_mul(std::mem::size_of::<T>())
                 .ok_or_else(|| DataError::new("allocation size overflow"))?,

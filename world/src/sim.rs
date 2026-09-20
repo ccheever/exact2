@@ -153,10 +153,8 @@ impl<G: Game> Sim<G> {
             let due = self
                 .queue
                 .partition_point(|e| micros(e.at_ms()).unwrap() <= target_us);
-            let input = self.staged_input(due)?;
-            self.input = input;
+            self.apply_input(due)?;
             self.input.clear_edges();
-            self.queue.drain(..due);
             self.caller_us = target_us;
             return Ok(0);
         }
@@ -176,10 +174,8 @@ impl<G: Game> Sim<G> {
                     < end as i128
             });
             // Preflight the bounded batch before any boundary state changes.
-            let input = self.staged_input(due)?;
+            self.apply_input(due)?;
             self.world.begin_tick();
-            self.input = input;
-            self.queue.drain(..due);
             self.tick_failed = true;
             G::tick(&mut self.world, &self.input, &self.args);
             self.world.reap_orphans()?;
@@ -211,13 +207,13 @@ impl<G: Game> Sim<G> {
         self.caller_us = target_us;
         Ok(count)
     }
-    fn staged_input(&self, due: usize) -> Result<Input, DataError> {
-        let mut input = self.input.clone();
-        input.clear_edges();
-        for event in self.queue.iter().take(due) {
-            input.apply(event.clone())?;
+    fn apply_input(&mut self, due: usize) -> Result<(), DataError> {
+        self.input.preflight(self.queue.iter().take(due))?;
+        self.input.clear_edges();
+        for event in self.queue.drain(..due) {
+            self.input.apply(event);
         }
-        Ok(input)
+        Ok(())
     }
     /// Replace held input and rebase caller time without a tick. Clears all queued
     /// events and edges; at most 1024 events describing the complete held state.
@@ -227,8 +223,9 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("input reconciliation limit (1024)"));
         }
         let mut input = Input::new(G::ACTIONS)?;
+        input.preflight(held.iter())?;
         for event in held {
-            input.apply(event.clone())?;
+            input.apply(event.clone());
         }
         input.clear_edges();
         self.input = input;

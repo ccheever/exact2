@@ -110,11 +110,8 @@ impl RawStorage {
     pub(crate) fn len(&self) -> usize {
         self.len
     }
-    pub(crate) fn is_empty(&self) -> bool {
-        self.len == 0
-    }
     #[inline]
-    fn ptr(&self, index: usize) -> *mut u8 {
+    pub(super) fn ptr(&self, index: usize) -> *mut u8 {
         self.pages.chunks()[index / PAGE]
             .ptr
             .wrapping_add(index % PAGE * self.desc.layout.size())

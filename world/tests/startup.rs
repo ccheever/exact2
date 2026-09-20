@@ -410,3 +410,91 @@ fn unchanged_work_and_publications_do_not_allocate_or_invalidate() {
     w.publish("score", 8u32);
     assert_ne!(before, (w.mutation_epoch(), w.journal_next()));
 }
+
+#[test]
+fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
+    #[derive(Default, Component)]
+    struct Controller {
+        ticks: u32,
+        travel: f32,
+        presses: u32,
+        releases: u32,
+    }
+    struct Active;
+    impl Game for Active {
+        const ID: &'static str = "active-input";
+        const HZ: u32 = 1000;
+        const ACTIONS: &'static [Action] = &[
+            Action::button("jump", &["key63"]),
+            Action::axis("drive", "KeyA", "KeyD"),
+        ];
+        type Args = ();
+        fn register(w: &mut World, _: args::SetupArgs<'_, ()>) -> Result<(), DataError> {
+            w.register::<Controller>()?;
+            Ok(())
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn(Controller::default()).unwrap();
+            w.work("assets", Work::Pending).unwrap();
+        }
+        fn tick(w: &mut World, input: &Input, _: &()) {
+            assert!(input.key("key00"));
+            let mut c = w.get_mut::<Controller>("#0").unwrap();
+            c.ticks += 1;
+            c.travel += input.axis("drive");
+            c.presses += u32::from(input.pressed("jump"));
+            c.releases += u32::from(input.released("jump"));
+        }
+    }
+    let mut sim = Sim::<Active>::new(()).unwrap();
+    // Worst admitted held set, controller active, and assets still loading.
+    let mut held: Vec<_> = (0..64)
+        .map(|i| InputEvent::Key {
+            code: format!("key{i:02}"),
+            down: true,
+            at_ms: 0.,
+        })
+        .collect();
+    held.push(InputEvent::Axis {
+        name: "drive".into(),
+        value: 0.5,
+        at_ms: 0.,
+    });
+    sim.reconcile_input(0., &held).unwrap();
+    // Establish both edge buffers before counting steady tick execution.
+    for (at_ms, down) in [(0., false), (1., true)] {
+        sim.input(InputEvent::Key {
+            code: "key63".into(),
+            down,
+            at_ms,
+        })
+        .unwrap();
+        sim.run(1.).unwrap();
+    }
+    // Event ownership and queue storage are paid here, before the tick counter.
+    for i in 0..1000 {
+        let at_ms = 2.5 + i as f64;
+        let event = if i % 2 == 0 {
+            InputEvent::Key {
+                code: "key63".into(),
+                down: i % 4 == 2,
+                at_ms,
+            }
+        } else {
+            InputEvent::Axis {
+                name: "drive".into(),
+                value: if i % 4 == 1 { 0.25 } else { 0.75 },
+                at_ms,
+            }
+        };
+        sim.input(event).unwrap();
+    }
+    let (ticks, counts) = counting::measure(|| sim.run(1000.).unwrap());
+    report("input.1000_ticks_64_held_axis_1000_events", counts, (0, 0));
+    assert_eq!(ticks, 1000);
+    let c = sim.world().get::<Controller>("#0").unwrap();
+    assert_eq!(c.ticks, 1002);
+    assert_eq!((c.presses, c.releases), (251, 251));
+    assert_eq!(c.travel, 500.75);
+    assert!(matches!(sim.world().readiness(), Readiness::Pending(_)));
+}

@@ -360,7 +360,6 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
             query: self,
             word: 0,
             bits: 0,
-            page: usize::MAX,
         }
     }
 }
@@ -377,7 +376,6 @@ pub struct QueryRows<'w, Q: Query> {
     query: QueryBorrow<'w, Q>,
     word: usize,
     bits: u64,
-    page: usize,
 }
 impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
     type Item = Q::Owned<'w>;
@@ -387,7 +385,6 @@ impl<'w, Q: Query> IntoIterator for QueryBorrow<'w, Q> {
             query: self,
             word: 0,
             bits: 0,
-            page: usize::MAX,
         }
     }
 }
@@ -401,7 +398,7 @@ impl<'w, Q: Query> QueryRows<'w, Q> {
     /// Next guarded row together with its entity, in the same storage scan.
     #[inline]
     pub fn next_entity(&mut self) -> Option<(Entity, Q::Owned<'w>)> {
-        let index = next_index(&self.query, &mut self.word, &mut self.bits, &mut self.page)?;
+        let index = next_index(&self.query, &mut self.word, &mut self.bits)?;
         // SAFETY: the mask proves presence and next_index never repeats a slot.
         // Each returned guard splits the lease, so dropping this iterator is safe.
         Some((self.query.world.live_entity(index), unsafe {
@@ -414,7 +411,6 @@ fn next_index<Q: Query>(
     query: &QueryBorrow<'_, Q>,
     word: &mut usize,
     bits: &mut u64,
-    page: &mut usize,
 ) -> Option<usize> {
     while *bits == 0 {
         if *word == query.words {
@@ -427,12 +423,10 @@ fn next_index<Q: Query>(
             let filter = mask.get(i).copied().unwrap_or(0) | other.get(i).copied().unwrap_or(0);
             *bits &= if with { filter } else { !filter };
         }
-        // Once per visited page, outside the row loop. Optional columns may mark
-        // conservatively; acquiring the query still bumps the world lease epoch.
-        let next_page = i;
-        if *bits != 0 && *page != next_page {
-            query.state.mark_page(next_page);
-            *page = next_page;
+        // A 64-slot value chunk is one mask word. Each word is visited once,
+        // so no per-row lookup or redundant cached page index is needed.
+        if *bits != 0 {
+            query.state.mark_page(i);
         }
     }
     let index = (*word - 1) * 64 + bits.trailing_zeros() as usize;
@@ -445,13 +439,12 @@ pub struct QueryIter<'a, 'w, Q: Query> {
     query: &'a mut QueryBorrow<'w, Q>,
     word: usize,
     bits: u64,
-    page: usize,
 }
 impl<'a, Q: Query> Iterator for QueryIter<'a, '_, Q> {
     type Item = (Entity, Q::Item<'a>);
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let index = next_index(self.query, &mut self.word, &mut self.bits, &mut self.page)?;
+        let index = next_index(self.query, &mut self.word, &mut self.bits)?;
         // SAFETY: mask intersection proves presence, each index is yielded only once,
         // and the exclusive borrow of QueryBorrow keeps leases alive for every row.
         let item = unsafe { self.query.state.fetch(index) };

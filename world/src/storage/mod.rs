@@ -93,8 +93,8 @@ impl<C> DerefMut for RefMut<'_, C> {
     }
 }
 
-// Typed access retains a concrete pointer stride; allocation, masks, epochs and
-// every Data traversal are shared by all component types in RawStorage.
+// Storage<C> is constructed only with C's descriptor. Casts of RawStorage's
+// slot pointer therefore preserve type/alignment; queries retain typed strides.
 pub(crate) struct Storage<C> {
     raw: RawStorage,
     _type: PhantomData<C>,
@@ -103,15 +103,6 @@ impl<C> Deref for Storage<C> {
     type Target = RawStorage;
     fn deref(&self) -> &RawStorage {
         &self.raw
-    }
-}
-impl<C> Storage<C> {
-    #[inline]
-    fn ptr(&self, index: usize) -> *mut C {
-        self.raw.pages.chunks()[index / PAGE]
-            .ptr
-            .cast::<C>()
-            .wrapping_add(index % PAGE)
     }
 }
 impl<C: Data> Storage<C> {
@@ -132,7 +123,7 @@ impl<C: Data> Storage<C> {
     }
     pub(crate) fn get(&self, index: usize) -> Option<Ref<'_, C>> {
         self.has(index).then(|| Ref {
-            ptr: self.ptr(index),
+            ptr: self.raw.ptr(index).cast(),
             _lease: self.lease(false),
             _life: PhantomData,
         })
@@ -144,7 +135,7 @@ impl<C: Data> Storage<C> {
         let lease = self.lease(true);
         self.mark_slot(index);
         Some(RefMut {
-            ptr: self.ptr(index),
+            ptr: self.raw.ptr(index).cast(),
             _lease: lease,
             _life: PhantomData,
         })

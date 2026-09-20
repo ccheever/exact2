@@ -113,7 +113,11 @@ successful ticks remain committed if a later tick in the request is refused.
 An ordinary tick performs **zero component visitor/hash calls**. Its kernel cost
 is O(game-touched work + bounded input bookkeeping), independent of untouched
 component values and world size. Input sets have at most 64 entries and the
-pending queue at most 1,024 events. Mutable queries still cost their chosen query
+pending queue at most 1,024 events. Due batches are preflighted against a stack
+array of 64 borrowed key names, then consumed by moving event ownership. No held
+strings, maps or edge buffers are cloned per tick. Admission is O(events × 64);
+edge derivation is O(events × actions × held keys), with each factor explicitly
+bounded. A 65th distinct held key refuses before consuming any event. Mutable queries still cost their chosen query
 traversal; this is work the game requested. Changing publications also creates
 saved journal events. `Paranoid::Save` and `FreshGame` explicitly add full saves,
 validation and reconstruction, and do not have the ordinary-tick cost.
@@ -294,6 +298,12 @@ Counts below are allocation calls / cumulative requested bytes, including reallo
 requests, on this Linux 64-bit builder. Fixtures are constructed before measuring
 activation or restore. The test repeats restore and asserts identical counts.
 These are allocation/work counts, not first-pixel or GPU startup measurements.
+The input fixture establishes held state and reusable edge buffers and constructs
+all event strings/queue backing before counting the 1,000 consuming ticks. It
+checks 251 press/release edges and nonzero movement while assets remain pending;
+removing event delivery fails the test. The old clone path fails the zero-allocation
+assertion with 68,751 allocations. New input-state capacity and event creation are
+not claimed to be allocation-free.
 
 | Fixture | Lane 1 | This lane |
 |---|---:|---:|
@@ -301,6 +311,7 @@ These are allocation/work counts, not first-pixel or GPU startup measurements.
 | 100-entity construction | 28 / 70,848 | **21 / 41,968** |
 | First tick, including first publication | 3 / 640 | **3 / 640** |
 | 1,000 ticks with sparse edits among 200,000 entities | — | **0 / 0**, zero component visitor calls |
+| 1,000 ticks with 64 held keys, an axis and 1,000 queued events | 68,751 / 2,987,524 | **0 / 0** |
 | 1,000 ticks changing a publication every tick | — | **1,003 / 204,704** |
 | Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 46,873** |
 | First component at slot 199,999 | 4 / 3,064 | **4 / 77,536** |
@@ -348,14 +359,14 @@ Medians of seven samples, each with 100 traversals, on this same builder:
 
 | Shape / operation, ns/row | Engine (1,024 values) | Before (64 values) | Flat presence + 64 values |
 |---|---:|---:|---:|
-| Dense query | 1.204 | 1.928 | 1.290 |
-| Sparse query | 2.819 | 30.407 | 2.981 |
-| Dense runs | 1.037 | 0.936 | 0.698 |
-| Sparse runs | 57.372 | 34.959 | 2.897 |
+| Dense query | 1.203 | 1.928 | 1.295 |
+| Sparse query | 2.810 | 30.407 | 3.236 |
+| Dense runs | 1.023 | 0.936 | 0.704 |
+| Sparse runs | 55.700 | 34.959 | 2.836 |
 
 The engine column is the paired after measurement; its before medians were
 1.124/2.719 for dense/sparse queries and 1.028/55.983 for runs. The measured after
-ratios are 1.071× dense and 1.057× sparse. Both query targets pass; runs improve.
+ratios are 1.077× dense and 1.152× sparse. Both query targets pass; runs improve.
 
 Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
 for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes

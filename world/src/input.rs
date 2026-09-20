@@ -152,14 +152,49 @@ impl Input {
         self.pressed.clear();
         self.released.clear();
     }
-    pub(crate) fn apply(&mut self, event: InputEvent) -> Result<(), DataError> {
-        self.validate_event(&event)?;
+    /// Simulate key membership using borrowed names before consuming any events.
+    /// Buttons and axes are already bounded by the 64 unique declarations.
+    pub(crate) fn preflight<'a>(
+        &'a self,
+        events: impl Iterator<Item = &'a InputEvent>,
+    ) -> Result<(), DataError> {
+        let mut keys = [None; 64];
+        for (slot, key) in keys.iter_mut().zip(&self.keys) {
+            *slot = Some(key.as_str());
+        }
+        for event in events {
+            self.validate_event(event)?;
+            match event {
+                InputEvent::Blur { .. } => keys.fill(None),
+                InputEvent::Key { code, down, .. } => {
+                    match (
+                        keys.iter_mut().find(|key| **key == Some(code.as_str())),
+                        down,
+                    ) {
+                        (Some(key), false) => *key = None,
+                        (None, true) => {
+                            *keys
+                                .iter_mut()
+                                .find(|key| key.is_none())
+                                .ok_or_else(|| DataError::new("held input limit (64)"))? =
+                                Some(code)
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+    /// Only consume batches admitted by preflight; moving events preserves heap ownership.
+    pub(crate) fn apply(&mut self, event: InputEvent) {
         let before = self.actions.iter().enumerate().fold(0u64, |bits, (i, a)| {
             bits | (u64::from(self.held(a.name)) << i)
         });
         match event {
-            InputEvent::Key { code, down, .. } => set(&mut self.keys, code, down)?,
-            InputEvent::Action { name, down, .. } => set(&mut self.buttons, name, down)?,
+            InputEvent::Key { code, down, .. } => set(&mut self.keys, code, down),
+            InputEvent::Action { name, down, .. } => set(&mut self.buttons, name, down),
             InputEvent::Axis { name, value, .. } => {
                 self.axes.insert(name, value);
             }
@@ -179,7 +214,6 @@ impl Input {
                 self.released.push(a.name.into());
             }
         }
-        Ok(())
     }
     pub(crate) fn validate_saved(&mut self, actions: &'static [Action]) -> Result<(), DataError> {
         self.actions = Self::new(actions)?.actions;
@@ -217,12 +251,9 @@ impl Input {
         Ok(())
     }
 }
-fn set(values: &mut Vec<String>, value: String, down: bool) -> Result<(), DataError> {
+fn set(values: &mut Vec<String>, value: String, down: bool) {
     match (values.binary_search(&value), down) {
         (Err(i), true) => {
-            if values.len() == 64 {
-                return Err(DataError::new("held input limit (64)"));
-            }
             values.insert(i, value);
         }
         (Ok(i), false) => {
@@ -230,7 +261,6 @@ fn set(values: &mut Vec<String>, value: String, down: bool) -> Result<(), DataEr
         }
         _ => {}
     }
-    Ok(())
 }
 /// Contact offset from a module-owned anchor, 60-point radius, positive Y upward.
 /// The kernel owns the offset-to-axis rule; modules own contacts and anchoring.
