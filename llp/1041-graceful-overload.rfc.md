@@ -8731,3 +8731,50 @@ exactly the ownership condition, inverse-checked against its own base rather
 than replacing the file with the older ABI6 source. All owned groups retire;
 host free space remains above76.32GB. No retry or additional instrumentation
 is used, and the source/runtime validation scopes stay separate.
+
+### 8.159 Reuse numeric glyph envelopes across message paragraphs
+
+The ordinary Linux ink index previously discarded its bounded glyph-envelope
+scratch after each index build. Existing Swash image-cache placement reuse
+(§8.127–§8.129) avoided rasterization only for resident phases; missing phases
+were recomputed for another paragraph even when their numeric bounds were
+already known. A new test uses the actual 10,000-row Messages producer at
+revisions1 and2, batch32: 9,968 records remain equal, all32 tail bodies change
+with stable IDs, and normal duplicate-paragraph sharing remains enabled.
+
+The baseline reaches all64 full-RGBA comparisons and the independent numeric,
+query and paint oracles before its intended final work failure:77 shared phases
+are still absent from Swash,4 missing phases are new, but B performs170 uncached
+raster calls. The candidate passes the same upper-bound assertion: at most4.
+This bounds avoided work across both A→B and B→B paragraph reuse, not their
+separate contributions. The fixture's masked/fractional320×128 images are not a
+native viewport or FPS measurement.
+
+Only numeric `(CacheKey, Bounds)` entries move to the existing Catalog, with a
+256-entry limit and the original clear-on-cap policy. The full key retains font,
+glyph, size and flags; its canonical value remains the four-X-phase/y-zero union.
+A weak generation identity invalidates reuse without retaining fonts, images,
+sources or prior indices. Indices keep independent immutable numeric arrays.
+The measured cache header is32 bytes and256 entries occupy14,336 bytes; this is
+additional retained storage per Catalog, not a global memory or RSS bound.
+
+Actual Linux validation passes the exact discriminator and153 other text tests
+(the latter command explicitly skips the discriminator),154 distinct tests.
+Existing pixel, scale, missing/zero-image, fallback, transfer and owner-lifetime
+controls remain; placement-count fixtures explicitly start a new numeric-cache
+generation. A new bound/generation test checks257 exact size keys, eviction and
+weak last-owner behavior. The independent uncached oracle is byte-identical to
+the baseline. A first candidate compile failed after an accidental test-oracle
+edit; restoring that reference suffix is the sole second-round correction, with
+test assertions unchanged. That failure and the baseline RED are preserved.
+
+On the second candidate, compile takes7.615s, the discriminator1.077s, remaining
+text controls26.295s, strict exact-linux all-target Clippy17.902s and formatting
+0.211s; all exit0. Source caps pass and every owned group retires. Tests use
+ordinary opt0/unwind/debug0, not the optimized native profile. Evidence is in
+MAIN`target/glyph-envelope-baseline-v1` and`target/glyph-envelope-candidate-v2`;
+source freeze`123dcccc` identifies the tested candidate. Private dependency
+resolution uses the existing Ibex-compatible ureq3.4.0 lock; MAIN's lock is not
+changed. Pre-Cargo lock/helper-path preparation failures also remain recorded.
+No current-app speedup, frame-budget success or physical120Hz claim follows;
+a fresh optimized native comparison remains necessary.
