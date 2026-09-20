@@ -195,6 +195,7 @@ pub struct World {
     change_next: u64,
     observed: Option<(u64, bool)>,
     ownership: RefCell<Vec<u8>>,
+    owners: BTreeMap<Entity, u32>,
     reap_dirty: bool,
     poisoned: bool,
     pub(crate) driver_owned: bool,
@@ -241,6 +242,7 @@ impl World {
             change_next: 0,
             observed: None,
             ownership: RefCell::new(Vec::new()),
+            owners: BTreeMap::new(),
             reap_dirty: false,
             poisoned: false,
             driver_owned: false,
@@ -408,7 +410,9 @@ impl World {
         self.mutation(|this| this.despawn_commit(e, generation))
     }
     fn despawn_commit(&mut self, e: Entity, generation: u32) -> bool {
-        self.reap_dirty = true;
+        self.reap_dirty |= self.owners.contains_key(&e);
+        let old = self.get::<Parent>(e).map(|p| p.entity());
+        self.change_owner(old, None);
         self.mutated();
         for s in self.components.values_mut() {
             s.remove(e.index as usize);
@@ -499,6 +503,8 @@ impl World {
     }
     fn insert_commit<C: Component>(&mut self, e: Entity, c: C) -> Result<bool, DataError> {
         if let Some(parent) = (&c as &dyn std::any::Any).downcast_ref::<Parent>() {
+            let old = self.get::<Parent>(e).map(|p| p.entity());
+            self.change_owner(old, Some(parent.entity()));
             self.record_change(e, crate::ChangeKind::Reparent(Some(parent.entity())));
         }
         let kind = if self.has::<C>(e) {
@@ -523,6 +529,8 @@ impl World {
         self.change_room(2).expect("structural journal full");
         self.record_change(e, crate::ChangeKind::Remove(C::NAME.into()));
         if TypeId::of::<C>() == TypeId::of::<Parent>() {
+            let old = self.get::<Parent>(e).map(|p| p.entity());
+            self.change_owner(old, None);
             self.record_change(e, crate::ChangeKind::Reparent(None));
         }
         self.components
@@ -913,6 +921,7 @@ impl World {
         if seen != 15 {
             return Err(DataError::new("incomplete world save"));
         }
+        self.rebuild_owners();
         Ok(())
     }
 }

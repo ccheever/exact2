@@ -332,7 +332,8 @@ impl Candidate {
         self.0.poisoned |= result.is_err();
         result
     }
-    pub fn commit(self, destination: &mut World) -> Result<(), DataError> {
+    pub fn commit(mut self, destination: &mut World) -> Result<(), DataError> {
+        self.0.rebuild_owners();
         self.0.validate()?;
         destination.adopt(self.0)
     }

@@ -252,3 +252,19 @@ fn args_admission_and_live_carry_identity() {
     assert!(s.args().paused);
     assert_ne!(s.save().unwrap(), bytes);
 }
+
+#[test]
+fn natural_ownership_chains_refuse_at_a_bounded_walk() {
+    let mut w = World::new(60, 0);
+    let mut parent = w.spawn(()).unwrap();
+    for _ in 0..256 {
+        let child = w.spawn(()).unwrap();
+        w.set_parent(child, Some(parent)).unwrap();
+        parent = child;
+    }
+    let child = w.spawn(()).unwrap();
+    let before = w.save().unwrap();
+    assert!(w.set_parent(child, Some(parent)).is_err());
+    assert_eq!(w.save().unwrap(), before);
+    assert_eq!(w.query::<&Parent>().iter().count(), 256);
+}

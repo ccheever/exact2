@@ -25,7 +25,7 @@ impl World {
         Ok(())
     }
     pub(super) fn check_parent(&self, child: Entity, mut parent: Entity) -> Result<(), DataError> {
-        for _ in 0..=self.state.slots.len() {
+        for _ in 0..256 {
             if child == parent {
                 return Err(DataError::new("ownership cycle"));
             }
@@ -37,7 +37,32 @@ impl World {
                 None => return Ok(()),
             }
         }
-        Err(DataError::new("ownership traversal exceeds entity bound"))
+        Err(DataError::new("ownership ancestry check exceeds 256 edges"))
+    }
+    pub(super) fn change_owner(&mut self, old: Option<Entity>, new: Option<Entity>) {
+        if old == new {
+            return;
+        }
+        if let Some(old) = old {
+            let count = self.owners.get_mut(&old).expect("ownership count");
+            *count -= 1;
+            if *count == 0 {
+                self.owners.remove(&old);
+            }
+        }
+        if let Some(new) = new {
+            *self.owners.entry(new).or_default() += 1;
+        }
+    }
+    pub(super) fn rebuild_owners(&mut self) {
+        let owners = self
+            .query::<&Parent>()
+            .iter()
+            .fold(BTreeMap::new(), |mut owners, (_, p)| {
+                *owners.entry(p.entity()).or_default() += 1;
+                owners
+            });
+        self.owners = owners;
     }
     // A three-colour walk visits each edge at most twice, including reverse chains.
     fn ownership_status(&self) -> Result<std::cell::RefMut<'_, Vec<u8>>, DataError> {
@@ -148,7 +173,7 @@ mod budget_tests {
         for _ in 0..1000 {
             w.reap_orphans().unwrap();
         }
-        assert_eq!(*w.ownership.borrow(), [42, 42, 42]);
+        assert!(w.ownership.borrow().is_empty());
         w.despawn(root);
         w.reap_orphans().unwrap();
         assert!(!w.contains(child));
