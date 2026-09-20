@@ -11,7 +11,9 @@ Register saved types before constructing entities. Keep continuation state in
 components, resources and arguments; the game implementation itself is stateless.
 
 Use `?` to propagate kernel errors from `setup` and `tick`.
-A returned setup error refuses construction/restart; a returned tick error stops before reaping or advancing the tick, records the first failure in unsaved session logs, and refuses driving, saving or input with that error until restore, carry or bind-restart installs good state, while bounded state/tree/log inspection remains available.
+A returned setup error refuses construction or restart.
+A returned tick error stops before reaping or advancing the tick, logs the first failure, and refuses further driving, saving or input.
+Bounded state, tree and log inspection remain available until restore, carry or a bind restart installs healthy state.
 Never `.unwrap()` a kernel `Result` in game code: on wasm a panic aborts the module and every world in it.
 
 ```rust
@@ -37,7 +39,9 @@ impl Game for Board {
         Ok(())
     }
     fn tick(w: &mut World, _: &Input, args: &Options) -> Result<(), DataError> {
-        w.get_mut::<Counter>("counter").unwrap().points += args.increment;
+        if let Some(mut counter) = w.get_mut::<Counter>("counter") {
+            counter.points += args.increment;
+        }
         Ok(())
     }
 }
@@ -99,7 +103,8 @@ and returns its current live incarnation; dead and out-of-range indices return
 `#12`, or `name#12`; explicit index selectors take precedence over names.
 
 Storage names admit 1–256 UTF-8 bytes. Registration is explicit and fallible. A short-name collision refuses and names
-both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
+both full Rust types; stale-handle `insert` returns `Err`.
+`insert` returns `Ok(true)` for new membership and `Ok(false)` for replacement. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
 including recursive registration. A returned hook error restores all type
 declarations made by that call and its dependencies; retry runs the hook again.
@@ -109,6 +114,8 @@ empty hooks do no snapshot scan or allocation. Type count bounds nested work. Pa
 arguments, without formatting them. Insertion requires declared types; `set_parent`
 implicitly declares the kernel-owned Parent after validating the edge.
 Registration and setup must not keep hidden continuation state.
+The resource name `Rng` is reserved for the built-in generator; wrap its Data in a
+game-named resource to save an additional independent stream.
 
 Shared and exclusive column leases enforce aliasing. Mutable queries are sealed;
 optional terms, filters, tuple joins and retained row guards preserve disjointness.
@@ -140,7 +147,8 @@ validation and reconstruction, and do not have the ordinary-tick cost.
 
 `observation() -> Option<bool>` distinguishes an unobserved boundary (`None`),
 observed change (`Some(false)`) and an observed unchanged tick (`Some(true)`).
-Mutable access, live argument binding and held-input reconciliation invalidate the report. `quiescent()` requires
+Mutable access, live argument binding and held-input reconciliation invalidate the report.
+Driving with no tick or applied input and draining an empty message queue preserve it. `quiescent()` requires
 an observed unchanged boundary and a current settle deadline.
 
 `settle(max_ticks)` samples the initial boundary once, then each completed
@@ -166,7 +174,7 @@ or resources (`None`) by saved type name. `candidate()` makes an isolated exact
 copy. `Candidate::edit(entity, name, bytes)` applies canonical field patches only
 to that copy; a failed edit poisons it. `commit(self, &mut World)` validates
 ownership and health before adoption. It refuses a different destination or a
-changed source boundary (including caller clock, input and delivery) before mutation.
+changed source boundary (including completed ticks, applied input and delivery) before mutation.
 Erased Parent edits refuse; ownership changes use `set_parent`. Publications, their pending flag, messages,
 and saved game history survive an untouched commit; session/structural replacement
 effects follow the ordinary adoption contract. Save/decode budgets apply to candidate

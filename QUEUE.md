@@ -657,15 +657,21 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 ## world kernel
 
-- Bulk hashing does not charge the decoded-data allowance (`world/src/data/hash.rs:123`); align its refusal with binary encoding (sol #4).
-- First high-slot insertion initializes and retains prefix metadata and peak chunks (`world/src/storage/directory.rs:46`, `world/src/storage/raw.rs:197`); retain the explicit bounded tradeoff until measured consumer memory warrants a change (sol #5).
-- Spawn repeatedly scans retired low slots in the reusable set (`world/src/world/mod.rs:389`); separate retired bookkeeping from reuse (sol #6).
-- Built-in RNG is also registrable as a second resource (`world/src/rng.rs:3`, `world/src/world/mod.rs:269`), yielding two saved RNGs (sol #7).
-- No-op driver operations invalidate observation/candidates (`world/src/sim.rs:149`, `world/src/sim.rs:206`); distinguish unchanged run/delivery boundaries (sol #8).
-- Ordinary component removal reserves two records but emits one (`world/src/world/mod.rs:574`); Parent needs both. Cursor exhaustion now returns Err, but the over-reservation remains (sol #9).
-- Publication keys have no removal operation; publish_batch updates a subset rather than replacing the complete map (`world/src/world/mod.rs:719`) (grok #7).
-- World::insert always returns Ok(true), including replacement (`world/src/world/mod.rs:541`) (grok #8).
-- Session telemetry ignores world poison (`world/src/world/journal.rs:250`); emit also retains its panic convention on event admission (`world/src/world/mod.rs:756`) (grok #9/#4).
-- Derive diagnostics use invocation spans (`world/derive/src/lib.rs:49`, `world/derive/src/lib.rs:418`), rather than the offending field (grok #5).
-- Test gaps: the live MAX-generation preflight fixture creates an unreachable valid-world state (`world/src/world/ownership.rs:233`); the zero-time assertion in resource_and_non_state_outputs is tautological (`world/tests/ecs.rs:166`); padded-varint exact-restore rejection lacks a direct control (`world/src/data/bin.rs:321`). Reachable retirement, register Err, maximal settle and map-key controls now exist (sol #10, grok #10).
-- smoothstep with equal/reversed edges remains outside its documented distinct/increasing-edge contract (`game/world-motion/src/lib.rs:9`); its test covers NaN input and the valid midpoint only (`game/world-motion/src/tween.rs:174`). It is no longer kernel vocabulary (grok #9/#10).
+- Native alignment/padding is outside portable wire admission (`world/src/storage/raw.rs:101`, `world/src/storage/raw.rs:49`); bound resident layouts separately and make page allocation fallible before large aligned Data can panic or abort (R-K6-sol #1).
+- Sample/settle membership checks are not charged (`world/src/world/inspect.rs:185`, `world/src/sim.rs:271`); replace the slots-by-columns scan with an entity-ordered merge so admitted sparse worlds cannot trigger 51.2 million checks per sample (R-K6-sol #4, grok #13).
+- Input apply recomputes every action before and after each event (`world/src/input.rs:225`); cache held-action bits and key/button masks to avoid the admitted half-billion-comparison batch (R-K6-sol #5).
+- Spawn scans retired low slots on every reuse (`world/src/world/mod.rs:409`); maintain a derived reusable-free set while preserving the serialized free union (R-K6-sol #7, grok #11).
+- First high-slot insertion grows and zeros the directory prefix (`world/src/storage/directory.rs:46`, `world/src/storage/raw.rs:197`); page directory metadata or expose an explicit warm-up boundary for the retained capacity cost (R-K6-sol #10, grok #12).
+- `publish_batch` is a patch and there is no `unpublish` (`world/src/world/mod.rs:743`); define removal semantics before a consumer treats omitted keys as deletions (R-K6-grok #9).
+- Session telemetry still appends after world poison (`world/src/world/journal.rs:250`); decide whether host logging is intentionally available after failure or must check health (R-K6-grok #10).
+- Derive parser diagnostics retain invocation spans and sealed-map errors expose `CanonicalKey` (`world/derive/src/lib.rs:49`, `world/derive/src/lib.rs:418`, `world/src/data/impls.rs:267`); retain offending-field spans and give an actionable supported-key message (R-K6-sol #11, grok #14).
+- Recursive default admission falsely refuses the terminating `[Box<Node>; 0]` shape (`world/src/data/impls.rs:200`, `world/tests/derive.rs:128`); document accepted recursive forms or special-case the empty array (R-K6-grok #15).
+- Remaining negative controls are missing or tautological (`world/tests/ecs.rs:198`, `world/tests/ecs.rs:183`, `world/src/data/bin.rs:321`); test nonzero clock math, distinguish World hash from Sim-save identity, and directly reject a padded-varint exact restore (R-K6-grok #16).
+- The live MAX-generation preflight fixture uses an unreachable valid-world state (`world/src/world/ownership.rs:265`); retain reachable retirement coverage when replacing that defensive control.
+- Core motion's overdamped slow root cancels to zero (`motion/src/spring.rs:128`); use the stable division form and a long-horizon boundary control in a separate core-motion change (R-K6-sol #3; outside this lane).
+- Core motion mistakes undamped transient crossings for settlement (`motion/src/spring.rs:145`, `motion/src/transition.rs:305`); share a permanent-rest bound between deadline search and transition sampling in a separate core-motion change (R-K6-sol #6; outside this lane).
+- Module Spring accepts finite state whose evaluation overflows or casts to nonfinite f32 (`game/world-motion/src/spring.rs:104`, `game/world-motion/src/spring.rs:127`, `game/world-motion/src/spring.rs:161`); admit a numerical state range and check sampled output including elapsed zero (R-K6-sol #2).
+- Module smoothstep has untested equal/reversed edges (`game/world-motion/src/lib.rs:9`, `game/world-motion/src/tween.rs:174`); define and test behavior outside distinct increasing edges (R-K6-grok #17 and #16).
+- Module Tween deadlines saturate for huge finite durations (`game/world-motion/src/tween.rs:33`); refuse duration-to-tick overflow rather than admitting an unreachable settlement deadline (R-K6-grok #17).
+- Module Spring deadline search costs up to 2,400 samples per call (`game/world-motion/src/spring.rs:147`); make that caller-paid bound explicit when many springs request deadlines (R-K6-grok #17).
+- Omitted module work declarations allow settlement during motion (`game/world-motion/tests/motion.rs:105`); add the negative control showing a Tween without `work` can settle before its target (R-K6-grok #17).
