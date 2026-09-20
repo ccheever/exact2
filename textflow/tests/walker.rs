@@ -446,3 +446,109 @@ fn pre_wrap_preserves_spaces_tabs_and_hangs_trailing_space() {
     assert_eq!(split[0].width, 8.0);
     assert_eq!(split[0].end.byte, 5);
 }
+
+#[test]
+fn sub_pixel_fit_tolerance_matches_engine_rounding() {
+    // Advances summing to within 0.005 past the offer still fit, as with
+    // Pretext's lineFitEpsilon; anything further past still breaks.
+    let text = "aa bb";
+    let widths = |scale: f32| {
+        Prepared::new(text, Options::default(), &mut |r: std::ops::Range<
+            usize,
+        >| {
+            text[r].chars().count() as f32 * scale
+        })
+    };
+    assert_eq!(widths(2.5).line_stats(12.499), (1, 12.5));
+    assert_eq!(widths(2.5).line_stats(12.494), (2, 5.0));
+    assert_eq!(widths(2.5).count_lines(12.499), 1);
+}
+
+#[test]
+fn fast_path_agrees_with_streaming_walker_on_fuzz() {
+    // Deterministic fuzz over scripts, glue, breaks and fractional widths:
+    // line_stats (fast under overflow-wrap: normal) must equal the
+    // next_line loop exactly, in count and in largest advance.
+    let pieces = [
+        "word",
+        "a",
+        " ",
+        "  ",
+        "\t",
+        "\n",
+        "\u{ad}",
+        "\u{200b}",
+        " ",
+        "中文",
+        "日本語",
+        "👩\u{200d}💻",
+        "e\u{301}",
+        "مرحبا",
+        "https://x.io/a?b=1",
+        "“quoted”",
+        "well-known",
+        "3.14",
+        ".",
+        ",",
+        "(",
+        ")",
+        "-",
+    ];
+    let mut seed: u64 = 0x12345678;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 33) as usize
+    };
+    let widths = [
+        0.0,
+        1.0,
+        7.5,
+        8.0,
+        8.5,
+        23.999,
+        24.0,
+        24.001,
+        40.0,
+        100.0,
+        640.0,
+        f32::INFINITY,
+        f32::NAN,
+    ];
+    for round in 0..300 {
+        let n = 1 + next() % 12;
+        let text: String = (0..n)
+            .map(|_| pieces[next() % pieces.len()])
+            .collect::<Vec<_>>()
+            .join("");
+        for ws in [
+            exact_textflow::WhiteSpace::Normal,
+            exact_textflow::WhiteSpace::PreWrap,
+        ] {
+            for mode in [
+                OverflowWrap::Normal,
+                OverflowWrap::BreakWord,
+                OverflowWrap::Anywhere,
+            ] {
+                let p = Prepared::new(
+                    &text,
+                    Options {
+                        white_space: ws,
+                        overflow_wrap: mode,
+                        hyphen_advance: 8.0,
+                    },
+                    &mut |r: std::ops::Range<usize>| advance(&text[r]),
+                );
+                for &w in &widths {
+                    let slow = lines(&p, w);
+                    let (count, max) = p.line_stats(w);
+                    assert_eq!(count, slow.len(), "count {text:?} {ws:?} {mode:?} {w}");
+                    let slow_max = slow.iter().map(|l| l.width).fold(0.0, f32::max);
+                    assert_eq!(max, slow_max, "max {text:?} {ws:?} {mode:?} {w}");
+                    assert_eq!(p.count_lines(w), count, "count_lines {round}");
+                }
+            }
+        }
+    }
+}
