@@ -95,7 +95,10 @@ and returns its current live incarnation; dead and out-of-range indices return
 Storage names admit 1–256 UTF-8 bytes. Registration is explicit and fallible. A short-name collision refuses and names
 both full Rust types; stale-handle `insert` returns `Err`. `register::<C>()` and
 `register_resource::<R>()` are idempotent; component hooks run once per registry,
-including recursive registration. `Game::register` receives borrowed setup/restart
+including recursive registration. A returned hook error restores all type
+declarations made by that call and its dependencies; retry runs the hook again.
+Rollback uses a fixed 256-byte snapshot per nested hook; type count bounds recursion
+and registry work. Panics still poison. `Game::register` receives borrowed setup/restart
 arguments, without formatting them. Insertion never registers types implicitly.
 Registration and setup must not keep hidden continuation state.
 

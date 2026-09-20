@@ -149,6 +149,7 @@ type DerivedSlot = std::cell::OnceCell<(TypeId, RefCell<Box<dyn std::any::Any>>)
 type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
+    ordinal: u8,
     identity: fn() -> (TypeId, &'static str),
     make: Option<StorageFactory>,
     resource_size: usize,
@@ -253,11 +254,34 @@ impl World {
         self.id.clone()
     }
     pub fn register<C: Component>(&mut self) -> Result<&mut Self, DataError> {
+        let existed = self.registry.contains_key(C::NAME);
         let reg = self.registration::<C>(C::NAME)?;
         if reg.make.is_none() {
-            reg.make = Some(storage::make::<C>);
+            let ordinal = reg.ordinal;
+            // Fixed admission bounds the rollback snapshot without allocating or
+            // cloning state. Hooks only declare types, as required by the contract.
+            let mut before = [0u8; 256];
+            for r in self.registry.values() {
+                before[r.ordinal as usize] =
+                    1 | u8::from(r.make.is_some()) * 2 | u8::from(r.make_resource.is_some()) * 4;
+            }
+            if !existed {
+                before[ordinal as usize] = 0;
+            }
+            self.registry.get_mut(C::NAME).unwrap().make = Some(storage::make::<C>);
             if let Err(error) = self.mutation(C::register) {
-                self.poisoned = true;
+                self.registry.retain(|_, r| {
+                    let flags = before[r.ordinal as usize];
+                    if flags & 2 == 0 {
+                        r.make = None;
+                    }
+                    if flags & 4 == 0 {
+                        r.make_resource = None;
+                        r.resource_size = 0;
+                        r.ambient = false;
+                    }
+                    flags != 0
+                });
                 return Err(error);
             }
         }
@@ -298,7 +322,9 @@ impl World {
         if !self.registry.contains_key(name) && self.registry.len() == 256 {
             return Err(DataError::new("storage type limit (256)").at(name));
         }
+        let ordinal = self.registry.len() as u8;
         Ok(self.registry.entry(name).or_insert(Registration {
+            ordinal,
             identity: || (TypeId::of::<C>(), std::any::type_name::<C>()),
             make: None,
             make_resource: None,
