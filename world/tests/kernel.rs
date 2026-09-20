@@ -52,6 +52,9 @@ struct Still;
 impl Game for Still {
     const ID: &'static str = "still";
     type Args = ();
+    fn register(w: &mut World, _: args::SetupArgs<'_, ()>) {
+        w.register::<Count>();
+    }
     fn setup(_: &mut World, _: &()) {}
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
@@ -653,4 +656,52 @@ fn reconcile_input_is_atomic_and_never_simulates() {
     s.advance_to(5017.).unwrap();
     assert_eq!(s.world().tick(), 2);
     assert!(!s.input_state().held("add"));
+}
+
+#[test]
+fn restoring_argument_selected_types_does_not_inherit_the_live_registry() {
+    #[derive(Default, Data)]
+    struct Old(u32);
+    #[derive(Default, Data)]
+    struct New(u32);
+    impl Component for Old {
+        const NAME: &'static str = "Actor";
+    }
+    impl Component for New {
+        const NAME: &'static str = "Actor";
+    }
+    #[derive(Default, Args)]
+    struct Mode {
+        new: bool,
+    }
+    struct G;
+    impl Game for G {
+        const ID: &'static str = "selected-registration";
+        type Args = Mode;
+        fn register(w: &mut World, a: args::SetupArgs<'_, Mode>) {
+            if matches!(a.get("new"), Some(args::ArgumentRef::Bool(true))) {
+                w.register::<New>();
+            } else {
+                w.register::<Old>();
+            }
+        }
+        fn setup(w: &mut World, a: &Mode) {
+            if a.new {
+                w.spawn(New(7));
+            } else {
+                w.spawn(Old(4));
+            }
+        }
+        fn tick(_: &mut World, _: &Input, _: &Mode) {}
+    }
+    let saved = Sim::<G>::new(Mode { new: true }).unwrap().save().unwrap();
+    let mut old = Sim::<G>::new(Mode::default()).unwrap();
+    let before = old.save().unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| old.carry(&saved)))
+        .unwrap()
+        .is_err());
+    assert_eq!(old.save().unwrap(), before);
+    old.restore(&saved).unwrap();
+    assert_eq!(old.world().require::<New>("#0").0, 7);
+    assert_eq!(old.save().unwrap(), saved);
 }

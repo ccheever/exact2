@@ -208,9 +208,6 @@ impl World {
     pub fn replacement(&self) -> u64 {
         self.replacement
     }
-    pub(crate) fn inherit_registry(&mut self, live: &Self) {
-        self.registry = live.registry.clone();
-    }
     pub(crate) fn adopt(&mut self, mut next: Self) -> Result<(), DataError> {
         self.change_room(1)?;
         next.replacement = self

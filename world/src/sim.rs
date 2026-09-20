@@ -312,15 +312,15 @@ impl<G: Game> Sim<G> {
         Ok(bytes)
     }
     pub fn from_save(bytes: &[u8]) -> Result<Self, DataError> {
-        Self::candidate(bytes, None)
+        Self::candidate(bytes)
     }
     pub fn restore(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let next = Self::candidate(bytes, Some(&self.world))?;
+        let next = Self::candidate(bytes)?;
         self.install(next, false)
     }
     /// Compatible-state carry preserves current live arguments; structural/setup changes refuse.
     pub fn carry(&mut self, bytes: &[u8]) -> Result<(), DataError> {
-        let next = Self::candidate(bytes, Some(&self.world))?;
+        let next = Self::candidate(bytes)?;
         if next.args.setup_changed(&self.args) {
             return Err(DataError::new("carry setup arguments differ"));
         }
@@ -337,7 +337,7 @@ impl<G: Game> Sim<G> {
         self.caller_us = next.caller_us;
         Ok(())
     }
-    fn candidate(bytes: &[u8], live: Option<&World>) -> Result<Self, DataError> {
+    fn candidate(bytes: &[u8]) -> Result<Self, DataError> {
         if bytes.len() > 128 * 1024 * 1024 {
             return Err(DataError::new("save exceeds 128 MiB"));
         }
@@ -362,9 +362,6 @@ impl<G: Game> Sim<G> {
         args.read(&mut r)?;
         Self::check(&args)?;
         let mut world = World::new(G::HZ, 0);
-        if let Some(live) = live {
-            world.inherit_registry(live);
-        }
         G::register(&mut world, SetupArgs(&args));
         item(&mut r)?;
         let schema = world.read_schema(&mut r)?;
