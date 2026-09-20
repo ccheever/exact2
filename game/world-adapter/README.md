@@ -58,7 +58,9 @@ those bytes directly to the Sim. `Sim::clock_ms()` is the sole saved caller cloc
 the adapter keeps only the host epoch. There is no version wrapper or duplicated
 clock. Old surface envelopes refuse; queued input stays in the Sim checkpoint.
 `Restore::Open` is exact; `Restore::Carry` uses Sim carry semantics. The host log transport returns `{from,next,lines,reset,truncated}`; numeric cursor
-tokens retain at most 64 kernel cursor checkpoints per surface, outside saves.
+indices address a ring of at most 512 string lines / 48 KiB encoded text per
+surface, outside saves. A read consumes at most 512 kernel events / 64 KiB;
+lagging readers receive the retained suffix with `truncated: true`.
 
 ## Measure
 

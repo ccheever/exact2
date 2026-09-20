@@ -18,3 +18,44 @@ test('ownership-only binding joins live rAF without an agent or ResizeObserver',
   assert.ok(f.records.at(-1).includes('"ticks":4'));
   assert.deepEqual(f.beacons,[]);assert.equal(f.exact.root.dataset.gpuMs,undefined);
 });
+
+// The baked ownership ABI drives the real Sim through the production staging code.
+import {existsSync,readFileSync} from 'node:fs';
+const tallyJS=new URL('../../../game/games/tally/dist/gpu.js',import.meta.url);
+const realWorld=existsSync(tallyJS)?test:test.skip;
+async function tallyModule() {
+  const module=await import(tallyJS.href);
+  await module.default({module_or_path:readFileSync(new URL('gpu_bg.wasm',tallyJS))});
+  assert.equal(module.gpu_load,undefined);
+  module.gpu_unload();
+  return {...module,gpu_load:undefined};
+}
+realWorld('baked Tally joins live frames and identifies smoke as ownership-only',async()=>{
+  const module=await tallyModule();
+  const f=await fixture({live:true,gpu:module,search:'?smoke=1'});
+  try {
+    f.create(1,'world',{seed:7});
+    for(let i=1;i<=3;i++)f.paint(i*17);
+    const state=f.exact.gpu.decorate({op:'state'},{});
+    assert.equal(state.surfaceModule,'ownership-only');
+    assert.ok(state.world[0].tick>=3,'negative control: autonomous live ticks');
+    assert.ok(f.records.at(-1).includes('"ticks":3'));
+    assert.deepEqual(f.beacons,[]);
+  } finally {module.gpu_unload();}
+});
+realWorld('baked Tally reload stages plain values and releases a held Sim key',async()=>{
+  const module=await tallyModule();let now=0;
+  const f=await fixture({gpu:module,now:()=>now});
+  const key=()=>assert.ok(module.gpu_input(f.exact.entries()[0].id,JSON.stringify({t:'key',code:'KeyD',key:'d',down:true,repeat:false,at:now})));
+  try {
+    f.create(1,'world',{seed:7});
+    key();now=17;await f.exact.gpu.settled();
+    const before=f.exact.gpu.agent(1,{op:'state'}).world.published.pile_count;
+    const stage=f.exact.gpu.stagePlan({ops:[{op:'surface',id:2,name:'world',values:{seed:7}}]});
+    f.exact.gpu.reset(true);f.create(2,'world',{seed:7});f.exact.gpu.finishRestart();stage.commit();
+    assert.deepEqual(f.exact.entries()[0].values,{seed:7});
+    assert.deepEqual(f.exact.entries()[0].setupKeys,['seed']);
+    key();now=34;await f.exact.gpu.settled();
+    assert.equal(f.exact.gpu.agent(2,{op:'state'}).world.published.pile_count,before-1);
+  } finally {module.gpu_unload();}
+});

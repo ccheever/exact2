@@ -9,7 +9,7 @@ import {open} from '../../scripts/agent.mjs';
 import {closeFilesystemReader} from '../../scripts/filesystem.mjs';
 import {serveStatic} from '../../host/web/serve.mjs';
 const root=resolve(import.meta.dir,'../..');
-const scratch=resolve(process.env.K4_SCRATCH ?? process.env.K3_SCRATCH ?? `${process.env.HOME}/lanes/gamenext/scratch/k4`);
+const scratch=resolve(process.env.K6_SCRATCH ?? process.env.K4_SCRATCH ?? process.env.K3_SCRATCH ?? `${process.env.HOME}/lanes/gamenext/scratch/k6`);
 const app=resolve(root,'game/games/tally'), dist=resolve(app,'dist');
 mkdirSync(scratch,{recursive:true});
 const stats=values=>{const a=[...values].sort((a,b)=>a-b), mid=a.length/2;return {median:(a[Math.floor(mid)]+a[Math.ceil(mid)-1])/2,p95:a[Math.ceil(a.length*.95)-1]};};
@@ -73,6 +73,7 @@ if(process.argv.includes('--web')) {
     // Passive grace: do not let a state request pull the lazy module ahead of paint.
     await new Promise(r=>setTimeout(r,200));
     const perf=(await session.state()).world?.[0]?.perf;
+    if (perf?.resourceTransfers) perf.resources=perf.resources.map(row=>({...row,...perf.resourceTransfers.find(t=>t.name===row.name)}));
     for(const key of ['navigationToFirstContentfulPaintMs','moduleInstantiatedMs','boundMs','firstTickMs','firstPublicationMs']) {
       if(!Number.isFinite(perf?.[key]))throw Error('missing startup marker '+key);
     }

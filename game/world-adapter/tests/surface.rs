@@ -371,6 +371,15 @@ fn log_transport_repeats_since_and_returns_real_lines_and_cursors() {
         "{page}"
     );
     assert!(!page["lines"].as_array().unwrap().is_empty());
+    assert!(page["lines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|line| line.is_string()));
+    assert_eq!(
+        page["next"].as_u64().unwrap() - page["from"].as_u64().unwrap(),
+        page["lines"].as_array().unwrap().len() as u64
+    );
     assert_eq!(page, read(&mut s, 0));
     assert_eq!(
         read(&mut s, page["next"].as_u64().unwrap())["lines"],
