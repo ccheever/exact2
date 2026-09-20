@@ -447,7 +447,7 @@ mod review_tests {
         assert_eq!(w.logs(LogCursor::default()).unwrap(), before);
     }
     #[test]
-    fn live_exhausted_generation_refuses_decode_and_reuse() {
+    fn live_exhausted_generation_refuses_decode_but_retired_slot_does_not_block_spawn() {
         let mut w = World::new(60, 0);
         let e = w.spawn(()).unwrap();
         w.state.slots[0].generation = u32::MAX;
@@ -460,6 +460,13 @@ mod review_tests {
             generation: u32::MAX - 1,
             ..e
         }));
-        assert!(w.spawn(()).is_err());
+        let saved = w.save().unwrap();
+        w.load(&saved).unwrap();
+        let next = w.spawn(()).unwrap();
+        assert_eq!(next.index(), 1);
+        assert!(!w.contains(e));
+        w.despawn(next);
+        assert_eq!(w.spawn(()).unwrap().index(), 1);
+        assert_eq!(w.len(), 1);
     }
 }

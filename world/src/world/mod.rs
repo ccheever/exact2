@@ -354,7 +354,8 @@ impl World {
             .state
             .free
             .0
-            .first()
+            .iter()
+            .find(|&&i| self.state.slots[i as usize].generation != u32::MAX)
             .copied()
             .unwrap_or(self.state.slots.len() as u32);
         if index as usize >= crate::MAX_ENTITIES {
@@ -368,9 +369,6 @@ impl World {
                 .get(index as usize)
                 .map_or(0, |s| s.generation),
         };
-        if e.generation == u32::MAX {
-            return Err(DataError::new("entity generation exhausted"));
-        }
         self.change_room(1usize.saturating_add(bundle.preflight(self, e)?))?;
         self.mutation(|this| this.spawn_commit(e, name, bundle))
     }
@@ -382,7 +380,7 @@ impl World {
     ) -> Result<Entity, DataError> {
         self.mutated();
         let index = e.index;
-        if self.state.free.0.pop_first().is_none() {
+        if !self.state.free.0.remove(&index) {
             self.state.slots.push(Slot::default());
         }
         let slot = &mut self.state.slots[index as usize];

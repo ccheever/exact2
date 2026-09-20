@@ -275,7 +275,9 @@ layouts. Native and 32-bit Miri readers share the same 2,232-unit boundary fixtu
 past admission return errors, except programmer-facing infallible operations
 (such as invalid publication/borrow use) which panic. Journal capacity does not cause mutation refusal. Exhausted journal cursors and
 live generation `u32::MAX` refuse decode; `log` returns an error before dropping
-retained events. A dead exhausted slot cannot be spawned again.
+retained events. A dead exhausted slot is retired permanently. Spawn selects the lowest reusable
+free slot, skipping at most 200,000 retired indices, then appends if capacity
+permits. Retirement is saved in the existing generation/free fields (no wire change).
 
 ### Clock, arguments and scalar helpers
 
