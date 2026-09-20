@@ -166,13 +166,15 @@ extension NodeView {
     /// this view for pixels. `draw` replaces it when the view paints itself.
     func presentTextRaster() {
         guard let layer, let surface = textRaster else { return }
-        CATransaction.begin()
+        // Join AppKit's current transaction instead of flushing the layer tree
+        // for each completed paragraph. Restore the caller's action setting.
+        let disabled = CATransaction.disableActions()
         CATransaction.setDisableActions(true)
+        defer { CATransaction.setDisableActions(disabled) }
         layer.contentsScale = textRasterScale
         layer.contentsGravity = .resize
         layer.contents = surface
         textRasterPending = false
-        CATransaction.commit()
     }
 
     func dropTextRaster() {

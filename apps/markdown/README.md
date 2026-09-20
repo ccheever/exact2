@@ -1088,3 +1088,19 @@ while publishing prepared text rasters. The next experiment groups publications
 within one refresh-local transaction, opened only before a potentially
 publishing ensure. It preserves each accepted surface and urgent readiness;
 its performance is unproven until separately measured.
+
+The refresh-local transaction experiment (`7ad989a9`) is not retained. Its
+six-round, three-app pilot had all eighteen trials valid. Candidate mean/median
+hitch time was 5.83/5.83 ms/s, base 8.12/4.58, and Legend 5.56/3.75; candidate
+won two of six pairs against each. Its final trial also fell to 86.8 target
+presentations/s. The lower mean against base depended heavily on one bad base
+trial; it did not establish an improvement. Native 254 tests, reader controls,
+light/dark/system appearance and sampled rapid-scroll captures passed.
+`smooth/publication-7ad989a9-pilot-120hz` retains all results.
+
+The next isolated experiment removes explicit text-publication commits and
+lets the surface writes join AppKit's current transaction. It saves and restores
+the caller's disabled-action setting around the synchronous assignments. No
+worker, admission, selection or raster-identity behavior changes; same-frame
+urgency and displayed hitches still require measurement, not an inference from
+moving commit work out of the publication stack.
