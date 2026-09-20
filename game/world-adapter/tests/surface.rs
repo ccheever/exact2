@@ -205,3 +205,39 @@ fn shared_scalar_reader_admits_unicode_and_refuses_pressure_before_dispatch() {
         "negative control: accepted requests must drive"
     );
 }
+
+#[test]
+fn oversized_returned_error_is_bounded_without_losing_failed_inspection() {
+    struct LargeError;
+    impl exact_world::Game for LargeError {
+        const ID: &'static str = "large-error";
+        type Args = ();
+        fn setup(_: &mut exact_world::World, _: &()) -> Result<(), exact_world::DataError> {
+            Ok(())
+        }
+        fn tick(
+            _: &mut exact_world::World,
+            _: &exact_world::Input,
+            _: &(),
+        ) -> Result<(), exact_world::DataError> {
+            Err(exact_world::DataError::new("é".repeat(40_000)))
+        }
+    }
+    let mut s = WorldSurface::<LargeError>::default();
+    assert!(s.bind(&[], Some(0.)).unwrap_err().0.contains("truncated"));
+    assert!(s.take_error().unwrap().0.len() < 4200);
+    assert!(s.take_error().is_none());
+    let state: serde_json::Value =
+        serde_json::from_str(&s.agent(r#"{"op":"state"}"#).unwrap()).unwrap();
+    assert_eq!(state["world"]["failed"], true);
+    assert!(state["world"]["error"]
+        .as_str()
+        .unwrap()
+        .contains("truncated"));
+    assert!(s.agent(r#"{"op":"tree"}"#).unwrap().contains("entities"));
+    assert!(s.agent(r#"{"op":"logs"}"#).unwrap().contains("lines"));
+    assert!(s
+        .agent(r#"{"op":"clock","ticks":1}"#)
+        .unwrap()
+        .contains("truncated"));
+}

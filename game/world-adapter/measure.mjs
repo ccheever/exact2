@@ -6,6 +6,7 @@ import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {gzipSync} from 'node:zlib';
 import {open} from '../../scripts/agent.mjs';
+import {closeFilesystemReader} from '../../scripts/filesystem.mjs';
 import {serveStatic} from '../../host/web/serve.mjs';
 const root=resolve(import.meta.dir,'../..');
 const scratch=resolve(process.env.K3_SCRATCH ?? `${process.env.HOME}/lanes/gamenext/scratch/k3`);
@@ -26,8 +27,10 @@ if(process.argv.includes('--linux')) {
     const binary=process.env[name==='tally'?'TALLY_LINUX':'CALTRAIN_LINUX'] ?? resolve(target,`x86_64-unknown-linux-gnu/gpu-dev/${name}-linux`);
     const rows=[];
     for(let i=0;i<20;i++) {
-      const p=spawnSync(binary,[],{env:{...process.env,EXACT_AGENT:'1',EXACT_WORLD_TIMING:'1',EXACT_UPDATE_TRUST:'development'},input:'',encoding:'utf8'});
+      const p=spawnSync(binary,[],{env:{...process.env,EXACT_AGENT:'1',EXACT_WORLD_TIMING:'1',EXACT_UPDATE_TRUST:'development',EXACT_ASSETS:resolve(root,name==='tally'?'game/games/tally':'apps/caltrain')},input:'',encoding:'utf8'});
       if(p.status!==0)throw Error(p.stderr || p.error?.message);
+      const ready=JSON.parse(p.stdout.split('\n').find(line=>line.startsWith('{')) ?? 'null');
+      if(!ready?.ready || ready.error || /not a loadable source/.test(p.stderr))throw Error('host did not boot completely: '+p.stdout+p.stderr);
       const row={};let binding;
       for(const line of p.stderr.split('\n')) {
         if(line.startsWith('exact-world-startup: ')){const v=JSON.parse(line.slice(21));row[v.event]=v.ms;}
@@ -95,6 +98,7 @@ if(process.argv.includes('--web')) {
     save('web',{summary,rows});console.log(JSON.stringify(summary,null,2));
   } finally {
     server.close();
+    closeFilesystemReader();
     // Carrier close SIGKILLs its recorded group and awaits the browser's exit.
     const leaked=children.filter(c=>c.exitCode===null&&c.signalCode===null).map(c=>c.pid);
     save('web-processes',{recorded:children.map(c=>c.pid),leaked});

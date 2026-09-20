@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {open} from '../../../scripts/agent.mjs';
+import {closeFilesystemReader} from '../../../scripts/filesystem.mjs';
 const root=resolve(import.meta.dir,'../../..');
 Object.assign(process.env,{EXACT_APP_DIR:import.meta.dir,EXACT_WEB_DIST:resolve(import.meta.dir,'dist')});
 const built=spawnSync(process.execPath,[resolve(root,'host/web/build.mjs')],{env:process.env,stdio:'inherit'});
@@ -24,6 +25,7 @@ try {
   assert.equal((await s.state()).world[0].tick,2);
   console.log('PASS: tick 3 returned an error; state/tree/logs and page action remain alive (10 assertions)');
 } finally {
+  closeFilesystemReader();
   await s.close(); // SIGKILL the recorded browser process group, then await it.
   assert.ok(children.every(c=>c.exitCode!==null || c.signalCode!==null));
   console.log('leaked browser PIDs: none; recorded:',children.map(c=>c.pid));

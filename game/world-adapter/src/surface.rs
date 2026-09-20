@@ -43,7 +43,16 @@ impl<G: Game> Default for WorldSurface<G> {
     }
 }
 fn error(e: impl ToString) -> SurfaceError {
-    SurfaceError(e.to_string())
+    let mut text = e.to_string();
+    if text.len() > 4096 {
+        let mut end = 4096;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str("… (error truncated at 4096 bytes)");
+    }
+    SurfaceError(text)
 }
 fn invalid(e: impl ToString) -> DataError {
     DataError::new(e.to_string())
@@ -84,8 +93,9 @@ impl<G: Game> WorldSurface<G> {
     fn record_failure(&mut self) {
         if self.failed.is_none() {
             if let Some(e) = self.sim.as_mut().and_then(|sim| sim.run(0.).err()) {
-                self.failed = Some(e.to_string());
-                self.error = Some(error(e));
+                let e = error(e);
+                self.failed = Some(e.0.clone());
+                self.error = Some(e);
             }
         }
     }
@@ -502,7 +512,11 @@ impl<G: Game> Surface for WorldSurface<G> {
     }
     fn agent(&mut self, request: &str) -> Option<String> {
         Some(self.request(request).unwrap_or_else(|e| {
-            format!("{{\"error\":{}}}", json::to_string(&e.to_string()).unwrap())
+            format!(
+                "{{\"error\":{}}}",
+                json::to_string(&error(e).0)
+                    .unwrap_or_else(|_| "\"world error exceeds inspection budget\"".into())
+            )
         }))
     }
 }
