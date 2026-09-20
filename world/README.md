@@ -9,8 +9,10 @@ struct Board;
 impl Game for Board {
     const ID: &'static str = "readme-board";
     type Args = Options;
-    fn register(w: &mut World, _: args::SetupArgs<'_, Options>) -> Result<(), DataError> { w.register::<Counter>().unwrap(); Ok(())
-}
+    fn register(w: &mut World, _: args::SetupArgs<'_, Options>) -> Result<(), DataError> {
+        w.register::<Counter>()?;
+        Ok(())
+    }
     fn setup(w: &mut World, _: &Options) { w.spawn_named("counter", Counter(0)).unwrap(); }
     fn tick(w: &mut World, _: &Input, a: &Options) { w.get_mut::<Counter>("counter").unwrap().0 += a.increment; }
 }
@@ -42,35 +44,27 @@ assert_eq!(page.runs().next().unwrap().1[0].0, 2);
 | `Spring::new(f32)`, `set_target(Now,f32)`, `value(Now) -> f32`; `Tween::new(f32)`, `to(Now,f32,f32)`, `value(Now) -> f32`; `rng() -> RefMut<Rng>` | Saved scalar motion over exact-motion; Tween uses its cubic easing, no private smoothstep. RNG and libm scalar math retain deterministic operations. |
 
 State invariants: declaration-order fields, type-name-order storage, entity-order joins, canonical NaNs, signed-zero preservation; no semantic interior mutability in Data. Static descriptors and idempotent registration run each component hook once per registry, including recursive registration. Queues/scratch start empty; arguments are borrowed typed scalars at registration, never formatted. Restore streams one candidate in identity → typed args → registered storage names and contents → driver/delivery/journal order, using one cumulative 256 MiB allocation budget; all validation precedes commit. User Game/Data implementations must honor this contract and bound their own work.
-Work bounds: 200,000 entity slots, 256 registered types, 8 query terms, 1,000,000 retained structural events, 4,096 game and session journal entries, 512 inspection rows, 64 work reasons (256 bytes each, 8 reported), 64 derived types, 1,024 input events and messages (4,096 bytes/message), 65,536 inspection bytes/visits, depth 256, 1 MiB decoded strings, 128 MiB Sim save, 216,000 ticks/advance and 3,600 ticks/settle. External requests return explicit errors; trusted mutation APIs panic before exceeding capacity. Ownership validation/reaping is O(slots + edges); queries O(slots × terms), observation/hash O(slots × registered types + visited Data), journal consumption O(retained events), decode O(admitted bytes/values). External pending/failed readiness refuses settle immediately; future simulation work must declare deadlines.
-Pages contain 64 slots: a 40-byte component first allocates 2,560 bytes versus the predecessor's 40,960 (16× smaller); only inserted values are initialized, with no page-wide zero fill. At 200,000 dense entities this means 3,125 pages rather than 196, trading more upload runs for small-world startup. Counting-allocator ceilings (allocation calls / cumulative requested bytes, including realloc requests): empty World **1 / 24**; 100-entity Sim construction **31 / 70,568**; its first tick **3 / 640**; exactly 10,240-byte restore with 32 entities, journal and binary resource **1,000 / 77,986**. Counts repeat exactly; activation and restore are measured separately from fixture creation.
-Validation: 51 passing tests including the README doctest, plus 18 compile-refusal cases in the derive test; explicit 200k interleaved/churn and full-capacity negative controls; cross-engine hash/byte comparison; compile refusal fixtures and this doctest. Warm test time 1.287 s (`cargo test -p exact-world -p exact-world-derive`) and clippy 0.170 s (`cargo clippy -p exact-world -p exact-world-derive --all-targets -- -D warnings`). `cargo build -p exact-world --target wasm32-unknown-unknown` passes. Ryu's reachable nonspatial wasm probe (release z, fat LTO, one codegen unit, stripped; gzip level 9, mtime 0): std 226,787 / 83,475 bytes, Ryu 209,642 / 77,396 bytes. This is a formatter admission comparison, not the complete adapter artifact required for later system admission; the adapter is outside K1.
-Environment verification: game workspace 734 passed, 18 GPU-adapter failures, 24 ignored; game clippy and formatting pass. Seven Linux proofs pass; Lanterns has zero failures but no pins, so is unverified. Bun reached 131 passing and 4 failing tests without Chrome, then was stopped after hanging. Caltrain Linux release builds; its smoke stops because view 20 is covered at the tap point. Its dependency graph excludes both world crates. Root build/test/clippy stop at missing lean Hermes TypeScript bakes; caps and boot pass. Metrics snapshot refuses the non-Git ibex dependency. Web/Apple/GPU execution and full adapter startup measurements remain unverified here.
-Count every handwritten file, including this README and manifests; exclude only tests and cfg(test) modules. 6,500 total (6,403 production Rust); no generated files. Exact command, run from the repository root:
+Work bounds: 200,000 entity slots, 256 registered types, 8 query terms, 1,000,000 retained structural events, 4,096 game and session journal entries, 512 inspection rows, 64 work reasons (256 bytes each, 8 reported), 64 derived types, 1,024 input events and messages (4,096 bytes/message), 65,536 inspection output bytes (traversal refusal remains lane 2), depth 256, 1 MiB decoded strings, 128 MiB Sim save, 216,000 ticks/advance and 3,600 ticks/settle. External requests and spawn/insert return explicit errors; despawn/remove panic before exceeding journal capacity. Ownership validation/reaping is O(slots + edges); query membership O(slot words × terms × log allocated pages), observation/hash O(slots × registered types + visited Data), journal consumption O(retained events), decode O(admitted bytes/values). External pending/failed readiness refuses settle immediately; future simulation work must declare deadlines.
+Pages contain 64 slots: a 40-byte component first allocates 2,560 bytes versus the predecessor's 40,960 (16× smaller); only inserted values are initialized, with no page-wide zero fill. At 200,000 dense entities this means 3,125 pages rather than 196, trading more upload runs for small-world startup. Counting-allocator ceilings (allocation calls / cumulative requested bytes, including realloc requests): empty World **1 / 24**; 100-entity Sim construction **28 / 70,848**; its first tick **3 / 640**; exactly 10,240-byte restore with 32 entities, journal and binary resource **1,038 / 106,671**. Counts repeat exactly; activation and restore are measured separately from fixture creation.
+K1b validation: 79 passing tests including the README doctest, plus 19 compile-refusal cases in the derive test; two ignored controls explicitly run and passing (200k interleaved/churn and full capacity); cross-engine hash/byte comparison; compile refusal fixtures and this doctest. World and game clippy and formatting pass; the kernel also builds for wasm32-unknown-unknown. The following wasm formatter measurements are the pre-K1b baseline, not remeasured artifact admission. Ryu's reachable nonspatial wasm probe (release z, fat LTO, one codegen unit, stripped; gzip level 9, mtime 0): std 226,787 / 83,475 bytes, Ryu 209,642 / 77,396 bytes. This is a formatter admission comparison, not the complete adapter artifact required for later system admission; the adapter is outside K1.
+Environment verification: game workspace 734 passed, 18 GPU-adapter failures, 24 ignored; game clippy and formatting pass. Seven consumer Linux proofs pass; Both consumer and separate 1,210-checkpoint Lanterns proofs have zero failures but no pins, so are unverified. The cubes benchmark proof requires Chrome even when given linux and could not run here. Bun completed with 146 passing, 1 skipped and 3 browser failures without Chrome. Authored game shell tests had 48 passing, 3 GPU failures and 1 ignored. The pre-K1b Caltrain Linux smoke stopped because view 20 was covered at the tap point; it was not repeated in this lane. Its dependency graph excludes both world crates. Root build/test/clippy stop at missing lean Hermes TypeScript bakes; caps and boot pass. The pre-K1b metrics snapshot refused the non-Git ibex dependency. Web/Apple/GPU execution and full adapter startup measurements remain unverified here.
+K1b counts production Rust only: **6,498 lines**, excluding tests and cfg(test)
+modules, with every source file below 1,500 lines. README and manifests do not
+count against this task's ceiling. Reproduce from the repository root:
 ```sh
-python3 - <<'PY'
+python3 - <<'PYCOUNT'
 import re
 from pathlib import Path
 total = 0
-for p in sorted(Path('world').rglob('*')):
-    if not p.is_file() or 'tests' in p.parts: continue
+for p in sorted(Path('world').rglob('*.rs')):
+    if 'tests' in p.parts: continue
     s = p.read_text()
     if s.startswith('#![cfg(test)]'): continue
     s = re.sub(r'^#\[cfg\(test\)\]\nmod \w+ \{.*?^\}', '', s, flags=re.M|re.S)
-    n = len(s.splitlines()); total += n
-    print(f'{n:4} {p}')
-print('TOTAL', total)
-PY
+    total += len(s.splitlines())
+print('PRODUCTION RUST', total)
+PYCOUNT
 ```
-Per-file counts below use paths relative to `world/`; all source files are below 1,500 lines.
-| File / lines | File / lines | File / lines | File / lines | File / lines |
-|---|---|---|---|---|
-| `Cargo.toml` 16 | `README.md` 72 | `derive/Cargo.toml` 9 | `derive/src/lib.rs` 532 | `src/args.rs` 164 |
-| `src/data/bin.rs` 462 | `src/data/hash.rs` 148 | `src/data/impls.rs` 295 | `src/data/json.rs` 181 | `src/data/limits.rs` 136 |
-| `src/data/mod.rs` 212 | `src/data/text.rs` 15 | `src/input.rs` 253 | `src/lib.rs` 34 | `src/math.rs` 107 |
-| `src/rng.rs` 103 | `src/sim.rs` 368 | `src/spring.rs` 133 | `src/storage/cell.rs` 134 | `src/storage/mod.rs` 206 |
-| `src/storage/pages.rs` 70 | `src/storage/query.rs` 479 | `src/storage/raw.rs` 364 | `src/tween.rs` 111 | `src/values.rs` 322 |
-| `src/world/inspect.rs` 225 | `src/world/journal.rs` 230 | `src/world/mod.rs` 862 | `src/world/ownership.rs` 109 | `src/world/save.rs` 148 |
 
 Registration is explicit: `register::<C>()` and `register_resource::<R>()` return
 `Result<&mut World, DataError>` and are idempotent. `Game::register` and
@@ -114,14 +108,26 @@ This refuses silent defaulting, skipping, or lossy conversion before installatio
 when the reconstructed canonical content differs; Sim also preserves current live
 arguments and refuses setup drift. Exactness concerns saved content: compatible
 Rust representations with identical canonical encoding remain interchangeable.
-The extra validation pass raises the measured 10 KiB restore to 1,042 allocations /
-106,979 requested bytes; eliminating metadata churn remains lane 2 work.
+The extra validation pass raises the measured 10 KiB restore to 1,038 allocations /
+106,671 requested bytes; eliminating metadata churn remains lane 2 work.
 
 To keep production Rust under 6,500 lines, this revision deletes the duplicate
 `Data::moving` traversal (use `settle_tick`), the redundant Sim name/role schema
 table (storage maps and exact canonical comparison validate the same information),
-unused `Component::SAVED_FIELDS`, `Sim::from_values`, `Now::seconds`, `World::{count,dt,seconds,seed}`, required-value
+unused `Component::SAVED_FIELDS`, `Sim::from_values`, `Now::seconds`, `World::{count,dt,seconds,seed,tick_end}`, required-value
 lookup wrappers and Target labels, `Query::names`, `QueryBorrow::{one,matching_count}`,
 and range/chance/pick RNG conveniences. Use `get`/`get_mut`, joined iteration,
 `Args::decode`, and `Rng::{next_u32,next_f32}` directly. No state is removed and
 common Data/hash encodings remain unchanged.
+
+EXGAME v3 → v4 removes empty component columns from saves and hashes because
+creation/removal history is not continuation state. EXSIM v8 → v9 adds the caller
+clock required to discard paused time and removes the duplicate name/role schema
+list; the nine-item envelope retains typed storage maps and exact comparison.
+Generic Data tags, scalar encoding, NaN canonicalization, signed zero and the hash
+algorithm remain unchanged. The cross-engine test normalizes only the world
+version header and compares temporary-column churn against identical content.
+First insertion at slot 199,999 requests four allocations / 3,064 bytes (previously
+seven / 152,592); page metadata work is O(log allocated pages), with one page
+allocated. Ordinary observation/reaping, streaming numeric payloads, journal
+consumer ownership and metadata allocation on restore remain lane 2 work.

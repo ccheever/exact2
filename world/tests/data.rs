@@ -196,3 +196,17 @@ fn inspection_floats_round_trip_signed_zero_subnormals_and_random_bits() {
     }
     assert!(json::to_string(&f64::INFINITY).is_err());
 }
+
+#[test]
+fn unit_and_empty_nonbulk_sequences_keep_the_existing_data_grammar() {
+    // Data describes value grammar, not Rust type identity. This shared spelling
+    // is also exact-game's encoding; changing its tag would violate common-byte
+    // parity without repairing an unloadable value or history-dependent state.
+    let unit = bin::to_vec(&()).unwrap();
+    assert_eq!(unit, bin::to_vec(&Vec::<String>::new()).unwrap());
+    assert_eq!(hash::of(&()), hash::of(&Vec::<String>::new()));
+    bin::from_slice::<()>(&unit).unwrap();
+    assert!(bin::from_slice::<Vec<String>>(&unit).unwrap().is_empty());
+    assert_ne!(unit, bin::to_vec(&vec![String::new()]).unwrap());
+    assert_ne!(hash::of(&()), hash::of(&vec![String::new()]));
+}

@@ -12,7 +12,8 @@ fn generic_world_hash_and_data_are_identical_to_the_kernel() {
         .parent()
         .unwrap()
         .join("scratch")
-        .join("k1b-1").join(format!("cross-{}", std::process::id()));
+        .join("k1b-1")
+        .join(format!("cross-{}", std::process::id()));
     fs::create_dir_all(scratch.join("src")).unwrap();
     fs::write(
         scratch.join("Cargo.toml"),
@@ -60,24 +61,50 @@ pub fn run() -> (Vec<(u64,Vec<u8>)>, Vec<Vec<u8>>) {
     (history,data)
 }
 "#;
-    let fixture_new = fixture.replace("ENGINE", "exact_world")
+    let fixture_new = fixture
+        .replace("ENGINE", "exact_world")
         .replace("register::<Other>()", "register::<Other>().unwrap()")
         .replace("register::<Counter>()", "register::<Counter>().unwrap()")
-        .replace("register_resource::<Ledger>()", "register_resource::<Ledger>().unwrap()")
+        .replace(
+            "register_resource::<Ledger>()",
+            "register_resource::<Ledger>().unwrap()",
+        )
         .replace("}, ())", "}, ()).unwrap()")
-        .replace("link: Some(entities[0]) });", "link: Some(entities[0]) }).unwrap();")
+        .replace(
+            "link: Some(entities[0]) });",
+            "link: Some(entities[0]) }).unwrap();",
+        )
         .replace("Other(vec![0,65535]))", "Other(vec![0,65535])).unwrap()")
-        .replace("insert_resource(ledger)", "insert_resource(ledger).unwrap()")
-        .replace("..Counter::default() },))", "..Counter::default() },)).unwrap()");
+        .replace(
+            "insert_resource(ledger)",
+            "insert_resource(ledger).unwrap()",
+        )
+        .replace(
+            "..Counter::default() },))",
+            "..Counter::default() },)).unwrap()",
+        );
     // Old EXGAME v3 retained empty columns. Compare canonical content against
     // the old engine's never-populated history, and exercise churn only in new.
     let fixture_new = fixture_new.replace("let mut history =", "#[derive(Default, Component)] struct Temporary; w.register::<Temporary>().unwrap(); w.insert(entities[1999], Temporary).unwrap(); w.remove::<Temporary>(entities[1999]); let mut history =");
-    let fixture_new = fixture_new.replace("w.save()", "{ let mut b = w.save().unwrap(); b[7] = 3; b }");
-    let fixture_new = fixture_new.replace("w.load(&bytes)", "w.load(&{ let mut b = bytes.clone(); b[7] = 4; b })");
+    let fixture_new =
+        fixture_new.replace("w.save()", "{ let mut b = w.save().unwrap(); b[7] = 3; b }");
+    let fixture_new = fixture_new.replace(
+        "w.load(&bytes)",
+        "w.load(&{ let mut b = bytes.clone(); b[7] = 4; b })",
+    );
     let fixture_new = fixture_new
-        .replace("bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] })", "bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] }).unwrap()")
-        .replace("bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3]))", "bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3])).unwrap()")
-        .replace("bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")]))", "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")])).unwrap()");
+        .replace(
+            "bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] })",
+            "bin::to_vec(&Choice::Some { n:u64::MAX, values:vec![0,u32::MAX] }).unwrap()",
+        )
+        .replace(
+            "bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3]))",
+            "bin::to_vec(&(-0f32,f64::NAN,Some(entities[0]),vec![1u8,2,3])).unwrap()",
+        )
+        .replace(
+            "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")]))",
+            "bin::to_vec(&Value::record(vec![Value::Bool(true),Value::str(\"x\")])).unwrap()",
+        );
     let source = format!("mod old {{ {} }}\nmod new {{ {} }}\n#[test] fn cross() {{ let old=old::run(); let new=new::run(); assert_eq!(old,new); assert!(old.0.windows(2).all(|p| p[0].0 != p[1].0)); assert!(!old.1[0].is_empty()); }}", fixture.replace("ENGINE", "exact_game"), fixture_new);
     fs::write(scratch.join("src/lib.rs"), source).unwrap();
     let output = Command::new("cargo")
