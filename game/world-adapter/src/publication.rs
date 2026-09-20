@@ -271,7 +271,11 @@ mod tests {
                 expected
             );
             assert_eq!(expected, exact_game::bin::to_vec(value), "{value:?}");
-            assert_eq!(hash::of(&stored), exact_game::hash::of(value), "{value:?}");
+            assert_eq!(
+                hash::of(&stored).unwrap(),
+                exact_game::hash::of(value),
+                "{value:?}"
+            );
             let decoded: Published = bin::from_slice(&expected).unwrap();
             assert_eq!(
                 bin::to_vec(&decoded).unwrap(),

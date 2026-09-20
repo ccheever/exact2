@@ -145,6 +145,7 @@ struct State {
     busy: RefCell<Vec<std::borrow::Cow<'static, str>>>,
     work: RefCell<BTreeMap<String, crate::Work>>,
 }
+type DerivedSlot = std::cell::OnceCell<(TypeId, RefCell<Box<dyn std::any::Any>>)>;
 type StorageFactory = fn(&'static str, std::rc::Rc<std::cell::Cell<u64>>) -> Box<dyn Erased>;
 #[derive(Clone, Copy)]
 struct Registration {
@@ -179,7 +180,7 @@ pub struct World {
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
     // Executor-owned derived data, populated only by linked callers; never saved.
-    derived: [std::cell::OnceCell<(TypeId, RefCell<Box<dyn std::any::Any>>)>; 64],
+    derived: [DerivedSlot; 64],
     journal: RefCell<VecDeque<crate::Event>>,
     session_journal: RefCell<VecDeque<(u64, crate::Event)>>,
     session_next: std::cell::Cell<u64>,

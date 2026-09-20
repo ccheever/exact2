@@ -192,7 +192,7 @@ fn built_in_motion_values_cannot_save_bytes_they_refuse() {
 }
 
 #[test]
-fn smoothstep_preserves_nan_input() {
+fn smoothstep_preserves_nan_with_distinct_increasing_edges() {
     assert!(math::smoothstep(0., 1., f32::NAN).is_nan());
     assert_eq!(math::smoothstep(0., 1., 0.5), 0.5);
 }
@@ -670,6 +670,7 @@ fn unreachable_action_keys_refuse() {
 }
 
 #[test]
+#[allow(clippy::non_minimal_cfg)] // Exercise both eliminated and retained fields.
 fn conditional_data_fields_follow_rust_configuration() {
     #[derive(Default, Data)]
     struct Configured {
@@ -689,4 +690,22 @@ fn conditional_data_fields_follow_rust_configuration() {
     assert_eq!(loaded.transient, 0);
     assert_eq!(loaded.saved, 7);
     assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
+}
+
+#[test]
+fn set_parent_refuses_a_small_cycle_before_mutating_or_journaling() {
+    let mut w = World::new(60, 0);
+    let a = w.spawn(()).unwrap();
+    let b = w.spawn(()).unwrap();
+    let c = w.spawn(()).unwrap();
+    w.set_parent(a, Some(b)).unwrap();
+    w.set_parent(b, Some(c)).unwrap();
+    let before = w.save().unwrap();
+    let cursor = w.journal_next();
+    assert_eq!(
+        w.set_parent(c, Some(a)).unwrap_err().message,
+        "ownership cycle"
+    );
+    assert_eq!(w.journal_next(), cursor);
+    assert_eq!(w.save().unwrap(), before);
 }

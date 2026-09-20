@@ -7,7 +7,7 @@ struct Health {
 #[derive(Default, Resource)]
 struct Score(u64);
 #[test]
-fn round_trip_preserves_ids_names_rng_resources_and_registration_order() {
+fn round_trip_preserves_ids_names_rng_resources_and_name_order() {
     let mut w = World::new(144, 8123);
     w.register::<Health>()
         .unwrap()
@@ -133,6 +133,8 @@ fn published_values_and_skipped_fields_are_not_saved() {
         .unwrap();
     let hash = w.hash();
     let bytes = w.save().unwrap();
+    w.publish("not-in-EXGAME", 42u32).unwrap();
+    assert!(w.take_published().is_some());
     w.get_mut::<Cache>(e).unwrap().cache = 17;
     assert_eq!(w.hash(), hash);
     assert_eq!(w.save().unwrap(), bytes);

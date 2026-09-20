@@ -55,15 +55,21 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     );
     let raw = compile(
         r#"use exact_world::*;
+use exact_world::storage::query::Fetch;
 #[derive(Default, Component)] struct C(u32);
 fn escape(w: &World) -> RefMut<'_, C> {
     let state = <&mut C as Query>::prepare(w, &mut [None; 8]).unwrap();
-    unsafe { <&mut C as Query>::owned(&state, 0) }
+    unsafe { state.owned(0) }
 }"#,
     );
     assert!(
         !raw.status.success(),
         "raw query construction escaped the private boundary"
+    );
+    assert!(
+        String::from_utf8_lossy(&raw.stderr).contains("private"),
+        "{}",
+        String::from_utf8_lossy(&raw.stderr)
     );
     let raw = compile(
         r#"use exact_world::*;

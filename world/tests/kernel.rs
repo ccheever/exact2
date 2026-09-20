@@ -87,7 +87,7 @@ fn idempotent_recursive_registration_runs_hook_once() {
     assert_eq!(w.query::<&Hook>().iter().count(), 100);
 }
 #[test]
-fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
+fn ownership_bounds_ancestry_and_reaps_reverse_chains() {
     let mut w = World::new(60, 0);
     w.register::<Count>().unwrap();
     let consumer = w.subscribe_changes().unwrap();
@@ -100,7 +100,7 @@ fn ownership_validates_cycles_without_any_pose_and_reaps_reverse_chains() {
         .set_parent(es[256], Some(es[0]))
         .unwrap_err()
         .message
-        .contains("cycle"));
+        .contains("ancestry work"));
     assert_eq!(before, w.save().unwrap());
     assert!(w.try_query::<&mut Parent>().is_err());
     assert!(catch_unwind(AssertUnwindSafe(|| w.get_mut::<Parent>(es[0]))).is_err());

@@ -37,7 +37,7 @@ impl World {
                 None => return Ok(()),
             }
         }
-        Err(DataError::new("ownership cycle check exceeds 256 edges"))
+        Err(DataError::new("ownership ancestry work exceeds 256 edges"))
     }
     pub(super) fn change_owner(&mut self, child: Entity, old: Option<Entity>, new: Option<Entity>) {
         if old == new {
