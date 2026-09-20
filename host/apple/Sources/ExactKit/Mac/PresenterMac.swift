@@ -509,8 +509,9 @@ final class Presenter {
     }
 
     /// One turn between frames: about a quarter of a frame, spent a unit at a
-    /// time so that an expensive row cannot make the turn long. A unit paints
-    /// one paragraph an earlier unit mounted, or asks a list for one more row.
+    /// time so that an expensive row cannot make the turn long. A unit typesets
+    /// or paints one paragraph an earlier unit mounted, or asks a list for one
+    /// more row.
     /// Rows differ by an order of magnitude — a table row, a page-long
     /// paragraph — so the turn is rationed by the clock and not by a count.
     private func fillLists() {
@@ -518,14 +519,20 @@ final class Presenter {
         let refresh = Double(viewport.window?.screen?.maximumFramesPerSecond ?? 60)
         let budget = min(0.004, 0.25 / max(refresh, 30)), started = CACurrentMediaTime()
         repeat {
-            if !unpainted.isEmpty {
-                let node = unpainted.removeFirst()   // oldest first: nearest the scrollport
+            if let node = unpainted.first {   // oldest first: nearest the scrollport
                 // Still mounted, still unpainted: a fast scroll may have shown
                 // it first, and AppKit painted it then.
-                if views[node.id] === node, node.superview != nil, node.ownsContents, node.layer?.contents == nil {
-                    node.paintContents()
-                    node.needsDisplay = false
+                guard views[node.id] === node, node.superview != nil, node.ownsContents, node.layer?.contents == nil else {
+                    unpainted.removeFirst()
+                    continue
                 }
+                // Typesetting a paragraph in its colours and painting it are a
+                // unit each. Together they were the longest thing a turn did,
+                // and painting costs twice as much again at two pixels a point.
+                if node.cachedTextLayout?.width != node.contentBox().width, node.paragraphLayout() != nil { continue }
+                unpainted.removeFirst()
+                node.paintContents()
+                node.needsDisplay = false
             } else if let id = listPending.first {
                 guard let list = listViews[id], let r = report(list) else { listPending.remove(id); continue }
                 send(list, r, limit: listLimit)

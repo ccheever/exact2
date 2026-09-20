@@ -154,6 +154,26 @@ questions; none of this was the parser, JSON or view creation):
    state, and its flush waits on the window server on the main thread — 19 and
    25 ms at the same second of two runs. Nothing restores this window.
 
+8. **A paragraph was typeset and painted in one turn, and each made its own
+   line-break tokenizer.** Making a `CFStringTokenizer` opens an ICU break
+   iterator, a tenth of what measuring a paragraph cost; one is now shared. And
+   between frames, typesetting a mounted paragraph in its colours and painting it
+   are a unit each, where together they were the longest thing a turn did. Pixels
+   are identical, in light and across a switch to dark. Four interleaved rounds in
+   a later sitting, the build of the tables above first:
+
+   | Trackpad path, 1,200 frames a run | Tables above | Shared tokenizer | And typeset apart from paint |
+   | --- | ---: | ---: | ---: |
+   | Frames longer than 8.33 ms | 4, 5, 1, 2 | 2, 2, 0, 1 | 0, 0, 1, 0 |
+   | Longest frame, ms | 13.8, 16.5, 9.5, 11.4 | 11.4, 9.1, 8.1, 9.0 | 7.7, 8.0, 8.9, 7.5 |
+   | p99, ms | 6.07 | 6.21 | 5.82 |
+   | Wheel path p99, ms | 5.20 | 5.58 | 4.54 |
+   | Wheel path, inputs later than 8.33 ms | 5, 6, 5, 3 | 3, 7, 5, 4 | 4, 6, 7, 7 |
+
+   The wheel path's late inputs did not move: about half of them in every run
+   are the one AppKit wait described below. A paint costs 2.1 to 2.6 times as
+   much at two pixels a point, which these 1× displays do not show.
+
 Zero refreshes showed uncovered space in any run, including a reversal, a
 250,000-point jump and 48,000 points a second. A jump still builds the rows it
 lands on synchronously (one stall of 30–55 ms).

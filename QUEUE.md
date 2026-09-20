@@ -56,9 +56,9 @@ sits on that list carries the trade it would take.
   thread. Repeat first-content and memory with this build.
 - **A list paragraph is typeset twice** (2026-09-19): in black to be measured, then
   in its colours to be painted, because `TextShapeKey` carries the paint; only the
-  line breaks are handed over. 0.7 ms at the median in the fill unit that paints a
-  row, 3 ms at worst. A shape whose colour comes from the context at draw time
-  would serve both, for a paragraph of one colour at least.
+  line breaks are handed over. 0.7 ms at the median and 3 ms at worst, since
+  2026-09-19 a fill unit of its own. A shape whose colour comes from the context at
+  draw time would serve both, for a paragraph of one colour at least.
 - **A row of many inline runs is the longest fill unit** (2026-09-19): 7 ms at the
   99th percentile against 2.6 at the median, about 0.5 ms in the runner and kernel
   and 0.35 ms in the presenter per created view, and every inline run is a
@@ -78,10 +78,12 @@ sits on that list carries the trade it would take.
   250,000-point jump builds a scrollport of rows in one report, 30–55 ms. The rows
   are never blank; the frame is late. Paint them first and fill the rest, or show
   the estimate's geometry for a frame.
-- **`Cargo.lock` names a `ureq` no published ibex allows** (2026-09-19): the lock has
-  3.4.2; every ibex commit pins `=3.4.0`, so `--locked` fails on a machine with a
-  clean ibex. It is a non-Apple dependency. Either publish the ibex change or
-  re-resolve the lock.
+- **The macOS smoke fails on a Mac that shows legacy scrollers** (2026-09-19): on an
+  M4 Pro mini with a mouse, `smoke.mjs macos` over the Markdown app at untouched
+  `6214c47` failed its scroll fixture in 22 of 24 runs (the scroll node stops at
+  669, not 652: a 17-point scroller) and its motion fixture in 8 of 24 (the box
+  never leaves 50 wide); with the scrolling work, 24 and 9. Nothing else failed.
+  The fixtures assume overlay scrollers, and something in the run is timing.
 - **The Swift test target did not compile at `6214c47`** (2026-09-19):
   `TextGeometryTests` still tested `TextCache`, removed by `e095df53`. The one test
   was deleted; nothing replaced what it covered, if `TextResidency` needs it.
@@ -91,6 +93,8 @@ sits on that list carries the trade it would take.
   the whole paragraph at every width (25–31 µs on a 79–120 µs snapshot, probe only);
   the boundaries depend on the text alone. Keep them beside `typesetters`; confirm in
   the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
+  Since 2026-09-19 one tokenizer is shared (`TextEngine.lineBoundaries`), which removed
+  making one per paragraph, a tenth of a first measure; the re-run per width is as it was.
 
 - **Text around shapes** (2026-09-18; LLP 1043.000, Draft RFC, not in `current/` — the set is full):
   `wrap-flow` / `shape-outside` exclusions a paragraph flows around on both sides, per frame; kernel
