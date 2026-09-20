@@ -498,3 +498,28 @@ fn held_keys_axis_and_queued_events_do_not_clone_heap_state_per_tick() {
     assert_eq!(c.travel, 500.75);
     assert!(matches!(sim.world().readiness(), Readiness::Pending(_)));
 }
+
+#[test]
+fn high_slot_empty_column_churn_reuses_all_backing() {
+    #[derive(Default, Component)]
+    struct Transient([u64; 4]);
+    let mut w = World::new(60, 0);
+    w.register::<Transient>().unwrap();
+    for _ in 0..MAX_ENTITIES {
+        w.spawn(()).unwrap();
+    }
+    let high = w.entity_at(MAX_ENTITIES - 1).unwrap();
+    w.insert(high, Transient([1; 4])).unwrap();
+    // Warm the bounded journal so the measurement isolates storage churn.
+    for _ in 0..4096 {
+        w.insert(high, Transient([1; 4])).unwrap();
+    }
+    let (_, (allocations, bytes)) = counting::measure(|| {
+        for n in 0..1000 {
+            assert_eq!(w.remove::<Transient>(high).unwrap().0[0], n + 1);
+            w.insert(high, Transient([n + 2; 4])).unwrap();
+        }
+    });
+    assert_eq!((allocations, bytes), (0, 0));
+    assert_eq!(w.get::<Transient>(high).unwrap().0[0], 1001);
+}

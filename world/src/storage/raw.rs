@@ -207,14 +207,6 @@ impl RawStorage {
         self.pages.mask_mut()[index / PAGE] &= !(1 << (index % PAGE));
         self.len -= 1;
     }
-    fn clear_slot(&mut self, index: usize) {
-        if self.word(index / PAGE) == 0 {
-            self.pages.free(index / PAGE);
-            if self.len == 0 {
-                self.pages = super::directory::Directory::new(self.pages.layout);
-            }
-        }
-    }
     pub(super) unsafe fn remove_into(&mut self, index: usize, out: *mut u8) -> bool {
         if !self.has(index) {
             return false;
@@ -222,7 +214,6 @@ impl RawStorage {
         self.removed(index);
         // SAFETY: caller supplies aligned vacant storage for the same type.
         unsafe { (self.desc.move_to)(self.ptr(index), out) };
-        self.clear_slot(index);
         true
     }
     pub(super) fn erase(&mut self, index: usize) {
@@ -231,7 +222,6 @@ impl RawStorage {
             // SAFETY: removing the presence bit transfers ownership to this drop.
             // If it panics, later walks cannot touch the partially dropped value.
             unsafe { (self.desc.drop_in_place)(self.ptr(index)) };
-            self.clear_slot(index);
         }
     }
     pub(super) fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
@@ -587,8 +577,14 @@ mod directory_tests {
             [0, 63, 64, 8191, 8192]
         );
         w.remove::<Wide>(high);
-        assert!(w.storage::<Wide>().unwrap().pages.mask().is_empty());
-        assert!(w.storage::<Wide>().unwrap().pages.chunks().is_empty());
+        assert!(w
+            .storage::<Wide>()
+            .unwrap()
+            .pages
+            .mask()
+            .iter()
+            .all(|m| *m == 0));
+        assert_eq!(w.storage::<Wide>().unwrap().pages.mask().len() * 8, 25_000);
         w.insert(high, Wide([9; 5])).unwrap();
         assert_eq!(
             w.pages::<Wide>()
