@@ -44,7 +44,7 @@ sits on that list carries the trade it would take.
   descendant collapse y=110 → 150), so stable offsets and wrapping-context identity must be settled before measurement
   sees them, or bounded re-layout used instead (Charlie's call; LLP 1043.000 §8 "Stage 0"); the wasm cost is ~+77 KiB against the ruled ~64 KB;
   Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments; iOS hit-testing and any iOS run at all;
-  Safari/Firefox; `shape-outside: <image>`; the 2,000-paragraph worst case regressed 5 → 54 ms a pass in the fix round.
+  Safari/Firefox; `shape-outside: <image>`.
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms

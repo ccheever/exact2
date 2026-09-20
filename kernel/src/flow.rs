@@ -44,17 +44,38 @@ pub(crate) fn resolve(
         state.pending_skipped = false;
     }
     let mut stack = Vec::new();
-    for &exclusion in exclusions {
-        let Some(context) = arena.parent(exclusion) else {
+    // Consecutive exclusions with the same context share its subtree walk.
+    // Keep batches in publication order so nested contexts cannot reorder shapes.
+    let mut remaining = exclusions;
+    while let Some(&first) = remaining.first() {
+        let context = arena.parent(first);
+        let count = remaining
+            .iter()
+            .take_while(|&&s| arena.parent(s) == context)
+            .count();
+        let (batch, rest) = remaining.split_at(count);
+        remaining = rest;
+        let Some(context) = context else {
             continue;
         };
-        let f = arena.frame(exclusion);
-        let s = arena.style(exclusion);
-        let shape = s
-            .shape_outside
-            .resolve(f.width, f.height)
-            .grow(s.shape_margin)
-            .translate(f.x, f.y);
+        let resolve_shape = |exclusion| {
+            let f = arena.frame(exclusion);
+            let s = arena.style(exclusion);
+            s.shape_outside
+                .resolve(f.width, f.height)
+                .grow(s.shape_margin)
+                .translate(f.x, f.y)
+        };
+        let first_shape = resolve_shape(first);
+        let grouped;
+        let shapes = if batch.len() == 1 {
+            std::slice::from_ref(&first_shape)
+        } else {
+            grouped = std::iter::once(first_shape)
+                .chain(batch[1..].iter().copied().map(resolve_shape))
+                .collect::<Vec<_>>();
+            &grouped
+        };
         stack.extend(arena.children(context).iter().rev().copied());
         while let Some(slot) = stack.pop() {
             if is_exclusion(arena, slot)
@@ -65,13 +86,16 @@ pub(crate) fn resolve(
             }
             if arena.node_type(slot) == NodeType::Text && !arena.is_inline_run(slot) {
                 let f = arena.frame(slot);
-                if meets(
-                    std::slice::from_ref(&shape),
-                    f.x,
-                    f.y,
-                    f.x + f.width,
-                    f.y + f.height,
-                ) {
+                let mut touching = shapes.iter().filter(|shape| {
+                    meets(
+                        std::slice::from_ref(*shape),
+                        f.x,
+                        f.y,
+                        f.x + f.width,
+                        f.y + f.height,
+                    )
+                });
+                if let Some(first) = touching.next() {
                     let skipped = height_measured(arena, slot);
                     let state = arena.flow.entry(slot).or_default();
                     state.root = root;
@@ -79,7 +103,11 @@ pub(crate) fn resolve(
                     if skipped {
                         state.pending_skipped = true;
                     } else {
-                        state.pending.push(shape.translate(-f.x, -f.y));
+                        state.pending.extend(
+                            std::iter::once(first)
+                                .chain(touching)
+                                .map(|shape| shape.translate(-f.x, -f.y)),
+                        );
                     }
                 }
             }
