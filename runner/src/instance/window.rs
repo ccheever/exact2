@@ -22,6 +22,15 @@ pub(super) struct ListWindow {
     rendered: Vec<usize>,
     extent: f64,
     requested_top: Option<f64>,
+    /// What the last report created, and whether its budget left work over.
+    created: usize,
+    pending: bool,
+    /// Beside each mounted row, in the region's order: its index, and the
+    /// offset and count its wrapper was last told. A report names a row by
+    /// number, not by formatting its key again, and leaves alone a wrapper
+    /// that would be told what it already has — a scroll reports many times a
+    /// second and nearly every mounted row is where it was.
+    placed: Vec<(usize, f64, usize)>,
 }
 
 fn style(u: &mut Update<'_>, view: ViewId, rows: &[(&str, Value)]) -> Result<(), InstanceError> {
@@ -151,6 +160,9 @@ impl NodeInst {
                 rendered: Vec::new(),
                 extent: -1.0,
                 requested_top: None,
+                created: 0,
+                pending: false,
+                placed: Vec::new(),
             })),
         };
         region.update(u, frames)?;
@@ -164,6 +176,13 @@ impl ListWindow {
     }
     pub(super) fn len(&self) -> usize {
         self.items.len()
+    }
+    pub(super) fn status(&self) -> crate::ListStatus {
+        crate::ListStatus {
+            top: self.top + self.origin,
+            created: self.created,
+            pending: self.pending,
+        }
     }
     pub(super) fn row(
         &self,
@@ -322,9 +341,20 @@ impl ListWindow {
             style(u, self.content, &[("height", Value::Number(extent))])?;
             self.extent = extent;
         }
-        self.render(u, active, region, frames, true, false)
+        // The records moved: number the mounted rows again by their keys. A
+        // row whose key is gone has no number and `render` retires it.
+        if let Active::Rows { rows } = &*active {
+            for (row, placed) in rows.iter().zip(self.placed.iter_mut()) {
+                placed.0 = key_text(&row.key)
+                    .and_then(|key| self.positions.get(&key).copied())
+                    .unwrap_or(usize::MAX);
+            }
+        }
+        self.render(u, active, region, frames, true, None, false)
     }
 
+    // Row creation and retirement have independent admission policies.
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &mut self,
         u: &mut Update<'_>,
@@ -332,6 +362,7 @@ impl ListWindow {
         region: RegionsId,
         frames: &[Frame],
         refresh: bool,
+        create_limit: Option<usize>,
         defer_retirement: bool,
     ) -> Result<(), InstanceError> {
         let count = self.items.len();
@@ -351,12 +382,19 @@ impl ListWindow {
         );
         wanted.sort_unstable();
         wanted.dedup();
-        // During ordinary scrolling, retiring a row costs a relayout. A report
-        // that needs no new row leaves retirement to the next mounting pass.
-        // What lingers is bounded by the rows between two such passes, O(W).
-        // (Nearly half of a reader's window changes only retired rows, each at
-        // the price of mounting one — LLP 1044 F7.)
-        if !refresh
+        let Active::Rows { rows } = active else {
+            unreachable!()
+        };
+        self.created = 0;
+        self.pending = false;
+        debug_assert_eq!(rows.len(), self.placed.len());
+        if let Some(limit) = create_limit {
+            self.ration(&mut wanted, limit, defer_retirement);
+        }
+        // Unbudgeted hosts keep retirement with the next creation pass, except
+        // when viewport or interaction changes require obsolete rows to leave.
+        if create_limit.is_none()
+            && !refresh
             && defer_retirement
             && !wanted.is_empty()
             && wanted
@@ -365,13 +403,22 @@ impl ListWindow {
         {
             return Ok(());
         }
-        let Active::Rows { rows } = active else {
-            unreachable!()
-        };
-        let mut old: BTreeMap<_, _> = std::mem::take(rows)
+        // Measurement invalidates `rendered` without retiring mounted rows.
+        if !refresh && wanted == self.rendered && rows.len() == wanted.len() {
+            return Ok(());
+        }
+        let mut gone = Vec::new();
+        let mut old: BTreeMap<usize, (Row, f64, usize)> = BTreeMap::new();
+        for (row, (index, top, of)) in std::mem::take(rows)
             .into_iter()
-            .map(|r| (key_text(&r.key).unwrap(), r))
-            .collect();
+            .zip(std::mem::take(&mut self.placed))
+        {
+            if index == usize::MAX {
+                gone.push(row);
+            } else {
+                old.insert(index, (row, top, of));
+            }
+        }
         for index in &wanted {
             let key = self.keys[*index].clone();
             let mut frame = Frame {
@@ -379,16 +426,23 @@ impl ListWindow {
                 region: Some(region.0),
                 ..Frame::default()
             };
-            let mut row = if let Some(mut row) = old.remove(&key_text(&key).unwrap()) {
+            let top = self.heights.offset(*index);
+            let mut row = if let Some((mut row, was, of)) = old.remove(index) {
                 frame.row = Some(row.slots.clone());
                 row.frame = frame.clone();
                 let mut inner = frames.to_vec();
                 inner.push(frame);
                 if refresh {
                     update_all(u, &mut row.roots, &inner)?;
+                } else if was == top && of == count {
+                    // Where it was, as many as there were: nothing to say.
+                    rows.push(row);
+                    self.placed.push((*index, top, count));
+                    continue;
                 }
                 row
             } else {
+                self.created += 1;
                 Row::create(u, region, key, self.items[*index].clone(), frames)?
             };
             let wrapper = match row.wrapper {
@@ -419,7 +473,7 @@ impl ListWindow {
                 wrapper,
                 &[
                     ("position_type", Value::str("absolute")),
-                    ("top", Value::Number(self.heights.offset(*index))),
+                    ("top", Value::Number(top)),
                     ("left", Value::Number(0.0)),
                     ("width", Value::str("100%")),
                     (
@@ -466,18 +520,81 @@ impl ListWindow {
                 children: roots_of(&row.roots),
             });
             rows.push(row);
+            self.placed.push((*index, top, count));
         }
         u.ops.push(Op::SetChildren {
             id: self.content,
             children: rows.iter().map(|r| r.wrapper.unwrap()).collect(),
         });
-        for row in old.into_values() {
+        for row in old.into_values().map(|(row, ..)| row).chain(gone) {
             u.ops.push(Op::DestroyView {
                 id: row.wrapper.unwrap(),
             });
         }
         self.rendered = wanted;
         Ok(())
+    }
+}
+
+impl ListWindow {
+    /// Hold a report to its budget: every row the scrollport shows, the rows
+    /// already mounted, and at most `limit` more, nearest the scrollport
+    /// first. Rows that have left the window go with a report that also
+    /// creates, or once nothing is left to create — never in a report of
+    /// their own, which was 45% of a scroll's reports and bought nothing
+    /// (LLP 1044 F7) — and at most `2 * limit` of them at a time.
+    fn ration(&mut self, wanted: &mut Vec<usize>, limit: usize, defer_retirement: bool) {
+        let mounted: std::collections::BTreeSet<usize> = self
+            .placed
+            .iter()
+            .map(|placed| placed.0)
+            .filter(|index| *index != usize::MAX)
+            .collect();
+        let count = self.items.len();
+        let first = self.heights.locate(self.top.max(0.0)).min(count);
+        let bottom = (self.top + self.port).max(0.0);
+        let last = self.heights.locate(bottom);
+        let last = (last + usize::from(self.heights.offset(last) < bottom)).min(count);
+        let pinned: Vec<usize> = self
+            .pins
+            .iter()
+            .filter_map(|key| self.positions.get(key).copied())
+            .collect();
+        let owed = |i: &usize| (first..last).contains(i) || pinned.contains(i);
+        let mut missing: Vec<usize> = wanted
+            .iter()
+            .copied()
+            .filter(|i| !mounted.contains(i) && !owed(i))
+            .collect();
+        missing.sort_by_key(|i| {
+            if *i < first {
+                first - *i
+            } else {
+                (*i + 1).saturating_sub(last)
+            }
+        });
+        let deferred: std::collections::BTreeSet<usize> =
+            missing.iter().skip(limit).copied().collect();
+        wanted.retain(|i| !deferred.contains(i));
+        let creating = wanted.iter().any(|i| !mounted.contains(i));
+        let mut leaving: Vec<usize> = mounted
+            .iter()
+            .copied()
+            .filter(|i| wanted.binary_search(i).is_err())
+            .collect();
+        // Farthest from the scrollport first; the rest stay mounted a report longer.
+        leaving.sort_by_key(|i| std::cmp::Reverse(first.abs_diff(*i)));
+        let retire = if !defer_retirement {
+            leaving.len()
+        } else if creating || deferred.is_empty() {
+            (2 * limit).max(4)
+        } else {
+            0
+        };
+        let kept: Vec<usize> = leaving.iter().skip(retire).copied().collect();
+        self.pending = !deferred.is_empty() || !kept.is_empty();
+        wanted.extend(kept);
+        wanted.sort_unstable();
     }
 }
 
@@ -528,6 +645,7 @@ impl Tree {
         u: &mut Update<'_>,
         view: ViewId,
         geometry: ListViewport<'_>,
+        create_limit: Option<usize>,
     ) -> Result<(), InstanceError> {
         fn walk(
             children: &mut [Child],
@@ -535,6 +653,7 @@ impl Tree {
             u: &mut Update<'_>,
             view: ViewId,
             geometry: ListViewport<'_>,
+            create_limit: Option<usize>,
         ) -> Result<bool, InstanceError> {
             for child in children {
                 match child {
@@ -550,7 +669,8 @@ impl Tree {
                         // release rows now, even when no new row is needed.
                         let defer_retirement = geometry.height > 0.0
                             && window.port == geometry.height
-                            && window.origin == geometry.origin;
+                            && window.origin == geometry.origin
+                            && (!window.measured || window.width == Some(geometry.width));
                         let old_pins = window.pins.clone();
                         window.top = (geometry.top - geometry.origin).max(0.0);
                         window.port = geometry.height;
@@ -583,12 +703,13 @@ impl Tree {
                             region.region,
                             frames,
                             false,
+                            create_limit,
                             defer_retirement,
                         )?;
                         return Ok(true);
                     }
                     Child::Node(n) => {
-                        if walk(&mut n.children, frames, u, view, geometry)? {
+                        if walk(&mut n.children, frames, u, view, geometry, create_limit)? {
                             return Ok(true);
                         }
                     }
@@ -596,7 +717,7 @@ impl Tree {
                         Active::Arm { roots, frame, .. } => {
                             let mut inner = frames.to_vec();
                             inner.push(frame.clone());
-                            if walk(roots, &inner, u, view, geometry)? {
+                            if walk(roots, &inner, u, view, geometry, create_limit)? {
                                 return Ok(true);
                             }
                         }
@@ -604,7 +725,7 @@ impl Tree {
                             for row in rows {
                                 let mut inner = frames.to_vec();
                                 inner.push(row.frame.clone());
-                                if walk(&mut row.roots, &inner, u, view, geometry)? {
+                                if walk(&mut row.roots, &inner, u, view, geometry, create_limit)? {
                                     return Ok(true);
                                 }
                             }
@@ -614,7 +735,7 @@ impl Tree {
             }
             Ok(false)
         }
-        if !walk(&mut self.children, &[], u, view, geometry)? {
+        if !walk(&mut self.children, &[], u, view, geometry, create_limit)? {
             return Err(InstanceError::List("unknown list"));
         }
         // Reconcile all final child lists before retiring old subtrees.

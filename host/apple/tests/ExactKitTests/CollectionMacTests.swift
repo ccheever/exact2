@@ -238,5 +238,84 @@ final class CollectionMacTests: XCTestCase {
         }
         wait(for: [done], timeout: 1)
     }
+    func testBudgetPendingReportsSameGeometryWithoutRecursiveAdmission() {
+        let (p, list) = fixture()
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var limits: [UInt32] = []
+        p.onList = { _, _, _, _, _, _, _, limit in
+            limits.append(limit)
+            // Actual delivery reenters apply; its finalization must not admit
+            // another report and multiply this slice's budget.
+            p.apply(self.batch([]))
+            return true
+        }
+        p.syncLists(limit: 2)
+        XCTAssertEqual(limits, [2])
+        p.pump()
+        XCTAssertEqual(limits, [2, 2], "pending work survives an unchanged geometry stamp")
+        p.requestTextPublication()
+        p.pump()
+        XCTAssertEqual(limits, [2, 2], "pending list work leaves a slice for text publication")
+        p.pump()
+        XCTAssertEqual(limits, [2, 2, 2])
+        p.reset()
+        p.pump()
+        XCTAssertEqual(limits, [2, 2, 2], "reset clears pending list identities and the pump flag")
+    }
+
+    func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutBudget() {
+        for covered in [false, true] {
+            let (p, list) = fixture()
+            defer { p.reset() }
+            p.apply(batch([
+                ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 3000.0],
+                ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 280.0, "h": covered ? 1000.0 : 300.0]
+            ]))
+            list.props["estimatedItemHeight"] = "24"
+            var limits: [UInt32] = []
+            var tops: [Double] = []
+            p.onList = { _, top, _, _, _, _, _, limit in
+                limits.append(limit); tops.append(top)
+                if limits.count == 1 {
+                    // A report can cause this through native anchoring/clamping
+                    // while its nested viewport notification is suppressed.
+                    list.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 600))
+                } else {
+                    p.apply(self.batch([
+                        ["op": "frame", "id": 3, "x": 0.0, "y": 580.0, "w": 280.0, "h": 300.0]
+                    ]))
+                }
+                return false
+            }
+            p.syncLists(limit: 2)
+            XCTAssertEqual(limits, covered ? [2] : [2, 0])
+            if !covered { XCTAssertEqual(tops.last, 600) }
+        }
+    }
+
+    func testSynchronousSettlementUsesUnlimitedReportsAndRetirementClearsPending() {
+        let (p, list) = fixture()
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var limits: [UInt32] = []
+        p.onList = { _, _, _, _, _, _, _, limit in
+            limits.append(limit)
+            return limits.count < 3
+        }
+        p.syncLists(limit: 2)
+        p.settlePump()
+        XCTAssertEqual(limits, [2, 0, 0], "agent settlement drains pending reports without an overscan budget")
+        p.pump()
+        XCTAssertEqual(limits, [2, 0, 0])
+        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
+        list.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 200))
+        p.syncLists(limit: 2)
+        let beforeRetirement = limits.count
+        p.apply(batch([["op": "destroy", "id": Int(list.id)]]))
+        p.pump()
+        XCTAssertEqual(limits.count, beforeRetirement, "destroyed lists cannot retain a pending report")
+    }
+
 }
 #endif

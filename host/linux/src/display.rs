@@ -288,10 +288,10 @@ pub fn copy_xrgb(frame: &Pixmap, dst: &mut [u8], pitch: usize, width: u32, heigh
         let row = &src[y * frame.width() as usize * 4..][..w * 4];
         let out = &mut dst[y * pitch..][..w * 4];
         for (s, d) in row.chunks_exact(4).zip(out.chunks_exact_mut(4)) {
-            d[0] = s[2];
-            d[1] = s[1];
-            d[2] = s[0];
-            d[3] = 0xff;
+            d.copy_from_slice(
+                &((u32::from_le_bytes(s.try_into().unwrap()).swap_bytes() >> 8) | 0xff00_0000)
+                    .to_le_bytes(),
+            );
         }
     }
 }

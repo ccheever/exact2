@@ -172,7 +172,7 @@ final class TextGeometryTests: XCTestCase {
         ]
         presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         var reported: [Double] = []
-        presenter.onList = { _, top, _, _, _, _, _ in reported.append(top) }
+        presenter.onList = { _, top, _, _, _, _, _, _ in reported.append(top); return false }
         presenter.views[1]!.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 5000))
         presenter.scrolled()
         XCTAssertEqual(reported.last, 5000, "a distant pinned row must not hide a gap from the list runner")

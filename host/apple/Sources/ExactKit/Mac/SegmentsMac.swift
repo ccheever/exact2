@@ -37,9 +37,8 @@ final class SegmentHost {
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
-        let owners = presenter.views.values.filter {
-            $0.props["accessibilityRole"] == "tablist" &&
-                $0.props["accessibilityOrientation"] != "vertical"
+        let owners = presenter.carrying("role:tablist").filter {
+            $0.props["accessibilityOrientation"] != "vertical"
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }

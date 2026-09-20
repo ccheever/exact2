@@ -52,10 +52,12 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     }
     private func nodes() -> [NodeView] {
         guard let presenter else { return [] }
-        return presenter.views.values.filter {
+        // Buttons that declare a chord, and the window toolbar's own.
+        let ids = presenter.chrome.ids("accessibilityKeyShortcuts").union(presenter.toolbar.items.keys)
+        return ids.sorted().compactMap { presenter.views[$0] }.filter {
             $0.kind == "button" && $0.handlers.contains("press") && presenter.toolbar.visible($0)
                 && ($0.props["accessibilityKeyShortcuts"] != nil || presenter.toolbar.contains($0))
-        }.sorted { $0.id < $1.id }
+        }
     }
     func perform(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,

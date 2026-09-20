@@ -304,15 +304,14 @@ impl LayoutTree {
                     // CSS constrains its width below the preferred columns.
                     AxisOffer::MaxContent
                 } else {
-                    known
-                        .width
-                        .map(AxisOffer::Definite)
-                        .unwrap_or_else(|| from_available(space.width))
+                    // The space for the content, never `known`: that is the
+                    // leaf's border box, and the engine has already folded it
+                    // into `space` less padding and border. A padded text that
+                    // flexes was wrapped at its border box and painted in the
+                    // content box inside it — measured a line short.
+                    from_available(space.width)
                 };
-                let height = known
-                    .height
-                    .map(AxisOffer::Definite)
-                    .unwrap_or_else(|| from_available(space.height));
+                let height = from_available(space.height);
                 // Parent layout can revisit a leaf under the same text offer
                 // after discarding its broader Taffy layout cache. Reuse the
                 // metrics before flattening runs or crossing into the host.

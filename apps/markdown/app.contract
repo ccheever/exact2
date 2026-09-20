@@ -171,12 +171,13 @@ component FolderRow
 // components syntactically and cannot recurse, and a flat list is also what
 // a long document needs to stay measurable one row at a time.
 //
-// Every kind's outermost node is the reading column itself: full width up to
-// 740, centred by auto margins, 32 of gutter. A row used to be a column holding
-// a box holding the text; a mounted row is now as few views as its kind needs
-// — a paragraph or a heading is one `text` — because every view is a layer to
-// commit, a node to lay out and a stop on AppKit's per-frame walks, and a
-// reader mounts a few hundred of them at a time (LLP 1044).
+// Every block's root is the reading column itself: as wide as the pane up to
+// 740, centred by its auto margins, 32 of gutter inside. A row is mounted and
+// retired as the reader scrolls, so what a row is made of is what scrolling
+// costs: a paragraph is one `text` node — its own padding, no box around it —
+// where it used to be a text in a box in a column. A `text` that flexes says
+// `min-width=0`, as it would on the web: its width is its share, and the
+// layout is not asked to find its longest word first.
 component Blocks
   inject
     theme: Theme
@@ -192,9 +193,9 @@ component Blocks
           Runs(runs=block.runs, size=16, weight=400)
       else
         when block.kind == "item"
-          row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=(36 + block.depth * 22) padding-right=32 padding-top=2 padding-bottom=4 box-sizing="border-box"
+          row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" box-sizing="border-box" padding-top=2 padding-bottom=4 padding-left=(36 + block.depth * 22) padding-right=32
             text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
-            text flex=1 color=theme.ink line-height=1.625
+            text flex=1 min-width=0 color=theme.ink line-height=1.625
               Runs(runs=block.runs, size=16, weight=400)
         else
           when block.kind == "code"
@@ -208,7 +209,7 @@ component Blocks
             when block.kind == "quote"
               row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box"
                 view width=3 background-color=theme.quoteEdge border-radius=2
-                text flex=1 padding-left=16 color=theme.quoteInk line-height=1.625
+                text flex=1 min-width=0 padding-left=16 color=theme.quoteInk line-height=1.625
                   Runs(runs=block.runs, size=16, weight=400)
             else
               when block.kind == "rule"
@@ -220,10 +221,10 @@ component Blocks
                     row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge
                       each c in block.cells key=c.id
                         when block.header
-                          text flex=1 padding=8 color=theme.strongInk line-height="20px"
+                          text flex=1 min-width=0 padding=8 color=theme.strongInk line-height="20px"
                             Runs(runs=c.runs, size=13, weight=700)
                         else
-                          text flex=1 padding=8 color=theme.ink line-height="20px"
+                          text flex=1 min-width=0 padding=8 color=theme.ink line-height="20px"
                             Runs(runs=c.runs, size=13, weight=400)
                 else
                   when block.kind == "image"

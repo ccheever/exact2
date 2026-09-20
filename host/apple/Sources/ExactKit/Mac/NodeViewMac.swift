@@ -200,7 +200,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textRasterReady = false
     var textRasterPending = false
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var props: [String: String] = [:]
+    var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: [String: Any] = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = []
@@ -932,8 +932,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
-        for k in clear { props.removeValue(forKey: k) }
-        for (k, v) in set { props[k] = v }
+        if pendingScrollTop != nil || pendingScrollLeft != nil { presenter?.pendingScrolls.insert(id) }
+        var next = props
+        for k in clear { next.removeValue(forKey: k) }
+        for (k, v) in set { next[k] = v }
+        props = next
         applyTextArea()
         if let f = field {
             // `type` changed between password and text: a secure field is a
@@ -1032,12 +1035,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             for child in container.subviews where child is NodeView { child.removeFromSuperview(); sv.documentView?.addSubview(child) }
             addSubview(sv)
             scroll = sv
+            presenter?.scrollers.insert(id)
         }
         if ox != "scroll" && oy != "scroll", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
             sv.removeFromSuperview()
             scroll = nil
+            presenter?.scrollers.remove(id)
         }
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"

@@ -461,6 +461,35 @@ browser selection use this path for partial and full-document copy. Copy does
 not mount the selected range. This does not claim virtual accessibility
 navigation, Linux geometry, or the image budget below is complete.
 
+**Rationed reports on Apple, 2026-09-19** (Claude, for the Markdown reader;
+measurements in `apps/markdown/README.md`). AppKit scrolls a contained list on
+the thread that lays out, so what a geometry report costs is what a scrolling
+frame costs. Three changes to the measured-row path, none to the web's:
+
+- *One report settles.* `Host::list_viewport` reports, lays out, reads the row
+  heights back from the kernel and reports again until nothing changes, then
+  emits one batch. A created row used to take a second report from AppKit's
+  frames — a second batch and a second `Presenter.apply`.
+- *A report has a budget.* `Runner::list_viewport_within(view, geometry,
+  create_limit)` creates every row the scrollport shows and at most
+  `create_limit` more, nearest first; `Runner::list_status` says whether rows
+  remain. Rows that left the window are retired by a report that also
+  creates, a few at a time, or once nothing is left to create — never by a
+  report of their own. `list_viewport` is the same call with no limit, and is
+  what the web and an agent use. `exact_list` takes the limit as its last
+  argument (0: the whole window); `exact_list_pending` asks.
+- *The Mac presenter fills between frames.* A scroll that still shows mounted
+  rows a quarter of a scrollport past both ends reports nothing; the window is
+  filled from a `BeforeWaiting` observer ordered after Core Animation's commit,
+  one row or one paragraph's painting at a time, for a quarter of a frame. A
+  scroll that outruns it reports at once, and the rows it shows are never
+  rationed: no refresh showed uncovered space at 48,000 points a second. UIKit
+  does not do this yet.
+
+The mounted set is therefore a subset of the window while a fill is pending and,
+briefly, a superset while retirement is; both are bounded by the window.
+`host/apple/tests/lists.rs` holds the three behaviours.
+
 ### 6.3 Raster memory is a separate budget
 
 After view lifetime works, bound loading independently on Apple/Linux:

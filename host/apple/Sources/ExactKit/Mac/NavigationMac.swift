@@ -10,7 +10,7 @@ final class NavigationHost {
 
     func sync() {
         refused = refused.filter { presenter.views[$0.key] != nil }
-        for nav in presenter.views.values where nav.props["navigationBack"] != nil {
+        for nav in presenter.carrying("navigationBack") {
             let routes = nav.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
             let key = nav.props["navigationKey"] ?? ""
             guard let prefix = NavigationRules.stack(routeKeys: routes.map { $0.props["navigationKey"] ?? "" }, selected: key) else {

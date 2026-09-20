@@ -169,3 +169,104 @@ fn vertical_offers_remain_part_of_the_measurement_key() {
         assert_eq!(kernel.node(1).unwrap().frame.width, height / 2.0);
     }
 }
+
+/// Text wraps in its content box. The engine tells a leaf's measurer two
+/// things: the space available to its content, and — when it is sizing a flex
+/// item — the item's known size, which is its border box. A padded `text` that
+/// flexes was wrapped at that border box and painted in the content box inside
+/// it: measured a line short and clipped by its row. 25 glyphs at 10px are
+/// 250 wide: one line in the 260 border box, two in the 244 content box.
+#[test]
+fn a_padded_text_that_flexes_wraps_in_its_content_box() {
+    use reader::{number, style, text};
+    use std::{cell::RefCell, rc::Rc};
+    use StyleId::*;
+    struct Tracked(Rc<RefCell<Vec<AxisOffer>>>, MonospaceMeasurer);
+    impl TextMeasurer for Tracked {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            self.0.borrow_mut().push(request.width);
+            self.1.measure(request)
+        }
+    }
+    let offers = Rc::new(RefCell::new(Vec::new()));
+    let measurer = MonospaceMeasurer {
+        advance_em: 0.625,
+        ..MonospaceMeasurer::default()
+    };
+    let mut kernel = Kernel::new(Box::new(Tracked(offers.clone(), measurer)));
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::View,
+        },
+        style(1, &[(Width, number(520.0))]),
+        style(
+            2,
+            &[
+                (Display, text("flex")),
+                (FlexDirection, text("row")),
+                (Width, exact_kernel::StyleValue::Percent(100.0)),
+            ],
+        ),
+    ];
+    for (id, words) in [(3, "abcdefghij klmnopqrst uvw"), (4, "short")] {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::Text,
+        });
+        ops.push(style(
+            id,
+            &[
+                (FlexGrow, number(1.0)),
+                (FlexShrink, number(1.0)),
+                (FlexBasis, exact_kernel::StyleValue::Percent(0.0)),
+                (MinWidth, number(0.0)),
+                (PaddingLeft, number(8.0)),
+                (PaddingRight, number(8.0)),
+                (PaddingTop, number(8.0)),
+                (PaddingBottom, number(8.0)),
+                (FontSize, number(16.0)),
+                (LineHeight, text("20px")),
+            ],
+        ));
+        ops.push(Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: words.into(),
+        });
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(520.0, 400.0))
+        .unwrap();
+    let cell = kernel.node(3).unwrap().frame;
+    assert_eq!(cell.width, 260.0);
+    assert_eq!(
+        (cell.height, kernel.node(2).unwrap().frame.height),
+        (56.0, 56.0),
+        "two 20px lines and the padding, for the cell and the row it sets"
+    );
+    for offer in offers.borrow().iter() {
+        assert_ne!(
+            *offer,
+            AxisOffer::Definite(260.0),
+            "the border box is never a wrapping width: {:?}",
+            offers.borrow()
+        );
+    }
+}

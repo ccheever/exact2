@@ -192,6 +192,46 @@ final class MacShortcutTests: XCTestCase {
                          characters: key, charactersIgnoringModifiers: key, isARepeat: repeating, keyCode: 0)!
     }
 
+    /// The chrome passes visit what this index names instead of every view, so
+    /// it has to follow every write to a view's props, whoever makes it.
+    func testChromeIndexFollowsEveryWriteToPropsAndForgetsDestroyedViews() {
+        let presenter = Presenter()
+        func apply(_ ops: [[String: Any]]) {
+            presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view", "props": ["semanticTag": "main"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["accessibilityRole": "listitem"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+        ])
+        // A page's own landmarks and a list's rows are not chrome.
+        XCTAssertFalse(presenter.chrome.hidesOrInerts)
+        XCTAssertTrue(presenter.carrying("tag:dialog").isEmpty)
+        XCTAssertTrue(presenter.carrying("role:tablist").isEmpty)
+
+        apply([["op": "props", "id": 2, "set": ["popover": "auto", "accessibilityRole": "tablist"], "clear": []]])
+        XCTAssertEqual(presenter.carrying("popover").map(\.id), [2])
+        XCTAssertEqual(presenter.carrying("role:tablist").map(\.id), [2])
+        XCTAssertTrue(presenter.chrome.hidesOrInerts)
+
+        // A write that does not come through a batch is indexed too.
+        presenter.views[1]!.props["semanticTag"] = "dialog"
+        XCTAssertEqual(presenter.carrying("tag:dialog").map(\.id), [1])
+        presenter.views[1]!.props["semanticTag"] = "main"
+        XCTAssertTrue(presenter.carrying("tag:dialog").isEmpty)
+
+        apply([["op": "props", "id": 2, "set": [:], "clear": ["popover", "accessibilityRole"]]])
+        XCTAssertFalse(presenter.chrome.hidesOrInerts)
+        apply([
+            ["op": "props", "id": 2, "set": ["navigationBack": "true"], "clear": []],
+            ["op": "children", "id": 1, "ids": []],
+            ["op": "destroy", "id": 2],
+        ])
+        XCTAssertTrue(presenter.carrying("navigationBack").isEmpty)
+        XCTAssertFalse(presenter.chrome.hidesOrInerts)
+    }
+
     func testMenuSyncPreservesStaticCommandsAndUsesNativePlacement() {
         let presenter = Presenter()
         let window = window(presenter)

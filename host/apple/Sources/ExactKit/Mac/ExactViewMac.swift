@@ -118,7 +118,10 @@ public final class ExactView: NSView {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === self.window, self.ownsShortcutFocus() else { return event }
+                guard let self, event.window === self.window else { return event }
+                // Tab reads the key-view loop; a scroll can leave its rebuild pending.
+                if event.keyCode == 48 { self.session.presenter.flushKeyViewLoop() }
+                guard self.ownsShortcutFocus() else { return event }
                 return self.session.presenter.shortcuts.perform(event) ? nil : event
             }
         }
