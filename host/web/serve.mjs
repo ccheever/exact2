@@ -11,17 +11,15 @@ import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
-import { developmentURLScheme } from '../../scripts/app.mjs';
+import { developmentURLScheme, webHostFiles } from '../../scripts/app.mjs';
 import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
 
 const PUBLIC_FILES = new Set([
   ...INSTALL_FILES,
-  '/rust-glue.js', '/app.js', '/app.hbc', '/app.module.json', '/module-glue.js', '/module-worker.js', '/module-prelude.js',
-  '/storage-request.js', '/storage.js', '/storage-fs.js', '/storage-sqlite.js', '/storage-worker.js', '/sqlite3.mjs', '/sqlite3.wasm',
-  '/app.plan', '/app.wasm', '/exact.json', '/glue.js', '/navigation.js', '/textflow-glue.js', '/timer-glue.js', '/http-body.js', '/gpu-glue.js',
-  '/list-selection.js', '/media-glue.js', '/input-glue.js',
+  ...Object.keys(webHostFiles()).map(name => '/' + name),
+  '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/index.html', '/manifest.json',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.

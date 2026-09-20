@@ -1,4 +1,4 @@
-// Input-only glue: loaded after the baked first pixel, before input is enabled.
+// Input-only glue: loaded after the baked first pixel, independently of data readiness.
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch }) {
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;

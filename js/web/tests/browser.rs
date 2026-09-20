@@ -5,6 +5,22 @@ use std::process::Command;
 mod caltrain;
 
 #[test]
+fn browser_fixture_serves_every_on_demand_host_module_without_chrome() {
+    let result = Command::new("bun")
+        .args(["--input-type=module", "-e", PROBE])
+        .env("EXACT_MODULE_ROUTES_ONLY", "1")
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
@@ -34,15 +50,15 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
 
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { webHostFiles } from './scripts/app.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-const routes = {'/module-glue.js':'host/web/module-glue.js','/module-worker.js':'host/web/module-worker.js','/module-prelude.js':'js/src/prelude.js'};
-routes['/startup/glue.js']='host/web/glue.js';
-routes['/startup/navigation.js']=routes['/navigation.js']='host/web/navigation.js';
+const routes = Object.fromEntries(['/','/startup/'].flatMap(prefix=>
+  Object.entries(webHostFiles()).map(([name,source])=>[prefix+name,source])));
 const hostPage=readFileSync('host/web/index.html','utf8');
 const modulePage=hostPage.replace(/<script type="module" src="\.\/glue\.js"><\/script>/,'');
 const startupStub=()=>{
@@ -81,24 +97,42 @@ const startupStub=()=>{
   };
 };
 const startupPage=hostPage.replace('<script type="module" src="./glue.js"></script>',`<script>(${startupStub.toString()})()</script><script type="module" src="/startup/glue.js"></script>`);
-for(const name of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js'])routes['/'+name]='host/web/'+name;
-routes['/sqlite3.mjs']='node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs';
-routes['/sqlite3.wasm']='node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm';
-const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
-fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const server = createServer((req,res)=>{
-  if(req.url.startsWith('/startup/storage-request.js')){
+  const path=new URL(req.url,'http://fixture.invalid').pathname;
+  if(path==='/startup/storage-request.js'){
     res.setHeader('content-type','text/javascript');
     res.end(`startup.storageBeforePaint=!document.getElementById('exact-root').dataset.frameCallbackMs;globalThis.exact.createStorageRequests=(app,grants)=>({run:async()=>{startup.storageRuns++;return new Uint8Array();},dispose(){}});`);return;
   }
-  if(req.url.startsWith('/startup/module-glue.js')){
+  if(path==='/startup/module-glue.js'){
     res.setHeader('content-type','text/javascript');
     res.end(`globalThis.exact.moduleRuntime={baked:async()=>{await globalThis.startupGate;if(location.search.includes('fail'))throw new Error('controlled loader failure');return {};},prepare:async()=>({id:0,dispose(){}})};`);return;
   }
-  res.setHeader('content-type', req.url.endsWith('.wasm') ? 'application/wasm' : routes[req.url] ? 'text/javascript' : 'text/html');
-  res.end(routes[req.url] ? readFileSync(routes[req.url]) : req.url.startsWith('/startup') ? startupPage : modulePage);
+  if(!routes[path]&&!['/','/startup','/startup/app.wasm'].includes(path)){res.writeHead(404);res.end();return;}
+  res.setHeader('content-type', path.endsWith('.wasm') ? 'application/wasm' : routes[path] ? 'text/javascript' : 'text/html');
+  res.end(routes[path] ? readFileSync(routes[path]) : path==='/startup/app.wasm' ? '' : path==='/startup' ? startupPage : modulePage);
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
+// @ref LLP 1043.000 §3 D7/D8 — exercise the actual fixture server without Chrome.
+if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
+  try {
+    const glue=readFileSync('host/web/glue.js','utf8');
+    const requested=[...glue.matchAll(/loadAfterPaint\(['"]\.\/([^'"]+)['"]/g)].map(match=>match[1]);
+    assert(requested.length>0,'negative control: the loader inventory cannot be empty');
+    const problems=[];
+    for(const name of new Set([...requested,...Object.keys(webHostFiles())]))for(const prefix of ['/','/startup/']){
+      const path=prefix+name;
+      const response=await fetch(`http://127.0.0.1:${server.address().port}${path}`);
+      const body=Buffer.from(await response.arrayBuffer());
+      if(response.status!==200||response.headers.get('content-type')!==(name.endsWith('.wasm')?'application/wasm':'text/javascript'))problems.push(`${path}: ${response.status} ${response.headers.get('content-type')}`);
+      else if(!['/startup/module-glue.js','/startup/storage-request.js'].includes(path)&&!body.equals(readFileSync(webHostFiles()[name]??'host/web/'+name)))problems.push(`${path}: wrong module bytes`);
+    }
+    assert.deepEqual(problems,[],'every on-demand host module is served as JavaScript');
+    assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/startup/missing-glue.js`)).status,404,'missing modules never masquerade as HTML');
+  } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+  process.exit(0);
+}
+const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
+fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
 const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
@@ -521,15 +555,14 @@ fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
 
 const PROTOCOL_PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { webHostFiles } from './scripts/app.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-const routes={'/module-glue.js':'host/web/module-glue.js','/module-prelude.js':'js/src/prelude.js',
-  '/sqlite3.mjs':'node_modules/@sqlite.org/sqlite-wasm/dist/index.mjs','/sqlite3.wasm':'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm'};
-for(const file of ['storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js','storage-request.js'])routes['/'+file]='host/web/'+file;
+const routes=Object.fromEntries(Object.entries(webHostFiles()).map(([name,source])=>['/'+name,source]));
 const app=execFileSync('./node_modules/.bin/rolldown',['apps/fieldnotes/app.ts','--format','iife','--name','fieldnotes'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})+'\nglobalThis.exact={...fieldnotes,abi:1};';
 const server=createServer((req,res)=>{
   res.setHeader('content-type',req.url.endsWith('.wasm')?'application/wasm':routes[req.url]?'text/javascript':'text/html');

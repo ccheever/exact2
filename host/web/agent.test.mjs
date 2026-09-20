@@ -279,3 +279,115 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
   expect(h.key({ key: 'Escape', metaKey: false }).prevented).toBe(true);
   expect(clicks).toBe(2);
 });
+
+// @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
+const checkpoint = () => new Promise(resolve => setImmediate(resolve));
+async function startupFixture(rustOnly = false) {
+  const data = deferred(), input = deferred(), timer = deferred();
+  const frames = [], loads = [], errors = [], events = [];
+  const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
+    exact_logic: () => '{"appId":"test.startup"}',
+    exact_data_ready: () => { events.push('activate'); return '{"ops":[]}'; },
+    ...(rustOnly ? {} : { exact_module_artifact() {} }) };
+  const f = vm.createContext({ frames, loads, errors, events,
+    root: { dataset: {}, setAttribute(key, value) { this[key] = value; } },
+    views: new Map(), retiredViews: new WeakSet(), authoredDisabled: new WeakMap(),
+    inputReady: false, inputHandlers: null, wasm: null, memory: null, logicInfo: null,
+    moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
+    performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 },
+    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }) },
+    moduleCall() {}, rustImports: {}, readOut: value => value,
+    boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {},
+    requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
+    motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
+    applyBatch: () => events.push('batch'), inertAncestor: () => false,
+    resolveModuleReady: () => events.push('ready'),
+    loadAfterPaint(file) {
+      loads.push(file);
+      if (file === './input-glue.js') return input.promise;
+      if (file === './timer-glue.js') return timer.promise;
+      if (file === './module-glue.js') return Promise.resolve({ baked: () => data.promise, prepare: async () => ({ id: 0 }) });
+      throw new Error('unexpected startup module: ' + file);
+    },
+  });
+  f.exact = {};
+  vm.runInContext(['setInputReady', 'activateData', 'main'].map(declaration).join('\n')
+    .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
+  await f.main();
+  expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
+  frames.shift()();
+  expect(loads).toEqual([]);
+  const activation = frames.shift()();
+  return { f, data, input, timer, activation };
+}
+
+test('pending, failed and invalid optional modules leave Rust and JS apps ready after paint', async () => {
+  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) {
+    const h = await startupFixture(rustOnly), { f } = h;
+    if (!rustOnly) expect(f.inputReady).toBe(false);
+    h.data.resolve({});
+    await checkpoint();
+    expect(f.root.dataset.moduleReady).toBe('true');
+    expect(f.inputReady).toBe(true);
+    expect(f.root['aria-busy']).toBe('false');
+    expect(f.events).toEqual(['boot', 'activate', 'batch', 'collections', 'ready']);
+    expect(f.inputHandlers).toBeNull(); // A stalled import has no readiness deadline.
+    expect(f.loads.filter(file => file === './input-glue.js')).toHaveLength(1);
+    h.timer.reject(new Error('timer unavailable'));
+    if (failure === 'reject') h.input.reject(new Error('input unavailable'));
+    else if (failure === 'invalid') h.input.resolve(undefined);
+    else h.input.resolve(() => ({ pan: 'installed after readiness' }));
+    await h.activation;
+    await checkpoint();
+    expect(f.root.dataset.error).toBeUndefined();
+    expect(f.root.dataset.moduleReady).toBe('true');
+    expect(f.events.filter(event => event === 'activate')).toHaveLength(1);
+    expect(f.errors).toHaveLength(failure === 'pending' ? 1 : 2);
+    if (failure === 'pending') expect(f.inputHandlers.pan).toBe('installed after readiness');
+  }
+});
+
+test('required app module failure still keeps dispatch gated and settles the error', async () => {
+  const h = await startupFixture();
+  h.data.reject(new Error('required app unavailable'));
+  await h.activation;
+  expect(h.f.inputReady).toBe(false);
+  expect(h.f.root.dataset.moduleReady).toBeUndefined();
+  expect(h.f.root.dataset.error).toContain('required app unavailable');
+  expect(h.f.events).toEqual(['boot', 'ready']);
+  h.input.resolve(() => ({})); h.timer.resolve(() => ({}));
+  await checkpoint();
+});
+
+test('ready pan nodes tolerate a missing module and install exactly once when it arrives', () => {
+  const h = inputFixture();
+  h.f.inputReady = true;
+  for (let i = 0; i < 1000; i++) expect(h.pointer('pointerdown').prevented).toBe(false);
+  expect(h.frames.size).toBe(0);
+  expect(h.sent).toEqual([]);
+  h.load();
+  h.pointer('pointerdown'); h.pointer('pointerup', { clientX: 10 });
+  expect(h.sent).toEqual([[7, 20, '10,0', 0]]);
+});
+
+test('initial flow loading cannot hold the first frame or module activation', async () => {
+  const f = fixture(false), loading = deferred();
+  const apply = f.applyBatch;
+  f.loadAfterPaint = () => loading.promise;
+  f.log = line => f.logs.lines.push(line);
+  vm.runInContext(declaration('flowBatch'), f);
+  f.applyBatch = batch => {
+    const result = apply(batch);
+    f.flowBatch({ ops: [{ op: 'textflow', contexts: [{ root: 1 }] }] });
+    return result;
+  };
+  let painted = false;
+  const boot = f.boot(null).then(() => { painted = true; });
+  await checkpoint();
+  expect(painted).toBe(true);
+  expect(f.events).toEqual(['replace', 'batch']);
+  loading.reject(new Error('flow unavailable'));
+  await checkpoint();
+  expect(f.logs.lines.at(-1)).toContain('textflow module: Error: flow unavailable');
+  await boot;
+});

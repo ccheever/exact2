@@ -9,7 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpat
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { rustPolicy } from '../../scripts/app.mjs';
+import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
@@ -63,15 +63,10 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 const shaders = resolve(app.dir, 'gpu', 'shaders');
 copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
-copyFileSync(resolve(root, 'host/web/glue.js'), resolve(stage, 'glue.js'));
-// Optional script module: copied as a host artifact, fetched only by flow plans.
-copyFileSync(resolve(root, 'host/web/textflow-glue.js'), resolve(stage, 'textflow-glue.js'));
-copyFileSync(resolve(root, 'host/web/timer-glue.js'), resolve(stage, 'timer-glue.js'));
-copyFileSync(resolve(root, 'host/web/input-glue.js'), resolve(stage, 'input-glue.js'));
-copyFileSync(resolve(root, 'host/web/http-body.js'), resolve(stage, 'http-body.js'));
-copyFileSync(resolve(root, 'host/web/media-glue.js'), resolve(stage, 'media-glue.js'));
-copyFileSync(resolve(root, 'host/web/list-selection.js'), resolve(stage, 'list-selection.js'));
-copyFileSync(resolve(root, 'host/web/navigation.js'), resolve(stage, 'navigation.js'));
+function copyHostFiles(group) {
+  for (const [name, source] of Object.entries(webHostFiles(group))) copyFileSync(resolve(root, source), resolve(stage, name));
+}
+copyHostFiles('base');
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -103,10 +98,7 @@ if (typeof exports.exact_module_artifact === 'function') {
     files.set(name, body); writeFileSync(resolve(stage, name), body);
   }
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
-  copyFileSync(resolve(root, 'host/web/module-glue.js'), resolve(stage, 'module-glue.js'));
-  copyFileSync(resolve(root, 'host/web/module-worker.js'), resolve(stage, 'module-worker.js'));
-  copyFileSync(resolve(root, 'js/src/prelude.js'), resolve(stage, 'module-prelude.js'));
-
+  copyHostFiles('module');
 }
 if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
 const compatLen = exports.exact_compat();
@@ -115,12 +107,7 @@ const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXA
 if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
 // Storage is an app capability, including apps whose only logic is Rust.
 if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
-  for (const name of ['storage-request.js','storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js']) {
-    copyFileSync(resolve(root, 'host/web', name), resolve(stage, name));
-  }
-  for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
-    copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
-  }
+  copyHostFiles('storage');
 }
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
@@ -130,7 +117,7 @@ if (rustPackage(app) && rustPolicy(app.manifest, 'web', buildEnv.EXACT_UPDATE_TR
   const files = rustFiles(built);
   for (const [name, bytes] of files) { mkdirSync(resolve(stage, name, '..'), {recursive:true}); writeFileSync(resolve(stage, name), bytes); }
   pairedRust = rustCards(files);
-  copyFileSync(resolve(root, 'host/web/rust-glue.js'), resolve(stage, 'rust-glue.js'));
+  copyHostFiles('rust');
 }
 writeFileSync(resolve(stage, 'bake.json'), JSON.stringify(buildReceipt) + '\n');
 writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app, planBytes, copiedAssets), ...(pairedModule ? { module: pairedModule } : {}), ...(pairedRust ? { rust: pairedRust } : {}) }) + '\n');
@@ -177,7 +164,7 @@ if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
   else {
     const bg = resolve(stage, 'gpu_bg.wasm');
     const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
-    copyFileSync(resolve(root, 'host/web/gpu-glue.js'), resolve(stage, 'gpu-glue.js'));
+    copyHostFiles('gpu');
     const gw = readFileSync(bg);
     gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
   }

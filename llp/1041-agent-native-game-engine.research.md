@@ -239,3 +239,10 @@ No number in this document was measured.
 ## Development experience follow-up (2026-09-18)
 
 [LLP 1041.006](1041.006-game-development-experience.rfc.md) proposes bounded bug captures, dependable state-preserving reload, diagnostics and declarative scene authoring after the Lanterns comparison. It is a requested Draft RFC, not an implementation or scope-policy amendment.
+
+## Unreal follow-up (2026-09-19)
+
+[LLP 1041.010](1041.010-unreal-comparison.research.md) records the same comparison against Unreal
+at Charlie's request: the rendering and content gap widens sharply, the agent-facing gap reverses,
+and the lane's oracle stays Godot. Desk research only; it proposes no work and moves nothing on
+`rules/NOT-DOING.md`.
