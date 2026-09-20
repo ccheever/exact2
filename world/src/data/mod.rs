@@ -78,12 +78,33 @@ impl DataError {
     }
     /// Prepend a field, type, or sequence index to the path.
     pub fn at(mut self, path: impl fmt::Display) -> Self {
-        self.path = if self.path.is_empty() {
-            path.to_string()
-        } else {
-            format!("{path}.{}", self.path)
-        };
+        if self.path.len() == 256 {
+            return self;
+        }
+        use fmt::Write;
+        let mut out = BoundedPath(String::new());
+        let _ = write!(out, "{path}");
+        if !self.path.is_empty() {
+            let _ = write!(out, ".{}", self.path);
+        }
+        self.path = out.0;
+
         self
+    }
+}
+struct BoundedPath(String);
+impl fmt::Write for BoundedPath {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let mut n = s.len().min(256 - self.0.len());
+        while !s.is_char_boundary(n) {
+            n -= 1;
+        }
+        self.0.push_str(&s[..n]);
+        if n < s.len() {
+            Err(fmt::Error)
+        } else {
+            Ok(())
+        }
     }
 }
 impl fmt::Display for DataError {

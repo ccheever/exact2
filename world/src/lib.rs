@@ -33,3 +33,8 @@ mod sim;
 pub use sim::{Game, Now, Paranoid, Sim};
 /// Bound for entity-indexed work, including dead slots.
 pub const MAX_ENTITIES: usize = 200_000;
+
+#[cfg(test)]
+#[allow(dead_code, unsafe_code)]
+#[path = "storage/counting.rs"]
+mod counting;

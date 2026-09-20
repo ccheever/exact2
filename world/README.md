@@ -572,3 +572,10 @@ from-save and carry have independent controls. v9 refuses; no migration ships.
 `bin::read_into(bytes, &mut value)` stages a saved copy and patch under one
 256 MiB decode allowance, replacing only on successful completion. This explicit
 patch path costs a complete encode/decode of the existing value.
+
+Publication loading charges one cumulative 65,536-unit allowance before nested
+children, strings and object keys allocate; declared child counts preflight it.
+Logical publication depth is 80 (at most 243 codec frames including Sim framing).
+Root keys separately have the fixed 256 × 256-byte bound. Error paths truncate
+on UTF-8 boundaries at 256 bytes; their fixed diagnostic reserve is outside the
+decoded-state budget and never grows with rejected payload size.

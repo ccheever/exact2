@@ -340,6 +340,10 @@ impl<'a> Decoder<'a> {
         let b = self.take(len)?;
         std::str::from_utf8(b).map_err(|_| self.err("invalid UTF-8"))
     }
+    pub(crate) fn borrowed_string(&mut self) -> Result<&'a str, DataError> {
+        self.tag(6, "expected a string")?;
+        self.text()
+    }
     fn name(&mut self) -> Result<&'a str, DataError> {
         let n = self.var()?;
         if n == 0 {

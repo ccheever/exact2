@@ -577,3 +577,22 @@ fn removed_strings_are_skipped_without_payload_allocation() {
         "allocated {allocated} to discard a string"
     );
 }
+
+#[test]
+fn refusing_nested_dynamic_paths_has_bounded_error_allocations() {
+    let key = "🌕".repeat(65_536);
+    let (error, counts) = counting::measure(|| {
+        let mut e = DataError::new("invalid leaf");
+        for _ in 0..256 {
+            e = e.at(&key);
+        }
+        e
+    });
+    assert!(error.path.len() <= 256, "error path escaped its reserve");
+    assert!(counts.1 < 4096, "quadratic error construction: {counts:?}");
+    assert!(DataError::new("bad")
+        .at("leaf")
+        .at("root")
+        .to_string()
+        .contains("root.leaf"));
+}

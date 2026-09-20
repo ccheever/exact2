@@ -259,10 +259,10 @@ fn typed_binary_args_versions_and_truncation_are_atomic() {
     args.read(&mut r).unwrap();
     assert_eq!(args.seed, 9_007_199_254_740_991);
     assert_eq!(args.text, "hello\0🌕");
-    for version in [0, 1, 2, 3, 4, 5, 6, 7, 8, 255] {
+    for version in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 255] {
         let mut bad = bytes.clone();
         bad[6] = version;
-        assert!(s.restore(&bad).unwrap_err().message.contains("EXSIM v9"));
+        assert!(s.restore(&bad).unwrap_err().message.contains("EXSIM v10"));
         assert_eq!(s.save().unwrap(), bytes);
     }
     for end in 0..bytes.len() {

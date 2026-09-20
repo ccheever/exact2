@@ -80,18 +80,58 @@ impl Data for State {
 }
 
 impl World {
-    pub(crate) fn read_publications(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        limits::read_map(r, self.published.get_mut(), 256, 256)?;
-        if self.published.get_mut().len() > 256
-            || self.published.get_mut().keys().any(|k| k.len() > 256)
-        {
-            return Err(DataError::new("publication count/key limit"));
-        }
+    pub(crate) fn read_publications(&mut self, r: &mut bin::Decoder<'_>) -> Result<(), DataError> {
+        r.begin_struct()?;
         let mut budget = crate::json::LIMIT;
-        for value in self.published.get_mut().values() {
-            value.validate(&mut budget, 0)?;
+        let values = self.published.get_mut();
+        while let Some(key) = r.field()? {
+            if values.len() == 256 || key.len() > 256 {
+                return Err(DataError::new("publication count/key limit"));
+            }
+            r.claim(64 + key.len())?;
+            let value = crate::Published::read_bounded(r, &mut budget, 0)?;
+            values.insert(key.into(), value);
         }
         self.published_cost.set(crate::json::LIMIT - budget);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use crate::counting;
+    #[test]
+    fn nested_publications_charge_before_allocating_declared_children_or_text() {
+        for value in [
+            crate::Published::List(vec![crate::Published::Unit; 100_000]),
+            crate::Published::Str("x".repeat(1_000_000)),
+            crate::Published::Object(BTreeMap::from([(
+                "x".repeat(100_000),
+                crate::Published::Unit,
+            )])),
+        ] {
+            let mut out = bin::Encoder::default();
+            out.begin_struct();
+            out.key("x");
+            value.write(&mut out);
+            out.end_struct();
+            let bytes = out.finish().unwrap();
+            let mut world = World::new(60, 0);
+            let mut r = bin::Decoder::new(&bytes);
+            let (result, counts) = counting::measure(|| world.read_publications(&mut r));
+            println!("publication refusal: {counts:?}");
+            assert!(result.is_err());
+            assert!(counts.1 < 20_000, "late allocation: {counts:?}");
+        }
+        let mut out = bin::Encoder::default();
+        out.begin_struct();
+        out.key("x");
+        crate::Published::List(vec![crate::Published::Unit; 1022]).write(&mut out);
+        out.end_struct();
+        let bytes = out.finish().unwrap();
+        let mut w = World::new(60, 0);
+        w.read_publications(&mut bin::Decoder::new(&bytes)).unwrap();
+        assert_eq!(w.publications().len(), 1);
     }
 }
