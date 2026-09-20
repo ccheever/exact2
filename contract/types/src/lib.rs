@@ -854,25 +854,36 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
         fn visit(
             name: &str,
             graph: &BTreeMap<&str, Vec<String>>,
+            states: &mut BTreeMap<String, u8>,
             path: &mut Vec<String>,
         ) -> Option<Vec<String>> {
-            if path.iter().any(|p| p == name) {
-                path.push(name.to_string());
-                return Some(path.clone());
+            match states.get(name) {
+                Some(2) => return None,
+                Some(1) => {
+                    path.push(name.to_string());
+                    return Some(path.clone());
+                }
+                _ => {}
             }
+            states.insert(name.to_string(), 1);
             path.push(name.to_string());
             for callee in graph.get(name).into_iter().flatten() {
                 if graph.contains_key(callee.as_str()) {
-                    if let Some(cycle) = visit(callee, graph, path) {
+                    if let Some(cycle) = visit(callee, graph, states, path) {
                         return Some(cycle);
                     }
                 }
             }
             path.pop();
+            *states.get_mut(name).expect("visited function") = 2;
             None
         }
+        // Completed subgraphs are shared across roots and call sites. Without
+        // this memo, N helpers that each call the preceding helper twice take
+        // exponential work even when no helper is used by the app.
+        let mut states = BTreeMap::new();
         for f in &file.fns {
-            if let Some(cycle) = visit(&f.name, &graph, &mut Vec::new()) {
+            if let Some(cycle) = visit(&f.name, &graph, &mut states, &mut Vec::new()) {
                 return err(
                     "type-fn-recursive",
                     format!(
