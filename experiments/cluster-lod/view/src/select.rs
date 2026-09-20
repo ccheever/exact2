@@ -93,18 +93,6 @@ pub fn cone_visible(c: &Cluster, model: Mat4, scale: f32, camera: &Camera) -> bo
     };
     view.dot(axis) < c.cone_cutoff + 1e-5
 }
-pub fn selected(
-    c: &Cluster,
-    model: Mat4,
-    scale: f32,
-    camera: &Camera,
-    height: u32,
-    threshold: f32,
-) -> bool {
-    projected(&c.simplified, model, scale, camera, height) > threshold
-        && (c.refined == ORIGINAL
-            || projected(&c.refined_bounds, model, scale, camera, height) <= threshold)
-}
 pub fn select(
     reader: &Reader<'_>,
     instances: &[Instance],

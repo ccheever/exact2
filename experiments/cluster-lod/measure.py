@@ -53,7 +53,7 @@ else:
 for name, command in commands:
     if run(name, command):
         failures.append(name)
-lengths = [(len(p.read_text().splitlines()), str(p.relative_to(ROOT))) for p in ROOT.rglob("*") if p.suffix in (".rs", ".wgsl", ".py") and "target" not in p.parts and "vendor" not in p.parts]
+lengths = [(len(p.read_text().splitlines()), str(p.relative_to(ROOT))) for p in ROOT.rglob("*") if p.suffix in (".rs", ".wgsl", ".py", ".c", ".cpp", ".h") and "target" not in p.parts and "vendor" not in p.parts]
 for count, path in lengths:
     if count > 1500:
         failures.append(f"{path}: {count} lines")
