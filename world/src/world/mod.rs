@@ -360,29 +360,22 @@ impl World {
                 .map_or(0, |s| s.generation),
         };
         self.change_room(1usize.saturating_add(bundle.preflight(self, e)?))?;
-        self.mutation(|this| this.spawn_commit(name, bundle))
+        self.mutation(|this| this.spawn_commit(e, name, bundle))
     }
     fn spawn_commit(
         &mut self,
+        e: Entity,
         name: Option<String>,
         bundle: impl Bundle,
     ) -> Result<Entity, DataError> {
         self.mutated();
-        let index = if self.state.free.0.is_empty() {
-            let i = self.state.slots.len() as u32;
-            assert_ne!(i, u32::MAX, "entity slots exhausted");
+        let index = e.index;
+        if self.state.free.0.pop_first().is_none() {
             self.state.slots.push(Slot::default());
-            i
-        } else {
-            self.state.free.0.pop_first().unwrap()
-        };
+        }
         let slot = &mut self.state.slots[index as usize];
         slot.alive = true;
         slot.name = name;
-        let e = Entity {
-            index,
-            generation: slot.generation,
-        };
         if let Some(name) = &slot.name {
             self.names.entry(name.clone()).or_default().insert(e);
         }
@@ -403,19 +396,15 @@ impl World {
             return false;
         }
         self.change_room(1).expect("structural journal full");
-        self.state.slots[e.index as usize]
+        let generation = e
             .generation
             .checked_add(1)
             .expect("entity generation exhausted");
-        self.mutation(|this| this.despawn_commit(e))
+        self.mutation(|this| this.despawn_commit(e, generation))
     }
-    fn despawn_commit(&mut self, e: Entity) -> bool {
+    fn despawn_commit(&mut self, e: Entity, generation: u32) -> bool {
         self.reap_dirty = true;
         self.mutated();
-        let generation = self.state.slots[e.index as usize]
-            .generation
-            .checked_add(1)
-            .expect("entity generation exhausted");
         for s in self.components.values_mut() {
             s.remove(e.index as usize);
         }
@@ -460,11 +449,19 @@ impl World {
             })
     }
     pub fn entity_at(&self, index: usize) -> Option<Entity> {
-        let slot = self.state.slots.get(index)?;
-        slot.alive.then_some(Entity {
+        self.state
+            .slots
+            .get(index)
+            .filter(|slot| slot.alive)
+            .map(|_| self.live_entity(index))
+    }
+    /// Internal walks already proved membership with the alive mask.
+    #[inline]
+    pub(crate) fn live_entity(&self, index: usize) -> Entity {
+        Entity {
             index: index as u32,
-            generation: slot.generation,
-        })
+            generation: self.state.slots[index].generation,
+        }
     }
     pub fn named(&self, name: &str) -> Option<Entity> {
         self.names.get(name)?.first().copied()
@@ -554,7 +551,7 @@ impl World {
         self.storage::<C>()?.get_mut(e.index as usize)
     }
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(self)
+        QueryBorrow::try_new(self).expect("query preparation")
     }
     /// Safe typed runs under a shared column lease, in entity order.
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
@@ -583,32 +580,25 @@ impl World {
             .unwrap()
             .insert(r);
     }
-    fn resource_storage<R: Resource>(&self) -> &storage::Singleton<R> {
-        self.resources
-            .get(R::NAME)
-            .and_then(|s| s.any().downcast_ref())
-            .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
+    fn resource_storage<R: Resource>(&self) -> Option<&storage::Singleton<R>> {
+        self.resources.get(R::NAME)?.any().downcast_ref()
     }
     pub fn try_resource<R: Resource>(&self) -> Option<Ref<'_, R>> {
-        self.resources
-            .get(R::NAME)?
-            .any()
-            .downcast_ref::<storage::Singleton<R>>()?
-            .get()
+        self.resource_storage::<R>()?.get()
     }
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
-        self.resource_storage::<R>().get().unwrap()
+        self.try_resource::<R>()
+            .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
     }
     /// Conservative resource-local write revision; compare within one replacement.
     pub fn resource_revision<R: Resource>(&self) -> Option<u64> {
-        self.resources
-            .get(R::NAME)?
-            .any()
-            .downcast_ref::<storage::Singleton<R>>()
-            .map(|s| s.revision())
+        self.resource_storage::<R>()
+            .map(storage::Singleton::revision)
     }
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
-        self.resource_storage::<R>().get_mut().unwrap()
+        self.resource_storage::<R>()
+            .and_then(storage::Singleton::get_mut)
+            .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
     }
     pub fn tick(&self) -> u64 {
         self.state.tick
@@ -620,9 +610,7 @@ impl World {
         self.rng.get_mut().unwrap()
     }
     pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
-        self.publish_value(key, value.into());
-    }
-    pub(crate) fn publish_value(&self, key: &str, value: crate::Published) {
+        let value = value.into();
         assert!(key.len() <= 256, "publication key exceeds 256 bytes");
         let mut p = self.published.borrow_mut();
         if p.get(key) == Some(&value) {

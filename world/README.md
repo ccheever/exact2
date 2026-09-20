@@ -164,7 +164,7 @@ ascending slot order. Reusing a dead parent's slot cannot rescue descendants.
 Only despawn can create an orphan, so valid spawns, Parent edits and unchanged
 ticks do not trigger an ownership scan. A necessary reap reuses one byte per slot
 of scratch. Its three-color walk follows each edge at most twice through the
-Parent query: O(slots × log allocated Parent pages), plus removal work. Scratch
+Parent query: O(slots), plus removal work. Scratch
 is bounded to 200,000 bytes of initialized status entries; allocation capacity
 can retain the vector's bounded high-water growth. Independent validation uses
 the same scratch. Every orphan generation is checked before removal starts.
@@ -298,12 +298,12 @@ These are allocation/work counts, not first-pixel or GPU startup measurements.
 | Fixture | Lane 1 | This lane |
 |---|---:|---:|
 | Empty World | 1 / 24 | **1 / 24** |
-| 100-entity construction | 28 / 70,848 | **21 / 42,400** |
+| 100-entity construction | 28 / 70,848 | **21 / 41,968** |
 | First tick, including first publication | 3 / 640 | **3 / 640** |
 | 1,000 ticks with sparse edits among 200,000 entities | — | **0 / 0**, zero component visitor calls |
 | 1,000 ticks changing a publication every tick | — | **1,003 / 204,704** |
-| Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 47,305** |
-| First component at slot 199,999 | 4 / 3,064 | **4 / 3,064** |
+| Exact 10,240-byte restore | 1,038 / 106,671 | **80 / 46,873** |
+| First component at slot 199,999 | 4 / 3,064 | **4 / 77,536** |
 
 The 1,000-publication case pays for 1,000 saved event-key strings and three journal
 capacity growths. This is game-produced output, not hidden component observation.
@@ -344,22 +344,38 @@ Both have 200,000 slots, reversed insertion, every eleventh slot recycled, a
 40-byte component, and 100 traversals. Sparse rows occur at stride 97: 2,062 live
 values. Counts/sums are checked every traversal; clocks are diagnostic samples.
 
-| Shape / operation | Engine, 1,024 slots | Kernel, 64 slots |
-|---|---:|---:|
-| Dense allocated pages | 196 | 3,125 |
-| Dense query, ns/row | 1.203 | 1.932 |
-| Dense page runs, ns/row | 1.031 | 0.930 |
-| Sparse allocated pages | 196 | 2,062 |
-| Sparse query, ns/row | 3.001 | 31.711 |
-| Sparse page runs, ns/row | 58.135 | 34.994 |
+Medians of seven samples, each with 100 traversals, on this same builder:
 
-Small pages cut the first 40-byte-component payload allocation from 40,960 to
-2,560 bytes. They are **not a universal throughput win**. Sparse queries here are
-10.6× slower: the kernel looks up allocated pages while joining slot words.
-For a workload dominated by bulk sparse queries I would choose **1,024 slots with
-the engine's flat mask lookup**. Dense page readers are slightly faster in this
-sample; sparse page runs also improve. The default remains 64 for startup, with
-the adverse query result recorded in QUEUE.md.
+| Shape / operation, ns/row | Engine (1,024 values) | Before (64 values) | Flat presence + 64 values |
+|---|---:|---:|---:|
+| Dense query | 1.204 | 1.928 | 1.290 |
+| Sparse query | 2.819 | 30.407 | 2.981 |
+| Dense runs | 1.037 | 0.936 | 0.698 |
+| Sparse runs | 57.372 | 34.959 | 2.897 |
+
+The engine column is the paired after measurement; its before medians were
+1.124/2.719 for dense/sparse queries and 1.028/55.983 for runs. The measured after
+ratios are 1.071× dense and 1.057× sparse. Both query targets pass; runs improve.
+
+Presence occupies a flat, geometrically grown array, capped at **25,000 bytes**
+for 200,000 slots. A direct chunk directory shares its allocation (50,000 bytes
+at capacity on this 64-bit machine). Empty columns allocate neither; removing
+the last value releases both. Only metadata is zeroed. Each 64-value chunk is
+allocated uninitialized and owns exactly the slots whose presence bits are set.
+Chunks keep separate write generations; typed runs skip holes with bit operations.
+
+64 values retain small-world allocation: a 40-byte component requests **2,560 B**
+per chunk (100 entities: 5,120 B); a 4-byte component requests **256 B** (100:
+512 B). A 1,024-value allocation would request 40,960/4,096 B immediately. Query
+joins scan flat words without chunk lookups; only matched words fetch pointers.
+The bounds remain 200,000 slots, eight terms and four filters; excess world/query
+admission refuses. Query work is O(slots/64 × terms + returned rows); runs cost
+O(directory chunks + present runs + values actually consumed).
+
+Counted construction is **21 / 41,968**, restore **80 / 46,873**, and first
+component at slot 199,999 is **4 / 77,536**. The last byte count rises deliberately
+with flat metadata; it still allocates only one value chunk. Empty World, first
+tick, publication ticks and 1,000 sparse-edit ticks retain their prior counts.
 
 ### Parity and environment checks
 

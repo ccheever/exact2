@@ -5,7 +5,6 @@ use crate::{Data, DataError, Entity, Now, Reader, Writer};
 use std::{
     alloc::{alloc, dealloc, handle_alloc_error, Layout},
     cell::Cell,
-    collections::BTreeMap,
     ptr::NonNull,
     rc::Rc,
 };
@@ -47,7 +46,7 @@ pub(super) struct Bytes {
     layout: Layout,
 }
 impl Bytes {
-    fn new(layout: Layout) -> Self {
+    pub(super) fn new(layout: Layout) -> Self {
         // SAFETY: layout is valid. ZSTs use a nonnull aligned dangling pointer,
         // never sent to the allocator. Other pages are uninitialized until presence owns a value.
         let ptr = if layout.size() == 0 {
@@ -83,17 +82,10 @@ impl Drop for Value {
     }
 }
 
-pub(super) struct PageData {
-    pub(super) bytes: Bytes,
-    pub(super) mask: u64,
-    pub(super) generation: Cell<u64>,
-}
-
 pub(crate) struct RawStorage {
     name: &'static str,
     desc: &'static Descriptor,
-    page_layout: Layout,
-    pub(super) pages: BTreeMap<usize, PageData>,
+    pub(super) pages: super::directory::Directory,
     len: usize,
     borrowed: Cell<isize>,
     revision: Cell<u64>,
@@ -105,8 +97,9 @@ impl RawStorage {
         Self {
             name,
             desc: &const { Descriptor::of::<C>() },
-            page_layout: Layout::array::<C>(PAGE).expect("component page layout"),
-            pages: BTreeMap::new(),
+            pages: super::directory::Directory::new(
+                Layout::array::<C>(PAGE).expect("component chunk layout"),
+            ),
             len: 0,
             borrowed: Cell::new(0),
             revision: Cell::new(0),
@@ -122,16 +115,13 @@ impl RawStorage {
     }
     #[inline]
     fn ptr(&self, index: usize) -> *mut u8 {
-        self.pages[&(index / PAGE)]
-            .bytes
-            .get()
+        self.pages.chunks()[index / PAGE]
+            .ptr
             .wrapping_add(index % PAGE * self.desc.layout.size())
     }
-    pub(super) fn words(&self) -> usize {
-        self.pages.last_key_value().map_or(0, |(i, _)| i + 1)
-    }
+    #[inline]
     pub(super) fn word(&self, word: usize) -> u64 {
-        self.pages.get(&word).map_or(0, |p| p.mask)
+        self.pages.mask().get(word).copied().unwrap_or(0)
     }
     #[inline]
     pub(crate) fn has(&self, index: usize) -> bool {
@@ -141,17 +131,21 @@ impl RawStorage {
         &'a self,
         skip: Option<&'a RawStorage>,
     ) -> impl Iterator<Item = usize> + 'a {
-        self.pages.iter().flat_map(move |(&word, page)| {
-            let mut bits = page.mask & !skip.map_or(0, |s| s.word(word));
-            std::iter::from_fn(move || {
-                if bits == 0 {
-                    return None;
-                }
-                let index = word * PAGE + bits.trailing_zeros() as usize;
-                bits &= bits - 1;
-                Some(index)
+        self.pages
+            .mask()
+            .iter()
+            .enumerate()
+            .flat_map(move |(word, &mask)| {
+                let mut bits = mask & !skip.map_or(0, |s| s.word(word));
+                std::iter::from_fn(move || {
+                    if bits == 0 {
+                        return None;
+                    }
+                    let index = word * PAGE + bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    Some(index)
+                })
             })
-        })
     }
     pub(crate) fn revision(&self) -> u64 {
         self.revision.get()
@@ -166,8 +160,9 @@ impl RawStorage {
             _ => None,
         }
     }
+    #[inline]
     pub(super) fn mark_page(&self, page: usize) {
-        if let Some(p) = self.pages.get(&page) {
+        if let Some(p) = self.pages.chunks().get(page) {
             p.generation.set(self.revision.get());
         }
     }
@@ -200,28 +195,27 @@ impl RawStorage {
         }
         self.membership = self.membership.wrapping_add(1);
         let page = index / PAGE;
-        self.pages.entry(page).or_insert_with(|| PageData {
-            bytes: Bytes::new(self.page_layout),
-            mask: 0,
-            generation: Cell::new(0),
-        });
+        self.pages.allocate(page);
         self.mark_slot(index);
         // SAFETY: exclusive vacant aligned slot, matching size; transfers ownership
         // including any owned fields, without interpreting potentially padded bytes.
         unsafe { (self.desc.move_to)(value, self.ptr(index)) };
-        self.pages.get_mut(&page).unwrap().mask |= 1 << (index % PAGE);
+        self.pages.mask_mut()[page] |= 1 << (index % PAGE);
         self.len += 1;
     }
     fn removed(&mut self, index: usize) {
         self.edited();
         self.membership = self.membership.wrapping_add(1);
         self.mark_slot(index);
-        self.pages.get_mut(&(index / PAGE)).unwrap().mask &= !(1 << (index % PAGE));
+        self.pages.mask_mut()[index / PAGE] &= !(1 << (index % PAGE));
         self.len -= 1;
     }
     fn clear_slot(&mut self, index: usize) {
         if self.word(index / PAGE) == 0 {
-            self.pages.remove(&(index / PAGE));
+            self.pages.free(index / PAGE);
+            if self.len == 0 {
+                self.pages = super::directory::Directory::new(self.pages.layout);
+            }
         }
     }
     pub(super) unsafe fn remove_into(&mut self, index: usize, out: *mut u8) -> bool {
@@ -269,10 +263,14 @@ impl RawStorage {
         let _lease = self.lease(false);
         w.claim_decoded(
             1024 + self.desc.layout.size()
+                + self.pages.mask().len() * 72
                 + self
                     .pages
-                    .len()
-                    .saturating_mul(1024 + self.page_layout.size()),
+                    .chunks()
+                    .iter()
+                    .filter(|p| !p.ptr.is_null())
+                    .count()
+                    .saturating_mul(self.pages.layout.size()),
         );
         w.begin_seq(self.len);
         for index in self.indices(None) {
@@ -300,7 +298,7 @@ impl RawStorage {
             r.check_allocation(
                 count
                     .div_ceil(PAGE)
-                    .checked_mul(self.page_layout.size())
+                    .checked_mul(self.pages.layout.size())
                     .ok_or_else(|| DataError::new("allocation size overflow"))?,
             )?;
         }
@@ -321,9 +319,18 @@ impl RawStorage {
             }
             r.required_item("missing component")?;
             let page = e.index() as usize / PAGE;
-            if !self.pages.contains_key(&page) {
-                r.check_allocation(self.page_layout.size())?;
-            }
+            let backing = self.pages.growth_bytes(page)
+                + if self
+                    .pages
+                    .chunks()
+                    .get(page)
+                    .is_none_or(|p| p.ptr.is_null())
+                {
+                    self.pages.layout.size()
+                } else {
+                    0
+                };
+            r.claim(backing)?;
             // SAFETY: correctly aligned scratch, initialized only on success.
             unsafe { (self.desc.read_new)(value.bytes.get(), r) }
                 .map_err(|err| err.at(e.index()))?;
@@ -335,11 +342,6 @@ impl RawStorage {
                 return Err(DataError::new("entities are not strictly ordered"));
             }
             last = Some(e.index());
-            let page = e.index() as usize / PAGE;
-            if !self.pages.contains_key(&page) {
-                // A B-tree node and one component page, independent of slot index.
-                r.claim(1024 + self.page_layout.size())?;
-            }
             value.live = false;
             // SAFETY: read_new initialized the matching descriptor's type.
             unsafe { self.insert(e.index() as usize, value.bytes.get()) };
@@ -544,5 +546,64 @@ mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| w.despawn(e))).is_err());
         assert!(w.get::<Bomb>(e).is_none());
         assert!(w.validate().unwrap_err().message.contains("poisoned"));
+    }
+}
+
+#[cfg(test)]
+mod directory_tests {
+    use crate::{Component, World, MAX_ENTITIES, PAGE};
+    #[derive(Default, Component)]
+    struct Wide([u64; 5]);
+    #[derive(Default, Component)]
+    struct Small(u32);
+    #[test]
+    fn presence_is_flat_bounded_and_values_stay_lazy_after_churn() {
+        let mut w = World::new(60, 0);
+        w.register::<Wide>().unwrap().register::<Small>().unwrap();
+        for _ in 0..MAX_ENTITIES {
+            w.spawn(()).unwrap();
+        }
+        let high = w.entity_at(MAX_ENTITIES - 1).unwrap();
+        w.insert(high, Wide([7; 5])).unwrap();
+        let column = w.storage::<Wide>().unwrap();
+        assert_eq!(column.pages.mask().len() * 8, 25_000);
+        assert_eq!(
+            column
+                .pages
+                .chunks()
+                .iter()
+                .filter(|p| !p.ptr.is_null())
+                .count(),
+            1
+        );
+        assert_eq!(column.pages.layout.size(), 40 * PAGE);
+        for i in [0, 63, 64, 8191, 8192] {
+            let e = w.entity_at(i).unwrap();
+            w.insert(e, Small(i as u32)).unwrap();
+        }
+        assert_eq!(w.storage::<Small>().unwrap().pages.layout.size(), 4 * PAGE);
+        assert_eq!(
+            w.query::<&Small>()
+                .iter()
+                .map(|(_, s)| s.0)
+                .collect::<Vec<_>>(),
+            [0, 63, 64, 8191, 8192]
+        );
+        w.remove::<Wide>(high);
+        assert!(w.storage::<Wide>().unwrap().pages.mask().is_empty());
+        assert!(w.storage::<Wide>().unwrap().pages.chunks().is_empty());
+        w.insert(high, Wide([9; 5])).unwrap();
+        assert_eq!(
+            w.pages::<Wide>()
+                .iter()
+                .next()
+                .unwrap()
+                .runs()
+                .next()
+                .unwrap()
+                .1[0]
+                .0,
+            [9; 5]
+        );
     }
 }

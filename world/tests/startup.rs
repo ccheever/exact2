@@ -94,7 +94,7 @@ fn first_component_at_high_slot_allocates_one_page_not_world_high_water() {
     }
     let e = w.resolve("#199999").unwrap();
     let (_, counts) = counting::measure(|| w.insert(e, CellValue::default()).unwrap());
-    report("insert.slot199999", counts, (8, 8192));
+    report("insert.slot199999", counts, (4, 80000));
     assert_eq!(
         w.query::<&CellValue>()
             .iter()

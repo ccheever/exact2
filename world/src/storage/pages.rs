@@ -18,13 +18,18 @@ impl<'w, C: Component> Pages<'w, C> {
     /// Allocated pages in ascending entity-index order, skipping freed pages.
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {
         self.storage.into_iter().flat_map(|s| {
-            s.pages.iter().map(|(&i, p)| Page {
-                first: (i * PAGE) as u32,
-                generation: p.generation.get(),
-                mask: &p.mask,
-                slots: p.bytes.get().cast::<C>(),
-                _life: PhantomData,
-            })
+            s.pages
+                .chunks()
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| !p.ptr.is_null())
+                .map(|(i, p)| Page {
+                    first: (i * PAGE) as u32,
+                    generation: p.generation.get(),
+                    mask: &s.pages.mask()[i],
+                    slots: p.ptr.cast::<C>(),
+                    _life: PhantomData,
+                })
         })
     }
 }
@@ -48,23 +53,18 @@ impl<C> Page<'_, C> {
     /// Present contiguous runs, with absolute first-slot indices. A run never
     /// crosses an absent slot, so its values need no MaybeUninit or unsafe caller.
     pub fn runs(&self) -> impl Iterator<Item = (u32, &[C])> {
-        let mut at = 0;
+        let mut bits = *self.mask;
         std::iter::from_fn(move || {
-            let present = |i: usize| *self.mask & (1 << (i % 64)) != 0;
-            while at < PAGE && !present(at) {
-                at += 1;
-            }
-            if at == PAGE {
+            if bits == 0 {
                 return None;
             }
-            let start = at;
-            while at < PAGE && present(at) {
-                at += 1;
-            }
+            let start = bits.trailing_zeros() as usize;
+            let len = (bits >> start).trailing_ones() as usize;
+            bits &= bits.wrapping_add(1 << start);
             // SAFETY: every bit in this run is present and the page holds a shared
             // lease. Unlike bytes(), this works for components with owned fields.
             Some((self.first + start as u32, unsafe {
-                std::slice::from_raw_parts(self.slots.add(start), at - start)
+                std::slice::from_raw_parts(self.slots.add(start), len)
             }))
         })
     }

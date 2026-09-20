@@ -9,6 +9,7 @@ use std::ops::{Deref, DerefMut};
 
 mod cell;
 pub(crate) use cell::{make_cell, Singleton};
+mod directory;
 mod raw;
 use raw::RawStorage;
 mod pages;
@@ -107,9 +108,8 @@ impl<C> Deref for Storage<C> {
 impl<C> Storage<C> {
     #[inline]
     fn ptr(&self, index: usize) -> *mut C {
-        self.raw.pages[&(index / PAGE)]
-            .bytes
-            .get()
+        self.raw.pages.chunks()[index / PAGE]
+            .ptr
             .cast::<C>()
             .wrapping_add(index % PAGE)
     }
