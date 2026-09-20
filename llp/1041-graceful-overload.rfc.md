@@ -8485,3 +8485,86 @@ seal`4f6ebb33`/report`d2aa3867` preserve both raw runs and the refusal. All12 re
 PIDs/eight groups retire, port5941 is free; native−15 is intentional cleanup.
 MAIN`target/fill-eligibility-evaluation` retains independent source/identity reads.
 NativeSplit's separate reference allowance remains3/3.
+
+### 8.154 Opaque-span application pair: correct pixels, mixed cost, fork unselected
+
+One fresh actual-Linux control→candidate pair at `1bc430f` passes the unchanged
+functional reader. Both use the landed packed copy and identical instrumentation;
+only §8.150's49-line tiny-skia shortcut differs. Timed products do no shadow
+rendering or per-span pixel verification. Full10,000 rows/32 updates, fixed1024×768,
+three2s input phases,2s command-free production, deadlines and caps stay unchanged.
+This pin precedes origin`b3d12c3`'s layout, text-flow and timer changes; it does not
+measure that newer source or native resizing.
+
+Initial/final full History9 values match across arms at revisions0/16, including
+all records and UTF-8 byte counts. All four saved2,359,296-byte RGBs match exactly;
+they observe CPU/Pixmap/VNC output, not DRM readback. Each arm has36 in-window
+handlers/18 signed40-unit wheels with matching offers and final geometry. Loaded
+fresh installed History pictures number20/21, of which18/20 are live-current at
+ACK. Installed B and a newer dirty C remain separate. Both loaded cohorts advance
+8→16 and both silent cohorts0→8, with69 text callbacks per advancing timer.
+
+| Fixed phase | Paint count C/T | Paint median ms C/T | Paint sum ms C/T | Whole-turn sum ms C/T | Whole misses >8.333333ms C/T |
+|---|---:|---:|---:|---:|---:|
+|idle|12/12|3.046387/2.213154|36.496854/27.079232|86.265133/70.448368|0/0|
+|loaded|20/21|2.891532/2.424677|53.185417/55.065635|126.334706/142.272308|3/6|
+|recovery|12/12|2.838719/2.377634|33.295171/26.157310|74.328005/66.026056|0/0|
+
+All eight loaded timer turns remain in the complete cohort: whole median
+6.470213→9.224953ms, sum52.282455→70.368277ms, misses3/8→6/8. Only six control
+timer turns paint, versus eight candidate turns. That separate Paint-bearing
+subset has whole median8.088866→9.224953ms and Paint median3.053386→3.254033ms;
+the other two control timers still make valid producer progress. Do not compare
+only the lower all-Paint median as evidence of equal-work application gain.
+
+Silence has eight Paint-bearing timer turns per arm: whole median
+11.494025→9.403016ms, maximum15.825270→11.787213ms, misses8/8→5/8; Paint median
+4.396517→3.177012ms and sum35.337515→24.077137ms. Idle software input-to-ACK
+median worsens12.682175→18.361156ms, loaded12.258257→13.796075ms; recovery improves
+16.002125→14.828246ms. Loaded ACK maxima26.747647→23.704260ms still exceed one
+frame interval. These are instrumented wall observations, not CPU or physical
+display latency. Whole turns, Paint and callback/copy/observer spans are nested,
+not additive. Unequal turn/Paint counts and every tail remain in the raw report.
+
+The mixed-result rule keeps the dependency fork **unselected**; no reverse is
+prepared. Lower fill/Paint cost in several cohorts does not establish consistent
+application benefit. The11.8% late-mask refusal regression and dependency
+distribution cost from §8.150 remain. Full-capture fill attribution also retains
+94 unknown early calls per arm; selected measured/silent Paints have none.
+There is no robust gain, identical per-frame-work, CPU or physical120 claim.
+
+Control immutable capture and owned-process retirement precede candidate launch.
+Both outer processes exit0; native−15 is deliberate post-acceptance cleanup.
+All12 recorded PIDs/eight groups retire and port5941 is free. The two23-file raw
+captures total49,914,668B. Private ink-pair
+`target/messages-opaque-span-current-pair-runtime-result-v1` preserves report
+`4f228e71`, comparison`7a873fa3` and24-file result seal`2511834c`; original capture
+seals`ada3aaae`/`56032809` remain unchanged. MAIN`target/fill-eligibility-evaluation`
+holds independent native-boundary, whole-turn, complete-timer and Paint arithmetic.
+Next is a fresh stock baseline on current origin, preserving its new scheduling
+and complete text callback, before selecting another production optimization.
+
+### 8.155 Pinned Mac baseline: setup actions did not establish the workload
+
+One previously captured `1bc430f` Mac product launches under the unchanged75s
+NormalClock driver and stops before primer or measured phases. Bootstrap is
+100 rows/batch8/windowed=false. Three named setup taps return platform-delivery
+replies for history10,000, windowing and batch32, but subsequent trees/state remain
+at epoch1 with the original100/8/false configuration. The fixed full10k32/None
+guard refuses the run. A delivery reply is not proof that the action handler
+ran; the failure does not yet distinguish event routing from application state.
+No resize poster, measured input cohort or performance result is established.
+
+The watcher exits1 after4.037s and the app closes; all three recorded owned PIDs
+and both groups retire, with no cleanup escalation. Source remains unchanged.
+An earlier prelaunch attempt launched nothing: its index guard compared saved
+NUL-delimited records with newline-delimited output. The corrected owner check
+uses `git ls-files --stage -z` and matches the saved bytes exactly, without
+normalization. That prelaunch failure and this one native failure are separate;
+neither is rewritten as success or retried. Host free space stays above77.289GB.
+
+MAIN`target/mac-messages-current-execution-v1` retains capture`c27b618e`, binary
+`4f00d271`, failed runtime report`1250060e`, terminal/cleanup`5aca3c36` and index
+correction`64dd2fdd`. This is the pinned product, not later origin`b3d12c3`.
+The next discriminator is the setup delivery path; no smaller workload or
+historical timing substitutes for the failed baseline.
