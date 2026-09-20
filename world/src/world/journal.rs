@@ -402,6 +402,35 @@ mod atomic_tests {
 mod review_tests {
     use super::*;
     #[test]
+    fn adoption_preflight_keeps_delivery_and_subscriptions_on_replacement_exhaustion() {
+        let mut w = World::new(60, 0);
+        let consumer = w.subscribe_changes().unwrap();
+        w.spawn(()).unwrap();
+        w.publish("kept", 3u32);
+        w.emit("queued");
+        w.session_log("session").unwrap();
+        w.replacement = u64::MAX;
+        let bytes = w.save().unwrap();
+        let logs = w.logs(crate::LogCursor::default()).unwrap();
+        let events: Vec<_> = w.changes(&consumer).unwrap().events.cloned().collect();
+        assert!(w.adopt(World::new(60, 0)).is_err());
+        assert_eq!(w.save().unwrap(), bytes);
+        assert_eq!(w.logs(crate::LogCursor::default()).unwrap(), logs);
+        assert_eq!(
+            w.changes(&consumer)
+                .unwrap()
+                .events
+                .cloned()
+                .collect::<Vec<_>>(),
+            events
+        );
+        assert_eq!(
+            w.publications().get("kept"),
+            Some(&crate::Published::Number(3.))
+        );
+        assert_eq!(w.take_messages(), ["queued"]);
+    }
+    #[test]
     fn exhausted_game_cursor_refuses_without_losing_history() {
         let mut w = World::new(60, 0);
         for _ in 0..4096 {
