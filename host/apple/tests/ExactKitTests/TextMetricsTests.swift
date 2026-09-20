@@ -9,6 +9,21 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testSharedLineBreakerReleasesParagraphInputAfterEachCall() {
+        let engine = TextEngine(resolve: { _ in nil })
+        for index in 0..<2 {
+            weak var input: NSString?
+            autoreleasepool {
+                let source = NSString(string: String(repeating: "borrowed paragraph \(index) text ", count: 1024))
+                input = source
+                _ = engine.lineBoundaries(source, length: source.length)
+            }
+            withExtendedLifetime(engine) {
+                XCTAssertNil(input, "a reused tokenizer must not retain source outside text residency")
+            }
+        }
+    }
+
     func testBatchPaintsVisibleTextButDefersOffscreenPreparation() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-admission")

@@ -386,6 +386,29 @@ final class TextGeometryTests: XCTestCase {
                        engine.paragraph(wrapped, width: 65).lines.map { CTLineGetStringRange($0).length })
     }
 
+    /// Reusing the tokenizer must preserve fresh-tokenizer results across scripts.
+    func testTheSharedLineBreakerFindsWhatANewOneFinds() {
+        let texts = [
+            "東京都は日本の首都です。人口は約一千四百万人で、世界有数の大都市です。",
+            "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
+            "ภาษาไทยไม่มีช่องว่างระหว่างคำ จึงต้องใช้พจนานุกรมในการตัดคำ",
+            "",
+            "Emoji 👨‍👩‍👧‍👦 and e\u{301}, then 中文 mixed with Latin and a\u{00A0}no-break space.",
+            "one\ntwo\r\nthree\u{2028}four",
+            "A plain sentence, with a hyphen-ated word and https://example.com/a/long/path?query=1.",
+        ]
+        for text in texts + texts.reversed() {
+            let string = text as NSString, length = string.length
+            let fresh = CFStringTokenizerCreate(nil, string as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
+            var expected: [Int] = []
+            while CFStringTokenizerAdvanceToNextToken(fresh).rawValue != 0 {
+                let range = CFStringTokenizerGetCurrentTokenRange(fresh)
+                expected.append(range.location + range.length)
+            }
+            if expected.last != length { expected.append(length) }
+            XCTAssertEqual(engine.lineBoundaries(string, length: length), expected, text)
+        }
+    }
     private func ellipses(_ line: CTLine) -> Int {
         (CTLineGetGlyphRuns(line) as! [CTRun]).reduce(0) { result, run in
             let attrs = CTRunGetAttributes(run) as NSDictionary

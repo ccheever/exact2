@@ -47,10 +47,27 @@ welcome document and says so for anything else.
 ## Smoothness continuation — 2026-09-19
 
 The overnight `lane/markdown-smooth` work is preserved and integrated with
-`origin/main` at `69e38720`; the lower-hitch goal remains unproven. LLP 1044 is
+`origin/main` through `4d91f9ee`; the lower-hitch goal remains unproven. LLP 1044 is
 the inherited investigation, not a new design authority. Retained work increases
 measurement memo capacity, settles measured rows within one native call, defers
 retirement-only passes, and permits AppKit responsive scrolling.
+
+The `06149e8d` budgeted-list pilot has four valid matched pairs at 120 input
+events/s: Exact mean hitch time is 3.75 ms/s versus Legend 5.00 ms/s,
+with three wins and one tie. Baseline trials 1 and 3 were rejected for focus;
+candidate trial 1 was rejected for a 31.66 ms input gap. This is promising pilot
+evidence, not completion of the goal. Raw trials are retained under
+`target/markdown-comparison/smooth/resume-budget-06149e8d-120hz`. That snapshot
+passed 1,896 Rust tests (9 ignored), 226 native tests, the app bundle, and the
+functional scroll/resize/file/copy checks.
+
+The next integration keeps the same CADisplayLink scheduler, worker IOSurfaces,
+list budget fairness and urgent visible fallback. It adopts upstream's reused
+line-break tokenizer and disables AppKit automatic application-state saving;
+the separate after-commit/synchronous paragraph-paint path is not adopted.
+Published-dependency validation uses clean Ibex `9cbf9e62`, origin's `ureq` 3.4.0
+lock entry, and explicitly identified external Hermes/compiler artifacts. This
+new source and dependency snapshot still needs its own gates and comparison.
 
 Independent review found that a distant pinned row could conceal an unmounted
 gap from the coverage fast path. Discontiguous mounted positions now force a
@@ -67,7 +84,7 @@ admission by distance from the viewport, and ignores a late worker result after
 an urgent paint has already supplied matching pixels. A 30 Hz admission-pump
 experiment did not improve the comparison and was reverted.
 
-The latest candidate, `4fce1bd4`, defers speculative text admission after a batch
+The earlier candidate, `4fce1bd4`, defers speculative text admission after a batch
 and uses the scroll document's clipped viewport to decide whether `updateLayer`
 must rasterize synchronously. AppKit can include offscreen overdraw in a child
 view's `visibleRect`; a native regression reproduced that unnecessary synchronous
@@ -118,13 +135,13 @@ settling. Startup retained a 60-second direct timeout (`dyld_start`, 96 KiB), a
 20-second agent timeout, and an unchanged successful direct retry in 0.289 seconds
 with 80 ms app boot. These are functional observations, not a smoothness win.
 
-The frozen latest candidate passed forward/reverse scrolling, three widths,
+The frozen `bb134e09` candidate passed forward/reverse scrolling, three widths,
 file switching, and full logical copy with the same 2,153,496-character hash.
 Its first agent launch timed out before readiness; the unchanged binary passed
 on retry. The preceding publication candidate had the same first-launch failure.
-These attempts are retained and their cause is unconfirmed. The latest complete
-five-check workspace pass remains `5ac9fa43`; later changes still need final
-workspace validation and a convincing comparison before delivery.
+These attempts are retained and their cause is unconfirmed. They preceded the
+`06149e8d` validation and pilot above; the published-dependency integration still
+needs final workspace validation and a convincing comparison before delivery.
 
 The one-shot experiment (`3127234e`, now reverted) replaced display-link scheduling with
 coalesced one-shot callbacks, preserving the existing coverage thresholds and
@@ -184,14 +201,14 @@ All binaries, probe hashes, traces, failures and screenshots remain under
 
 ## Performance work in progress — 2026-09-18
 
-Latest comparison: **Exact opens this README ahead of Legend, but Legend still
+The 2026-09-18 comparison: **Exact opens this README ahead of Legend, but Legend still
 scrolls more smoothly on the full corpus**. Reusing scalar measurements repairs
 part of the scrolling regression introduced by integrating `origin/main`. The
 speed goal is not achieved.
 
 ### Separate upstream experiment — 2026-09-19
 
-The following measurements describe upstream `9d282bcd` on its separate machine
+The following measurements describe upstream through `4d91f9ee` on its separate machine
 and scheduling/rendering path. This integration retains the display-link pump and
 worker IOSurfaces, including `bb134e09` publication; it does not adopt upstream's
 after-commit observer or synchronous whole-paragraph CGImage painting. These
@@ -303,17 +320,52 @@ questions; none of this was the parser, JSON or view creation):
    state, and its flush waits on the window server on the main thread — 19 and
    25 ms at the same second of two runs. Nothing restores this window.
 
+8. **A paragraph was typeset and painted in one turn, and each made its own
+   line-break tokenizer.** Making a `CFStringTokenizer` opens an ICU break
+   iterator, a tenth of what measuring a paragraph cost; one is now shared. And
+   between frames, typesetting a mounted paragraph in its colours and painting it
+   are a unit each, where together they were the longest thing a turn did. Pixels
+   are identical, in light and across a switch to dark. Four interleaved rounds in
+   a later sitting, the build of the tables above first:
+
+   | Trackpad path, 1,200 frames a run | Tables above | Shared tokenizer | And typeset apart from paint |
+   | --- | ---: | ---: | ---: |
+   | Frames longer than 8.33 ms | 4, 5, 1, 2 | 2, 2, 0, 1 | 0, 0, 1, 0 |
+   | Longest frame, ms | 13.8, 16.5, 9.5, 11.4 | 11.4, 9.1, 8.1, 9.0 | 7.7, 8.0, 8.9, 7.5 |
+   | p99, ms | 6.07 | 6.21 | 5.82 |
+   | Wheel path p99, ms | 5.20 | 5.58 | 4.54 |
+   | Wheel path, inputs later than 8.33 ms | 5, 6, 5, 3 | 3, 7, 5, 4 | 4, 6, 7, 7 |
+
+   The wheel path's late inputs did not move: about half of them in every run
+   were the one AppKit wait of cause 9. A paint costs 2.1 to 2.6 times as
+   much at two pixels a point, which these 1× displays do not show.
+9. **AppKit saved the application's state mid-scroll.** Some fifteen seconds
+   after launch it encodes the application's restorable state, and to do that it
+   asks the window server for the order of the app's windows and waits for the
+   reply on the main thread: 20 to 34 ms while a scroll keeps the server busy,
+   in every run, the longest wait left. A `sample` shows the blocked stack, which
+   a time profile does not, and an earlier reading of this as Launch Services
+   was wrong. Encoding nothing in an `NSApplication` subclass moves the wait to
+   the next private caller of the same question. `ApplePersistence`, AppKit's own
+   switch, registered as a default before the application is made, removes all
+   of it; the window's frame is saved as before. Three interleaved rounds:
+
+   | 2,400 inputs or 1,200 frames a run | Before | Persistence off |
+   | --- | ---: | ---: |
+   | Wheel path, inputs later than 8.33 ms | 5, 5, 4 | 2, 2, 1 |
+   | Wheel path, inputs later than 16.67 ms | 3, 2, 1 | 0, 0, 0 |
+   | Wheel path, longest wait, ms | 34.5, 24.0, 19.5 | 11.4, 10.8, 10.9 |
+   | Trackpad path, longest busy period, ms | 30.8, 78.4, 12.4 | 13.9, 11.6, 11.1 |
+   | Main-thread periods over 16.67 ms, both paths | 1, 1, 1, 1, 3, 0 | none |
+
 Zero refreshes showed uncovered space in any run, including a reversal, a
 250,000-point jump and 48,000 points a second. A jump still builds the rows it
 lands on synchronously (one stall of 30–55 ms).
 
 **Not established:** anything at 120 Hz; anything with HID input; responsive
 scrolling (an opt-in was tried and cannot be driven from inside the process);
-iOS, where the same presenter changes were not made. One 20–30 ms main-thread
-wait remains about sixteen seconds after launch — AppKit's first persistent-state
-flush, asking Launch Services about the app — and four attempts at it changed
-nothing; Legend does not show it. Sources, raw runs and the probe are under
-`target/markdown-comparison/scroll-smoothness-20260919/`.
+iOS, where the same presenter changes were not made. Sources, raw runs and the
+probe are under `target/markdown-comparison/scroll-smoothness-20260919/`.
 
 ### Startup and memory — 2026-09-18
 

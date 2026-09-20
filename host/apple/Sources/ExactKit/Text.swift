@@ -259,6 +259,9 @@ final class TextEngine {
     var measureCount = 0
     var measureHits = 0
     var measureSeconds = 0.0
+    // Session-confined like the caches above. Raster workers receive copied
+    // source and line ranges; they never call this engine or its tokenizer.
+    private var lineBreaker: CFStringTokenizer?
 
     init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
          coldTextTargetBytes: Int = TextResidency.defaultSoftTargetBytes) {
@@ -537,13 +540,7 @@ final class TextEngine {
         var boundaries: [Int] = []
         var boundaryIndex = 0
         if spec.overflowWrap == 0 && width.isFinite && breaks == nil {
-            let text = spec.runs.map(\.text).joined() as NSString
-            let tokenizer = CFStringTokenizerCreate(nil, text as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-            while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-                let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-                boundaries.append(range.location + range.length)
-            }
-            if boundaries.last != length { boundaries.append(length) }
+            boundaries = lineBoundaries(spec.runs.map(\.text).joined() as NSString, length: length)
         }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
@@ -630,6 +627,33 @@ final class TextEngine {
         return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth),
                          height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
                          shape: shape, offeredWidth: width, glyphCount: glyphCount)
+    }
+
+    /// Where Unicode lets a line end, as UTF16 offsets, the last being `length`.
+    /// One tokenizer is handed each paragraph in turn: making one opens an ICU
+    /// break iterator, which was a tenth of what measuring a paragraph cost.
+    func lineBoundaries(_ text: NSString, length: Int) -> [Int] {
+        guard length > 0 else { return [0] }
+        let range = CFRange(location: 0, length: length)
+        let tokenizer: CFStringTokenizer
+        if let lineBreaker {
+            CFStringTokenizerSetString(lineBreaker, text as CFString, range)
+            tokenizer = lineBreaker
+        } else {
+            tokenizer = CFStringTokenizerCreate(nil, text as CFString, range, kCFStringTokenizerUnitLineBreak, nil)!
+            lineBreaker = tokenizer
+        }
+        // An empty reset retained the previous input on macOS. A one-space
+        // sentinel releases the paragraph while keeping the iterator bounded;
+        // the empty-input guard above prevents querying that sentinel's range.
+        defer { CFStringTokenizerSetString(tokenizer, " " as CFString, CFRange(location: 0, length: 1)) }
+        var boundaries: [Int] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+            let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            boundaries.append(token.location + token.length)
+        }
+        if boundaries.last != length { boundaries.append(length) }
+        return boundaries
     }
 
     private func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double) -> CTLine? {

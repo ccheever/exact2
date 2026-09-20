@@ -397,6 +397,15 @@ three of those four being the first frame of the scroll in either app), and F2's
 pattern is gone: one Exact hitch in thirty seconds follows an app update, of
 8.73 ms.
 
+The longest wait left in a scroll was not the app's. Some fifteen seconds after
+launch AppKit encodes the application's restorable state, asks the window server
+for the order of its windows and waits on the main thread, 20 to 34 ms while a
+scroll keeps the server busy. A `sample` shows that blocked stack where a time
+profile shows nothing, which is how it was first misread as Launch Services.
+`ApplePersistence`, registered as a default before the application is made,
+removes it: no input later than 16.67 ms in any run, and late inputs at 2 of
+2,400.
+
 What a row still costs, from a profile of that build, is where a later pass
 would look. A fill unit that creates a row is 2.6 ms at the median and 7 ms at
 the 99th percentile, about 0.5 ms in the runner and kernel and 0.35 ms in the
