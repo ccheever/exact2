@@ -345,8 +345,9 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         let order = host.preorder();
+        let handlers = host.runner.handlers();
         for id in &order {
-            host.create(*id, &mut batch);
+            host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
         }
         for id in &order {
             host.emit_children(*id, &mut batch);
@@ -887,6 +888,12 @@ impl<D: DataSource> Host<D> {
             .retain(|view| self.runner.kernel().node(*view).is_some());
         self.native_retire_removed_owner(&mut batch);
         self.native_note_receipts(receipts);
+        let bulk_handlers = (receipts
+            .iter()
+            .map(|t| t.receipt.created.len())
+            .sum::<usize>()
+            > 1)
+        .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
             for key in &r.destroyed {
@@ -901,7 +908,11 @@ impl<D: DataSource> Host<D> {
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    self.create(id, &mut batch);
+                    let handlers = bulk_handlers.as_ref().map_or_else(
+                        || self.runner.handlers_of(id),
+                        |all| all.get(&id).cloned().unwrap_or_default(),
+                    );
+                    self.create(id, &handlers, &mut batch);
                 }
             }
             for key in r.created.iter().chain(r.touched.iter()) {
@@ -1165,7 +1176,7 @@ impl<D: DataSource> Host<D> {
         order
     }
 
-    fn create(&mut self, id: ViewId, batch: &mut Batch) {
+    fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
         self.track_height_transition(id);
         if self.native_protected_id(id) {
             if let Some(node) = self.runner.kernel().node(id) {
@@ -1179,12 +1190,7 @@ impl<D: DataSource> Host<D> {
         let props = props_for(&node);
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
-        let handlers: Vec<&str> = self
-            .runner
-            .handlers_of(id)
-            .into_iter()
-            .filter_map(handler_name)
-            .collect();
+        let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
         if handlers.contains(&"heightrelease") {
             self.track_height_handle(id);
         }

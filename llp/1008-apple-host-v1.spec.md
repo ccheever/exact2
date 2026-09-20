@@ -64,6 +64,10 @@ A clock advance can collect several receipts against the final kernel tree.
 The host creates all surviving views before emitting their final `children`
 lists, so an early timer cannot attach a child that a later timer has not yet
 created in the presenter. Motion still consumes each receipt at its own time.
+When a batch creates several views, listener declarations come from one walk
+of that final instance tree. A single creation uses its individual lookup;
+batches without creations do no listener walk. The lookup lives only for the
+batch, so removed views and earlier timer states cannot leave stale listeners.
 
 The root lays out under `Offer::definite(viewport)`, and a root that is a
 block is as tall as its content — so, as in a browser, **the window is a
