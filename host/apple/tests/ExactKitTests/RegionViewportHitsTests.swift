@@ -203,13 +203,14 @@ import XCTest
         XCTAssertEqual(account.stats.owners,2)
         var alias = box.first
         box.first = nil
-        XCTAssertEqual(account.stats.bytes,8*1024*1024)
+        withExtendedLifetime(alias) {
+            XCTAssertEqual(account.stats.bytes,8*1024*1024)
+        }
         alias = nil
         XCTAssertEqual(account.stats.bytes,4*1024*1024)
         box.second = nil
         XCTAssertEqual(account.stats.bytes,0)
         XCTAssertEqual(account.stats.drops,2)
-        withExtendedLifetime(alias) {}
     }
     func testSingleMiBUnwrappedLineRendersAndFallsBackExactlyWithoutDenseExpansion() {
         let s = source(String(repeating: "W",count: 1024 * 1024))

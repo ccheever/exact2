@@ -5008,6 +5008,26 @@ Independent constructor-instrumentation inverses recover both production arms;
 all10 recorded processes/five groups are absent. The measured repeated
 preparation in §8.78 motivates this change but does not quantify its saving.
 
+**2026-09-20 — Unicode boundaries share the live preparation too.** Normal
+finite-width layout now computes its nil-locale line-break opportunities once
+per preparation. Intrinsic and emergency-wrap layouts do not populate the lazy
+array. The serial-worker owner, exact-source lookup and last-owner release stay
+the same; this retains one integer array with the preparation, outside the
+pixel/index/hit budgets, and adds no width history.
+
+An optimized Swift comparison of the actual worker, in ABBAAB order, measured
+repeated-width shape medians of108.69→83.20µs for30 reader paragraphs,
+323.19→237.45µs for mixed Unicode and268.83→240.12ms for a2,242,305-byte source.
+These include line construction and metadata; they are not physical scrolling
+or full-app latency results. All324 paired glyph/geometry snapshots agree,
+including clamps, all three wrap modes and intrinsic-to-finite reuse. Evidence:
+`/tmp/exact-region-boundaries-b0417312/`. The extra boundary storage lives as
+long as its preparation: measured array capacities are288–2,528B per reader paragraph
+and3,145,696B for that large source. The64-binding limit remains no total-memory
+bound. Optimized native validation also exposed an existing alias-lifetime test
+failure on unchanged code; its assertion now explicitly extends the retained
+alias through the ownership check.
+
 ### 8.80 Full-body validation of shared preparation, 2026-09-18
 
 The §8.79 candidate passes the full1MiB backend oracle in one fresh optimized

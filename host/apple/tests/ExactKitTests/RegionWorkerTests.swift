@@ -283,6 +283,45 @@ import CoreText
         XCTAssertTrue(coalesced, "fixture must exercise one glyph run intersecting multiple authored line-height spans")
     }
 
+    func testSharedPreparationUnicodeBoundariesAcrossIntrinsicAndFiniteWidths() {
+        let texts = ["", "unbrokenword", "a\n\nb\r\nc",
+            "東京都は日本の首都です。中文段落沿着河边展开。",
+            "ภาษาไทยไม่มีช่องว่างระหว่างคำ จึงต้องใช้พจนานุกรมในการตัดคำ",
+            "👨‍👩‍👧‍👦 e\u{301} العربية שלום soft\u{ad}hyphen no\u{00a0}break"]
+        let engine = TextEngine(resolve: { _ in nil })
+        for text in texts {
+            let run = Run(text: text, size: 16, weight: 400, family: 0, italic: false,
+                          lineHeight: 22, letterSpacing: 0)
+            let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [20,40,60,255], strut: run)
+            let source = RegionTextSource.capture(spec, engine: engine)
+            for width: CGFloat in [0, 30, 83.25, 260, 525, 90] {
+                let ordinary = engine.paragraph(spec, width: width)
+                let expectedGlyphs = ordinary.lines.map(RegionGlyphEvidence.init)
+                let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+                DispatchQueue(label: "region-unicode-reuse").async {
+                    // Intrinsic preparation must still acquire finite-width
+                    // boundaries, and later widths must retain the same breaks.
+                    let intrinsic = RegionWorkerLayout.shape(source, width: .infinity)
+                    let first = RegionWorkerLayout.shape(source, width: 311, preparation: intrinsic.preparation)
+                    let layout = RegionWorkerLayout.shape(source, width: width, preparation: first.preparation)
+                    box.preparationShared = intrinsic.preparation === layout.preparation
+                    box.value = denseRegionReference(layout)
+                    box.glyphs = layout.lines.map(RegionGlyphEvidence.init)
+                    done.signal()
+                }
+                done.wait()
+                let result = box.value!
+                XCTAssertTrue(box.preparationShared)
+                XCTAssertEqual(result.width, ordinary.width)
+                XCTAssertEqual(result.height, ordinary.height)
+                XCTAssertEqual(result.baselines, ordinary.baselines)
+                XCTAssertEqual(result.lineBottoms, ordinary.lineBottoms)
+                XCTAssertEqual(box.glyphs, expectedGlyphs)
+                XCTAssertEqual(result.copy(NSRange(location: 0, length: source.utf16Count)), text)
+            }
+        }
+    }
+
     func testSharedPreparationGlyphsMetricsCaretsAndClampMatchOrdinary() {
         let engine = TextEngine(resolve: { _ in nil })
         var coalesced = false
