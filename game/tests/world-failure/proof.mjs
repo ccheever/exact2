@@ -18,12 +18,19 @@ try {
   const failed=(await s.state()).world[0];
   assert.equal(failed.tick,2);assert.equal(failed.failed,true);assert.equal(failed.ready,false);
   assert.match(failed.error,/tick 3/);
+  assert.match(failed.error,/fixture tick refused/);
+  assert.equal(failed.hash,null,'failed ownership must not be hashed during inspection');
   assert.ok((await s.tree('world')).entities);
   assert.match(JSON.stringify(await s.logs()),/fixture tick refused/);
   await s.tap('alive');
   assert.ok((await s.tree()).nodes.some(n=>n.props?.text==='Clicks 1'),'negative control: page actions still execute after the wasm failure');
   assert.equal((await s.state()).world[0].tick,2);
-  console.log('PASS: tick 3 returned an error; state/tree/logs and page action remain alive (10 assertions)');
+  await s.tap('restart');
+  const restarted=(await s.state()).world[0];
+  assert.equal(restarted.tick,1);
+  assert.equal(restarted.failed,false);
+  assert.equal(restarted.ready,true);
+  console.log('PASS: unhashable failed world retains original error; state/tree/logs and page action survive; timed bind restarts (15 assertions)');
 } finally {
   closeFilesystemReader();
   await s.close(); // SIGKILL the recorded browser process group, then await it.

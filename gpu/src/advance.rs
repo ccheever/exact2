@@ -1,4 +1,15 @@
 use crate::{Module, SurfaceError};
+// An agent may already have explained a failure in its bounded JSON reply.
+// Preserve that explanation; ordinary surface errors still refuse the call.
+pub(crate) fn error_reply(reply: Option<&str>) -> bool {
+    reply
+        .and_then(|text| crate::json::parse_fields(text).ok())
+        .is_some_and(|fields| {
+            fields
+                .iter()
+                .any(|(name, value)| name == "error" && value.as_str().is_some())
+        })
+}
 impl Module {
     /// Drive an owned surface without rendering, JSON requests or observation.
     pub fn advance(&mut self, id: u32, now_ms: f64) -> bool {
@@ -22,6 +33,16 @@ mod tests {
     use crate::*;
     struct Probe;
     impl Surface for Probe {
+        fn render(
+            &mut self,
+            _: &Frame,
+            _: &wgpu::Device,
+            _: &wgpu::Queue,
+            _: &wgpu::TextureView,
+            _: wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
         fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
             Ok(())
         }

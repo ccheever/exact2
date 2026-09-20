@@ -218,14 +218,12 @@ pub trait Surface {
     /// frame is wanted without new inputs.
     fn render(
         &mut self,
-        _frame: &Frame,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _target: &wgpu::TextureView,
-        _format: wgpu::TextureFormat,
-    ) -> bool {
-        false
-    }
+        frame: &Frame,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target: &wgpu::TextureView,
+        format: wgpu::TextureFormat,
+    ) -> bool;
     /// A presentation target acquired a device, before its first draw.
     fn device_ready(&mut self) {}
     /// Presentation was lost; release device resources without discarding owned state.
@@ -740,6 +738,9 @@ impl Module {
         }
         if let Some(SurfaceError(e)) = inst.surface.take_error() {
             self.error = e;
+            if !advance::error_reply(reply.as_deref()) {
+                return None;
+            }
         }
         reply
     }

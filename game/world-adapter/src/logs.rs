@@ -12,39 +12,6 @@ pub(crate) struct History {
     truncated: bool,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn churn_returns_bounded_string_suffix_with_line_indices() {
-        let world = World::new(60, 0);
-        for _ in 0..5000 {
-            world.log(&"\"\\\n".repeat(40)).unwrap();
-        }
-        let mut history = History::default();
-        let mut next = 0;
-        for _ in 0..100 {
-            let text = history.read(&world, next).unwrap();
-            assert!(text.len() <= 65_536);
-            let page: serde_json::Value = serde_json::from_str(&text).unwrap();
-            let from = page["from"].as_u64().unwrap();
-            next = page["next"].as_u64().unwrap();
-            let lines = page["lines"].as_array().unwrap();
-            assert!(lines.len() <= 512);
-            assert!(lines.iter().all(|line| line.is_string()));
-            assert_eq!(next - from, lines.len() as u64);
-        }
-        assert!(next >= 4096);
-        let page: serde_json::Value =
-            serde_json::from_str(&history.read(&world, 0).unwrap()).unwrap();
-        assert!(page["from"].as_u64().unwrap() > 0);
-        assert_eq!(page["truncated"], true);
-        let tail: serde_json::Value =
-            serde_json::from_str(&history.read(&world, next - 1).unwrap()).unwrap();
-        assert_eq!(tail["lines"].as_array().unwrap().len(), 1);
-        assert!(history.read(&world, next + 1).is_err());
-    }
-}
 impl History {
     pub(crate) fn read(&mut self, world: &World, since: u64) -> Result<String, DataError> {
         if since > self.next {
@@ -105,5 +72,39 @@ impl History {
             "truncated":self.truncated || from != since})
             .to_string(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn churn_returns_bounded_string_suffix_with_line_indices() {
+        let world = World::new(60, 0);
+        for _ in 0..5000 {
+            world.log(&"\"\\\n".repeat(40)).unwrap();
+        }
+        let mut history = History::default();
+        let mut next = 0;
+        for _ in 0..100 {
+            let text = history.read(&world, next).unwrap();
+            assert!(text.len() <= 65_536);
+            let page: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let from = page["from"].as_u64().unwrap();
+            next = page["next"].as_u64().unwrap();
+            let lines = page["lines"].as_array().unwrap();
+            assert!(lines.len() <= 512);
+            assert!(lines.iter().all(|line| line.is_string()));
+            assert_eq!(next - from, lines.len() as u64);
+        }
+        assert!(next >= 4096);
+        let page: serde_json::Value =
+            serde_json::from_str(&history.read(&world, 0).unwrap()).unwrap();
+        assert!(page["from"].as_u64().unwrap() > 0);
+        assert_eq!(page["truncated"], true);
+        let tail: serde_json::Value =
+            serde_json::from_str(&history.read(&world, next - 1).unwrap()).unwrap();
+        assert_eq!(tail["lines"].as_array().unwrap().len(), 1);
+        assert!(history.read(&world, next + 1).is_err());
     }
 }

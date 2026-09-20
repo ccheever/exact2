@@ -13,7 +13,7 @@ function page(manifest) {
   return written;
 }
 const ordinary={name:'A & B',theme_color:'#123456',icons:[{src:'assets/icon.png',type:'image/png'}]};
-test('ordinary app HTML is byte-identical to the K3 bake, including metadata escaping',()=>{
+test('ordinary app HTML is byte-identical to f418821, including metadata escaping',()=>{
   const before=readFileSync(new URL('./fixtures/ordinary-page.html',import.meta.url));
   assert.ok(Buffer.from(page(ordinary)).equals(before));
   assert.equal(page(ordinary).includes('modulepreload'),false);

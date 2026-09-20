@@ -42,7 +42,9 @@ fn output(text: &str) -> Result<(), String> {
 }
 fn with<T>(id: u32, f: impl FnOnce(&mut Entry) -> Result<T, String>) -> Option<T> {
     let result = OWNED.with(|m| {
-        let mut m = m.borrow_mut();
+        let mut m = m
+            .try_borrow_mut()
+            .map_err(|_| "reentrant surface call".to_owned())?;
         let entry = m
             .as_mut()
             .and_then(|m| m.entries.get_mut(&id))
@@ -77,7 +79,11 @@ fn with<T>(id: u32, f: impl FnOnce(&mut Entry) -> Result<T, String>) -> Option<T
 }
 pub fn load_headless(registry: &'static Registry) {
     OWNED.with(|m| {
-        m.borrow_mut().get_or_insert_with(|| Owned {
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface load");
+            return;
+        };
+        m.get_or_insert_with(|| Owned {
             registry,
             entries: BTreeMap::new(),
             next: 0,
@@ -87,7 +93,10 @@ pub fn load_headless(registry: &'static Registry) {
 }
 pub fn create_headless(name: &str) -> u32 {
     OWNED.with(|m| {
-        let mut m = m.borrow_mut();
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface create");
+            return 0;
+        };
         let Some(m) = m.as_mut() else {
             refuse("module not owned");
             return 0;
@@ -144,6 +153,9 @@ pub fn agent(id: u32, text: &str) -> String {
         let reply = e.surface.agent(text).unwrap_or_default();
         // Keep the structured agent reply when this call discovers a tick failure.
         if let Some(SurfaceError(error)) = e.surface.take_error() {
+            if !crate::advance::error_reply(Some(&reply)) {
+                return Err(error);
+            }
             refuse(error);
         }
         output(&reply)?;
@@ -200,7 +212,11 @@ pub fn lifecycle(id: u32, code: u32) {
 }
 pub fn seekable(on: bool) {
     OWNED.with(|m| {
-        if let Some(m) = m.borrow_mut().as_mut() {
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface seekable");
+            return;
+        };
+        if let Some(m) = m.as_mut() {
             m.seekable = on;
             for e in m.entries.values_mut() {
                 e.surface.clock(on);
@@ -227,13 +243,23 @@ pub fn messages(id: u32) -> Option<String> {
 }
 pub fn destroy(id: u32) {
     OWNED.with(|m| {
-        if let Some(m) = m.borrow_mut().as_mut() {
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface destroy");
+            return;
+        };
+        if let Some(m) = m.as_mut() {
             m.entries.remove(&id);
         }
     });
 }
 pub fn unload() {
-    OWNED.with(|m| *m.borrow_mut() = None);
+    OWNED.with(|m| {
+        let Ok(mut m) = m.try_borrow_mut() else {
+            refuse("reentrant surface unload");
+            return;
+        };
+        *m = None;
+    });
 }
 pub fn error() -> String {
     ERROR.with(|s| std::mem::take(&mut *s.borrow_mut()))
@@ -270,8 +296,52 @@ pub fn asset_failed(_: u32, _: &str, _: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct Reentrant;
+    impl Surface for Reentrant {
+        fn render(
+            &mut self,
+            _: &crate::Frame,
+            _: &crate::wgpu::Device,
+            _: &crate::wgpu::Queue,
+            _: &crate::wgpu::TextureView,
+            _: crate::wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
+        fn bind(&mut self, _: &[crate::Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn agent(&mut self, _: &str) -> Option<String> {
+            unload();
+            Some("alive".into())
+        }
+    }
+    #[test]
+    fn reentrant_game_callback_refuses_without_aborting_sibling_worlds() {
+        static REGISTRY: Registry = Registry {
+            surfaces: &[("reentrant", 0, || Box::new(Reentrant))],
+            shaders: &[],
+        };
+        unload();
+        load_headless(&REGISTRY);
+        let id = create_headless("reentrant");
+        assert_eq!(agent(id, "{}"), "alive");
+        assert!(error().contains("reentrant"));
+        assert_ne!(create_headless("reentrant"), 0);
+        unload();
+    }
     struct Large;
     impl Surface for Large {
+        fn render(
+            &mut self,
+            _: &crate::Frame,
+            _: &crate::wgpu::Device,
+            _: &crate::wgpu::Queue,
+            _: &crate::wgpu::TextureView,
+            _: crate::wgpu::TextureFormat,
+        ) -> bool {
+            false
+        }
         fn bind(&mut self, _: &[crate::Value], _: Option<f64>) -> Result<(), SurfaceError> {
             Ok(())
         }
