@@ -692,3 +692,6 @@ reasons. Record publication uses atomic `World::publish_batch`; borrowed publica
 keys share `Rc<str>` with saved events, while owned delivery retains String keys.
 Reload candidates preserve all continuation delivery/history, and a Sim-owned
 World refuses direct load/carry. Restore through the owning Sim.
+
+K1e candidates commit only to their unchanged source boundary; erased Parent
+patches refuse so ownership changes continue through `set_parent`.

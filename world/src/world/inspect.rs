@@ -284,9 +284,16 @@ impl World {
         next.published_cost.set(self.published_cost.get());
         *next.journal.get_mut() = self.journal.borrow().clone();
         next.journal_next.set(self.journal_next());
-        Ok(Candidate(next))
+        Ok(Candidate(
+            next,
+            self.id(),
+            self.mutation_epoch(),
+            self.journal_next(),
+            self.published_pending.get(),
+        ))
     }
     pub fn take_messages(&self) -> Vec<String> {
+        self.mutated();
         std::mem::take(&mut *self.messages.borrow_mut())
     }
     pub fn publications(&self) -> std::cell::Ref<'_, BTreeMap<std::rc::Rc<str>, crate::Published>> {
@@ -304,7 +311,7 @@ impl World {
 }
 
 /// Owns an isolated world; failed erased edits poison only this candidate.
-pub struct Candidate(World);
+pub struct Candidate(World, WorldId, u64, u64, bool);
 impl Candidate {
     pub fn world(&self) -> &World {
         &self.0
@@ -316,6 +323,9 @@ impl Candidate {
         bytes: &[u8],
     ) -> Result<(), DataError> {
         self.0.healthy()?;
+        if entity.is_some() && name == Parent::NAME {
+            return Err(DataError::new("use set_parent for ownership edits"));
+        }
         let result = self.0.mutation(|world| {
             if entity.is_some_and(|e| !world.contains(e)) {
                 return Err(DataError::new("stale entity"));
@@ -338,6 +348,13 @@ impl Candidate {
         result
     }
     pub fn commit(mut self, destination: &mut World) -> Result<(), DataError> {
+        if destination.id() != self.1
+            || destination.mutation_epoch() != self.2
+            || destination.journal_next() != self.3
+            || destination.published_pending.get() != self.4
+        {
+            return Err(DataError::new("candidate source boundary changed"));
+        }
         self.0.rebuild_owners();
         self.0.validate()?;
         destination.adopt(self.0)

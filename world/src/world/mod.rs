@@ -719,6 +719,7 @@ impl World {
             "message queue limit (1024 x 4096 bytes)"
         );
         messages.push(text);
+        self.mutated();
     }
     pub(crate) fn step_clock(&mut self) {
         self.mutated();

@@ -149,7 +149,9 @@ it visits at most 64 admitted entries, each with at most 256 bytes of text.
 or resources (`None`) by saved type name. `candidate()` makes an isolated exact
 copy. `Candidate::edit(entity, name, bytes)` applies canonical field patches only
 to that copy; a failed edit poisons it. `commit(self, &mut World)` validates
-ownership and health before adoption. Publications, their pending flag, messages,
+ownership and health before adoption. It refuses a different destination or a
+changed source boundary (including caller clock, input and delivery) before mutation.
+Erased Parent edits refuse; ownership changes use `set_parent`. Publications, their pending flag, messages,
 and saved game history survive an untouched commit; session/structural replacement
 effects follow the ordinary adoption contract. Save/decode budgets apply to candidate
 creation; each edit admits at most 256 MiB of bytes and decoded allocation.

@@ -121,6 +121,7 @@ impl<G: Game> Sim<G> {
         }
         let index = self.queue.partition_point(|e| e.at_ms() <= event.at_ms());
         self.queue.insert(index, event);
+        self.world.mutated();
         Ok(())
     }
     pub fn run(&mut self, elapsed_ms: f64) -> Result<u64, DataError> {
@@ -157,6 +158,7 @@ impl<G: Game> Sim<G> {
             self.apply_input(due)?;
             self.input.clear_edges();
             self.caller_us = target_us;
+            self.world.mutated();
             return Ok(0);
         }
         let offset = self.caller_us as i128 - self.world_us as i128;
@@ -210,6 +212,7 @@ impl<G: Game> Sim<G> {
         }
         self.world_us = simulation_us;
         self.caller_us = target_us;
+        self.world.mutated();
         Ok(count)
     }
     fn apply_input(&mut self, due: usize) -> Result<(), DataError> {

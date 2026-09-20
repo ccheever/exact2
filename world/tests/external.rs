@@ -104,8 +104,7 @@ fn failed_candidate_edits_and_ownership_cycles_never_change_live_world() {
     assert_eq!(w.save().unwrap(), original);
     #[derive(Default, Data)]
     struct ParentPatch(Entity);
-    let candidate = reload::edit(&w, Some(child), "Parent", &ParentPatch(child)).unwrap();
-    assert!(candidate.commit(&mut w).is_err());
+    assert!(reload::edit(&w, Some(child), "Parent", &ParentPatch(child)).is_err());
     assert_eq!(w.save().unwrap(), original);
 }
 

@@ -370,3 +370,42 @@ fn paused_and_playing_clocks_use_the_same_half_open_event_boundary() {
         assert!(s.input_state().key("K"));
     }
 }
+
+#[test]
+fn stale_candidates_refuse_without_changing_continuation() {
+    for elapsed in [0.25, 17.] {
+        let mut s = Sim::<Board>::new(()).unwrap();
+        s.world().publish("score", 7u32);
+        s.world().emit("delivery");
+        let candidate = s.world().candidate().unwrap();
+        s.run(elapsed).unwrap();
+        let before = s.save().unwrap();
+        assert!(candidate.commit(s.world_mut()).is_err());
+        assert_eq!(s.save().unwrap(), before);
+        assert_eq!(s.world().take_messages(), ["delivery"]);
+        assert!(s.world().take_published().is_some());
+        s.run(17.).unwrap();
+        assert!(s.world().get::<Counter>("counter").unwrap().n > 7);
+    }
+    let a = Sim::<Board>::new(()).unwrap();
+    let mut b = Sim::<Board>::new(()).unwrap();
+    assert!(a
+        .world()
+        .candidate()
+        .unwrap()
+        .commit(b.world_mut())
+        .is_err());
+}
+
+#[test]
+fn erased_parent_edits_refuse_even_valid_reparenting() {
+    let mut w = World::new(60, 0);
+    let a = w.spawn(()).unwrap();
+    let b = w.spawn(()).unwrap();
+    let child = w.spawn(()).unwrap();
+    w.set_parent(child, Some(a)).unwrap();
+    let mut candidate = w.candidate().unwrap();
+    w.set_parent(child, Some(b)).unwrap();
+    let patch = bin::to_vec(&*w.get::<Parent>(child).unwrap()).unwrap();
+    assert!(candidate.edit(Some(child), "Parent", &patch).is_err());
+}
