@@ -8908,3 +8908,203 @@ Output is70,210,118B; peak cumulative charge1,228,083,200B stays within2GiB and
 runtime free space stays above76.509GB. Independent selected raw arithmetic is
 `/tmp/exact2-mac-abi8-lead-selected-raw.json` (`bb89d7db`). No retry, second cell,
 smaller workload, historical timing substitution or new120Hz claim follows.
+
+### 8.162 Build text eviction lists only when required, 2026-09-20
+
+Linux paragraph maintenance retains its pruning, byte accounting and original
+keep-inclusive identity count, but now returns without eviction vectors when
+both budgets fit. Width candidates are collected only under byte pressure;
+identity candidates only if their count or the remaining byte cost requires
+eviction. Required evictions keep the original comparators and ordering. The
+linear accounting scan,64MiB cold target,256 identities,64 handoffs, pinning
+and binding cleanup remain; pressure paths may perform an additional scan.
+
+Four new work assertions fail on the instrumented original implementation;
+all seven existing policy/reference controls pass. The candidate passes all
+158 distinct text tests on actual Linux. The unchanged reference covers exact
+budgets, ties, absent/pinned keep, dead widths, bindings and last-owner behavior.
+The first strict Clippy run rejects duplicate inclusion of the Messages model;
+the correction shares the existing test module, changes no production code,
+and passes the same158 tests, strict all-targets host Clippy and scoped formatting.
+
+A body-projection fixture generates all10,000 real Messages rows for each of
+48 revisions, verifies the unchanged9,968-row prefix and processes all32 changed
+bodies through measurement, paragraph lookup and handoff retirement. Ordinary
+six-body sharing remains. Setup/warmup/saturated width-vector entries change
+6/103,194/19,412 to0/0/0; identity entries change the same baseline counts to
+0/258/2,068. Revision2 and48 metrics/baselines and all32 RGBA buffers at each
+checkpoint match across the original and candidate executions. This fixture
+does not run the Contract, whole UI or native input loop; counters measure
+vector entries, not allocation counts, CPU time or frame-time improvement.
+
+The original source comparison is pinned to`b3685083`; evidence and the
+preserved first Clippy failure are in MAIN`target/trim-scratch-candidate-v1`.
+After concurrent integration, the same change on`24cc4f9` rebuilds the affected
+Kernel/Runner/Data/Contract/Linux crates and again passes158 text tests, strict
+host Clippy and scoped formatting. Work counts, geometry and pixels match the
+earlier candidate. These repeats are158 distinct tests, not474 distinct tests.
+The composed check releases every owned group and keeps host free space above
+75.617GB; caps and boot pass on the staged integration.
+Independent selected log comparison is`/tmp/exact2-trim-scratch-lead-work-check.json`
+(`11607ef2`). No native timing pair or120Hz result is claimed for this change.
+### 8.163 Current Mac Messages baseline retains substantial apply tails, 2026-09-20
+
+One fresh normal-clock Messages cell at `7594d208` covers the integrated native
+text raster/list pump and sixteen leaf offers missing from §8.161's f8 baseline.
+Later `fc11e17` Contract diagnostic-source changes are excluded. This is a pinned
+baseline, not a matched A/B result or attribution of the difference between runs.
+The same three ignored trace-v5 observer grafts preserve IDs1–24 and scheduling;
+the current lock is clean, without the old private compatibility exception.
+All 27 focused binding/reader controls pass. One optimized build exits0 in112.647s
+and immutable capture in2.240s, retaining the actual ABI8 Bridge dependency
+rule/header, Reusable entry, plan, History9 schema and 1,491 receipt inputs.
+
+Apple M4/Mac16,10, 16GiB, macOS26.2(25C56), JetKVM1920×1080@60Hz. Reusable 10,000
+full rows/batch32, windowed=true, bounded=false, cursor=None and nil clock override
+remain fixed. The 17.038s cell completes all 36 scheduled inputs during real AppKit
+resize edges: 18 typing and 18 actual alternating40-unit wheels. Each phase has 18
+complete resize/decode/apply chains. Combined endpoints are ESTABLISHED; passive
+mode omissions keep mode NOTESTABLISHED. All 1,301 primary records are retained.
+
+| Phase | Resize+decode median/max ms | Apply median/max ms | Combined median/max ms | Combined >8.333ms |
+|---|---:|---:|---:|---:|
+| Idle |2.317/4.366|2.305/3.790|4.659/7.909|0/18|
+| Load |2.839/5.233|2.196/4.252|5.266/9.123|2/18|
+| Recovery |2.559/5.513|2.402/3.362|4.909/8.875|1/18|
+
+Stage medians/maxima are not additive. Typing ACK maxima are12.394/7.673/19.188ms;
+wheel maxima4.647/5.406/9.822ms. Frame-deadline chains39/39/45 include no-op
+advances, with maxima 1.210/10.645/1.299ms; they are not producer-only samples or
+presented frames. One loaded one-shot chain takes11.162ms. Loaded bracketing
+revision 9→19 is aggregate progress, without a per-chain painted-revision witness.
+
+The 2,001.283ms command-free interval is bracketed by revision 0→8. Its before-read
+cohort contains seven one-shots and one frame advance; the latter starts before
+the conservative literal silence window and is excluded from that stricter cohort.
+The seven in-window one-shots have combined median 11.550/max 13.878ms, four above
+8.333ms. Their native+decode/apply sums are34.029/32.683ms; the apply median alone
+is5.634ms and maximum7.586ms. Eight snapshot revisions do not prove eight updated
+pictures within the window. Seven selected full histories at 0/8/9/19 equal the
+retained f8 histories at equal revisions, including all five fields and UTF8 totals.
+
+The next discriminator is the current apply path: existing signposts or a bounded
+stack diagnostic should separate urgent text rasterization, collection work and
+other application of a batch. Source includes synchronous visible-text rendering,
+but this measurement does not yet attribute its cost. Do not remove the Markdown
+worker/pump or reduce the 32-row workload based on these aggregate spans. The
+observer ends at apply, not the full callback or compositor; physical 120 Hz remains
+unmeasured and robust software tails remain open.
+
+`target/mac-messages-7594-execution-v1/REPORT.md` (`3ad9be76`) holds the result;
+binary `d0a450b0` is captured in 297 files/57,959,038B. Independent selected raw
+arithmetic is `exact2-mac7594-lead-selected-raw.json` (`ad3fa29a`). A preserved
+offline assertion was corrected from changed=32 to changed=0 at initial revision 0;
+no native rerun or evidence rewrite followed. Fresh cleanup proves 58 build PIDs/
+15 groups and 8 runtime PIDs/6 groups absent, with four owned mouse-UP releases and
+no cleanup signals. Peak cumulative charge 811,466,752B stays below 2GiB; free disk
+remains above 76.968GB and ends near 77.19GB. One build, one capture, one cell;
+no retry, speedup claim or new physical 120 Hz claim.
+
+### 8.164 Current full-workload stacks confirm paths, not apply dominance
+
+One external sample reuses §8.163's unchanged `d0a450b0` product and full
+10,000-row/batch32 native recipe. Attachment waits for the first complete saved
+silent-before reply, validating running/windowed state, materialized rows, nil
+clock override and exact owned process identity. It adds no app requests or
+delays. All23 focused pure controls pass; source/capture verification remains
+2,075 source cards and297 captured files. No rebuild or production edit occurs.
+
+`sample` requests5s at2ms intervals and exits0 in6.421s including preparation and
+symbol processing, retaining583,256 bytes. Independent call-tree reconstruction
+conserves2,176 main-thread weights over1,932 nodes. Inclusive unions include
+1,998 `mach_msg2_trap`,20 `Presenter.apply`,7 `refreshVisibleText`,16 raster
+`ensure`,9 raster `render`,18 `TextEngine.measure` and2 collection-family
+weights. Only5 ensure and2 render weights lie inside Presenter.apply. One raster
+worker branch has1 weight. These overlapping counts are neither invocations nor
+CPU/wall durations. Missing optimized symbols do not prove missing work.
+
+The stacks confirm synchronous visible-text rendering during apply and AppKit
+updateLayer, alongside frame/scroll notifications, dictionary conversion,
+chrome/navigation and nested collection work. Twenty apply weights cannot rank
+those costs reliably. This sample excludes default startup workload but has no
+per-sample timestamps: silence, phase preparation and loaded resize cannot be
+attributed separately. Sampling disturbance is uncalibrated.
+
+All36 in-edge inputs/ACKs,18 signed40-unit wheels and54 resize chains complete;
+combined endpoints are ESTABLISHED and mode remains NOTESTABLISHED. Primary
+1,316 rows have0 omissions. Admitted geometry, tail position and mounted counts
+equal the unsampled baseline, but loaded revisions8→18 differ from9→19. Full
+histories preserve all10k rows and match retained histories at equal revisions.
+The eight literal-silence one-shots have whole median3.736/max7.256ms and apply
+median1.684/max4.221ms. Resize whole maxima are9.197/3.010/3.650ms; typing ACK
+maxima25.555/3.193/3.247ms. Frame-advance chains41/42/39 include noops.
+
+Shorter spans on unchanged code establish no speedup or sampler benefit. Keep
+§8.163's13.878ms one-shot tail and this25.555ms ACK tail. Next, directly time
+urgent raster preparation/render and nested collection feedback within actual
+update parents before selecting an optimization. No threading redesign follows
+from these sparse stacks; whole callback and physical120 remain unmeasured on
+the same60Hz display.
+
+`target/mac-messages-7594-sample-execution-v1/REPORT.md` (`3b3ea555`) and manifest
+`1590474b` retain205 files/71,038,526B, including independent stack and raw-chain
+reconstruction. One native cell and sampler exit0 without guard actions/retries.
+Fresh closure proves9 PIDs/8 groups absent, four owned UP releases, ports free and
+lock released. Peak observed charge82,022,400B stays below256MiB; free disk ends
+above77.12GB. Original baseline and both older sampler attempts remain intact.
+
+### 8.165 Direct Mac apply timings separate producer text from resize work
+
+One private diagnostic on the same7594 source adds fixed scalar timing to
+Session and TextRasterMac. It measures main-thread raster-miss preparation,
+synchronous urgent rendering, inclusive collection feedback and their union
+within existing timer/resize/frame/pump apply parents. Preparation includes urgent
+and asynchronous-job attempts; worker rendering and layer publication are outside
+the render interval. Five rows follow each Applied record, with unchanged
+4096/512 trace capacities. Missing, unsafe, midspan or overflowed evidence refuses
+attribution; overlapping categories and nested parents are not blindly added.
+
+The scalar helper passes28 assertions and the independent reader10 controls.
+One optimized build/capture and one unchanged full10k/batch32 native cell exit0.
+All269 parents have complete cuts, with2634 primary rows and zero omissions.
+All36 in-edge inputs/ACKs,18 signed40-unit wheels and54 genuine resize changes
+qualify. The seven selected full histories match the unsampled d0 baseline at
+equal revisions; loaded aggregate revision is9→19. This remains an instrumented
+single run, not an A/B improvement or per-chain painted-revision proof.
+
+All54 scored resize parents contain **zero preparation/render entries**. Their
+idle/load/recovery apply sums are44.782/41.905/40.788ms, of which feedback unions
+are17.107/14.954/14.839ms; residuals are27.675/26.951/25.949ms. Zero in these parents
+does not exclude text rasterization elsewhere. Resize whole median/max is
+4.670/9.279,5.898/8.769,5.661/7.794ms, with2/1/0 spans above8.333ms.
+
+Seven one-shots lie wholly inside the literal command-free interval. Across their
+33.114ms of apply,42 preparation attempts cost4.269ms,42 urgent renders11.590ms,
+and7 feedback calls4.049ms. The combined union is19.908ms and residual13.206ms.
+Rendering is about35% and preparation13% of this cohort's apply wall, not CPU or
+the entire update. Whole median10.516/max14.492ms and5/7 misses remain. The native
+and decode portion alone sums35.883ms; eliminating these text stages would not
+by itself establish robust120Hz.
+
+Loaded frame advances include seven parents with prep/render and39 with zero
+instrumented counts. Their46-parent whole maximum13.844750ms includes7.548625ms
+native/decode and6.296125ms apply;2/46 miss8.333ms. The separate loaded one-shot
+takes10.054ms. Typing ACK maxima10.440/13.119/9.536ms and wheel maxima
+5.350/4.916/1.466ms remain visible. Frame advances include noops, ACKs include
+transport/scheduling, and residual is unclassified wall plus observer overhead.
+Mode remains NOTESTABLISHED; the display is still60Hz and physical120 unmeasured.
+
+Next, reduce repeated producer text work while preserving current-pixel and
+worker ownership rules; measured resize work needs its own feedback/native/UI
+path treatment. Moving urgent rendering alone cannot explain these resize costs.
+No worker/cache policy or production code changes in this diagnostic.
+
+`target/mac-messages-7594-apply-cut-execution-v1/REPORT.md` (`fb10607b`) and
+`FINAL-MANIFEST.json` (`438fdb54`) retain514 files/132,769,119B. Binary`53e2d1cf`
+has297 captured files/58,031,924B; its282 source cards differ from d0 only in
+Session/TextRaster instrumentation, with identical generated entry/plan/compat.
+The initial source-card check caught23 old resolved-symlink labels; corrected
+binding preserves literal source/link bytes and the failed check. Fresh closure
+proves65 PIDs/20 groups absent, four owned UP releases and ports free, without
+guard actions or retries. Charged growth808,747,008B stays below2GiB. The user's
+updated disk policy triggers cleanup below25GB; this run ends above77.12GB.

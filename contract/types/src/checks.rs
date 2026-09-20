@@ -5,7 +5,7 @@ use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::BTreeMap;
 
 /// Reject shape cycles before lowering recursively materializes plan types.
-pub(super) fn check_shape_cycles(file: &File) -> Result<(), TypeError> {
+pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file
         .shapes
         .iter()
@@ -15,7 +15,7 @@ pub(super) fn check_shape_cycles(file: &File) -> Result<(), TypeError> {
     let mut states = vec![0u8; file.shapes.len()];
     let mut path = Vec::new();
     for i in 0..file.shapes.len() {
-        visit_shape(i, file, &indices, &mut states, &mut path)?;
+        visit_shape(i, file, shapes, &indices, &mut states, &mut path)?;
     }
     Ok(())
 }
@@ -23,6 +23,7 @@ pub(super) fn check_shape_cycles(file: &File) -> Result<(), TypeError> {
 fn visit_shape(
     index: usize,
     file: &File,
+    shapes: &Shapes,
     indices: &BTreeMap<&str, usize>,
     states: &mut [u8],
     path: &mut Vec<String>,
@@ -33,39 +34,38 @@ fn visit_shape(
     states[index] = 1;
     path.push(file.shapes[index].name.clone());
     for field in &file.shapes[index].fields {
-        let mut names = Vec::new();
-        shape_names(&field.ty, &mut names);
-        for name in names {
-            let Some(&next) = indices.get(name) else {
-                continue;
-            };
-            if states[next] == 1 {
-                let start = path.iter().position(|part| part == name).unwrap_or(0);
-                let mut cycle = path[start..].to_vec();
-                cycle.push(name.to_string());
-                return err(
-                    "type-shape-recursive",
-                    format!(
-                        "shape field `{}` makes a recursive type cycle ({}); plan values are finite trees",
-                        field.name,
-                        cycle.join(" -> ")
-                    ),
-                    field.span,
-                );
-            }
-            visit_shape(next, file, indices, states, path)?;
+        // Wrapper types still depend on their leaf shape. Ask the same
+        // resolver as field typing: primitive names take precedence even if
+        // an authored shape has that spelling.
+        let mut leaf = &field.ty;
+        while let TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) = leaf {
+            leaf = inner;
         }
+        let Ty::Record(name) = shapes.resolve(leaf)? else {
+            continue;
+        };
+        let Some(&next) = indices.get(name.as_str()) else {
+            continue;
+        };
+        if states[next] == 1 {
+            let start = path.iter().position(|part| part == &name).unwrap_or(0);
+            let mut cycle = path[start..].to_vec();
+            cycle.push(name);
+            return err(
+                "type-shape-recursive",
+                format!(
+                    "shape field `{}` makes a recursive type cycle ({}); plan values are finite trees",
+                    field.name,
+                    cycle.join(" -> ")
+                ),
+                field.span,
+            );
+        }
+        visit_shape(next, file, shapes, indices, states, path)?;
     }
     path.pop();
     states[index] = 2;
     Ok(())
-}
-
-fn shape_names<'a>(ty: &'a TypeExpr, out: &mut Vec<&'a str>) {
-    match ty {
-        TypeExpr::Named(name, _) => out.push(name),
-        TypeExpr::Option(inner, _) | TypeExpr::List(inner, _) => shape_names(inner, out),
-    }
 }
 
 /// The lexical scope at each expanded `each` tag.

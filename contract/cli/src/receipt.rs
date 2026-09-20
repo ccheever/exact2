@@ -7,6 +7,8 @@ use exact_update::{Baked, Envelope};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
+mod watch;
+
 /// Complete the compatibility document from the plan already baked by the
 /// app's build script. Production sequence provenance is a signed publisher
 /// receipt; an unreceipted stream requires an explicit genesis bake.
@@ -43,7 +45,7 @@ pub(crate) fn emit(
         ));
     }
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
-    let mut assets = asset_cards(app)?;
+    let mut assets = asset_cards(app, out)?;
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -116,12 +118,9 @@ pub(crate) fn emit(
 // The same directory-owned gate used by copying, including direct Cargo
 // bakes. This tooling process does not link Unix filesystem code into a wasm
 // consumer of `contract`; its Cargo cache is distinct from the calling build.
-fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
+fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
     let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/filesystem.mjs");
     println!("cargo:rerun-if-changed={}", gate.display());
-    for directory in ["assets", "deck", "gpu/shaders"] {
-        println!("cargo:rerun-if-changed={}", app.join(directory).display());
-    }
     let code = r#"
         import {pathToFileURL} from 'node:url';
         import {resolve} from 'node:path';
@@ -149,7 +148,31 @@ fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))
+    let cards =
+        serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))?;
+    // The helper has its own target directory. Other known bake destinations
+    // may also be beneath an external app: never broaden a watch over them.
+    let mut outputs = vec![
+        out.to_path_buf(),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"),
+    ];
+    for name in [
+        "EXACT_BAKE_OUTPUT",
+        "CARGO_TARGET_DIR",
+        "CARGO_BUILD_BUILD_DIR",
+    ] {
+        if let Some(path) = std::env::var_os(name) {
+            outputs.push(PathBuf::from(path));
+        }
+    }
+    let paths = ["assets", "deck", "gpu/shaders"]
+        .map(|directory| watch::optional_tree(&app.join(directory), &outputs))
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    for path in paths {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+    Ok(cards)
 }
 
 // Supply bytes, never just signed names. A binary's entry-zero asset roster is
@@ -768,7 +791,7 @@ mod tests {
         std::fs::create_dir_all(root.join("deck/nested")).unwrap();
         std::fs::write(root.join("assets/image.png"), b"image").unwrap();
         std::fs::write(root.join("deck/nested/index.html"), b"deck").unwrap();
-        let cards = asset_cards(&root).unwrap();
+        let cards = asset_cards(&root, &root.join("out")).unwrap();
         assert_eq!(
             cards,
             vec![
@@ -778,7 +801,9 @@ mod tests {
         );
         std::fs::write(root.join("outside"), b"must not be embedded").unwrap();
         std::os::unix::fs::symlink("../outside", root.join("assets/escape")).unwrap();
-        assert!(asset_cards(&root).unwrap_err().contains("bake asset gate"));
+        assert!(asset_cards(&root, &root.join("out"))
+            .unwrap_err()
+            .contains("bake asset gate"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -271,7 +271,7 @@ component A
     column
       button press=go testId="go"
 ---
-== lower-handler-arity
+== analyze-action-arity
 component A
   state n = ""
   action pick(id: string) writes n

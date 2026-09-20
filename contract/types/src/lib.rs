@@ -367,6 +367,17 @@ pub(crate) fn record_source(
     Ok(())
 }
 
+/// A checked component file and the exact expansion its types describe.
+/// Later passes borrow this result instead of repeating component expansion.
+pub struct Checked<'a> {
+    /// Authored declarations, retained for scopes and source locations.
+    pub file: &'a File,
+    /// Inferred types, including the expanded root's lifted declarations.
+    pub types: Types,
+    /// The root and row ownership used during inference.
+    pub expanded: contract_syntax::Expanded,
+}
+
 /// Everything the checker learned.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Types {
@@ -762,17 +773,11 @@ fn calls_in(e: &Expr, out: &mut Vec<String>) {
     }
 }
 
-/// Check a file: shapes, then every component.
-pub fn check(file: &File) -> Result<Types, TypeError> {
+/// Check shared shapes and functions, including a module without a root component.
+/// Navigation uses the same declaration rules as executable compilation.
+pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
     routes::declare(file, &mut shapes)?;
-    if file.components.is_empty() {
-        return err(
-            "analyze-no-component",
-            "a file needs a component",
-            Span { line: 1, col: 1 },
-        );
-    }
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
             return err(
@@ -783,7 +788,7 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         }
         shapes.map.insert(s.name.clone(), Vec::new());
     }
-    check_shape_cycles(file)?;
+    check_shape_cycles(file, &shapes)?;
     for s in &file.shapes {
         let mut fields = Vec::new();
         for f in &s.fields {
@@ -860,25 +865,36 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         fn visit(
             name: &str,
             graph: &BTreeMap<&str, Vec<String>>,
+            states: &mut BTreeMap<String, u8>,
             path: &mut Vec<String>,
         ) -> Option<Vec<String>> {
-            if path.iter().any(|p| p == name) {
-                path.push(name.to_string());
-                return Some(path.clone());
+            match states.get(name) {
+                Some(2) => return None,
+                Some(1) => {
+                    path.push(name.to_string());
+                    return Some(path.clone());
+                }
+                _ => {}
             }
+            states.insert(name.to_string(), 1);
             path.push(name.to_string());
             for callee in graph.get(name).into_iter().flatten() {
                 if graph.contains_key(callee.as_str()) {
-                    if let Some(cycle) = visit(callee, graph, path) {
+                    if let Some(cycle) = visit(callee, graph, states, path) {
                         return Some(cycle);
                     }
                 }
             }
             path.pop();
+            *states.get_mut(name).expect("visited function") = 2;
             None
         }
+        // Completed subgraphs are shared across roots and call sites. Without
+        // this memo, N helpers that each call the preceding helper twice take
+        // exponential work even when no helper is used by the app.
+        let mut states = BTreeMap::new();
         for f in &file.fns {
-            if let Some(cycle) = visit(&f.name, &graph, &mut Vec::new()) {
+            if let Some(cycle) = visit(&f.name, &graph, &mut states, &mut Vec::new()) {
                 return err(
                     "type-fn-recursive",
                     format!(
@@ -891,6 +907,19 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
             }
         }
     }
+    Ok(shapes)
+}
+
+/// Check a file: shared declarations, then every component.
+pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
+    if file.components.is_empty() {
+        return err(
+            "analyze-no-component",
+            "a file needs a component",
+            Span::point(1, 1),
+        );
+    }
+    let shapes = check_declarations(file)?;
     let mut types = Types {
         shapes,
         components: Vec::new(),
@@ -955,7 +984,11 @@ pub fn check(file: &File) -> Result<Types, TypeError> {
         &types,
         file,
     )?;
-    Ok(types)
+    Ok(Checked {
+        file,
+        types,
+        expanded,
+    })
 }
 
 fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Result<(), TypeError> {

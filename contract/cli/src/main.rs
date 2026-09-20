@@ -1,4 +1,4 @@
-//! `contract build <file.contract> [-o <file.plan>]` — compile, print a
+//! `contract build <file.contract> [-o <file.plan>] [--json]` — compile, print a
 //! one-line summary, write the bytes. Baking needs the app's data crate and
 //! happens in the app's own build (see `apps/caltrain`), not here.
 //! `contract compat <app-dir> --platform <p> [--target <triple>] [--json]`
@@ -9,19 +9,42 @@
 
 use std::process::ExitCode;
 
+mod build;
 mod diff;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
-        Some("build") => build(&args[1..]),
+        Some("build") => build::run(&args[1..]),
+        Some("symbols") => symbols(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("compat") => compat(&args[1..]),
         Some("types") => types(&args[1..]),
         _ => {
-            eprintln!("usage: contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
+            eprintln!("usage: contract symbols <file.contract> | contract fmt [--check | --stdout] <file.contract> | contract build <file.contract> [-o <file.plan>] [--json] | contract types <file.contract> [-o <app.d.ts>] | contract test <file.test.contract> | contract compat <app-dir> --platform <ios|macos|linux|web> [--target <triple>] [--json]");
             ExitCode::from(2)
+        }
+    }
+}
+
+fn symbols(args: &[String]) -> ExitCode {
+    let [input] = args else {
+        eprintln!("usage: contract symbols <file.contract>");
+        return ExitCode::from(2);
+    };
+    if input.starts_with('-') {
+        eprintln!("usage: contract symbols <file.contract>");
+        return ExitCode::from(2);
+    }
+    match contract::symbols_json(std::path::Path::new(input)) {
+        Ok(json) => {
+            println!("{json}");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
+            ExitCode::from(1)
         }
     }
 }
@@ -35,7 +58,7 @@ fn types(args: &[String]) -> ExitCode {
     }
     let result = contract::compile_path(std::path::Path::new(&args[0]))
         .map_err(|e| e.to_string())
-        .and_then(|plan| contract::typescript(&plan));
+        .and_then(|plan| contract::typescript(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if let Some(output) = args.get(2) {
@@ -49,7 +72,7 @@ fn types(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("{}:{error}", args[0]);
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }
@@ -120,43 +143,6 @@ fn tests(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
-}
-
-fn build(args: &[String]) -> ExitCode {
-    let Some(input) = args.first() else {
-        eprintln!("usage: contract build <file.contract> [-o <file.plan>]");
-        return ExitCode::from(2);
-    };
-    let output = args
-        .iter()
-        .position(|a| a == "-o")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
-    let plan = match contract::compile_path(std::path::Path::new(input)) {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("{input}:{e}");
-            return ExitCode::from(1);
-        }
-    };
-    let bytes = plan.encode();
-    println!(
-        "{input}: {} slots, {} derives, {} resources, {} actions, {} nodes, {} regions, {} bytes",
-        plan.slots.len(),
-        plan.derives.len(),
-        plan.resources.len(),
-        plan.actions.len(),
-        plan.nodes.len(),
-        plan.regions.len(),
-        bytes.len()
-    );
-    if let Some(out) = output {
-        if let Err(e) = std::fs::write(&out, bytes) {
-            eprintln!("{out}: {e}");
-            return ExitCode::from(1);
-        }
-    }
-    ExitCode::SUCCESS
 }
 
 /// Explicit formatting, with read-only preview and check modes.

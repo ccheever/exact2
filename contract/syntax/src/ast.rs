@@ -1,10 +1,30 @@
 //! The abstract syntax tree.
 
 use crate::Span;
+use std::collections::BTreeMap;
+
+/// Identifier ranges that are distinct from their AST construct's diagnostic span.
+/// Compiler tooling consumes these; they never enter an executable plan.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct NameSpans {
+    /// Declaration, local binding, or target name, keyed by its construct.
+    pub names: BTreeMap<Span, Span>,
+    /// Data source name in a resource or send, keyed by its construct.
+    pub sources: BTreeMap<Span, Span>,
+}
+
+impl NameSpans {
+    /// The exact identifier range, or the construct when it already names a token.
+    pub fn name(&self, span: Span) -> Span {
+        self.names.get(&span).copied().unwrap_or(span)
+    }
+}
 
 /// One source file.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct File {
+    /// Parser-owned identifier ranges for navigation.
+    pub names: NameSpans,
     /// The app's router declaration. @ref LLP 1038 D2/D3.
     pub routes: Option<RoutesDecl>,
     /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);

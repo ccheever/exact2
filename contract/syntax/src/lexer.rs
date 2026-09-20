@@ -38,8 +38,6 @@ pub struct Token {
     pub kind: TokenKind,
     /// Where.
     pub span: Span,
-    /// Exclusive byte column of a source token; structural tokens are empty.
-    pub end_col: u32,
 }
 
 /// A lexing failure.
@@ -64,11 +62,17 @@ pub struct Lexer;
 impl Lexer {
     /// Tokenize `src`, starting line numbers at `first_line`.
     pub fn tokenize(src: &str, first_line: u32) -> Result<Vec<Token>, LexError> {
+        Self::tokenize_at(src, Span::point(first_line, 1))
+    }
+
+    /// Tokenize source starting at `origin`, retaining its file identity.
+    pub fn tokenize_at(src: &str, origin: Span) -> Result<Vec<Token>, LexError> {
         let mut out = Vec::new();
         let mut indents: Vec<usize> = vec![0];
         let mut depth = 0usize; // bracket depth
         for (i, raw) in src.lines().enumerate() {
-            let line_no = first_line + i as u32;
+            let line_no = origin.line + i as u32;
+            let first_col = if i == 0 { origin.col } else { 1 };
             let line = raw.trim_end();
             let trimmed = line.trim_start();
             if trimmed.is_empty() || trimmed.starts_with("//") {
@@ -81,8 +85,8 @@ impl Lexer {
                         id: "syntax-tab-indent",
                         message: "indent with spaces, not tabs".into(),
                         span: Span {
-                            line: line_no,
-                            col: 1,
+                            source_id: origin.source_id,
+                            ..Span::point(line_no, first_col)
                         },
                     });
                 }
@@ -91,10 +95,9 @@ impl Lexer {
                     indents.push(indent);
                     out.push(Token {
                         kind: TokenKind::Indent,
-                        end_col: 1,
                         span: Span {
-                            line: line_no,
-                            col: 1,
+                            source_id: origin.source_id,
+                            ..Span::point(line_no, first_col)
                         },
                     });
                 } else {
@@ -102,10 +105,9 @@ impl Lexer {
                         indents.pop();
                         out.push(Token {
                             kind: TokenKind::Dedent,
-                            end_col: 1,
                             span: Span {
-                                line: line_no,
-                                col: 1,
+                                source_id: origin.source_id,
+                                ..Span::point(line_no, first_col)
                             },
                         });
                     }
@@ -114,8 +116,8 @@ impl Lexer {
                             id: "syntax-bad-dedent",
                             message: "indentation does not match any enclosing level".into(),
                             span: Span {
-                                line: line_no,
-                                col: 1,
+                                source_id: origin.source_id,
+                                ..Span::point(line_no, first_col)
                             },
                         });
                     }
@@ -124,8 +126,8 @@ impl Lexer {
             let bytes = trimmed.as_bytes();
             let mut pos = 0usize;
             let col_of = |pos: usize| Span {
-                line: line_no,
-                col: (indent + pos + 1) as u32,
+                source_id: origin.source_id,
+                ..Span::point(line_no, first_col + (indent + pos) as u32)
             };
             while pos < bytes.len() {
                 let c = bytes[pos] as char;
@@ -155,8 +157,10 @@ impl Lexer {
                     }
                     out.push(Token {
                         kind: TokenKind::Ident(trimmed[start..pos].to_string()),
-                        end_col: col_of(pos).col,
-                        span,
+                        span: Span {
+                            end_col: col_of(pos).col,
+                            ..span
+                        },
                     });
                     continue;
                 }
@@ -175,8 +179,10 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
-                        end_col: col_of(pos).col,
-                        span,
+                        span: Span {
+                            end_col: col_of(pos).col,
+                            ..span
+                        },
                     });
                     continue;
                 }
@@ -184,8 +190,10 @@ impl Lexer {
                     let (s, end) = Self::string(trimmed, pos, '"', span)?;
                     out.push(Token {
                         kind: TokenKind::Str(s),
-                        end_col: col_of(end).col,
-                        span,
+                        span: Span {
+                            end_col: col_of(end).col,
+                            ..span
+                        },
                     });
                     pos = end;
                     continue;
@@ -198,8 +206,10 @@ impl Lexer {
                     })?;
                     out.push(Token {
                         kind: TokenKind::Template(trimmed[pos + 1..end].to_string()),
-                        end_col: col_of(end + 1).col,
-                        span,
+                        span: Span {
+                            end_col: col_of(end + 1).col,
+                            ..span
+                        },
                     });
                     pos = end + 1;
                     continue;
@@ -223,34 +233,33 @@ impl Lexer {
                 }
                 out.push(Token {
                     kind: TokenKind::Punct(p),
-                    end_col: col_of(pos + p.len()).col,
-                    span,
+                    span: Span {
+                        end_col: col_of(pos + p.len()).col,
+                        ..span
+                    },
                 });
                 pos += p.len();
             }
             if depth == 0 {
                 out.push(Token {
                     kind: TokenKind::Newline,
-                    end_col: col_of(bytes.len()).col,
                     span: col_of(bytes.len()),
                 });
             }
         }
         let end = Span {
-            line: first_line + src.lines().count() as u32,
-            col: 1,
+            source_id: origin.source_id,
+            ..Span::point(origin.line + src.lines().count() as u32, 1)
         };
         while indents.len() > 1 {
             indents.pop();
             out.push(Token {
                 kind: TokenKind::Dedent,
-                end_col: 1,
                 span: end,
             });
         }
         out.push(Token {
             kind: TokenKind::Eof,
-            end_col: 1,
             span: end,
         });
         Ok(out)

@@ -149,7 +149,7 @@ fn conditional_style_literals_are_refused_at_the_offending_branch() {
         assert!(error.message.contains(bad), "{error}");
         let line = source.lines().nth(5).unwrap();
         assert_eq!(
-            error.span,
+            (error.span.line, error.span.col),
             (6, (line.find(&format!("\"{bad}\"")).unwrap() + 1) as u32),
             "{error}"
         );
