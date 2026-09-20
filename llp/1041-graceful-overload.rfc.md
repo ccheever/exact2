@@ -8908,3 +8908,42 @@ Output is70,210,118B; peak cumulative charge1,228,083,200B stays within2GiB and
 runtime free space stays above76.509GB. Independent selected raw arithmetic is
 `/tmp/exact2-mac-abi8-lead-selected-raw.json` (`bb89d7db`). No retry, second cell,
 smaller workload, historical timing substitution or new120Hz claim follows.
+
+### 8.162 Build text eviction lists only when required, 2026-09-20
+
+Linux paragraph maintenance retains its pruning, byte accounting and original
+keep-inclusive identity count, but now returns without eviction vectors when
+both budgets fit. Width candidates are collected only under byte pressure;
+identity candidates only if their count or the remaining byte cost requires
+eviction. Required evictions keep the original comparators and ordering. The
+linear accounting scan,64MiB cold target,256 identities,64 handoffs, pinning
+and binding cleanup remain; pressure paths may perform an additional scan.
+
+Four new work assertions fail on the instrumented original implementation;
+all seven existing policy/reference controls pass. The candidate passes all
+158 distinct text tests on actual Linux. The unchanged reference covers exact
+budgets, ties, absent/pinned keep, dead widths, bindings and last-owner behavior.
+The first strict Clippy run rejects duplicate inclusion of the Messages model;
+the correction shares the existing test module, changes no production code,
+and passes the same158 tests, strict all-targets host Clippy and scoped formatting.
+
+A body-projection fixture generates all10,000 real Messages rows for each of
+48 revisions, verifies the unchanged9,968-row prefix and processes all32 changed
+bodies through measurement, paragraph lookup and handoff retirement. Ordinary
+six-body sharing remains. Setup/warmup/saturated width-vector entries change
+6/103,194/19,412 to0/0/0; identity entries change the same baseline counts to
+0/258/2,068. Revision2 and48 metrics/baselines and all32 RGBA buffers at each
+checkpoint match across the original and candidate executions. This fixture
+does not run the Contract, whole UI or native input loop; counters measure
+vector entries, not allocation counts, CPU time or frame-time improvement.
+
+The original source comparison is pinned to`b3685083`; evidence and the
+preserved first Clippy failure are in MAIN`target/trim-scratch-candidate-v1`.
+After concurrent integration, the same change on`24cc4f9` rebuilds the affected
+Kernel/Runner/Data/Contract/Linux crates and again passes158 text tests, strict
+host Clippy and scoped formatting. Work counts, geometry and pixels match the
+earlier candidate. These repeats are158 distinct tests, not474 distinct tests.
+The composed check releases every owned group and keeps host free space above
+75.617GB; caps and boot pass on the staged integration.
+Independent selected log comparison is`/tmp/exact2-trim-scratch-lead-work-check.json`
+(`11607ef2`). No native timing pair or120Hz result is claimed for this change.
