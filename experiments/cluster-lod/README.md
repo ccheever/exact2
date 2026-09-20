@@ -152,6 +152,16 @@ orientations to both bounds and camera. Culling remains separate from selection.
 
 ## Decisions
 
+L3b (2026-09-20): implement solely on `lane/cluster-lod`, starting at `53fb1a94`,
+with local commits and no push or additional worktree/reviewer. The explicit lane
+instructions govern this experiment; no production LLP changes or root checks.
+Verify workspace tests, clippy, fmt and both wasm libraries using `measure.mjs`.
+Lower the portrait aim by 0.28 world units while retaining the cleared eye path,
+so the head moves upward in the image and the hand stays visible. Move the warm
+key toward positive X/front and change its shadow camera to match; soften the
+backdrop to linear RGB (0.21,0.235,0.25)–(0.29,0.30,0.30).
+
+
 L3a (2026-09-20; supersedes decisions 15–16): use 25 monuments in an avenue, shared-derivative quintic Hermite
 camera segments, a static final hold, and a median-edge-derived 1440p distance
 floor. Closest framing adds 0.40 world units to that floor to clear the raised

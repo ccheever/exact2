@@ -90,7 +90,7 @@ fn shadow(world:vec3<f32>, n:vec3<f32>)->f32 {
 }
 fn filmic(x:vec3<f32>)->vec3<f32> { return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),vec3(0.0),vec3(1.0)); }
 fn background_color(y:f32)->vec3<f32> {
-    return mix(vec3(0.075,0.10,0.13),vec3(0.26,0.275,0.28),smoothstep(0.0,1.0,y));
+    return mix(vec3(0.21,0.235,0.25),vec3(0.29,0.30,0.30),smoothstep(0.0,1.0,y));
 }
 @vertex fn background(@builtin(vertex_index) id:u32)->@builtin(position) vec4<f32> {
     let p=array(vec2(-1.0,-1.0),vec2(3.0,-1.0),vec2(-1.0,3.0));
@@ -101,7 +101,7 @@ fn background_color(y:f32)->vec3<f32> {
 }
 @fragment fn shade(v:VertexOut)->@location(0) vec4<f32> {
     if g.params.x==6u { return vec4(1.0); }
-    let n=normalize(v.normal); let l=normalize(vec3(-0.75,-0.65,0.85));
+    let n=normalize(v.normal); let l=normalize(vec3(0.30,-0.85,0.85));
     let is_ground=v.ids.x==0xffffffffu;
     var base=v.color.rgb*vec3(0.82,0.80,0.75);
     if is_ground { base=v.color.rgb; }

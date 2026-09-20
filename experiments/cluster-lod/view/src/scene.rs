@@ -267,8 +267,8 @@ impl Scene {
                     (0.2, Vec3::new(0.0, 0.0, 0.95)),
                     (0.4, Vec3::new(0.0, 0.0, 1.15)),
                     (0.56, self.hero),
-                    (0.70, self.hero),
-                    (0.79, self.hero),
+                    (0.70, self.hero - Vec3::Z * 0.28),
+                    (0.79, self.hero - Vec3::Z * 0.28),
                     (0.855, self.hero.lerp(self.relief, 0.46)),
                     (0.94, self.relief),
                     (1.0, self.relief),
@@ -321,7 +321,7 @@ impl Scene {
         }
     }
     pub fn light_camera(&self) -> Camera {
-        let sun = Vec3::new(-0.75, -0.65, 0.85).normalize();
+        let sun = Vec3::new(0.30, -0.85, 0.85).normalize();
         let (center, r) = self
             .shadow_focus
             .unwrap_or((self.center, self.radius * 1.05));
