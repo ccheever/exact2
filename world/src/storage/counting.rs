@@ -8,6 +8,15 @@ thread_local! { static COUNT: Cell<Option<(usize,usize)>> = const { Cell::new(No
 thread_local! {
     static TRACE: RefCell<Option<(usize, [usize; 256])>> = const { RefCell::new(None) };
 }
+thread_local! { static PEAK: Cell<Option<(isize, usize)>> = const { Cell::new(None) }; }
+fn resident(delta: isize) {
+    let _ = PEAK.try_with(|c| {
+        if let Some((live, peak)) = c.get() {
+            let live = live + delta;
+            c.set(Some((live, peak.max(live.max(0) as usize))));
+        }
+    });
+}
 struct Counter;
 fn account(bytes: usize) {
     let _ = COUNT.try_with(|c| {
@@ -28,17 +37,21 @@ fn account(bytes: usize) {
 unsafe impl GlobalAlloc for Counter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         account(layout.size());
+        resident(layout.size() as isize);
         unsafe { System.alloc(layout) }
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         account(layout.size());
+        resident(layout.size() as isize);
         unsafe { System.alloc_zeroed(layout) }
     }
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        resident(-(layout.size() as isize));
         unsafe { System.dealloc(ptr, layout) }
     }
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         account(new_size);
+        resident(new_size as isize - layout.size() as isize);
         unsafe { System.realloc(ptr, layout, new_size) }
     }
 }
@@ -70,4 +83,23 @@ pub fn histogram<T>(f: impl FnOnce() -> T) -> (T, (usize, usize), Vec<(usize, us
         *bins.entry(size).or_insert(0) += 1;
     }
     (result, counts, bins.into_iter().collect())
+}
+
+/// Net live requested bytes above entry. Fixtures retain all pre-existing owners
+/// until the measured decode finishes; deallocation on successful install comes last.
+#[allow(dead_code)]
+pub fn peak<T>(f: impl FnOnce() -> T) -> (T, usize, (usize, usize)) {
+    struct Stop;
+    impl Drop for Stop {
+        fn drop(&mut self) {
+            PEAK.set(None);
+        }
+    }
+    assert!(PEAK.get().is_none());
+    PEAK.set(Some((0, 0)));
+    let stop = Stop;
+    let (result, counts) = measure(f);
+    let peak = PEAK.get().unwrap().1;
+    drop(stop);
+    (result, peak, counts)
 }
