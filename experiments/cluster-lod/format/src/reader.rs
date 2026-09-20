@@ -170,6 +170,12 @@ impl<'a> Reader<'a> {
                 "page digest mismatch",
             )?;
             require(
+                p.vertex_count as usize <= length / size_of::<Vertex>()
+                    && p.indices_offset as usize <= length
+                    && p.index_count as usize <= length - p.indices_offset as usize,
+                "page counts exceed extent",
+            )?;
+            require(
                 p.vertices_offset == 0
                     && p.indices_offset as usize
                         == align16(p.vertex_count as usize * size_of::<Vertex>())
@@ -227,7 +233,10 @@ impl<'a> Reader<'a> {
         let mut originals = 0u64;
         for (gi, g) in self.groups.iter().enumerate() {
             require(
-                valid_bounds(&g.simplified) && g.cluster_count > 0,
+                valid_bounds(&g.simplified)
+                    && g.simplified.error > 0.0
+                    && g.cluster_count > 0
+                    && (g.depth as usize) < self.groups.len(),
                 "invalid group",
             )?;
             let start = g.first_cluster as usize;

@@ -73,6 +73,21 @@ fn run() -> Result<Value> {
         let reader = Reader::new(&bytes)?;
         let mut result = stats(&reader);
         if args[0] == "--inspect" {
+            let h = reader.header;
+            let cfg = h.config;
+            result["header"] = json!({
+                "magic": String::from_utf8_lossy(&h.magic), "header_bytes": h.header_bytes,
+                "flags": h.flags, "root_count": h.root_count,
+                "clusters_offset": h.clusters_offset, "groups_offset": h.groups_offset,
+                "pages_offset": h.pages_offset, "nodes_offset": h.nodes_offset,
+                "geometry_offset": h.geometry_offset,
+                "config": {"max_triangles": cfg.max_triangles, "page_bytes": cfg.page_bytes,
+                    "partition_size": cfg.partition_size, "vertex_encoding": cfg.vertex_encoding,
+                    "normal_weight": cfg.normal_weight, "color_weight": cfg.color_weight,
+                    "simplify_ratio": cfg.simplify_ratio, "simplify_threshold": cfg.simplify_threshold,
+                    "error_merge_previous": cfg.error_merge_previous,
+                    "error_merge_additive": cfg.error_merge_additive}
+            });
             result["version"] = json!(reader.header.version);
             result["max_triangles"] = json!(reader.header.config.max_triangles);
             result["page_bytes"] = json!(reader.header.config.page_bytes);

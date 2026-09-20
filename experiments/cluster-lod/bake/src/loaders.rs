@@ -53,6 +53,7 @@ pub fn load(path: &Path) -> Result<(Mesh, [u8; 32])> {
 pub fn read_obj(mut input: impl BufRead) -> Result<Mesh> {
     let mut mesh = Mesh::default();
     let mut line = String::new();
+    let mut face = Vec::new();
     while input.read_line(&mut line)? > 0 {
         let mut parts = line.split('#').next().unwrap_or("").split_whitespace();
         match parts.next() {
@@ -64,7 +65,7 @@ pub fn read_obj(mut input: impl BufRead) -> Result<Mesh> {
                 mesh.positions.push(p);
             }
             Some("f") => {
-                let mut face = Vec::new();
+                face.clear();
                 for part in parts {
                     let raw: i64 = part.split('/').next().ok_or("missing OBJ index")?.parse()?;
                     let id = if raw > 0 {

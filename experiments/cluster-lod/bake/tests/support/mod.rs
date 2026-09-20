@@ -126,9 +126,9 @@ pub fn overlaps(reader: &Reader<'_>, selected: &[bool]) -> usize {
         if !descendant[gi] {
             continue;
         }
-        for ci in g.first_cluster as usize..(g.first_cluster + g.cluster_count) as usize {
-            count += usize::from(selected[ci]);
-            let c = &reader.clusters[ci];
+        let range = g.first_cluster as usize..(g.first_cluster + g.cluster_count) as usize;
+        for (c, &is_selected) in reader.clusters[range.clone()].iter().zip(&selected[range]) {
+            count += usize::from(is_selected);
             if c.refined != ORIGINAL {
                 descendant[c.refined as usize] = true;
             }

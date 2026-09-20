@@ -20,9 +20,10 @@ fn numerical_oracles() {
         page_bytes: 256 * 1024,
         ..Config::default()
     };
+    let mut second_mesh = mesh.clone();
     let bake_start = Instant::now();
     let first = bake(&mut mesh, config, digest).expect("first bake");
-    let second = bake(&mut mesh, config, digest).expect("second bake");
+    let second = bake(&mut second_mesh, config, digest).expect("second bake");
     let equal = first.bytes == second.bytes;
     if !equal {
         failures.push("determinism: bytes differ".into());

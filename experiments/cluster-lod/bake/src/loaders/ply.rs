@@ -159,15 +159,16 @@ pub fn read(input: &mut impl BufRead) -> Result<Mesh> {
                     if wanted && count != 3 {
                         return Err("PLY requires triangular faces".into());
                     }
-                    let mut tri = [0u32; 3];
-                    for i in 0..count {
-                        let value = number(prop.scalar)?;
-                        if wanted {
-                            tri[i] = uint(value, u32::MAX as usize)? as u32;
-                        }
-                    }
                     if wanted {
+                        let mut tri = [0u32; 3];
+                        for index in &mut tri {
+                            *index = uint(number(prop.scalar)?, u32::MAX as usize)? as u32;
+                        }
                         face = Some(tri);
+                    } else {
+                        for _ in 0..count {
+                            number(prop.scalar)?;
+                        }
                     }
                 } else {
                     let value = number(prop.scalar)?;
