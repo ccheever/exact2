@@ -34,23 +34,10 @@ pub fn field_default<T: FieldDefault>() -> T {
 /// currently supplies that only through length 32; Vec supports arbitrary lengths.
 /// Platform-sized integers and unordered maps intentionally have no implementation.
 ///
-#[diagnostic::on_unimplemented(
-    message = "Data fields require Data and Default, including skipped fields: {Self}"
-)]
+#[diagnostic::on_unimplemented(message = "Data fields require Data and Default: {Self}")]
 pub trait Data: Sized + Default + 'static {
-    #[doc(hidden)]
-    const CHECK_DEFAULT_ACYCLIC: () = ();
-    /// Portable inline storage units, excluding allocations made by Default.
-    fn inline_size() -> usize {
-        Self::default_size()
-    }
-    /// Architecture-independent admission units; manual implementations declare a
-    /// conservative bound for their default and must not use native layout sizes.
-    /// Construction-oriented decode. Allocation-free defaults may use this
-    /// fallback; allocating manual defaults must override and claim first.
-    fn default_size() -> usize {
-        64
-    }
+    /// Construct then decode. Allocating defaults require an explicit read_new
+    /// that claims their allocations before construction; arbitrary author code is trusted.
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
         let mut value = Self::default();
         value.read(r)?;

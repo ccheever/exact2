@@ -309,11 +309,6 @@ impl World {
         name: &'static str,
     ) -> Result<&mut Registration, DataError> {
         self.healthy()?;
-        if C::default_size() > crate::data::MAX_LOAD_BYTES {
-            return Err(DataError::new(
-                "declared storage admission exceeds load budget",
-            ));
-        }
         if name.is_empty() || name.len() > 256 {
             return Err(DataError::new("storage name must contain 1..=256 bytes"));
         }

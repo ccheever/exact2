@@ -25,7 +25,6 @@ pub fn resource(input: TokenStream) -> TokenStream {
 
 struct Field {
     name: String,
-    ty: String,
     skip: bool,
 }
 struct Body {
@@ -148,12 +147,7 @@ fn body(group: Option<&TokenTree>) -> Result<Body, String> {
         } else {
             i.to_string()
         };
-        let ty = f[if shape == Shape::Named { 2 } else { 0 }..]
-            .iter()
-            .cloned()
-            .collect::<TokenStream>()
-            .to_string();
-        fields.push(Field { name, ty, skip });
+        fields.push(Field { name, skip });
     }
     Ok(Body { fields, shape })
 }
@@ -181,13 +175,8 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         return Err("Data does not support generics or lifetimes".into());
     }
     let mut read_new = String::new();
-    let mut enum_size = String::from("64usize");
-    let mut inline_size = String::from("64usize");
-    let mut default_check = String::new();
     let (write, read) = if kind == "struct" {
         let b = body(tokens.get(2))?;
-        inline_size = default_size(&b).replace("default_size", "inline_size");
-        default_check = check_defaults(&b);
         let access: Vec<_> = b
             .fields
             .iter()
@@ -199,12 +188,7 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
             return Err("expected enum body".into());
         };
         let mut arms = Vec::new();
-        let mut unit_default = false;
         for a in split(g.stream())? {
-            unit_default |= a.windows(2).any(|w| {
-                punct(&w[0], '#')
-                    && matches!(&w[1], TokenTree::Group(g) if g.stream().to_string() == "default")
-            });
             let (a, _) = strip(&a, false)?;
             if a.iter().any(|t| punct(t, '=')) {
                 return Err(
@@ -217,19 +201,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
                 name: arm,
                 body: body(a.get(1))?,
             });
-        }
-        for arm in &arms {
-            inline_size += &format!(
-                ".max({})",
-                default_size(&arm.body).replace("default_size", "inline_size")
-            );
-            if !unit_default {
-                default_check += &check_defaults(&arm.body);
-                enum_size += &format!(".max({})", default_size(&arm.body));
-            }
-        }
-        if unit_default {
-            enum_size = inline_size.clone();
         }
         let mut write = String::from("match self {");
         let mut read = String::from("let arm = r.variant()?; match arm {");
@@ -270,16 +241,8 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         read_new += "_ => return Err(::exact_world::DataError::new(\"unknown variant\")), }; r.end_variant()?; Ok(value) }";
         (write, read)
     };
-    let default_size = if kind == "struct" {
-        default_size(&body(tokens.get(2))?)
-    } else {
-        enum_size
-    };
-    let mut out = format!("const _: () = <{name} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;
-    impl ::exact_world::Data for {name} {{
-    const CHECK_DEFAULT_ACYCLIC: () = {{ {default_check} }};
-    fn inline_size() -> ::core::primitive::usize {{ {inline_size} }}
-    {read_new} fn default_size() -> ::core::primitive::usize {{ {default_size} }} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
+    let mut out = format!("impl ::exact_world::Data for {name} {{
+    {read_new} fn write(&self, w: &mut dyn ::exact_world::Writer) {{ if w.stopped() {{ return; }} {write} }} fn read(&mut self, r: &mut dyn ::exact_world::Reader) -> ::core::result::Result<(), ::exact_world::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
         out += &format!(
             "impl ::exact_world::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
@@ -287,27 +250,6 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
         );
     }
     Ok(out)
-}
-fn check_defaults(b: &Body) -> String {
-    b.fields
-        .iter()
-        .map(|f| {
-            format!(
-                "let () = <{} as ::exact_world::Data>::CHECK_DEFAULT_ACYCLIC;",
-                f.ty
-            )
-        })
-        .collect()
-}
-fn default_size(b: &Body) -> String {
-    let mut size = "16usize".to_owned();
-    for f in &b.fields {
-        size += &format!(
-            ".saturating_add(<{} as ::exact_world::Data>::default_size())",
-            f.ty
-        );
-    }
-    size
 }
 fn clean(name: &str) -> &str {
     name.strip_prefix("r#").unwrap_or(name)

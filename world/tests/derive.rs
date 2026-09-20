@@ -24,7 +24,7 @@ fn derives_accept_supported_shapes_and_refuse_invalid_syntax() {
     let scratch = root
         .parent()
         .unwrap()
-        .join("scratch/K1f")
+        .join("scratch/KL")
         .join(format!("derive-{}", std::process::id()));
     fs::create_dir_all(&scratch).unwrap();
     let compile = |source: &str| {
@@ -97,7 +97,7 @@ impl Default for Record { fn default() -> Self { Self { omitted: NoDefault } } }
     let error = String::from_utf8_lossy(&missing_default.stderr);
     assert!(!missing_default.status.success());
     assert!(
-        error.contains("NoDefault") && error.contains("Data fields require Data and Default"),
+        error.contains("NoDefault") && error.contains("Data fields require Default"),
         "{error}"
     );
     // Presence is unsafe initialization evidence, never caller-replaceable.
@@ -125,28 +125,6 @@ fn replace(w: &World) {
         "{}",
         String::from_utf8_lossy(&static_fields.stderr)
     );
-    for source in [
-        r#"use exact_world::Data;
-#[derive(Default, Data)] struct Node { #[data(skip)] next: [Box<Node>; 0] }"#,
-        r#"use exact_world::Data;
-type Alias = Box<Node>;
-#[derive(Default, Data)] struct Node { #[data(skip)] next: Alias }"#,
-        r#"use exact_world::Data;
-#[derive(Default, Data)] struct A { next: Box<B> }
-#[derive(Default, Data)] struct B { next: Box<A> }"#,
-        r#"use exact_world::Data;
-type Alias = Box<Tree>;
-#[derive(Data)] enum Tree { End, More(Alias) }
-impl Default for Tree { fn default() -> Self { Self::End } }"#,
-    ] {
-        let result = compile(source);
-        let error = String::from_utf8_lossy(&result.stderr);
-        assert!(
-            !result.status.success(),
-            "recursive default admission compiled"
-        );
-        assert!(error.contains("CHECK_DEFAULT_ACYCLIC"), "{error}");
-    }
     let custom_key = compile(
         r#"use exact_world::*;
 #[derive(Default, Data, PartialEq, Eq, PartialOrd, Ord)] struct Key(String, u32);

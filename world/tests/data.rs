@@ -240,21 +240,6 @@ fn borrowed_identities_reject_duplicate_literals_and_restore_outer_marks() {
 }
 
 #[test]
-fn collection_and_record_admission_uses_fixed_wire_units() {
-    #[derive(Default, exact_world::Data)]
-    struct Headers {
-        a: Vec<String>,
-        b: String,
-        c: Option<Vec<u32>>,
-    }
-    use exact_world::Data;
-    assert_eq!(String::default_size(), 24);
-    assert_eq!(Vec::<String>::default_size(), 24);
-    assert_eq!(Option::<Vec<u32>>::default_size(), 32);
-    assert_eq!(Headers::default_size(), 16 + 24 + 24 + 32);
-}
-
-#[test]
 fn portable_admission_boundary_matches_32_and_64_bit_readers() {
     #[derive(Default, Data)]
     struct Headers {

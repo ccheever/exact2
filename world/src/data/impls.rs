@@ -4,9 +4,6 @@ use std::any::Any;
 use std::collections::BTreeMap;
 
 impl Data for bool {
-    fn default_size() -> usize {
-        1
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.boolean(*self);
     }
@@ -23,7 +20,6 @@ fn integral(n: f64) -> Option<i128> {
 }
 macro_rules! integer {
     ($kind:ident, $($ty:ty),+) => {$(impl Data for $ty {
-        fn default_size() -> usize { <$ty>::BITS as usize / 8 }
         fn write(&self, w: &mut dyn Writer) { w.number(Number::$kind((*self).into())); }
         fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
             *self = match r.number()? {
@@ -39,9 +35,6 @@ macro_rules! integer {
 integer!(Unsigned, u8, u16, u32, u64);
 integer!(Signed, i8, i16, i32, i64);
 impl Data for f32 {
-    fn default_size() -> usize {
-        4
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F32(*self));
     }
@@ -51,9 +44,6 @@ impl Data for f32 {
     }
 }
 impl Data for f64 {
-    fn default_size() -> usize {
-        8
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.number(Number::F64(*self));
     }
@@ -63,9 +53,6 @@ impl Data for f64 {
     }
 }
 impl Data for String {
-    fn default_size() -> usize {
-        24
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -75,9 +62,6 @@ impl Data for String {
     }
 }
 impl Data for std::borrow::Cow<'static, str> {
-    fn default_size() -> usize {
-        24
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -87,9 +71,6 @@ impl Data for std::borrow::Cow<'static, str> {
     }
 }
 impl Data for std::rc::Rc<str> {
-    fn default_size() -> usize {
-        24
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.string(self);
     }
@@ -99,9 +80,6 @@ impl Data for std::rc::Rc<str> {
     }
 }
 impl<T: Data> Data for Vec<T> {
-    fn default_size() -> usize {
-        24
-    }
     fn write(&self, w: &mut dyn Writer) {
         // Stable Rust has no specialization: downcasts select the four closed
         // bulk types without unsafe layout casts or changing other Vec<T> values.
@@ -162,12 +140,6 @@ impl<T: Data> Data for Vec<T> {
     }
 }
 impl<T: Data> Data for Option<T> {
-    fn inline_size() -> usize {
-        8usize.saturating_add(T::inline_size())
-    }
-    fn default_size() -> usize {
-        Self::inline_size()
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.option(self.is_some());
         if let Some(v) = self {
@@ -188,15 +160,6 @@ impl<T: Data, const N: usize> Data for [T; N]
 where
     [T; N]: Default,
 {
-    const CHECK_DEFAULT_ACYCLIC: () = if N != 0 {
-        T::CHECK_DEFAULT_ACYCLIC
-    };
-    fn inline_size() -> usize {
-        N.saturating_mul(T::inline_size())
-    }
-    fn default_size() -> usize {
-        N.saturating_mul(T::default_size())
-    }
     fn write(&self, w: &mut dyn Writer) {
         write_slice(self, w);
     }
@@ -234,13 +197,6 @@ fn read_slice<T: Data>(values: &mut [T], r: &mut dyn Reader) -> Result<(), DataE
     Ok(())
 }
 impl<T: Data> Data for Box<T> {
-    const CHECK_DEFAULT_ACYCLIC: () = T::CHECK_DEFAULT_ACYCLIC;
-    fn inline_size() -> usize {
-        8
-    }
-    fn default_size() -> usize {
-        8usize.saturating_add(T::default_size())
-    }
     fn read_new(r: &mut dyn Reader) -> Result<Self, DataError> {
         r.claim(std::mem::size_of::<T>())?;
         crate::storage::boxed(T::read_new(r)?)
@@ -257,9 +213,6 @@ trait CanonicalKey: Data + Ord + AsRef<str> + for<'a> From<&'a str> {}
 impl CanonicalKey for String {}
 impl CanonicalKey for std::rc::Rc<str> {}
 impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
-    fn default_size() -> usize {
-        24
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.begin_struct();
         for (k, v) in self {
@@ -285,9 +238,7 @@ impl<K: CanonicalKey, T: Data> Data for BTreeMap<K, T> {
 macro_rules! tuple {
     ($n:expr; $($T:ident:$i:tt),*) => {
         impl<$($T: Data),*> Data for ($($T,)*) {
-            const CHECK_DEFAULT_ACYCLIC: () = { $(let () = $T::CHECK_DEFAULT_ACYCLIC;)* };
-            fn inline_size() -> usize { 16usize $(.saturating_add($T::inline_size()))* }
-            fn default_size() -> usize { 16usize $(.saturating_add($T::default_size()))* }
+
                     fn write(&self, w: &mut dyn Writer) {
                 w.begin_seq($n); $(w.item(); self.$i.write(w);)* w.end_seq();
             }
@@ -303,9 +254,6 @@ macro_rules! tuple {
     };
 }
 impl Data for () {
-    fn default_size() -> usize {
-        0
-    }
     fn write(&self, w: &mut dyn Writer) {
         w.unit();
     }

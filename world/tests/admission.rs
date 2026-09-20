@@ -80,7 +80,6 @@ fn unit_default_enum_charges_its_largest_inline_variant_before_allocation() {
         "wide empty variants bypassed admission: {counts:?}"
     );
     assert!(counts.1 < 20_000, "allocation preceded refusal: {counts:?}");
-    assert!(Wide::default_size() >= 32_768);
     let loaded = bin::from_slice::<Vec<Wide>>(&bytes).unwrap();
     assert_eq!(loaded.len(), 64);
     assert_eq!(bin::to_vec(&loaded).unwrap(), bytes);
@@ -106,9 +105,6 @@ fn closed_map_keys_round_trip_unicode_and_distinct_names() {
 #[derive(Default)]
 struct Claim<const N: usize>;
 impl<const N: usize> Data for Claim<N> {
-    fn default_size() -> usize {
-        N
-    }
     fn write(&self, w: &mut dyn Writer) {
         1u32.write(w);
     }
