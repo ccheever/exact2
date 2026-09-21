@@ -28,6 +28,7 @@ use exact_runner::{DataSource, Event};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
@@ -116,7 +117,7 @@ pub struct Presenter<D: DataSource> {
     /// error; later refusals are journaled without retitling a live session.
     booting: bool,
     content_registration: Option<crate::content_region::ContentRegionRegistration>,
-    last_region_frame: Option<Pixmap>,
+    last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
 }
 

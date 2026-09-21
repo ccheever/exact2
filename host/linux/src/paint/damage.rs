@@ -42,7 +42,7 @@ impl Changes {
 }
 #[derive(Default)]
 pub(super) struct Retained {
-    pub pixels: Option<Pixmap>,
+    pub pixels: Option<Arc<Pixmap>>,
     pub next: Vec<Rect4>,
     pub last: Vec<Rect4>,
     pub dark: bool,

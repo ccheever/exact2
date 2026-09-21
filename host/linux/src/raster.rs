@@ -57,6 +57,23 @@ impl Raster {
         Transform::from_scale(self.scale, self.scale).pre_concat(ts)
     }
 
+    fn reset(&mut self, width: f32, height: f32, scale: f32) {
+        self.scale = scale;
+        self.width = ((width * scale).round() as u32).max(1);
+        self.height = ((height * scale).round() as u32).max(1);
+        self.clips.clear();
+        self.text_clips.clear();
+        self.rectangular_damage = None;
+        self.layers.clear();
+        self.first_clip_used = false;
+        if self.cached_clip.as_ref().is_some_and(|(key, _)| {
+            key.width != self.width || key.height != self.height || key.scale != scale.to_bits()
+        }) {
+            self.cached_clip = None;
+        }
+        self.target = None;
+    }
+
     // A rounded box has two solid central strips. If the complete binary
     // damage rectangle lies inside either strip, no curved edge is painted.
     fn covered_damage(&self, shape: &Shape, dev: Transform) -> Option<Rect> {
@@ -332,22 +349,27 @@ impl Backend for Raster {
     }
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
-        self.scale = scale;
-        self.width = ((width * scale).round() as u32).max(1);
-        self.height = ((height * scale).round() as u32).max(1);
-        self.clips.clear();
-        self.text_clips.clear();
-        self.rectangular_damage = None;
-        self.layers.clear();
-        self.first_clip_used = false;
-        if self.cached_clip.as_ref().is_some_and(|(key, _)| {
-            key.width != self.width || key.height != self.height || key.scale != scale.to_bits()
-        }) {
-            self.cached_clip = None;
-        }
+        self.reset(width, height, scale);
         let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
         pixmap.fill(Color::WHITE);
         self.target = Some(pixmap);
+    }
+
+    fn begin_damage(
+        &mut self,
+        width: f32,
+        height: f32,
+        scale: f32,
+        previous: &Pixmap,
+        rects: &[Rect4],
+    ) -> bool {
+        self.reset(width, height, scale);
+        if self.damage(previous, rects) {
+            true
+        } else {
+            self.begin(width, height, scale);
+            false
+        }
     }
 
     fn damage(&mut self, previous: &Pixmap, rects: &[Rect4]) -> bool {

@@ -194,6 +194,25 @@ ms/frame. This is headless process CPU including setup/warmup;
 shared load varies elapsed frame timings, and physical cadence remains unproven.
 Evidence: `/tmp/exact-damage-clear-0ff47ba3/`.
 
+Partial CPU frames now begin directly from the accepted pixels. The backend's
+combined `begin_damage` entry resets frame-local state and copies the previous
+surface once; refused damage falls back to an ordinary white frame. This avoids
+allocating and clearing a surface that would immediately be discarded.
+Completed frames, flow repaint history and retained content-region fallbacks
+share an immutable `Arc<Pixmap>`. `Presenter::frame` and `Frame::pixmap` expose
+that shared owner; the display receipt passes it through without another wrapper
+or a deep copy. Repainting still writes into a separate surface, so old displayed
+pixels cannot change. A resized failed frame gets its own cropped/padded surface.
+The existing damage/full-repaint oracle checks shared ownership and old-owner
+release, and content-region failure/resize tests check reuse without aliasing a
+resized surface. Frame reset and incompatible-size fallback have pixel coverage.
+The 896-case damage oracle and all 14 painter tests pass in debug and release;
+24 Textflow/Caltrain screenshots and their layouts match. Two four-pair alternating
+release runs of the six-scene, 720-frame fixture measured total process CPU at
+1.166 → 1.079 seconds (7.5% less) and 1.248 → 1.139 seconds (8.8% less).
+These include setup/warmup and do not establish physical display cadence.
+Evidence: `/tmp/exact-frame-begin-dec547d2/` and its `confirmation/` directory.
+
 When one input damage rectangle contains the entire union and its device edges
 are integers, the backend records that exact rectangular coverage at the mask's
 stack depth. An opaque, axis-aligned, unrounded fill with integer device edges can

@@ -274,8 +274,8 @@ pub struct Scene<'a> {
 
 /// One painted frame.
 pub struct Frame {
-    /// The pixels, premultiplied RGBA at the device scale.
-    pub pixmap: Pixmap,
+    /// Immutable pixels, shared with repaint history; premultiplied RGBA at device scale.
+    pub pixmap: Arc<Pixmap>,
     /// Every node's box, in paint order (a later box is above an earlier).
     pub boxes: Vec<PaintedBox>,
 }
@@ -290,6 +290,19 @@ pub trait Backend {
     /// Seed a clipped repaint from an accepted frame; false means full repaint.
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
         false
+    }
+    /// Begin with an accepted frame for clipped repainting. A false result
+    /// leaves a fresh white frame ready for a full repaint.
+    fn begin_damage(
+        &mut self,
+        width: f32,
+        height: f32,
+        scale: f32,
+        previous: &Pixmap,
+        rects: &[Rect4],
+    ) -> bool {
+        self.begin(width, height, scale);
+        self.damage(previous, rects)
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
@@ -526,13 +539,27 @@ impl Painter {
         skip: Option<exact_kernel::NodeKey>,
         replay: Option<&region::Replay<'_>>,
     ) -> Result<Frame, String> {
-        self.backend.begin(viewport.0, viewport.1, self.scale);
-        if let Some(previous) = &self.damage.pixels {
-            if !self.damage.next.is_empty() && self.backend.damage(previous, &self.damage.next) {
-                self.damage.last = self.damage.next.clone();
-            } else {
-                self.damage.last.clear();
-            }
+        let partial = if let Some(previous) = self
+            .damage
+            .pixels
+            .as_ref()
+            .filter(|_| !self.damage.next.is_empty())
+        {
+            self.backend.begin_damage(
+                viewport.0,
+                viewport.1,
+                self.scale,
+                previous,
+                &self.damage.next,
+            )
+        } else {
+            self.backend.begin(viewport.0, viewport.1, self.scale);
+            false
+        };
+        if partial {
+            self.damage.last = self.damage.next.clone();
+        } else {
+            self.damage.last.clear();
         }
         self.damage.next.clear();
         self.damage.unsupported = false;
@@ -559,7 +586,7 @@ impl Painter {
         }
         // Pending measurements end with every paint attempt, including failure.
         self.text.borrow_mut().finish_text_frame();
-        let pixmap = finished?;
+        let pixmap = Arc::new(finished?);
         self.damage.pixels = self
             .accepted_text
             .values()

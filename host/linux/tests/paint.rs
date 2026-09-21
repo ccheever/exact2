@@ -581,14 +581,13 @@ fn damage_clearing_matches_the_full_masked_viewport() {
                     vec![(-9000.0, -9000.0, 18000.0, 18000.0)],
                 ] {
                     let mut raster = Raster::new();
-                    raster.begin(width, height, scale);
                     let (w, h) = (
                         ((width * scale).round() as u32).max(1),
                         ((height * scale).round() as u32).max(1),
                     );
                     let mut expected = Pixmap::new(w, h).unwrap();
                     expected.fill(Color::from_rgba8(39, 73, 117, 139));
-                    assert!(raster.damage(&expected, &rects));
+                    assert!(raster.begin_damage(width, height, scale, &expected, &rects));
                     let device = Transform::from_scale(scale, scale);
                     let mut mask = Mask::new(w, h).unwrap();
                     for &(x, y, w, h) in &rects {
@@ -868,4 +867,71 @@ fn rounded_interiors_match_full_masked_paths_at_edges_and_in_layers() {
         }
     }
     assert_eq!(cases, 3456);
+}
+
+#[test]
+fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::Raster;
+    use tiny_skia::{Color, Transform};
+
+    let mut ordinary = Raster::new();
+    let mut direct = Raster::new();
+    for scale in [0.75_f32, 1.0, 1.5, 2.0] {
+        for (width, height) in [(48.0, 40.0), (63.5, 51.25), (1.0, 1.0)] {
+            for mismatch in [false, true] {
+                let w = ((width * scale).round() as u32).max(1);
+                let h = ((height * scale).round() as u32).max(1);
+                let mut previous = Pixmap::new(w + u32::from(mismatch), h).unwrap();
+                previous.fill(Color::from_rgba8(39, 73, 117, 139));
+                for unfinished in [false, true] {
+                    // A previous frame may have a cached clip or unfinished
+                    // opacity layers. Both entry points must retire that state.
+                    for raster in [&mut ordinary, &mut direct] {
+                        raster.begin(48.0, 40.0, 1.0);
+                        raster.push_clip(
+                            &Shape {
+                                rect: (2.0, 3.0, 40.0, 32.0),
+                                radii: [4.0; 4],
+                            },
+                            Transform::identity(),
+                        );
+                        raster.push_opacity(0.3);
+                        raster.fill(
+                            &Shape::rect((0.0, 0.0, 48.0, 40.0)),
+                            [190, 20, 80, 190],
+                            Transform::identity(),
+                        );
+                        if !unfinished {
+                            raster.finish().unwrap();
+                        }
+                    }
+                    let damage = [(5.0, 7.0, 20.0, 18.0)];
+                    ordinary.begin(width, height, scale);
+                    let expected_partial = ordinary.damage(&previous, &damage);
+                    let actual_partial =
+                        direct.begin_damage(width, height, scale, &previous, &damage);
+                    assert_eq!(actual_partial, expected_partial);
+                    assert_eq!(actual_partial, !mismatch);
+                    assert_eq!(
+                        direct.finish().unwrap().data(),
+                        ordinary.finish().unwrap().data()
+                    );
+                    // A following ordinary frame must lose all damage clipping.
+                    for raster in [&mut ordinary, &mut direct] {
+                        raster.begin(width, height, scale);
+                        raster.fill(
+                            &Shape::rect((0.0, 0.0, width, height)),
+                            [20, 170, 90, 255],
+                            Transform::identity(),
+                        );
+                    }
+                    assert_eq!(
+                        direct.finish().unwrap().data(),
+                        ordinary.finish().unwrap().data()
+                    );
+                }
+            }
+        }
+    }
 }

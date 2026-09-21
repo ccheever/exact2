@@ -176,7 +176,7 @@ impl<D: DataSource> Presenter<D> {
         let old_boxes = std::mem::take(&mut self.boxes);
         self.display.active = true;
         self.display.rendering = true;
-        let pixels = Arc::new(self.frame());
+        let pixels = self.frame();
         self.display.rendering = false;
         let identity = Rc::new(Identity {
             origin: self.display.origin.clone(),
@@ -253,7 +253,7 @@ impl<D: DataSource> Presenter<D> {
                 self.dirty |= self.clamp_scroll();
                 if self.host.content_region().is_some() {
                     let before = self.host.content_region().unwrap().publication_painted();
-                    self.last_region_frame = Some((*frame.pixels).clone());
+                    self.last_region_frame = Some(frame.pixels.clone());
                     self.last_region_scale = Some(scale);
                     if let Some(e) = self.host.content_region_painted(&self.brush) {
                         self.host.log(e);

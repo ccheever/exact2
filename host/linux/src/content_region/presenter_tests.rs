@@ -597,6 +597,7 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     p.type_text(input, "external control remains live").unwrap();
     ready(&mut p);
     let first = p.frame();
+    assert!(Arc::ptr_eq(&first, p.last_region_frame.as_ref().unwrap()));
     let paragraph = id(&p, "paragraph");
     let key = p.host.kernel().node(paragraph).unwrap().key;
     let b = p.box_of(paragraph).unwrap();
@@ -617,6 +618,7 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     ready(&mut p); // B is layout-ready, but has never succeeded in the backend.
     p.brush.replace_backend(Box::new(fail_backend::Failure));
     let failed = p.frame();
+    assert!(Arc::ptr_eq(&first, &failed));
     assert!(!p.last_frame_succeeded);
     assert_eq!(first.data(), failed.data());
     let snapshot = p.host.content_region().unwrap().text_snapshot(key).unwrap();
@@ -647,6 +649,7 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     assert_eq!(p.scroll_of(port).1, 30., "read-only content still scrolls");
     assert!(p.resize(480., 520.).is_none());
     let resized_failure = p.frame();
+    assert!(!Arc::ptr_eq(&first, &resized_failure));
     assert_eq!(
         (resized_failure.width(), resized_failure.height()),
         (480, 520)
