@@ -301,7 +301,10 @@ final class RegionReaderParagraph {
             publishing = false
             node.needsDisplay = true
             node.presenter?.requestTextPublication()
-            requestViewport()
+            // Width publication just refit and anchored the native viewport.
+            // Its existing display wake observes the settled geometry; only a
+            // moving band needs an immediate successor in this receipt turn.
+            if !changed { requestViewport() }
         case .abandoned:
             shapeWidth = nil; update(node)
         case .refused(let job, let reason):
