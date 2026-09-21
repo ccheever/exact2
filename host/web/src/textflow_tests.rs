@@ -236,6 +236,33 @@ fn invalid_advances_and_store_bounds_refuse_without_replacing_preparation() {
 }
 
 #[test]
+fn giant_and_multibyte_sources_refuse_without_replacing_accepted_geometry() {
+    // LLP 1044.001 §7.4: the exclusions walker is not a giant-text fallback.
+    // In particular, a UTF-16 count below the ceiling does not admit UTF-8
+    // above it, and a refused candidate must not evict the accepted source.
+    let mut flow = TextFlow::default();
+    prepare(&mut flow, "accepted source", 0);
+    let accepted = flow.flow(1, &[], options()).unwrap();
+    for text in [
+        "😀".repeat(MAX_TEXT / 4 + 1),
+        "x".repeat(1024 * 1024),
+        "x".repeat(4 * 1024 * 1024),
+    ] {
+        let mut input = vec![0; 8];
+        input.extend(text.as_bytes());
+        for id in [1, 2] {
+            assert_eq!(
+                flow.segments(id, &input).unwrap_err(),
+                "textflow exceeds 64 KiB source limit"
+            );
+            assert_eq!(flow.sources.len(), 1);
+            assert_eq!(flow.sources[&1].text, "accepted source");
+            assert_eq!(flow.flow(1, &[], options()).unwrap(), accepted);
+        }
+    }
+}
+
+#[test]
 fn exported_bridge_operations_run_natively_and_boot_retires_old_sources() {
     use crate::abi::Bridge;
     let plan = contract::compile("component Test\n  view\n    text \"hello\"\n")
