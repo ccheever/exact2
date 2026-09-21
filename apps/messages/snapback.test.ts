@@ -357,7 +357,19 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     await act('sendMessage',['maya','After recovery expiry','',200,5000]);
     await act('sendMessage',['dad','Another pending conversation','',201,5500]);
     const scheduled=await inspect();
-    expect(scheduled.pending.length).toBeGreaterThan(1);
+    expect(scheduled.pending.length).toBeGreaterThan(2);
+    // Replacing an entry must retain its position on refusal, including the
+    // first/middle/last schedule. A refused new conversation must leave no entry.
+    const scheduleIds=scheduled.pending.map(([id]:[string,unknown])=>id);
+    expect(scheduleIds).not.toContain('alex');
+    for(const id of new Set([scheduleIds[0],scheduleIds[Math.floor(scheduleIds.length/2)],scheduleIds.at(-1),'alex','address:refused-schedule%40example.test'])) {
+      failCommit=true;
+      await expect(call('sendMessage',[id,'Refused schedule','',202,6000])).rejects.toThrow('footprint commit refused');
+      const restored=await inspect();
+      expect(canonical(restored.live)).toEqual(canonical(scheduled.live));
+      expect(restored.pending).toEqual(scheduled.pending);
+      expect(restored.ticks).toBe(scheduled.ticks);
+    }
     // Refused edits must retain the precise reply order and clock, including
     // sources that replace or delete scheduled activity before persistence.
     for(const [source,args] of [

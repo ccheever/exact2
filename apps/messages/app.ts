@@ -604,13 +604,19 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // These sources leave reply scheduling untouched. Future sources retain the
     // conservative full copy until their pending-state behavior is established.
     const keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source);
-    const previousPending=keepsPending?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision;
+    // A send only sets its own entry. Map.set preserves an existing entry's
+    // position, so rollback needs one value rather than a copy of every reply.
+    const sentId=source==='sendMessage'?String(args[0]):undefined;
+    const previousActivity=sentId===undefined?undefined:pending.get(sentId);
+    const previousPending=keepsPending||sentId!==undefined?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision;
     const value=await sources[source](args,store,storage,native);
     // Reply ticks change durable records only when a receipt or reply advances
     // revision. Keep their clock update, but avoid copying an unchanged history.
     // Other sources can expire recovery rows without changing revision.
     if(source==='advanceReplies' && revision===previousRevision)return value;
     try{await client.edit(records());}catch(error){
+      // Undo before restore prunes schedules for absent/deleted/blocked threads.
+      if(sentId!==undefined){if(previousActivity)pending.set(sentId,previousActivity);else pending.delete(sentId);}
       restore(client.initial());if(previousPending){pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);}ticks=previousTicks;
       // A failed save must not leave an invalid model that every later read
       // tries to save again. Report the original error even if disk is full.
