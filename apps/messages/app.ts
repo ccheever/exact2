@@ -472,9 +472,14 @@ function putMessage(records:Records,conversation:string,message:StoredMessage,ex
 // Declare each durable source's footprint before running it. Unknown sources
 // refuse before mutation, rather than silently omitting a newly authored edit.
 // Returned nulls delete only keys that disappeared from this footprint.
-function editRecords(source:string,args:readonly unknown[]):()=>Records {
+function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records,keepsPending:boolean} {
   rebasedPeople=false;
   const id=String(args[0]);
+  // These sources leave reply scheduling untouched. Future sources retain the
+  // conservative full copy until their pending-state behavior is established.
+  let keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source)
+    || (source==='blockConversation' && !args[1])
+    || ((source==='blockConversation' || source==='deleteConversation') && !pending.has(args[0] as string));
   const person=(records:Records,key:string)=>{
     const value=personIndex.get(key);
     if(value)putPerson(records,value.person);
@@ -511,7 +516,10 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
     case 'advanceReplies': {
       const now=Number(args[0]);
       const due:{key:string,reply:boolean,receipts:StoredMessage[]}[]=[];
+      keepsPending=true;
       pending.forEach((activity,key)=>{
+        // Match the handler's removal branch, including nonfinite clocks.
+        if(!(now<activity.end))keepsPending=false;
         const receipt=ticks<activity.start && now>=activity.start,reply=now>=activity.end;
         // Capture only due row references before the handler marks them and
         // clears the index. Persistence reads their values after the handler.
@@ -564,12 +572,12 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
     default:throw new Error(`Messages source has no durable footprint: ${source}`);
   }
   const before=removes?capture():undefined;
-  return ()=>{
+  return {keepsPending,capture:()=>{
     const after=capture();
     if(rebasedPeople)people.forEach(p=>putPerson(after,p));
     if(before)for(const key of before.keys())if(!after.has(key))after.set(key,null);
     return after;
-  };
+  }};
 }
 function restore(records:Records):void {
   type PersonRecord={kind:'person';person:typeof people[number];position:number;conversation:boolean;muted:boolean;blocked:boolean;deleted:boolean;draft:{draft:string;reply:string}|null;group:string[]|null;contact:typeof localContacts extends Map<string,infer C>?C:null};
@@ -642,12 +650,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
     if(source==='advanceReplies' && idleReplyTick(Number(args[0])))return changed();
-    const records=editRecords(source,args);
-    // These sources leave reply scheduling untouched. Future sources retain the
-    // conservative full copy until their pending-state behavior is established.
-    const keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source)
-      || (source==='blockConversation' && !args[1])
-      || ((source==='blockConversation' || source==='deleteConversation') && !pending.has(args[0] as string));
+    const {capture:records,keepsPending}=editRecords(source,args);
     // Unblocking and removing an absent schedule leave the map untouched. An
     // actual removal still needs the full copy to restore its insertion order.
     // A send only sets its own entry. Map.set preserves an existing entry's

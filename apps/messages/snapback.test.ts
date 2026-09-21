@@ -206,7 +206,7 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     const edit=f.editRecords('markRead',['maya']);
     f.sources.markRead(['maya']);
     expect(f.people.filter((p:any)=>p.id==='maya').map((p:any)=>p.unread)).toEqual([false,true]);
-    const changed=edit().get('person:maya');
+    const changed=edit.capture().get('person:maya');
     expect(changed.person.name).toBe('First Maya');expect(changed.position).toBe(100);
     // Numeric exhaustion rebases positions without changing which duplicate is
     // selected or replacing the referenced person with a detached copy.
@@ -420,9 +420,15 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       expect(idle.revision).toBe(clockStart.revision);expect(idle.ticks).toBe(now);
       expect(canonical(idle.live)).toEqual(canonical(clockStart.live));
     }
+    failCommit=true;
+    await expect(call('advanceReplies',[2003,'maya',2003000])).rejects.toThrow('footprint commit refused');
+    const refusedReceipt=await inspect();
+    expect(canonical(refusedReceipt.live)).toEqual(canonical(clockStart.live));
+    expect(refusedReceipt.pending).toEqual(clockStart.pending);
+    expect(refusedReceipt.ticks).toBe(2002.999);
     const receipt=await act('advanceReplies',[2003,'maya',2003000]);
     expect(receipt.live.find(([key]:[string,unknown])=>key===sentKey)[1].message.delivery).toBe('Read');
-    expect(receipt.revision).toBe(clockStart.revision+1);
+    expect(receipt.revision).toBe(refusedReceipt.revision+1);
     expect((await act('advanceReplies',[2003,'maya',2003000])).revision).toBe(receipt.revision);
     await act('advanceReplies',[2002,'maya',2002000]);
     expect((await act('advanceReplies',[2003,'maya',2003000])).revision).toBe(receipt.revision+1);
