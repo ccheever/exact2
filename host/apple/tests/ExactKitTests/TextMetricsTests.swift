@@ -9,7 +9,8 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
-    func testUrgentFallbackLinesMatchFreshWorkerPixels() throws {
+    func testUrgentLinesMatchFreshWorkerPixels() throws {
+        for measured in [false, true] {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "raster-lines")
         let presenter = session.presenter
@@ -48,10 +49,22 @@ final class TextMetricsTests: XCTestCase {
                 node.prepareToMount()
                 presenter.root.addSubview(node)
                 XCTAssertFalse(presenter.textIsVisible(node))
-                XCTAssertNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                if measured {
+                    var black = node.paragraphSpec()
+                    black.color = [0, 0, 0, 255]
+                    for i in black.runs.indices { black.runs[i].color = nil }
+                    _ = session.text.paragraph(black, width: node.contentBox().width)
+                    XCTAssertNotNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                } else {
+                    XCTAssertNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                }
                 XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
                 let urgent = pixels(try XCTUnwrap(node.textRaster))
-                XCTAssertNotNil(node.cachedTextLayout, "the missing-measurement fallback must be exercised")
+                XCTAssertEqual(node.cachedTextLayout == nil, measured,
+                               "measured ranges must avoid constructing a paragraph")
+                node.dropTextRaster()
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+                XCTAssertEqual(pixels(try XCTUnwrap(node.textRaster)), urgent, "repeat exact-painted reuse")
                 node.dropTextRaster()
                 XCTAssertTrue(presenter.textRasters.ensure(node, urgent: false))
                 let deadline = Date(timeIntervalSinceNow: 2)
@@ -63,6 +76,41 @@ final class TextMetricsTests: XCTestCase {
                 node.forget(); node.removeFromSuperview()
             } }
         } }
+        }
+    }
+
+    func testRasterShapesReuseOnlyExactPaintAndRespectColdBudget() {
+        let engine = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 64 * 1024)
+        let run = Run(text: "Painted 日本語 e\u{301}", size: 16, weight: 400,
+                      family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        var spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [10, 20, 30, 255])
+        let ranges = [CFRange(location: 0, length: (run.text as NSString).length)]
+        let first = engine.rasterLines(spec, ranges: ranges).0
+        XCTAssertTrue(first === engine.rasterLines(spec, ranges: ranges).0)
+        spec.color = [200, 40, 20, 255]
+        XCTAssertFalse(first === engine.rasterLines(spec, ranges: ranges).0)
+        let minimal = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 0)
+        weak var released: NSAttributedString?
+        autoreleasepool {
+            released = minimal.rasterLines(spec, ranges: ranges).0
+            // The existing soft policy keeps one current oversize value.
+            XCTAssertEqual(minimal.residencyStats.coldEntries, 1)
+            XCTAssertGreaterThan(minimal.residencyStats.coldOverageBytes, 0)
+        }
+        XCTAssertNotNil(released)
+        autoreleasepool {
+            var replacement = spec
+            replacement.runs[0].text = "A new source evicts the previous cold shape"
+            _ = minimal.rasterLines(replacement, ranges: [])
+        }
+        XCTAssertNil(released, "eviction must release the previous painted source")
+        XCTAssertEqual(minimal.residencyStats.coldEntries, 1)
+        for i in 0..<1000 {
+            spec.runs[0].text = "Unique painted source \(i)"
+            _ = engine.rasterLines(spec, ranges: [])
+        }
+        XCTAssertLessThanOrEqual(engine.residencyStats.coldEstimatedBytes, 64 * 1024)
+        XCTAssertLessThanOrEqual(engine.residencyStats.coldEntries, TextResidency.maxColdEntries)
     }
 
     func testManyInlineLineBoxesMatchTheirIndependentLines() {

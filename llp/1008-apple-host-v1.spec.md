@@ -187,6 +187,18 @@ Urgent painting reuses those lines synchronously on their owning thread;
 background jobs copy the source and still create their own CoreText lines.
 No additional paragraph or width history is retained by the rasterizer.
 
+When measured breaks are present, urgent rendering also uses the engine's
+existing exact-painted `TextShape` cache for its typesetter. The source/paint
+key, catalog lifetime, cold-entry cap and 64 MiB soft target are unchanged;
+workers still receive copied attributed source and construct their own lines.
+Six alternating hidden-reader pairs at `5cf0e873` measured median landing
+8.85 → 8.40 ms, and a repeated 128-span fixture 13.59 → 12.47 ms. New-content
+forward scrolling was approximately flat; its estimated cold holdings grew
+25,533,706 → 27,197,669 bytes (not RSS). This is a bounded reuse trade, not
+physical 120 Hz evidence. Temporary probes and paired results are in
+`/tmp/exact-raster-shape-5cf0e873/`; changed pixels or unbounded source ownership
+remain disqualifying.
+
 ## 4. The C ABI (`host/apple/src/abi.rs`, `include/exact.h`)
 
 **Requests (LLP 1016 D2, built 2026-08-30).** A request never reaches the

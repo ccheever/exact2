@@ -85,13 +85,14 @@ final class TextRasterizer {
         node.textRasterKey = key
         node.textRasterReady = false
         node.textRasterPending = false
-        let source = paragraph?.shape?.attributed ?? engine.attributed(spec)
+        let reused = urgent && paragraph == nil ? engine.rasterLines(spec, ranges: ranges) : nil
+        let source = paragraph?.shape?.attributed ?? reused?.0 ?? engine.attributed(spec)
         let job = Job(source: source.copy() as! NSAttributedString,
                       ranges: ranges, baselines: baselines,
                       flush: spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0,
                       box: key.box, size: key.size, scale: scale)
         if urgent {
-            let image = Self.render(job, lines: paragraph?.lines)
+            let image = Self.render(job, lines: paragraph?.lines ?? reused?.1)
             node.showTextRaster(image?.surface, for: key, frame: image?.frame)
             return true
         }

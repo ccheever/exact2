@@ -447,6 +447,14 @@ final class TextEngine {
         return s
     }
 
+    /// Urgent raster work stays on the text engine's owning thread and uses
+    /// the existing bounded residency policy for its exact painted typesetter.
+    func rasterLines(_ spec: Spec, ranges: [CFRange]) -> (NSAttributedString, [CTLine]) {
+        let identity = residency.identity(spec)
+        let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
+        return (source.attributed, ranges.map { CTTypesetterCreateLine(source.typesetter, $0) })
+    }
+
     /// The line ranges and baselines the kernel's measurement of `spec` at
     /// `width` produced, if that measurement is still resident. Plain values:
     /// a worker typesets its own lines from them (TextRasterMac.swift).
