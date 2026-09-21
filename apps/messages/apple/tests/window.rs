@@ -615,6 +615,9 @@ fn open(root: &Directory) -> Model {
     Model::with_module(module)
 }
 
+#[path = "window/deleted.rs"]
+mod deleted;
+
 fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory {
     replica_fixture_with_delivery(label, entries, "Delivered")
 }
@@ -904,7 +907,14 @@ fn recovery_expiry_without_revision_change_is_still_durable() {
     let root = replica_fixture("expiry", vec![("expiring".into(), 200, false)]);
     let mut model = open(&root);
     model.delete("maya", "expiring");
-    let deleted = |now| vec![Value::str(""), Value::Number(0.), Value::Number(now)];
+    let deleted = |now| {
+        vec![
+            Value::str(""),
+            Value::Number(0.),
+            Value::Number(now),
+            Value::str(""),
+        ]
+    };
     assert_eq!(
         model.call("recentlyDeleted", deleted(0.))["count"].as_f64(),
         Some(1.)
@@ -960,7 +970,12 @@ fn oversized_conversation_delete_keeps_every_record_and_allows_a_later_edit() {
     assert_eq!(history(&mut model), all);
     let recovery = model.call(
         "recentlyDeleted",
-        vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+        vec![
+            Value::str(""),
+            Value::Number(0.),
+            Value::Number(0.),
+            Value::str(""),
+        ],
     );
     assert_eq!(recovery["count"].as_f64(), Some(0.));
     model.call(
@@ -1223,7 +1238,12 @@ fn recovery_edits_skip_unrelated_archive_and_oversized_expiry_refuses_whole() {
     let archived = |model: &mut Model| {
         model.call(
             "recentlyDeleted",
-            vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+            vec![
+                Value::str(""),
+                Value::Number(0.),
+                Value::Number(0.),
+                Value::str(""),
+            ],
         )
     };
     assert_eq!(archived(&mut model)["count"], 1000.);
@@ -1244,6 +1264,7 @@ fn recovery_edits_skip_unrelated_archive_and_oversized_expiry_refuses_whole() {
                 Value::str(""),
                 Value::Number(0.),
                 Value::Number(2592000000.),
+                Value::str(""),
             ],
         )
         .unwrap_err();

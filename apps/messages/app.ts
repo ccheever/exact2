@@ -34,14 +34,18 @@ function insertPerson(person:typeof people[number],front:boolean):void {
 }
 // Contact windows follow presentation order. Cursors retain an identity and its
 // durable position, so an existing anchor survives prepends and position rebases.
+function contactCursor(cursor:string):[string,number,number]|undefined {
+  if(!cursor)return;
+  let anchor:unknown;
+  try{anchor=JSON.parse(cursor);}catch{throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});}
+  if(!Array.isArray(anchor)||anchor.length!==3||typeof anchor[0]!=='string'||!anchor[0]||typeof anchor[1]!=='number'||!Number.isFinite(anchor[1])||!Number.isSafeInteger(anchor[2])||anchor[2]<0)throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});
+  return anchor as [string,number,number];
+}
 function contactWindow(rows:typeof people,cursor:string) {
   if(!cursor && rows.length<=windowSize)return {people:rows,earlier:'',later:''};
   let start=0;
   if(cursor){
-    let anchor:unknown;
-    try{anchor=JSON.parse(cursor);}catch{throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});}
-    if(!Array.isArray(anchor)||anchor.length!==3||typeof anchor[0]!=='string'||!anchor[0]||typeof anchor[1]!=='number'||!Number.isFinite(anchor[1])||!Number.isSafeInteger(anchor[2])||anchor[2]<0)throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});
-    const [id,position,occurrence]=anchor as [string,number,number];
+    const [id,position,occurrence]=contactCursor(cursor)!;
     const current=occurrence===0?personIndex.get(id)?.person:people.filter(person=>person.id===id)[occurrence];
     const exact=current?rows.indexOf(current):occurrence===0?rows.findIndex(person=>person.id===id):-1;
     const at=current?people.indexOf(current):-1;
@@ -348,17 +352,20 @@ const sources: Sources = {
     const page=contactWindow(matches,cursor);
     return {...page,people:page.people.map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))};
   },
-  recentlyDeleted: ([selection,_revision,now])=>{
+  recentlyDeleted: ([selection,_revision,now,cursor])=>{
+    // A malformed page must refuse before expiry mutates the durable model.
+    contactCursor(cursor);
     expireDeleted(now);
     const ids=new Set(selection.split('|'));
-    const rows=people.flatMap(p=>{
-      const archive=recoverable.get(p.id);if(!archive?.rows.length)return [];
-      return [{id:p.id,name:p.name,initials:p.initials,color:p.color,count:archive.rows.length,
+    const matches=people.filter(p=>!!recoverable.get(p.id)?.rows.length);
+    const chosen=selection?matches.filter(p=>ids.has(p.id)):matches;
+    const page=contactWindow(matches,cursor);
+    return {...page,people:page.people.map(p=>{
+      const archive=recoverable.get(p.id)!;
+      return {id:p.id,name:p.name,initials:p.initials,color:p.color,count:archive.rows.length,
         days:Math.ceil((archive.expires-now)/recoveryDay),chosen:ids.has(p.id),
-        selection:(ids.has(p.id)?[...ids].filter(id=>id!==p.id):[...ids,p.id]).filter(Boolean).join('|')}];
-    });
-    const chosen=selection?rows.filter(p=>p.chosen):rows;
-    return {people:rows,targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+p.count,0)};
+        selection:(ids.has(p.id)?[...ids].filter(id=>id!==p.id):[...ids,p.id]).filter(Boolean).join('|')};
+    }),targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+recoverable.get(p.id)!.rows.length,0)};
   },
   recipients: ([ids,query,body,_revision,cursor])=>{
     const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim(),folded=text.toLowerCase();

@@ -29,6 +29,8 @@ component Messages
   state inboxShift = 0
   state inboxMode = "messages"
   state deletedSelection = ""
+  state deletedCursor = ""
+  state deletedShift = 0
   state recoveryTargets = ""
   state recoveryCount = 0
   state inboxTop = 0
@@ -96,7 +98,7 @@ component Messages
   derive incomingTailPath = "path('M 22 0 L 0 0 C 0 14.4 5.6 11.9 5.6 17.8 C 5.6 18.7 4.3 21.7 3.3 22.4 C 3.4 23.6 3.5 24 5.2 23.6 C 10.4 21.7 21.4 13.2 22 11 Z')"
   resource inbox = inbox(query, revision, inboxCursor) as shape Inbox
   resource syncStatus = syncState(revision) as shape string
-  resource deletedInbox = recentlyDeleted(deletedSelection, revision, now()) as shape DeletedInbox
+  resource deletedInbox = recentlyDeleted(deletedSelection, revision, now(), deletedCursor) as shape DeletedInbox
   resource contacts = recipients(recipient, recipientQuery, newDraft, revision, recipientCursor) as shape Recipients
   resource savedComposer = conversationDraft(chatThread, revision) as shape ComposerDraft
   resource chat = conversation(chatThread, revision, replying, selection, cursor) as shape Conversation
@@ -123,10 +125,15 @@ component Messages
       inboxTop = 0
     query = value
     swipedThread = ""
-  action filterInbox(value: string) writes inboxMode, deletedSelection, swipedThread
+  action filterInbox(value: string) writes inboxMode, deletedSelection, deletedCursor, deletedShift, swipedThread
     inboxMode = value
     deletedSelection = ""
+    deletedCursor = ""
+    deletedShift = deletedShift + 1
     swipedThread = ""
+  action pageDeleted(value: string) writes deletedCursor, deletedShift
+    deletedCursor = value
+    deletedShift = deletedShift + 1
   action chooseDeleted(value: string) writes deletedSelection
     deletedSelection = value
   action prepareRecovery writes recoveryTargets, recoveryCount
@@ -558,9 +565,12 @@ component Messages
               column testId="recently-deleted-screen" flex=1 min-height=0
                 row height=54 align-items="center" justify-content="center" flex-shrink=0
                   text "Recently Deleted" font-size=17 font-weight=600
-                scroll testId="deleted-conversations" flex=1 min-height=0
+                scroll scrollTop=(0 - deletedShift) testId="deleted-conversations" flex=1 min-height=0
                   column
                     text "Conversations show the days remaining before deletion. After that time, messages will be permanently deleted. This may take up to 40 days." font-size=13 line-height="18px" color="light-dark(#8e8e93, #98989d)" text-align="center" padding-top=24 padding-bottom=20 padding-left=24 padding-right=24
+                    when deletedInbox.earlier != ""
+                      button press=pageDeleted(deletedInbox.earlier) testId="previous-deleted-conversations" padding=16
+                        text "Previous conversations" class=AccentText
                     each person in deletedInbox.people key=person.id
                       button press=chooseDeleted(person.selection) testId=`deleted-${person.id}` aria-label=`${person.name}, ${person.count} messages, ${person.days} days remaining` aria-checked=person.chosen height=86.6667 width="100%" box-sizing="border-box" display="flex" align-items="center" padding-left=16 padding-right=16 gap=16 background-color=(person.chosen ? "light-dark(#d1d1d6, #3a3a3c)" : "#00000000")
                         column width=22 height=22 box-sizing="border-box" border-radius=11 border-style="solid" border-width=(person.chosen ? 0 : 1.5) border-color="light-dark(#c7c7cc, #636366)" background-color=(person.chosen ? "#0088ff" : "#00000000") align-items="center" justify-content="center" flex-shrink=0
@@ -573,6 +583,9 @@ component Messages
                             text person.name font-size=17 font-weight=600 line-clamp=1 flex=1 min-width=0
                             text `${person.days} Days` font-size=15 color="light-dark(#8e8e93, #98989d)" flex-shrink=0
                           text (person.count == 1 ? "1 Message" : `${person.count} Messages`) font-size=15 color="light-dark(#8e8e93, #98989d)" margin-top=2
+                    when deletedInbox.later != ""
+                      button press=pageDeleted(deletedInbox.later) testId="more-deleted-conversations" padding=16
+                        text "More conversations" class=AccentText
                 row height=54 flex-shrink=0 padding-left=28 padding-right=28 align-items="center" justify-content="space-between"
                   button press=prepareRecovery popovertarget="recover-confirmation" disabled=(deletedInbox.count == 0) testId="recover-deleted" aria-label=(deletedSelection == "" ? "Recover All" : "Recover") height=48 padding-left=16 padding-right=16 border-radius=24 backgroundMaterial="glass" display="flex" align-items="center" justify-content="center" color=(deletedInbox.count == 0 ? "light-dark(#b4b4b7, #636366)" : "light-dark(#000000, #ffffff)")
                     text (deletedSelection == "" ? "Recover All" : "Recover") font-size=17

@@ -299,6 +299,42 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     const duplicatePages=walk(inbox);
     expect(duplicatePages.map(ids).flat()).toEqual(f.people.map((person:any)=>person.id));
     expect(ids(inbox(duplicatePages[1].earlier))).toEqual(ids(duplicatePages[0]));
+    // Archived contacts share cursor identity/order, but recovery totals and
+    // selection span the complete archive rather than only the displayed page.
+    f.restore(new Map(initial));
+    for(let i=0;i<450;i++){
+      const id=`address:deleted-page-${i}%40example.test`;
+      f.sources.sendMessage([id,'Archived fixture','',0,0]);
+      f.sources.deleteConversation([id,0]);
+    }
+    const archived=new Map(f.snapshot()),day=86400000;
+    const deleted=(cursor='',selection='',now=0)=>f.sources.recentlyDeleted([selection,0,now,cursor]);
+    const archivedIds=f.people.filter((p:any)=>p.id.startsWith('address:deleted-page-')).map((p:any)=>p.id);
+    const deletedPages=walk(deleted);
+    expect(deletedPages.map(ids).flat()).toEqual(archivedIds);
+    for(const page of deletedPages){expect(page.count).toBe(450);expect(page.targets).toBe(archivedIds.join('|'));}
+    expect(ids(deleted(deletedPages[1].earlier))).toEqual(ids(deletedPages[0]));
+    const archivedSelection=[archivedIds[0],archivedIds[249],archivedIds[449]].join('|');
+    for(const page of walk(cursor=>deleted(cursor,archivedSelection))){
+      expect(page.targets).toBe(archivedSelection);expect(page.count).toBe(3);
+      for(const row of page.people)expect(row.chosen).toBe(archivedSelection.split('|').includes(row.id));
+    }
+    const at=deletedPages[0].later,archiveAnchor=archivedIds[200];
+    for(const operation of ['recoverConversations','purgeConversations']){
+      f.restore(archived);f.sources[operation]([archiveAnchor,0]);
+      expect(deleted(at).people[0].id).toBe(archivedIds[201]);
+      expect(deleted(at).count).toBe(449);
+    }
+    f.restore(archived);
+    const snapshot=JSON.stringify([...f.snapshot()]);
+    for(const cursor of ['bad','[]','["missing",0,-1]']){
+      expect(()=>deleted(cursor,'',30*day)).toThrow('Invalid contact cursor');
+      expect(JSON.stringify([...f.snapshot()])).toBe(snapshot);
+    }
+    const expired=deleted(at,archivedSelection,30*day);
+    expect(expired).toEqual({people:[],earlier:'',later:'',targets:'',count:0});
+    expect(deleted('',archivedSelection,0)).toEqual(expired);
+
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
@@ -403,7 +439,7 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       const id=sent.live.find(([,row]:any)=>row.kind==='message' && row.conversation===thread && row.message.body===body)[1].message.id;
       archivedIds.push(id);await act('deleteMessages',[thread,id,now]);
     }
-    await act('recentlyDeleted',['',0,0]);expect(app.fixtureEditKeys()).toEqual([]);
+    await act('recentlyDeleted',['',0,0,'']);expect(app.fixtureEditKeys()).toEqual([]);
     await act('deleteMessages',['maya','m1',0]);
     expect(app.fixtureEditKeys().sort()).toEqual(['message:maya:m1','person:maya']);
     await act('recoverConversations',['maya',0]);
@@ -413,20 +449,22 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     const noDelete=canonical((await inspect()).live);
     await act('deleteMessages',['maya','missing-message',31*86400000]);
     expect(canonical((await inspect()).live)).toEqual(noDelete);
-    failCommit=true;
-    await expect(call('recentlyDeleted',['',0,30.5*86400000])).rejects.toThrow('footprint commit refused');
+    await expect(call('recentlyDeleted',['',0,30.5*86400000,'malformed'])).rejects.toThrow('Invalid contact cursor');
     expect(canonical((await inspect()).live)).toEqual(noDelete);
-    await act('recentlyDeleted',['',0,30.5*86400000]);
+    failCommit=true;
+    await expect(call('recentlyDeleted',['',0,30.5*86400000,''])).rejects.toThrow('footprint commit refused');
+    expect(canonical((await inspect()).live)).toEqual(noDelete);
+    await act('recentlyDeleted',['',0,30.5*86400000,'']);
     expect(app.fixtureEditKeys()).toEqual(['message:sam:'+encodeURIComponent(archivedIds[0])]);
     await act('recoverConversations',['jules',30.5*86400000]);
     expect(app.fixtureEditKeys().sort()).toEqual(['message:jules:'+encodeURIComponent(archivedIds[1]),'person:jules']);
     await act('deleteMessages',['maya','m9|m10',0]);
-    await act('recentlyDeleted',['',0,0]);
+    await act('recentlyDeleted',['',0,0,'']);
     await act('recoverConversations',['maya',0]);
     await act('deleteConversation',['maya',0]);
     await act('purgeConversations',['maya',0]);
     await act('deleteConversation',['dad',0]);await act('deleteMessages',['alex','alex-1',0]);
-    await act('recentlyDeleted',['',0,31*86400000]);
+    await act('recentlyDeleted',['',0,31*86400000,'']);
     await act('deleteMessages',['sam','sam-1',0]);
     await act('deleteMessages',['jules','jules-1',86400000]);
     await act('recoverConversations',['sam|jules',30.5*86400000]);
@@ -585,7 +623,7 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     // Expiry deadlines survive earlier insertions, strict equality, refusal,
     // rewind, removal of the earliest archive, and reopening the durable model.
     const day=86400000;
-    await act('recentlyDeleted',['',0,40*day]);
+    await act('recentlyDeleted',['',0,40*day,'']);
     const archiveOne=async(id:string,body:string,now:number)=>{
       const sent=await act('sendMessage',[id,body,'',0,0]);
       const [key,row]=sent.live.find(([,row]:any)=>row.kind==='message' && row.message.body===body);
@@ -593,36 +631,36 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     };
     const laterExpiry=await archiveOne('maya','Later archive expiry',10*day);
     const earlierExpiry=await archiveOne('dad','Earlier archive expiry',0);
-    const beforeExpiry=await act('recentlyDeleted',['',0,30*day-.5]);
+    const beforeExpiry=await act('recentlyDeleted',['',0,30*day-.5,'']);
     expect(new Map(beforeExpiry.live).has(earlierExpiry)).toBe(true);
     failCommit=true;
-    await expect(call('recentlyDeleted',['',0,30*day])).rejects.toThrow('footprint commit refused');
+    await expect(call('recentlyDeleted',['',0,30*day,''])).rejects.toThrow('footprint commit refused');
     expect(canonical((await inspect()).live)).toEqual(canonical(beforeExpiry.live));
-    const expired=await act('recentlyDeleted',['',0,30*day]);
+    const expired=await act('recentlyDeleted',['',0,30*day,'']);
     expect(new Map(expired.live).has(earlierExpiry)).toBe(false);
     expect(new Map(expired.live).has(laterExpiry)).toBe(true);
-    expect(canonical((await act('recentlyDeleted',['',0,5*day])).live)).toEqual(canonical(expired.live));
+    expect(canonical((await act('recentlyDeleted',['',0,5*day,''])).live)).toEqual(canonical(expired.live));
     await act('recoverConversations',['maya',39*day]);
     const reopenedExpiry=await archiveOne('dad','Reopened archive expiry',9*day);
     app=await import(output+`?instance=${generation++}`);
     await call('conversation',['maya',0,'','','']);
-    expect(new Map((await act('recentlyDeleted',['',0,39*day-.5])).live).has(reopenedExpiry)).toBe(true);
-    expect(new Map((await act('recentlyDeleted',['',0,39*day])).live).has(reopenedExpiry)).toBe(false);
+    expect(new Map((await act('recentlyDeleted',['',0,39*day-.5,''])).live).has(reopenedExpiry)).toBe(true);
+    expect(new Map((await act('recentlyDeleted',['',0,39*day,''])).live).has(reopenedExpiry)).toBe(false);
     const nonfiniteExpiry=await archiveOne('maya','Nonfinite expiry clock',10*day);
-    expect(new Map((await act('recentlyDeleted',['',0,NaN])).live).has(nonfiniteExpiry)).toBe(false);
+    expect(new Map((await act('recentlyDeleted',['',0,NaN,''])).live).has(nonfiniteExpiry)).toBe(false);
     // One archive can contain different deadlines in insertion order. Its
     // summary minimum must advance after partial expiry and rebuild on reopen.
     await archiveOne('maya','Summary latest',10*day);
     await archiveOne('maya','Summary earliest',0);
     await archiveOne('maya','Summary middle',9*day);
     const summary=async(now:number)=>{
-      const result=await call('recentlyDeleted',['maya',0,now]);await inspect();
+      const result=await call('recentlyDeleted',['maya',0,now,'']);await inspect();
       return result.people.find((p:any)=>p.id==='maya');
     };
     expect(await summary(0)).toMatchObject({count:3,days:30,chosen:true});
     expect(await summary(30*day)).toMatchObject({count:2,days:9});
     failCommit=true;
-    await expect(call('recentlyDeleted',['maya',0,39*day])).rejects.toThrow('footprint commit refused');
+    await expect(call('recentlyDeleted',['maya',0,39*day,''])).rejects.toThrow('footprint commit refused');
     expect(await summary(30*day)).toMatchObject({count:2,days:9});
     app=await import(output+`?instance=${generation++}`);
     await call('conversation',['maya',0,'','','']);
@@ -663,17 +701,17 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     const dueBucket=await archiveOne('sam','Due bucket expiry',0);
     const beforeBucketExpiry=await inspect();
     failCommit=true;
-    await expect(call('recentlyDeleted',['',0,30*day])).rejects.toThrow('footprint commit refused');
+    await expect(call('recentlyDeleted',['',0,30*day,''])).rejects.toThrow('footprint commit refused');
     expect(canonical((await inspect()).live)).toEqual(canonical(beforeBucketExpiry.live));
-    const firstBucketExpiry=new Map((await act('recentlyDeleted',['',0,30*day])).live);
+    const firstBucketExpiry=new Map((await act('recentlyDeleted',['',0,30*day,''])).live);
     expect(firstBucketExpiry.has(dueBucket)).toBe(false);
     expect(firstBucketExpiry.has(middleBucket)).toBe(true);
     expect(firstBucketExpiry.has(futureBucket)).toBe(true);
-    const secondBucketExpiry=await act('recentlyDeleted',['',0,40*day]);
+    const secondBucketExpiry=await act('recentlyDeleted',['',0,40*day,'']);
     expect(new Map(secondBucketExpiry.live).has(middleBucket)).toBe(false);
     expect(new Map(secondBucketExpiry.live).has(futureBucket)).toBe(true);
-    expect(canonical((await act('recentlyDeleted',['',0,5*day])).live)).toEqual(canonical(secondBucketExpiry.live));
-    expect(new Map((await act('recentlyDeleted',['',0,50*day])).live).has(futureBucket)).toBe(false);
+    expect(canonical((await act('recentlyDeleted',['',0,5*day,''])).live)).toEqual(canonical(secondBucketExpiry.live));
+    expect(new Map((await act('recentlyDeleted',['',0,50*day,''])).live).has(futureBucket)).toBe(false);
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);

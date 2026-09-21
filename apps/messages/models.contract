@@ -24,6 +24,8 @@ shape DeletedConversation
   selection: string
 shape DeletedInbox
   people: list<DeletedConversation>
+  earlier: string
+  later: string
   targets: string
   count: number
 shape Recipient
