@@ -9359,3 +9359,21 @@ module cache. Fresh closure proves16 recorded PIDs/groups absent, no guard actio
 and76.415GB free. A fresh normal-clock A/B is next; reuse of retained control53e2d1cf
 requires preserving its7594 runtime/plan foundation in the candidate. Historical
 cell timings cannot supply the control. No native speedup or physical120Hz is claimed.
+
+### 8.169 Current-main integration of the single-run candidate, 2026-09-21
+
+PR30 now includes origin/main `c4113c5`. Main has since gained urgent painted
+line/typesetter reuse and prepared paragraph sources. The integration keeps those
+paths and their immutable copy unchanged; `rasterSource` applies only to the
+remaining fresh-source fallback. The earlier 50-job construction result in §8.168
+belongs to its older base and does not establish eligibility or gain here. The
+urgent publication test's optional source counters now expect no fallback call.
+
+A new common normal-clock observer was ported to current main, and both proposed
+arms differ only in Text.swift and the raster fallback. The first fresh control
+build stalled before its new Rust build scripts entered main: sampled stacks were
+at `_dyld_start`, with zero accumulated CPU; macOS syspolicyd concurrently used a
+full core and repeatedly logged driver errors. This indicates a host execution
+problem, not a measured candidate regression. No native comparison has run, and
+the integrated correctness tests remain unexecuted pending host recovery. The PR
+stays draft; no current-main speedup is claimed.

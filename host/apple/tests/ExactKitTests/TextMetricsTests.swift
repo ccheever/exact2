@@ -803,7 +803,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(held.isEqual(to: expected))
     }
 
-    func testUrgentEnsureUsesRasterSourceForChangedTextAndPreservesPublication() throws {
+    func testUrgentEnsurePreservesPreparedSourceAndPublication() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "single-run-raster-source")
         let presenter = session.presenter, engine = session.text
@@ -828,8 +828,8 @@ final class TextMetricsTests: XCTestCase {
             XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
             XCTAssertTrue(node.textRasterReady); XCTAssertFalse(node.textRasterPending)
             #if EXACT_RASTER_SOURCE_SENTINELS
-            XCTAssertEqual(engine.rasterSourceRequests, 1, "actual ensure must request the Job source from the factory")
-            XCTAssertEqual(engine.rasterSourceSingleRuns, 1)
+            XCTAssertEqual(engine.rasterSourceRequests, 0, "urgent work must keep the prepared-source path from current main")
+            XCTAssertEqual(engine.rasterSourceSingleRuns, 0)
             #endif
             let key = try XCTUnwrap(node.textRasterKey), pixels = try XCTUnwrap(node.textRaster)
             let spec = node.paragraphSpec(), p = try XCTUnwrap(node.paragraphLayout())
@@ -843,7 +843,7 @@ final class TextMetricsTests: XCTestCase {
             XCTAssertTrue(node.textRaster === pixels, "obsolete and late same-key answers cannot replace accepted pixels")
             XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
             #if EXACT_RASTER_SOURCE_SENTINELS
-            XCTAssertEqual(engine.rasterSourceRequests, 1, "a ready key must not prepare another source")
+            XCTAssertEqual(engine.rasterSourceRequests, 0, "a ready key must not prepare another source")
             #endif
             previousKey = key; previousPixels = pixels
         }
