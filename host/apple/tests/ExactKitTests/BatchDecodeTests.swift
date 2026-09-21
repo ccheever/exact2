@@ -131,8 +131,14 @@ final class BatchDecodeTests: XCTestCase {
             _ = try compare(text)
         }
         let numbers = ["-0", "0", "-0.0", "1.0000000000000002", "9007199254740993", "18446744073709551615",
-                       "1e-324", "5e-324", "2.2250738585072014e-308", "1.7976931348623157e308", "0.84551240822557006", "1e+20"]
+                       "5e-324", "2.2250738585072014e-308", "1.7976931348623157e308", "0.84551240822557006", "1e+20", "0e-400"]
         for number in numbers { _ = try compare("{\"clock\":\(number),\"ops\":[{\"op\":\"style\",\"style\":{\"n\":\(number)}}]}") }
+        // A nonzero literal below the smallest subnormal is refused by both, as one past the largest is.
+        for number in ["1e-324", "-2.4e-324", "1.8e308"] {
+            let data = Data("{\"clock\":\(number)}".utf8)
+            XCTAssertThrowsError(try JSONDecoder().decode(OracleBatch.self, from: data))
+            XCTAssertEqual(Batch.decode(data).error, "unreadable batch")
+        }
         // Deterministic finite f64 round trips exercise decimal rounding across
         // the exponent range, with exact bits (including the sign of zero).
         var bits: UInt64 = 1044

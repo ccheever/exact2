@@ -160,6 +160,10 @@ struct BatchReader {
             if integral { return negative ? -Double(integer) : Double(integer) }
         }
         guard let value = Double(String(decoding: bytes[span], as: UTF8.self)), value.isFinite else { throw Invalid.wire }
+        // Foundation refuses a nonzero literal that rounds to zero, as it does one past the largest.
+        if value == 0, bytes[span].prefix(while: { $0 != 101 && $0 != 69 }).contains(where: { (49...57).contains($0) }) {
+            throw Invalid.wire
+        }
         return value
     }
     mutating func number() throws -> Double { try number(numberSpan()) }
