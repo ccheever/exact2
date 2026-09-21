@@ -50,6 +50,11 @@ export function authorize(grants, operation, path) {
 
 function parentOf(path) { return path.slice(0, path.lastIndexOf('/')); }
 function below(path, directory) { return path.startsWith(`${directory}/`); }
+function descendants(path) {
+  // '/' sorts immediately before '0': include all descendant names (even
+  // U+FFFF) but no sibling path. The directory itself is a separate point read.
+  return IDBKeyRange.bound(`${path}/`, `${path}0`, false, true);
+}
 
 // A database owns its file exclusively and pins each ancestor with a shared
 // lock. Unrelated files remain usable; replacing an open database or moving its
@@ -150,7 +155,7 @@ export function createFileStore(appId) {
     }
     return opening;
   }
-  async function run(write, operation, path, list = false) {
+  async function run(write, operation, path, list, subtree) {
     const db = await open();
     if (closed) throw failure('storage was unloaded');
     return new Promise((resolve, reject) => {
@@ -163,27 +168,23 @@ export function createFileStore(appId) {
       transaction.oncomplete = () => resolve(result);
       transaction.onabort = () => reject(error || failure(transaction.error?.message || 'transaction aborted'));
       transaction.onerror = () => {}; // onabort reports once, including quota failures.
-      const requests = path === undefined ? [store.getAll()]
-        : [...new Set(Array.isArray(path) ? path : [path])].map(key => store.get(key));
-      // '/' sorts immediately before '0': the exclusive upper bound includes
-      // every descendant name, even one containing U+FFFF, but no sibling path.
-      const keys = list ? store.getAllKeys(IDBKeyRange.bound(`${path}/`, `${path}0`, false, true)) : null;
-      let pending = requests.length + (keys ? 1 : 0);
+      const requests = [...new Set(Array.isArray(path) ? path : [path])].map(key => store.get(key));
+      if (subtree) requests.push(store.getAll(descendants(subtree)));
+      const keys = list ? [store.getKey(list), store.getAllKeys(descendants(list))] : [];
+      let pending = requests.length + keys.length;
       const ready = () => {
         if (--pending) return;
-        const values = path === undefined ? requests[0].result
-          : requests.map(request => request.result).filter(Boolean);
+        const values = requests.flatMap(request => request.result ?? []);
         const records = new Map(values.map(value => [value.path, value]));
         const changes = {
           put(value) { records.set(value.path, value); store.put(value); },
           remove(path) { records.delete(path); store.delete(path); },
           touch(path) { const value = directory(records, path); this.put({ ...value, modifiedMs: now() }); },
         };
-        try { result = operation(records, changes, keys?.result); }
+        try { result = operation(records, changes, keys.flatMap(request => request.result ?? [])); }
         catch (cause) { error = cause; transaction.abort(); }
       };
-      for (const request of requests) request.onsuccess = ready;
-      if (keys) keys.onsuccess = ready;
+      for (const request of [...requests, ...keys]) request.onsuccess = ready;
     });
   }
   async function write(path, data, append) {
@@ -221,10 +222,14 @@ export function createFileStore(appId) {
         directory(records, path);
         return keys.filter(key => parentOf(key) === path)
           .map(key => key.slice(path.length + 1)).sort();
-      }, path, true);
+      }, path, path);
     },
     async mkdir(path) {
       path = normalizePath(path);
+      const ancestors = [path];
+      while (!rootPaths.includes(ancestors[ancestors.length - 1])) {
+        ancestors.push(parentOf(ancestors[ancestors.length - 1]));
+      }
       return run(true, (records, changes) => {
         const parts = path.slice(5).split('/');
         let current = `app:/${parts.shift()}`;
@@ -237,17 +242,17 @@ export function createFileStore(appId) {
             changes.touch(parent);
           }
         }
-      });
+      }, ancestors);
     },
     async rm(path) {
       path = normalizePath(path);
       requireBelowRoot(path);
-      return run(true, (records, changes) => {
+      return run(true, (records, changes, keys) => {
         directory(records, parentOf(path));
-        if (!records.has(path)) return;
-        for (const key of records.keys()) if (key === path || below(key, path)) changes.remove(key);
+        if (!keys.includes(path)) return;
+        for (const key of keys) changes.remove(key);
         changes.touch(parentOf(path));
-      });
+      }, parentOf(path), path);
     },
     async stat(path) {
       path = normalizePath(path);
@@ -262,7 +267,7 @@ export function createFileStore(appId) {
       to = normalizePath(to);
       requireBelowRoot(from);
       requireBelowRoot(to);
-      return run(true, (records, changes) => {
+      return run(true, (records, changes, keys) => {
         const source = entry(records, from);
         directory(records, parentOf(to));
         if (from === to) return;
@@ -270,7 +275,7 @@ export function createFileStore(appId) {
         const target = records.get(to);
         if (target) {
           if (source.kind !== target.kind) throw failure('rename requires matching file kinds');
-          if (target.kind === 'directory' && [...records.keys()].some(key => below(key, to))) {
+          if (target.kind === 'directory' && keys.some(key => below(key, to))) {
             throw failure('destination directory is not empty', 'ENOTEMPTY');
           }
           changes.remove(to);
@@ -280,7 +285,7 @@ export function createFileStore(appId) {
         for (const value of moving) changes.put({ ...value, path: to + value.path.slice(from.length) });
         changes.touch(parentOf(from));
         changes.touch(parentOf(to));
-      });
+      }, [from, to, parentOf(from), parentOf(to)], to, from);
     },
     async copyFile(from, to) {
       from = normalizePath(from);

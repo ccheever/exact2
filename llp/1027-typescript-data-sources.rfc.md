@@ -1044,8 +1044,11 @@ fetch only the requested IndexedDB record; directory listing reads its directory
 record and descendant keys in the same transaction, without file contents. Read
 buffers belong to the caller because IndexedDB clones each result. Writes and appends
 fetch their target and parent; copies fetch source, destination and destination parent,
-within the same write transaction. Directory creation, removal and rename still scan
-the app's records, and SQLite mutations write a whole database snapshot.
+within the same write transaction. Directory creation reads its ancestors; removal
+reads the parent and target/subtree keys without contents. Rename reads its source
+subtree, source/destination records and parents, plus destination subtree keys to
+reject a nonempty replacement. No operation enumerates unrelated file contents.
+SQLite mutations still write a whole database snapshot.
 A stat still reads the target record, including its contents, but no unrelated file.
 Quota/persistence failures reject and invalidate a divergent SQLite connection.
 Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.

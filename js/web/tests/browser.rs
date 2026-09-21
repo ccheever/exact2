@@ -417,9 +417,46 @@ try {
       await fs.atomicWriteFile('app:/cache/target',new Uint8Array([7]));
       await fs.appendFile('app:/cache/target',new Uint8Array([8]));
       await fs.copyFile('app:/data/dir/a','app:/cache/target');
+      await fs.mkdir('app:/cache/created/nested');
+      await fs.rename('app:/cache/created','app:/cache/renamed');
+      await fs.rm('app:/cache/renamed');
+      await fs.rm('app:/cache/unrelated-large');
     } finally {for(const [method,original] of originalReads)IDBObjectStore.prototype[method]=original;}
-    if(loadedBytes>=1024*1024)throw new Error('point operations or listing loaded unrelated file contents');
+    if(loadedBytes>=1024*1024)throw new Error('filesystem operation loaded unrelated or removed file contents');
     await fs.rm('app:/cache/unrelated-large');
+    await fs.mkdir('app:/data/ops/from/nested');await fs.mkdir('app:/data/ops/from0');
+    await fs.mkdir('app:/data/ops/to');await fs.mkdir('app:/data');
+    for(const path of ['app:/data/ops/from/\ufffftail','app:/data/ops/from/nested/🌿','app:/data/ops/from!'])await fs.writeFile(path,new Uint8Array([12]));
+    await errors(fs.mkdir('app:/data/ops/from!/child'),'ENOTDIR');
+    await errors(fs.rm('app:/data/ops/from!/child'),'ENOTDIR');
+    await errors(fs.rm('app:/data/absent/child'),'ENOENT');
+    await errors(fs.rename('app:/data/absent','app:/data/ops/to'),'ENOENT');
+    await errors(fs.rename('app:/data/ops/from','app:/data/absent/to'),'ENOENT');
+    await refused(fs.rename('app:/data/ops/from','app:/data/ops/from/nested/moved'));
+    await refused(fs.rename('app:/data/ops/from!','app:/data/ops/to'));
+    await errors(fs.rename('app:/data/ops/from','app:/data/ops'),'ENOTEMPTY');
+    await fs.writeFile('app:/data/ops/to/occupied',new Uint8Array([13]));
+    await errors(fs.rename('app:/data/ops/from','app:/data/ops/to'),'ENOTEMPTY');
+    await fs.rm('app:/data/ops/to/occupied');
+    const originalPut=IDBObjectStore.prototype.put;let puts=0;
+    IDBObjectStore.prototype.put=function(...args){
+      if(this.transaction.db.name===`exact-storage:${encodeURIComponent(fsApp)}`&&++puts===2)throw new Error('injected move failure');
+      return originalPut.apply(this,args);
+    };
+    try {
+      try{await fs.rename('app:/data/ops/from','app:/data/ops/to');throw new Error('move should fail');}
+      catch(error){if(error.message!=='injected move failure')throw error;}
+    } finally {IDBObjectStore.prototype.put=originalPut;}
+    if((await fs.readdir('app:/data/ops/to')).length||new Uint8Array(await fs.readFile('app:/data/ops/from/nested/🌿'))[0]!==12)throw new Error('failed move must roll back removed and inserted records');
+    await fs.rename('app:/data/ops/from','app:/data/ops/from');
+    await fs.rename('app:/data/ops/from','app:/data/ops/to');
+    if((await fs.readdir('app:/data/ops')).join()!=='from!,from0,to'||new Uint8Array(await fs.readFile('app:/data/ops/to/\ufffftail'))[0]!==12)throw new Error('move must preserve Unicode descendants and adjacent siblings');
+    await fs.writeFile('app:/data/ops/replaced',new Uint8Array([99]));
+    await fs.rename('app:/data/ops/from!','app:/data/ops/replaced');
+    if(new Uint8Array(await fs.readFile('app:/data/ops/replaced'))[0]!==12)throw new Error('file move must replace destination');
+    await fs.rm('app:/data/ops/to');
+    if((await fs.readdir('app:/data/ops')).join()!=='from0,replaced')throw new Error('recursive removal must preserve adjacent siblings');
+    await fs.rm('app:/data/ops');
     await fs.mkdir('app:/data/list/nested');await fs.mkdir('app:/data/list0');
     for(const path of ['app:/data/list/\ufffftail','app:/data/list/🌿','app:/data/list/nested/hidden','app:/data/list0/sibling'])await fs.writeFile(path,new Uint8Array([4]));
     if((await fs.readdir('app:/data/list')).join()!==['nested','🌿','\ufffftail'].sort().join())throw new Error('directory keys must include Unicode direct children only');
