@@ -161,8 +161,10 @@ function archiveMessages(id:string,rows:StoredMessage[],now:number) {
   expireDeleted(now);
   if(rows.length){
     const expires=now+30*recoveryDay;
-    const previous=recoverable.get(id);
-    recoverable.set(id,{rows:[...(previous?.rows||[]),...rows.map(message=>({message,expires}))],expires:Math.min(previous?.expires??Infinity,expires)});
+    const archive=recoverable.get(id)||{rows:[],expires:Infinity};
+    for(const message of rows)archive.rows.push({message,expires});
+    archive.expires=Math.min(archive.expires,expires);
+    recoverable.set(id,archive);
     nextRecoveryExpiry=Math.min(nextRecoveryExpiry,expires);
   }
 }

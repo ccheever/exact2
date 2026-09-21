@@ -496,6 +496,33 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect(await summary(30*day)).toMatchObject({count:2,days:9});
     expect(await summary(39*day)).toMatchObject({count:1,days:1});
     expect(await summary(40*day)).toBeUndefined();
+    // Appending to an existing archive may lower its deadline. A refused save
+    // must undo both rows and the minimum, including before reopen and retry.
+    const appendFirst=await archiveOne('maya','Append existing archive',10*day);
+    const appendKeys=[appendFirst];
+    for(const body of ['Append second','Append third']){
+      const sent=await act('sendMessage',['maya',body,'',0,0]);
+      appendKeys.push(sent.live.find(([,row]:any)=>row.kind==='message' && row.message.body===body)[0]);
+    }
+    const beforeAppendDelete=await inspect();
+    const appendIds=appendKeys.slice(1).map(key=>new Map(beforeAppendDelete.live).get(key) as any).map(row=>row.message.id).join('|');
+    failCommit=true;
+    await expect(call('deleteMessages',['maya',appendIds,0])).rejects.toThrow('footprint commit refused');
+    const refusedAppend=await inspect();
+    expect(canonical(refusedAppend.live)).toEqual(canonical(beforeAppendDelete.live));
+    expect(refusedAppend.pending).toEqual(beforeAppendDelete.pending);
+    expect(await summary(0)).toMatchObject({count:1,days:40});
+    await act('deleteMessages',['maya',appendIds,0]);
+    expect(await summary(0)).toMatchObject({count:3,days:30});
+    const appended=await inspect();
+    app=await import(output+`?instance=${generation++}`);
+    await call('conversation',['maya',0,'','','']);
+    expect(canonical((await inspect()).live)).toEqual(canonical(appended.live));
+    expect(await summary(0)).toMatchObject({count:3,days:30});
+    const recoveredAppend=await act('recoverConversations',['maya',0]);
+    expect(recoveredAppend.live.filter(([key]:[string,unknown])=>appendKeys.includes(key)).map(([key,row]:[string,any])=>[key,row.expires]))
+      .toEqual(appendKeys.map(key=>[key,null]));
+    expect(await summary(0)).toBeUndefined();
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);
