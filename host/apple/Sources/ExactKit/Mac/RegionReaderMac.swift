@@ -149,7 +149,7 @@ final class RegionReaderParagraph {
         // Overscan within the existing pixel budget, always horizontally bounded
         // even when CSS normal lets a million-character word overflow.
         let top = (pointRequest == nil ? candidateTop : nil) ?? max(0, port.minY - content.minY)
-        let width = ceil(min(p.offeredWidth + 32, port.width + 32) * CGFloat(scale)) / CGFloat(scale)
+        let width = ceil(min(p.offeredWidth + 64, port.width + 64) * CGFloat(scale)) / CGFloat(scale)
         let rowBytes = width * CGFloat(scale * scale) * 4
         let overscan = floor(CGFloat(8 * 1024 * 1024) / rowBytes * CGFloat(scale)) / CGFloat(scale)
         let capacity = floor(CGFloat(RegionRasterRequest.maximumPixelLimit) / rowBytes * CGFloat(scale)) / CGFloat(scale)
@@ -165,7 +165,7 @@ final class RegionReaderParagraph {
         let selected = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).usingColorSpace(.sRGB)!
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
-            scroll: CGPoint(x: 0, y: y), size: CGSize(width: width, height: height), scale: scale,
+            scroll: CGPoint(x: -32, y: y), size: CGSize(width: width, height: height), scale: scale,
             profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
             // The existing view owns CSS backgrounds, including rounded corners
             // and opacity. Overflow ink must not repaint its ancestor's box.
