@@ -492,7 +492,7 @@ pub enum Node {
         /// [`Expanded::instances`](crate::Expanded::instances) of the
         /// component instantiation this element was expanded in — the
         /// root's own elements are 0, a used component's are its use's;
-        /// 0 as parsed. No pass but the development map reads it.
+        /// 0 as parsed. The development map and refusal diagnostics read it.
         instance: u32,
     },
     /// `Name(arg=expr, …)`, with the nodes indented under it filling the
@@ -701,6 +701,31 @@ impl Expr {
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. } => *s,
+        }
+    }
+}
+
+/// One ASCII insertion, deletion, substitution, or adjacent transposition.
+pub fn one_spelling_edit(a: &[u8], b: &[u8]) -> bool {
+    if !a.is_ascii()
+        || !b.is_ascii()
+        || a.len() > 64
+        || b.len() > 64
+        || a.len().abs_diff(b.len()) > 1
+        || a == b
+    {
+        return false;
+    }
+    let i = a.iter().zip(b).take_while(|(a, b)| a == b).count();
+    match a.len().cmp(&b.len()) {
+        std::cmp::Ordering::Less => a[i..] == b[i + 1..],
+        std::cmp::Ordering::Greater => a[i + 1..] == b[i..],
+        std::cmp::Ordering::Equal => {
+            a[i + 1..] == b[i + 1..]
+                || (i + 1 < a.len()
+                    && a[i] == b[i + 1]
+                    && a[i + 1] == b[i]
+                    && a[i + 2..] == b[i + 2..])
         }
     }
 }

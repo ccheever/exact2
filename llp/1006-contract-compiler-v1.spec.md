@@ -289,6 +289,23 @@ expanded root as the child's authored scope. Existing arity/type refusals and
 valid calls do no suggestion work. Suggested replacements still undergo normal
 compilation; no typo is accepted as an alias.
 
+The driver now enriches action-valued refusals from the original authored tree:
+Call hints exclude intrinsic `pending`/`path` and global-function collisions; bare
+action references and timers retain those legal action spellings. This follows the
+refused expression kind even when a bare prop is called downstream.
+Handlers, action props and timers offer one unambiguous action spelling under the
+same ASCII edit rule. Candidates come from that component's actions and action
+props/injections, excluding local `each`/`match` shadows and names containing `__`.
+A global function is not a handler correction; timers offer declared actions only.
+When prop/provider substitution obscures the caller, an error-only mapped expansion
+traces the argument through instance parents and adds the original supplied
+expression as a related location. All matching instances must agree on the hint;
+ambiguous or untraceable origins get none. The primary diagnostic id and span stay
+unchanged, as do normal type/arity checks. Four CLI repair cases use the diagnostic
+location (related for forwarded arguments) to produce valid, byte-identical plans.
+The 18-app plan comparison is unchanged. Successful builds do not walk authored
+scopes or construct this diagnostic provenance; no compiled-plan metadata is added.
+
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared

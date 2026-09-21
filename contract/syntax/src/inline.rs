@@ -60,8 +60,8 @@ pub struct Expanded {
 /// One component instantiation the inliner expanded (LLP 1035.005 D3):
 /// which component, which instantiation's view holds the use, and where the
 /// use is written there. The development map walks `parent` to render a
-/// node's chain (`Bubble ← Messages app.contract:459`); nothing else reads
-/// it, and none of it reaches the plan.
+/// node's chain (`Bubble ← Messages app.contract:459`); refusal diagnostics
+/// also trace supplied actions through it. None of it reaches the plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instance {
     /// The component instantiated.

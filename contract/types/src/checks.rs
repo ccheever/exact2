@@ -1,7 +1,7 @@
 //! Type diagnostics and component checks that require recursive traversal.
 
 use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
-use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
+use contract_syntax::{one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Describe unknown props and declared choices after the first unknown is found.
@@ -126,25 +126,6 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         }
     }
     Some(candidate)
-}
-
-// One ASCII insertion, deletion, substitution, or adjacent transposition.
-fn one_spelling_edit(a: &[u8], b: &[u8]) -> bool {
-    if !b.is_ascii() || b.len() > 64 || a.len().abs_diff(b.len()) > 1 || a == b {
-        return false;
-    }
-    let i = a.iter().zip(b).take_while(|(a, b)| a == b).count();
-    match a.len().cmp(&b.len()) {
-        std::cmp::Ordering::Less => a[i..] == b[i + 1..],
-        std::cmp::Ordering::Greater => a[i + 1..] == b[i..],
-        std::cmp::Ordering::Equal => {
-            a[i + 1..] == b[i + 1..]
-                || (i + 1 < a.len()
-                    && a[i] == b[i + 1]
-                    && a[i + 1] == b[i]
-                    && a[i + 2..] == b[i + 2..])
-        }
-    }
 }
 
 /// Reject shape cycles before lowering recursively materializes plan types.

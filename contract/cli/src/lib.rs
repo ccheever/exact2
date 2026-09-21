@@ -418,11 +418,13 @@ fn compile_file_output(
 ) -> Result<(Plan, Option<contract_lower::Sites>), CompileError> {
     contract_analyze::check_routes_root(file, true)?;
     let checked = if mapped {
-        contract_types::check_mapped(file)?
+        contract_types::check_mapped(file)
     } else {
-        contract_types::check(file)?
-    };
-    let analysis = contract_analyze::check(&checked)?;
+        contract_types::check(file)
+    }
+    .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
+    let analysis = contract_analyze::check(&checked)
+        .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
     if mapped {
         let (plan, sites) = contract_lower::lower_mapped(&checked, &analysis, asset_root)?;
         Ok((plan, Some(sites)))

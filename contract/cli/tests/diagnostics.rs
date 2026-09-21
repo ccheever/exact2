@@ -838,3 +838,146 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         assert!(!error.message.contains("did you mean"));
     }
 }
+
+#[test]
+fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
+    let app = App::new("action-hints");
+    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    for (typo, id) in [
+        ("svae", "type-unknown-name"),
+        ("sav()", "type-unknown-function"),
+        ("savee", "type-unknown-name"),
+        ("saxe", "type-unknown-name"),
+    ] {
+        let source = format!("component Row\n{action}  view\n    button \"é\" press={typo}\n");
+        let child = app.write("row.contract", &source).canonicalize().unwrap();
+        let root = app.write(
+            "app.contract",
+            "use Row from \"./row.contract\"\ncomponent App\n  view\n    Row()\n",
+        );
+        let error = contract::compile_path(&root).unwrap_err();
+        assert_eq!(error.id, id, "{error}");
+        assert!(error.message.ends_with("; did you mean `save`?"), "{error}");
+        assert_eq!(error.file.as_deref(), Some(child.as_path()));
+        assert_eq!(error.span.line, 6);
+        assert_eq!(
+            error.span.col as usize,
+            source.lines().nth(5).unwrap().find(typo).unwrap() + 1
+        );
+        let mapped = contract::compile_path_mapped(&root).err().unwrap();
+        assert_eq!(mapped, error);
+        same_error(
+            &diagnostics(
+                &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+                1,
+            )[0],
+            &error,
+        );
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
+        app.write("row.contract", &source.replace(typo, "save"));
+        contract::compile_path(&root).unwrap();
+    }
+    // Props and injections are actions in the child; slot children retain the
+    // caller's scope. Passing an action prop is also an action-valued position.
+    for (source, typo, correct) in [
+        (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit\n"), "svae", "save"),
+        (format!("component App\n{action}  view\n    Row(commit=save)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=comimt\n"), "comimt", "commit"),
+        (format!("component App\n{action}  view\n    provide commit = save\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=comimt()\n"), "comimt", "commit"),
+        (format!("component App\n{action}  view\n    Row()\n      button \"Save\" press=svae\ncomponent Row\n  slot\n  view\n    column\n      children\n"), "svae", "save"),
+        (format!("component App\n{action}  task timer mount\n    every(1000, svae)\n  view\n    text toString(count)\n"), "svae", "save"),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
+        contract::compile(&source.replace(typo, correct)).unwrap();
+    }
+    // Never offer another component's action, a shadowed action, a generated
+    // spelling, or an ambiguous correction. Global functions are not handlers.
+    for source in [
+        format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
+        format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
+        format!("component App\n{action}  action sale writes count\n    count = 1\n  view\n    button \"Save\" press=sace\n"),
+        format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
+        format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
+        "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
+        "component App\n  state count = 0\n  action save__1 writes count\n    count = 1\n  view\n    button \"Save\" press=save__2\n".into(),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert!(matches!(error.id.as_str(), "type-unknown-name" | "type-unknown-function"), "{error}");
+        assert!(!error.message.contains("did you mean"), "{error}");
+    }
+    // A local in the opposite branch must not hide this arm's action.
+    let source = format!("component App\n{action}  state chosen = some(1)\n  view\n    column\n      match chosen\n        case some(save)\n          text toString(save)\n        case none\n          button \"Save\" press=svae\n");
+    let error = contract::compile(&source).unwrap_err();
+    assert!(error.message.ends_with("; did you mean `save`?"), "{error}");
+    contract::compile(&source.replace("svae", "save")).unwrap();
+}
+
+#[test]
+fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers() {
+    let app = App::new("forwarded-action-hints");
+    let action = "  state count = 0\n  action save writes count\n    count = count + 1\n";
+    for (source, typo) in [
+        (format!("component App\n{action}  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    Leaf(submit=commit)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Save\" press=submit\n"), "svae"),
+        (format!("component App\n{action}  view\n    provide commit = svae\n      Row()\ncomponent Row\n  view\n    Leaf()\ncomponent Leaf\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"), "svae"),
+        ("component App\n  state count = 0\n  action save(value: number) writes count\n    count = value\n  view\n    Row(commit=svae)\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit(1)\n".into(), "svae"),
+        (format!("component App\n{action}  view\n    Row(sace=sace)\ncomponent Row\n  props\n    sace: action\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    button \"Save\" press=sace\n"), "sace"),
+    ] {
+        let path = app.write("app.contract", &source).canonicalize().unwrap();
+        let error = contract::compile_path(&path).unwrap_err();
+        assert!(error.message.ends_with("; did you mean `save`?"), "{error}");
+        assert_eq!(error.related.len(), 1, "{error}");
+        let related = &error.related[0];
+        assert_eq!(related.file.as_deref(), Some(path.as_path()));
+        assert_eq!(related.span.line, 6);
+        assert!(related.note.contains(typo));
+        assert_eq!(source.lines().nth(5).unwrap()[related.span.col as usize-1..related.span.end_col as usize-1], *typo);
+        assert_eq!(contract::compile_path_mapped(&path).err().unwrap(), error);
+        let errors = diagnostics(&app.run(&[path.to_str().unwrap(), "--json"]), 1);
+        assert_eq!(errors[0], serde_json::from_str::<Value>(&error.to_json()).unwrap());
+        // Only the indicated caller expression is repaired; child names stay.
+        let mut repaired = source.lines().map(str::to_owned).collect::<Vec<_>>();
+        let line = &mut repaired[related.span.line as usize-1];
+        line.replace_range(related.span.col as usize-1..related.span.end_col as usize-1, "save");
+        contract::compile(&repaired.join("\n")).unwrap();
+    }
+    let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-unknown-name");
+    assert!(!error.message.contains("did you mean"), "{error}");
+    assert!(error.related.is_empty());
+}
+
+#[test]
+fn action_hints_respect_call_intrinsics_and_function_precedence() {
+    for (name, typo, global) in [
+        ("pending", "pendign", ""),
+        ("path", "paht", ""),
+        ("save", "svae", "fn save(): number = 1\n"),
+    ] {
+        let declarations = format!("{global}component App\n  state count = 0\n  action {name} writes count\n    count = count + 1\n");
+        for view in [
+            format!("  view\n    button \"Save\" press={typo}()\n"),
+            format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
+            format!("  view\n    provide commit = {typo}\n      Row()\ncomponent Row\n  inject\n    commit: action\n  view\n    button \"Save\" press=commit()\n"),
+        ] {
+            let error = contract::compile(&format!("{declarations}{view}")).unwrap_err();
+            assert_eq!(error.id, "type-unknown-function", "{error}");
+            assert!(!error.message.contains("did you mean"), "{error}");
+            assert!(error.related.is_empty());
+        }
+        // Bare action references and timers do not invoke the expression
+        // intrinsic/function resolver, even when forwarded through a prop.
+        for view in [
+            format!("  view\n    button \"Save\" press={typo}\n"),
+            format!("  task timer mount\n    every(1000, {typo})\n  view\n    text toString(count)\n"),
+            format!("  view\n    Row(commit={typo})\ncomponent Row\n  props\n    commit: action\n  view\n    button \"Save\" press=commit\n"),
+        ] {
+            let source = format!("{declarations}{view}");
+            let error = contract::compile(&source).unwrap_err();
+            assert!(error.message.ends_with(&format!("; did you mean `{name}`?")), "{error}");
+            contract::compile(&source.replace(typo, name)).unwrap();
+        }
+    }
+}
