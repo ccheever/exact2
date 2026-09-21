@@ -324,6 +324,19 @@ the path a click takes in a browser; focus follows the click: an input
 takes it, anything else drops it. **Typing** (`type_text`) focuses the
 input and dispatches one `change` with the whole value; a key in display
 mode appends or backspaces the current value and dispatches likewise.
+Changed finite `scrollTop`/`scrollLeft` requests on ordinary containers apply
+once after layout, clamped to their content bounds, including `overflow: hidden`.
+An unchanged binding leaves a reader's offset alone. `scrollFollowEnd` follows
+growth and resize only while already at the end (within one point); enabling it
+starts at the end, and an explicit request wins in the same commit. On a display,
+the existing picture receipt owns these model offsets until acknowledged; reader
+input retires stale intent. Programmatic scroll callbacks coalesce in change order
+and report applied/acknowledged positions on the next pump. Hidden overflow permits
+programmatic scrolling but still refuses wheel input. The headless Messages drive
+covers 215 sends, a bounded 200-row transcript, earlier/later shifts and return to
+latest; it does not establish physical display cadence or fix the separate hidden
+confirmation/context-menu input gaps (2026-09-20).
+
 **`clock`** advances the runner, seeks the engine to where it landed, and
 reports both. **Images** (`image.rs`): after every commit the presenter
 syncs every image node's `imageSource` — a relative path resolves under

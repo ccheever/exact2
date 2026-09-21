@@ -220,6 +220,253 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
     );
 }
 
+fn ordinary_scroll() -> Presenter<Rows> {
+    boot_source(
+        r#"component App
+  state top = 300
+  state left = 50
+  state count = 0
+  action jump writes top, left
+    top = top + 100
+    left = left + 25
+  action other writes count
+    count = count + 1
+  view
+    column
+      button "Jump" press=jump testId="jump"
+      button `${count}` press=other testId="other"
+      scroll testId="ordinary" scrollTop=top scrollLeft=left width=200 height=100
+        box width=1000 height=1000
+"#,
+    )
+}
+
+fn named(p: &Presenter<Rows>, name: &str) -> ViewId {
+    let key = p.host.kernel().find_by_test_id(name)[0];
+    p.host.kernel().node_by_key(key).unwrap().id
+}
+
+#[test]
+fn ordinary_authored_scroll_requests_apply_once_and_preserve_reader_offsets() {
+    let mut p = ordinary_scroll();
+    settle(&mut p);
+    let port = named(&p, "ordinary");
+    assert_eq!(p.scroll_of(port), (50., 300.));
+    p.wheel(port, 200., 0.).unwrap();
+    p.wheel(port, 0., 100.).unwrap();
+    assert_eq!(p.scroll_of(port), (250., 400.));
+    p.tap(named(&p, "other")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port), (250., 400.));
+    p.tap(named(&p, "jump")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port), (75., 400.));
+    p.tap(named(&p, "jump")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port), (100., 500.));
+}
+
+#[test]
+fn ordinary_authored_scroll_waits_for_display_and_reader_input_retires_pending_intent() {
+    let mut p = ordinary_scroll();
+    settle(&mut p);
+    let port = named(&p, "ordinary");
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    p.tap(named(&p, "jump")).unwrap();
+    assert_eq!(p.scroll_of(port), (50., 300.));
+    let next = p.display_frame().unwrap();
+    assert_eq!(p.scroll_of(port), (50., 300.));
+    assert!(p.display_complete(&next));
+    assert_eq!(p.scroll_of(port), (75., 400.));
+    p.tap(named(&p, "jump")).unwrap();
+    let stale = p.display_frame().unwrap();
+    p.wheel(port, 0., 50.).unwrap();
+    assert_eq!(p.scroll_of(port), (75., 450.));
+    assert!(p.display_complete(&stale));
+    assert_eq!(p.scroll_of(port), (75., 450.));
+    let fresh = p.display_frame().unwrap();
+    assert!(p.display_complete(&fresh));
+    assert_eq!(p.scroll_of(port), (75., 450.));
+}
+
+#[test]
+fn ordinary_follow_end_tracks_growth_and_resize_only_while_at_the_end() {
+    let mut p = boot_source(
+        r#"component App
+  state height = 500
+  state port = 100
+  action grow writes height
+    height = height + 200
+  action resize writes port
+    port = 200
+  view
+    column
+      button "Grow" press=grow testId="grow"
+      button "Resize" press=resize testId="resize"
+      scroll testId="ordinary" scrollFollowEnd=true width=200 height=port
+        box width=200 height=height
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "ordinary");
+    assert_eq!(p.scroll_of(port).1, 400.);
+    p.wheel(port, 0., -200.).unwrap();
+    p.tap(named(&p, "grow")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port).1, 200.);
+    p.wheel(port, 0., 10_000.).unwrap();
+    assert_eq!(p.scroll_of(port).1, 600.);
+    p.tap(named(&p, "grow")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port).1, 800.);
+    p.tap(named(&p, "resize")).unwrap();
+    settle(&mut p);
+    assert_eq!(p.scroll_of(port).1, 700.);
+}
+
+#[test]
+fn ordinary_hidden_overflow_scrolls_programmatically_and_acknowledges_pixels() {
+    let mut p = boot_source(
+        r#"component App
+  state top = 300
+  action jump writes top
+    top = 500
+  view
+    column
+      button "Jump" press=jump testId="jump"
+      box overflow="hidden" testId="ordinary" width=200 height=100 scrollTop=top scrollLeft=50
+        box testId="child" width=1000 height=1000
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "ordinary");
+    let child = named(&p, "child");
+    assert_eq!(p.scroll_of(port), (50., 300.));
+    let boxes = p.boxes();
+    let a = boxes.iter().find(|b| b.id == port).unwrap();
+    let b = boxes.iter().find(|b| b.id == child).unwrap();
+    assert_eq!(b.rect.0, a.rect.0 - 50.);
+    assert_eq!(b.rect.1, a.rect.1 - 300.);
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    p.tap(named(&p, "jump")).unwrap();
+    assert_eq!(p.scroll_of(port), (50., 300.));
+    let next = p.display_frame().unwrap();
+    assert!(p.display_complete(&next));
+    assert_eq!(p.scroll_of(port), (50., 500.));
+    p.wheel(port, 0., 100.).unwrap();
+    assert_eq!(
+        p.scroll_of(port),
+        (50., 500.),
+        "hidden overflow refuses wheel input"
+    );
+}
+
+#[test]
+fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input() {
+    let mut p = boot_source(
+        r#"component App
+  state top = 200
+  state observed = 0
+  state count = 0
+  action jump writes top
+    top = top + 100
+  action moved(x, y) writes observed, count
+    observed = y
+    count = count + 1
+  view
+    column
+      button "Jump" press=jump testId="jump"
+      scroll testId="ordinary" width=200 height=100 scrollTop=top scroll=moved
+        box width=200 height=1000
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "ordinary");
+    let observed = |p: &Presenter<Rows>| p.host.runner().slot("observed").cloned();
+    let count = |p: &Presenter<Rows>| p.host.runner().slot("count").cloned();
+    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert_eq!(count(&p), Some(Value::Number(1.)));
+    let first = p.display_frame().unwrap();
+    assert!(p.display_complete(&first));
+    p.tap(named(&p, "jump")).unwrap();
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    let next = p.display_frame().unwrap();
+    assert!(p.display_complete(&next));
+    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(observed(&p), Some(Value::Number(300.)));
+    assert_eq!(count(&p), Some(Value::Number(2.)));
+    p.tap(named(&p, "jump")).unwrap();
+    let next = p.display_frame().unwrap();
+    assert!(p.display_complete(&next));
+    p.wheel(port, 0., 50.).unwrap();
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(observed(&p), Some(Value::Number(450.)));
+    assert_eq!(count(&p), Some(Value::Number(3.)));
+}
+
+#[test]
+fn ordinary_scroll_events_preserve_change_order_and_observe_prior_handler_writes() {
+    let mut p = boot_source(
+        r#"component App
+  state a = 0
+  state b = 0
+  state order = ""
+  state observed = 0
+  action moveA writes a
+    a = 100
+  action moveB writes b
+    b = 100
+  action observeA(x, y) writes order, b
+    order = order + "A"
+    b = 500
+  action observeB(x, y) writes order, observed
+    order = order + "B"
+    observed = y
+  view
+    column
+      button "A" press=moveA testId="move-a"
+      button "B" press=moveB testId="move-b"
+      scroll testId="a" scrollTop=a scroll=observeA width=200 height=100
+        box width=200 height=1000
+      scroll testId="b" scrollTop=b scroll=observeB width=200 height=100
+        box width=200 height=1000
+"#,
+    );
+    settle(&mut p);
+    p.tap(named(&p, "move-b")).unwrap();
+    p.tap(named(&p, "move-a")).unwrap();
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(p.host.runner().slot("order"), Some(&Value::str("BA")));
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(p.host.runner().slot("order"), Some(&Value::str("BAB")));
+    assert_eq!(p.host.runner().slot("observed"), Some(&Value::Number(500.)));
+
+    // Fresh runtime: A is first; its change to already-pending B coalesces.
+    let bytes = p.host.runner().plan().encode();
+    let (mut p, error) = Presenter::boot_with(
+        &bytes,
+        Rows,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    settle(&mut p);
+    p.tap(named(&p, "move-a")).unwrap();
+    p.tap(named(&p, "move-b")).unwrap();
+    assert!(p.pump(p.host.now()).is_none());
+    assert_eq!(p.host.runner().slot("order"), Some(&Value::str("AB")));
+    assert_eq!(p.host.runner().slot("observed"), Some(&Value::Number(500.)));
+    settle(&mut p);
+    assert_eq!(p.host.runner().slot("order"), Some(&Value::str("AB")));
+}
+
 #[test]
 fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_changes() {
     let mut p = boot_source(

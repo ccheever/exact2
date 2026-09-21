@@ -881,6 +881,7 @@ impl<D: DataSource> Presenter<D> {
                 self.dirty = true;
             }
         }
+        self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
@@ -1368,6 +1369,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn pump(&mut self, now_ms: f64) -> Option<String> {
         let region_error = self.poll_content_region();
         self.executor.begin_pump();
+        let region_error = region_error.or(self.dispatch_authored_scroll());
         self.refusal_turn = !self.refusal_turn;
         let mut outcomes = if self.refusal_turn {
             self.host

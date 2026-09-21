@@ -622,7 +622,7 @@ impl Painter {
         };
         let scrolls = {
             let (ox, oy) = effective_overflow(&node);
-            ox == Overflow::Scroll || oy == Overflow::Scroll
+            ox != Overflow::Visible || oy != Overflow::Visible
         };
         walk.boxes.push(PaintedBox {
             id,
@@ -794,7 +794,7 @@ impl Painter {
                 None => own,
             });
         }
-        let scrolls = ox == Overflow::Scroll || oy == Overflow::Scroll;
+        let scrolls = ox != Overflow::Visible || oy != Overflow::Visible;
         let child_offset = if scrolls {
             let (sx, sy) = walk
                 .scene
