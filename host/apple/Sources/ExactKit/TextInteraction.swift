@@ -8,7 +8,7 @@ import UIKit
 
 extension Presenter {
     func hoverInline(_ id: UInt32?) {
-        let next = id.flatMap { id in textHost(id).flatMap { !$0.inert && !$0.disabled ? id : nil } }
+        let next = id.flatMap { inlineEnabled($0) ? $0 : nil }
         guard next != hoveredInline else { return }
         if let old = hoveredInline, inlineText(old) != nil { onHover?(old, false) }
         hoveredInline = next
@@ -42,7 +42,9 @@ extension NodeView {
         setAccessibilityLabel(label)
         setAccessibilityValue(label)
         #else
-        isAccessibilityElement = true
+        // UIKit does not visit a container's children when it is itself an
+        // accessibility element. Expose the paragraph plus its link targets.
+        isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
         accessibilityLabel = label
         #endif
@@ -52,10 +54,19 @@ extension NodeView {
         return paragraph.selectionRects(run.range, align: paragraphSpec().align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
-        let interactive = inlineText.filter { $0.props["href"] != nil || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }
+        let interactive = inlineText.filter { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }
         guard !interactive.isEmpty else { return nil }
         let text = paragraphSpec().runs.map(\.text).joined() as NSString
-        return interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
+        let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
+        #if os(macOS)
+        return children
+        #else
+        let paragraph = UIAccessibilityElement(accessibilityContainer: self)
+        paragraph.accessibilityLabel = props["accessibilityLabel"] ?? (text as String)
+        paragraph.accessibilityTraits = .staticText
+        paragraph.accessibilityFrameInContainerSpace = contentBox()
+        return [paragraph] + children
+        #endif
     }
 }
 
@@ -67,7 +78,7 @@ private final class InlineAccessibility: NSAccessibilityElement {
         self.owner = owner; id = run.id
         super.init()
         setAccessibilityParent(owner)
-        setAccessibilityRole(run.props["href"] == nil ? .staticText : .link)
+        setAccessibilityRole((run.props["href"] ?? "").isEmpty ? .staticText : .link)
         setAccessibilityIdentifier(run.props["testId"])
         setAccessibilityLabel(run.props["accessibilityLabel"] ?? text.substring(with: run.range))
         if let href = run.props["href"] { setAccessibilityURL(URL(string: href)) }
@@ -88,7 +99,7 @@ private final class InlineAccessibility: UIAccessibilityElement {
         super.init(accessibilityContainer: owner)
         accessibilityIdentifier = run.props["testId"]
         accessibilityLabel = run.props["accessibilityLabel"] ?? text.substring(with: run.range)
-        accessibilityTraits = run.props["href"] == nil ? .staticText : .link
+        accessibilityTraits = (run.props["href"] ?? "").isEmpty ? .staticText : .link
     }
     override var accessibilityFrame: CGRect {
         get {

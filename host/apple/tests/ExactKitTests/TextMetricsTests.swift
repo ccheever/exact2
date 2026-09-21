@@ -25,6 +25,74 @@ final class TextMetricsTests: XCTestCase {
     }
 
 
+    func testInlineOwnerTransferDoesNotEraseTheNewOwner() throws {
+        let p = Presenter()
+        let old = NodeView(id: 1, kind: "text", presenter: p)
+        let next = NodeView(id: 2, kind: "text", presenter: p)
+        p.views[1] = old; p.views[2] = next
+        p.applyParagraph(1, [["id": 3, "parent": 1, "paint": true, "props": ["text": "retained"]]])
+        p.applyParagraph(2, [["id": 3, "parent": 2, "paint": true, "props": ["text": "retained"]]])
+        p.applyParagraph(1, [])
+        XCTAssertTrue(p.textHost(3) === next)
+        XCTAssertEqual(p.inlineText(3)?.props["text"], "retained")
+        p.forgetParagraph(next)
+        XCTAssertNil(p.textHost(3))
+    }
+
+    func testInlineRangesEventsAppearanceAndMetricReuse() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "inline-metadata")
+        defer { session.destroy() }
+        let p = session.presenter
+        let node = NodeView(id: 1, kind: "text", presenter: p)
+        p.views[1] = node
+        node.frame = NSRect(x: 0, y: 0, width: 300, height: 120)
+        node.appearance = NSAppearance(named: .aqua)
+        let value = "👩‍🚀 link e\u{301}"
+        func rows(_ size: Double) -> [[String: Any]] { [
+            ["id": 2, "parent": 1, "paint": true, "props": ["text": "Plain ", "href": ""]],
+            ["id": 3, "parent": 1, "paint": false, "props": ["href": "file:///example.md", "testId": "link"], "handlers": ["press", "hover"]],
+            ["id": 4, "parent": 3, "paint": true, "props": ["text": value],
+             "style": ["font_size": size, "text_color": [[10.0, 20.0, 30.0, 255.0], [210.0, 220.0, 230.0, 255.0]]]],
+        ] }
+        p.applyParagraph(1, rows(16))
+        XCTAssertEqual(p.views.count, 1)
+        XCTAssertEqual(p.inlineText(3)?.range, NSRange(location: 6, length: value.utf16.count))
+        XCTAssertEqual(p.inlineText(4)?.range, p.inlineText(3)?.range)
+        XCTAssertFalse(node.activateInline(2), "an empty href is ordinary text")
+        let elements = try XCTUnwrap(node.accessibilityChildren() as? [NSAccessibilityElement])
+        XCTAssertEqual(elements.count, 1)
+        XCTAssertEqual(elements.first?.accessibilityRole(), .link)
+        XCTAssertEqual(elements.first?.accessibilityLabel(), value)
+        XCTAssertEqual(elements.first?.accessibilityIdentifier(), "link")
+        let old = try XCTUnwrap(node.paragraphLayout())
+        let rect = try XCTUnwrap(node.inlineRects(try XCTUnwrap(p.inlineText(4))).first)
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        XCTAssertEqual(node.inlineTarget(at: point, handler: "press")?.id, 3)
+        XCTAssertEqual(node.inlineLink(at: point), "file:///example.md")
+        XCTAssertNil(node.inlineLink(at: CGPoint(x: 299, y: 119)))
+        var pressed: UInt32?
+        var hovered: [Bool] = []
+        p.onPress = { pressed = $0 }
+        p.onHover = { id, over in XCTAssertEqual(id, 3); hovered.append(over) }
+        XCTAssertTrue(node.activateInline(3)); XCTAssertEqual(pressed, 3)
+        p.hoverInline(3); p.hoverInline(nil); XCTAssertEqual(hovered, [true, false])
+        node.appearance = NSAppearance(named: .darkAqua)
+        node.viewDidChangeEffectiveAppearance()
+        XCTAssertEqual(node.paragraphSpec().runs[1].color, [210, 220, 230, 255])
+        let colored = try XCTUnwrap(node.paragraphLayout())
+        XCTAssertTrue(old.shape?.identity === colored.shape?.identity)
+        XCTAssertEqual(old.baselines, colored.baselines)
+        XCTAssertEqual(old.lines.map { CTLineGetStringRange($0).length }, colored.lines.map { CTLineGetStringRange($0).length })
+        XCTAssertNil(colored.shape?.lineBreakBoundaries, "paint reuses ranges without discovering breaks")
+        p.applyParagraph(1, rows(24))
+        let resized = try XCTUnwrap(node.paragraphLayout())
+        XCTAssertFalse(colored.shape?.identity === resized.shape?.identity)
+        XCTAssertNotNil(resized.shape?.lineBreakBoundaries)
+        p.forgetParagraph(node)
+        XCTAssertNil(p.inlineText(3)); XCTAssertNil(p.inlineText(4))
+    }
+
     func testUrgentLinesMatchFreshWorkerPixels() throws {
         for measured in [false, true] {
         _ = NSApplication.shared

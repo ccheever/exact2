@@ -694,6 +694,7 @@ final class Presenter {
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
+        if over { hoverInline(nil) }
         guard views[view.id] === view else { return }
         if over {
             if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }

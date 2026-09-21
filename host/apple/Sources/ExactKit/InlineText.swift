@@ -52,8 +52,18 @@ extension Presenter {
               node.inlineText.indices.contains(location.index) else { return nil }
         return node.inlineText[location.index]
     }
+    func inlineEnabled(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.inert, !host.disabled,
+              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
+        var current: InlineText? = value
+        while let run = current {
+            if run.props["inert"] == "true" { return false }
+            current = inlineText(run.parent)
+        }
+        return true
+    }
     func forgetParagraph(_ node: NodeView) {
-        for run in node.inlineText { inlineOwners.removeValue(forKey: run.id) }
+        for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
     }
     func applyParagraph(_ id: UInt32, _ wire: [[String: Any]]) {
@@ -125,10 +135,18 @@ extension NodeView {
         }
         return nil
     }
+    func inlineActivationTarget(at point: CGPoint) -> InlineText? {
+        var run = inlineTarget(at: point)
+        while let current = run {
+            if current.handlers.contains("press") || !(current.props["href"] ?? "").isEmpty { return current }
+            run = presenter?.inlineText(current.parent)
+        }
+        return nil
+    }
     func activateInline(_ id: UInt32) -> Bool {
-        guard let presenter, !inert, !disabled, let run = presenter.inlineText(id), run.props["disabled"] != "true" else { return false }
+        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
-        if let url = run.props["href"], let session = presenter.session {
+        if let url = run.props["href"], !url.isEmpty, let session = presenter.session {
             session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
         }
         return false

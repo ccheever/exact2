@@ -339,7 +339,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var backControl: NodeView? {
         guard let key = container?.props["navigationKey"],
               let route = routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key }) else { return nil }
-        return NavigationRules.backControl(named: container?.props["navigationBack"], among: Array(presenter.views.values),
+        return NavigationRules.backControl(named: container?.props["navigationBack"], among: presenter.carrying("id"),
                                            id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled,
                                            inActiveRoute: { $0 === route || $0.isDescendant(of: route) })
     }
@@ -349,7 +349,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let control = backControl
         guard NavigationRules.popMayBegin(depth: depth, changing: changing, modalActive: presenter.modals.inTransition,
                                           hasBackControl: control != nil,
-                                          contextPreviewActive: presenter.views.values.contains(where: { $0.props["contextTarget"] != nil })) else {
+                                          contextPreviewActive: !presenter.chrome.ids("contextTarget").isEmpty) else {
             if depth > 1, !changing, !presenter.modals.inTransition, control == nil {
                 presenter.session?.log("back gesture refused: no enabled navigationBack control in the active route")
             }

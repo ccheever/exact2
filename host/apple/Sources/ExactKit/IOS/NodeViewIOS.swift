@@ -238,13 +238,23 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var translate = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
-    var contextTransform = CGAffineTransform.identity
+    var contextTransform = CGAffineTransform.identity {
+        didSet {
+            if contextTransform.isIdentity { presenter?.contextNodes.remove(id) }
+            else { presenter?.contextNodes.insert(id) }
+        }
+    }
     weak var presenter: Presenter?
     var textArea: UITextView?
     var field: UITextField?
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
-    var scroll: ScrollView?
+    var scroll: ScrollView? {
+        didSet {
+            if scroll == nil { presenter?.scrollers.remove(id) }
+            else { presenter?.scrollers.insert(id) }
+        }
+    }
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
     var video: VideoView?
     var web: UIView?
@@ -894,7 +904,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let target = CGPoint(x: x, y: y)
         if sv.contentOffset != target { sv.setContentOffset(target, animated: false) }
     }
-    var materialView: UIVisualEffectView?
+    var materialView: UIVisualEffectView? {
+        didSet {
+            if materialView == nil { presenter?.materialNodes.remove(id) }
+            else { presenter?.materialNodes.insert(id) }
+        }
+    }
     var materialKind: String?
     var materialInteractive = false
     func updateMaterial() {
@@ -938,8 +953,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialView.clipsToBounds = true
         }
     }
-    var pendingScrollLeft: Double?
-    var pendingScrollTop: Double?
+    var pendingScrollLeft: Double? { didSet { presenter?.pendingScrolls.insert(id) } }
+    var pendingScrollTop: Double? { didSet { presenter?.pendingScrolls.insert(id) } }
     func applyProps(set: [String: String], clear: [String]) {
         if clear.contains("scrollLeft") { pendingScrollLeft = nil }
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
@@ -1197,8 +1212,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !disabled else { pressed = false; return }
-        if let touch = touches.first, let run = inlineTarget(at: local(touch.location(in: nil))),
-           run.props["href"] != nil || run.handlers.contains("press") {
+        if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
         }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
@@ -1211,7 +1225,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard !disabled else { pressed = false; inlinePressed = nil; return }
         if let run = inlinePressed {
             inlinePressed = nil
-            if let touch = touches.first, inlineTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
+            if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
             return
         }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }

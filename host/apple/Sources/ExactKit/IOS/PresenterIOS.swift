@@ -17,6 +17,10 @@ final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    var scrollers: Set<UInt32> = []
+    var pendingScrolls: Set<UInt32> = []
+    var materialNodes: Set<UInt32> = []
+    var contextNodes: Set<UInt32> = []
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
@@ -251,6 +255,7 @@ final class Presenter {
         chrome = ChromeIndex()
         views.removeAll()
         inlineOwners.removeAll()
+        scrollers.removeAll(); pendingScrolls.removeAll(); materialNodes.removeAll(); contextNodes.removeAll()
         hoveredInline = nil
         listGeometry.removeAll()
         listViews.removeAll()
@@ -431,6 +436,7 @@ final class Presenter {
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
+        if over { hoverInline(nil) }
         guard views[view.id] === view else { return }
         if over {
             if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
@@ -460,7 +466,7 @@ final class Presenter {
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
-        for node in views.values where !collections.owns(node.id) { node.captureScrollPosition() }
+        for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         let outermost = !applying
         applying = true
@@ -471,7 +477,7 @@ final class Presenter {
                 videoVisibility?.changed()
                 let q = waiting
                 waiting = []
-                for (id, f) in q where id.map({ views[$0] != nil }) ?? true { f() }
+                for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 syncLists()
                 flushPendingFocus()
             }
@@ -559,6 +565,7 @@ final class Presenter {
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
                 chrome.forget(id)
+                scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":
@@ -586,7 +593,8 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.captureIfNeeded()
-        for node in views.values {
+        for id in scrollers.union(pendingScrolls).union(materialNodes) {
+            guard let node = views[id] else { continue }
             // A modal's live source retains its old geometry until release.
             // Its scroll writes must wait too, especially on newly added rows
             // whose extent is still zero. releaseBackground applies both.
@@ -597,6 +605,7 @@ final class Presenter {
             }
             if let material = node.materialView { node.sendSubviewToBack(material) }
         }
+        pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         navigation.sync(batch)
         segments.sync()
         menus.sync()
@@ -638,7 +647,7 @@ final class Presenter {
             if let node = current as? NodeView, node.props["retainFocus"] == "true" { return true }
             ancestor = current.superview
         }
-        return views.values.contains { preview in
+        return carrying("contextTarget").contains { preview in
             guard preview.props["contextTarget"] != nil, let panel = contextPanel(preview) else { return false }
             return view.isDescendant(of: panel)
         }
@@ -673,7 +682,7 @@ final class Presenter {
                   let props = op[kind == "create" ? "props" : "set"] as? [String: String],
                   let target = props["contextTarget"],
                   contextAnchors[UInt32(id)]?.target != target,
-                  let source = views.values.first(where: { $0.props["id"] == target }),
+                  let source = carrying("id").first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }
             contextAnchors[UInt32(id)] = contextAnchor(target, source)
         }
@@ -704,7 +713,8 @@ final class Presenter {
     /// outside edge and vertical center. Later content keeps its source-relative
     /// position; clamp the complete projection above the keyboard/safe area.
     private func positionContexts() {
-        for node in views.values where !node.contextTransform.isIdentity {
+        for id in contextNodes {
+            guard let node = views[id] else { continue }
             node.contextTransform = .identity
             node.applyTransform()
         }
@@ -716,9 +726,9 @@ final class Presenter {
             node.contextTransform = transform
             node.applyTransform()
         }
-        for preview in views.values {
+        for preview in carrying("contextTarget") {
             guard let target = preview.props["contextTarget"],
-                  let source = views.values.first(where: { $0.props["id"] == target }),
+                  let source = carrying("id").first(where: { $0.props["id"] == target }),
                   let panel = contextPanel(preview), let parent = panel.superview,
                   source.window != nil, preview.bounds.width > 0, preview.bounds.height > 0 else { continue }
             let liveSourceBox = source.convert(source.bounds, to: parent)
