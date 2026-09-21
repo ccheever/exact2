@@ -324,6 +324,26 @@ final class Presenter {
         min(0.004, max(0.001, interval * 0.24))
     }
     var sliceBudget: TimeInterval { Self.listSliceBudget(refreshInterval) }
+    /// Charge the whole report (decode, layout, apply and finalization) to the
+    /// rows it created. Cheap rows share those fixed costs in the next report.
+    /// Grow at most twofold and retain recent expensive samples conservatively.
+    struct ListFillCost {
+        private(set) var secondsPerRow: TimeInterval?
+        private var lastRows = 1
+        mutating func record(seconds: TimeInterval, rows: Int) {
+            guard rows > 0 else { return }
+            let sample = max(0.000001, seconds / Double(rows))
+            secondsPerRow = max(sample, (secondsPerRow ?? sample) * 0.75 + sample * 0.25)
+            lastRows = rows
+        }
+        func rows(within remaining: TimeInterval) -> UInt32 {
+            guard remaining > 0 else { return 0 }
+            guard let secondsPerRow else { return 1 }
+            let fitting = floor(remaining * 0.9 / secondsPerRow)
+            return UInt32(max(0, min(Double(lastRows) * 2, fitting, Double(UInt32.max - 1))))
+        }
+    }
+    private var listFillCosts: [UInt32: ListFillCost] = [:]
     private struct ListTravel {
         var top: CGFloat, time: TimeInterval, velocity: Double = 0
         var lead: CGFloat = .infinity
@@ -437,17 +457,15 @@ final class Presenter {
         if listSyncPending { startPump() } else { stopPump() }
     }
 
-    /// The display link owns the deadline. Each report admits one overscan
-    /// row, so layout/application are included and overshoot is at most one
-    /// indivisible row. Never give away a list turn while travel consumes lead.
+    /// The display link owns the deadline. A report sizes its overscan from
+    /// measured end-to-end row cost; another report must fit the time left.
+    /// Never give away a list turn while travel consumes lead.
     func pump() {
         if listSyncPending && (leadShrinking || !(textTurn && textPending)) {
             let post = Self.signposts.beginInterval("pump-list")
             let deadline = CACurrentMediaTime() + sliceBudget
-            repeat {
-                listSyncPending = false
-                syncLists(limit: ExactEnv.agentMode ? 0 : 2, deadline: deadline)
-            } while listSyncPending && CACurrentMediaTime() < deadline
+            listSyncPending = false
+            syncLists(limit: ExactEnv.agentMode ? 0 : 2, deadline: deadline)
             textTurn = true
             Self.signposts.endInterval("pump-list", post)
             // Dispatch pixels for newly mounted lead rows without surrendering
@@ -584,6 +602,7 @@ final class Presenter {
         stopPump()
         listCovers.removeAll()
         listTravel.removeAll()
+        listFillCosts.removeAll()
         listSyncPending = false
         textPending = false
         listGeometry.removeAll()
@@ -661,6 +680,7 @@ final class Presenter {
         guard !applying, listSyncDepth == 0 else { return }
         listSyncDepth += 1
         defer { listSyncDepth -= 1 }
+        var admittedReport = false
         listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
         listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
         for list in Array(listViews.values).sorted(by: { $0.id < $1.id }) {
@@ -682,9 +702,17 @@ final class Presenter {
             let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
             var reportLimit = limit
             for attempt in 0..<8 {
-                if let deadline, CACurrentMediaTime() >= deadline {
-                    listPending.insert(list.id)
-                    break
+                let started = CACurrentMediaTime()
+                if let deadline {
+                    let remaining = deadline - started
+                    let rows = (listFillCosts[list.id] ?? ListFillCost()).rows(within: remaining)
+                    if remaining <= 0 || (rows == 0 && admittedReport) {
+                        listPending.insert(list.id)
+                        break
+                    }
+                    // An indivisible expensive row must still make progress;
+                    // only the first report may exceed the estimated budget.
+                    if reportLimit > 1 { reportLimit = max(1, rows) + 1 }
                 }
                 let top = Double(scroll.contentView.bounds.minY)
                 let height = Double(scroll.contentSize.height)
@@ -695,14 +723,22 @@ final class Presenter {
                     + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
                 if listGeometry[list.id] == stamp && !listPending.contains(list.id) { break }
                 listGeometry[list.id] = stamp
+                let previous = Set(rows.map(\.id))
+                admittedReport = true
                 let more = onList?(list.id, top, height, width, origin, focus, interaction, reportLimit) ?? false
                 // The callback can transfer ownership in a nested batch while
                 // recursive list synchronization is suppressed.
                 guard views[list.id] === list, !collections.owns(list.id) else {
                     listPending.remove(list.id)
                     listGeometry.removeValue(forKey: list.id)
+                    listFillCosts.removeValue(forKey: list.id)
                     break
                 }
+                let created = content.container.subviews.reduce(0) { count, view in
+                    count + ((view as? NodeView).map { previous.contains($0.id) ? 0 : 1 } ?? 0)
+                }
+                listFillCosts[list.id, default: ListFillCost()].record(
+                    seconds: CACurrentMediaTime() - started, rows: created)
                 if more { listPending.insert(list.id) } else { listPending.remove(list.id) }
                 // Applying a report can anchor or clamp the native scrollport.
                 // Nested reports are suppressed, so cover that changed visible
@@ -710,7 +746,11 @@ final class Presenter {
                 let changed = top != Double(scroll.contentView.bounds.minY)
                     || height != Double(scroll.contentSize.height)
                     || width != Double(content.frame.width) || origin != Double(content.frame.minY)
-                guard changed, !listShowsViewport(scroll, content: content) else { break }
+                if !changed || listShowsViewport(scroll, content: content) {
+                    guard more, deadline != nil else { break }
+                    reportLimit = limit
+                    continue
+                }
                 if attempt == 7 { listPending.insert(list.id) }
                 reportLimit = limit == 0 ? 0 : 1
             }
@@ -910,6 +950,7 @@ final class Presenter {
                 listPending.remove(id)
                 listViews.removeValue(forKey: id)
                 listTravel.removeValue(forKey: id)
+                listFillCosts.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }

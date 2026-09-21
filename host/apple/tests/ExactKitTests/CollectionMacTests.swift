@@ -352,6 +352,44 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(limits, [1], "uncovered user scroll never fills overscan synchronously")
     }
 
+    func testListAdmissionLearnsWholeReportCostAndLeavesDeadlineHeadroom() {
+        var cost = Presenter.ListFillCost()
+        XCTAssertEqual(cost.rows(within: 0.004), 1, "probe an unknown row before batching")
+        cost.record(seconds: 0.001, rows: 1)
+        XCTAssertEqual(cost.rows(within: 0.004), 2, "amortize cheap rows, with bounded growth")
+        cost.record(seconds: 0.0012, rows: 2)
+        XCTAssertEqual(cost.rows(within: 0.004), 4)
+        XCTAssertEqual(cost.rows(within: 0.0009), 0, "do not start a report that cannot fit")
+        cost.record(seconds: 0.006, rows: 2)
+        XCTAssertEqual(cost.rows(within: 0.004), 1, "react immediately when rows become expensive")
+        cost.record(seconds: 0.0001, rows: 0)
+        XCTAssertEqual(cost.rows(within: 0.004), 1, "empty or retirement-only reports cannot cheapen rows")
+        XCTAssertEqual(cost.rows(within: -1), 0)
+    }
+
+    func testExpensiveListRowMakesProgressWithoutStartingAnotherReport() {
+        let (p, list) = fixture(collection: false)
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var reports = 0
+        p.onList = { _, _, _, _, _, _, _, limit in
+            reports += 1
+            XCTAssertEqual(limit, 2)
+            let id = reports + 3
+            p.apply(self.batch([
+                ["op": "create", "id": id, "kind": "view"],
+                ["op": "children", "id": 2, "ids": Array(3...id)]
+            ]))
+            Thread.sleep(forTimeInterval: 0.006) // an indivisible row longer than a 60 Hz slice
+            return true
+        }
+        p.syncLists(limit: 2)
+        p.pump()
+        XCTAssertEqual(reports, 2, "one expensive row progresses; a second report misses the deadline")
+        p.pump()
+        XCTAssertEqual(reports, 3, "the expensive estimate must not starve all later slices")
+    }
+
     func testSynchronousSettlementUsesUnlimitedReportsAndRetirementClearsPending() {
         let (p, list) = fixture(collection: false)
         defer { p.reset() }
