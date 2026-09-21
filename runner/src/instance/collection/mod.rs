@@ -367,8 +367,8 @@ impl Collection {
             .find(|row| {
                 row.wrapper == view
                     || row.row.roots.iter().any(|c| match c {
-                        Child::Node(n) => n.find(view, &mut Vec::new()).is_some(),
-                        Child::Region(r) => r.find(view, &mut Vec::new()).is_some(),
+                        Child::Node(n) => n.find::<false>(view, &mut Vec::new()).is_some(),
+                        Child::Region(r) => r.find::<false>(view, &mut Vec::new()).is_some(),
                     })
             })
             .and_then(|row| key_text(&row.row.key))

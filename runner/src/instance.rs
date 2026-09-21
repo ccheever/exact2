@@ -466,25 +466,29 @@ impl NodeInst {
         u.ops.push(Op::DestroyView { id: self.view });
     }
 
-    /// Find the instance owning `view`, with the frames in force there.
-    pub fn find(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
+    /// Find the instance owning `view`, optionally collecting its lexical frames.
+    pub fn find<const FRAMES: bool>(
+        &self,
+        view: ViewId,
+        frames: &mut Vec<Frame>,
+    ) -> Option<NodesId> {
         if self.view == view {
             return Some(self.node);
         }
         if let Some(collection) = &self.collection {
-            if let Some(found) = collection.find(view, frames) {
+            if let Some(found) = collection.find::<FRAMES>(view, frames) {
                 return Some(found);
             }
         }
         for c in &self.children {
             match c {
                 Child::Node(n) => {
-                    if let Some(found) = n.find(view, frames) {
+                    if let Some(found) = n.find::<FRAMES>(view, frames) {
                         return Some(found);
                     }
                 }
                 Child::Region(r) => {
-                    if let Some(found) = r.find(view, frames) {
+                    if let Some(found) = r.find::<FRAMES>(view, frames) {
                         return Some(found);
                     }
                 }
@@ -774,35 +778,43 @@ impl RegionInst {
         }
     }
 
-    fn find(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
+    fn find<const FRAMES: bool>(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
         match &self.active {
             Active::Arm { roots, frame, .. } => {
-                frames.push(frame.clone());
+                if FRAMES {
+                    frames.push(frame.clone());
+                }
                 for c in roots {
                     let found = match c {
-                        Child::Node(n) => n.find(view, frames),
-                        Child::Region(r) => r.find(view, frames),
+                        Child::Node(n) => n.find::<FRAMES>(view, frames),
+                        Child::Region(r) => r.find::<FRAMES>(view, frames),
                     };
                     if found.is_some() {
                         return found;
                     }
                 }
-                frames.pop();
+                if FRAMES {
+                    frames.pop();
+                }
                 None
             }
             Active::Rows { rows } => {
                 for r in rows {
-                    frames.push(r.frame.clone());
+                    if FRAMES {
+                        frames.push(r.frame.clone());
+                    }
                     for c in &r.roots {
                         let found = match c {
-                            Child::Node(n) => n.find(view, frames),
-                            Child::Region(rr) => rr.find(view, frames),
+                            Child::Node(n) => n.find::<FRAMES>(view, frames),
+                            Child::Region(rr) => rr.find::<FRAMES>(view, frames),
                         };
                         if found.is_some() {
                             return found;
                         }
                     }
-                    frames.pop();
+                    if FRAMES {
+                        frames.pop();
+                    }
                 }
                 None
             }
@@ -927,13 +939,27 @@ impl Tree {
     /// The site owning `view` and the frames in force there.
     pub fn find(&self, view: ViewId) -> Option<(NodesId, Vec<Frame>)> {
         let mut frames = Vec::new();
+        self.find_node::<true>(view, &mut frames)
+            .map(|node| (node, frames))
+    }
+
+    /// Listener lookup needs the plan site, not the event's lexical scope.
+    pub fn node(&self, view: ViewId) -> Option<NodesId> {
+        self.find_node::<false>(view, &mut Vec::new())
+    }
+
+    fn find_node<const FRAMES: bool>(
+        &self,
+        view: ViewId,
+        frames: &mut Vec<Frame>,
+    ) -> Option<NodesId> {
         for c in &self.children {
             let found = match c {
-                Child::Node(n) => n.find(view, &mut frames),
-                Child::Region(r) => r.find(view, &mut frames),
+                Child::Node(n) => n.find::<FRAMES>(view, frames),
+                Child::Region(r) => r.find::<FRAMES>(view, frames),
             };
-            if let Some(node) = found {
-                return Some((node, frames));
+            if found.is_some() {
+                return found;
             }
         }
         None

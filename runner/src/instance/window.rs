@@ -686,10 +686,10 @@ impl Tree {
                                         && (row.wrapper == Some(pin)
                                             || row.roots.iter().any(|c| match c {
                                                 Child::Node(n) => {
-                                                    n.find(pin, &mut Vec::new()).is_some()
+                                                    n.find::<false>(pin, &mut Vec::new()).is_some()
                                                 }
                                                 Child::Region(r) => {
-                                                    r.find(pin, &mut Vec::new()).is_some()
+                                                    r.find::<false>(pin, &mut Vec::new()).is_some()
                                                 }
                                             }))
                                 };

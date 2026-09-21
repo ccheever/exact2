@@ -1,23 +1,27 @@
 //! Generic tree consumers visit only mounted authored rows, never private wrappers.
 use super::*;
 impl Collection {
-    pub(in crate::instance) fn find(
+    pub(in crate::instance) fn find<const FRAMES: bool>(
         &self,
         view: ViewId,
         frames: &mut Vec<Frame>,
     ) -> Option<NodesId> {
         for row in &self.mounted {
-            frames.push(row.row.frame.clone());
+            if FRAMES {
+                frames.push(row.row.frame.clone());
+            }
             for child in &row.row.roots {
                 let found = match child {
-                    Child::Node(n) => n.find(view, frames),
-                    Child::Region(r) => r.find(view, frames),
+                    Child::Node(n) => n.find::<FRAMES>(view, frames),
+                    Child::Region(r) => r.find::<FRAMES>(view, frames),
                 };
                 if found.is_some() {
                     return found;
                 }
             }
-            frames.pop();
+            if FRAMES {
+                frames.pop();
+            }
         }
         None
     }

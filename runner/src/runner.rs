@@ -741,7 +741,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The event kinds a view handles, for a host that attaches listeners.
     pub fn handlers_of(&self, view: ViewId) -> Vec<EventKind> {
-        let Some((node, _)) = self.tree.as_ref().and_then(|t| t.find(view)) else {
+        let Some(node) = self.tree.as_ref().and_then(|t| t.node(view)) else {
             return Vec::new();
         };
         self.plan

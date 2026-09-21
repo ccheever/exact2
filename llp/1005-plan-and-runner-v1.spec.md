@@ -240,6 +240,9 @@ Linux uses `Event::Navigate` directly. The handler chooses the router verb.
 An action taking no parameters ignores the location; otherwise it takes one string.
 A URL before boot is the launch fact, with no navigate dispatch.
 
+Listener and collection-pin lookup walk mounted instances without constructing
+lexical frames; event dispatch still reconstructs those frames for curried arguments.
+
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
 | Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event

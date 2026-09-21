@@ -188,7 +188,8 @@ fn runner_scroll_has_no_resource_queries_and_row_handlers_use_owned_slots() {
     assert!(r.kernel().find_by_test_id("row-0").is_empty());
     let key = r.kernel().find_by_test_id("row-1000")[0];
     let id = r.kernel().node_by_key(key).unwrap().id;
-    assert!(r.handlers().contains_key(&id));
+    assert_eq!(r.handlers_of(id), r.handlers()[&id]);
+    assert!(!r.handlers_of(id).is_empty());
     r.dispatch(id, Event::Press).unwrap();
     let label = r.kernel().find_by_test_id("label-1000")[0];
     assert_eq!(
@@ -212,7 +213,11 @@ fn runner_scroll_has_no_resource_queries_and_row_handlers_use_owned_slots() {
         Some("1 1")
     );
     r.collection_feedback(feedback(&r, 0.0)).unwrap();
+    assert!(r.handlers_of(id).is_empty());
     r.collection_feedback(feedback(&r, 32_000.0)).unwrap();
+    for (view, events) in r.handlers() {
+        assert_eq!(r.handlers_of(view), events);
+    }
     let label = r.kernel().find_by_test_id("label-1000")[0];
     assert_eq!(
         r.kernel()

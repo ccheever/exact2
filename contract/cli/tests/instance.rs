@@ -252,10 +252,24 @@ fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
     )
     .unwrap();
     assert_eq!(text_of(&r, "selected-mv-pa"), "Palo Alto");
+    assert_listener_lookup(&r);
     let choose = view_of(&r, "choose-mv-pa");
     r.dispatch(choose, Event::Press).unwrap();
     assert_eq!(text_of(&r, "result-mv-pa"), "Mountain View/Palo Alto");
     assert_eq!(r.slot("item"), Some(&Value::str("root collision")));
+}
+
+fn assert_listener_lookup<D: DataSource>(runner: &Runner<D>) {
+    let listeners = runner.handlers();
+    let mut pending = runner.roots();
+    while let Some(view) = pending.pop() {
+        assert_eq!(
+            runner.handlers_of(view),
+            listeners.get(&view).cloned().unwrap_or_default()
+        );
+        pending.extend(runner.kernel().node(view).unwrap().children());
+    }
+    assert!(runner.handlers_of(u32::MAX).is_empty());
 }
 
 #[test]
@@ -303,9 +317,7 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(runner.kernel().find_by_test_id("key-0")[0], before);
     let listeners = runner.handlers();
     assert_eq!(listeners.len(), 3);
-    for (view, events) in &listeners {
-        assert_eq!(*events, runner.handlers_of(*view));
-    }
+    assert_listener_lookup(&runner);
     let root = runner.roots()[0];
     let old_order = runner.kernel().node(root).unwrap().children();
     let receipt = runner.act("toggle", vec![]).unwrap();
@@ -313,6 +325,10 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(receipt.created.len(), 2);
     let new_listeners = runner.handlers();
     assert_eq!(new_listeners.len(), 1);
+    assert_listener_lookup(&runner);
+    assert!(listeners
+        .keys()
+        .all(|id| runner.handlers_of(*id).is_empty()));
     assert!(listeners.keys().all(|id| !new_listeners.contains_key(id)));
     assert!(old_order
         .iter()
@@ -320,5 +336,6 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(runner.kernel().node(root).unwrap().children().len(), 1);
     runner.act("toggle", vec![]).unwrap();
     assert_eq!(runner.handlers().len(), 3);
+    assert_listener_lookup(&runner);
     assert_ne!(runner.kernel().find_by_test_id("key-0")[0], before);
 }
