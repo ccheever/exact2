@@ -376,6 +376,8 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       ['sendMessage',['maya','Refused replacement schedule','',202,6000]],
       ['blockConversation',['maya',true]],
       ['deleteConversation',['maya',0]],
+      ['blockConversation',['alex',true]],
+      ['deleteConversation',['alex',0]],
       ['advanceReplies',[216,'maya',216000]],
     ] as [string,unknown[]][]) {
       failCommit=true;
@@ -385,6 +387,19 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       expect(restored.pending).toEqual(scheduled.pending);
       expect(restored.ticks).toBe(scheduled.ticks);
     }
+    // Alex has no pending reply; changing block state must retain the other
+    // schedules on both successful writes and a refused unblock.
+    const blockedAlex=await act('blockConversation',['alex',true]);
+    expect(blockedAlex.pending).toEqual(scheduled.pending);
+    failCommit=true;
+    await expect(call('blockConversation',['alex',false])).rejects.toThrow('footprint commit refused');
+    const refusedUnblock=await inspect();
+    expect(canonical(refusedUnblock.live)).toEqual(canonical(blockedAlex.live));
+    expect(refusedUnblock.pending).toEqual(scheduled.pending);
+    expect(refusedUnblock.ticks).toBe(scheduled.ticks);
+    expect((await act('blockConversation',['alex',false])).pending).toEqual(scheduled.pending);
+    // An unblock also preserves an existing schedule when already unblocked.
+    expect((await act('blockConversation',['maya',false])).pending).toEqual(scheduled.pending);
     const before=canonical((await inspect()).live);
     await expect(call('sendMessage',['maya','🌲'.repeat(20000),'',200,6000])).rejects.toThrow('UTF-8');
     expect(canonical((await inspect()).live)).toEqual(before);

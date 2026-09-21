@@ -620,7 +620,11 @@ export const answer: Answer = (source,args,store,storage,native) => {
     const records=editRecords(source,args);
     // These sources leave reply scheduling untouched. Future sources retain the
     // conservative full copy until their pending-state behavior is established.
-    const keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source);
+    const keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source)
+      || (source==='blockConversation' && !args[1])
+      || ((source==='blockConversation' || source==='deleteConversation') && !pending.has(args[0] as string));
+    // Unblocking and removing an absent schedule leave the map untouched. An
+    // actual removal still needs the full copy to restore its insertion order.
     // A send only sets its own entry. Map.set preserves an existing entry's
     // position, so rollback needs one value rather than a copy of every reply.
     const sentId=source==='sendMessage'?String(args[0]):undefined;
