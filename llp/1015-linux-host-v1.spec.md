@@ -177,6 +177,23 @@ Shared load varied elapsed timings, so no display-cadence claim follows. An isol
 1,200-frame Editorial control was effectively flat at 1.209 → 1.205 ms/frame.
 Evidence: `/tmp/exact-text-cpu-d28853d6/` (`selected-cpu/` and `editorial/`).
 
+Damage clearing uses the same non-antialiased rectangle paths that build the
+binary damage mask to paint opaque white directly into the copied previous frame.
+The mask still governs subsequent painting. Nonfinite geometry, coordinates or
+viewports beyond 8,191 pixels, and scales whose viewport-edge round trip is not
+exact retain the full masked clear. Overlapping rectangles remain idempotent.
+An independent 896-case oracle compares the original full masked viewport across
+fractional scales, overlapping/offscreen/empty/invalid regions and tiled fallbacks;
+it passes in debug and release, alongside the existing clipped-fill oracle and
+Textflow damage-versus-full repaint tests. Twenty-four app screenshots and their
+layouts match. Four alternating release pairs measured total process CPU at
+3.067 → 2.524 seconds (17.7% less) for the six-scene fixture relative to the bounded
+rectangle renderer above. A second four-pair run confirmed 2.708 → 2.278 seconds
+(15.9% less); its static Editorial control was effectively flat at 1.039 → 1.046
+ms/frame. This is headless process CPU including setup/warmup;
+shared load varies elapsed frame timings, and physical cadence remains unproven.
+Evidence: `/tmp/exact-damage-clear-0ff47ba3/`.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's

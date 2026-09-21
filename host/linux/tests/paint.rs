@@ -556,3 +556,71 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
         );
     }
 }
+
+#[test]
+fn damage_clearing_matches_the_full_masked_viewport() {
+    use exact_linux::paint::Backend;
+    use exact_linux::raster::Raster;
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.7_f32, 0.75, 1.0, 1.1, 1.25, 1.5, 2.0, 2.3] {
+        for (width, height) in [(97.3, 83.7), (96.0, 80.0), (8191.0, 3.0), (8192.0, 3.0)] {
+            for offset in [0.0, 0.25, 0.5, 0.99] {
+                for rects in [
+                    vec![],
+                    vec![(0.0, 0.0, width, height)],
+                    vec![(12.0 + offset, 9.0 + offset, 24.5, 31.75)],
+                    vec![
+                        (-5.5, -7.25, 25.0, 33.0),
+                        (8.0 + offset, 9.0, 21.0, 23.0),
+                        (width - 2.25, height - 1.5, 20.0, 20.0),
+                    ],
+                    vec![(5.0, 6.0, 0.0, 3.0), (10.0, 9.0, -2.0, 4.0)],
+                    vec![(f32::NAN, 0.0, 3.0, 4.0), (20.0, 20.0, 7.0, 8.0)],
+                    vec![(-9000.0, -9000.0, 18000.0, 18000.0)],
+                ] {
+                    let mut raster = Raster::new();
+                    raster.begin(width, height, scale);
+                    let (w, h) = (
+                        ((width * scale).round() as u32).max(1),
+                        ((height * scale).round() as u32).max(1),
+                    );
+                    let mut expected = Pixmap::new(w, h).unwrap();
+                    expected.fill(Color::from_rgba8(39, 73, 117, 139));
+                    assert!(raster.damage(&expected, &rects));
+                    let device = Transform::from_scale(scale, scale);
+                    let mut mask = Mask::new(w, h).unwrap();
+                    for &(x, y, w, h) in &rects {
+                        if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+                            mask.fill_path(
+                                &PathBuilder::from_rect(rect),
+                                FillRule::Winding,
+                                false,
+                                device,
+                            );
+                        }
+                    }
+                    let mut clear = Paint::default();
+                    clear.set_color(Color::WHITE);
+                    clear.anti_alias = true;
+                    expected.fill_path(
+                        &PathBuilder::from_rect(
+                            Rect::from_xywh(0.0, 0.0, w as f32 / scale, h as f32 / scale).unwrap(),
+                        ),
+                        &clear,
+                        FillRule::Winding,
+                        device,
+                        Some(&mask),
+                    );
+                    assert!(
+                        raster.finish().unwrap().data() == expected.data(),
+                        "scale={scale}, size={width}x{height}, offset={offset}, rects={rects:?}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 896);
+}

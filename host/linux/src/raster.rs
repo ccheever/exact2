@@ -300,23 +300,40 @@ impl Backend for Raster {
         let Some(mut mask) = Mask::new(self.width, self.height) else {
             return false;
         };
+        let dev = self.device(Transform::identity());
+        // The damage mask has binary coverage. Paint those same paths opaquely
+        // while building it, avoiding a second masked pass over the whole frame.
+        // Retain the original clear where viewport edges or tiling are uncertain.
+        let direct_clear = self.scale.is_finite()
+            && self.scale > 0.0
+            && self.width <= 8191
+            && self.height <= 8191
+            && (self.width as f32 / self.scale) * self.scale == self.width as f32
+            && (self.height as f32 / self.scale) * self.scale == self.height as f32
+            && rects.iter().all(|&(x, y, w, h)| {
+                [x, y, x + w, y + h]
+                    .iter()
+                    .all(|v| (v * self.scale).is_finite() && (v * self.scale).abs() <= 8191.0)
+            });
+        let mut target = previous.clone();
+        let mut clear = solid([255; 4]);
+        clear.anti_alias = false;
         let mut bounds = (f32::INFINITY, f32::INFINITY, 0.0_f32, 0.0_f32);
         for &(x, y, w, h) in rects {
             let Some(rect) = Rect::from_xywh(x, y, w, h) else {
                 continue;
             };
-            mask.fill_path(
-                &PathBuilder::from_rect(rect),
-                FillRule::Winding,
-                false,
-                self.device(Transform::identity()),
-            );
+            let path = PathBuilder::from_rect(rect);
+            mask.fill_path(&path, FillRule::Winding, false, dev);
+            if direct_clear {
+                target.fill_path(&path, &clear, FillRule::Winding, dev, None);
+            }
             bounds.0 = bounds.0.min(x);
             bounds.1 = bounds.1.min(y);
             bounds.2 = bounds.2.max(x + w);
             bounds.3 = bounds.3.max(y + h);
         }
-        self.target = Some(previous.clone());
+        self.target = Some(target);
         self.clips.push(Rc::new(mask));
         self.text_clips.push((
             bounds.0 * self.scale,
@@ -324,16 +341,18 @@ impl Backend for Raster {
             (bounds.2 - bounds.0) * self.scale,
             (bounds.3 - bounds.1) * self.scale,
         ));
-        self.fill(
-            &Shape::rect((
-                0.,
-                0.,
-                self.width as f32 / self.scale,
-                self.height as f32 / self.scale,
-            )),
-            [255; 4],
-            Transform::identity(),
-        );
+        if !direct_clear {
+            self.fill(
+                &Shape::rect((
+                    0.,
+                    0.,
+                    self.width as f32 / self.scale,
+                    self.height as f32 / self.scale,
+                )),
+                [255; 4],
+                Transform::identity(),
+            );
+        }
         true
     }
 
