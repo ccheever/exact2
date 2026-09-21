@@ -65,3 +65,55 @@ fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`border-radius`"), "{e}");
 }
+
+#[test]
+fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
+    for (typo, correct, value) in [
+        ("widht", "width", "100"),
+        ("align-item", "align-items", "\"center\""),
+        ("paddng", "padding", "12"),
+        ("opaccity", "opacity", "0.5"),
+        ("backgrounf-color", "background-color", "\"#123456\""),
+    ] {
+        for style in [false, true] {
+            let source = if style {
+                format!(
+                    "style Card\n  {typo}={value}\ncomponent App\n  view\n    view class=Card\n"
+                )
+            } else {
+                format!("component App\n  view\n    view {typo}={value}\n")
+            };
+            let error = contract::compile(&source).unwrap_err();
+            assert_eq!(error.id, "lower-unknown-attr");
+            assert!(
+                error
+                    .message
+                    .ends_with(&format!("; did you mean `{correct}`?")),
+                "{error}"
+            );
+            assert_eq!(error.span.line, if style { 2 } else { 3 });
+            contract::compile(&source.replace(typo, correct)).unwrap();
+        }
+    }
+    for name in [
+        "overflow-z",
+        "unrelated-property",
+        "éwidth",
+        "xy",
+        &"w".repeat(65),
+    ] {
+        let source = format!("component App\n  view\n    view {name}=1\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(!error.message.contains("did you mean"), "{error}");
+    }
+    let error = contract::compile(
+        "style Card\n  tesId=\"x\"\ncomponent App\n  view\n    view class=Card\n",
+    )
+    .unwrap_err();
+    assert!(
+        !error.message.contains("did you mean"),
+        "style must not suggest props: {error}"
+    );
+    let error = contract::compile("component App\n  view\n    view tesId=\"x\"\n").unwrap_err();
+    assert!(error.message.contains("did you mean `testId`"), "{error}");
+}

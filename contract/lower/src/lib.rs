@@ -245,6 +245,7 @@ fn lower_with_sites(
                 None => {
                     let hint = tags::renamed(&a.name)
                         .map(|n| format!("; `{}` is spelled `{n}` here", a.name))
+                        .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
                     return err(
                         "lower-unknown-attr",
@@ -1232,7 +1233,9 @@ impl<'a> Lowerer<'a> {
                     "; `{}` is spelled `{new}` here, the CSS name (LLP 1017 §8.1)",
                     a.name
                 ),
-                None => String::new(),
+                None => tags::similar_attr(&a.name, false)
+                    .map(|n| format!("; did you mean `{n}`?"))
+                    .unwrap_or_default(),
             };
             return err(
                 "lower-unknown-attr",

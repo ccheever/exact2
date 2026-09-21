@@ -64,6 +64,7 @@ fn imported_refusals_are_json_with_original_files_and_byte_ranges() {
         "component Row\n  view\n    text )\n",
         "routes nav\n  home \"/\"\ncomponent Row\n  view\n    text \"row\"\n",
         "component Row\n  view\n    view align-items=\"middle\"\n",
+        "component Row\n  view\n    view widht=100\n",
         "use Absent from \"./absent.contract\"\ncomponent Row\n  view\n    text \"row\"\n",
     ] {
         let row = app
