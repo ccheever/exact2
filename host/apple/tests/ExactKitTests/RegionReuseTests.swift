@@ -443,6 +443,31 @@ import XCTest
         XCTAssertEqual(h.service.pixels.stats.owners, 2)
         withExtendedLifetime([before,after]) {}
     }
+    func testDisplayProviderRetainsPixelAdmissionUntilActualRelease() {
+        let h = RegionReuseHarness(), s = source("retained drawing provider ")
+        defer { h.service.close() }
+        let artifact = h.shape(1, source: s), profile = h.profile()
+        var first: RegionRaster? = h.raster(1, publication: 1, artifact: artifact, profile: profile)
+        var image = first!.image()
+        first = nil
+        let accepted = h.raster(2, publication: 1, artifact: artifact, profile: profile)
+        XCTAssertEqual(h.service.pixels.stats.owners, 2)
+        let request = RegionRasterRequest(serial: 3, publication: 1, generation: 1,
+            rows: accepted.request.rows, scroll: accepted.request.scroll, size: accepted.request.size,
+            scale: 1, profile: profile, format: accepted.request.format,
+            background: accepted.request.background, selectionColor: accepted.request.selectionColor)
+        if case .pixelsBusy(let value) = h.perform(.raster(request)) {
+            XCTAssertEqual(value.serial, 3, "capacity is retryable with the exact request identity")
+        } else { XCTFail("an old display provider must remain charged") }
+        withExtendedLifetime(image) {}
+        image = nil
+        XCTAssertEqual(h.service.pixels.stats.owners, 1)
+        let recovered = h.raster(4, publication: 1, artifact: artifact, profile: profile)
+        XCTAssertEqual(recovered.image()!.dataProvider!.data! as Data, accepted.image()!.dataProvider!.data! as Data)
+        XCTAssertEqual(h.service.pixels.stats.owners, 2)
+        withExtendedLifetime((accepted, recovered)) {}
+    }
+
     func testAliasBindingsStillCountTowardLive64CapAndRetirementReopensOneSlot() {
         #if REGION_PREPARATION_SENTINEL
         let preparationStart = RegionPreparationSentinel.count

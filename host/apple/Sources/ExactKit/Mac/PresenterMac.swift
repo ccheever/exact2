@@ -251,7 +251,7 @@ final class Presenter {
     /// Bring bands up to date. Visible paragraphs always; others up to
     /// `limit` of them (nil: all). True when some were left for a later slice.
     @discardableResult
-    func refreshVisibleText(limit: Int? = nil) -> Bool {
+    func refreshVisibleText(limit: Int? = nil, afterFrame: Bool = false) -> Bool {
         // Bounds notifications can arrive while a batch is still changing the
         // hierarchy. Query its final geometry once the outermost batch ends.
         guard !applying else { return false }
@@ -260,7 +260,11 @@ final class Presenter {
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
         let candidates = textViewportIndex!.candidates(reach: Self.textRasterReach)
-        for node in candidates { node.readerParagraph?.update(node) }
+        var readersDeferred = false
+        for node in candidates {
+            node.readerParagraph?.update(node, afterFrame: afterFrame)
+            readersDeferred = readersDeferred || node.readerParagraph?.waitingForPixels == true
+        }
         let replacementsDeferred = !inScrollCallback && textRasters.replaceVisible(candidates, wait: sliceBudget)
         var rastersDeferred = false
         for node in candidates where node.needsTextRaster && node.rastersText {
@@ -303,7 +307,7 @@ final class Presenter {
             next[node.id] = admit(node, after: visibleText[node.id])
         }
         visibleText = next
-        return deferred || rastersDeferred || replacementsDeferred
+        return deferred || rastersDeferred || replacementsDeferred || readersDeferred
     }
 
     private func admit(_ node: NodeView, after old: NSRect?) -> NSRect {
@@ -474,13 +478,13 @@ final class Presenter {
             Self.signposts.endInterval("pump-list", post)
             // Dispatch pixels for newly mounted lead rows without surrendering
             // the next list slice. Worker admission remains bounded.
-            textPending = refreshVisibleText(limit: Self.textBandsPerSlice) || textPending
+            textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true) || textPending
             return
         }
         textTurn = false
         if textPending {
             let post = Self.signposts.beginInterval("pump-text")
-            textPending = refreshVisibleText(limit: Self.textBandsPerSlice)
+            textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true)
             Self.signposts.endInterval("pump-text", post)
         }
         if !listSyncPending && !textPending { stopPump() }

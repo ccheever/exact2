@@ -56,6 +56,8 @@ final class RegionReaderParagraph {
     private var candidateTop: CGFloat?
     private var pointRequest: RegionPointRequest?
     private var pointReply: ((Int?, String?) -> Void)?
+    private(set) var waitingForPixels = false
+    private var pixelRetries = 0
 
     init(_ request: ExactMeasureRequest, bytes: Int) {
         view = request.view; index = request.node_index; generation = request.node_generation
@@ -85,20 +87,22 @@ final class RegionReaderParagraph {
         service.reset()
         source = nil; candidate = nil; accepted = nil; raster = nil; image = nil
         shapeWidth = nil; wantedRaster = nil; candidateTop = nil; failed = nil
+        waitingForPixels = false
         let reply = pointReply; pointReply = nil; pointRequest = nil
         reply?(nil, nil)
     }
     var diagnostics: [String: Any] {
-        ["id": view, "pending": failed != nil || accepted == nil || accepted?.metadata.offeredWidth != wantedWidth,
+        ["id": view, "pending": waitingForPixels || failed != nil || accepted == nil || accepted?.metadata.offeredWidth != wantedWidth,
          "width": accepted?.metadata.offeredWidth ?? 0, "wantedWidth": wantedWidth,
          "height": accepted?.metadata.height ?? 0, "lines": accepted?.metadata.lines.count ?? 0,
          "utf16": accepted?.metadata.source.utf16Count ?? 0, "sha256": accepted?.metadata.sourceSHA256 ?? "",
          "viewportY": raster?.request.scroll.y ?? 0, "viewportHeight": raster?.request.size.height ?? 0,
          "maxDemandMs": maxDemand * 1000, "maxPublishMs": maxPublish * 1000, "maxDrawMs": maxDraw * 1000,
+         "pixelRetries": pixelRetries, "pixelBytes": service.pixels.stats.bytes,
          "failure": failed as Any? ?? NSNull()]
     }
 
-    func update(_ node: NodeView) {
+    func update(_ node: NodeView, afterFrame: Bool = false) {
         RegionReaderTiming.begin()
         defer { RegionReaderTiming.end() }
         let started = CACurrentMediaTime()
@@ -108,6 +112,7 @@ final class RegionReaderParagraph {
             maxDemand = max(maxDemand, CACurrentMediaTime() - started)
         }
         guard !publishing, node.window != nil, node.flowShapes.isEmpty else { return }
+        if afterFrame { waitingForPixels = false }
         self.node = node
         // Captured exactly once after the native batch supplies resolved paint.
         // The measure callback never shapes or copies the giant source.
@@ -139,7 +144,7 @@ final class RegionReaderParagraph {
     }
 
     private func requestViewport() {
-        guard let node, let artifact = pointRequest == nil ? candidate ?? accepted : accepted,
+        guard !waitingForPixels, let node, let artifact = pointRequest == nil ? candidate ?? accepted : accepted,
               failed == nil else { return }
         let p = artifact.metadata
         let content = node.contentBox()
@@ -195,6 +200,13 @@ final class RegionReaderParagraph {
         }
         guard let node, node.text?.readerParagraphs[view] === self else { return }
         switch answer {
+        case .pixelsBusy(let request):
+            guard wantedRaster?.serial == request.serial else { return }
+            // AppKit's previous draw can still own the old provider. Keep its
+            // accounting charged and retry on the display link, never in a spin.
+            wantedRaster = nil; waitingForPixels = true
+            pixelRetries += 1
+            node.presenter?.requestTextPublication()
         case .shape(let artifact):
             guard artifact.metadata.offeredWidth == wantedWidth else { update(node); return }
             shapeWidth = nil; candidate = artifact
@@ -234,7 +246,11 @@ final class RegionReaderParagraph {
             node.presenter?.requestTextPublication()
         case .abandoned:
             shapeWidth = nil; update(node)
-        case .refused(_, let reason):
+        case .refused(let job, let reason):
+            switch job {
+            case .shape(let request): guard request.width == wantedWidth else { return }
+            case .raster(let request): guard request.serial == wantedRaster?.serial else { return }
+            }
             failed = reason
             node.presenter?.session?.log("reader region: \(reason)")
             node.needsDisplay = true

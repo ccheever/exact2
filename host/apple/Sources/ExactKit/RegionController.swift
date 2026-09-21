@@ -190,6 +190,9 @@ final class RegionController {
         if session.isApplyingPresentation { pendingAnswer = answer; return }
         busy = false
         switch answer {
+        case .pixelsBusy:
+            refuse("region pixel capacity")
+            return
         case .abandoned:
             submitted = 0
         case .shape(let value):

@@ -32,6 +32,7 @@ enum RegionAnswer: Sendable {
     case shape(RegionArtifact)
     case raster(RegionRaster)
     case abandoned(id: UInt64, generation: Int)
+    case pixelsBusy(RegionRasterRequest)
     case refused(RegionJob, String)
 }
 private enum RegionShapeCheckpoint: Error { case abandoned }
@@ -217,6 +218,9 @@ final class RegionService: @unchecked Sendable {
                     guard let paint else { return .refused(job, "missing accepted worker paint") }
                     return .raster(try paint.render(request, account: pixels, hits: hits))
                 }
+            } catch RegionRasterRefusal.capacity {
+                if case .raster(let request) = job { return .pixelsBusy(request) }
+                return .refused(job, "region pixel capacity")
             } catch { return .refused(job, "region worker: \(error)") }
         }
         // Mailbox is detachable without a UI wake. The queued main block owns
