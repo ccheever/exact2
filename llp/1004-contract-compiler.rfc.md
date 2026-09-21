@@ -61,6 +61,14 @@ kernel's ordinals as numbers, and the crates that give them meaning —
 vocabulary from `exact-kernel`, LLP 1001 §1's one authority. Nothing is
 redeclared.
 
+Semantic HTML tag names in lowering point to static table strings. Lookups no
+longer allocate and leak a copied name each time. Two consecutive batches of
+7,000 lookups, dropping each returned tag, retained 38,000 requested bytes per
+batch before this change and zero afterward; allocation calls fell from 14,000
+to 7,000 per batch. All 17 app plans and an all-semantic-tags fixture are
+byte-identical. This fixes growing retention in repeated compiler use; it is not
+an application frame-time measurement. Evidence: `/tmp/exact-semantic-tags-4b8b1900/`.
+
 | Crate | Owns | Depends on |
 | --- | --- | --- |
 | `contract-syntax` | lexer, parser, AST, source spans | nothing |

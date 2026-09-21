@@ -62,6 +62,7 @@ pub fn tag(name: &str) -> Option<Tag> {
         fixed_props,
         positional: None,
     };
+    let semantic = |name| view(vec![], vec![(p("semanticTag"), name)]);
     Some(match name {
         "view" | "box" => view(vec![], vec![]),
         "column" => view(
@@ -76,9 +77,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             vec![(s("position_type"), "absolute")],
             vec![(p("semanticTag"), "dialog")],
         ),
-        "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
-            view(vec![], vec![(p("semanticTag"), leak(name))])
-        }
+        "main" => semantic("main"),
+        "header" => semantic("header"),
+        "nav" => semantic("nav"),
+        "section" => semantic("section"),
+        "footer" => semantic("footer"),
+        "article" => semantic("article"),
+        "aside" => semantic("aside"),
         "list" => Tag {
             node_type: NodeType::List,
             fixed_styles: vec![],
@@ -152,12 +157,6 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         _ => return None,
     })
-}
-
-fn leak(name: &str) -> &'static str {
-    // The semantic tag set is closed above; leaking a handful of short
-    // strings once per process is the simplest way to hand out `&'static`.
-    Box::leak(name.to_string().into_boxed_str())
 }
 
 /// What a prop attribute's value must be.
