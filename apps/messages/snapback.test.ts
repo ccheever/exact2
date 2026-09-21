@@ -449,6 +449,34 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     const replaced=await act('sendMessage',['maya','Later replacement','',2300,2300000]);
     expect((await act('advanceReplies',[2215,'maya',2215000])).revision).toBe(replaced.revision);
     expect((await act('advanceReplies',[2303,'maya',2303000])).revision).toBe(replaced.revision+1);
+    // Expiry deadlines survive earlier insertions, strict equality, refusal,
+    // rewind, removal of the earliest archive, and reopening the durable model.
+    const day=86400000;
+    await act('recentlyDeleted',['',0,40*day]);
+    const archiveOne=async(id:string,body:string,now:number)=>{
+      const sent=await act('sendMessage',[id,body,'',0,0]);
+      const [key,row]=sent.live.find(([,row]:any)=>row.kind==='message' && row.message.body===body);
+      await act('deleteMessages',[id,row.message.id,now]);return key;
+    };
+    const laterExpiry=await archiveOne('maya','Later archive expiry',10*day);
+    const earlierExpiry=await archiveOne('dad','Earlier archive expiry',0);
+    const beforeExpiry=await act('recentlyDeleted',['',0,30*day-.5]);
+    expect(new Map(beforeExpiry.live).has(earlierExpiry)).toBe(true);
+    failCommit=true;
+    await expect(call('recentlyDeleted',['',0,30*day])).rejects.toThrow('footprint commit refused');
+    expect(canonical((await inspect()).live)).toEqual(canonical(beforeExpiry.live));
+    const expired=await act('recentlyDeleted',['',0,30*day]);
+    expect(new Map(expired.live).has(earlierExpiry)).toBe(false);
+    expect(new Map(expired.live).has(laterExpiry)).toBe(true);
+    expect(canonical((await act('recentlyDeleted',['',0,5*day])).live)).toEqual(canonical(expired.live));
+    await act('recoverConversations',['maya',39*day]);
+    const reopenedExpiry=await archiveOne('dad','Reopened archive expiry',9*day);
+    app=await import(output+`?instance=${generation++}`);
+    await call('conversation',['maya',0,'','','']);
+    expect(new Map((await act('recentlyDeleted',['',0,39*day-.5])).live).has(reopenedExpiry)).toBe(true);
+    expect(new Map((await act('recentlyDeleted',['',0,39*day])).live).has(reopenedExpiry)).toBe(false);
+    const nonfiniteExpiry=await archiveOne('maya','Nonfinite expiry clock',10*day);
+    expect(new Map((await act('recentlyDeleted',['',0,NaN])).live).has(nonfiniteExpiry)).toBe(false);
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);
