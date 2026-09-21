@@ -57,6 +57,61 @@ impl Raster {
         Transform::from_scale(self.scale, self.scale).pre_concat(ts)
     }
 
+    // A rounded box has two solid central strips. If the complete binary
+    // damage rectangle lies inside either strip, no curved edge is painted.
+    fn covered_damage(&self, shape: &Shape, dev: Transform) -> Option<Rect> {
+        let (depth, damage) = self.rectangular_damage?;
+        let (x, y, w, h) = shape.rect;
+        if depth != self.clips.len()
+            || self.width > 8191
+            || self.height > 8191
+            || !dev.is_finite()
+            || dev.kx != 0.0
+            || dev.ky != 0.0
+            || dev.sx == 0.0
+            || dev.sy == 0.0
+            || ![x, y, w, h].iter().all(|v| v.is_finite())
+            || !shape
+                .radii
+                .iter()
+                .all(|r| r.is_finite() && *r >= 0.0 && *r <= w.min(h) / 2.0)
+        {
+            return None;
+        }
+        let bounds = |[left, top, right, bottom]: [f32; 4]| {
+            let mut corners = [Point::from_xy(left, top), Point::from_xy(right, bottom)];
+            dev.map_points(&mut corners);
+            [
+                corners[0].x.min(corners[1].x),
+                corners[0].y.min(corners[1].y),
+                corners[0].x.max(corners[1].x),
+                corners[0].y.max(corners[1].y),
+            ]
+        };
+        if bounds([x, y, x + w, y + h])
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() > 8191.0)
+        {
+            return None;
+        }
+        let [tl, tr, br, bl] = shape.radii;
+        for strip in [
+            [x + tl.max(bl), y, x + w - tr.max(br), y + h],
+            [x, y + tl.max(tr), x + w, y + h - bl.max(br)],
+        ] {
+            let [left, top, right, bottom] = bounds(strip);
+            // Keep two device pixels away from scan-conversion and AA edges.
+            if damage.left() >= left + 2.0
+                && damage.top() >= top + 2.0
+                && damage.right() <= right - 2.0
+                && damage.bottom() <= bottom - 2.0
+            {
+                return Some(damage);
+            }
+        }
+        None
+    }
+
     fn clip_key(&self, shape: &Shape, ts: Transform) -> Option<ClipKey> {
         let bytes = (self.width as usize).checked_mul(self.height as usize)?;
         let shape = [
@@ -382,6 +437,20 @@ impl Backend for Raster {
             return;
         };
         let mut dev = self.device(ts);
+        if shape.rounded() && color[3] == 255 {
+            if let Some(rect) = self.covered_damage(shape, dev) {
+                if let Some(target) = self.target.as_mut() {
+                    target.fill_path(
+                        &PathBuilder::from_rect(rect),
+                        &solid(color),
+                        FillRule::Winding,
+                        Transform::identity(),
+                        None,
+                    );
+                }
+                return;
+            }
+        }
         // Avoid shading a large background outside the active mask. Keep the
         // original fractional edges; only introduce integer edges beyond the
         // conservative clip bounds, where mask coverage is already zero.
@@ -677,6 +746,27 @@ impl Backend for Raster {
         self.target
             .take()
             .ok_or_else(|| "no frame begun".to_string())
+    }
+}
+
+#[test]
+fn rounded_damage_proof_rejects_invalid_radii() {
+    let mut raster = Raster::new();
+    raster.begin(96.0, 80.0, 1.0);
+    let previous = Pixmap::new(96, 80).unwrap();
+    assert!(raster.damage(&previous, &[(24.0, 8.0, 40.0, 64.0)]));
+    let mut shape = Shape {
+        rect: (0.0, 0.0, 96.0, 80.0),
+        radii: [4.0; 4],
+    };
+    assert!(raster
+        .covered_damage(&shape, Transform::identity())
+        .is_some());
+    for radius in [f32::NAN, f32::INFINITY, -1.0, 41.0] {
+        shape.radii[1] = radius;
+        assert!(raster
+            .covered_damage(&shape, Transform::identity())
+            .is_none());
     }
 }
 

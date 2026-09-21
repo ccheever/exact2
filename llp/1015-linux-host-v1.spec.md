@@ -212,6 +212,28 @@ are byte-identical. These are headless CPU measurements including setup/warmup,
 with no physical display-cadence claim.
 Evidence: `/tmp/exact-mask-fill-cfd70e0e/`.
 
+An opaque rounded background can use the same exact damage rectangle when it
+lies wholly inside either of the box's two solid central strips, with two device
+pixels of clearance on every side. The proof requires finite, nonnegative radii
+no larger than half the smaller dimension, finite nonsingular axis-aligned
+transforms and the same non-tiled bounds. Otherwise the complete rounded path and
+mask remain unchanged. No visible curved or fractional edge is replaced.
+
+A 3,456-case full-mask oracle covers fractional scales, reflection, nonuniform
+scaling, rotation/shear fallback, asymmetric/oversized/negative finite radii,
+edge proximity, alpha, irregular damage and opacity layers. It passes in debug
+and release. The clip-lifetime oracle now exercises eligible rounded fills too;
+a separate test verifies the coverage proof rejects nonfinite/invalid radii.
+The oracle also exposed a pre-existing tiny-skia panic for an internal NaN radius,
+reproduced on the published baseline and recorded in `QUEUE.md`; it is not a
+passing pixel case. Twenty-four app screenshots and layouts remain byte-identical.
+Four alternating release pairs measured six-scene process CPU at 1.727 → 1.140
+seconds (34.0% less) relative to the rectangular-damage renderer above. A second
+four-pair run confirmed 1.743 → 1.142 seconds (34.5% less); the static Editorial
+control varied by about 3% or less across both comparisons. This is headless CPU
+including setup/warmup, not evidence of physical display cadence.
+Evidence: `/tmp/exact-rounded-interior-fb9f8b65/`.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's
