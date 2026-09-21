@@ -523,6 +523,24 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect(recoveredAppend.live.filter(([key]:[string,unknown])=>appendKeys.includes(key)).map(([key,row]:[string,any])=>[key,row.expires]))
       .toEqual(appendKeys.map(key=>[key,null]));
     expect(await summary(0)).toBeUndefined();
+    // A due bucket must not expire future buckets. Skipped buckets still
+    // contribute to the next global deadline, including after failed admission.
+    const futureBucket=await archiveOne('maya','Future bucket expiry',20*day);
+    const middleBucket=await archiveOne('dad','Middle bucket expiry',10*day);
+    const dueBucket=await archiveOne('sam','Due bucket expiry',0);
+    const beforeBucketExpiry=await inspect();
+    failCommit=true;
+    await expect(call('recentlyDeleted',['',0,30*day])).rejects.toThrow('footprint commit refused');
+    expect(canonical((await inspect()).live)).toEqual(canonical(beforeBucketExpiry.live));
+    const firstBucketExpiry=new Map((await act('recentlyDeleted',['',0,30*day])).live);
+    expect(firstBucketExpiry.has(dueBucket)).toBe(false);
+    expect(firstBucketExpiry.has(middleBucket)).toBe(true);
+    expect(firstBucketExpiry.has(futureBucket)).toBe(true);
+    const secondBucketExpiry=await act('recentlyDeleted',['',0,40*day]);
+    expect(new Map(secondBucketExpiry.live).has(middleBucket)).toBe(false);
+    expect(new Map(secondBucketExpiry.live).has(futureBucket)).toBe(true);
+    expect(canonical((await act('recentlyDeleted',['',0,5*day])).live)).toEqual(canonical(secondBucketExpiry.live));
+    expect(new Map((await act('recentlyDeleted',['',0,50*day])).live).has(futureBucket)).toBe(false);
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);

@@ -149,6 +149,7 @@ function expireDeleted(now:number) {
   if(now<nextRecoveryExpiry)return;
   nextRecoveryExpiry=Infinity;
   for(const [id,archive] of recoverable) {
+    if(now<archive.expires){nextRecoveryExpiry=Math.min(nextRecoveryExpiry,archive.expires);continue;}
     let expires=Infinity;
     const kept=archive.rows.filter(r=>{
       if(!(r.expires>now))return false;
@@ -534,7 +535,7 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       // Expiry can remove rows outside the selected conversation. Capture only
       // those candidates, retaining the handler's strict > comparison. Negating
       // < also scans for NaN rather than silently retaining expired rows.
-      if(!(now<nextRecoveryExpiry))for(const [key,archive] of recoverable)for(const row of archive.rows)if(!(row.expires>now))include(key,row.message.id);
+      if(!(now<nextRecoveryExpiry))for(const [key,archive] of recoverable)if(!(now<archive.expires))for(const row of archive.rows)if(!(row.expires>now))include(key,row.message.id);
       if(source==='deleteConversation'){
         persons.add(id);for(const row of threads.get(id)||[])include(id,row.id);
       }else if(source==='deleteMessages'){
