@@ -167,7 +167,7 @@ impl Loader<'_> {
                 self.cache.insert(key.clone(), Rc::clone(&used));
                 used
             };
-            check_use_name(u, used.contains(&self.files, &u.name))?;
+            check_use_name(u, &used, &self.files)?;
             if merged.insert(key) {
                 exports.merge(&used, &self.files, u)?;
             }
@@ -207,14 +207,42 @@ impl Loader<'_> {
     }
 }
 
-fn check_use_name(u: &UseDecl, known: bool) -> Result<(), CompileError> {
-    if known {
+fn check_use_name(u: &UseDecl, exports: &Exports, files: &[File]) -> Result<(), CompileError> {
+    if exports.contains(files, &u.name) {
         Ok(())
     } else {
+        // Only the referenced file's resolved exports can satisfy this use.
+        // Keep successful imports on the existing lookup path.
+        let mut choices = Vec::new();
+        macro_rules! choices {
+            ($field:ident, $kind:literal) => {
+                let mut seen = HashSet::new();
+                let names: Vec<_> = exports
+                    .$field
+                    .iter()
+                    .filter_map(|&(s, i)| {
+                        let name = &files[s].$field[i].name;
+                        seen.insert(name).then(|| format!("`{name}`"))
+                    })
+                    .collect();
+                if !names.is_empty() {
+                    choices.push(format!("{}: {}", $kind, names.join(", ")));
+                }
+            };
+        }
+        choices!(components, "components");
+        choices!(shapes, "shapes");
+        choices!(styles, "styles");
+        choices!(fns, "functions");
+        let available = if choices.is_empty() {
+            "this file exports no components, shapes, styles, or functions".to_owned()
+        } else {
+            format!("available {}", choices.join("; "))
+        };
         Err(use_error(
             "contract-use-unknown",
             format!(
-                "`{}` declares no component, shape, style, or function `{}`",
+                "`{}` declares no component, shape, style, or function `{}`; {available}",
                 u.path, u.name
             ),
             u,

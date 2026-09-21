@@ -495,6 +495,78 @@ fn unknown_components_report_merged_declarations_at_the_original_use() {
 }
 
 #[test]
+fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
+    let app = App::new("import-choices");
+    app.write("leaf.contract", "shape Item\n  name: string\nstyle Line\n  padding-top=10\nfn label(): string = \"label\"\ncomponent Row\n  view\n    text \"row\"\ncomponent Badge\n  view\n    text \"badge\"\n");
+    for name in ["Left", "Right"] {
+        app.write(
+            &format!("{name}.contract"),
+            &format!("use Row from \"./leaf.contract\"\ncomponent {name}\n  view\n    Row()\n"),
+        );
+    }
+    app.write("barrel.contract", "use Left from \"./Left.contract\"\nuse Right from \"./Right.contract\"\ncomponent Wrapper\n  view\n    text \"wrapper\"\n");
+    app.write(
+        "other.contract",
+        "component Unrelated\n  view\n    text \"other\"\n",
+    );
+    // The first import populates the cache. Its declaration and the root's own
+    // declaration cannot satisfy a name in a different referenced file.
+    let source = "use Unrelated from \"./other.contract\"\nuse Wrapper from \"./barrel.contract\"\nuse Rwo from \"./barrel.contract\"\ncomponent App\n  view\n    Row()\n";
+    let root = app.write("app.contract", source);
+    let expected = contract::compile_path(&root).unwrap_err();
+    assert_eq!(expected.id, "contract-use-unknown");
+    assert_eq!(expected.span.line, 3);
+    assert_eq!(expected.file.as_deref(), Some(root.as_path()));
+    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, or function `Rwo`; available components: `Wrapper`, `Left`, `Row`, `Badge`, `Right`; shapes: `Item`; styles: `Line`; functions: `label`");
+    let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "out.plan"]);
+    let errors = diagnostics(&output, 1);
+    assert_eq!(errors.len(), 1);
+    same_error(&errors[0], &expected);
+    assert!(!app.0.join("out.plan").exists());
+    let human = app.run(&[root.to_str().unwrap()]);
+    assert_eq!(human.status.code(), Some(1));
+    assert!(String::from_utf8(human.stderr)
+        .unwrap()
+        .contains(&expected.message));
+    // Every offered declaration is actually admitted by this use syntax.
+    for name in [
+        "Wrapper", "Left", "Row", "Badge", "Right", "Item", "Line", "label",
+    ] {
+        app.write(
+            "app.contract",
+            &source.replace("use Rwo from", &format!("use {name} from")),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}
+
+#[test]
+fn empty_import_choices_exclude_fonts_and_keep_nested_locations() {
+    let app = App::new("empty-import-choices");
+    let root = app.write(
+        "app.contract",
+        "use Wrap from \"./lib/wrap.contract\"\ncomponent App\n  view\n    Wrap()\n",
+    );
+    let nested = app
+        .write(
+            "lib/wrap.contract",
+            "use Brand from \"./empty.contract\"\ncomponent Wrap\n  view\n    text \"wrapped\"\n",
+        )
+        .canonicalize()
+        .unwrap();
+    for source in ["", "font \"Brand\" = \"assets/not-loaded.ttf\"\n"] {
+        app.write("lib/empty.contract", source);
+        let expected = contract::compile_path(&root).unwrap_err();
+        assert_eq!(expected.id, "contract-use-unknown");
+        assert_eq!(expected.file.as_deref(), Some(nested.as_path()));
+        assert_eq!(expected.span.line, 1);
+        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, or function `Brand`; this file exports no components, shapes, styles, or functions");
+        let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+        same_error(&errors[0], &expected);
+    }
+}
+
+#[test]
 fn unknown_component_props_report_all_names_and_declared_choices() {
     let app = App::new("unknown-props");
     let root = app.write("app.contract", "");

@@ -105,11 +105,19 @@ remain `contract-fn-shadows-roster`.
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
 shape (LLP 1004 D4). **Files.** `use Name from "./file.contract"` brings a
-component, shape, or style from another Contract file, resolved by
+component, shape, style, or function from another Contract file, resolved by
 `contract::compile_path` (LLP 1017 P8, 2026-08-30: the used file's
 declarations are merged in after this file's own; a cycle, a missing file, an
 unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
+An unknown import keeps `contract-use-unknown` and its original file/span,
+and lists the referenced file's resolved exports by kind, in merge order
+within each kind. Transitive declarations are included; the importing file's
+own declarations and unrelated imports are excluded. Fonts cannot name a
+`use` and are not offered. Empty exports say so. Choices are constructed only
+on refusal. Four CLI repairs select a component, shape, style, and function
+from these choices; all other diagnostic fields and the repaired plans match
+the previous compiler, as do 18 app/fixture plans.
 `textarea` supplies `white-space: pre-wrap` and `overflow-wrap: break-word`,
 matching the browser control's wrapping defaults. An explicit declaration
 uses the ordinary style row and overrides that tag default.
