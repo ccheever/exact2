@@ -277,6 +277,81 @@ final class CollectionMacTests: XCTestCase {
         }
         wait(for: [done], timeout: 1)
     }
+    func testScrollQueuesOneSliceOutsideTheCallbackAndDefersTheDisplayLink() {
+        let (p, list) = fixture(collection: false)
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var limits: [UInt32] = []
+        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
+        p.apply(batch([
+            ["op": "props", "id": 3, "set": ["accessibilityPosInSet": "1", "accessibilitySetSize": "100"]],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 3000.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 280.0, "h": 300.0]
+        ]))
+        limits.removeAll()
+        p.scrolled()
+        p.scrolled()
+        XCTAssertEqual(limits, [], "overscan must leave AppKit's synchronizer before running")
+        p.displayPump(1.0 / 60)
+        XCTAssertEqual(limits, [], "a queued post-scroll slice owns this frame")
+        let done = expectation(description: "post-synchronizer slice")
+        DispatchQueue.main.async {
+            XCTAssertEqual(limits, [2], "repeated callbacks coalesce into one bounded fill")
+            p.displayPump(1.0 / 60)
+            XCTAssertEqual(limits, [2], "the same frame's display tick cannot fill again")
+            p.scrolled()
+            p.settlePump()
+            XCTAssertEqual(limits.last, 0, "agent settlement remains immediate and unlimited")
+            let settled = limits
+            DispatchQueue.main.async {
+                XCTAssertEqual(limits, settled, "no queued admission escapes synchronous settlement")
+                done.fulfill()
+            }
+        }
+        wait(for: [done], timeout: 1)
+    }
+
+    func testPumpScheduleCoalescesCallbacksAndResumesAfterScrolling() throws {
+        var schedule = Presenter.PumpSchedule()
+        let token = try XCTUnwrap(schedule.queuePostSync(at: 10))
+        XCTAssertNil(schedule.queuePostSync(at: 10.001))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.002))
+        XCTAssertTrue(schedule.takePostSync(token, at: 10.003))
+        XCTAssertFalse(schedule.takePostSync(token, at: 10.003))
+        XCTAssertNil(schedule.queuePostSync(at: 10.011), "a second callback in this frame adds no slice")
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.014))
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.020), "idle filling resumes without another callback")
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.037), "text publication also keeps progressing")
+    }
+
+    func testPumpScheduleUsesNewRefreshRateEvenWhenTheTickIsSuppressed() throws {
+        var schedule = Presenter.PumpSchedule()
+        let token = try XCTUnwrap(schedule.queuePostSync(at: 10))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 120, at: 10.001))
+        XCTAssertEqual(Presenter.listSliceBudget(schedule.refreshInterval), 0.002, accuracy: 0.000001)
+        XCTAssertTrue(schedule.takePostSync(token, at: 10.002))
+        XCTAssertNil(schedule.queuePostSync(at: 10.006))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 120, at: 10.007))
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 120, at: 10.010))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.013), "moving back lengthens the suppression window")
+        XCTAssertEqual(Presenter.listSliceBudget(schedule.refreshInterval), 0.004, accuracy: 0.000001)
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.019))
+        for invalid in [0, -1, Double.nan, Double.infinity] { schedule.updateInterval(invalid) }
+        XCTAssertEqual(schedule.refreshInterval, 1.0 / 60)
+    }
+
+    func testCancelledPostScrollSliceCannotConsumeNewWork() throws {
+        var schedule = Presenter.PumpSchedule()
+        let old = try XCTUnwrap(schedule.queuePostSync(at: 10))
+        schedule.cancel()
+        let current = try XCTUnwrap(schedule.queuePostSync(at: 10.001))
+        XCTAssertFalse(schedule.takePostSync(old, at: 10.002))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.003))
+        XCTAssertTrue(schedule.takePostSync(current, at: 10.004))
+        schedule.cancel()
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.005))
+    }
+
     func testBudgetPendingReportsSameGeometryWithoutRecursiveAdmission() {
         let (p, list) = fixture(collection: false)
         defer { p.reset() }

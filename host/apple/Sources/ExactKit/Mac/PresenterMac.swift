@@ -326,7 +326,46 @@ final class Presenter {
     private var textTurn = false
     private var listBatchPending = false
     private var listFinalizationCost: TimeInterval = 0.0005
-    private var refreshInterval: TimeInterval = 1.0 / 60
+    private var pumpSchedule = PumpSchedule()
+    private var pumpScreen: UInt32?
+    private var refreshInterval: TimeInterval { pumpSchedule.refreshInterval }
+    /// Scroll notifications can arrive repeatedly before the next refresh.
+    /// One queued turn leaves AppKit's synchronizer first; the display link
+    /// remains the fallback when notifications stop. Tokens retire old turns
+    /// without allowing them to consume a new session's pending work.
+    struct PumpSchedule {
+        private(set) var refreshInterval: TimeInterval = 1.0 / 60
+        private var queued: UInt64?
+        private var serial: UInt64 = 0
+        private var lastPostSyncSlice: TimeInterval?
+
+        mutating func updateInterval(_ interval: TimeInterval) {
+            if interval.isFinite && interval > 0 { refreshInterval = interval }
+        }
+        private func recentPostSyncSlice(at time: TimeInterval) -> Bool {
+            lastPostSyncSlice.map { time - $0 < refreshInterval * 0.75 } ?? false
+        }
+        mutating func queuePostSync(at time: TimeInterval) -> UInt64? {
+            guard queued == nil, !recentPostSyncSlice(at: time) else { return nil }
+            serial &+= 1
+            queued = serial
+            return serial
+        }
+        mutating func takePostSync(_ token: UInt64, at time: TimeInterval) -> Bool {
+            guard queued == token else { return false }
+            queued = nil
+            lastPostSyncSlice = time
+            return true
+        }
+        mutating func takeDisplayLink(interval: TimeInterval, at time: TimeInterval) -> Bool {
+            updateInterval(interval)
+            return queued == nil && !recentPostSyncSlice(at: time)
+        }
+        mutating func cancel() {
+            queued = nil
+            lastPostSyncSlice = nil
+        }
+    }
     static func listSliceBudget(_ interval: TimeInterval) -> TimeInterval {
         min(0.004, max(0.001, interval * 0.24))
     }
@@ -399,7 +438,20 @@ final class Presenter {
         }
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
-        if listSyncPending || textPending { startPump() }
+        if listSyncPending || textPending {
+            startPump()
+            queuePostSyncSlice()
+        }
+    }
+
+    private func queuePostSyncSlice() {
+        guard !ExactEnv.agentMode,
+              let token = pumpSchedule.queuePostSync(at: CACurrentMediaTime()) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.pumpSchedule.takePostSync(token, at: CACurrentMediaTime()) else { return }
+            self.pump()
+        }
     }
 
     /// After a batch: paint what is visible now, admit the rest over frames.
@@ -426,23 +478,36 @@ final class Presenter {
     }
 
     private func startPump() {
+        // A view-bound link follows display moves. Before its first tick on a
+        // new screen, seed the budget from that screen instead of spending a
+        // stale 60 Hz allowance on a 120 Hz display. Later ticks supply the
+        // actual interval (including variable refresh), even when skipped.
+        if let screen = viewport.window?.screen,
+           let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32,
+           pumpScreen != id {
+            pumpScreen = id
+            pumpSchedule.updateInterval(1 / Double(max(1, screen.maximumFramesPerSecond)))
+        }
         guard pumpLink == nil else { return }
-        // A display link, not a timer: a slice's commit must keep one phase
-        // against the refresh. A free-running 120 Hz timer drifts through the
-        // frame, and about once a second its commit landed in the scrolling
-        // thread's own commit window and cost that frame — a hitch every
-        // 1.2 s with this thread idle (LLP 1044, the pump's first version).
+        // While scrolling, the queued slice runs just after AppKit releases
+        // its scroll synchronizer (LLP 1044.000 S3). Otherwise this link owns
+        // idle fill and text publication, including the last pending slice
+        // after a gesture ends. A timer would drift through the commit phase.
         pumpTarget.fire = { [weak self] interval in
-            guard let self else { return }
-            if interval > 0 { self.refreshInterval = interval }
-            self.pump()
+            self?.displayPump(interval)
         }
         let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
         link.add(to: .main, forMode: .common)
         pumpLink = link
     }
 
+    func displayPump(_ interval: TimeInterval) {
+        guard pumpSchedule.takeDisplayLink(interval: interval, at: CACurrentMediaTime()) else { return }
+        pump()
+    }
+
     private func stopPump() {
+        pumpSchedule.cancel()
         pumpLink?.invalidate()
         pumpLink = nil
     }
@@ -451,6 +516,7 @@ final class Presenter {
     /// reads the tree right after — and so is anything that must not observe
     /// a half-filled window (LLP 1012: an agent never waits).
     func settlePump() {
+        pumpSchedule.cancel()
         // Match the previous bounded native-feedback depth while keeping
         // background admission out of this synchronous agent boundary.
         for _ in 0..<8 {
@@ -464,7 +530,7 @@ final class Presenter {
         if listSyncPending { startPump() } else { stopPump() }
     }
 
-    /// The display link owns the deadline. A report sizes its overscan from
+    /// The refresh interval sets the deadline. A report sizes its overscan from
     /// measured row cost, reserving the shared finalization pass. A fill can
     /// briefly grow the lead while still losing ground over two frames: keep
     /// filling during travel, and admit text after it instead of alternating.
