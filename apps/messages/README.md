@@ -32,6 +32,17 @@ nulls delete records. Unknown durable sources refuse before mutation. Tests comp
 every durable source against the complete model and actual device, including a
 negative control that deliberately omits a write.
 
+Sources known not to alter reply scheduling also skip copying the pending-reply
+map before persistence. Sends, blocks, conversation deletion and reply ticks keep
+their full rollback copy, as do future sources by default. Failed saves restore
+reply order and the previous clock; the ordinary full-model rollback still prunes
+invalid schedules. Two native Hermes comparisons, each with eight alternating
+pairs, measured 5,000 pending conversations created through real sends. Drafts
+fell from 0.55 to 0.34–0.37 ms, reactions from 0.43–0.45 to 0.23–0.26 ms, and unread
+changes from 0.64–0.65 to 0.43–0.46 ms. Ten pending conversations were roughly flat;
+Bun/Wasm gains were smaller and mixed. This removes work proportional to pending
+conversations from these saves, not from reply ticks or the whole application.
+
 Person positions remain stable across prepends/appends, so sends and contact edits
 include only their affected people. Imported numeric positions are retained; if an
 extreme finite value prevents insertion, positions rebase in the same atomic edit,

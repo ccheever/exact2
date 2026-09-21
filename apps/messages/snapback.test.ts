@@ -210,7 +210,7 @@ test('every durable source footprint matches the complete model and durable devi
     const built=await Bun.build({entrypoints:[entry],target:'bun',outdir:dir,naming:'app.mjs',plugins:[{
       name:'full-model-oracle',setup(build){build.onLoad({filter:/\/apps\/messages\/app\.ts$/},async args=>({
         loader:'ts',contents:await readFile(args.path,'utf8')+`
-export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),peopleOrder:people.map(p=>p.id),sources:Object.keys(sources)}));}
+export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),peopleOrder:people.map(p=>p.id),pending:[...pending],ticks,sources:Object.keys(sources)}));}
 export function omitFixtureEdit(){const edit=replica.edit.bind(replica);replica.edit=async records=>{replica.edit=edit;return edit(new Map());};}
 export function undeclaredFixtureSource(){sources.undeclared=()=>{people[0].unread=!people[0].unread;return changed();};}
 let fixtureKeys=[];
@@ -311,13 +311,34 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     await act('deleteMessages',['jules','jules-2',0]);
     await act('purgeConversations',['sam',31*86400000]);
     await act('sendMessage',['maya','After recovery expiry','',200,5000]);
+    await act('sendMessage',['dad','Another pending conversation','',201,5500]);
+    const scheduled=await inspect();
+    expect(scheduled.pending.length).toBeGreaterThan(1);
+    // Refused edits must retain the precise reply order and clock, including
+    // sources that replace or delete scheduled activity before persistence.
+    for(const [source,args] of [
+      ['sendMessage',['maya','Refused replacement schedule','',202,6000]],
+      ['blockConversation',['maya',true]],
+      ['deleteConversation',['maya',0]],
+      ['advanceReplies',[216,'maya',216000]],
+    ] as [string,unknown[]][]) {
+      failCommit=true;
+      await expect(call(source,args)).rejects.toThrow('footprint commit refused');
+      const restored=await inspect();
+      expect(canonical(restored.live)).toEqual(canonical(scheduled.live));
+      expect(restored.pending).toEqual(scheduled.pending);
+      expect(restored.ticks).toBe(scheduled.ticks);
+    }
     const before=canonical((await inspect()).live);
     await expect(call('sendMessage',['maya','🌲'.repeat(20000),'',200,6000])).rejects.toThrow('UTF-8');
     expect(canonical((await inspect()).live)).toEqual(before);
     failCommit=true;
     await expect(call('saveDraft',['maya','Refused draft',''])).rejects.toThrow('footprint commit refused');
     expect(canonical((await inspect()).live)).toEqual(before);
+    expect((await inspect()).pending).toEqual(scheduled.pending);
+    expect((await inspect()).ticks).toBe(scheduled.ticks);
     await act('saveDraft',['maya','Retry draft','']);
+    expect((await inspect()).pending).toEqual(scheduled.pending);
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);

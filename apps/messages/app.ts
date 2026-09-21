@@ -599,14 +599,17 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
     const records=editRecords(source,args);
-    const previousPending=new Map(pending),previousTicks=ticks,previousRevision=revision;
+    // These sources leave reply scheduling untouched. Future sources retain the
+    // conservative full copy until their pending-state behavior is established.
+    const keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source);
+    const previousPending=keepsPending?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision;
     const value=await sources[source](args,store,storage,native);
     // Reply ticks change durable records only when a receipt or reply advances
     // revision. Keep their clock update, but avoid copying an unchanged history.
     // Other sources can expire recovery rows without changing revision.
     if(source==='advanceReplies' && revision===previousRevision)return value;
     try{await client.edit(records());}catch(error){
-      restore(client.initial());pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);ticks=previousTicks;
+      restore(client.initial());if(previousPending){pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);}ticks=previousTicks;
       // A failed save must not leave an invalid model that every later read
       // tries to save again. Report the original error even if disk is full.
       try{await client.failed(error);}catch{/* The runner still receives the save failure. */}
