@@ -84,7 +84,10 @@ fn whole_i64(n: f64) -> bool {
 fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
-        StyleValueError::UnknownEnumValue { .. } => "not one of the row's values".into(),
+        StyleValueError::UnknownEnumValue { style } => format!(
+            "expected one of {}",
+            style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
+        ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
         StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`".into(),
@@ -1031,9 +1034,13 @@ impl<'a> Lowerer<'a> {
                     Some(StyleValue::Number(numeric_literal(expr).unwrap()))
                 }
                 Expr::Str(s, _) => Some(
-                    // @ref LLP 1043.000 §3 D1 — leave existing properties' lowering
-                    // and diagnostics unchanged; only wrap-flow adds this enum literal.
-                    if s == "auto" && !rows.contains(&StyleId::WrapFlow) {
+                    // Enum keywords stay text, including `auto` (as in the runner).
+                    // Other codecs retain their existing dimension/keyword handling.
+                    if s == "auto"
+                        && !rows
+                            .iter()
+                            .all(|row| row.codec() == exact_kernel::StyleCodec::Enum)
+                    {
                         StyleValue::Auto
                     } else if let Some(pct) =
                         s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok())

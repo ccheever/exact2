@@ -285,6 +285,28 @@ fn enum_rows_resolve_names_and_others_do_not() {
     );
     assert_eq!(StyleId::FlexDirection.enum_from_name("diagonal"), None);
     assert_eq!(StyleId::Width.enum_from_name("auto"), None);
+    assert_eq!(
+        StyleId::FlexDirection.enum_names(),
+        &["row", "column", "row-reverse", "column-reverse"]
+    );
+    for id in StyleId::ALL {
+        let names = id.enum_names();
+        assert_eq!(
+            names.is_empty(),
+            id.codec() != exact_kernel::StyleCodec::Enum,
+            "{id:?}"
+        );
+        for (ordinal, name) in names.iter().enumerate() {
+            assert_eq!(
+                id.enum_from_name(name),
+                Some(ordinal as u8),
+                "{id:?}: {name}"
+            );
+            StyleProps::default()
+                .set_dynamic(id, &StyleValue::Text((*name).into()))
+                .unwrap();
+        }
+    }
 }
 
 #[test]

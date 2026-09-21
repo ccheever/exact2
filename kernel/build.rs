@@ -643,6 +643,31 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "            _ => None,").unwrap();
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
+    writeln!(
+        w,
+        "    /// Accepted spellings in wire order for enum rows; empty for other codecs."
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    pub fn enum_names(self) -> &'static [&'static str] {{"
+    )
+    .unwrap();
+    writeln!(w, "        match self {{").unwrap();
+    for row in &schema.styles {
+        if let Codec::Enum(name) = parse_codec(&row.codec) {
+            writeln!(
+                w,
+                "            StyleId::{} => &{:?},",
+                pascal(&row.field),
+                schema.enums[&name].values
+            )
+            .unwrap();
+        }
+    }
+    writeln!(w, "            _ => &[],").unwrap();
+    writeln!(w, "        }}").unwrap();
+    writeln!(w, "    }}").unwrap();
     for (method, doc, pred) in [
         (
             "admits_auto",

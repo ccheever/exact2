@@ -117,3 +117,111 @@ fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     let error = contract::compile("component App\n  view\n    view tesId=\"x\"\n").unwrap_err();
     assert!(error.message.contains("did you mean `testId`"), "{error}");
 }
+
+#[test]
+fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
+    use exact_kernel::StyleId;
+    for (attr, row, invalid) in [
+        ("align-items", StyleId::AlignItems, "middle"),
+        ("display", StyleId::Display, "flexbox"),
+        ("overflow", StyleId::OverflowX, "clip"),
+        ("object-fit", StyleId::ObjectFit, "stretch"),
+        ("font-style", StyleId::FontStyle, "slanted"),
+        ("position", StyleId::PositionType, "static"),
+        ("border-style", StyleId::BorderStyleTop, "dashed"),
+        ("align-self", StyleId::AlignSelf, "middle"),
+        (
+            "overscroll-behavior",
+            StyleId::OverscrollBehaviorX,
+            "bounce",
+        ),
+        (
+            "overscroll-behavior-x",
+            StyleId::OverscrollBehaviorX,
+            "bounce",
+        ),
+        (
+            "overscroll-behavior-y",
+            StyleId::OverscrollBehaviorY,
+            "bounce",
+        ),
+        ("scrollbar-width", StyleId::ScrollbarWidth, "wide"),
+        ("touch-action", StyleId::TouchAction, "swipe"),
+    ] {
+        for named_style in [false, true] {
+            let source = if named_style {
+                format!("style Card\n  {attr}=\"{invalid}\"\ncomponent App\n  view\n    view class=Card testId=\"target\"\n")
+            } else {
+                format!("component App\n  view\n    view {attr}=\"{invalid}\" testId=\"target\"\n")
+            };
+            let error = contract::compile(&source).unwrap_err();
+            assert_eq!(error.id, "lower-attr-value");
+            assert_eq!(error.span.line, if named_style { 2 } else { 3 });
+            let values = error.message.split_once("expected one of ").unwrap().1;
+            let expected = row
+                .enum_names()
+                .iter()
+                .map(|name| format!("{name:?}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            assert_eq!(values, expected);
+            // Use the actual diagnostic's choices as authored literals.
+            for value in values.split(", ") {
+                let corrected = source.replace(&format!("\"{invalid}\""), value);
+                let plan =
+                    contract::compile(&corrected).unwrap_or_else(|e| panic!("{corrected}: {e}"));
+                let r = Runner::boot(
+                    plan,
+                    NoData,
+                    Kernel::with_monospace(),
+                    Default::default(),
+                    "/",
+                )
+                .unwrap();
+                let k = r.kernel();
+                let style = &k.node_by_key(k.find_by_test_id("target")[0]).unwrap().style;
+                assert!(style.mask.has(row), "authored row must reach the kernel");
+                let exact_kernel::RowValue::Enum(actual) = style.get(row) else {
+                    panic!("expected enum row")
+                };
+                assert_eq!(format!("{actual:?}"), value, "{corrected}");
+            }
+        }
+    }
+    let error =
+        contract::compile("component App\n  view\n    view wrap-flow=\"start\"\n").unwrap_err();
+    assert_eq!(error.id, "lower-attr-value");
+    assert!(
+        error.message.contains("implements `both` (or `auto`)"),
+        "{error}"
+    );
+    assert!(
+        !error.message.contains("expected one of"),
+        "narrow authoring rule remains authoritative"
+    );
+}
+
+#[test]
+fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
+    let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let style = &k.node_by_key(k.find_by_test_id("target")[0]).unwrap().style;
+    assert_eq!(style.align_self, exact_kernel::AlignSelf::Auto);
+    assert_eq!(style.width, Dimension::Auto);
+    let error =
+        contract::compile("component App\n  view\n    view padding=\"auto\"\n").unwrap_err();
+    assert_eq!(error.id, "lower-attr-value");
+    assert!(
+        error.message.ends_with("`auto` is not admitted here"),
+        "{error}"
+    );
+}
