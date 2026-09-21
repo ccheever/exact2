@@ -503,6 +503,13 @@ final class TextMetricsTests: XCTestCase {
         overdraw.updateLayer()
         XCTAssertNotNil(overdraw.textRasterKey)
         XCTAssertFalse(overdraw.textRasterReady, "offscreen overdraw must not rasterize synchronously")
+        offscreen.frame.origin.y = 80
+        presenter.scrolled()
+        XCTAssertFalse(offscreen.textRasterReady, "the scroll synchronizer only requests first pixels")
+        XCTAssertTrue(offscreen.needsDisplay)
+        offscreen.updateLayer()
+        XCTAssertTrue(offscreen.textRasterReady, "AppKit's display pass supplies first pixels before commit")
+        offscreen.frame.origin.y = 800
         presenter.settlePump()
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
     }

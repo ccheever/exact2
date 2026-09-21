@@ -260,14 +260,20 @@ final class Presenter {
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
         let candidates = textViewportIndex!.candidates(reach: Self.textRasterReach)
-        let replacementsDeferred = textRasters.replaceVisible(candidates, wait: sliceBudget)
+        let replacementsDeferred = !inScrollCallback && textRasters.replaceVisible(candidates, wait: sliceBudget)
+        var rastersDeferred = false
         for node in candidates where node.needsTextRaster && node.rastersText {
             // On screen without pixels: now. Otherwise nearest first, a few a slice.
-            if textIsVisible(node) { textRasters.ensure(node, urgent: true) }
-            else { rasters.append(node) }
+            if textIsVisible(node) {
+                if inScrollCallback {
+                    // AppKit paints these first pixels in updateLayer, outside
+                    // its scroll synchronizer but before the display commit.
+                    node.needsDisplay = true
+                    rastersDeferred = true
+                } else { textRasters.ensure(node, urgent: true) }
+            } else { rasters.append(node) }
         }
         var rasterBudget = limit.map { $0 == 0 ? 0 : Self.textRastersPerSlice } ?? rasters.count
-        var rastersDeferred = false
         for node in rasters {
             guard rasterBudget > 0 else { rastersDeferred = true; break }
             rasterBudget -= 1
@@ -310,6 +316,7 @@ final class Presenter {
     private var pumpLink: CADisplayLink?
     private let pumpTarget = PumpTarget()
     private var listSyncPending = false
+    private var inScrollCallback = false
     private var textPending = false
     private var textTurn = false
     private var refreshInterval: TimeInterval = 1.0 / 60
@@ -357,7 +364,9 @@ final class Presenter {
     /// A scroll container moved. Nothing here may take long: AppKit is inside
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
-        guard !applying else { return }
+        guard !applying, !inScrollCallback else { return }
+        inScrollCallback = true
+        defer { inScrollCallback = false }
         let post = Self.signposts.beginInterval("scrolled")
         defer { Self.signposts.endInterval("scrolled", post) }
         // Most ticks move inside the band the mounted rows already cover: then
