@@ -36,6 +36,11 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     shared(&first[3], &first[4]);
     let a = fields(&fields(&first[7])[0]);
     let b = fields(&fields(&second[7])[0]);
+    let (Value::Record(ar), Value::Record(br)) = (&fields(&first[7])[0], &fields(&second[7])[0])
+    else {
+        panic!("expected run records");
+    };
+    assert!(Rc::ptr_eq(ar, br));
     for i in [0, 1, 3, 5] {
         shared(&a[i], &b[i]);
     }
@@ -59,6 +64,49 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     );
     let encoded = markdown_parse::value::blocks(&doc).to_bytes();
     assert_eq!(markdown_parse::value::into_blocks(doc).to_bytes(), encoded);
+}
+
+#[test]
+fn run_sharing_preserves_every_style_link_and_index() {
+    use markdown_parse::{Block, Document, Run};
+    let plain = Run::text("same");
+    let doc = Document {
+        blocks: [
+            plain.clone(),
+            Run {
+                bold: true,
+                ..plain.clone()
+            },
+            Run {
+                italic: true,
+                ..plain.clone()
+            },
+            Run {
+                code: true,
+                ..plain.clone()
+            },
+            Run {
+                href: "next.md".into(),
+                ..plain.clone()
+            },
+            plain,
+        ]
+        .into_iter()
+        .map(|run| Block {
+            runs: vec![run],
+            ..Block::default()
+        })
+        .collect(),
+        ..Document::default()
+    };
+    let expected = exact_plan::Value::list(
+        doc.blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| markdown_parse::value::block(i, b))
+            .collect(),
+    );
+    assert_eq!(markdown_parse::value::into_blocks(doc), expected);
 }
 
 #[test]

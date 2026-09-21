@@ -12,7 +12,18 @@ use std::rc::Rc;
 struct Values {
     strings: HashSet<Rc<str>>,
     indices: HashMap<usize, Value>,
+    runs: HashMap<RunKey, Value>,
     empty_list: Value,
+}
+
+#[derive(Hash, PartialEq, Eq)]
+struct RunKey {
+    index: usize,
+    text: Rc<str>,
+    href: Rc<str>,
+    bold: bool,
+    italic: bool,
+    code: bool,
 }
 
 impl Values {
@@ -20,17 +31,21 @@ impl Values {
         Self {
             strings: HashSet::new(),
             indices: HashMap::new(),
+            runs: HashMap::new(),
             empty_list: Value::list(Vec::new()),
         }
     }
 
-    fn string(&mut self, text: &str) -> Value {
-        let text = self.strings.get(text).cloned().unwrap_or_else(|| {
+    fn text(&mut self, text: &str) -> Rc<str> {
+        self.strings.get(text).cloned().unwrap_or_else(|| {
             let text: Rc<str> = Rc::from(text);
             self.strings.insert(text.clone());
             text
-        });
-        Value::Str(text)
+        })
+    }
+
+    fn string(&mut self, text: &str) -> Value {
+        Value::Str(self.text(text))
     }
 
     fn index(&mut self, index: usize) -> Value {
@@ -41,14 +56,27 @@ impl Values {
     }
 
     fn run(&mut self, index: usize, run: &Run) -> Value {
-        Value::record(vec![
+        let key = RunKey {
+            index,
+            text: self.text(&run.text),
+            href: self.text(&run.href),
+            bold: run.bold,
+            italic: run.italic,
+            code: run.code,
+        };
+        if let Some(value) = self.runs.get(&key) {
+            return value.clone();
+        }
+        let value = Value::record(vec![
             self.index(index),
-            self.string(&run.text),
+            Value::Str(key.text.clone()),
             Value::Number(if run.bold { 700.0 } else { 400.0 }),
             self.string(if run.italic { "italic" } else { "normal" }),
             Value::Bool(run.code),
-            self.string(&run.href),
-        ])
+            Value::Str(key.href.clone()),
+        ]);
+        self.runs.insert(key, value.clone());
+        value
     }
 
     fn runs(&mut self, list: &[Run]) -> Value {
@@ -121,11 +149,11 @@ pub fn blocks(doc: &Document) -> Value {
 /// its allocations can serve later values instead of retaining both full forms.
 pub fn into_blocks(doc: Document) -> Value {
     let mut values = Values::new();
-    Value::list(
-        doc.blocks
-            .into_iter()
-            .enumerate()
-            .map(|(i, b)| values.block(i, &b))
-            .collect(),
-    )
+    // An in-place IntoIter collect can keep the much larger Vec<Block>
+    // allocation as the Value list's spare capacity. Allocate its exact size.
+    let mut blocks = Vec::with_capacity(doc.blocks.len());
+    for (i, block) in doc.blocks.into_iter().enumerate() {
+        blocks.push(values.block(i, &block));
+    }
+    Value::list(blocks)
 }
