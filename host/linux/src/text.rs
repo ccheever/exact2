@@ -456,9 +456,9 @@ impl TextEngine {
     /// A fresh catalog whose declared faces resolve through one immutable
     /// bundle generation.
     pub(crate) fn shared_for_assets(plan: &Plan, assets: &Assets) -> Shared {
-        let mut engine = TextEngine::new();
-        engine.install_plan_assets(plan, assets);
-        Rc::new(RefCell::new(engine))
+        Rc::new(RefCell::new(Self::with_catalog(
+            catalog::Catalog::for_assets(plan, assets),
+        )))
     }
 
     /// Replace the complete catalog and every family-bearing cache. This is
