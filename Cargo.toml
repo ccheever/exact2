@@ -52,6 +52,12 @@ opt-level = 3
 [profile.dev.package.crc32fast]
 opt-level = 3
 
+# Keep font discovery and parsing fast for headless development and tests.
+[profile.dev.package.fontdb]
+opt-level = 3
+[profile.dev.package.ttf-parser]
+opt-level = 3
+
 # Fast independent business-logic links in the resident development loop.
 [profile.logic-dev]
 inherits = "dev"
