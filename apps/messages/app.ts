@@ -342,7 +342,10 @@ const sources: Sources = {
   syncState: () => replica?.status() || 'Conversation preview',
   inbox: ([query,_revision,cursor])=>{
     const folded=query.toLowerCase();
-    const page=contactWindow(people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(folded)),cursor);
+    const matches=folded
+      ?people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(folded))
+      :people.filter(p=>threads.has(p.id) && !deleted.has(p.id));
+    const page=contactWindow(matches,cursor);
     return {...page,people:page.people.map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))};
   },
   recentlyDeleted: ([selection,_revision,now])=>{
@@ -361,7 +364,9 @@ const sources: Sources = {
     const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim(),folded=text.toLowerCase();
     const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===folded) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
-    const matches=people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(folded));
+    const matches=folded
+      ?people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(folded))
+      :people.filter(p=>p.address && !selectedIds.has(p.id));
     if(pending && !selectedIds.has(pending.id) && !matches.some(p=>p.id===pending.id)) matches.unshift(pending);
     const page=contactWindow(matches,cursor);
     return {...page,selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
