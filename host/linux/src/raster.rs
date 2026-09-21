@@ -10,8 +10,8 @@ use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{
-    Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect,
-    Stroke, Transform,
+    Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point,
+    Rect, Stroke, Transform,
 };
 
 // One optional CPU coverage mask, never a source, picture or node owner.
@@ -338,10 +338,63 @@ impl Backend for Raster {
     }
 
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform) {
-        let Some(path) = rounded_rect(shape) else {
+        let Some(mut path) = rounded_rect(shape) else {
             return;
         };
-        let dev = self.device(ts);
+        let mut dev = self.device(ts);
+        // Avoid shading a large background outside the active mask. Keep the
+        // original fractional edges; only introduce integer edges beyond the
+        // conservative clip bounds, where mask coverage is already zero.
+        if !shape.rounded()
+            && dev.kx == 0.0
+            && dev.ky == 0.0
+            && self.width <= 8191
+            && self.height <= 8191
+        {
+            if let Some(&(x, y, w, h)) = self.text_clips.last() {
+                let b = path.bounds();
+                let mut corners = [
+                    Point::from_xy(b.left(), b.top()),
+                    Point::from_xy(b.right(), b.bottom()),
+                ];
+                dev.map_points(&mut corners);
+                let original = [
+                    corners[0].x.min(corners[1].x),
+                    corners[0].y.min(corners[1].y),
+                    corners[0].x.max(corners[1].x),
+                    corners[0].y.max(corners[1].y),
+                ];
+                let edges = [
+                    original[0],
+                    original[1],
+                    original[2],
+                    original[3],
+                    x,
+                    y,
+                    x + w,
+                    y + h,
+                ];
+                if dev.is_finite() && edges.iter().all(|v| v.is_finite() && v.abs() <= 8191.0) {
+                    let left = original[0].max(x.floor() - 2.0);
+                    let top = original[1].max(y.floor() - 2.0);
+                    let right = original[2].min((x + w).ceil() + 2.0);
+                    let bottom = original[3].min((y + h).ceil() + 2.0);
+                    if left >= right || top >= bottom {
+                        return;
+                    }
+                    if [left, top, right, bottom] != original {
+                        let mut builder = PathBuilder::new();
+                        builder.move_to(left, top);
+                        builder.line_to(right, top);
+                        builder.line_to(right, bottom);
+                        builder.line_to(left, bottom);
+                        builder.close();
+                        path = builder.finish().expect("a finite nonempty rectangle");
+                        dev = Transform::identity();
+                    }
+                }
+            }
+        }
         let mask = self.clips.last().cloned();
         if let Some(t) = self.target.as_mut() {
             t.fill_path(

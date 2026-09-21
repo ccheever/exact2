@@ -160,6 +160,23 @@ Two paired release comparisons of Textflow's 120-frame Dancer workload on this
 Mac measured about 8–9% lower frame cost (the second: 5.97 → 5.42 ms).
 These are headless CPU measurements, not physical display cadence.
 
+Rectangle fills now bound their shading work to the active mask's conservative
+device-space bounds, with two extra pixels of slack. Only axis-aligned, unrounded
+rectangles in viewports/coordinates up to 8,191 pixels take this path; rotated,
+sheared, rounded and uncertain geometry retains the original path. Original
+fractional edges are preserved and the unchanged mask remains authoritative.
+Two transformed stack corners establish the bounds without cloning a path.
+This also bounds the white clear during a partial repaint.
+
+A 322-case pixel oracle compares the full path with fractional edges, scales,
+negative scale, rotation, nested rounded clips, damage and the tiling boundary.
+Twenty-four Textflow/Caltrain screenshots and their layouts are byte-identical.
+Four alternating release pairs of the six-scene, 720-frame fixture measured total
+process CPU time at 4.343 → 3.926 seconds (9.6% less, including setup/warmup).
+Shared load varied elapsed timings, so no display-cadence claim follows. An isolated
+1,200-frame Editorial control was effectively flat at 1.209 → 1.205 ms/frame.
+Evidence: `/tmp/exact-text-cpu-d28853d6/` (`selected-cpu/` and `editorial/`).
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's
