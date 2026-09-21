@@ -194,6 +194,24 @@ ms/frame. This is headless process CPU including setup/warmup;
 shared load varies elapsed frame timings, and physical cadence remains unproven.
 Evidence: `/tmp/exact-damage-clear-0ff47ba3/`.
 
+When one input damage rectangle contains the entire union and its device edges
+are integers, the backend records that exact rectangular coverage at the mask's
+stack depth. An opaque, axis-aligned, unrounded fill with integer device edges can
+then paint its intersection directly. Nested clips, fractional edges, transparent
+fills, rotations and tiled/uncertain geometry retain the mask path. Popping that
+mask or beginning another frame retires the proof; no additional mask is retained.
+
+A 1,320-case independent full-mask oracle checks individual fill variants, nested
+clip push/pop, replacement clips and frame resets across scales and tiling limits.
+Debug and release pixel suites and the Textflow repaint tests pass. Four alternating
+release pairs measured the six-scene process CPU fixture at 2.295 → 1.787 seconds
+(22.1% less) relative to the damage-clear renderer above. A second four-pair run
+confirmed 2.226 → 1.695 seconds (23.9% less), with the static Editorial control
+effectively flat at 1.017 → 1.029 ms/frame. Twenty-four app screenshots and layouts
+are byte-identical. These are headless CPU measurements including setup/warmup,
+with no physical display-cadence claim.
+Evidence: `/tmp/exact-mask-fill-cfd70e0e/`.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's

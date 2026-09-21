@@ -35,6 +35,7 @@ pub struct Raster {
     height: u32,
     clips: Vec<Rc<Mask>>,
     text_clips: Vec<Rect4>,
+    rectangular_damage: Option<(usize, Rect)>,
     layers: Vec<(Pixmap, f32)>,
     first_clip_used: bool,
     cached_clip: Option<(ClipKey, Rc<Mask>)>,
@@ -281,6 +282,7 @@ impl Backend for Raster {
         self.height = ((height * scale).round() as u32).max(1);
         self.clips.clear();
         self.text_clips.clear();
+        self.rectangular_damage = None;
         self.layers.clear();
         self.first_clip_used = false;
         if self.cached_clip.as_ref().is_some_and(|(key, _)| {
@@ -335,6 +337,25 @@ impl Backend for Raster {
         }
         self.target = Some(target);
         self.clips.push(Rc::new(mask));
+        // A containing input rectangle proves the binary union is rectangular.
+        // Integer device edges allow opaque integer fills to use that rectangle
+        // directly, without changing antialiasing or alpha rounding at an edge.
+        self.rectangular_damage = None;
+        let edges = [bounds.0, bounds.1, bounds.2, bounds.3].map(|v| v * self.scale);
+        if direct_clear
+            && edges.iter().all(|v| v.fract() == 0.0)
+            && rects.iter().any(|&(x, y, w, h)| {
+                x == bounds.0 && y == bounds.1 && x + w == bounds.2 && y + h == bounds.3
+            })
+        {
+            self.rectangular_damage = Rect::from_ltrb(
+                edges[0].max(0.0),
+                edges[1].max(0.0),
+                edges[2].min(self.width as f32),
+                edges[3].min(self.height as f32),
+            )
+            .map(|rect| (self.clips.len(), rect));
+        }
         self.text_clips.push((
             bounds.0 * self.scale,
             bounds.1 * self.scale,
@@ -394,6 +415,29 @@ impl Backend for Raster {
                     y + h,
                 ];
                 if dev.is_finite() && edges.iter().all(|v| v.is_finite() && v.abs() <= 8191.0) {
+                    if color[3] == 255 && original.iter().all(|v| v.fract() == 0.0) {
+                        if let Some((depth, damage)) = self.rectangular_damage {
+                            if depth == self.clips.len() {
+                                if let Some(rect) = Rect::from_ltrb(
+                                    original[0].max(damage.left()),
+                                    original[1].max(damage.top()),
+                                    original[2].min(damage.right()),
+                                    original[3].min(damage.bottom()),
+                                ) {
+                                    if let Some(target) = self.target.as_mut() {
+                                        target.fill_path(
+                                            &PathBuilder::from_rect(rect),
+                                            &solid(color),
+                                            FillRule::Winding,
+                                            Transform::identity(),
+                                            None,
+                                        );
+                                    }
+                                }
+                                return;
+                            }
+                        }
+                    }
                     let left = original[0].max(x.floor() - 2.0);
                     let top = original[1].max(y.floor() - 2.0);
                     let right = original[2].min((x + w).ceil() + 2.0);
@@ -564,6 +608,12 @@ impl Backend for Raster {
     }
 
     fn pop_clip(&mut self) {
+        if self
+            .rectangular_damage
+            .is_some_and(|(depth, _)| depth == self.clips.len())
+        {
+            self.rectangular_damage = None;
+        }
         self.clips.pop();
         self.text_clips.pop();
     }

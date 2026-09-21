@@ -624,3 +624,142 @@ fn damage_clearing_matches_the_full_masked_viewport() {
     }
     assert_eq!(cases, 896);
 }
+
+#[test]
+fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::{rounded_rect, Raster};
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.75_f32, 1.0, 1.25, 2.0] {
+        for width in [96_u32, 8191, 8192] {
+            for rects in [
+                vec![(8.0, 8.0, 64.0, 48.0)],
+                vec![(8.0, 8.0, 64.0, 48.0), (16.0, 16.0, 8.25, 9.75)],
+                vec![(8.0, 8.0, 12.0, 20.0), (40.0, 16.0, 16.0, 16.0)],
+                vec![(8.25, 8.5, 64.25, 47.75)],
+                vec![(-8.0, -8.0, width as f32 + 16.0, 80.0)],
+                vec![(f32::NAN, 8.0, 4.0, 4.0), (8.0, 8.0, 64.0, 48.0)],
+            ] {
+                for stop in 0..5 {
+                    for (rect, alpha, radius, ts) in [
+                        (
+                            (0.0, 0.0, width as f32, 64.0),
+                            255,
+                            0.0,
+                            Transform::identity(),
+                        ),
+                        ((16.0, 16.0, 32.0, 32.0), 255, 0.0, Transform::identity()),
+                        ((0.0, 0.0, 96.0, 64.0), 117, 0.0, Transform::identity()),
+                        ((0.25, 0.5, 95.5, 63.25), 255, 0.0, Transform::identity()),
+                        ((0.0, 0.0, 96.0, 64.0), 255, 7.0, Transform::identity()),
+                        (
+                            (0.0, 0.0, 96.0, 64.0),
+                            255,
+                            0.0,
+                            Transform::from_rotate(7.0),
+                        ),
+                        (
+                            (0.0, 0.0, 96.0, 64.0),
+                            255,
+                            0.0,
+                            Transform::from_row(-1.0, 0.0, 0.0, 1.0, 96.0, 0.0),
+                        ),
+                    ]
+                    .into_iter()
+                    .take(if width == 96 { 7 } else { 2 })
+                    {
+                        let (w, h) = (
+                            (width as f32 * scale).round() as u32,
+                            (64.0 * scale).round() as u32,
+                        );
+                        let mut raster = Raster::new();
+                        raster.begin(width as f32, 64.0, scale);
+                        let mut expected = Pixmap::new(w, h).unwrap();
+                        expected.fill(Color::WHITE);
+                        assert!(raster.damage(&expected, &rects));
+                        let device = Transform::from_scale(scale, scale);
+                        let mut root = Mask::new(w, h).unwrap();
+                        for &(x, y, w, h) in &rects {
+                            if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+                                root.fill_path(
+                                    &PathBuilder::from_rect(rect),
+                                    FillRule::Winding,
+                                    false,
+                                    device,
+                                );
+                            }
+                        }
+                        let clip = Shape {
+                            rect: (16.0, 12.0, 48.0, 40.0),
+                            radii: [7.0; 4],
+                        };
+                        let mut nested = root.clone();
+                        nested.intersect_path(
+                            &rounded_rect(&clip).unwrap(),
+                            FillRule::Winding,
+                            true,
+                            device,
+                        );
+                        let mut replacement = Mask::new(w, h).unwrap();
+                        replacement.fill_path(
+                            &rounded_rect(&clip).unwrap(),
+                            FillRule::Winding,
+                            true,
+                            device,
+                        );
+                        for stage in 0..=stop {
+                            let mask = match stage {
+                                0 => Some(&root),
+                                1 => {
+                                    raster.push_clip(&clip, Transform::identity());
+                                    Some(&nested)
+                                }
+                                2 => {
+                                    raster.pop_clip();
+                                    Some(&root)
+                                }
+                                3 => {
+                                    raster.pop_clip();
+                                    raster.push_clip(&clip, Transform::identity());
+                                    Some(&replacement)
+                                }
+                                _ => {
+                                    raster.begin(width as f32, 64.0, scale);
+                                    expected.fill(Color::WHITE);
+                                    None
+                                }
+                            };
+
+                            let shape = Shape {
+                                rect,
+                                radii: [radius; 4],
+                            };
+                            let color = [31 + stage * 23, 117, 193, alpha];
+                            raster.fill(&shape, color, ts);
+                            let mut paint = Paint::default();
+                            paint.set_color(Color::from_rgba8(
+                                color[0], color[1], color[2], color[3],
+                            ));
+                            paint.anti_alias = true;
+                            expected.fill_path(
+                                &rounded_rect(&shape).unwrap(),
+                                &paint,
+                                FillRule::Winding,
+                                device.pre_concat(ts),
+                                mask,
+                            );
+                        }
+                        assert!(
+                            raster.finish().unwrap().data() == expected.data(),
+                            "scale={scale}, width={width}, stop={stop}, rects={rects:?}"
+                        );
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 1320);
+}
