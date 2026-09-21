@@ -182,6 +182,8 @@ pub struct InstanceWork {
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
+    /// Immutable child sites for this environment's plan.
+    pub sites: &'a SiteIndex,
     /// The id allocator.
     pub ids: &'a mut Ids,
     /// Ops accumulated for one atomic `Kernel::apply`.
@@ -199,25 +201,57 @@ impl<'a> Update<'a> {
     }
 }
 
-/// The sites directly under `parent` within `arm` (or the root sites when
-/// both are `None`), in `order`, as (order, node-or-region).
-fn sites(plan: &Plan, parent: Option<NodesId>, arm: Option<ArmsId>) -> Vec<(u32, Site)> {
-    let mut out = Vec::new();
-    for (i, n) in plan.nodes.iter().enumerate() {
-        if n.parent == parent && n.arm == arm {
-            out.push((n.order, Site::Node(NodesId(i as u32))));
-        }
-    }
-    for (i, r) in plan.regions.iter().enumerate() {
-        if r.parent == parent && r.arm == arm {
-            out.push((r.order, Site::Region(RegionsId(i as u32))));
-        }
-    }
-    out.sort_by_key(|(order, site)| (*order, site.rank()));
-    out
+type SiteParent = (Option<NodesId>, Option<ArmsId>);
+
+/// Ordered child sites, built once from the runner's immutable plan.
+#[derive(Debug)]
+pub struct SiteIndex {
+    groups: Vec<(SiteParent, std::ops::Range<usize>)>,
+    sites: Vec<(u32, Site)>,
 }
 
-#[derive(Debug, Clone, Copy)]
+impl SiteIndex {
+    /// Index the exact parent/arm pair, preserving authored order and rank ties.
+    pub fn new(plan: &Plan) -> Self {
+        let mut entries = Vec::with_capacity(plan.nodes.len() + plan.regions.len());
+        for (i, n) in plan.nodes.iter().enumerate() {
+            entries.push(((n.parent, n.arm), n.order, Site::Node(NodesId(i as u32))));
+        }
+        for (i, r) in plan.regions.iter().enumerate() {
+            entries.push((
+                (r.parent, r.arm),
+                r.order,
+                Site::Region(RegionsId(i as u32)),
+            ));
+        }
+        entries.sort_by_key(|(parent, order, site)| (*parent, *order, site.rank()));
+        let mut groups: Vec<(SiteParent, std::ops::Range<usize>)> = Vec::new();
+        let mut sites = Vec::with_capacity(entries.len());
+        for (parent, order, site) in entries {
+            let end = sites.len() + 1;
+            if let Some((previous, range)) = groups
+                .last_mut()
+                .filter(|(previous, _)| *previous == parent)
+            {
+                debug_assert_eq!(*previous, parent);
+                range.end = end;
+            } else {
+                groups.push((parent, sites.len()..end));
+            }
+            sites.push((order, site));
+        }
+        groups.shrink_to_fit();
+        Self { groups, sites }
+    }
+
+    fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
+        self.groups
+            .binary_search_by_key(&(parent, arm), |(key, _)| *key)
+            .map_or(&[], |i| &self.sites[self.groups[i].1.clone()])
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Site {
     Node(NodesId),
     Region(RegionsId),
@@ -239,9 +273,9 @@ fn realize(
     arm: Option<ArmsId>,
     frames: &[Frame],
 ) -> Result<Vec<Child>, InstanceError> {
-    let plan = u.env.plan;
+    let sites = u.sites;
     let mut out = Vec::new();
-    for (_, site) in sites(plan, parent, arm) {
+    for &(_, site) in sites.children(parent, arm) {
         out.push(match site {
             Site::Node(id) => Child::Node(NodeInst::create(u, id, frames)?),
             Site::Region(id) => Child::Region(RegionInst::create(u, id, frames)?),
@@ -470,12 +504,12 @@ impl RegionInst {
             region,
             window: None,
             memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
-                dependencies::Memo::for_region(u.env.plan, region, false)
+                dependencies::Memo::for_region(u.env.plan, u.sites, region, false)
             } else {
                 None
             },
             body_memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
-                dependencies::Memo::for_region(u.env.plan, region, true)
+                dependencies::Memo::for_region(u.env.plan, u.sites, region, true)
             } else {
                 None
             },
@@ -985,5 +1019,60 @@ impl RegionInst {
                 None
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use exact_plan::builder::PlanBuilder;
+
+    #[test]
+    fn site_index_keeps_parent_arm_and_stable_mixed_order() {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let root = b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let late = b.node(NodeType::Text as u8, Some(root), None, 5, &[], &[], None);
+        let early = b.node(NodeType::Text as u8, Some(root), None, 1, &[], &[], None);
+        let yes = b.constant(&Value::Bool(true));
+        let unit = b.constant(&Value::Unit);
+        let (first, arms) = b.region(RegionKind::When, Some(root), None, 5, yes, unit, 2);
+        let (second, _) = b.region(RegionKind::When, Some(root), None, 5, yes, unit, 2);
+        let left = b.node(NodeType::Text as u8, None, Some(arms[0]), 0, &[], &[], None);
+        let right = b.node(NodeType::Text as u8, None, Some(arms[1]), 0, &[], &[], None);
+        let nested = b.node(
+            NodeType::Text as u8,
+            Some(left),
+            Some(arms[0]),
+            0,
+            &[],
+            &[],
+            None,
+        );
+        let plan = b.finish().unwrap();
+        let sites = SiteIndex::new(&plan);
+        assert_eq!(sites.children(None, None), &[(0, Site::Node(root))]);
+        assert_eq!(
+            sites.children(Some(root), None),
+            &[
+                (1, Site::Node(early)),
+                (5, Site::Region(first)),
+                (5, Site::Node(late)),
+                (5, Site::Region(second)),
+            ]
+        );
+        assert_eq!(
+            sites.children(None, Some(arms[0])),
+            &[(0, Site::Node(left))]
+        );
+        assert_eq!(
+            sites.children(None, Some(arms[1])),
+            &[(0, Site::Node(right))]
+        );
+        assert_eq!(
+            sites.children(Some(left), Some(arms[0])),
+            &[(0, Site::Node(nested))]
+        );
+        assert!(sites.children(Some(left), Some(arms[1])).is_empty());
+        assert!(sites.children(Some(right), Some(arms[1])).is_empty());
     }
 }

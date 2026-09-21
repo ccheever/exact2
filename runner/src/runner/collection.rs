@@ -63,6 +63,7 @@ impl<D: DataSource> Runner<D> {
         let result = {
             let mut update = Update {
                 env: self.env(&[], &[]),
+                sites: &self.sites,
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),

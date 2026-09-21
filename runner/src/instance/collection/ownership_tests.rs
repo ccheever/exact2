@@ -43,6 +43,7 @@ fn from_plan(plan: Plan) -> Result<Harness, InstanceError> {
     let mut kernel = Kernel::with_monospace();
     let mut u = Update {
         env: env(&plan, &slots),
+        sites: &crate::instance::SiteIndex::new(&plan),
         ids: &mut ids,
         ops: vec![],
         surfaces: vec![],
@@ -238,6 +239,7 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
         }
         let mut u = Update {
             env: env(&h.plan, &h.slots),
+            sites: &crate::instance::SiteIndex::new(&h.plan),
             ids: &mut h.ids,
             ops: vec![],
             surfaces: vec![],

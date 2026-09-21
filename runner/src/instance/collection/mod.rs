@@ -155,8 +155,8 @@ impl Collection {
         if descriptor.node_type != exact_kernel::NodeType::List as u8 {
             return Err(invalid("virtualized requires List"));
         }
-        let child_sites = sites(plan, Some(node), descriptor.arm);
-        let [(_, Site::Region(region))] = child_sites.as_slice() else {
+        let child_sites = u.sites.children(Some(node), descriptor.arm);
+        let [(_, Site::Region(region))] = child_sites else {
             return Err(invalid("collection needs one direct each"));
         };
         let region = *region;
@@ -165,12 +165,12 @@ impl Collection {
             return Err(invalid("collection needs one each arm"));
         }
         if !matches!(
-            sites(plan, None, row.arms.iter().next()).as_slice(),
+            u.sites.children(None, row.arms.iter().next()),
             [(_, Site::Node(_))]
         ) {
             return Err(invalid("collection row needs one flow root"));
         }
-        traversal::validate_no_nested(plan, region)?;
+        traversal::validate_no_nested(plan, u.sites, region)?;
         let mut this = Box::new(Self {
             preview: None,
             view,
@@ -198,7 +198,7 @@ impl Collection {
                 .all(|f| {
                     f.item.is_none() && f.bound.is_none() && f.region.is_none() && f.row.is_none()
                 })
-                .then(|| dependencies::Memo::for_region(plan, region, true))
+                .then(|| dependencies::Memo::for_region(plan, u.sites, region, true))
                 .flatten(),
             revision: 0,
             next_epoch: 0,

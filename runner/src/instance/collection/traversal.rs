@@ -423,8 +423,14 @@ fn release_other_pins(
 /// Check the template, including inactive arms and rows not yet materialized.
 /// An explicit false remains an ordinary eager list; a dynamic nested opt-in
 /// could become enabled later and is rejected just like an explicit true.
-pub(super) fn validate_no_nested(plan: &Plan, region: RegionsId) -> Result<(), InstanceError> {
-    let mut stack = sites(plan, None, plan.region(region).arms.iter().next());
+pub(super) fn validate_no_nested(
+    plan: &Plan,
+    sites: &SiteIndex,
+    region: RegionsId,
+) -> Result<(), InstanceError> {
+    let mut stack = sites
+        .children(None, plan.region(region).arms.iter().next())
+        .to_vec();
     while let Some((_, site)) = stack.pop() {
         match site {
             Site::Node(node) => {
@@ -442,11 +448,11 @@ pub(super) fn validate_no_nested(plan: &Plan, region: RegionsId) -> Result<(), I
                         return Err(invalid("nested virtualized collections are not supported"));
                     }
                 }
-                stack.extend(sites(plan, Some(node), row.arm));
+                stack.extend(sites.children(Some(node), row.arm).iter().copied());
             }
             Site::Region(region) => {
                 for arm in plan.region(region).arms.iter() {
-                    stack.extend(sites(plan, None, Some(arm)));
+                    stack.extend(sites.children(None, Some(arm)).iter().copied());
                 }
             }
         }

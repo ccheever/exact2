@@ -124,6 +124,7 @@ impl Harness {
         let mut kernel = Kernel::with_monospace();
         let mut u = Update {
             env: env(&plan, &slots),
+            sites: &crate::instance::SiteIndex::new(&plan),
             ids: &mut ids,
             ops: vec![],
             surfaces: vec![],
@@ -161,6 +162,7 @@ impl Harness {
     fn send(&mut self, feedback: CollectionFeedback) -> bool {
         let mut u = Update {
             env: env(&self.plan, &self.slots),
+            sites: &crate::instance::SiteIndex::new(&self.plan),
             ids: &mut self.ids,
             ops: vec![],
             surfaces: vec![],
@@ -175,6 +177,7 @@ impl Harness {
     fn update(&mut self) -> Result<(), InstanceError> {
         let mut u = Update {
             env: env(&self.plan, &self.slots),
+            sites: &crate::instance::SiteIndex::new(&self.plan),
             ids: &mut self.ids,
             ops: vec![],
             surfaces: vec![],
@@ -1145,6 +1148,7 @@ fn key_reuse_clock_change_invalidates_all_identical_items() {
     input.now_ms = 500.;
     let mut u = Update {
         env: input,
+        sites: &crate::instance::SiteIndex::new(&h.plan),
         ids: &mut h.ids,
         ops: vec![],
         surfaces: vec![],

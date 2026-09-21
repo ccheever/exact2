@@ -196,6 +196,7 @@ struct Timer {
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
+    sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
     data: D,
@@ -461,6 +462,7 @@ impl<D: DataSource> Runner<D> {
             .collect();
         let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
+            sites: crate::instance::SiteIndex::new(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -575,6 +577,7 @@ impl<D: DataSource> Runner<D> {
         let (tree, ops, surfaces) = {
             let mut u = Update {
                 env: runner.env(&[], &[]),
+                sites: &runner.sites,
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
