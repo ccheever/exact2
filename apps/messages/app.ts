@@ -399,15 +399,99 @@ const sources: Sources = {
 // Persistence contains authored data, never bubble geometry or selection state.
 function snapshot():Records {
   const records:Records=new Map();
-  people.forEach((person,position)=>records.set(`person:${person.id}`,{kind:'person',person,position,
-    conversation:threads.has(person.id),muted:muted.has(person.id),blocked:blocked.has(person.id),deleted:deleted.has(person.id),
-    draft:drafts.get(person.id)||null,group:groups.get(person.id)||null,contact:localContacts.get(person.id)||null}));
-  const put=(conversation:string,message:StoredMessage,expires:number|null)=>records.set(`message:${encodeURIComponent(conversation)}:${encodeURIComponent(message.id)}`,{kind:'message',conversation,message,expires});
-  for(const [id,rows] of threads)for(const message of rows)put(id,message,null);
-  for(const [id,rows] of recoverable)for(const row of rows)put(id,row.message,row.expires);
+  people.forEach((person,position)=>putPerson(records,person,position));
+  for(const [id,rows] of threads)for(const message of rows)putMessage(records,id,message,null);
+  for(const [id,rows] of recoverable)for(const row of rows)putMessage(records,id,row.message,row.expires);
   // persist detaches changed values before awaiting storage; unchanged rows
   // already have an owned copy in the replica.
   return records;
+}
+function putPerson(records:Records,person:typeof people[number],position:number):void {
+  const id=person.id;
+  records.set(`person:${id}`,{kind:'person',person,position,conversation:threads.has(id),
+    muted:muted.has(id),blocked:blocked.has(id),deleted:deleted.has(id),
+    draft:drafts.get(id)||null,group:groups.get(id)||null,contact:localContacts.get(id)||null});
+}
+function putMessage(records:Records,conversation:string,message:StoredMessage,expires:number|null):void {
+  records.set(`message:${encodeURIComponent(conversation)}:${encodeURIComponent(message.id)}`,{kind:'message',conversation,message,expires});
+}
+// Declare each durable source's footprint before running it. Unknown sources
+// refuse before mutation, rather than silently omitting a newly authored edit.
+// Returned nulls delete only keys that disappeared from this footprint.
+function editRecords(source:string,args:readonly unknown[]):()=>Records {
+  const id=String(args[0]);
+  const person=(records:Records,key:string)=>{
+    const position=people.findIndex(p=>p.id===key);
+    if(position>=0)putPerson(records,people[position],position);
+  };
+  const live=(records:Records,key:string,ids:Iterable<string>)=>{
+    const index=indexes.get(key);
+    for(const messageId of ids){const row=index?.byId.get(messageId);if(row)putMessage(records,key,row,null);}
+  };
+  const recovery=(records:Records)=>{
+    for(const [key,rows] of recoverable)for(const row of rows)putMessage(records,key,row.message,row.expires);
+  };
+  let capture:()=>Records,removes=false;
+  switch(source){
+    case 'markRead':case 'setConversationUnread':case 'muteConversation':case 'blockConversation':case 'saveDraft':
+      capture=()=>{const rows:Records=new Map();person(rows,id);return rows;};break;
+    case 'react':
+      capture=()=>{const rows:Records=new Map();live(rows,id,[String(args[1])]);return rows;};break;
+    case 'createLocalContact':
+      capture=()=>{const rows:Records=new Map();people.forEach((p,i)=>putPerson(rows,p,i));return rows;};break;
+    case 'sendMessage':
+      capture=()=>{
+        const rows:Records=new Map();
+        // A newly prepended person renumbers stored positions. Include contacts
+        // but never enumerate unrelated message histories.
+        people.forEach((p,i)=>putPerson(rows,p,i));
+        const messages=threads.get(id),last=messages?.[messages.length-1];
+        if(last)putMessage(rows,id,last,null);
+        return rows;
+      };break;
+    case 'advanceReplies': {
+      const now=Number(args[0]);
+      const due=[...pending].map(([key,activity])=>({key,receipt:ticks<activity.start && now>=activity.start,reply:now>=activity.end})).filter(row=>row.receipt||row.reply);
+      capture=()=>{
+        const rows:Records=new Map();
+        for(const {key,receipt,reply} of due){
+          person(rows,key);
+          const messages=threads.get(key)||[];
+          if(receipt)for(const row of messages)if(row.outgoing)putMessage(rows,key,row,null);
+          const last=messages[messages.length-1];
+          if(reply && last)putMessage(rows,key,last,null);
+        }
+        return rows;
+      };break;
+    }
+    case 'recentlyDeleted':case 'purgeConversations':
+      removes=true;capture=()=>{const rows:Records=new Map();recovery(rows);return rows;};break;
+    case 'deleteConversation':
+      removes=true;capture=()=>{
+        const rows:Records=new Map();person(rows,id);
+        for(const row of threads.get(id)||[])putMessage(rows,id,row,null);
+        recovery(rows);return rows;
+      };break;
+    case 'deleteMessages': {
+      const selected=String(args[1]).split('|');
+      removes=true;capture=()=>{const rows:Records=new Map();person(rows,id);live(rows,id,selected);recovery(rows);return rows;};break;
+    }
+    case 'recoverConversations': {
+      const selected=[...new Set(id.split('|'))].map(key=>({key,ids:(recoverable.get(key)||[]).map(row=>row.message.id)}));
+      removes=true;capture=()=>{
+        const rows:Records=new Map();
+        for(const {key,ids} of selected){person(rows,key);live(rows,key,ids);}
+        recovery(rows);return rows;
+      };break;
+    }
+    default:throw new Error(`Messages source has no durable footprint: ${source}`);
+  }
+  const before=removes?capture():undefined;
+  return ()=>{
+    const after=capture();
+    if(before)for(const key of before.keys())if(!after.has(key))after.set(key,null);
+    return after;
+  };
 }
 function restore(records:Records):void {
   type PersonRecord={kind:'person';person:typeof people[number];position:number;conversation:boolean;muted:boolean;blocked:boolean;deleted:boolean;draft:{draft:string;reply:string}|null;group:string[]|null;contact:typeof localContacts extends Map<string,infer C>?C:null};
@@ -472,13 +556,14 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // refresh must not detach and diff the entire durable history again.
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
+    const records=editRecords(source,args);
     const previousPending=new Map(pending),previousTicks=ticks,previousRevision=revision;
     const value=await sources[source](args,store,storage,native);
     // Reply ticks change durable records only when a receipt or reply advances
     // revision. Keep their clock update, but avoid copying an unchanged history.
     // Other sources can expire recovery rows without changing revision.
     if(source==='advanceReplies' && revision===previousRevision)return value;
-    try{await client.persist(snapshot());}catch(error){
+    try{await client.edit(records());}catch(error){
       restore(client.initial());pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);ticks=previousTicks;
       // A failed save must not leave an invalid model that every later read
       // tries to save again. Report the original error even if disk is full.

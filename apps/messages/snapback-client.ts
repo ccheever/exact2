@@ -110,9 +110,15 @@ export class MessagesReplica {
     await this.call({op:'set_meta',key:'exact:initialized',value:'1'});
   }
   async persist(records:Records,seed=false):Promise<void> {
+    return this.commit(records,seed,true);
+  }
+  // Omitted keys are unchanged; null deletes a record. Values are captured by
+  // commit before its first await, just as for a complete initial image.
+  async edit(records:Records):Promise<void> {return this.commit(records,false,false);}
+  private async commit(records:Records,seed:boolean,complete:boolean):Promise<void> {
     const changes:[string,unknown][]=[];
     // Validate the entire edit before admitting one atomic mutation.
-    for(const key of new Set([...(seed?[]:this.held.keys()),...records.keys()])) {
+    for(const key of complete?new Set([...(seed?[]:this.held.keys()),...records.keys()]):records.keys()) {
       const payload=records.has(key)?records.get(key):null;
       if(canonical(this.held.get(key)??null)===canonical(payload))continue;
       const text=JSON.stringify(payload);
@@ -131,10 +137,10 @@ export class MessagesReplica {
       keys:changes.map(([key])=>key),payloads:changes.map(([,payload])=>payload),
     },new_ids:[],predicted:[],viewer,now:0,predictable:true};
     await this.call({op:'admit',entry});this.queued++;
-    // Publish a new complete snapshot only after the durable prediction commits.
+    // Publish captured values only after the durable prediction commits.
     // Seeding rereads the store, because seedRecords preserves existing rows.
     if(!seed){
-      const committed=new Map(this.held);
+      const committed=complete?new Map(this.held):this.held;
       for(const [key,payload] of changes){if(payload===null)committed.delete(key);else committed.set(key,payload);}
       this.held=committed;
     }

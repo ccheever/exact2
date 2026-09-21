@@ -907,3 +907,67 @@ fn recovery_expiry_without_revision_change_is_still_durable() {
         Some(0.)
     );
 }
+
+#[test]
+fn oversized_conversation_delete_keeps_every_record_and_allows_a_later_edit() {
+    fn history(model: &mut Model) -> std::collections::BTreeSet<String> {
+        let mut ids = std::collections::BTreeSet::new();
+        let mut cursor = String::new();
+        for _ in 0..16 {
+            let chat = model.chat("maya", &cursor, "", "");
+            ids.extend(rows(&chat).iter().map(|row| text(row, "id").to_owned()));
+            cursor = text(&chat, "earlier").to_owned();
+            if chat["hasEarlier"] == false {
+                return ids;
+            }
+        }
+        panic!("history traversal did not reach the first page");
+    }
+    let root = replica_fixture(
+        "bulk-delete",
+        (0..600)
+            .map(|i| (format!("bulk-{i:03}"), 200 + i, false))
+            .collect(),
+    );
+    let mut model = open(&root);
+    let all = history(&mut model);
+    assert_eq!(all.len(), 610);
+    let before = model.chat("maya", "", "", "");
+    assert!(model
+        .try_call(
+            "deleteConversation",
+            vec![Value::str("maya"), Value::Number(0.)]
+        )
+        .is_err());
+    assert_eq!(
+        model.chat("maya", "", "", "")["messages"],
+        before["messages"]
+    );
+    assert_eq!(history(&mut model), all);
+    let recovery = model.call(
+        "recentlyDeleted",
+        vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+    );
+    assert_eq!(recovery["count"].as_f64(), Some(0.));
+    model.call(
+        "saveDraft",
+        vec![
+            Value::str("maya"),
+            Value::str("After refused delete"),
+            Value::str("m9"),
+        ],
+    );
+    drop(model);
+    let mut model = open(&root);
+    assert_eq!(
+        model.chat("maya", "", "", "")["messages"],
+        before["messages"]
+    );
+    assert_eq!(history(&mut model), all);
+    let draft = model.call(
+        "conversationDraft",
+        vec![Value::str("maya"), Value::Number(0.)],
+    );
+    assert_eq!(draft["draft"], "After refused delete");
+    assert_eq!(draft["reply"], "m9");
+}

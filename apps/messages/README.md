@@ -22,13 +22,22 @@ positioning is not verified.
 Per-thread indexes bound transcript reads to a binary search, the window and
 its two neighbors. Selection uses only selected IDs (sorted by order in O(S log S));
 the reply sheet still returns all R rows of its indexed root, including its own
-receipt. Thus an open reply chain can still cost O(N) when R=N. Durable writes
-remain O(total records): `snapshot()` enumerates the model, `persist` compares every
-key, and startup/changed-sync `restore` loads it all. Only changed payloads are
-JSON-detached, before the first storage await, so later model edits cannot mutate
-the pending save or its committed rollback image. Unchanged payloads retain their
-already-owned values. The 512-record edit cap still limits bulk
-delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
+receipt. Thus an open reply chain can still cost O(N) when R=N.
+
+Durable sources declare the records they can change. Drafts, unread/mute/block state
+and reactions compare only their selected records; no full-history snapshot or
+held-map copy occurs on those saves. Changed values are detached before storage
+awaits and installed only after admission. Omitted keys remain unchanged; explicit
+nulls delete records. Unknown durable sources refuse before mutation. Tests compare
+every durable source against the complete model and actual device, including a
+negative control that deliberately omits a write.
+
+Some costs remain: people lookup scales with contacts, sends include every person
+because a prepend renumbers stored positions, receipt transitions scan their thread,
+and deletion/recovery scans recoverable rows for expiry. Thread removal still rebuilds
+its indexes. Startup, changed sync and exceptional rollback still restore the whole
+model. The 512-record edit cap still refuses oversized edits atomically
+(LLP 1027.004 D5; tracked in `QUEUE.md`).
 
 The 300 ms reply timer skips snapshot/diff work when no receipt or generated reply
 changes the model revision. It still updates the local clock; real changes keep the
