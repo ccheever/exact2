@@ -3,6 +3,51 @@
 import AppKit
 import CExact
 
+/// Scroll demand is sampled independently of draws and worker completion. Keep
+/// the last velocity through repeated observations of the same scroll position.
+struct RegionReaderTravel {
+    private var previous: (top: CGFloat, time: Double)?
+    private var velocity: CGFloat = 0
+    mutating func sample(_ top: CGFloat, at now: Double) -> CGFloat {
+        defer {
+            if previous == nil || previous!.top != top { previous = (top, now) }
+        }
+        guard let previous else { return 0 }
+        let elapsed = now - previous.time
+        if top != previous.top, elapsed > 0 {
+            let speed = (top - previous.top) / max(elapsed, 1.0 / 120)
+            velocity = elapsed > 0.15 || speed * velocity <= 0 ? speed : (velocity + speed) / 2
+        } else if elapsed > 0.15 { velocity = 0 }
+        return velocity
+    }
+}
+
+struct RegionReaderBand {
+    let y: CGFloat
+    let height: CGFloat
+    let neededTop: CGFloat
+    let neededBottom: CGFloat
+    init(top: CGFloat, visible: CGFloat, steadyHeight: CGFloat, capacity: CGFloat,
+         velocity: CGFloat, scale: Int) {
+        let q = CGFloat(scale)
+        // Budget both the viewport and time to prepare its successor. At rest
+        // keep S3(d)'s small admission; travel spends the existing 32 MiB cap.
+        height = floor(min(capacity, 16384 / q, velocity == 0 ? steadyHeight
+            : max(steadyHeight, visible + abs(velocity) * 0.18 + 128)) * q) / q
+        let extra = max(0, height - visible)
+        let trail = min(128, extra / 4)
+        let before = velocity > 0 ? trail : velocity < 0 ? extra - trail : extra / 2
+        y = max(0, floor((top - before) * q) / q)
+        // Refill with half the lead still in hand, not when pixels become
+        // visible. A stopped viewport does not churn symmetric overscan.
+        neededTop = max(0, top - (velocity < 0 ? before / 2 : 0))
+        neededBottom = top + visible + (velocity > 0 ? (extra - before) / 2 : 0)
+    }
+    func covered(by request: RegionRasterRequest) -> Bool {
+        request.scroll.y <= neededTop && request.scroll.y + request.size.height >= neededBottom
+    }
+}
+
 /// Durations of outermost signposted reader work on the UI executor. A sliding
 /// display-length interval is stricter than choosing favorable frame boundaries.
 enum RegionReaderTiming {
@@ -58,6 +103,7 @@ final class RegionReaderParagraph {
     private var pointReply: ((Int?, String?) -> Void)?
     private(set) var waitingForPixels = false
     private var pixelRetries = 0
+    private var travel = RegionReaderTravel()
 
     init(_ request: ExactMeasureRequest, bytes: Int) {
         view = request.view; index = request.node_index; generation = request.node_generation
@@ -88,6 +134,7 @@ final class RegionReaderParagraph {
         source = nil; candidate = nil; accepted = nil; raster = nil; image = nil
         shapeWidth = nil; wantedRaster = nil; candidateTop = nil; failed = nil
         waitingForPixels = false
+        travel = RegionReaderTravel()
         let reply = pointReply; pointReply = nil; pointRequest = nil
         reply?(nil, nil)
     }
@@ -160,17 +207,17 @@ final class RegionReaderParagraph {
         let capacity = floor(CGFloat(RegionRasterRequest.maximumPixelLimit) / rowBytes * CGFloat(scale)) / CGFloat(scale)
         let visible = ceil(port.height * CGFloat(scale)) / CGFloat(scale)
         guard capacity >= visible else { failed = "Text viewport exceeds region pixel budget"; return }
-        // Spend the larger admission on visible coverage only. Ordinary-sized
-        // windows retain the previous overscan allowance and allocation size.
-        let height = min(capacity, max(visible, min(overscan, visible * 2)))
-        let before = min(port.height / 2, max(0, (height - port.height) / 2))
-        let y = max(0, floor((top - before) * CGFloat(scale)) / CGFloat(scale))
+        let velocity = candidate == nil && pointRequest == nil
+            ? travel.sample(top, at: CACurrentMediaTime()) : 0
+        let band = RegionReaderBand(top: top, visible: visible,
+            steadyHeight: max(visible, min(overscan, visible * 2)), capacity: capacity,
+            velocity: velocity, scale: scale)
         let box = CGRect(x: 0, y: 0, width: p.offeredWidth, height: p.height)
         let selection = node.presenter?.selection.range(node) ?? NSRange(location: 0, length: 0)
         let selected = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).usingColorSpace(.sRGB)!
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
-            scroll: CGPoint(x: -32, y: y), size: CGSize(width: width, height: height), scale: scale,
+            scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
             profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
             // The existing view owns CSS backgrounds, including rounded corners
             // and opacity. Overflow ink must not repaint its ancestor's box.
@@ -178,10 +225,19 @@ final class RegionReaderParagraph {
             selectionColor: [selected.redComponent, selected.greenComponent, selected.blueComponent, selected.alphaComponent],
             interaction: pointRequest, pixelLimit: RegionRasterRequest.maximumPixelLimit)
         if let old = wantedRaster, old.sameOutput(as: next) { return }
+        // A useful in-flight band must be allowed to arrive while the viewport
+        // moves. Replacing its serial on every scroll tick can starve publication.
+        // Jumps, selections and width/source changes still supersede it.
+        if pointRequest == nil, let old = wantedRaster, old.interaction == nil,
+           old.publication == next.publication, old.rows == next.rows,
+           old.size.width == width, old.scale == scale,
+           old.scroll.y <= top + visible, old.scroll.y + old.size.height >= top {
+            return
+        }
         if pointRequest == nil, let raster, raster.request.publication == artifact.id,
            raster.request.rows == next.rows, raster.request.size.width == next.size.width,
            raster.request.scale == scale,
-           raster.request.scroll.y <= top, raster.request.scroll.y + raster.request.size.height >= top + port.height {
+           band.covered(by: raster.request) {
             return
         }
         guard next.bytes != nil else { failed = "Text viewport exceeds region pixel budget"; return }
@@ -229,6 +285,7 @@ final class RegionReaderParagraph {
             let changed = accepted?.id != artifact.id
             let top = candidateTop
             accepted = artifact; candidate = nil; candidateTop = nil
+            if changed { travel = RegionReaderTravel() }
             raster = value; self.image = image
             imageFrame = CGRect(origin: value.request.scroll, size: value.request.size)
             wantedRaster = nil
@@ -244,6 +301,7 @@ final class RegionReaderParagraph {
             publishing = false
             node.needsDisplay = true
             node.presenter?.requestTextPublication()
+            requestViewport()
         case .abandoned:
             shapeWidth = nil; update(node)
         case .refused(let job, let reason):

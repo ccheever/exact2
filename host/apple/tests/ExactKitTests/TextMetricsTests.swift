@@ -25,6 +25,89 @@ func regionInvalidationFixture(ops: [[String: Any]], protected: Set<UInt32>) -> 
 }
 
 final class TextMetricsTests: XCTestCase {
+    func testReaderTravelPreservesSpeedAcrossDrawsAndReversesImmediately() {
+        var travel = RegionReaderTravel()
+        XCTAssertEqual(travel.sample(0, at: 1), 0)
+        XCTAssertEqual(travel.sample(60, at: 1 + 1.0 / 60), 3600, accuracy: 0.001)
+        XCTAssertEqual(travel.sample(60, at: 1.02), 3600, accuracy: 0.001)
+        XCTAssertEqual(travel.sample(0, at: 1 + 2.0 / 60), -3600, accuracy: 0.001)
+        XCTAssertEqual(travel.sample(0, at: 1.3), 0)
+    }
+
+    func testReaderBandsLeadTravelAndRefillBeforeExposureWithinPixelBudget() {
+        for scale in [1, 2] {
+            let bytesPerPoint = CGFloat(900 * scale * scale * 4)
+            let capacity = floor(CGFloat(RegionRasterRequest.maximumPixelLimit) / bytesPerPoint * CGFloat(scale)) / CGFloat(scale)
+            for speed: CGFloat in [0, 3600, -3600, 12000, -12000, 100000] {
+                let band = RegionReaderBand(top: 10000, visible: 700, steadyHeight: 700,
+                    capacity: capacity, velocity: speed, scale: scale)
+                XCTAssertLessThanOrEqual(band.height * bytesPerPoint, CGFloat(RegionRasterRequest.maximumPixelLimit))
+                XCTAssertLessThanOrEqual(band.y, 10000)
+                XCTAssertGreaterThanOrEqual(band.y + band.height, 10700)
+                if speed == 0 {
+                    XCTAssertEqual(band.height, 700, "stationary open/resize keeps its original pixel admission")
+                } else if speed > 0 {
+                    XCTAssertGreaterThan(band.y + band.height, band.neededBottom)
+                    XCTAssertGreaterThan(band.neededBottom, 10700, "request before visible pixels run out")
+                    XCTAssertGreaterThan(band.y + band.height - 10700, 10000 - band.y)
+                } else {
+                    XCTAssertLessThan(band.y, band.neededTop)
+                    XCTAssertLessThan(band.neededTop, 10000)
+                    XCTAssertGreaterThan(10000 - band.y, band.y + band.height - 10700)
+                }
+            }
+            let narrow = RegionReaderBand(top: 10000, visible: 700, steadyHeight: 700,
+                capacity: 100000, velocity: 100000, scale: scale)
+            XCTAssertLessThanOrEqual(narrow.height * CGFloat(scale), 16384,
+                                     "a narrow viewport and a jump still obey the bitmap dimension limit")
+        }
+    }
+
+    func testReaderRetainsAcceptedPixelsAndPublishesWhileScrollDemandMoves() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "reader-ahead")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 900, height: 700))
+        let node = NodeView(id: 12345, kind: "text", presenter: presenter)
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "reader scroll ahead words ", count: 4000)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 900, height: 100000)
+        node.prepareToMount()
+        scroll.documentView = node; presenter.root.addSubview(scroll)
+        defer { RegionTextExecutor.queue.isSuspended = false; window.close(); session.destroy() }
+        var request = ExactMeasureRequest()
+        request.view = node.id; request.strut.font_size = 16
+        request.strut.has_line_height = 1; request.strut.line_height = 24
+        let reader = RegionReaderParagraph(request, bytes: 100000)
+        session.text.readerParagraphs[node.id] = reader
+        reader.update(node)
+        let deadline = Date(timeIntervalSinceNow: 3)
+        while reader.raster == nil && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
+        let first = try XCTUnwrap(reader.raster)
+        // Hold the real workers while a successor is demanded. The displayed
+        // raster must remain owned until actual replacement pixels arrive.
+        RegionTextExecutor.queue.isSuspended = true
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 60)); reader.update(node)
+        XCTAssertTrue(reader.raster === first)
+        RegionTextExecutor.queue.isSuspended = false
+        var top: CGFloat = 60
+        while reader.raster === first && Date() < deadline {
+            top += 10
+            scroll.contentView.scroll(to: CGPoint(x: 0, y: top)); reader.update(node)
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001))
+        }
+        let next = try XCTUnwrap(reader.raster)
+        XCTAssertFalse(next === first, "continuous demand cannot discard every worker completion")
+        XCTAssertGreaterThan(next.request.scroll.y + next.request.size.height, 760,
+                             "the worker prepared pixels beyond the first moving viewport")
+        XCTAssertNotNil(next.request.bytes)
+        XCTAssertEqual(next.request.publication, first.request.publication)
+    }
+
     func testUnbreakableLineRasterIsBoundedAndContainsVisibleInk() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "unbreakable-raster")
