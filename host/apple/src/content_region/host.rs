@@ -551,14 +551,14 @@ impl<D: DataSource> Host<D> {
         }
         if let Some(old) = &native.selected {
             for header in &old.headers {
-                if !candidate.nodes.iter().any(|n| {
-                    n.header.key == header.key
-                        && n.header.id == header.id
-                        && n.header.inline_owner == header.inline_owner
-                }) {
-                    if header.inline_owner.is_none() {
-                        staged.destroy(header.id);
-                    }
+                if header.inline_owner.is_none()
+                    && !candidate.nodes.iter().any(|n| {
+                        n.header.key == header.key
+                            && n.header.id == header.id
+                            && n.header.inline_owner == header.inline_owner
+                    })
+                {
+                    staged.destroy(header.id);
                 }
             }
         }
