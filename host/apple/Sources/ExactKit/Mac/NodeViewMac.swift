@@ -1146,11 +1146,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
         let radius = number("border_radius", number("border_radius_top_left"))
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
         let bg = color("background_color", .clear)
         if bg.alphaComponent > 0 {
             bg.setFill()
-            path.fill()
+            if radius == 0 {
+                NSGraphicsContext.current?.cgContext.fill(bounds)
+            } else {
+                NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+            }
         }
         let borderColor = color("border_color", .clear)
         let uniform = number("border_width")
@@ -1192,7 +1195,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
-            path.addClip()
+            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).addClip()
             NSBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
