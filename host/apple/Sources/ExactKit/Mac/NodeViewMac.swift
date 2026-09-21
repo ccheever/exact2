@@ -1232,7 +1232,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
             ctx.restoreGState()
         }
-        let textDirty = Capture.capturing || canvasAbove != nil ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
+        let textDirty = Capture.capturing || canvasAbove != nil || textIsSmall ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
         if isParagraph, !textDirty.isEmpty, presenter?.session?.regions.owns(self) != true {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()

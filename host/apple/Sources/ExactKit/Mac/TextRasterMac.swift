@@ -25,8 +25,8 @@ final class TextRasterizer {
     /// Pixels. A surface has a fixed cost — an IOSurface, and its registration
     /// with the render server when a layer first shows it — that a few glyphs
     /// never repay: a table of 32 narrow cells made one per cell as each row
-    /// mounted and scrolled at 31 fps, where AppKit drawing the cells into
-    /// their layers' own backing stores made 58. Smaller text draws.
+    /// mounted and scrolled at 31–35 fps, where AppKit drawing the cells into
+    /// their layers' own backing stores made 51–58. Smaller text draws.
     static let minPixels: CGFloat = 16384
     // Keep italic overhang and ink outside tight line boxes, but never size
     // a surface to an unbreakable line's potentially unbounded advance.
@@ -192,8 +192,15 @@ extension NodeView {
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
+        return !textIsSmall
+    }
+
+    /// Too few pixels to repay a surface. Such text draws whole rather than in
+    /// bands admitted as it scrolls: bands, and their visit per frame, are for
+    /// paragraphs too large to paint at once.
+    var textIsSmall: Bool {
         let scale = window?.backingScaleFactor ?? 2
-        return bounds.width * bounds.height * scale * scale >= TextRasterizer.minPixels
+        return bounds.width * bounds.height * scale * scale < TextRasterizer.minPixels
     }
 
     /// Whether the pump still owes this paragraph pixels.

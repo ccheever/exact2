@@ -287,7 +287,7 @@ final class Presenter {
         // Region readers own their pixel bands and publish positioned layers.
         // The ordinary backing-store band must not invalidate them a second time.
         for node in textViewportIndex!.candidates(reach: Self.textBandSlack)
-            where node.readerParagraph == nil && node.needsTextRaster && !node.rastersText {
+            where node.readerParagraph == nil && node.needsTextRaster && !node.rastersText && !node.textIsSmall {
             let want = textBand(node, reach: Self.textBandSlack)
             guard !want.isEmpty else { continue }
             let old = visibleText[node.id]
