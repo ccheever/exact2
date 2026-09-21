@@ -1048,7 +1048,17 @@ within the same write transaction. Directory creation reads its ancestors; remov
 reads the parent and target/subtree keys without contents. Rename reads its source
 subtree, source/destination records and parents, plus destination subtree keys to
 reject a nonempty replacement. No operation enumerates unrelated file contents.
-SQLite mutations still write a whole database snapshot.
+SQLite mutations still write a whole database snapshot. The worker transfers its
+private, already-exported ArrayBuffer to the file store; that host-only operation
+detaches the caller's buffer synchronously and avoids a second full-file copy.
+The public filesystem still snapshots caller bytes before waiting for locks. Both
+paths use the same atomic write transaction and failure behavior. A hidden Chrome
+probe at 6802c38d compared eight alternating pairs of six writes to 0/4/12 MiB
+payload databases, checking contents after close/reopen. With transfer, the median
+of pair medians for 12 MiB fell from 29.4 to 26.3 ms; the median paired change was
+−6.6%, with all eight pairs faster. The 4 MiB result was 12.1 to 9.3 ms in this
+run, but an earlier copy-elision prototype was roughly flat at that size. These
+are storage-operation timings, not a frame-rate or app-interaction claim.
 A stat still reads the target record, including its contents, but no unrelated file.
 Quota/persistence failures reject and invalidate a divergent SQLite connection.
 Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.

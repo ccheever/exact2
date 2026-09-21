@@ -470,6 +470,26 @@ try {
     await refused(narrow.readFile('app:/data/moved/a'));narrow.dispose();
     await fs.rm('app:/data/moved');await fs.rm('app:/data/missing');
     if((await fs.readdir('app:/data')).length)throw new Error('recursive removal');
+    const {createFileStore}=await import('/storage-fs.js');
+    const ownedStore=createFileStore(fsApp);
+    const ownedPath='app:/cache/owned';
+    const ownedBytes=new Uint8Array([3,4,5]).buffer;
+    const ownedWrite=ownedStore.atomicWriteOwnedFile(ownedPath,ownedBytes);
+    if(ownedBytes.byteLength!==0)throw new Error('private write must take ownership before yielding');
+    await ownedWrite;
+    if([...new Uint8Array(await fs.readFile(ownedPath))].join()!=='3,4,5')throw new Error('owned write lost bytes');
+    const failedBytes=new Uint8Array([9]).buffer;
+    const oldOwnedPut=IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put=function(value,...args){
+      if(value.path===ownedPath)throw new Error('injected owned write failure');
+      return oldOwnedPut.call(this,value,...args);
+    };
+    try {
+      try {await ownedStore.atomicWriteOwnedFile(ownedPath,failedBytes);throw new Error('owned write should fail');}
+      catch(error){if(error.message!=='injected owned write failure')throw error;}
+    } finally {IDBObjectStore.prototype.put=oldOwnedPut;ownedStore.close();}
+    if(failedBytes.byteLength!==0||[...new Uint8Array(await fs.readFile(ownedPath))].join()!=='3,4,5')throw new Error('failed owned write must leave durable bytes unchanged');
+    if('atomicWriteOwnedFile' in fs)throw new Error('private transfer exposed through filesystem capability');
     const db=await sql.open('app:/data/live.db');
     await db.execute('CREATE TABLE t (value INTEGER)');
     await db.execute('INSERT INTO t VALUES (?)',[42n]);

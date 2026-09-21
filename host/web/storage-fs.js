@@ -187,10 +187,11 @@ export function createFileStore(appId) {
       for (const request of [...requests, ...keys]) request.onsuccess = ready;
     });
   }
-  async function write(path, data, append) {
+  async function write(path, data, append, owned = false) {
     path = normalizePath(path);
     requireBelowRoot(path);
-    const copied = bytes(data); // Snapshot before yielding to the IndexedDB open.
+    // Snapshot before yielding. A private owned buffer is transferred, not copied.
+    const copied = owned ? structuredClone(data, { transfer: [data] }) : bytes(data);
     return run(true, (records, changes) => {
       directory(records, parentOf(path));
       const previous = records.get(path);
@@ -215,6 +216,8 @@ export function createFileStore(appId) {
     },
     writeFile(path, data) { return write(path, data, false); },
     atomicWriteFile(path, data) { return write(path, data, false); },
+    // Trusted host only: takes an ArrayBuffer and detaches it from its caller.
+    atomicWriteOwnedFile(path, data) { return write(path, data, false, true); },
     appendFile(path, data) { return write(path, data, true); },
     async readdir(path) {
       path = normalizePath(path);
