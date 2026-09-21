@@ -311,7 +311,9 @@ function selectedPeople(ids:string) {
 function recipientTarget(selected:typeof people) {
   const ids=selected.map(p=>p.id).sort();
   if(ids.length<2) return ids[0] || '';
-  return [...groups].find(([,members])=>members.join('|')===ids.join('|'))?.[0] || `group:${ids.join('|')}`;
+  const key=ids.join('|');
+  for(const [id,members] of groups)if(members.join('|')===key)return id || `group:${key}`;
+  return `group:${key}`;
 }
 function ensureConversation(id:string) {
   if(threads.has(id)) return;

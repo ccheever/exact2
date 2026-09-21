@@ -354,6 +354,24 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     expect(deleted('', 'maya').people.find((p:any)=>p.id==='').selection).toBe('maya');
     expect(deleted('', '|maya|maya||unknown').people.find((p:any)=>p.id==='maya').selection).toBe('unknown');
 
+    // Existing groups use the first matching joined member list. Imported
+    // separators and an empty group ID must retain that lookup behavior.
+    const grouped=new Map<string,any>(initial);
+    const addGroup=(key:string,id:string,group:string[],position:number)=>grouped.set(key,
+      {...person,person:{...person.person,id,name:id},group,position});
+    addGroup('fixture:first-group','first-group',['alex','maya'],-20);
+    addGroup('fixture:second-group','second-group',['alex','maya'],-10);
+    f.restore(grouped);
+    expect(recipients('', 'maya|alex|alex').target).toBe('first-group');
+    expect(recipients('', 'maya|jules|alex').target).toBe('weekend');
+    addGroup('fixture:empty-group','',['alex|maya'],-30);
+    f.restore(grouped);
+    expect(recipients('', 'maya|alex').target).toBe('group:alex|maya');
+    grouped.delete('fixture:empty-group');grouped.delete('fixture:first-group');
+    addGroup('fixture:second-group','second-group',['maya','alex'],-10);
+    f.restore(grouped);
+    expect(recipients('', 'maya|alex').target).toBe('group:alex|maya');
+
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
