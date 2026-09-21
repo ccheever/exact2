@@ -616,6 +616,13 @@ fn open(root: &Directory) -> Model {
 }
 
 fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory {
+    replica_fixture_with_delivery(label, entries, "Delivered")
+}
+fn replica_fixture_with_delivery(
+    label: &str,
+    entries: Vec<(String, u64, bool)>,
+    delivery: &str,
+) -> Directory {
     let root = Directory(
         std::env::temp_dir().join(format!("messages-window-{label}-{}", std::process::id())),
     );
@@ -658,7 +665,7 @@ fn replica_fixture(label: &str, entries: Vec<(String, u64, bool)>) -> Directory 
             row["message"]["order"] = (*order).into();
             row["message"]["outgoing"] = (*outgoing).into();
             row["message"]["sender"] = if *outgoing { "me" } else { "maya" }.into();
-            row["message"]["delivery"] = if *outgoing { "Delivered" } else { "" }.into();
+            row["message"]["delivery"] = if *outgoing { delivery } else { "" }.into();
             row["message"]["replyRoot"] = if *outgoing { "m9" } else { id.as_str() }.into();
             row["expires"] = Json::Null;
             row
@@ -970,4 +977,71 @@ fn oversized_conversation_delete_keeps_every_record_and_allows_a_later_edit() {
     );
     assert_eq!(draft["draft"], "After refused delete");
     assert_eq!(draft["reply"], "m9");
+}
+
+#[test]
+fn receipt_index_tracks_delete_recovery_and_reopen_without_touching_read_history() {
+    let root = replica_fixture_with_delivery(
+        "read-history",
+        (0..1000)
+            .map(|i| (format!("read-{i:04}"), 200 + i, true))
+            .collect(),
+        "Read",
+    );
+    let mut model = open(&root);
+    let tick = |now| {
+        vec![
+            Value::Number(now),
+            Value::str("maya"),
+            Value::Number(now * 1000.),
+        ]
+    };
+    model.send("maya", "Recover this delivered message", "m9", 0.);
+    let sent = model.chat("maya", "", "m9", "");
+    let id = text(rows(&sent).last().unwrap(), "id").to_owned();
+    model.delete("maya", &id);
+    model.call("advanceReplies", tick(3.));
+    model.recover("maya");
+    let recovered = model.chat("maya", "", "m9", "");
+    assert_eq!(rows(&recovered).last().unwrap()["id"], id);
+    assert_eq!(
+        rows(&recovered).last().unwrap()["delivery"],
+        "Delivered",
+        "deleted messages must not receive a read receipt while archived"
+    );
+    // Reopen with the recovered Delivered message: rebuilding the derived
+    // index must retain it even though the in-memory pending reply is gone.
+    drop(model);
+    let mut model = open(&root);
+    model.send("maya", "A second reply root", "m10", 10.);
+    model.call("advanceReplies", tick(13.));
+    let chat = model.chat("maya", "", "m9", "");
+    assert_eq!(rows(&chat).last().unwrap()["delivery"], "Read");
+    let reply = chat["replies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| text(r, "id") == id)
+        .unwrap();
+    assert_eq!(reply["delivery"], "Read");
+    let saved = chat["messages"].clone();
+    drop(model);
+    let mut model = open(&root);
+    let chat = model.chat("maya", "", "m9", "");
+    assert_eq!(chat["messages"], saved);
+    assert_eq!(
+        chat["replies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| text(r, "id") == id)
+            .unwrap()["delivery"],
+        "Read"
+    );
+    model.send("maya", "Only this message needs a receipt", "", 20.);
+    model.call("advanceReplies", tick(23.));
+    assert_eq!(
+        rows(&model.chat("maya", "", "", "")).last().unwrap()["delivery"],
+        "Read"
+    );
 }

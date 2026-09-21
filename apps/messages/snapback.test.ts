@@ -210,7 +210,7 @@ test('every durable source footprint matches the complete model and durable devi
     const built=await Bun.build({entrypoints:[entry],target:'bun',outdir:dir,naming:'app.mjs',plugins:[{
       name:'full-model-oracle',setup(build){build.onLoad({filter:/\/apps\/messages\/app\.ts$/},async args=>({
         loader:'ts',contents:await readFile(args.path,'utf8')+`
-export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],sources:Object.keys(sources)}));}
+export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),sources:Object.keys(sources)}));}
 export function omitFixtureEdit(){const edit=replica.edit.bind(replica);replica.edit=async records=>{replica.edit=edit;return edit(new Map());};}
 export function undeclaredFixtureSource(){sources.undeclared=()=>{people[0].unread=!people[0].unread;return changed();};}
 let fixtureKeys=[];
@@ -227,6 +227,9 @@ export function fixtureEditKeys(){return fixtureKeys;}
       const values=await app.inspectFixture();
       expect(canonical(values.live)).toEqual(canonical(values.held));
       expect(canonical(values.live)).toEqual(canonical(values.durable));
+      const waiting=values.live.filter(([_key,row]:[string,any])=>row.kind==='message' && row.expires===null && row.message.outgoing && row.message.delivery!=='Read')
+        .map(([_key,row]:[string,any])=>JSON.stringify([row.conversation,row.message.id])).sort();
+      expect(values.awaiting.map((pair:string[])=>JSON.stringify(pair)).sort()).toEqual(waiting);
       return values;
     };
     const exercised=new Set<string>();
@@ -247,7 +250,10 @@ export function fixtureEditKeys(){return fixtureKeys;}
     await act('sendMessage',['address:'+encodeURIComponent('fresh@example.test'),'New contact','',0,2000]);
     await act('sendMessage',['group:dad|maya','New group','',0,3000]);
     await act('sendMessage',['maya','Receipt and reply','m9',100,4000]);
-    for(const now of [102,103,104,115,116])await act('advanceReplies',[now,'maya',now*1000]);
+    for(const now of [102,103,104,115,116]){
+      await act('advanceReplies',[now,'maya',now*1000]);
+      if(now===103)expect(app.fixtureEditKeys()).not.toContain('message:maya:m9');
+    }
     await act('deleteMessages',['maya','m9|m10',0]);
     await act('recentlyDeleted',['',0,0]);
     await act('recoverConversations',['maya',0]);

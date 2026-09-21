@@ -26,12 +26,13 @@ const reactions = [
 const threads = new Map<string, StoredMessage[]>();
 type ThreadIndex = {
   byId:Map<string,StoredMessage>;
+  awaitingRead:Set<StoredMessage>;
   replyCounts:Map<string,number>;
   replies:Map<string,StoredMessage[]>;
   lastOutgoing:StoredMessage|undefined;
   replyOutgoing:Map<string,StoredMessage>;
 };
-const emptyIndex=():ThreadIndex=>({byId:new Map(),replyCounts:new Map(),replies:new Map(),lastOutgoing:undefined,replyOutgoing:new Map()});
+const emptyIndex=():ThreadIndex=>({byId:new Map(),awaitingRead:new Set(),replyCounts:new Map(),replies:new Map(),lastOutgoing:undefined,replyOutgoing:new Map()});
 const indexes = new Map<string,ThreadIndex>();
 const windowSize = 200;
 type Position = Pick<StoredMessage,'order'|'id'>;
@@ -67,6 +68,7 @@ function insertMessage(id:string,row:StoredMessage) {
   insertSorted(replies,row);index.replies.set(row.replyRoot,replies);
   if(row.id!==row.replyRoot)index.replyCounts.set(row.replyRoot,(index.replyCounts.get(row.replyRoot)||0)+1);
   if(row.outgoing){
+    if(row.delivery!=='Read')index.awaitingRead.add(row);
     if(!index.lastOutgoing || compareMessages(index.lastOutgoing,row)<0)index.lastOutgoing=row;
     const previous=index.replyOutgoing.get(row.replyRoot);
     if(!previous || compareMessages(previous,row)<0)index.replyOutgoing.set(row.replyRoot,row);
@@ -362,7 +364,8 @@ const sources: Sources = {
     ticks=now;
     for(const [id,activity] of pending) {
       if(previous<activity.start && now>=activity.start) {
-        for(const item of threads.get(id) || []) if(item.outgoing) item.delivery='Read';
+        const awaiting=indexes.get(id)?.awaitingRead;
+        if(awaiting){for(const item of awaiting)item.delivery='Read';awaiting.clear();}
         revision++;
       }
       if(now<activity.end) continue;
@@ -451,13 +454,16 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       };break;
     case 'advanceReplies': {
       const now=Number(args[0]);
-      const due=[...pending].map(([key,activity])=>({key,receipt:ticks<activity.start && now>=activity.start,reply:now>=activity.end})).filter(row=>row.receipt||row.reply);
+      const due=[...pending].map(([key,activity])=>({key,receipt:ticks<activity.start && now>=activity.start,reply:now>=activity.end})).filter(row=>row.receipt||row.reply)
+        // Capture row references before the handler marks them and clears the
+        // derived index. Persistence reads their new values after the handler.
+        .map(row=>({...row,receipts:row.receipt?[...(indexes.get(row.key)?.awaitingRead||[])]:[]}));
       capture=()=>{
         const rows:Records=new Map();
-        for(const {key,receipt,reply} of due){
+        for(const {key,receipts,reply} of due){
           person(rows,key);
           const messages=threads.get(key)||[];
-          if(receipt)for(const row of messages)if(row.outgoing)putMessage(rows,key,row,null);
+          for(const row of receipts)putMessage(rows,key,row,null);
           const last=messages[messages.length-1];
           if(reply && last)putMessage(rows,key,last,null);
         }

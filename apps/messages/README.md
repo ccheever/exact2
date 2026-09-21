@@ -33,8 +33,10 @@ every durable source against the complete model and actual device, including a
 negative control that deliberately omits a write.
 
 Some costs remain: people lookup scales with contacts, sends include every person
-because a prepend renumbers stored positions, receipt transitions scan their thread,
-and deletion/recovery scans recoverable rows for expiry. Thread removal still rebuilds
+because a prepend renumbers stored positions, and deletion/recovery scans recoverable
+rows for expiry. Receipt transitions use a derived set of outgoing messages still
+awaiting Read; insertion, recovery and restore rebuild it, while marking a receipt
+clears it. The persistence footprint captures those rows before the handler runs. Thread removal still rebuilds
 its indexes. Startup, changed sync and exceptional rollback still restore the whole
 model. The 512-record edit cap still refuses oversized edits atomically
 (LLP 1027.004 D5; tracked in `QUEUE.md`).
