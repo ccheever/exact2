@@ -155,7 +155,7 @@ final class RegionPaintIndex {
             guard let layout = lookup(row.artifact), row.box.width == layout.metadata.offeredWidth else {
                 throw RegionRasterRefusal.missingArtifact
             }
-            layouts.append(layout); starts.append(count); count += layout.lines.count
+            layouts.append(layout); starts.append(count); count += layout.lineCount
         }
         self.layouts = layouts; self.starts = starts
         index = try WorkerInkIndex(count: count, account: account) { slot in
@@ -184,6 +184,7 @@ final class RegionPaintIndex {
               zip(intent.rows,rows).allSatisfy({ $0.artifact == $1.artifact && $0.box == $1.box }) else {
             throw RegionRasterRefusal.missingArtifact
         }
+        for layout in layouts { layout.beginViewport() }
         let interaction: RegionPointReply?
         if let query = intent.interaction {
             guard let i = intent.rows.firstIndex(where: { $0.artifact == query.artifact }),
@@ -219,7 +220,7 @@ final class RegionPaintIndex {
                     if selected { ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.selectionColor)!) }
                     for ordinal in ids {
                         let p = Self.paragraph(Int(ordinal), starts: starts), i = Int(ordinal) - starts[p]
-                        let layout = layouts[p], row = request.rows[p], line = layout.lines[i]
+                        let layout = layouts[p], row = request.rows[p], line = layout.line(at: i)
                         let flush: CGFloat = layout.source.align == 1 ? 0.5 : layout.source.align == 2 ? 1 : 0
                         let x = row.box.minX - request.scroll.x + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(row.box.width)))
                         let y = row.box.minY - request.scroll.y + layout.baselines[i].rounded()

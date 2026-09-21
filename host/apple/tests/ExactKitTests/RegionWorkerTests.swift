@@ -5,6 +5,27 @@ import CoreText
 @testable import ExactKit
 
 @MainActor final class RegionWorkerTests: XCTestCase {
+    func testAuthoredRunIndexPreservesCoalescedAndEmptyRunBoundaries() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let runs: [Run] = (0..<1024).map { (i: Int) -> Run in
+            let height = CGFloat(20 + i % 3)
+            return Run(text: i % 7 == 0 ? "" : "ab", size: 16, weight: 400, family: 0,
+                italic: false, lineHeight: height, letterSpacing: 0,
+                href: "https://example.com/\(i)")
+        }
+        let source = RegionTextSource.capture(Spec(runs: runs, align: 0, lineClamp: 0,
+            color: [0,0,0,255]), engine: engine)
+        for start in stride(from: 0, to: source.utf16Count, by: 13) {
+            let range = NSRange(location: start, length: 19)
+            let expected = source.runs.filter {
+                NSMaxRange($0.range) > range.location && $0.range.location < NSMaxRange(range)
+            }
+            XCTAssertEqual(source.runs(overlapping: range).map(\.range), expected.map(\.range))
+            let linked = source.runs.first { NSLocationInRange(start, $0.range) }?.href
+            XCTAssertEqual(source.link(at: start), linked)
+        }
+        XCTAssertNil(source.link(at: source.utf16Count))
+    }
     func testNumericPaintIndexMatchesOriginalCoreTextSpansAndEveryBoundary() {
         let evidence = numericIndexEvidence()
         XCTAssertEqual(evidence.error, "")
@@ -57,7 +78,7 @@ import CoreText
                 let box = RegionTestBox()
                 let done = DispatchSemaphore(value: 0)
                 DispatchQueue(label: "region-test").async {
-                    box.value = denseRegionReference(RegionWorkerLayout.shape(source, width: width))
+                    box.value = denseRegionReference(RegionWorkerLayout.shape(source, width: width, compact: true))
                     done.signal()
                 }
                 done.wait()
@@ -103,7 +124,8 @@ import CoreText
                 let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
                 DispatchQueue(label: "region-pixel-test").async {
                     do {
-                        let layout = RegionWorkerLayout.shape(source, width: 320)
+                        let layout = RegionWorkerLayout.shape(source, width: 320, compact: true)
+                        XCTAssertTrue(layout.lines.isEmpty, "glyphs materialize only for the viewport")
                         let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
                         box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
                     } catch { box.error = String(describing: error) }
@@ -511,7 +533,7 @@ private final class RegionTestGate: @unchecked Sendable {
 // production shape now intentionally publishes only scalar line geometry.
 private func denseRegionReference(_ layout: RegionWorkerLayout) -> RegionParagraph {
     let p = layout.metadata
-    return RegionParagraph(source: p.source,sourceSHA256: p.sourceSHA256,lines: layout.lines,baselines: p.baselines,
+    return RegionParagraph(source: p.source,sourceSHA256: p.sourceSHA256,lines: (0..<layout.lineCount).map { layout.line(at: $0) },baselines: p.baselines,
         width: p.width,height: p.height,lineBottoms: p.lineBottoms,offeredWidth: p.offeredWidth)
 }
 

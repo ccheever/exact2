@@ -44,17 +44,28 @@ final class RegionWorkerLayout {
     let baselines: [CGFloat]
     let metadata: RegionParagraph
     let preparation: RegionPreparedSource
+    private var viewportLines: [Int: CTLine] = [:]
+    var lineCount: Int { metadata.lines.count }
+    func beginViewport() { viewportLines.removeAll(keepingCapacity: true) }
+    func line(at index: Int) -> CTLine {
+        if !lines.isEmpty { return lines[index] }
+        if let cached = viewportLines[index] { return cached }
+        let r = metadata.lines[index].range
+        let value = CTTypesetterCreateLine(preparation.typesetter, CFRange(location: r.location, length: r.length))
+        if viewportLines.count < 512 { viewportLines[index] = value }
+        return value
+    }
     private init(source: RegionTextSource, lines: [CTLine], baselines: [CGFloat], metadata: RegionParagraph,
                  preparation: RegionPreparedSource) {
         self.source = source; self.lines = lines; self.baselines = baselines; self.metadata = metadata
         self.preparation = preparation
     }
     static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
-                      preparation: RegionPreparedSource? = nil) -> RegionWorkerLayout {
-        shape(source, width: width, retainHits: retainHits, preparation: preparation, beforeMetadata: {})
+                      preparation: RegionPreparedSource? = nil, compact: Bool = false) -> RegionWorkerLayout {
+        shape(source, width: width, retainHits: retainHits, preparation: preparation, compact: compact, beforeMetadata: {})
     }
     static func shape(_ source: RegionTextSource, width: CGFloat, retainHits: Bool = true,
-                      preparation: RegionPreparedSource? = nil,
+                      preparation: RegionPreparedSource? = nil, compact: Bool = false,
                       beforeMetadata: () throws -> Void) rethrows -> RegionWorkerLayout {
         precondition(!Thread.isMainThread, "region shape must be worker-owned")
         let spec = source
@@ -70,6 +81,9 @@ final class RegionWorkerLayout {
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
+        var summaries: [RegionLine] = []
+        let fontInk = source.runs.reduce(CGRect.null) { $0.union(CTFontGetBoundingBox($1.font.value)) }
+        let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
         var y: CGFloat = 0
@@ -82,6 +96,7 @@ final class RegionWorkerLayout {
         let boundaries = spec.overflowWrap == 0 && width.isFinite ? preparation.lineBreakBoundaries : []
         var boundaryIndex = 0
         while start < length {
+            if lineCount % 128 == 0 { try beforeMetadata() }
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
             var count: Int
             count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
@@ -113,9 +128,7 @@ final class RegionWorkerLayout {
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
-                for authored in spec.runs {
-                    guard authored.range.location < range.location + range.length &&
-                          NSMaxRange(authored.range) > range.location else { continue }
+                for authored in spec.runs(overlapping: NSRange(location: range.location, length: range.length)) {
                     matched = true
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
@@ -144,7 +157,12 @@ final class RegionWorkerLayout {
             y += above + below
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
-            if retainHits { lines.append(line) }
+            if retainHits {
+                if compact {
+                    summaries.append(RegionLine(line, flush: flush, width: width, captureHits: false,
+                                                conservativeInk: fontInk.isNull ? .zero : fontInk))
+                } else { lines.append(line) }
+            }
             lineCount += 1
             start += count
         }
@@ -160,11 +178,17 @@ final class RegionWorkerLayout {
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
-        let metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                                       lines: lines, baselines: baselines,
-                                       width: ceil(maxWidth), height: explicit ? y : ceil(y),
-                                       lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
-                                       metadataCheckpoint: beforeMetadata)
+        let metadata: RegionParagraph
+        if compact {
+            metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
+                lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
+                width: ceil(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
+        } else {
+            metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
+                lines: lines, baselines: baselines, width: ceil(maxWidth), height: explicit ? y : ceil(y),
+                lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
+                metadataCheckpoint: beforeMetadata)
+        }
         return RegionWorkerLayout(source: source, lines: retainHits ? lines : [], baselines: retainHits ? baselines : [],
                                   metadata: metadata, preparation: preparation)
     }
@@ -174,7 +198,7 @@ final class RegionWorkerLayout {
         if point.y < bounds.minY { return 0 }
         if point.y > bounds.maxY { return source.utf16Count }
         guard let i = metadata.lineIndex(at: point.y - bounds.minY) else { return 0 }
-        let value = CTLineGetStringIndexForPosition(lines[i],CGPoint(
+        let value = CTLineGetStringIndexForPosition(line(at: i),CGPoint(
             x: point.x - bounds.minX - metadata.lines[i].flushOffset,y: 0))
         return value == kCFNotFound ? source.utf16Count : min(max(0,value),source.utf16Count)
     }

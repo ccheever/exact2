@@ -27,13 +27,16 @@ struct RegionLine: Sendable {
     private let edgeIndices: [CFIndex]
     private let intervalIndices: [CFIndex]
 
-    init(_ line: CTLine, flush: CGFloat, width: CGFloat, captureHits: Bool = true) {
+    init(_ line: CTLine, flush: CGFloat, width: CGFloat, captureHits: Bool = true, conservativeInk: CGRect? = nil) {
         let r = CTLineGetStringRange(line)
         range = NSRange(location: r.location, length: r.length)
         var above: CGFloat = 0, below: CGFloat = 0, extra: CGFloat = 0
         typographicWidth = CGFloat(CTLineGetTypographicBounds(line, &above, &below, &extra))
         ascent = above; descent = below; leading = extra
-        ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        if let conservativeInk {
+            ink = CGRect(x: conservativeInk.minX, y: conservativeInk.minY,
+                         width: typographicWidth + conservativeInk.width, height: conservativeInk.height)
+        } else { ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds) }
         flushOffset = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(width)))
         if !captureHits {
             self.carets = []; hitEdges = []; edgeIndices = []; intervalIndices = []
@@ -133,6 +136,15 @@ final class RegionParagraph: Sendable {
             if !lines.isEmpty { try metadataCheckpoint() }
         }
         self.lines = captured
+    }
+
+    init(source: RegionTextSource, sourceSHA256: String, lines: [RegionLine], baselines: [CGFloat],
+         lineBottoms: [CGFloat], width: CGFloat, height: CGFloat, offeredWidth: CGFloat) {
+        precondition(!Thread.isMainThread)
+        self.source = source; self.sourceSHA256 = sourceSHA256; self.lines = lines
+        self.baselines = baselines; self.lineBottoms = lineBottoms
+        self.width = width; self.height = height; self.offeredWidth = offeredWidth
+        shapedOnMainThread = false
     }
 
     func copy(_ range: NSRange) -> String {

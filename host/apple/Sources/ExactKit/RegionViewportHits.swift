@@ -69,7 +69,7 @@ final class RegionViewportHits: @unchecked Sendable {
         records = arena.allocate(RegionHitRecord.self,count: Self.maximumLines,initial: RegionHitRecord())!
         var visited = 0
         for row in request.rows {
-            guard let layout = lookup(row.artifact), !layout.lines.isEmpty else { continue }
+            guard let layout = lookup(row.artifact), layout.lineCount > 0 else { continue }
             let p = layout.metadata
             let top = request.scroll.y - row.box.minY
             let bottom = top + request.size.height
@@ -82,7 +82,7 @@ final class RegionViewportHits: @unchecked Sendable {
             for i in lo...hi {
                 guard visited < Self.maximumLines else { return }
                 visited += 1
-                let line = layout.lines[i]
+                let line = layout.line(at: i)
                 let range = CTLineGetStringRange(line)
                 guard range.location >= 0, range.length >= 0,
                       range.length < Self.maximumCaretUnits - caretUnits else { continue }

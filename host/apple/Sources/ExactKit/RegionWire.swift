@@ -57,6 +57,7 @@ struct RegionShapeRequest: Sendable {
     let width: CGFloat
     let height: CGFloat
     let generation: Int
+    var compact = false
 }
 extension RegionTextSource {
     static func capture(wire: [String: Any], engine: TextEngine, dark: Bool) -> RegionTextSource? {

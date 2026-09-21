@@ -89,8 +89,23 @@ final class RegionTextSource: Sendable {
         RegionTextSource(spec, engine: engine)
     }
 
+    /// Authored ranges are ordered and disjoint, including empty runs. CoreText
+    /// may coalesce several of them into one glyph run; visit only its overlaps.
+    func runs(overlapping range: NSRange) -> ArraySlice<RegionTextRun> {
+        var lo = 0, hi = runs.count
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if NSMaxRange(runs[mid].range) <= range.location { lo = mid + 1 }
+            else { hi = mid }
+        }
+        let start = lo
+        while lo < runs.count && runs[lo].range.location < NSMaxRange(range) { lo += 1 }
+        return runs[start..<lo]
+    }
+
     func link(at index: Int) -> String? {
-        guard let run = runs.first(where: { NSLocationInRange(index, $0.range) }), !run.href.isEmpty else { return nil }
+        guard let run = runs(overlapping: NSRange(location: index, length: 1)).first,
+              !run.href.isEmpty else { return nil }
         return run.href
     }
 
