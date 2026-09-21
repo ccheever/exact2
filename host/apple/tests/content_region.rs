@@ -524,6 +524,25 @@ fn projection_matches_ordinary(
             actual.frame,
             expected.frame
         );
+        if actual.is_inline_run() {
+            inline += 1;
+            assert!(actual.frame.bits_eq(exact_kernel::Frame::default()));
+            for wire in [ordinary_wire, native_wire] {
+                assert!(
+                    projection_wire(wire, id, "frame").is_none(),
+                    "inline frame {id}"
+                );
+                assert!(
+                    !wire.contains(&format!("\"op\":\"create\",\"id\":{id},")),
+                    "inline view {id}"
+                );
+                assert!(
+                    wire.contains(&format!("\"id\":{id},\"parent\":")),
+                    "missing run {id}"
+                );
+            }
+            continue;
+        }
         let parent = expected
             .parent
             .and_then(|p| ordinary.runner().kernel().node(p));
@@ -550,15 +569,6 @@ fn projection_matches_ordinary(
             content,
             "overflow {id}"
         );
-        if native
-            .runner()
-            .kernel()
-            .arena()
-            .is_inline_run(actual.key.index)
-        {
-            inline += 1;
-            assert!(actual.frame.bits_eq(exact_kernel::Frame::default()));
-        }
     }
     assert!(
         inline >= 2,

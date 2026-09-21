@@ -244,7 +244,9 @@ impl<D: DataSource> Host<D> {
                 self.keys.remove(&header.key);
                 self.mirror.remove(&header.id);
                 self.transform_drags.remove(header.id);
-                batch.destroy(header.id);
+                if header.inline_owner.is_none() {
+                    batch.destroy(header.id);
+                }
             }
         }
         region.retire_native();
@@ -403,6 +405,7 @@ impl<D: DataSource> Host<D> {
                     key: node.key,
                     id: node.id,
                     kind: kind_for(&node),
+                    inline_owner: self.paragraph_owner(node.id).filter(|id| *id != node.id),
                     handlers,
                 },
                 mirror: Mirror {
@@ -538,6 +541,7 @@ impl<D: DataSource> Host<D> {
                     h.key == n.header.key
                         && h.id == n.header.id
                         && h.kind == n.header.kind
+                        && h.inline_owner == n.header.inline_owner
                         && h.handlers == n.header.handlers
                         && self.mirror.get(&h.id) == Some(&n.mirror)
                 })
@@ -547,21 +551,27 @@ impl<D: DataSource> Host<D> {
         }
         if let Some(old) = &native.selected {
             for header in &old.headers {
-                if !candidate
-                    .nodes
-                    .iter()
-                    .any(|n| n.header.key == header.key && n.header.id == header.id)
-                {
-                    staged.destroy(header.id);
+                if !candidate.nodes.iter().any(|n| {
+                    n.header.key == header.key
+                        && n.header.id == header.id
+                        && n.header.inline_owner == header.inline_owner
+                }) {
+                    if header.inline_owner.is_none() {
+                        staged.destroy(header.id);
+                    }
                 }
             }
         }
         // All creates precede final children; no Host.mirror mutation yet.
-        for node in &candidate.nodes {
+        for node in candidate
+            .nodes
+            .iter()
+            .filter(|n| n.header.inline_owner.is_none())
+        {
             let old_header = native.selected.as_ref().and_then(|a| {
-                a.headers
-                    .iter()
-                    .find(|h| h.key == node.header.key && h.id == node.header.id)
+                a.headers.iter().find(|h| {
+                    h.key == node.header.key && h.id == node.header.id && h.inline_owner.is_none()
+                })
             });
             if let Some(h) = old_header {
                 if h.kind != node.header.kind || h.handlers != node.header.handlers {
@@ -583,11 +593,15 @@ impl<D: DataSource> Host<D> {
                 );
             }
         }
-        for node in &candidate.nodes {
+        for node in candidate
+            .nodes
+            .iter()
+            .filter(|n| n.header.inline_owner.is_none())
+        {
             let same = native.selected.as_ref().is_some_and(|a| {
-                a.headers
-                    .iter()
-                    .any(|h| h.id == node.header.id && h.key == node.header.key)
+                a.headers.iter().any(|h| {
+                    h.id == node.header.id && h.key == node.header.key && h.inline_owner.is_none()
+                })
             });
             let old = same.then(|| self.mirror.get(&node.header.id)).flatten();
             if let Some(old) = old {
@@ -611,7 +625,8 @@ impl<D: DataSource> Host<D> {
                     staged.style(node.header.id, &node.mirror.style);
                 }
             }
-            if old.is_none_or(|m| m.children != node.mirror.children) {
+            if node.header.kind != "text" && old.is_none_or(|m| m.children != node.mirror.children)
+            {
                 staged.children(node.header.id, &node.mirror.children);
             }
             if old.is_none_or(|m| m.frame != node.mirror.frame) {
@@ -624,10 +639,15 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        Self::stage_native_paragraphs(&candidate.nodes, &mut staged);
         // Styles intentionally omit the four native presentation rows. Sample
         // this qualified current key at promotion so newly created controls get
         // their real opacity/transform too; do not reconstruct from an old ID.
-        for node in &candidate.nodes {
+        for node in candidate
+            .nodes
+            .iter()
+            .filter(|n| n.header.inline_owner.is_none())
+        {
             let live = self
                 .runner
                 .kernel()

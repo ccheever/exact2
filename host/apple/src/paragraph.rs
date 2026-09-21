@@ -3,7 +3,7 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
-    fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
+    pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.runner.kernel();
         let mut node = kernel.node(id)?;
         if node.node_type != NodeType::Text {
@@ -35,6 +35,60 @@ impl<D: DataSource> Host<D> {
         self.create(id, &events, batch);
         self.emit_children(id, batch);
         true
+    }
+
+    pub(super) fn stage_native_paragraphs(
+        nodes: &[crate::content_region::CandidateNativeNode],
+        batch: &mut Batch,
+    ) {
+        let by_id: BTreeMap<_, _> = nodes.iter().map(|n| (n.header.id, n)).collect();
+        for paragraph in nodes
+            .iter()
+            .filter(|n| n.header.kind == "text" && n.header.inline_owner.is_none())
+        {
+            let owner = paragraph.header.id;
+            let active = !paragraph.mirror.props.contains_key("text");
+            let mut stack: Vec<_> = paragraph
+                .mirror
+                .children
+                .iter()
+                .rev()
+                .map(|id| (*id, owner, active))
+                .collect();
+            let mut runs = String::from("[");
+            let mut first = true;
+            while let Some((id, parent, active)) = stack.pop() {
+                let Some(node) = by_id.get(&id) else {
+                    continue;
+                };
+                if node.header.inline_owner != Some(owner) {
+                    continue;
+                }
+                let paints = active && node.mirror.props.contains_key("text");
+                if !first {
+                    runs.push(',');
+                }
+                first = false;
+                Batch::inline_run(
+                    &mut runs,
+                    id,
+                    parent,
+                    &node.mirror.props,
+                    &node.mirror.style,
+                    &node.header.handlers,
+                    paints,
+                );
+                stack.extend(
+                    node.mirror
+                        .children
+                        .iter()
+                        .rev()
+                        .map(|child| (*child, id, active && !paints)),
+                );
+            }
+            runs.push(']');
+            batch.paragraph(owner, &runs);
+        }
     }
 
     pub(super) fn emit_paragraphs(&mut self, batch: &mut Batch) {

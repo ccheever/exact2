@@ -268,6 +268,7 @@ pub(crate) struct NativeHeader {
     pub key: NodeKey,
     pub id: exact_kernel::ViewId,
     pub kind: &'static str,
+    pub inline_owner: Option<exact_kernel::ViewId>,
     // Listener names are NOT retained action authority. Runner dispatch remains live.
     pub handlers: Box<[&'static str]>,
 }
