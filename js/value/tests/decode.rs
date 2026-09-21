@@ -197,3 +197,111 @@ fn envelopes_keep_metadata_errors_missing_values_and_last_duplicate_values() {
     }
     assert!(reply_from_json_slice(b"{\"tag\":0,\"value\":\"\xff\"}", &Shape::String).is_err());
 }
+
+#[test]
+fn nested_hand_built_record_shapes_keep_the_json_oracle_behavior() {
+    let records = [
+        Shape::Record(vec![]),
+        record(),
+        Shape::Record(vec![
+            ("name".into(), Shape::String),
+            ("name".into(), Shape::String),
+        ]),
+        Shape::Record(vec![
+            ("name".into(), Shape::String),
+            ("name".into(), Shape::Number),
+        ]),
+    ];
+    let texts = [
+        "null",
+        "[]",
+        "{}",
+        r#"{"name":"one"}"#,
+        r#"{"name":1,"name":"last"}"#,
+        r#"{"name":"one","count":2,"enabled":false}"#,
+        r#"{"enabled":null,"count":-0,"name":"last"}"#,
+        r#"{"name":"one","extra":1e9999}"#,
+        r#"{"name":"one","extra":0}"#,
+    ];
+    for shape in &records {
+        for text in texts {
+            for (shape, text) in [
+                (shape.clone(), text.to_string()),
+                (Shape::Option(Box::new(shape.clone())), text.to_string()),
+                (
+                    Shape::List(Box::new(shape.clone())),
+                    format!("[{text},{text}]"),
+                ),
+                (
+                    Shape::Record(vec![
+                        ("child".into(), shape.clone()),
+                        ("sibling".into(), record()),
+                    ]),
+                    format!(
+                        r#"{{"sibling":{{"enabled":true,"count":2,"name":"ok"}},"child":{text}}}"#
+                    ),
+                ),
+            ] {
+                equal(from_json_text(&text, &shape), legacy(&text, &shape), &text);
+                compare_reply(&format!(r#"{{"tag":0,"value":{text}}}"#), &shape);
+            }
+        }
+    }
+    // A hand-built shape can be deeper than plan shapes, even with a tiny answer.
+    // Shape inspection must not introduce a new depth refusal.
+    for depth in [63, 64, 65, 128, 1024] {
+        let mut shape = record();
+        for _ in 0..depth {
+            shape = Shape::Option(Box::new(shape));
+        }
+        for text in ["null", r#"{"name":"one","count":2,"enabled":true}"#] {
+            equal(from_json_text(text, &shape), legacy(text, &shape), text);
+            compare_reply(&format!(r#"{{"tag":0,"value":{text}}}"#), &shape);
+        }
+    }
+}
+
+#[test]
+fn tiny_answers_keep_wide_unused_shapes_and_missing_envelopes_compatible() {
+    for width in [0, 1, 64, 128, 4096] {
+        let mut fields: Vec<_> = (0..width)
+            .map(|i| (format!("field{i}"), Shape::String))
+            .collect();
+        for duplicate in [false, true] {
+            if duplicate && width > 1 {
+                fields[width - 1].0 = fields[0].0.clone();
+            }
+            for (shape, text) in [
+                (Shape::List(Box::new(Shape::Record(fields.clone()))), "[]"),
+                (
+                    Shape::Option(Box::new(Shape::Record(fields.clone()))),
+                    "null",
+                ),
+            ] {
+                equal(from_json_text(text, &shape), legacy(text, &shape), text);
+                for envelope in [
+                    format!(r#"{{"tag":0,"value":{text}}}"#),
+                    r#"{"tag":3,"call":1}"#.into(),
+                    r#"{"tag":0}"#.into(),
+                ] {
+                    compare_reply(&envelope, &shape);
+                }
+            }
+        }
+    }
+    // Exhausting the optional scan cannot hide a late duplicate field name.
+    let mut fields: Vec<_> = (0..128)
+        .map(|i| (format!("field{i}"), Shape::Number))
+        .collect();
+    fields[127].0 = fields[126].0.clone();
+    let shape = Shape::Record(fields);
+    let text = format!(
+        "{{{}}}",
+        (0..127)
+            .map(|i| format!("\"field{i}\":{i}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    equal(from_json_text(&text, &shape), legacy(&text, &shape), &text);
+    compare_reply(&format!(r#"{{"tag":0,"value":{text}}}"#), &shape);
+}

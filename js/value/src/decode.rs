@@ -14,7 +14,7 @@ type Answer = Result<Value, String>;
 /// JSON syntax, number parsing and recursion limits are serde_json's own.
 pub fn from_json_text(text: &str, shape: &Shape) -> Result<Value, String> {
     let mut de = serde_json::Deserializer::from_str(text);
-    let value = Node(Some(shape))
+    let value = Node(Some(shape), unique_records(shape, text.len()))
         .deserialize(&mut de)
         .map_err(|e| e.to_string())?;
     de.end().map_err(|e| e.to_string())?;
@@ -34,7 +34,7 @@ pub struct Reply {
 /// Decode a native executor reply while retaining serde_json syntax errors.
 pub fn reply_from_json_text(text: &str, shape: &Shape) -> Result<Reply, serde_json::Error> {
     let mut de = serde_json::Deserializer::from_str(text);
-    let reply = Envelope(shape).deserialize(&mut de)?;
+    let reply = Envelope(shape, unique_records(shape, text.len())).deserialize(&mut de)?;
     de.end()?;
     Ok(reply)
 }
@@ -42,14 +42,38 @@ pub fn reply_from_json_text(text: &str, shape: &Shape) -> Result<Reply, serde_js
 /// Decode a browser executor reply directly from its UTF-8 output buffer.
 pub fn reply_from_json_slice(bytes: &[u8], shape: &Shape) -> Result<Reply, serde_json::Error> {
     let mut de = serde_json::Deserializer::from_slice(bytes);
-    let reply = Envelope(shape).deserialize(&mut de)?;
+    let reply = Envelope(shape, unique_records(shape, bytes.len())).deserialize(&mut de)?;
     de.end()?;
     Ok(reply)
 }
 
+// A shape is shared by every row in an answer. This optional preflight uses
+// at most one node/name comparison per input byte, capped at 4,096. Tiny answers
+// must not scan huge unused shapes. Exhaustion retains the original decoder.
+fn unique_records(shape: &Shape, bytes: usize) -> bool {
+    fn visit(shape: &Shape, depth: usize, work: &mut usize) -> bool {
+        if depth > crate::MAX_DEPTH || *work == 0 {
+            return false;
+        }
+        *work -= 1;
+        match shape {
+            Shape::Record(fields) => fields.iter().enumerate().all(|(i, (name, inner))| {
+                let Some(remaining) = work.checked_sub(i) else {
+                    return false;
+                };
+                *work = remaining;
+                !fields[..i].iter().any(|(other, _)| name == other) && visit(inner, depth + 1, work)
+            }),
+            Shape::Option(inner) | Shape::List(inner) => visit(inner, depth + 1, work),
+            _ => true,
+        }
+    }
+    visit(shape, 0, &mut bytes.min(4096))
+}
+
 // None validates and discards a subtree, including numeric overflow and depth.
 // IgnoredAny skips those checks, so it cannot preserve the old JSON parser here.
-struct Node<'a>(Option<&'a Shape>);
+struct Node<'a>(Option<&'a Shape>, bool);
 
 impl<'de> DeserializeSeed<'de> for Node<'_> {
     type Value = Answer;
@@ -62,10 +86,11 @@ impl<'de> DeserializeSeed<'de> for Node<'_> {
         // Hand-built shapes may repeat a field name. Preserve the old decoder's
         // behavior for those unusual shapes; plan record fields are distinct.
         if let Some(Shape::Record(fields)) = shape {
-            if fields
-                .iter()
-                .enumerate()
-                .any(|(i, (name, _))| fields[..i].iter().any(|(other, _)| name == other))
+            if !self.1
+                && fields
+                    .iter()
+                    .enumerate()
+                    .any(|(i, (name, _))| fields[..i].iter().any(|(other, _)| name == other))
             {
                 return Json::deserialize(de).map(|j| from_json(&j, self.0.unwrap()));
             }
@@ -82,7 +107,7 @@ impl Node<'_> {
             shape = Some(inner);
             options += 1;
         }
-        let mut value = f(Node(shape))?;
+        let mut value = f(Node(shape, self.1))?;
         for _ in 0..options {
             value = Value::Option(Some(Rc::new(value)));
         }
@@ -150,7 +175,7 @@ impl<'de> Visitor<'de> for Node<'_> {
         };
         let mut items = Vec::new();
         let mut error = None;
-        while let Some(item) = seq.next_element_seed(Node(inner))? {
+        while let Some(item) = seq.next_element_seed(Node(inner, self.1))? {
             if inner.is_some() && error.is_none() {
                 match item {
                     Ok(value) => items.push(value),
@@ -180,10 +205,10 @@ impl<'de> Visitor<'de> for Node<'_> {
         while let Some(key) = map.next_key_seed(Key(fields))? {
             match key {
                 Field::Known(i) => {
-                    slots[i] = Some(map.next_value_seed(Node(Some(&fields[i].1)))?);
+                    slots[i] = Some(map.next_value_seed(Node(Some(&fields[i].1), self.1))?);
                 }
                 Field::Extra(name) => {
-                    let _ = map.next_value_seed(Node(None))?;
+                    let _ = map.next_value_seed(Node(None, self.1))?;
                     if extra.as_ref().is_none_or(|old| name < *old) {
                         extra = Some(name);
                     }
@@ -232,7 +257,7 @@ impl<'de> Visitor<'de> for Key<'_> {
     }
 }
 
-struct Envelope<'a>(&'a Shape);
+struct Envelope<'a>(&'a Shape, bool);
 impl<'de> DeserializeSeed<'de> for Envelope<'_> {
     type Value = Reply;
     fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Reply, D::Error> {
@@ -282,7 +307,7 @@ impl<'de> Visitor<'de> for Envelope<'_> {
         let mut value = from_json(&Json::Null, self.0);
         while let Some(key) = map.next_key::<String>()? {
             if key == "value" {
-                value = map.next_value_seed(Node(Some(self.0)))?;
+                value = map.next_value_seed(Node(Some(self.0), self.1))?;
             } else {
                 fields.insert(key, map.next_value()?);
             }
