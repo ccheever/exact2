@@ -571,6 +571,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let post = Presenter.signposts.beginInterval("scrolled")
+        let before = presenter?.scrollCreatedRows ?? 0
+        defer { Presenter.signposts.endInterval("scrolled", post, "rows=\((self.presenter?.scrollCreatedRows ?? before) - before)") }
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -1188,6 +1191,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         if isParagraph {
             // The same paragraph the kernel measured at this width, painted.
+            let post = Presenter.signposts.beginInterval("text-draw")
+            defer { Presenter.signposts.endInterval("text-draw", post) }
             let spec = paragraphSpec()
             if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect) }
         }

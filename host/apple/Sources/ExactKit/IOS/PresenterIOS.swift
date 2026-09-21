@@ -5,8 +5,12 @@
 // web views, and menus through it.
 #if os(iOS)
 import UIKit
+import os
 
 final class Presenter {
+    static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
+    var scrollCreatedRows = 0
+
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -378,6 +382,8 @@ final class Presenter {
     /// Fill and measure the row window before paint. Unusual documents with
     /// many zero-height rows continue next turn instead of recursing forever.
     func syncLists() {
+        let post = Self.signposts.beginInterval("syncLists")
+        defer { Self.signposts.endInterval("syncLists", post) }
         guard !applying else { return }
         guard listSyncDepth < 8 else {
             if !listSyncQueued {
@@ -411,7 +417,9 @@ final class Presenter {
                 + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
             if listGeometry[list.id] == stamp { continue }
             listGeometry[list.id] = stamp
+            let previous = Set(rows.map(\.id))
             _ = onList?(list.id, top, height, width, origin, focus, interaction, 0)
+            scrollCreatedRows += content.container.subviews.compactMap { $0 as? NodeView }.filter { !previous.contains($0.id) }.count
         }
     }
     var onSubmit: ((UInt32) -> Void)?
@@ -461,6 +469,8 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
+        let post = Self.signposts.beginInterval("apply")
+        defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         swipeActions.prepare()
         prepareContexts(batch)
