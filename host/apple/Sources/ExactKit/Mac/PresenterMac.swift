@@ -308,6 +308,47 @@ final class Presenter {
     private var listSyncPending = false
     private var textPending = false
     private var textTurn = false
+    private var refreshInterval: TimeInterval = 1.0 / 60
+    static func listSliceBudget(_ interval: TimeInterval) -> TimeInterval {
+        min(0.004, max(0.001, interval * 0.24))
+    }
+    var sliceBudget: TimeInterval { Self.listSliceBudget(refreshInterval) }
+    private struct ListTravel {
+        var top: CGFloat, time: TimeInterval, velocity: Double = 0
+        var lead: CGFloat = .infinity
+        var shrinking = false
+    }
+    private var listTravel: [UInt32: ListTravel] = [:]
+    func listVelocity(_ id: UInt32) -> Double {
+        guard !ExactEnv.agentMode, let travel = listTravel[id],
+              CACurrentMediaTime() - travel.time < 0.15 else { return 0 }
+        return travel.velocity
+    }
+    private func sampleListTravel() {
+        let now = CACurrentMediaTime()
+        for (id, list) in listViews {
+            guard !collections.owns(id), let scroll = list.scroll else { continue }
+            let port = scroll.contentView.bounds
+            var travel = listTravel[id] ?? ListTravel(top: port.minY, time: now)
+            let delta = port.minY - travel.top, elapsed = now - travel.time
+            if delta != 0, elapsed > 0 {
+                let speed = Double(delta) / max(elapsed, refreshInterval / 2)
+                travel.velocity = elapsed > 0.15 || speed * travel.velocity <= 0
+                    ? speed : travel.velocity * 0.5 + speed * 0.5
+                if let cover = listCovers[id] {
+                    let lead = travel.velocity >= 0 ? cover.bottom + cover.origin - port.maxY
+                        : port.minY - cover.top - cover.origin
+                    travel.shrinking = lead < travel.lead
+                    travel.lead = lead
+                }
+                travel.top = port.minY; travel.time = now
+            }
+            listTravel[id] = travel
+        }
+    }
+    private var leadShrinking: Bool {
+        listTravel.contains { listVelocity($0.key) != 0 && $0.value.shrinking }
+    }
 
     /// A scroll container moved. Nothing here may take long: AppKit is inside
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
@@ -318,10 +359,11 @@ final class Presenter {
         // Most ticks move inside the band the mounted rows already cover: then
         // there is nothing to report, and nothing here reads or writes the
         // scroll view again until AppKit next calls in.
+        sampleListTravel()
         switch listsNeed() {
         case .nothing: break
         case .soon: listSyncPending = true
-        case .now: syncLists()
+        case .now: syncLists(limit: ExactEnv.agentMode ? 0 : 1)
         }
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
@@ -330,7 +372,7 @@ final class Presenter {
 
     /// After a batch: paint what is visible now, admit the rest over frames.
     private func batchApplied() {
-        syncLists()
+        syncLists(limit: ExactEnv.agentMode ? 0 : 1)
         coverLists()
         // Mounting and layout already spent this frame's main-thread time.
         // Keep visible pixels urgent; prepare offscreen text in a later slice.
@@ -350,7 +392,11 @@ final class Presenter {
         // frame, and about once a second its commit landed in the scrolling
         // thread's own commit window and cost that frame — a hitch every
         // 1.2 s with this thread idle (LLP 1044, the pump's first version).
-        pumpTarget.fire = { [weak self] in self?.pump() }
+        pumpTarget.fire = { [weak self] interval in
+            guard let self else { return }
+            if interval > 0 { self.refreshInterval = interval }
+            self.pump()
+        }
         let link = viewport.displayLink(target: pumpTarget, selector: #selector(PumpTarget.tick(_:)))
         link.add(to: .main, forMode: .common)
         pumpLink = link
@@ -378,15 +424,22 @@ final class Presenter {
         if listSyncPending { startPump() } else { stopPump() }
     }
 
-    /// One bounded slice. Alternate pending list and text work so a long
-    /// overscan fill cannot starve worker raster admission or publication.
+    /// The display link owns the deadline. Each report admits one overscan
+    /// row, so layout/application are included and overshoot is at most one
+    /// indivisible row. Never give away a list turn while travel consumes lead.
     func pump() {
-        if listSyncPending && !(textTurn && textPending) {
-            listSyncPending = false
+        if listSyncPending && (leadShrinking || !(textTurn && textPending)) {
             let post = Self.signposts.beginInterval("pump-list")
-            syncLists(limit: ExactEnv.agentMode ? 0 : 2)
+            let deadline = CACurrentMediaTime() + sliceBudget
+            repeat {
+                listSyncPending = false
+                syncLists(limit: ExactEnv.agentMode ? 0 : 2, deadline: deadline)
+            } while listSyncPending && CACurrentMediaTime() < deadline
             textTurn = true
             Self.signposts.endInterval("pump-list", post)
+            // Dispatch pixels for newly mounted lead rows without surrendering
+            // the next list slice. Worker admission remains bounded.
+            textPending = refreshVisibleText(limit: Self.textBandsPerSlice) || textPending
             return
         }
         textTurn = false
@@ -444,8 +497,10 @@ final class Presenter {
             guard let cover = listCovers[list.id] else { return .now }
             let visible = scroll.contentView.bounds, port = visible.height
             let first = cover.top + cover.origin, last = cover.bottom + cover.origin
-            if (!cover.atEnd && visible.maxY + port * 0.35 > last) || (!cover.atStart && visible.minY - port * 0.35 < first) { return .now }
-            if (!cover.atEnd && visible.maxY + port + 1 > last) || (!cover.atStart && visible.minY - port - 1 < first) { need = .soon }
+            if (!cover.atEnd && visible.maxY > last) || (!cover.atStart && visible.minY < first) { return .now }
+            let bias = CGFloat(max(-Double(port) * 0.75, min(Double(port) * 0.75, listVelocity(list.id) * 0.1)))
+            if (!cover.atEnd && visible.maxY + port + bias + 1 > last)
+                || (!cover.atStart && visible.minY - port + bias - 1 < first) { need = .soon }
         }
         return need
     }
@@ -515,6 +570,7 @@ final class Presenter {
         textViewportIndex = nil
         stopPump()
         listCovers.removeAll()
+        listTravel.removeAll()
         listSyncPending = false
         textPending = false
         listGeometry.removeAll()
@@ -588,13 +644,17 @@ final class Presenter {
 
     /// Fill and measure the row window before paint. Unusual documents with
     /// many zero-height rows continue next turn instead of recursing forever.
-    func syncLists(limit: UInt32 = 0) {
+    func syncLists(limit: UInt32 = 0, deadline: TimeInterval? = nil) {
         guard !applying, listSyncDepth == 0 else { return }
         listSyncDepth += 1
         defer { listSyncDepth -= 1 }
         listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
         listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
-        for list in Array(listViews.values) {
+        for list in Array(listViews.values).sorted(by: { $0.id < $1.id }) {
+            if let deadline, CACurrentMediaTime() >= deadline {
+                listSyncPending = true
+                break
+            }
             // Shared collections use revisioned feedback, not the earlier
             // item-height window protocol (which rejects their row tree).
             guard !collections.owns(list.id) else { continue }
@@ -609,12 +669,16 @@ final class Presenter {
             let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
             var reportLimit = limit
             for attempt in 0..<8 {
+                if let deadline, CACurrentMediaTime() >= deadline {
+                    listPending.insert(list.id)
+                    break
+                }
                 let top = Double(scroll.contentView.bounds.minY)
                 let height = Double(scroll.contentSize.height)
                 let width = Double(content.frame.width)
                 let origin = Double(content.frame.minY)
                 let rows = content.container.subviews.compactMap { $0 as? NodeView }
-                let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
+                let stamp = [top, height, width, origin, Double(focus), Double(interaction), listVelocity(list.id)]
                     + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
                 if listGeometry[list.id] == stamp && !listPending.contains(list.id) { break }
                 listGeometry[list.id] = stamp
@@ -635,7 +699,7 @@ final class Presenter {
                     || width != Double(content.frame.width) || origin != Double(content.frame.minY)
                 guard changed, !listShowsViewport(scroll, content: content) else { break }
                 if attempt == 7 { listPending.insert(list.id) }
-                reportLimit = 0
+                reportLimit = limit == 0 ? 0 : 1
             }
         }
         if !listPending.isEmpty { listSyncPending = true; startPump() }
@@ -1125,7 +1189,7 @@ extension NSRect {
 }
 /// The display link's Objective-C target: `Presenter` is not an `NSObject`.
 final class PumpTarget: NSObject {
-    var fire: (() -> Void)?
-    @objc func tick(_ link: CADisplayLink) { fire?() }
+    var fire: ((TimeInterval) -> Void)?
+    @objc func tick(_ link: CADisplayLink) { fire?(link.targetTimestamp - link.timestamp) }
 }
 #endif

@@ -354,3 +354,71 @@ fn budgeted_hidden_viewport_and_released_pin_retire_immediately() {
     );
     assert!(!host.list_pending(list));
 }
+
+/// Spend the existing three-viewport extent in the direction of travel, with
+/// one atomic row per report and retirement attached to the same report.
+#[test]
+fn directional_fill_uses_one_row_reports_and_reverses_within_the_window_budget() {
+    let (mut host, _) = booted();
+    let list = host.runner().roots()[0];
+    let at = |velocity| ListViewport {
+        top: 12000.0,
+        height: 240.0,
+        width: 390.0,
+        velocity,
+        ..Default::default()
+    };
+    report(&mut host, list, 0.0);
+    host.list_viewport(
+        list,
+        ListViewport {
+            width: 390.0,
+            ..Default::default()
+        },
+    );
+    host.list_viewport_within(list, at(12000.0), Some(0));
+    let indices = |host: &Host<Rows>| {
+        let k = host.runner().kernel();
+        let content = k.node(list).unwrap().children()[0];
+        k.node(content)
+            .unwrap()
+            .children()
+            .iter()
+            .map(|id| {
+                let row = k.node(*id).unwrap();
+                row.frame.y as i32
+            })
+            .collect::<Vec<_>>()
+    };
+    let visible = indices(&host);
+    assert!(visible.iter().all(|y| *y >= 11976 && *y < 12240));
+    host.list_viewport_within(list, at(12000.0), Some(1));
+    let forward = indices(&host);
+    assert_eq!(forward.len(), visible.len() + 1);
+    assert_eq!(forward.first(), visible.first(), "ahead is admitted first");
+    assert!(forward.last() > visible.last());
+    for _ in 0..40 {
+        if !host.list_pending(list) {
+            break;
+        }
+        host.list_viewport_within(list, at(12000.0), Some(1));
+    }
+    assert!(!host.list_pending(list));
+    let ahead = indices(&host);
+    assert!(ahead.len() <= 31, "same three-viewport row allowance");
+    assert!(ahead[0] >= 11640, "bounded trailing band");
+    host.list_viewport_within(list, at(-12000.0), Some(1));
+    let reverse = indices(&host);
+    assert!(reverse[0] < ahead[0], "reversal immediately admits behind");
+    for _ in 0..40 {
+        if !host.list_pending(list) {
+            break;
+        }
+        host.list_viewport_within(list, at(-12000.0), Some(1));
+    }
+    assert!(!host.list_pending(list));
+    assert!(indices(&host).len() <= 31);
+    let symmetric = host.list_viewport(list, at(0.0));
+    assert!(!symmetric.contains("\"error\":\""));
+    assert!(indices(&host).len() <= 31);
+}

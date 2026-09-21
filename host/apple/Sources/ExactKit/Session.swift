@@ -423,7 +423,12 @@ public final class ExactSession {
             #if canImport(AppKit)
             let post = Presenter.signposts.beginInterval("exact_list")
             #endif
-            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction, limit: limit)
+            #if canImport(AppKit)
+            let velocity = presenter.listVelocity(id)
+            #else
+            let velocity = 0.0
+            #endif
+            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction, limit: limit, velocity: velocity)
             #if canImport(AppKit)
             Presenter.signposts.endInterval("exact_list", post)
             #endif

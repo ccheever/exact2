@@ -13,6 +13,7 @@ pub(super) struct ListWindow {
     width: Option<f64>,
     heights: Heights,
     top: f64,
+    velocity: f64,
     port: f64,
     origin: f64,
     items: Rc<Vec<Value>>,
@@ -151,6 +152,7 @@ impl NodeInst {
                 width: None,
                 heights: Heights::default(),
                 top,
+                velocity: 0.0,
                 // Bootstrap one viewport row; the host supplies the actual
                 // scrollport before paint, never a guessed screen height.
                 port: *height,
@@ -368,8 +370,11 @@ impl ListWindow {
         defer_retirement: bool,
     ) -> Result<(), InstanceError> {
         let count = self.items.len();
-        let start = self.heights.locate((self.top - self.port).max(0.0));
-        let bottom = (self.top + 2.0 * self.port).max(0.0);
+        // Spend the same two viewports of overscan, shifted toward travel.
+        // Keep a quarter viewport behind for a reversal; predict 100 ms ahead.
+        let bias = (self.velocity * 0.1).clamp(-0.75 * self.port, 0.75 * self.port);
+        let start = self.heights.locate((self.top - self.port + bias).max(0.0));
+        let bottom = (self.top + 2.0 * self.port + bias).max(0.0);
         let last = self.heights.locate(bottom);
         let end = last + usize::from(self.heights.offset(last) < bottom);
         let mut wanted: Vec<usize> = if self.port > 0.0 {
@@ -568,12 +573,20 @@ impl ListWindow {
             .copied()
             .filter(|i| !mounted.contains(i) && !owed(i))
             .collect();
-        missing.sort_by_key(|i| {
-            if *i < first {
-                first - *i
-            } else {
-                (*i + 1).saturating_sub(last)
-            }
+        missing.sort_by(|a, b| {
+            let distance = |i: usize| {
+                if i < first {
+                    self.top - self.heights.offset(i + 1)
+                } else {
+                    self.heights.offset(i) - bottom
+                }
+            };
+            let behind =
+                |i: usize| (self.velocity > 0.0 && i < first) || (self.velocity < 0.0 && i >= last);
+            behind(*a)
+                .cmp(&behind(*b))
+                .then_with(|| distance(*a).total_cmp(&distance(*b)))
+                .then_with(|| a.cmp(b))
         });
         let deferred: std::collections::BTreeSet<usize> =
             missing.iter().skip(limit).copied().collect();
@@ -675,6 +688,7 @@ impl Tree {
                             && (!window.measured || window.width == Some(geometry.width));
                         let old_pins = window.pins.clone();
                         window.top = (geometry.top - geometry.origin).max(0.0);
+                        window.velocity = geometry.velocity;
                         window.port = geometry.height;
                         window.origin = geometry.origin;
                         window.measure(u, &region.active, geometry)?;

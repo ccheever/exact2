@@ -1416,10 +1416,10 @@ macro_rules! host {
 
         /// Report an actual list scrollport and bounded interaction pins.
         #[no_mangle]
-        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, limit: u32) -> u32 {
+        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, limit: u32, velocity: f64) -> u32 {
             // Zero asks for the whole window; `limit - 1` rows beyond the scrollport otherwise.
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_viewport(view, $crate::ListViewport {
-                top, height, width, origin, pins: [focus, interaction], rows: &[],
+                top, height, width, origin, velocity, pins: [focus, interaction], rows: &[],
             }, limit.checked_sub(1).map(|rows| rows as usize)), |n| n)
         }
 

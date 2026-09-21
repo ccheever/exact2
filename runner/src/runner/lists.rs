@@ -6,6 +6,8 @@ use super::*;
 pub struct ListViewport<'a> {
     /// Native/browser scroll offset.
     pub top: f64,
+    /// Recent user scroll velocity in CSS pixels/second; zero keeps symmetric overscan.
+    pub velocity: f64,
     /// Actual scrollport height.
     pub height: f64,
     /// Actual row containing-block width; a change invalidates cached heights.
@@ -107,6 +109,7 @@ impl<D: DataSource> Runner<D> {
         }
         if ![
             geometry.top,
+            geometry.velocity,
             geometry.height,
             geometry.width,
             geometry.origin,

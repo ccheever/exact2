@@ -310,6 +310,7 @@ impl<D: DataSource> Bridge<D> {
                     origin,
                     pins: [focus, interaction],
                     rows: &rows,
+                    ..Default::default()
                 },
             ),
             None => r#"{"ops":[],"error":"not booted"}"#.to_string(),

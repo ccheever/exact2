@@ -292,18 +292,21 @@ final class CollectionMacTests: XCTestCase {
         p.syncLists(limit: 2)
         XCTAssertEqual(limits, [2])
         p.pump()
-        XCTAssertEqual(limits, [2, 2], "pending work survives an unchanged geometry stamp")
+        XCTAssertGreaterThan(limits.count, 1, "pending work survives an unchanged geometry stamp")
+        XCTAssertTrue(limits.allSatisfy { $0 == 2 }, "every pump report admits only one overscan row")
+        let afterList = limits.count
         p.requestTextPublication()
         p.pump()
-        XCTAssertEqual(limits, [2, 2], "pending list work leaves a slice for text publication")
+        XCTAssertEqual(limits.count, afterList, "pending list work leaves a slice for text publication")
         p.pump()
-        XCTAssertEqual(limits, [2, 2, 2])
+        XCTAssertGreaterThan(limits.count, afterList)
+        let afterSecondList = limits.count
         p.reset()
         p.pump()
-        XCTAssertEqual(limits, [2, 2, 2], "reset clears pending list identities and the pump flag")
+        XCTAssertEqual(limits.count, afterSecondList, "reset clears pending list identities and the pump flag")
     }
 
-    func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutBudget() {
+    func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutOverscan() {
         for covered in [false, true] {
             let (p, list) = fixture(collection: false)
             defer { p.reset() }
@@ -328,9 +331,21 @@ final class CollectionMacTests: XCTestCase {
                 return false
             }
             p.syncLists(limit: 2)
-            XCTAssertEqual(limits, covered ? [2] : [2, 0])
+            XCTAssertEqual(limits, covered ? [2] : [2, 1])
             if !covered { XCTAssertEqual(tops.last, 600) }
         }
+    }
+
+    func testScrollOnlyReportsVisibleRowsAndRefreshDeterminesSliceBudget() {
+        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 60), 0.004, accuracy: 0.000001)
+        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 120), 0.002, accuracy: 0.000001)
+        let (p, list) = fixture(collection: false)
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var limits: [UInt32] = []
+        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
+        p.scrolled()
+        XCTAssertEqual(limits, [1], "uncovered user scroll never fills overscan synchronously")
     }
 
     func testSynchronousSettlementUsesUnlimitedReportsAndRetirementClearsPending() {
