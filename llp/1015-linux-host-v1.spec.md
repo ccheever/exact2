@@ -311,6 +311,16 @@ The headless/DRM host has no system clipboard. `copyText(text)` is recognized
 and reports `unsupported` on stderr; it neither saves a pretend clipboard nor
 adds an agent operation (2026-09-10; Apple/web behavior: LLP 1008 §5, 1007 §4).
 
+**Closed popovers** keep their inspectable logical tree but are hidden and inert
+on Linux (2026-09-20). Linux has no top-layer popover presenter: tapping an invoker
+reports unsupported before its accompanying application action runs; pointer
+activation logs the same refusal, and retained/direct Host dispatch cannot bypass
+it. This prevents closed Messages confirmations from painting over or intercepting
+the inbox. The kernel still lays out their logical boxes, so a normal-flow popover
+can reserve space; Messages uses absolute containers. Opening, placement, light
+dismissal and removal from normal flow remain unimplemented. This is an honest
+capability boundary, not completion of LLP 1021's presentation proposal.
+
 What a painter holds beyond the kernel, and the operations that touch it.
 **Scroll offsets** are host state per scroll container, clamped after
 every layout to the content extent (LLP 1010's floor, ported); the page's

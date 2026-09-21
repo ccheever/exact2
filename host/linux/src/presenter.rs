@@ -1128,6 +1128,10 @@ impl<D: DataSource> Presenter<D> {
     /// else drops it). Returns the node pressed, if any.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
+        if crate::navigation::popover_invoker(self.host.kernel(), hit) {
+            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+            return None;
+        }
         if self.brush.region_blocks_action(hit) {
             return self.retained_press(hit, now_ms);
         }
@@ -1158,6 +1162,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
+        }
+        if crate::navigation::popover_invoker(self.host.kernel(), id) {
+            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         let b = self
             .box_of(id)
