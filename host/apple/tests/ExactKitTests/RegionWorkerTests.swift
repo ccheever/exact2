@@ -136,48 +136,54 @@ import CoreText
         let ordinary = engine.paragraph(spec, width: 320)
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let profile = NativeProfile.capture(original: space, data: space.copyICCData(), account: NativeProfileAccount()).owner!
-        for background: [CGFloat] in [[1,1,1,1], [0,0,0,0]] {
-            for scale in [1, 2] {
-                for scroll: CGFloat in [0, 0.375, 27.25, 103.875] {
-                    let large = background[3] == 0 && scale == 2
-                    let size = CGSize(width: large ? 1200 : 400, height: large ? 500 : 100)
-                    let width = Int(size.width) * scale, height = Int(size.height) * scale
-                    let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                        bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-                    ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: background)!)
-                    ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-                    ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
-                    TextEngine.draw(ordinary, spec: spec, in: CGRect(x: 7.25, y: 0.125 - scroll, width: 320, height: ordinary.height), context: ctx)
-                    ctx.flush()
-                    let expected = Data(bytes: ctx.data!, count: width * height * 4)
-                    let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
-                        rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 320, height: ordinary.height))],
-                        scroll: CGPoint(x: 0, y: scroll), size: size, scale: scale,
-                        profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue, background: background, selectionColor: [0.2,0.4,0.8,0.45],
-                        pixelLimit: large ? RegionRasterRequest.maximumPixelLimit : 8 * 1024 * 1024)
-                    if large {
-                        var surface = request; surface.pixelLimit = 8 * 1024 * 1024
-                        XCTAssertNil(surface.bytes, "the registered surface keeps its existing admission")
-                        XCTAssertNotNil(request.bytes, "a reader admits its whole visible viewport")
-                    }
-                    let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
-                    DispatchQueue(label: "region-pixel-test").async {
-                        do {
-                            let layout = RegionWorkerLayout.shape(source, width: 320, compact: true)
-                            XCTAssertTrue(layout.lines.isEmpty, "glyphs materialize only for the viewport")
-                            let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
-                            box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
-                        } catch { box.error = String(describing: error) }
-                        done.signal()
-                    }
-                    done.wait()
-                    XCTAssertEqual(box.error, "")
-                    let image = box.raster!.image()!
-                    XCTAssertEqual(image.dataProvider!.data! as Data, expected)
-                    XCTAssertTrue(box.raster!.accepts(image, size: request.size, scale: scale, profile: profile))
-                    XCTAssertFalse(box.raster!.accepts(image, size: request.size, scale: scale == 1 ? 2 : 1, profile: profile))
-                    XCTAssertFalse(box.raster!.accepts(image, size: CGSize(width: 401,height: 100), scale: scale, profile: profile))
+        for format in [CGImageAlphaInfo.premultipliedLast.rawValue, RegionRasterRequest.compositedFormat] {
+            for background: [CGFloat] in [[1,1,1,1], [0,0,0,0]] {
+                for scale in [1, 2] {
+                    for scroll: CGFloat in [0, 0.375, 27.25, 103.875] {
+                        let large = background[3] == 0 && scale == 2
+                        let size = CGSize(width: large ? 1200 : 397, height: large ? 500 : 100)
+                        let width = Int(size.width) * scale, height = Int(size.height) * scale
+                        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                            bytesPerRow: width * 4, space: space, bitmapInfo: format)!
+                        ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: background)!)
+                        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                        ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
+                        TextEngine.draw(ordinary, spec: spec, in: CGRect(x: 7.25, y: 0.125 - scroll, width: 320, height: ordinary.height), context: ctx)
+                        ctx.flush()
+                        let expected = Data(bytes: ctx.data!, count: width * height * 4)
+                        let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
+                            rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 320, height: ordinary.height))],
+                            scroll: CGPoint(x: 0, y: scroll), size: size, scale: scale,
+                            profile: profile, format: format, background: background, selectionColor: [0.2,0.4,0.8,0.45],
+                            pixelLimit: large ? RegionRasterRequest.maximumPixelLimit : 8 * 1024 * 1024)
+                        if large {
+                            var surface = request; surface.pixelLimit = 8 * 1024 * 1024
+                            XCTAssertNil(surface.bytes, "the registered surface keeps its existing admission")
+                            XCTAssertNotNil(request.bytes, "a reader admits its whole visible viewport")
+                        }
+                        let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+                        DispatchQueue(label: "region-pixel-test").async {
+                            do {
+                                let layout = RegionWorkerLayout.shape(source, width: 320, compact: true)
+                                XCTAssertTrue(layout.lines.isEmpty, "glyphs materialize only for the viewport")
+                                let index = try RegionPaintIndex(request: request, lookup: { $0 == 7 ? layout : nil }, account: InkAccount())
+                                box.raster = try index.render(request, account: RegionPixelAccount(), hits: RegionHitAccount())
+                            } catch { box.error = String(describing: error) }
+                            done.signal()
+                        }
+                        done.wait()
+                        XCTAssertEqual(box.error, "")
+                        let image = box.raster!.image()!
+                        let actual = image.dataProvider!.data! as Data
+                        for row in 0..<height {
+                            XCTAssertEqual(actual[(row * image.bytesPerRow)..<(row * image.bytesPerRow + width * 4)],
+                                           expected[(row * width * 4)..<((row + 1) * width * 4)])
+                        }
+                        XCTAssertTrue(box.raster!.accepts(image, size: request.size, scale: scale, profile: profile))
+                        XCTAssertFalse(box.raster!.accepts(image, size: request.size, scale: scale == 1 ? 2 : 1, profile: profile))
+                        XCTAssertFalse(box.raster!.accepts(image, size: CGSize(width: 401,height: 100), scale: scale, profile: profile))
 
+                    }
                 }
             }
         }

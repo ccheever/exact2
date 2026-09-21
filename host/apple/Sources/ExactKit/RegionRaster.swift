@@ -4,6 +4,10 @@
 import Foundation
 import CoreGraphics
 import CoreText
+#if os(macOS)
+import IOSurface
+import ObjectiveC
+#endif
 
 struct RegionPaintRow: Sendable, Equatable {
     let artifact: UInt64
@@ -27,6 +31,14 @@ struct RegionRasterRequest: Sendable {
     // admit a larger visible viewport, never a document-sized bitmap.
     var pixelLimit: Int = 8 * 1024 * 1024
     static let maximumPixelLimit = 32 * 1024 * 1024
+    static let compositedFormat = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+    static func stride(width: Int, format: UInt32) -> Int {
+        #if os(macOS)
+        if format == compositedFormat { return IOSurfaceAlignProperty(kIOSurfaceBytesPerRow, width * 4) }
+        #endif
+        return width * 4
+    }
+    var bytesPerRow: Int { Self.stride(width: width, format: format) }
     // A continuing selection gesture may outlive replacement highlight pixels,
     // but never a source/geometry/palette change. New hits still require all pixels.
     func sameInkAndGeometry(as other: RegionRasterRequest) -> Bool {
@@ -63,10 +75,12 @@ struct RegionRasterRequest: Sendable {
               selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
               scroll.x.isFinite, scroll.y.isFinite, rows.count <= 64,
               pixelLimit > 0, pixelLimit <= Self.maximumPixelLimit,
-              format == CGImageAlphaInfo.premultipliedLast.rawValue else { return nil }
-        let (stride, a) = Int(w).multipliedReportingOverflow(by: 4)
-        let (bytes, b) = stride.multipliedReportingOverflow(by: Int(h))
-        return a || b || bytes > pixelLimit ? nil : bytes
+              format == CGImageAlphaInfo.premultipliedLast.rawValue || format == Self.compositedFormat else { return nil }
+        var bytes = bytesPerRow * Int(h)
+        #if os(macOS)
+        if format == Self.compositedFormat { bytes = IOSurfaceAlignProperty(kIOSurfaceAllocSize, bytes) }
+        #endif
+        return bytes > pixelLimit ? nil : bytes
     }
 }
 enum RegionRasterRefusal: Error { case capacity, invalid, missingArtifact, profile, context }
@@ -99,15 +113,47 @@ final class RegionPixels: @unchecked Sendable {
     let count: Int
     private let charge: RegionPixelCharge
     private let profile: NativeProfile
-    init(count: Int, charge: RegionPixelCharge, profile: NativeProfile,
+    #if os(macOS)
+    let surface: IOSurface?
+    private static var chargeKey: UInt8 = 0
+    #endif
+    init(count: Int, charge: RegionPixelCharge, profile: NativeProfile, request: RegionRasterRequest? = nil,
          fill: (UnsafeMutableRawPointer) -> Bool) throws {
         precondition(!Thread.isMainThread)
+        #if os(macOS)
+        if let request, request.format == RegionRasterRequest.compositedFormat {
+            guard let surface = IOSurface(properties: [.width: request.width, .height: request.height,
+                    .bytesPerElement: 4, .bytesPerRow: request.bytesPerRow, .allocSize: count,
+                    .pixelFormat: UInt32(0x42475241)]), surface.allocationSize <= count,
+                  surface.bytesPerRow == request.bytesPerRow, let space = profile.makeSpace() else {
+                throw RegionRasterRefusal.context
+            }
+            // CALayer and CGImage providers can outlive the raster receipt.
+            // Charge the surface itself until its final local owner releases it.
+            objc_setAssociatedObject(surface, &Self.chargeKey, charge, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            surface.lock(options: [], seed: nil)
+            surface.baseAddress.initializeMemory(as: UInt8.self, repeating: 0, count: count)
+            let filled = fill(surface.baseAddress)
+            surface.unlock(options: [], seed: nil)
+            guard filled else { throw RegionRasterRefusal.context }
+            if let color = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, color) }
+            self.surface = surface; storage = surface.baseAddress
+            self.count = count; self.charge = charge; self.profile = profile
+            return
+        }
+        surface = nil
+        #endif
         let memory = UnsafeMutableRawPointer.allocate(byteCount: count, alignment: 64)
         memory.initializeMemory(as: UInt8.self, repeating: 0, count: count)
         guard fill(memory) else { memory.deallocate(); throw RegionRasterRefusal.context }
         storage = memory; self.count = count; self.charge = charge; self.profile = profile
     }
-    deinit { storage.deallocate() }
+    deinit {
+        #if os(macOS)
+        if surface != nil { return }
+        #endif
+        storage.deallocate()
+    }
     @MainActor func provider() -> CGDataProvider? {
         let retained = Unmanaged.passRetained(self)
         guard let p = CGDataProvider(dataInfo: retained.toOpaque(), data: storage, size: count,
@@ -133,14 +179,14 @@ final class RegionRaster: Sendable {
         guard request.size == size, request.scale == scale, request.profile == profile,
               image.width == request.width, image.height == request.height,
               image.bitsPerComponent == 8, image.bitsPerPixel == 32,
-              image.bytesPerRow == request.width * 4, image.bitmapInfo.rawValue == request.format,
+              image.bytesPerRow == request.bytesPerRow, image.bitmapInfo.rawValue == request.format,
               let space = image.colorSpace, let expected = profile.makeSpace() else { return false }
         return CFEqual(space, expected)
     }
     @MainActor func image() -> CGImage? {
         guard let space = request.profile.makeSpace(), let provider = pixels.provider() else { return nil }
         return CGImage(width: request.width, height: request.height, bitsPerComponent: 8, bitsPerPixel: 32,
-            bytesPerRow: request.width * 4, space: space, bitmapInfo: CGBitmapInfo(rawValue: request.format),
+            bytesPerRow: request.bytesPerRow, space: space, bitmapInfo: CGBitmapInfo(rawValue: request.format),
             provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 }
@@ -211,9 +257,9 @@ final class RegionPaintIndex {
               let count = request.bytes else { throw RegionRasterRefusal.invalid }
         guard let charge = account.reserve(count, limit: request.pixelLimit) else { throw RegionRasterRefusal.capacity }
         guard let space = request.profile.makeSpace() else { throw RegionRasterRefusal.profile }
-        let pixels = try RegionPixels(count: count, charge: charge, profile: request.profile) { pointer in
+        let pixels = try RegionPixels(count: count, charge: charge, profile: request.profile, request: request) { pointer in
             guard let ctx = CGContext(data: pointer, width: request.width, height: request.height,
-                    bitsPerComponent: 8, bytesPerRow: request.width * 4, space: space,
+                    bitsPerComponent: 8, bytesPerRow: request.bytesPerRow, space: space,
                     bitmapInfo: request.format) else { return false }
             ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.background)!)
             ctx.setBlendMode(.copy)

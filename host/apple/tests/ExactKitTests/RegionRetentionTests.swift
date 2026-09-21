@@ -1,5 +1,8 @@
 import Foundation
 import CoreGraphics
+#if os(macOS)
+import IOSurface
+#endif
 import XCTest
 @testable import ExactKit
 
@@ -7,6 +10,7 @@ import XCTest
     private func request(size: CGSize = CGSize(width: 160,height: 120), scroll: CGFloat = 80.375,
                          scale: Int = 1, generation: Int = 2, publication: UInt64 = 7,
                          background: [CGFloat] = [1,1,1,1], selected: Bool = false,
+                         format: UInt32 = CGImageAlphaInfo.premultipliedLast.rawValue,
                          profile: NativeProfile? = nil) -> RegionRasterRequest {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let p = profile ?? NativeProfile.capture(original: space,data: space.copyICCData(),account: NativeProfileAccount()).owner!
@@ -14,7 +18,7 @@ import XCTest
         if selected { row.selection = NSRange(location: 1,length: 3) }
         return RegionRasterRequest(serial: 1,publication: publication,generation: generation,rows: [row],
             scroll: CGPoint(x: 0,y: scroll),size: size,scale: scale,profile: p,
-            format: CGImageAlphaInfo.premultipliedLast.rawValue,background: background,selectionColor: [0,0,1,0.45])
+            format: format,background: background,selectionColor: [0,0,1,0.45])
     }
     private func mapping(_ a: RegionRasterRequest, _ b: RegionRasterRequest,
                          actual: CGPoint? = nil, extent: CGSize = CGSize(width: 160,height: 1000),
@@ -227,6 +231,42 @@ import XCTest
             }
         }
     }
+    #if os(macOS)
+    func testCompositedSurfaceKeepsItsChargeAfterTheReceiptAndProviderDie() throws {
+        let a = request(size: CGSize(width: 397, height: 83), format: RegionRasterRequest.compositedFormat)
+        let account = RegionPixelAccount(), box = RetainedPixelsBox(), done = DispatchSemaphore(value: 0)
+        DispatchQueue(label: "region-surface-owner-test").async {
+            do {
+                let charge = account.reserve(a.bytes!)!
+                box.pixels = try RegionPixels(count: a.bytes!, charge: charge, profile: a.profile, request: a) { p in
+                    p.initializeMemory(as: UInt8.self, repeating: 42, count: a.bytes!)
+                    return true
+                }
+            } catch { box.error = String(describing: error) }
+            done.signal()
+        }
+        done.wait()
+        XCTAssertEqual(box.error, "")
+        let observed = RetainedPixelsWeak(box.pixels)
+        var surface: IOSurface?
+        try autoreleasepool {
+            let pixels = try XCTUnwrap(box.pixels)
+            surface = try XCTUnwrap(pixels.surface)
+            let provider = try XCTUnwrap(pixels.provider())
+            XCTAssertEqual(surface?.bytesPerRow, a.bytesPerRow)
+            XCTAssertEqual(account.stats.bytes, surface?.allocationSize)
+            XCTAssertEqual((provider.data! as Data).first, 42)
+            box.pixels = nil
+        }
+        XCTAssertNil(observed.value, "the layer's surface outlives the pixel receipt and image provider")
+        XCTAssertEqual(account.stats.owners, 1)
+        XCTAssertEqual(account.stats.bytes, a.bytes)
+        surface = nil
+        XCTAssertEqual(account.stats.owners, 0)
+        XCTAssertEqual(account.stats.bytes, 0)
+        withExtendedLifetime(surface) {}
+    }
+    #endif
     func testProviderAliasesKeepAChargeWhileTranslationsAllocateNoNewPixels() throws {
         let a = request(size: CGSize(width: 8,height: 8),scroll: 40.375)
         let account = RegionPixelAccount(), box = RetainedPixelsBox(), done = DispatchSemaphore(value: 0)
