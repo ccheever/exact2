@@ -1,0 +1,341 @@
+// Reflow: seven studies after Cheng Lou's Pretext demos, on exact2.
+//
+// Two mechanisms, one per half of Pretext. Text around shapes is the kernel's
+// (`wrap-flow` / `shape-outside`, LLP 1043.000): the balls, the dragon, and
+// the obstacles in the spread are exclusions the hosts flow around. Heights
+// before layout are the data crate's: every card, column and ASCII row was
+// measured by arithmetic over advances read out of the font files below
+// (`data/build.rs`) and broken by the same `exact-textflow` walker every host
+// flows text with — Pretext's `prepare`/`layout` split, below the data seam.
+// The kernel receives text already cut to the lines the arithmetic found.
+//
+// Original prose; Exposure Sans Original 03 (Expose type program, MIT).
+
+font "Exposure Sans"
+  400 = "assets/ExposureSansOriginal03-Regular.ttf"
+  400 italic = "assets/ExposureSansOriginal03-Italic.ttf"
+  700 = "assets/ExposureSansOriginal03-Bold.ttf"
+
+shape Viewport
+  width: number
+  height: number
+shape Ball
+  id: string
+  x: number
+  y: number
+  r: number
+  color: string
+shape Balls
+  text: string
+  balls: list<Ball>
+shape Dragon
+  text: string
+  x: number
+  y: number
+  w: number
+  h: number
+  outline: string
+  clip: string
+  belly: string
+  eyeX: number
+  eyeY: number
+  eyeR: number
+shape Card
+  id: string
+  index: number
+  title: string
+  body: string
+  titleLines: number
+  bodyLines: number
+  height: number
+shape Column
+  id: string
+  cards: list<Card>
+shape Masonry
+  cols: number
+  colWidth: number
+  tallest: number
+  columns: list<Column>
+shape Placed
+  id: string
+  index: number
+  x: number
+  y: number
+  h: number
+  title: string
+  body: string
+  lines: number
+shape Wall
+  cols: number
+  colWidth: number
+  total: number
+  count: number
+  visible: number
+  cards: list<Placed>
+shape Chunk
+  id: string
+  text: string
+  lines: number
+shape Magazine
+  cols: number
+  colWidth: number
+  colHeight: number
+  columns: list<Chunk>
+  leftover: number
+shape SpreadColumn
+  id: string
+  x: number
+  text: string
+shape Spread
+  cols: number
+  colWidth: number
+  height: number
+  columns: list<SpreadColumn>
+  capW: number
+  capH: number
+  capShape: string
+  capMargin: number
+  quoteX: number
+  quoteY: number
+  quoteW: number
+  quoteH: number
+  quoteShape: string
+  quoteMargin: number
+  discX: number
+  discY: number
+  discW: number
+  discShape: string
+  discMargin: number
+  leftover: number
+  quoteText: string
+  quoteSize: number
+  quoteLineHeight: number
+  quotePadding: number
+shape Row
+  id: string
+  text: string
+shape Ascii
+  width: number
+  height: number
+  rows: list<Row>
+
+style Eyebrow
+  font-size=11
+  letter-spacing=2
+  color="light-dark(#7a6a55, #b8a98f)"
+style Lede
+  font-size=14
+  line-height="20px"
+  color="light-dark(#5c5346, #c9bfae)"
+style Article
+  font-size=16
+  line-height="24px"
+  white-space="pre-wrap"
+  color="light-dark(#2b2620, #e9e2d3)"
+style CardTitle
+  font-weight=700
+  font-size=18
+  line-height="24px"
+  white-space="pre-wrap"
+style CardBody
+  font-size=15
+  line-height="22px"
+  white-space="pre-wrap"
+  color="light-dark(#3d3730, #d9d1c2)"
+style CardFoot
+  font-size=12
+  line-height="16px"
+  color="light-dark(#8a7c66, #a89a82)"
+style Pill
+  padding=9
+  border-width=0
+  border-radius=18
+
+component Reflow
+  resource viewport = exactViewport() as shape Viewport
+  state scene = "balls"
+  state running = true
+  state dark = false
+  state elapsed = 0
+  state dragonDx = 0
+  state dragonDy = 0
+  state seed = 1
+  state pageWidth = 0
+  state scrollTop = 0
+  state measured = true
+  derive pageInset = viewport.width < 700 ? 16 : 40
+  derive contentWidth = min(1080, max(280, viewport.width - pageInset * 2))
+  derive ballsHeight = viewport.width < 700 ? 560 : 440
+  derive ballsClock = scene == "balls" ? elapsed : 0
+  derive pagePad = viewport.width < 700 ? 18 : 36
+  derive pageInner = contentWidth - pagePad * 2 - 2
+  derive dragonHeight = viewport.width < 700 ? 1500 : 900
+  derive magazineWidth = pageWidth == 0 ? contentWidth : pageWidth
+  derive magazineInner = magazineWidth - (viewport.width < 700 ? 32 : 56) - 2
+  derive wallHeight = max(320, viewport.height - (viewport.width < 700 ? 250 : 230))
+  derive asciiWidth = min(440, contentWidth - 32)
+  derive asciiClock = scene == "ascii" ? elapsed : 0
+  resource ballsScene = balls(ballsClock, contentWidth, ballsHeight) as shape Balls
+  resource dragonScene = dragon(pageInner, dragonDx, dragonDy, dragonHeight) as shape Dragon
+  resource masonryScene = masonry(contentWidth, seed) as shape Masonry
+  resource wallScene = wall(contentWidth, scrollTop, wallHeight, seed) as shape Wall
+  resource magazineScene = magazine(magazineInner) as shape Magazine
+  resource spreadScene = spread(pageInner, viewport.width < 700 ? 17 : 21) as shape Spread
+  resource asciiScene = ascii(asciiClock, measured, asciiWidth) as shape Ascii
+  action choose(value: string) writes scene, elapsed, scrollTop
+    scene = value
+    elapsed = 0
+    scrollTop = 0
+  action appearance writes dark
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  action pause writes running
+    running = not running
+  action step writes elapsed
+    if running and (scene == "balls" or scene == "ascii")
+      elapsed = elapsed + 16
+  action dragDragon(dx: number, dy: number) writes dragonDx, dragonDy
+    dragonDx = min(pageInner, max(0 - pageInner, dragonDx + dx))
+    dragonDy = min(dragonHeight, max(0 - dragonHeight, dragonDy + dy))
+  action shuffle writes seed
+    seed = seed + 1
+  action resize(dx: number, dy: number) writes pageWidth
+    pageWidth = min(contentWidth, max(260, magazineWidth + dx))
+  action wallScrolled(x: number, y: number) writes scrollTop
+    scrollTop = y
+  action setMeasured(value: bool) writes measured
+    measured = value
+  task motion mount
+    every(16, step)
+  view
+    main testId="reflow" width="100%" min-height="100%" font-family="Exposure Sans" background-color="light-dark(#f4efe6, #1c1814)" color="light-dark(#2b2620, #ece5d6)"
+      column width="100%" align-items="center" padding-top=(viewport.width < 700 ? 16 : 26) padding-bottom=20 gap=16 box-sizing="border-box"
+        row width=contentWidth justify-content="space-between" align-items="center" gap=12
+          column gap=3
+            text "EXACT / AFTER PRETEXT" class=Eyebrow
+            text "Reflow" font-weight=700 font-size=30 line-height="34px"
+          row gap=6
+            button testId="pause" press=pause class=Pill background-color="light-dark(#ebe4d6, #2e2822)" color="light-dark(#4a3f35, #d8cdb9)"
+              text (running ? "Pause" : "Play") font-size=11
+            button testId="appearance" press=appearance class=Pill background-color="light-dark(#ebe4d6, #2e2822)" color="light-dark(#4a3f35, #d8cdb9)"
+              text (dark ? "Light paper" : "Dark paper") font-size=11
+        row width=contentWidth flex-wrap="wrap" gap=6
+          SceneTab(id="balls", label="01 Balls", current=scene, pick=choose)
+          SceneTab(id="dragon", label="02 Dragon", current=scene, pick=choose)
+          SceneTab(id="masonry", label="03 Masonry", current=scene, pick=choose)
+          SceneTab(id="magazine", label="04 Dynamic layout", current=scene, pick=choose)
+          SceneTab(id="ascii", label="05 ASCII art", current=scene, pick=choose)
+          SceneTab(id="wall", label="06 Occlusion", current=scene, pick=choose)
+          SceneTab(id="spread", label="07 Spread", current=scene, pick=choose)
+        when scene == "balls"
+          column width=contentWidth gap=10
+            text "01 / BALLS" class=Eyebrow
+            text "Three spheres cross a paragraph and the words part around them on both sides. The spheres are exclusions (wrap-flow: both); their positions are arithmetic on the clock, committed every 16 ms." class=Lede
+            box testId="balls-page" position="relative" width=contentWidth height=ballsHeight
+              text ballsScene.text testId="balls-prose" position="absolute" left=0 top=0 width=contentWidth height=ballsHeight font-size=17 line-height="26px" white-space="pre-wrap" color="light-dark(#2b2620, #e9e2d3)"
+              each ball in ballsScene.balls key=ball.id
+                box testId=ball.id position="absolute" left=ball.x top=ball.y width=(ball.r * 2) height=(ball.r * 2) border-radius=ball.r background-color=ball.color border-width=1 border-style="solid" border-color="light-dark(#ffffff55, #ffffff22)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=12
+        when scene == "dragon"
+          column width=contentWidth gap=10
+            text "02 / THE ILLUSTRATED MANUSCRIPT" class=Eyebrow
+            text "Drag the dragon anywhere on the page. Its silhouette is one polygon, both the ink and the exclusion, and the bestiary closes around it wherever it lands." class=Lede
+            column testId="manuscript" width=contentWidth padding=pagePad box-sizing="border-box" gap=14 background-color="light-dark(#f1e6c8, #2a2418)" border-radius=4 border-width=1 border-style="solid" border-color="light-dark(#c9b98c, #4a3f2a)"
+              text "OF DRAGONS" width="100%" font-weight=700 font-size=(viewport.width < 700 ? 24 : 30) line-height="36px" letter-spacing=4 text-align="center" color="light-dark(#8a2f1f, #d98a6a)"
+              box testId="dragon-page" position="relative" width=pageInner height=dragonHeight
+                text dragonScene.text testId="dragon-prose" position="absolute" left=0 top=0 width=pageInner height=dragonHeight font-size=17 line-height="26px" white-space="pre-wrap" color="light-dark(#3a2c1c, #e6dcc2)"
+                box testId="drop-cap" position="absolute" left=0 top=0 width=64 height=70 wrap-flow="both" shape-outside="inset(0)" shape-margin=8
+                  text "O" font-weight=700 font-size=80 line-height="70px" color="light-dark(#8a2f1f, #d98a6a)"
+                box testId="dragon" pan=dragDragon touch-action="none" position="absolute" left=dragonScene.x top=dragonScene.y width=dragonScene.w height=dragonScene.h clip-path=dragonScene.clip background-color="light-dark(#3f6b4f, #7fae8c)" wrap-flow="both" shape-outside=dragonScene.outline shape-margin=12
+                  box position="absolute" left=0 top=0 width=dragonScene.w height=dragonScene.h clip-path=dragonScene.belly background-color="light-dark(#c9b27a, #d9c98f)"
+                  box position="absolute" left=(dragonScene.eyeX - dragonScene.eyeR) top=(dragonScene.eyeY - dragonScene.eyeR) width=(dragonScene.eyeR * 2) height=(dragonScene.eyeR * 2) border-radius=20 background-color="light-dark(#f2c14e, #ffd166)"
+        when scene == "masonry"
+          column width=contentWidth gap=10
+            text "03 / MASONRY" class=Eyebrow
+            row justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
+              text `${masonryScene.cols} columns of ${masonryScene.colWidth} px. Every card's height was computed from the font's advances before it was placed in the shortest column; the footer says what the arithmetic expected.` class=Lede flex=1 min-width=200
+              button testId="shuffle" press=shuffle class=Pill background-color="light-dark(#3b2f2a, #e3d3b8)" color="light-dark(#fbf6ec, #2a211c)"
+                text "Shuffle" font-size=12
+            row testId="masonry" gap=16 align-items="flex-start" width=contentWidth
+              each col in masonryScene.columns key=col.id
+                column testId=col.id width=masonryScene.colWidth gap=16
+                  each card in col.cards key=card.id
+                    column testId=card.id width=masonryScene.colWidth padding=16 padding-right=14 box-sizing="border-box" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
+                      CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.titleLines + card.bodyLines} lines · ${card.height} px predicted`)
+        when scene == "magazine"
+          column width=contentWidth gap=10
+            text "04 / DYNAMIC LAYOUT" class=Eyebrow
+            text `${magazineScene.cols} columns of ${magazineScene.colWidth} px. Drag the bar at the page's right edge: the columns are re-cut at line boundaries on every sample, from widths that were known before you touched it.` class=Lede
+            box testId="magazine-frame" position="relative" width=contentWidth height=(magazineScene.colHeight + 176)
+              column testId="magazine-page" position="absolute" left=0 top=0 width=magazineWidth padding=(viewport.width < 700 ? 16 : 28) box-sizing="border-box" gap=12 background-color="light-dark(#fbf8f1, #27211b)" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
+                text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 30 : 40) line-height="44px" letter-spacing=-0.5
+                text "An essay in as many columns as fit" font-style="italic" font-size=15 line-height="20px" color="light-dark(#6a5f50, #b8ad99)"
+                row gap=28 align-items="flex-start"
+                  each col in magazineScene.columns key=col.id
+                    text col.text testId=col.id width=magazineScene.colWidth height=magazineScene.colHeight overflow="hidden" class=Article
+                text (magazineScene.leftover > 0 ? `${magazineScene.leftover} words continue on the next page.` : "The whole essay fits on this page.") font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
+              box testId="magazine-handle" pan=resize touch-action="none" position="absolute" left=(magazineWidth - 7) top=0 width=14 height=(magazineScene.colHeight + 176) border-radius=7 background-color="light-dark(#3b2f2a, #e3d3b8)" opacity=0.85
+        when scene == "ascii"
+          column width=contentWidth gap=10 align-items="center"
+            text "05 / ASCII ART IN A PROPORTIONAL FACE" class=Eyebrow width="100%"
+            row gap=6 flex-wrap="wrap"
+              button testId="ascii-measured" press=setMeasured(true) class=Pill background-color=(measured ? "light-dark(#3b2f2a, #e3d3b8)" : "light-dark(#ebe4d6, #2e2822)") color=(measured ? "light-dark(#fbf6ec, #2a211c)" : "light-dark(#4a3f35, #d8cdb9)")
+                text "Measured" font-size=12
+              button testId="ascii-naive" press=setMeasured(false) class=Pill background-color=(measured ? "light-dark(#ebe4d6, #2e2822)" : "light-dark(#3b2f2a, #e3d3b8)") color=(measured ? "light-dark(#4a3f35, #d8cdb9)" : "light-dark(#fbf6ec, #2a211c)")
+                text "Naive grid" font-size=12
+            text (measured ? "Every row advances by the real, kerned width of the glyph it just chose, so a proportional face draws a straight picture. The light circles the sphere on the clock." : "Every row samples on a uniform grid, but the glyphs are not uniform: the rows stretch and shrink wherever the widths disagree, and the picture bends.") class=Lede width="100%"
+            column testId="ascii-art" width=(asciiWidth + 32) padding=16 box-sizing="border-box" overflow="hidden" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
+              each row in asciiScene.rows key=row.id
+                text row.text testId=row.id width=(asciiWidth * 2) height=13 font-size=13 line-height="13px" white-space="pre-wrap" color="light-dark(#2b2620, #e9e2d3)"
+        when scene == "wall"
+          column width=contentWidth gap=10
+            text "06 / OCCLUSION" class=Eyebrow
+            text `${wallScene.count} cards in ${wallScene.cols} columns, ${wallScene.total} px tall, and only ${wallScene.visible} of them exist as views. Every position was known before the first card was drawn, so the scroll extent is exact and nothing re-estimates as you move.` class=Lede
+            scroll testId="wall-scroll" scroll=wallScrolled width=contentWidth height=wallHeight
+              box testId="wall" position="relative" width=contentWidth height=wallScene.total
+                each card in wallScene.cards key=card.id
+                  column testId=card.id position="absolute" left=card.x top=card.y width=wallScene.colWidth height=card.h padding=16 padding-right=14 box-sizing="border-box" overflow="hidden" border-radius=10 background-color="light-dark(#fbf8f1, #27211b)" border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
+                    CardFace(title=card.title, body=card.body, foot=`No. ${card.index} · ${card.lines} lines · ${card.h} px`)
+        when scene == "spread"
+          column width=contentWidth gap=10
+            text "07 / EDITORIAL SPREAD" class=Eyebrow
+            text `${spreadScene.cols} columns. The drop cap, the quotation and the picture are exclusions in the kernel; each column's text was cut where the same walker, run in the data crate around the same shapes, said its flow would stop. Narrow the window to one column and the obstacles move with it.` class=Lede
+            column testId="spread-page" width=contentWidth padding=pagePad box-sizing="border-box" gap=18 background-color="light-dark(#fbf8f1, #27211b)" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e3dbcb, #3a322a)"
+              text "The Measured Page" font-weight=700 font-size=(viewport.width < 700 ? 34 : 52) line-height=1.02 letter-spacing=-1
+              text "Why a magazine measures first and draws second" font-style="italic" font-size=17 line-height="24px" color="light-dark(#6a5f50, #b8ad99)"
+              box testId="spread-body" position="relative" width=pageInner height=spreadScene.height
+                each col in spreadScene.columns key=col.id
+                  text col.text testId=col.id position="absolute" left=col.x top=0 width=spreadScene.colWidth height=spreadScene.height class=Article
+                box testId="spread-cap" position="absolute" left=0 top=0 width=spreadScene.capW height=spreadScene.capH wrap-flow="both" shape-outside=spreadScene.capShape shape-margin=spreadScene.capMargin
+                  text "T" font-weight=700 font-size=80 line-height="64px" color="light-dark(#b4462d, #e39a77)"
+                box testId="spread-quote" position="absolute" left=spreadScene.quoteX top=spreadScene.quoteY width=spreadScene.quoteW height=spreadScene.quoteH padding=spreadScene.quotePadding box-sizing="border-box" border-radius=14 background-color="light-dark(#efe4cf, #3a3126)" wrap-flow="both" shape-outside=spreadScene.quoteShape shape-margin=spreadScene.quoteMargin
+                  text spreadScene.quoteText testId="spread-quote-text" font-style="italic" font-size=spreadScene.quoteSize line-height=`${spreadScene.quoteLineHeight}px` white-space="pre-wrap" color="light-dark(#5a3a2a, #e8c9a8)"
+                box testId="spread-disc" position="absolute" left=spreadScene.discX top=spreadScene.discY width=spreadScene.discW height=spreadScene.discW border-radius=200 background-color="light-dark(#4f7d6a, #93bda6)" wrap-flow="both" shape-outside=spreadScene.discShape shape-margin=spreadScene.discMargin
+                  box position="absolute" left="18%" top="18%" width="64%" height="64%" border-radius=200 background-color="light-dark(#c2603f, #e39a77)"
+                  box position="absolute" left="36%" top="36%" width="28%" height="28%" border-radius=200 background-color="light-dark(#f2c14e, #ffd166)"
+              when spreadScene.leftover > 0
+                text `${spreadScene.leftover} words continue overleaf.` font-size=12 line-height="20px" color="light-dark(#8a7c66, #a89a82)"
+        row width=contentWidth justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
+          text "After Cheng Lou's Pretext demos. Advances read from the font files at build time; lines broken by the walker every host flows text with." font-style="italic" font-size=12 line-height="18px" color="light-dark(#7a6a55, #b8a98f)" flex=1 min-width=200
+          text `${viewport.width} × ${viewport.height}` font-size=11 color="light-dark(#8a7c66, #a89a82)"
+
+component SceneTab
+  props
+    id: string
+    label: string
+    current: string
+    pick: action
+  view
+    button testId=`scene-${id}` press=pick(id) padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 border-width=0 border-radius=18 background-color=(current == id ? "light-dark(#3b2f2a, #e3d3b8)" : "light-dark(#ebe4d6, #2e2822)") color=(current == id ? "light-dark(#fbf6ec, #2a211c)" : "light-dark(#4a3f35, #d8cdb9)")
+      text label font-size=12
+
+component CardFace
+  props
+    title: string
+    body: string
+    foot: string
+  view
+    text title class=CardTitle
+    box height=6
+    text body class=CardBody
+    box height=10
+    text foot class=CardFoot

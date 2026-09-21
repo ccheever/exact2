@@ -95,6 +95,26 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         + 1;
     assert_eq!(error.id, "type-condition");
     assert_eq!(error.span.line as usize, line);
+    // A derive starts the type fixpoint as `?`, so a ternary over one used to be
+    // refused outright while the same expression written inline compiled. Naming the
+    // type in the message defers the round, the way a binary operand already did.
+    let ternary_over_derive = r#"component T
+  state count = 0
+  derive ready = count > 0
+  derive shown = ready ? "open" : "closed"
+  view
+    main
+      text shown testId="shown"
+"#;
+    contract::compile(ternary_over_derive).unwrap();
+    let not_a_bool = ternary_over_derive.replace("ready = count > 0", "ready = count");
+    let error = contract::compile(&not_a_bool).unwrap_err();
+    assert_eq!(error.id, "type-condition");
+    assert!(
+        error.message.contains("given `number`"),
+        "{}",
+        error.message
+    );
 }
 
 fn text_of(r: &Runner<Stations>, id: &str) -> String {
@@ -252,10 +272,24 @@ fn nested_row_actions_use_lexical_items_even_when_a_root_name_collides() {
     )
     .unwrap();
     assert_eq!(text_of(&r, "selected-mv-pa"), "Palo Alto");
+    assert_listener_lookup(&r);
     let choose = view_of(&r, "choose-mv-pa");
     r.dispatch(choose, Event::Press).unwrap();
     assert_eq!(text_of(&r, "result-mv-pa"), "Mountain View/Palo Alto");
     assert_eq!(r.slot("item"), Some(&Value::str("root collision")));
+}
+
+fn assert_listener_lookup<D: DataSource>(runner: &Runner<D>) {
+    let listeners = runner.handlers();
+    let mut pending = runner.roots();
+    while let Some(view) = pending.pop() {
+        assert_eq!(
+            runner.handlers_of(view),
+            listeners.get(&view).cloned().unwrap_or_default()
+        );
+        pending.extend(runner.kernel().node(view).unwrap().children());
+    }
+    assert!(runner.handlers_of(u32::MAX).is_empty());
 }
 
 #[test]
@@ -303,9 +337,7 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(runner.kernel().find_by_test_id("key-0")[0], before);
     let listeners = runner.handlers();
     assert_eq!(listeners.len(), 3);
-    for (view, events) in &listeners {
-        assert_eq!(*events, runner.handlers_of(*view));
-    }
+    assert_listener_lookup(&runner);
     let root = runner.roots()[0];
     let old_order = runner.kernel().node(root).unwrap().children();
     let receipt = runner.act("toggle", vec![]).unwrap();
@@ -313,6 +345,10 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(receipt.created.len(), 2);
     let new_listeners = runner.handlers();
     assert_eq!(new_listeners.len(), 1);
+    assert_listener_lookup(&runner);
+    assert!(listeners
+        .keys()
+        .all(|id| runner.handlers_of(*id).is_empty()));
     assert!(listeners.keys().all(|id| !new_listeners.contains_key(id)));
     assert!(old_order
         .iter()
@@ -320,5 +356,265 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_eq!(runner.kernel().node(root).unwrap().children().len(), 1);
     runner.act("toggle", vec![]).unwrap();
     assert_eq!(runner.handlers().len(), 3);
+    assert_listener_lookup(&runner);
     assert_ne!(runner.kernel().find_by_test_id("key-0")[0], before);
+}
+
+#[test]
+fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
+    let source = r#"component App
+  state shown = true
+  action toggle writes shown
+    shown = !shown
+  view
+    column testId="root"
+      when shown
+        column testId="branch"
+          button "first" press=toggle testId="repeated"
+          column
+            text "nested" testId="nested"
+          button "second" press=toggle testId="repeated"
+      else
+        text "gone" testId="replacement"
+      text "other sibling" testId="other"
+"#;
+    let mut runner = Runner::boot(
+        contract::compile(source).unwrap(),
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let ask = |runner: &Runner<Stations>, target: serde_json::Value| -> serde_json::Value {
+        serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target}).to_string(),
+        ))
+        .unwrap()
+    };
+    let full: serde_json::Value =
+        serde_json::from_str(&exact_runner::agent::tree(&runner)).unwrap();
+    let nodes = full["nodes"].as_array().unwrap();
+    for (start, node) in nodes.iter().enumerate() {
+        let depth = node["depth"].as_u64().unwrap();
+        let end = start
+            + 1
+            + nodes[start + 1..]
+                .iter()
+                .take_while(|child| child["depth"].as_u64().unwrap() > depth)
+                .count();
+        let scoped = ask(&runner, node["id"].clone());
+        assert_eq!(scoped["nodes"].as_array().unwrap(), &nodes[start..end]);
+        assert_eq!(scoped["roots"], serde_json::json!([node["id"]]));
+        for tag in ["epoch", "incarnation", "clock"] {
+            assert_eq!(scoped[tag], full[tag]);
+        }
+        for shallow in [false, true] {
+            let request = serde_json::json!({"op":"tree", "target":node["id"], "shallow":shallow});
+            let reply: serde_json::Value =
+                serde_json::from_str(&exact_runner::agent::handle(&runner, &request.to_string()))
+                    .unwrap();
+            let mut expected = scoped.clone();
+            if shallow {
+                expected["nodes"] = serde_json::json!([node]);
+            }
+            assert_eq!(reply, expected);
+        }
+    }
+    let first = nodes
+        .iter()
+        .find(|n| n["props"]["testId"] == "repeated")
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "repeated".into())["nodes"],
+        ask(&runner, first["id"].clone())["nodes"]
+    );
+    let shallow: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
+        &runner,
+        r#"{"op":"tree","target":"repeated","shallow":true}"#,
+    ))
+    .unwrap();
+    assert_eq!(shallow["nodes"], serde_json::json!([first]));
+    assert!(
+        exact_runner::agent::handle(&runner, r#"{"op":"tree","shallow":true}"#)
+            .contains("shallow tree needs a target")
+    );
+    for bad in [
+        serde_json::json!(1),
+        serde_json::json!("true"),
+        serde_json::Value::Null,
+    ] {
+        let request = serde_json::json!({"op":"tree", "target":"root", "shallow":bad});
+        assert!(exact_runner::agent::handle(&runner, &request.to_string())
+            .contains("tree shallow must be a boolean"));
+    }
+    let branch = ask(&runner, "branch".into());
+    assert!(branch["nodes"].as_array().unwrap().len() > 1);
+    assert!(branch["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|n| n["props"]["testId"] != "other"));
+    for bad in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(4294967296u64),
+        serde_json::json!(true),
+        serde_json::Value::Null,
+        serde_json::json!([]),
+    ] {
+        assert_eq!(
+            ask(&runner, bad)["error"],
+            "tree target must be a view id or testId"
+        );
+    }
+    runner.act("toggle", vec![]).unwrap();
+    for target in ["branch".into(), first["id"].clone()] {
+        let request = serde_json::json!({"op":"tree", "target":target, "shallow":true});
+        assert!(
+            exact_runner::agent::handle(&runner, &request.to_string()).contains("no view matches")
+        );
+    }
+    assert!(ask(&runner, "branch".into())["error"]
+        .as_str()
+        .unwrap()
+        .contains("no view matches"));
+    assert!(ask(&runner, first["id"].clone())["error"]
+        .as_str()
+        .unwrap()
+        .contains("no view matches"));
+    assert_eq!(
+        ask(&runner, "replacement".into())["nodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn targeted_tree_uses_current_attachment_and_root_order() {
+    use exact_kernel::{NodeType, Op, PropId};
+    let mut runner = Runner::boot(
+        contract::compile("component App\n  view\n    column testId=\"root\"\n      column testId=\"branch\"\n        text \"leaf\" testId=\"leaf\"\n").unwrap(),
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    ).unwrap();
+    let ask = |runner: &Runner<Stations>, target: serde_json::Value| -> serde_json::Value {
+        let response: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target}).to_string(),
+        ))
+        .unwrap();
+        let shallow: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target, "shallow":true}).to_string(),
+        ))
+        .unwrap();
+        let mut expected = response.clone();
+        if let Some(nodes) = expected
+            .get_mut("nodes")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            nodes.truncate(1);
+        }
+        assert_eq!(shallow, expected);
+        response
+    };
+    let root = runner.roots()[0];
+    let branch = ask(&runner, "branch".into())["roots"][0].as_u64().unwrap() as u32;
+    let leaf = ask(&runner, "leaf".into())["roots"][0].as_u64().unwrap() as u32;
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            100,
+            &[
+                Op::CreateView {
+                    id: 9000,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 9000,
+                    prop: PropId::TestId,
+                    value: "leaf".into(),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([leaf])
+    );
+    let matches = |runner: &Runner<Stations>| {
+        assert_eq!(
+            runner.kernel().find_first_by_test_id("leaf"),
+            runner.kernel().find_by_test_id("leaf").first().copied()
+        );
+        runner
+            .kernel()
+            .find_by_test_id("leaf")
+            .into_iter()
+            .map(|key| runner.kernel().node_by_key(key).unwrap().id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(matches(&runner), vec![leaf, 9000]);
+    assert!(ask(&runner, 9000.into())["error"].is_string());
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            101,
+            &[Op::SetChildren {
+                id: root,
+                children: vec![],
+            }],
+        )
+        .unwrap();
+    // A live selector can refer to an unattached node or an unattached subtree.
+    assert_eq!(matches(&runner), vec![leaf, 9000]);
+    for target in [
+        serde_json::json!(leaf),
+        serde_json::json!(branch),
+        "leaf".into(),
+        "branch".into(),
+    ] {
+        assert!(ask(&runner, target)["error"].is_string());
+    }
+    assert_eq!(
+        ask(&runner, "root".into())["nodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            102,
+            &[Op::AttachRoot { id: 9000 }, Op::AttachRoot { id: branch }],
+        )
+        .unwrap();
+    // The later allocation was attached first: root order wins over slot order.
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([9000])
+    );
+    assert_eq!(matches(&runner), vec![9000, leaf]);
+    assert_eq!(ask(&runner, 9000.into())["nodes"][0]["depth"], 0);
+    let reattached = ask(&runner, leaf.into());
+    assert_eq!(reattached["nodes"][0]["depth"], 1);
+    assert_eq!(reattached["nodes"][0]["parent"], branch);
+    runner
+        .kernel_mut()
+        .apply(0, 103, &[Op::DestroyView { id: 9000 }])
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([leaf])
+    );
 }

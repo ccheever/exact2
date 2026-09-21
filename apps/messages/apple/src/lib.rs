@@ -148,7 +148,12 @@ mod tests {
             )
         };
         let inbox_time = |m: &mut Module| {
-            let inbox = call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+            let inbox = call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            );
             inbox["people"]
                 .as_array()
                 .unwrap()
@@ -228,8 +233,14 @@ mod tests {
         let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
         module.bind(&plan);
         module.activate().unwrap();
-        let inbox =
-            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = |m: &mut Module| {
+            call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            )
+        };
         for (id, body, reply) in [("maya", "Coffee?\nTomorrow", "m10"), ("dad", "Hi Dad", "")] {
             call(
                 &mut module,
@@ -637,7 +648,7 @@ mod tests {
             &mut module,
             &plan,
             "inbox",
-            vec![Value::str(""), Value::Number(0.)],
+            vec![Value::str(""), Value::Number(0.), Value::str("")],
         );
         let people = inbox["people"].as_array().unwrap();
         assert_eq!(
@@ -671,11 +682,18 @@ mod tests {
                     Value::str(""),
                     Value::str(body),
                     Value::Number(0.),
+                    Value::str(""),
                 ],
             )
         };
-        let inbox =
-            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = |m: &mut Module| {
+            call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            )
+        };
         let thread = |m: &mut Module, id: &str| {
             call(
                 m,
@@ -783,8 +801,14 @@ mod tests {
         let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
         module.bind(&plan);
         module.activate().unwrap();
-        let inbox =
-            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = |m: &mut Module| {
+            call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            )
+        };
         let chat = |m: &mut Module| {
             call(
                 m,
@@ -885,6 +909,7 @@ mod tests {
                 Value::str("Maya"),
                 Value::str(""),
                 Value::Number(0.),
+                Value::str(""),
             ],
         );
         assert_eq!(contacts["people"][0]["id"], "maya");
@@ -919,8 +944,14 @@ mod tests {
         let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
         module.bind(&plan);
         module.activate().unwrap();
-        let inbox =
-            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = |m: &mut Module| {
+            call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            )
+        };
         let recipients = |m: &mut Module, query: &str| {
             call(
                 m,
@@ -931,6 +962,7 @@ mod tests {
                     Value::str(query),
                     Value::str("Hello"),
                     Value::Number(0.),
+                    Value::str(""),
                 ],
             )
         };
@@ -1031,11 +1063,18 @@ mod tests {
                     Value::str(query),
                     Value::str(body),
                     Value::Number(0.),
+                    Value::str(""),
                 ],
             )
         };
-        let inbox =
-            |m: &mut Module| call(m, &plan, "inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = |m: &mut Module| {
+            call(
+                m,
+                &plan,
+                "inbox",
+                vec![Value::str(""), Value::Number(0.), Value::str("")],
+            )
+        };
         let send = |m: &mut Module, id: &str, body: &str| {
             call(
                 m,

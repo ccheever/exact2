@@ -230,6 +230,63 @@ fn diamonds_reuse_files_without_losing_name_checks_or_accepting_cycles() {
 }
 
 #[test]
+fn repeated_imports_check_the_dependency_exports_at_each_use_site() {
+    let app = App::new("repeated");
+    app.write("leaf.contract", "fn leaf(): number = 7\n");
+    app.write(
+        "lib.contract",
+        "use leaf from \"./leaf.contract\"\nfn local(): number = leaf()\n",
+    );
+    let root_source = "use local from \"./lib.contract\"\nuse leaf from \"./lib.contract\"\ncomponent App\n  view\n    text `${local() + leaf()}`\n";
+    let root = app.write("app.contract", root_source);
+    let repeated = contract::compile_path(&root).unwrap();
+    let once = contract::compile_path_source(
+        &root,
+        &root_source.replace("use leaf from \"./lib.contract\"\n", ""),
+    )
+    .unwrap();
+    assert_eq!(repeated.encode(), once.encode());
+
+    // An existing declaration in the importer is not an export of the dependency.
+    let source = root_source.replace("use leaf from", "use App from");
+    let error = contract::compile_path_source(&root, &source).unwrap_err();
+    assert_eq!(error.id, "contract-use-unknown");
+    assert_eq!(error.file.as_deref(), Some(root.as_path()));
+    assert_eq!(error.span.line, 2);
+
+    // A conflicting intervening dependency still fails at its own use site.
+    app.write("conflict.contract", "fn leaf(): number = 8\n");
+    let source = root_source.replace(
+        "use leaf from",
+        "use leaf from \"./conflict.contract\"\nuse leaf from",
+    );
+    let error = contract::compile_path_source(&root, &source).unwrap_err();
+    assert_eq!(error.id, "contract-use-duplicate");
+    assert_eq!(error.span.line, 2);
+}
+
+#[test]
+fn repeated_names_along_an_import_chain_preserve_the_plan() {
+    let app = App::new("repeated-chain");
+    for depth in (0..16).rev() {
+        let imports = if depth == 15 {
+            String::new()
+        } else {
+            let next = depth + 1;
+            format!("use a{next} from \"./part{next}.contract\"\nuse b{next} from \"./part{next}.contract\"\n")
+        };
+        app.write(
+            &format!("part{depth}.contract"),
+            &format!("{imports}fn a{depth}(): number = 0\nfn b{depth}(): number = 1\n"),
+        );
+    }
+    let root = app.write("app.contract", "use a0 from \"./part0.contract\"\nuse b0 from \"./part0.contract\"\ncomponent App\n  view\n    text `${a0() + b0()}`\n");
+    let imported = contract::compile_path(&root).unwrap();
+    let flat = contract::compile("fn a0(): number = 0\nfn b0(): number = 1\ncomponent App\n  view\n    text `${a0() + b0()}`\n").unwrap();
+    assert_eq!(imported.encode(), flat.encode());
+}
+
+#[test]
 fn equivalent_duplicate_declarations_do_not_become_conflicts_due_to_file_ids_or_end_columns() {
     let app = App::new("duplicate");
     let root = app.write("app.contract", "use Row from \"./one.contract\"\nuse Row from \"./two.contract\"\ncomponent App\n  view\n    Row()\n");
@@ -266,6 +323,15 @@ fn symlink_aliases_share_identity_and_still_detect_cycles() {
         "use Row from \"./alias.contract\"\ncomponent Right\n  view\n    Row()\n",
     );
     contract::compile_path(&root).unwrap();
+    let repeated_alias = "use Row from \"./row.contract\"\nuse Row from \"./alias.contract\"\ncomponent App\n  view\n    Row()\n";
+    contract::compile_path_source(&root, repeated_alias).unwrap();
+    let error = contract::compile_path_source(
+        &root,
+        &repeated_alias.replace("use Row from \"./alias", "use Absent from \"./alias"),
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "contract-use-unknown");
+    assert_eq!(error.span.line, 2);
     app.write(
         "row.contract",
         "use Row from \"./alias.contract\"\ncomponent Row\n  view\n    text \"row\"\n",
@@ -274,4 +340,48 @@ fn symlink_aliases_share_identity_and_still_detect_cycles() {
         contract::compile_path(&root).unwrap_err().id,
         "contract-use-cycle"
     );
+}
+
+#[test]
+fn overlapping_import_subgraphs_keep_transitive_exports_and_source_identity() {
+    let app = App::new("overlapping-dag");
+    for index in 0..28 {
+        let imports: String = [index + 1, index + 2]
+            .into_iter()
+            .filter(|next| *next < 28)
+            .map(|next| format!("use value{next} from \"./part{next}.contract\"\n"))
+            .collect();
+        app.write(
+            &format!("part{index}.contract"),
+            &format!("{imports}fn value{index}(): number = {index}\n"),
+        );
+    }
+    let source = "use value0 from \"./part0.contract\"\nuse value27 from \"./part1.contract\"\ncomponent App\n  view\n    text `${value0() + value27()}`\n";
+    let root = app.write("app.contract", source);
+    let imported = contract::compile_path(&root).unwrap();
+    let flat = contract::compile("fn value0(): number = 0\nfn value27(): number = 27\ncomponent App\n  view\n    text `${value0() + value27()}`\n").unwrap();
+    assert_eq!(imported.encode(), flat.encode());
+    let symbols: serde_json::Value =
+        serde_json::from_str(&contract::symbols_json(&root, None).unwrap()).unwrap();
+    let leaves: Vec<_> = symbols["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|definition| definition["name"] == "value27")
+        .collect();
+    assert_eq!(leaves.len(), 1);
+    assert_eq!(
+        leaves[0]["file"],
+        app.0
+            .join("part27.contract")
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+    );
+    let refused = source.replace("use value27 from", "use App from");
+    let error = contract::compile_path_source(&root, &refused).unwrap_err();
+    assert_eq!(error.id, "contract-use-unknown");
+    assert_eq!(error.span.line, 2);
+    assert_eq!(error.file.as_deref(), Some(root.as_path()));
 }

@@ -157,7 +157,7 @@ impl Picture {
                 );
             }
             let axes = effective_overflow(&node);
-            if axes.0 == Overflow::Scroll || axes.1 == Overflow::Scroll {
+            if axes.0 != Overflow::Visible || axes.1 != Overflow::Visible {
                 scroll.insert(
                     node.key,
                     ScrollBounds::capture(
@@ -522,7 +522,7 @@ impl<'a> Replay<'a> {
         for id in ancestors.into_iter().rev() {
             let n = scene.kernel.node(id).ok_or("content ancestor removed")?;
             let axes = effective_overflow(&n);
-            if axes.0 == Overflow::Scroll || axes.1 == Overflow::Scroll {
+            if axes.0 != Overflow::Visible || axes.1 != Overflow::Visible {
                 let scroll = scene.scroll.get(&id).copied().unwrap_or_default();
                 offset = (offset.0 + scroll.0, offset.1 + scroll.1);
             }

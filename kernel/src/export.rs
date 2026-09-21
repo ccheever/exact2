@@ -86,6 +86,30 @@ pub struct NodeRow {
     pub frame: Frame,
 }
 
+/// One typed export row, without walking or allocating for descendants.
+#[inline(always)]
+pub(crate) fn row(arena: &NodeArena, slot: u32, depth: u16) -> NodeRow {
+    let mut flags = 0u8;
+    if arena.is_root(slot) {
+        flags |= ROW_ROOT;
+    }
+    if arena.is_inline_run(slot) {
+        flags |= ROW_INLINE_RUN;
+    }
+    if arena.flags(slot).has(NodeFlags::GEOMETRY_CHANGED) {
+        flags |= ROW_GEOMETRY_CHANGED;
+    }
+    NodeRow {
+        id: arena.local_id(slot),
+        parent: arena.parent(slot).map(|p| arena.local_id(p)),
+        key: arena.key(slot),
+        node_type: arena.node_type(slot),
+        flags,
+        depth,
+        frame: arena.frame(slot),
+    }
+}
+
 /// The preorder rows for one root (or every root), with their slots.
 pub fn rows(arena: &NodeArena, root: Option<u32>) -> Vec<(u32, NodeRow)> {
     let roots: Vec<u32> = match root {
@@ -96,28 +120,7 @@ pub fn rows(arena: &NodeArena, root: Option<u32>) -> Vec<(u32, NodeRow)> {
     for r in roots {
         let mut stack: Vec<(u32, u16)> = vec![(r, 0)];
         while let Some((slot, depth)) = stack.pop() {
-            let mut flags = 0u8;
-            if arena.is_root(slot) {
-                flags |= ROW_ROOT;
-            }
-            if arena.is_inline_run(slot) {
-                flags |= ROW_INLINE_RUN;
-            }
-            if arena.flags(slot).has(NodeFlags::GEOMETRY_CHANGED) {
-                flags |= ROW_GEOMETRY_CHANGED;
-            }
-            out.push((
-                slot,
-                NodeRow {
-                    id: arena.local_id(slot),
-                    parent: arena.parent(slot).map(|p| arena.local_id(p)),
-                    key: arena.key(slot),
-                    node_type: arena.node_type(slot),
-                    flags,
-                    depth,
-                    frame: arena.frame(slot),
-                },
-            ));
+            out.push((slot, row(arena, slot, depth)));
             for child in arena.children(slot).iter().rev() {
                 stack.push((*child, depth.saturating_add(1)));
             }

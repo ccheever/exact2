@@ -150,6 +150,127 @@ run every check on the CPU backend. **The CPU backend** (`raster.rs`) is
 the tiny-skia code r1 described, behind the same trait: masks for clips,
 a layer pixmap for opacity, swash glyph bitmaps for text.
 
+CSS path masks intersect their parent only within transformed control bounds,
+rounded outward with two pixels of antialiasing slack. Viewports or transformed
+coordinates beyond 8,191 pixels keep the full-mask calculation, as do failed
+transforms. Mask dimensions and floor-rounded alpha multiplication are unchanged.
+A 192-case regression covers curves, transforms, parent coverage and tiled
+fallbacks; 24 app screenshots and their layouts match the previous renderer.
+Two paired release comparisons of Textflow's 120-frame Dancer workload on this
+Mac measured about 8–9% lower frame cost (the second: 5.97 → 5.42 ms).
+These are headless CPU measurements, not physical display cadence.
+
+Rectangle fills now bound their shading work to the active mask's conservative
+device-space bounds, with two extra pixels of slack. Only axis-aligned, unrounded
+rectangles in viewports/coordinates up to 8,191 pixels take this path; rotated,
+sheared, rounded and uncertain geometry retains the original path. Original
+fractional edges are preserved and the unchanged mask remains authoritative.
+Two transformed stack corners establish the bounds without cloning a path.
+This also bounds the white clear during a partial repaint.
+
+A 322-case pixel oracle compares the full path with fractional edges, scales,
+negative scale, rotation, nested rounded clips, damage and the tiling boundary.
+Twenty-four Textflow/Caltrain screenshots and their layouts are byte-identical.
+Four alternating release pairs of the six-scene, 720-frame fixture measured total
+process CPU time at 4.343 → 3.926 seconds (9.6% less, including setup/warmup).
+Shared load varied elapsed timings, so no display-cadence claim follows. An isolated
+1,200-frame Editorial control was effectively flat at 1.209 → 1.205 ms/frame.
+Evidence: `/tmp/exact-text-cpu-d28853d6/` (`selected-cpu/` and `editorial/`).
+
+Damage clearing uses the same non-antialiased rectangle paths that build the
+binary damage mask to paint opaque white directly into the copied previous frame.
+The mask still governs subsequent painting. Nonfinite geometry, coordinates or
+viewports beyond 8,191 pixels, and scales whose viewport-edge round trip is not
+exact retain the full masked clear. Overlapping rectangles remain idempotent.
+An independent 896-case oracle compares the original full masked viewport across
+fractional scales, overlapping/offscreen/empty/invalid regions and tiled fallbacks;
+it passes in debug and release, alongside the existing clipped-fill oracle and
+Textflow damage-versus-full repaint tests. Twenty-four app screenshots and their
+layouts match. Four alternating release pairs measured total process CPU at
+3.067 → 2.524 seconds (17.7% less) for the six-scene fixture relative to the bounded
+rectangle renderer above. A second four-pair run confirmed 2.708 → 2.278 seconds
+(15.9% less); its static Editorial control was effectively flat at 1.039 → 1.046
+ms/frame. This is headless process CPU including setup/warmup;
+shared load varies elapsed frame timings, and physical cadence remains unproven.
+Evidence: `/tmp/exact-damage-clear-0ff47ba3/`.
+
+Partial CPU frames now begin directly from the accepted pixels. The backend's
+combined `begin_damage` entry resets frame-local state and copies the previous
+surface once; refused damage falls back to an ordinary white frame. This avoids
+allocating and clearing a surface that would immediately be discarded.
+Completed frames, flow repaint history and retained content-region fallbacks
+share an immutable `Arc<Pixmap>`. `Presenter::frame` and `Frame::pixmap` expose
+that shared owner; the display receipt passes it through without another wrapper
+or a deep copy. Repainting still writes into a separate surface, so old displayed
+pixels cannot change. A resized failed frame gets its own cropped/padded surface.
+The existing damage/full-repaint oracle checks shared ownership and old-owner
+release, and content-region failure/resize tests check reuse without aliasing a
+resized surface. Frame reset and incompatible-size fallback have pixel coverage.
+The 896-case damage oracle and all 14 painter tests pass in debug and release;
+24 Textflow/Caltrain screenshots and their layouts match. Two four-pair alternating
+release runs of the six-scene, 720-frame fixture measured total process CPU at
+1.166 → 1.079 seconds (7.5% less) and 1.248 → 1.139 seconds (8.8% less).
+These include setup/warmup and do not establish physical display cadence.
+Evidence: `/tmp/exact-frame-begin-dec547d2/` and its `confirmation/` directory.
+
+When one input damage rectangle contains the entire union and its device edges
+are integers, the backend records that exact rectangular coverage at the mask's
+stack depth. An opaque, axis-aligned, unrounded fill with integer device edges can
+then paint its intersection directly. Nested clips, fractional edges, transparent
+fills, rotations and tiled/uncertain geometry retain the mask path. Popping that
+mask or beginning another frame retires the proof; no additional mask is retained.
+
+The first shape clip under that proven rectangular damage mask now fills one
+fresh child mask and clears rows outside the damage rectangle. It avoids cloning
+the parent and allocating a second scratch mask for the intersection. Coverage
+is exactly 0/255, so no alpha multiplication is needed. Deeper clips, unproven
+unions, fractional damage edges and tiled viewports retain the existing path;
+additional shapes keep their original intersection order and rounding. No mask
+cache or new retained owner is added.
+
+A 3,024-case oracle compares the original intersections across shape sequences,
+parent coverage, damage, nesting, scales, transforms and tiling. It and the existing
+14 painter tests pass in debug and release; Textflow repaint tests and 24 app
+screenshots/layouts also match. A fixed 12-pair alternating release comparison
+measured six-scene process CPU at 1.123 → 1.068 seconds (4.9% less; 10 pairs improve),
+after smaller four-pair groups showed 6.0% and 2.1% reductions under varying load.
+Development-build process CPU was effectively flat (3.303 → 3.275 seconds).
+These include setup/warmup and establish no physical display-cadence result.
+Evidence: `/tmp/exact-nested-mask-ea01a719/`, including `extended/`.
+
+A 1,320-case independent full-mask oracle checks individual fill variants, nested
+clip push/pop, replacement clips and frame resets across scales and tiling limits.
+Debug and release pixel suites and the Textflow repaint tests pass. Four alternating
+release pairs measured the six-scene process CPU fixture at 2.295 → 1.787 seconds
+(22.1% less) relative to the damage-clear renderer above. A second four-pair run
+confirmed 2.226 → 1.695 seconds (23.9% less), with the static Editorial control
+effectively flat at 1.017 → 1.029 ms/frame. Twenty-four app screenshots and layouts
+are byte-identical. These are headless CPU measurements including setup/warmup,
+with no physical display-cadence claim.
+Evidence: `/tmp/exact-mask-fill-cfd70e0e/`.
+
+An opaque rounded background can use the same exact damage rectangle when it
+lies wholly inside either of the box's two solid central strips, with two device
+pixels of clearance on every side. The proof requires finite, nonnegative radii
+no larger than half the smaller dimension, finite nonsingular axis-aligned
+transforms and the same non-tiled bounds. Otherwise the complete rounded path and
+mask remain unchanged. No visible curved or fractional edge is replaced.
+
+A 3,456-case full-mask oracle covers fractional scales, reflection, nonuniform
+scaling, rotation/shear fallback, asymmetric/oversized/negative finite radii,
+edge proximity, alpha, irregular damage and opacity layers. It passes in debug
+and release. The clip-lifetime oracle now exercises eligible rounded fills too;
+a separate test verifies the coverage proof rejects nonfinite/invalid radii.
+The oracle also exposed a pre-existing tiny-skia panic for an internal NaN radius,
+reproduced on the published baseline and recorded in `QUEUE.md`; it is not a
+passing pixel case. Twenty-four app screenshots and layouts remain byte-identical.
+Four alternating release pairs measured six-scene process CPU at 1.727 → 1.140
+seconds (34.0% less) relative to the rectangular-damage renderer above. A second
+four-pair run confirmed 1.743 → 1.142 seconds (34.5% less); the static Editorial
+control varied by about 3% or less across both comparisons. This is headless CPU
+including setup/warmup, not evidence of physical display cadence.
+Evidence: `/tmp/exact-rounded-interior-fb9f8b65/`.
+
 **The one kernel change.** `text_color`'s default in `schema.json` was
 `4278190335` — `0xFF0000FF`, opaque red in the kernel's packing — and no
 host had read it: the web host lowers only set rows and the browser's
@@ -301,6 +422,16 @@ The headless/DRM host has no system clipboard. `copyText(text)` is recognized
 and reports `unsupported` on stderr; it neither saves a pretend clipboard nor
 adds an agent operation (2026-09-10; Apple/web behavior: LLP 1008 §5, 1007 §4).
 
+**Closed popovers** keep their inspectable logical tree but are hidden and inert
+on Linux (2026-09-20). Linux has no top-layer popover presenter: tapping an invoker
+reports unsupported before its accompanying application action runs; pointer
+activation logs the same refusal, and retained/direct Host dispatch cannot bypass
+it. This prevents closed Messages confirmations from painting over or intercepting
+the inbox. The kernel still lays out their logical boxes, so a normal-flow popover
+can reserve space; Messages uses absolute containers. Opening, placement, light
+dismissal and removal from normal flow remain unimplemented. This is an honest
+capability boundary, not completion of LLP 1021's presentation proposal.
+
 What a painter holds beyond the kernel, and the operations that touch it.
 **Scroll offsets** are host state per scroll container, clamped after
 every layout to the content extent (LLP 1010's floor, ported); the page's
@@ -314,6 +445,19 @@ the path a click takes in a browser; focus follows the click: an input
 takes it, anything else drops it. **Typing** (`type_text`) focuses the
 input and dispatches one `change` with the whole value; a key in display
 mode appends or backspaces the current value and dispatches likewise.
+Changed finite `scrollTop`/`scrollLeft` requests on ordinary containers apply
+once after layout, clamped to their content bounds, including `overflow: hidden`.
+An unchanged binding leaves a reader's offset alone. `scrollFollowEnd` follows
+growth and resize only while already at the end (within one point); enabling it
+starts at the end, and an explicit request wins in the same commit. On a display,
+the existing picture receipt owns these model offsets until acknowledged; reader
+input retires stale intent. Programmatic scroll callbacks coalesce in change order
+and report applied/acknowledged positions on the next pump. Hidden overflow permits
+programmatic scrolling but still refuses wheel input. The headless Messages drive
+covers 215 sends, a bounded 200-row transcript, earlier/later shifts and return to
+latest; it does not establish physical display cadence or fix the separate hidden
+confirmation/context-menu input gaps (2026-09-20).
+
 **`clock`** advances the runner, seeks the engine to where it landed, and
 reports both. **Images** (`image.rs`): after every commit the presenter
 syncs every image node's `imageSource` — a relative path resolves under
@@ -329,6 +473,11 @@ the new plan with state carried (`Runner::carry`) and starts scroll,
 focus, and pictures over, as LLP 1007 §6 says.
 
 ## 5. The agent API (`host/linux/src/agent.rs`) and the driver
+
+Delivery synchronization runs presenter commit work only when the store's facts
+change (LLP 1030 D7). Repeated first-pixel checks and idle agent reads leave a
+clean presenter clean; they do not request a repaint of the same picture.
+Successful activation still publishes the selected generation after its frame.
 
 `EXACT_AGENT=1` is `Agent.swift`'s protocol on stdio, line for line: the
 ready line, then JSON requests in and replies out. `tree`, `state`, `logs`,

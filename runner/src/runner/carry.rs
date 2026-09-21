@@ -83,6 +83,51 @@ mod tests {
     }
 
     #[test]
+    fn inspection_identity_is_lazy_and_owned_by_one_immutable_plan() {
+        let runner = Runner::boot(
+            plan("fresh", false),
+            Source::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let id = runner.roots()[0];
+        assert!(runner.inspection_digest.get().is_none());
+        crate::agent::handle(&runner, &format!("{{\"op\":\"node\",\"id\":{id}}}"));
+        crate::agent::handle(&runner, "{\"op\":\"node\",\"id\":4294967295,\"plan\":true}");
+        assert!(
+            runner.inspection_digest.get().is_none(),
+            "ordinary and stale node reads must not encode the plan"
+        );
+        let first = crate::agent::handle(
+            &runner,
+            &format!("{{\"op\":\"node\",\"id\":{id},\"plan\":true}}"),
+        );
+        let cached = runner.inspection_digest.get().unwrap();
+        assert_eq!(
+            crate::agent::field_str(&first, "planDigest").as_deref(),
+            Some(cached.as_str())
+        );
+        let address = cached.as_ptr();
+        crate::agent::handle(
+            &runner,
+            &format!("{{\"op\":\"node\",\"id\":{id},\"plan\":true}}"),
+        );
+        assert_eq!(runner.inspection_digest.get().unwrap().as_ptr(), address);
+        let replacement = Runner::boot(
+            plan("fresh", true),
+            Source::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert!(replacement.inspection_digest.get().is_none());
+        assert_ne!(replacement.inspection_digest(), cached);
+    }
+
+    #[test]
     fn carried_answers_and_store_dependencies_follow_source_names_not_string_ids() {
         let original = Runner::boot_stored(
             plan("remember", false),

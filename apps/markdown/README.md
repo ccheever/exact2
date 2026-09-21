@@ -214,8 +214,9 @@ worker IOSurfaces, including `bb134e09` publication; it does not adopt upstream'
 after-commit observer or synchronous whole-paragraph CGImage painting. These
 numbers therefore do not validate the integrated candidate.
 
-**Scrolling now measures ahead of Legend on the one machine and method
-available to this pass; nothing here is a 120 Hz or a real-input result.** An
+**Scrolling now measures ahead of Legend by the one method available to this
+pass, at 60 Hz here and at 120 Hz on a Retina panel (below); nothing here is a
+real-input result.** An
 M4 Pro Mac mini, two 60 Hz displays, an agent session without Accessibility,
 event-posting or screen-capture permission. So input is synthesized inside each
 process by an injected library (`DYLD_INSERT_LIBRARIES`; both apps are ad-hoc
@@ -362,7 +363,51 @@ Zero refreshes showed uncovered space in any run, including a reversal, a
 250,000-point jump and 48,000 points a second. A jump still builds the rows it
 lands on synchronously (one stall of 30–55 ms).
 
-**Not established:** anything at 120 Hz; anything with HID input; responsive
+**What the work cost elsewhere: nothing found.** Measured afterwards on the same
+M4 Pro with three in-process probes (`probe/resizeprobe.m`, `startprobe.m`, and
+the scroll probe's footprint), `6214c47` against main at `abe5145`, which also
+carries the move to Taffy 0.14:
+
+| Same 2.34 MB document | Exact `6214c47` | Exact `abe5145` | Legend |
+| --- | ---: | ---: | ---: |
+| Live resize, one 6-point step to its commit, p50 / p95 ms | 7.22 / 11.33 | 7.58 / 9.49 | 6.51 / 9.47 |
+| Resize steps over 16.67 ms, of about 890 | 4 | 4 | 12 |
+| Footprint after scrolling 72,000 points, MB | 172–174 | 62–65 | 157–158 |
+| Launch to first committed content, median / p90 / max ms | 228 / 244 / 535 | 202 / 209 / 221 | 200 / 209 / 212 |
+
+The footprint fell because the zero-width layout pass of cause 1 had been
+wrapping every paragraph a word to a line and leaving those lines in the text
+cache. A resize step is 7.25 ms of main-thread time, about two fifths layout and
+apply and three fifths repaint; keeping the measuring typesetter across widths
+and skipping the ink index on whole paints were each tried and saved 1.5% and 1%
+of it, nothing measurable in a scroll, and were not kept. A sampler had made them
+look like 30% and 8%: it is not a ruler.
+
+**At 120 Hz, on a Retina panel.** The same probe over SSH on an M5 Max, 3456×2234
+at 2×, three interleaved rounds, every window placed visible and unactivated, the
+machine under other agents' load throughout (load average 30 to 67). Exact before
+is `1bc430f`, now is `4d91f9e`:
+
+| Wheel path, 2,400 inputs | Exact before | Exact now | Legend |
+| --- | ---: | ---: | ---: |
+| Input to commit p50 / p99, ms | 3.43 / 7.90 | 1.84 / 3.19 | 3.06 / 4.55 |
+| Inputs later than 8.33 ms | 3, 12, 58 | 1, 1, 1 | 1, 6, 4 |
+| Longest main-thread period, ms | 7.9, 35.0, 15.8 | 3.4, 4.2, 4.3 | 9.2, 13.1, 9.7 |
+| Main thread busy, ms per second | about 300 | about 154 | about 410 |
+| Refreshes showing uncovered space | 0 | 0 | 1, 1, 1 |
+
+| Trackpad path, about 2,400 frames | Exact before | Exact now |
+| --- | ---: | ---: |
+| Vsync to commit p50 / p99, ms | 2.15 / 6.44 | 0.50 / 0.87 |
+| Frames longer than 8.33 ms | 3, 2, 1 | 1, 0, 0 |
+
+A window another window covers is not rendered and may be throttled, and a first
+series there measured Legend covered; the probe now frames the scroll view's
+window and orders it front without activating it (`SCROLLPROBE_PLACE`), and
+records whether it was visible. One traced run under that load had app updates
+at four times their untraced length, so the Hitches instrument was not used there.
+
+**Not established:** anything with HID input; responsive
 scrolling (an opt-in was tried and cannot be driven from inside the process);
 iOS, where the same presenter changes were not made. Sources, raw runs and the
 probe are under `target/markdown-comparison/scroll-smoothness-20260919/`.

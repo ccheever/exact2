@@ -45,11 +45,45 @@ pub struct Expanded {
     /// For each of `root.states`, the tag of the `each` that owns it, or
     /// `None` for a root slot.
     pub owners: Vec<Option<u32>>,
+    /// Every component instantiation, in the order the inliner expanded
+    /// them; entry 0 is the root (LLP 1035.005 D3). Empty unless source
+    /// provenance was requested with `expand_mapped`. An element's
+    /// `instance` and the two vectors below index it.
+    pub instances: Vec<Instance>,
+    /// For each of `root.states`, the instance whose component declared it
+    /// (0 for the root's own; a lifted `name__N` names its child's).
+    pub state_instances: Vec<u32>,
+    /// For each of `root.actions`, the same.
+    pub action_instances: Vec<u32>,
+}
+
+/// One component instantiation the inliner expanded (LLP 1035.005 D3):
+/// which component, which instantiation's view holds the use, and where the
+/// use is written there. The development map walks `parent` to render a
+/// node's chain (`Bubble ← Messages app.contract:459`); refusal diagnostics
+/// also trace supplied actions through it. None of it reaches the plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Instance {
+    /// The component instantiated.
+    pub component: String,
+    /// The instance whose view holds the use; `None` for the root.
+    pub parent: Option<u32>,
+    /// The use site in the parent's view; the root's own span for the root.
+    pub span: crate::Span,
 }
 
 /// Expand the file's root: inline every use and lift every child's own
 /// declarations into it.
 pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
+    expand_with_sites(file, false)
+}
+
+/// Expand with development source provenance for the mapped compiler entry.
+pub fn expand_mapped(file: &File) -> Result<Expanded, SyntaxError> {
+    expand_with_sites(file, true)
+}
+
+fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, SyntaxError> {
     let mut root = file.components[0].clone();
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and
     // before the per-use states are lifted. `none` is only an AST placeholder;
@@ -75,16 +109,51 @@ pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
         next_tag: 1,
         extra_states: Vec::new(),
         extra_actions: Vec::new(),
+        instance: 0,
+        capture_sites,
+        instances: if capture_sites {
+            vec![Instance {
+                component: file.components[0].name.clone(),
+                parent: None,
+                span: file.components[0].span,
+            }]
+        } else {
+            Vec::new()
+        },
     };
     let view = inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)?;
     root.view = view;
     let mut owners = vec![None; root.states.len()];
-    for (b, owner) in ctx.extra_states {
+    let mut state_instances = if capture_sites {
+        vec![0; root.states.len()]
+    } else {
+        Vec::new()
+    };
+    for (b, owner, instance) in ctx.extra_states {
         root.states.push(b);
         owners.push(owner);
+        if capture_sites {
+            state_instances.push(instance);
+        }
     }
-    root.actions.extend(ctx.extra_actions);
-    Ok(Expanded { root, owners })
+    let mut action_instances = if capture_sites {
+        vec![0; root.actions.len()]
+    } else {
+        Vec::new()
+    };
+    for (a, instance) in ctx.extra_actions {
+        root.actions.push(a);
+        if capture_sites {
+            action_instances.push(instance);
+        }
+    }
+    Ok(Expanded {
+        root,
+        owners,
+        instances: ctx.instances,
+        state_instances,
+        action_instances,
+    })
 }
 
 /// What inlining carries down the tree besides the substitution.
@@ -102,10 +171,16 @@ struct Ctx<'a> {
     each_stack: Vec<u32>,
     /// The next `each` tag.
     next_tag: u32,
-    /// The children's `state`s lifted into the root, with their owners.
-    extra_states: Vec<(Binding, Option<u32>)>,
-    /// The children's `action`s lifted into the root.
-    extra_actions: Vec<Action>,
+    /// The children's `state`s lifted into the root, with their owners and
+    /// the instance that declared them.
+    extra_states: Vec<(Binding, Option<u32>, u32)>,
+    /// The children's `action`s lifted into the root, with their instance.
+    extra_actions: Vec<(Action, u32)>,
+    /// The instantiation whose view is being inlined: 0 at the root.
+    instance: u32,
+    capture_sites: bool,
+    /// Every instantiation so far, the root first (LLP 1035.005 D3).
+    instances: Vec<Instance>,
 }
 
 fn inline_nodes(
@@ -132,32 +207,41 @@ fn inline_nodes(
                 let Some(c) = ctx.file.components.iter().find(|c| &c.name == name) else {
                     return err(
                         "syntax-unknown-component",
-                        format!("unknown component `{name}`"),
+                        ctx.file.unknown_component_message(name),
                         *span,
                     );
                 };
                 let mut child_subst: BTreeMap<String, Expr> = BTreeMap::new();
                 for p in &c.props {
                     let Some(a) = args.iter().find(|a| a.name == p.name) else {
-                        return err(
-                            "syntax-missing-prop",
-                            format!("`{name}` needs `{}`", p.name),
-                            *span,
-                        );
+                        return err("syntax-missing-prop", c.missing_props_message(args), *span);
                     };
                     // The argument is an expression in the parent's scope: substitute the parent's own substitutions first.
                     child_subst.insert(p.name.clone(), subst_expr(&a.value, subst));
                 }
                 for p in &c.injects {
                     let Some((_, e)) = ctx.provides.iter().rev().find(|(n, _)| n == &p.name) else {
-                        return err(
-                            "syntax-missing-provide",
-                            format!(
-                                "`{name}` injects `{}`, and nothing above this use provides it: wrap the use in `provide {} = …`",
-                                p.name, p.name
-                            ),
-                            *span,
-                        );
+                        let missing: Vec<_> = c
+                            .injects
+                            .iter()
+                            .filter(|inject| !ctx.provides.iter().any(|(n, _)| n == &inject.name))
+                            .collect();
+                        let names = missing
+                            .iter()
+                            .map(|p| format!("`{}`", p.name))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let scopes = missing
+                            .iter()
+                            .map(|p| format!("`provide {} = …`", p.name))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let message = if missing.len() == 1 {
+                            format!("`{name}` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
+                        } else {
+                            format!("`{name}` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
+                        };
+                        return err("syntax-missing-provide", message, *span);
                     };
                     child_subst.insert(p.name.clone(), e.clone());
                 }
@@ -167,6 +251,17 @@ fn inline_nodes(
                 *ctx.counter += 1;
                 let n = *ctx.counter;
                 let owner = ctx.each_stack.last().copied();
+                let instance = if ctx.capture_sites {
+                    let instance = ctx.instances.len() as u32;
+                    ctx.instances.push(Instance {
+                        component: name.clone(),
+                        parent: Some(ctx.instance),
+                        span: *span,
+                    });
+                    instance
+                } else {
+                    0
+                };
                 let mut names: BTreeMap<String, String> = BTreeMap::new();
                 for st in &c.states {
                     names.insert(st.name.clone(), format!("{}__{n}", st.name));
@@ -232,6 +327,7 @@ fn inline_nodes(
                             span: st.span,
                         },
                         owner,
+                        instance,
                     ));
                 }
                 for a in &c.actions {
@@ -256,23 +352,26 @@ fn inline_nodes(
                     for param in &a.params {
                         action_subst.remove(&param.name);
                     }
-                    ctx.extra_actions.push(Action {
-                        name: names[&a.name].clone(),
-                        params: captures
-                            .iter()
-                            .map(|(param, _, _)| param.clone())
-                            .chain(a.params.iter().cloned())
-                            .collect(),
-                        writes: a
-                            .writes
-                            .iter()
-                            .map(|(w, sp)| {
-                                (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
-                            })
-                            .collect(),
-                        body: subst_stmts(&a.body, &action_subst, &names),
-                        span: a.span,
-                    });
+                    ctx.extra_actions.push((
+                        Action {
+                            name: names[&a.name].clone(),
+                            params: captures
+                                .iter()
+                                .map(|(param, _, _)| param.clone())
+                                .chain(a.params.iter().cloned())
+                                .collect(),
+                            writes: a
+                                .writes
+                                .iter()
+                                .map(|(w, sp)| {
+                                    (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
+                                })
+                                .collect(),
+                            body: subst_stmts(&a.body, &action_subst, &names),
+                            span: a.span,
+                        },
+                        instance,
+                    ));
                 }
                 if !children.is_empty() && !c.slot {
                     return err(
@@ -289,10 +388,12 @@ fn inline_nodes(
                 };
                 let renamed = rename_component(c, n);
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
+                let outer_instance = std::mem::replace(&mut ctx.instance, instance);
                 ctx.depth += 1;
                 let body = inline_nodes(&renamed.view, &child_subst, ctx);
                 ctx.depth -= 1;
                 ctx.fill = outer_fill;
+                ctx.instance = outer_instance;
                 out.extend(body?);
             }
             Node::Provide {
@@ -319,6 +420,7 @@ fn inline_nodes(
                 attrs,
                 children,
                 span,
+                ..
             } => out.push(Node::Element {
                 tag: tag.clone(),
                 positional: positional.iter().map(|e| subst_expr(e, subst)).collect(),
@@ -332,6 +434,7 @@ fn inline_nodes(
                     .collect(),
                 children: inline_nodes(children, subst, ctx)?,
                 span: *span,
+                instance: ctx.instance,
             }),
             Node::When {
                 cond,
@@ -593,6 +696,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 attrs,
                 children,
                 span,
+                instance,
             } => Node::Element {
                 tag: tag.clone(),
                 positional: positional.iter().map(|e| rename_expr(e, map)).collect(),
@@ -606,6 +710,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                     .collect(),
                 children: rename_nodes(children, map, n),
                 span: *span,
+                instance: *instance,
             },
             Node::Use {
                 name,

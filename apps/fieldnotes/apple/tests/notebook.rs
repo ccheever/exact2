@@ -532,7 +532,7 @@ fn notebook_crud_search_pin_backup_restore_and_native_restart() {
     let mut app = Notebook::open(&root);
     assert_eq!(app.library("")["total"], 2.0);
     assert_eq!(
-        app.library("京都")["notes"][0]["body"],
+        app.call("openNote", vec![Value::str(first_id), Value::Number(1.)])["body"],
         "京都でコーヒー\nA quiet evening."
     );
     let deletion = app.call("deleteNote", vec![Value::str(second_id)]);
@@ -731,6 +731,22 @@ fn rust_backup_keeps_one_snapshot_when_another_writer_changes_a_later_note() {
         .unwrap()
     else {
         panic!("backup must read storage");
+    };
+    let schema = rust
+        .module
+        .continuation(request.continuation.unwrap())
+        .unwrap();
+    let Answer::Later(request) = rust
+        .module
+        .parse(
+            &mut rust.store,
+            "backupNotes",
+            &[],
+            std::thread::spawn(schema).join().unwrap(),
+        )
+        .unwrap()
+    else {
+        panic!("backup must read its snapshot after checking the schema");
     };
     let read = rust
         .module
@@ -999,4 +1015,343 @@ fn apple_bridge_runs_the_placed_notebook_through_its_executor_and_pump() {
     let journal = logs.to_string();
     assert!(journal.contains("continuation"), "{journal}");
     assert!(!journal.contains("dropped"), "{journal}");
+}
+
+#[test]
+fn library_reads_all_supported_notes_as_previews_and_opens_one_full_body() {
+    let root = Root::new();
+    let mut app = Notebook::open(&root);
+    let body = format!("{}ÉΣKx", "🌿".repeat(9998));
+    for n in 1..=1000 {
+        app.save("", &format!("Note {n}"), &body, n % 7 == 0);
+    }
+    let library = app.library("");
+    let notes = library["notes"].as_array().unwrap();
+    assert_eq!(library["total"], 1000.0);
+    assert_eq!(notes.len(), 1000);
+    assert!(library.to_string().len() < 300_000);
+    let mut expected: Vec<_> = (1..=1000).rev().collect();
+    expected.sort_by_key(|id| id % 7 != 0);
+    for (note, id) in notes.iter().zip(expected) {
+        assert_eq!(note["id"], id.to_string());
+        assert!(
+            note.get("body").is_none(),
+            "list answers carry no full bodies"
+        );
+        assert_eq!(note["excerpt"], "🌿".repeat(50));
+    }
+    assert_eq!(app.library("éσk")["notes"].as_array().unwrap().len(), 1000);
+    assert_eq!(app.library("absent")["notes"].as_array().unwrap().len(), 0);
+    let opened = app.call("openNote", vec![Value::str("999"), Value::Number(1.)]);
+    assert_eq!(opened["ready"], true);
+    assert_eq!(opened["body"], body);
+    app.call("deleteNote", vec![Value::str("999")]);
+    let missing = app.call("openNote", vec![Value::str("999"), Value::Number(2.)]);
+    assert_eq!(missing["ready"], false);
+    assert_eq!(missing["body"], "");
+    assert!(missing["message"].as_str().unwrap().contains("deleted"));
+    let fresh = app.call("openNote", vec![Value::str(""), Value::Number(3.)]);
+    assert_eq!(fresh["ready"], true);
+    assert_eq!(fresh["body"], "");
+    // Every preview can require a fallback without overflowing one reply.
+    let body = format!("\0{}x", "\u{2003}".repeat(19998));
+    for n in 1..=1000 {
+        if n != 999 {
+            app.save(&n.to_string(), "Fallback", &body, n % 7 == 0);
+        }
+    }
+    let previews = app.library("");
+    assert_eq!(previews["total"], 999.0);
+    assert!(previews["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|note| note["excerpt"] == "\0 x"));
+    assert_eq!(previews["notes"], app.library("fallback")["notes"]);
+}
+
+#[test]
+fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
+    use exact_kernel::Kernel;
+    use exact_runner::Event;
+    fn event<D: DataSource>(runner: &mut Runner<D>, target: &str, event: Event) {
+        let key = runner.kernel().find_by_test_id(target)[0];
+        let view = runner.kernel().node_by_key(key).unwrap().id;
+        runner.dispatch(view, event).unwrap();
+    }
+    fn state<D: DataSource>(runner: &Runner<D>) -> Json {
+        serde_json::from_str(&exact_runner::agent::state(runner)).unwrap()
+    }
+    for placement in [Placement::Main, Placement::Worker] {
+        let root = Root::new();
+        let mut seed = Notebook::open(&root);
+        seed.save("", "First", "Original body", false);
+        seed.save("", "Second", "Other body", true);
+        drop(seed);
+        let data = || {
+            let mut module = Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(placement);
+            module
+                .configure_storage(
+                    root.0.join("data"),
+                    root.0.join("cache"),
+                    root.0.join("temporary"),
+                )
+                .unwrap();
+            module
+        };
+        let mut runner = Runner::boot(
+            Plan::decode(PLAN).unwrap(),
+            data(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        runner.data().activate().unwrap();
+        runner.data_ready().unwrap();
+        settle_runner(&mut runner);
+        event(&mut runner, "note-1", Event::Press);
+        assert!(runner.has_pending());
+        event(
+            &mut runner,
+            "note-body",
+            Event::Change("Must not replace the loading note".into()),
+        );
+        // A plan-only reload can cancel a pending mutation. No loaded value
+        // exists yet, so offer an explicit retry instead of a blank dead editor.
+        let carried = runner.carry();
+        drop(runner);
+        let mut runner = Runner::boot_carrying(
+            Plan::decode(PLAN).unwrap(),
+            data(),
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        runner.data().activate().unwrap();
+        runner.data_ready().unwrap();
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["openInterrupted"], true);
+        assert_eq!(state(&runner)["derives"]["openedReady"], false);
+        event(&mut runner, "retry-open", Event::Press);
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["openInterrupted"], false);
+        assert_eq!(state(&runner)["derives"]["body"], "Original body");
+        event(&mut runner, "note-body", Event::Change("Draft".into()));
+        for target in ["note-2", "new-note"] {
+            let key = runner.kernel().find_by_test_id(target)[0];
+            let view = runner.kernel().node_by_key(key).unwrap().id;
+            let node: Json =
+                serde_json::from_str(&exact_runner::agent::node(&runner, view)).unwrap();
+            assert_eq!(node["props"]["disabled"], true);
+        }
+        assert_eq!(state(&runner)["derives"]["editingId"], "1");
+        assert_eq!(state(&runner)["derives"]["body"], "Draft");
+        event(&mut runner, "search", Event::Change("second".into()));
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["body"], "Draft");
+        event(&mut runner, "discard", Event::Press);
+        assert_eq!(state(&runner)["derives"]["body"], "Original body");
+        event(
+            &mut runner,
+            "note-body",
+            Event::Change("Saved snapshot".into()),
+        );
+        event(&mut runner, "save-note", Event::Press);
+        event(
+            &mut runner,
+            "note-body",
+            Event::Change("Typed during save".into()),
+        );
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["body"], "Typed during save");
+        assert_eq!(state(&runner)["derives"]["dirty"], true);
+        event(&mut runner, "discard", Event::Press);
+        assert_eq!(state(&runner)["derives"]["body"], "Saved snapshot");
+        event(&mut runner, "note-title", Event::Change("x".repeat(161)));
+        event(&mut runner, "save-note", Event::Press);
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["dirty"], true);
+        event(&mut runner, "discard", Event::Press);
+        assert_eq!(state(&runner)["derives"]["title"], "First");
+        assert_eq!(state(&runner)["derives"]["body"], "Saved snapshot");
+        // A carried selected note retains its loaded snapshot and its draft.
+        event(
+            &mut runner,
+            "note-body",
+            Event::Change("Carried draft".into()),
+        );
+        let carried = runner.carry();
+        drop(runner);
+        let mut runner = Runner::boot_carrying(
+            Plan::decode(PLAN).unwrap(),
+            data(),
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        runner.data().activate().unwrap();
+        runner.data_ready().unwrap();
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["body"], "Carried draft");
+        event(&mut runner, "discard", Event::Press);
+        event(&mut runner, "new-note", Event::Press);
+        settle_runner(&mut runner);
+        event(
+            &mut runner,
+            "note-body",
+            Event::Change("New saved note".into()),
+        );
+        event(&mut runner, "save-note", Event::Press);
+        settle_runner(&mut runner);
+        let new_id = state(&runner)["derives"]["editingId"].clone();
+        assert_eq!(new_id, "3");
+        event(&mut runner, "note-title", Event::Change("x".repeat(161)));
+        event(&mut runner, "save-note", Event::Press);
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["editingId"], new_id);
+        event(&mut runner, "discard", Event::Press);
+        assert_eq!(state(&runner)["derives"]["body"], "New saved note");
+        assert_eq!(state(&runner)["derives"]["dirty"], false);
+        // A previous note's settled result must not masquerade as this load.
+        event(&mut runner, "close-search", Event::Press);
+        settle_runner(&mut runner);
+        event(&mut runner, "note-2", Event::Press);
+        assert!(runner.has_pending());
+        let carried = runner.carry();
+        drop(runner);
+        let mut runner = Runner::boot_carrying(
+            Plan::decode(PLAN).unwrap(),
+            data(),
+            Kernel::with_monospace(),
+            &carried,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        runner.data().activate().unwrap();
+        runner.data_ready().unwrap();
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["openInterrupted"], true);
+        event(&mut runner, "retry-open", Event::Press);
+        settle_runner(&mut runner);
+        assert_eq!(state(&runner)["derives"]["body"], "Other body");
+        assert_eq!(state(&runner)["derives"]["openInterrupted"], false);
+    }
+}
+
+#[test]
+fn previews_preserve_unicode_whitespace_truncation_and_large_ids() {
+    let root = Root::new();
+    let mut app = Notebook::open(&root);
+    let bodies = [
+        ("", "An empty page.".to_owned()),
+        ("   \t\n", " ".to_owned()),
+        ("\u{2003}a\u{a0}\t🌿\n", " a 🌿 ".to_owned()),
+        ("\0visible", "\0visible".to_owned()),
+        ("before\0after", "before\0after".to_owned()),
+        ("\u{feff}hello", " hello".to_owned()),
+        (
+            "\u{fffd}valid replacement",
+            "\u{fffd}valid replacement".to_owned(),
+        ),
+    ];
+    for (body, expected) in bodies {
+        app.save("", "Excerpt", body, false);
+        assert_eq!(app.library("")["notes"][0]["excerpt"], expected);
+        assert_eq!(app.library("")["notes"], app.library("excerpt")["notes"]);
+    }
+    for body in [
+        format!("{}visible", " ".repeat(300)),
+        format!("{}\0visible", "x".repeat(99)),
+        format!("{}\0visible", "x".repeat(100)),
+        format!("{}🌿", "x".repeat(99)),
+        format!("{}🌿", "x".repeat(199)),
+        format!("{}終わり", "\u{2003}".repeat(300)),
+    ] {
+        app.save("", "Excerpt", &body, false);
+        assert_eq!(app.library("")["notes"], app.library("excerpt")["notes"]);
+    }
+    let body = format!("{}{}🌿", "\u{2003}".repeat(10000), "x".repeat(98));
+    let backup = json!({"version":1,"notes":[
+        {"id":"9223372036854775807","title":"Higher","body":body,"pinned":false},
+        {"id":"9223372036854775806","title":"Lower","body":"lower","pinned":false}
+    ]});
+    assert_eq!(
+        app.call("restoreNotes", vec![Value::str(&backup.to_string())])["failed"],
+        false
+    );
+    let list = app.library("");
+    assert_eq!(list["notes"][0]["id"], "9223372036854775807");
+    assert_eq!(list["notes"][1]["id"], "9223372036854775806");
+    // A preview must not send half an emoji through the JSON seam.
+    assert_eq!(list["notes"][0]["excerpt"], format!(" {}", "x".repeat(98)));
+    assert_eq!(
+        app.library("HIGHER\n")["notes"].as_array().unwrap().len(),
+        1
+    );
+}
+
+#[test]
+fn schema_checks_initialize_fresh_and_replaced_databases_without_cached_readiness() {
+    let root = Root::new();
+    let path = root.0.join("data/fieldnotes.db");
+    let mut ts = Notebook::open(&root);
+    for source in [
+        "library",
+        "saveNote",
+        "backupNotes",
+        "restoreNotes",
+        "deleteNote",
+        "openNote",
+    ] {
+        let _ = std::fs::remove_file(&path);
+        let args = match source {
+            "library" => vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+            "saveNote" => vec![
+                Value::str(""),
+                Value::str("Fresh"),
+                Value::str("Body"),
+                Value::Bool(false),
+                Value::Number(1.),
+            ],
+            "restoreNotes" => vec![Value::str(r#"{"version":1,"notes":[]}"#)],
+            "deleteNote" => vec![Value::str("1")],
+            "openNote" => vec![Value::str("1"), Value::Number(1.)],
+            _ => vec![],
+        };
+        let result = ts.call(source, args);
+        if source == "openNote" {
+            assert!(
+                result["message"].as_str().unwrap().contains("deleted"),
+                "{result}"
+            );
+        } else {
+            assert_ne!(result["failed"], true, "{source}: {result}");
+        }
+        assert_eq!(ts.library("")["ready"], true, "{source}");
+    }
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    for _ in 0..2 {
+        std::fs::remove_file(&path).unwrap();
+        let result = rust.call("backupNotes", vec![]);
+        assert_eq!(result["failed"], false, "{result}");
+        let backup: Json = serde_json::from_str(result["backupText"].as_str().unwrap()).unwrap();
+        assert_eq!(backup["notes"], json!([]));
+    }
+    // A schema query failure must leave the file alone, not replace damaged data.
+    std::fs::write(&path, b"not a SQLite database").unwrap();
+    assert_eq!(
+        ts.call(
+            "library",
+            vec![Value::str(""), Value::Number(0.), Value::Number(0.)]
+        )["ready"],
+        false
+    );
+    assert_eq!(rust.call("backupNotes", vec![])["failed"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), b"not a SQLite database");
 }

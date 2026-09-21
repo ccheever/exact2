@@ -9,6 +9,283 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testUrgentLinesMatchFreshWorkerPixels() throws {
+        for measured in [false, true] {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "raster-lines")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        presenter.root.frame = NSRect(x: 0, y: 0, width: 600, height: 2000)
+        defer { window.close(); session.destroy() }
+        func pixels(_ surface: IOSurface) -> Data {
+            surface.lock(options: .readOnly, seed: nil)
+            defer { surface.unlock(options: .readOnly, seed: nil) }
+            var data = Data()
+            for y in 0..<surface.height {
+                data.append(Data(bytes: surface.baseAddress.advanced(by: y * surface.bytesPerRow),
+                                 count: surface.width * 4))
+            }
+            return data
+        }
+        let texts = ["Words with a soft\u{ad}hyphen and trailing spaces.  ",
+                     "日本語 e\u{301} 👨‍👩‍👧‍👦\nSecond line", "العربية שלום Latin", ""]
+        for dark in [false, true] { for width in [140.0, 500.0] {
+            for align in ["left", "center", "right"] { for text in texts {
+                window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                let node = NodeView(id: 1, kind: "text", presenter: presenter)
+                node.applyStyle(["font_size": 16.0, "line_height": "24px", "text_align": align,
+                                 "text_color": [[30.0, 60.0, 90.0, 255.0], [220.0, 180.0, 150.0, 255.0]]])
+                let inline = NodeView(id: 2, kind: "text", presenter: presenter)
+                inline.applyStyle(["font_size": 19.0, "font_style": "italic", "font_weight": 700.0,
+                                   "text_color": [180.0, 70.0, 40.0, 255.0]])
+                inline.applyProps(set: ["text": text, "href": "https://example.invalid/"], clear: [])
+                let regular = NodeView(id: 3, kind: "text", presenter: presenter)
+                regular.applyProps(set: ["text": "Regular → "], clear: [])
+                node.setTextChildren(text.isEmpty ? [inline] : [regular, inline])
+                node.frame = NSRect(x: 0, y: 800, width: width, height: 240)
+                node.prepareToMount()
+                presenter.root.addSubview(node)
+                XCTAssertFalse(presenter.textIsVisible(node))
+                if measured {
+                    var black = node.paragraphSpec()
+                    black.color = [0, 0, 0, 255]
+                    for i in black.runs.indices { black.runs[i].color = nil }
+                    _ = session.text.paragraph(black, width: node.contentBox().width)
+                    XCTAssertNotNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                } else {
+                    XCTAssertNil(session.text.measuredBreaks(node.paragraphSpec(), width: node.contentBox().width))
+                }
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+                let urgent = pixels(try XCTUnwrap(node.textRaster))
+                XCTAssertEqual(node.cachedTextLayout == nil, measured,
+                               "measured ranges must avoid constructing a paragraph")
+                node.dropTextRaster()
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+                XCTAssertEqual(pixels(try XCTUnwrap(node.textRaster)), urgent, "repeat exact-painted reuse")
+                node.dropTextRaster()
+                XCTAssertTrue(presenter.textRasters.ensure(node, urgent: false))
+                let deadline = Date(timeIntervalSinceNow: 2)
+                while !node.textRasterReady && Date() < deadline {
+                    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001))
+                }
+                XCTAssertEqual(pixels(try XCTUnwrap(node.textRaster)), urgent,
+                               "fresh worker and reused urgent lines must paint identically")
+                node.forget(); node.removeFromSuperview()
+            } }
+        } }
+        }
+    }
+
+    func testRasterShapesReuseOnlyExactPaintAndRespectColdBudget() {
+        let engine = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 64 * 1024)
+        let run = Run(text: "Painted 日本語 e\u{301}", size: 16, weight: 400,
+                      family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        var spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [10, 20, 30, 255])
+        let ranges = [CFRange(location: 0, length: (run.text as NSString).length)]
+        let first = engine.rasterLines(spec, ranges: ranges).0
+        XCTAssertTrue(first === engine.rasterLines(spec, ranges: ranges).0)
+        spec.color = [200, 40, 20, 255]
+        XCTAssertFalse(first === engine.rasterLines(spec, ranges: ranges).0)
+        let minimal = TextEngine(resolve: { _ in nil }, coldTextTargetBytes: 0)
+        weak var released: NSAttributedString?
+        autoreleasepool {
+            released = minimal.rasterLines(spec, ranges: ranges).0
+            // The existing soft policy keeps one current oversize value.
+            XCTAssertEqual(minimal.residencyStats.coldEntries, 1)
+            XCTAssertGreaterThan(minimal.residencyStats.coldOverageBytes, 0)
+        }
+        XCTAssertNotNil(released)
+        autoreleasepool {
+            var replacement = spec
+            replacement.runs[0].text = "A new source evicts the previous cold shape"
+            _ = minimal.rasterLines(replacement, ranges: [])
+        }
+        XCTAssertNil(released, "eviction must release the previous painted source")
+        XCTAssertEqual(minimal.residencyStats.coldEntries, 1)
+        for i in 0..<1000 {
+            spec.runs[0].text = "Unique painted source \(i)"
+            _ = engine.rasterLines(spec, ranges: [])
+        }
+        XCTAssertLessThanOrEqual(engine.residencyStats.coldEstimatedBytes, 64 * 1024)
+        XCTAssertLessThanOrEqual(engine.residencyStats.coldEntries, TextResidency.maxColdEntries)
+    }
+
+    func testManyInlineLineBoxesMatchTheirIndependentLines() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let strut = Run(text: "", size: 16, weight: 400, family: 0, italic: false,
+                        lineHeight: 24, letterSpacing: 0)
+        for direction in [0, 1] {
+            var all: [Run] = [], baselines: [CGFloat] = [], bottoms: [CGFloat] = []
+            var height: CGFloat = 0
+            for i in 0..<32 {
+                var left = strut, right = strut, empty = strut
+                left.text = i % 2 == 0 ? "Latin e\u{301} " : "العربية "
+                right.text = i % 2 == 0 ? "👨‍👩‍👧‍👦 日本語\n" : "שלום Latin\n"
+                left.lineHeight = CGFloat(26 + i % 4) + 0.25
+                right.lineHeight = CGFloat(36 + i % 5) + 0.5
+                // Equal font attributes coalesce despite distinct authored boxes;
+                // other lines exercise multiple CoreText runs and bidi ordering.
+                right.weight = i % 3 == 0 ? 700 : 400
+                empty.lineHeight = 1000
+                let runs = [empty, left, right, empty]
+                let spec = Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255],
+                                direction: direction, strut: strut)
+                let line = engine.paragraph(spec, width: 1000)
+                XCTAssertEqual(line.lines.count, 1)
+                XCTAssertLessThan(line.height, 100, "empty runs at a line boundary have no glyph interval")
+                baselines.append(height + line.baselines[0])
+                height += line.height
+                bottoms.append(height)
+                all.append(contentsOf: runs)
+            }
+            let spec = Spec(runs: all, align: 0, lineClamp: 0, color: [0, 0, 0, 255],
+                            direction: direction, strut: strut)
+            let paragraph = engine.paragraph(spec, width: 1000)
+            XCTAssertEqual(paragraph.lines.count, 32)
+            XCTAssertEqual(paragraph.height, height, accuracy: 0.000001)
+            for (actual, expected) in zip(paragraph.baselines, baselines) {
+                XCTAssertEqual(actual, expected, accuracy: 0.000001)
+            }
+            for (actual, expected) in zip(paragraph.lineBottoms, bottoms) {
+                XCTAssertEqual(actual, expected, accuracy: 0.000001)
+            }
+        }
+    }
+
+    func testWidthChangesReuseUnchangedLinesWithoutReusingPaintOrEllipses() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = Spec(runs: [Run(text: "First line\nSecond line", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let first = engine.paragraph(input, width: 1000)
+        engine.accepted(first)
+        let resized = withExtendedLifetime(first) { engine.paragraph(input, width: 1001) }
+        XCTAssertEqual(first.lines.count, 2)
+        XCTAssertEqual(resized.lines.count, first.lines.count)
+        for (old, new) in zip(first.lines, resized.lines) { XCTAssertTrue(old === new) }
+        XCTAssertEqual(resized.baselines, first.baselines)
+        XCTAssertEqual(resized.lineBottoms, first.lineBottoms)
+        XCTAssertEqual(resized.width, first.width)
+        XCTAssertEqual(resized.height, first.height)
+        let narrow = engine.paragraph(input, width: 40)
+        let fresh = TextEngine(resolve: { _ in nil }).paragraph(input, width: 40)
+        XCTAssertEqual(narrow.baselines, fresh.baselines)
+        XCTAssertEqual(narrow.width, fresh.width)
+        XCTAssertEqual(narrow.height, fresh.height)
+        XCTAssertEqual(narrow.lines.map { CTLineGetStringRange($0).length },
+                       fresh.lines.map { CTLineGetStringRange($0).length })
+        var painted = input
+        painted.color = [255, 0, 0, 255]
+        let red = engine.paragraph(painted, width: 1002)
+        for (old, new) in zip(resized.lines, red.lines) { XCTAssertFalse(old === new) }
+        var clamped = input
+        clamped.lineClamp = 1
+        let ellipsis = engine.paragraph(clamped, width: 70)
+        let changedEllipsis = withExtendedLifetime(ellipsis) { engine.paragraph(clamped, width: 71) }
+        XCTAssertEqual(changedEllipsis.lines.count, 1)
+        XCTAssertFalse(ellipsis.lines[0] === changedEllipsis.lines[0])
+    }
+
+    func testLineReuseDoesNotRetainAnAcceptedParagraph() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let input = Spec(runs: [Run(text: "A released view", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        weak var released: Paragraph?
+        let shape = autoreleasepool {
+            let paragraph = engine.paragraph(input, width: 1000)
+            engine.accepted(paragraph)
+            released = paragraph
+            return paragraph.shape!
+        }
+        withExtendedLifetime(shape) { XCTAssertNil(released) }
+    }
+
+    func testWidthRetirementDoesNotWalkSavedScalarMeasurements() {
+        let input = Spec(runs: [Run(text: "A measured paragraph", size: 16, weight: 400,
+                                   family: 0, italic: false, lineHeight: 24, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        for history in [10, 100, 1000] {
+            var cache = TextResidency()
+            let identity = cache.identity(input)
+            for width in 0..<history {
+                cache.put(identity, kind: .definite(Double(width).bitPattern),
+                          metrics: ExactMetrics(width: Float(width), height: 24, baseline: 16))
+            }
+            let before = cache.stats.maintenanceVisits
+            cache.retireWidths(TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(input)), width: 2000))
+            let visits = cache.stats.maintenanceVisits - before
+            XCTAssertLessThanOrEqual(visits, 16, "Retiring layouts must not scan saved scalar widths")
+            print("scalar-width-history=\(history) retirement-visits=\(visits)")
+            for width in 0..<history {
+                let metrics = cache.scalar(identity, kind: .definite(Double(width).bitPattern))
+                XCTAssertEqual(metrics?.width, Float(width))
+                XCTAssertEqual(metrics?.height, 24)
+                XCTAssertEqual(metrics?.baseline, 16)
+            }
+        }
+    }
+
+    func testRasterPreservesDescendersOutsideTightLineBox() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-ink-overflow")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        presenter.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "The Measured Page"],
+             "style": ["font_size": 52.0, "font_weight": 700, "line_height": 0.6]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 20.0, "y": 30.0, "w": 460.0, "h": 31.2],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let node = try XCTUnwrap(presenter.views[1])
+        let paragraph = try XCTUnwrap(node.paragraphLayout())
+        let line = try XCTUnwrap(paragraph.lines.first)
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let baseline = try XCTUnwrap(paragraph.baselines.first).rounded()
+        let bottom = baseline - ink.minY
+        XCTAssertGreaterThan(bottom, node.bounds.maxY, "fixture must paint below its CSS line box")
+        XCTAssertGreaterThan(node.textRasterFrame.maxY, bottom)
+        XCTAssertLessThan(node.textRasterFrame.minY, baseline - ink.maxY)
+        XCTAssertEqual(node.bounds.height, 31.2, accuracy: 0.001, "ink must not change layout")
+        let surface = try XCTUnwrap(node.textRaster)
+        let layer = try XCTUnwrap(node.textRasterOverflowLayer)
+        XCTAssertEqual(layer.frame, node.textRasterFrame)
+        XCTAssertTrue(layer.contents as? IOSurface === surface)
+        XCTAssertNil(node.layer?.contents)
+        XCTAssertFalse(try XCTUnwrap(node.layer).masksToBounds)
+        surface.lock(options: .readOnly, seed: nil)
+        let bytes = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
+        let firstBelow = Int(ceil((node.bounds.maxY - node.textRasterFrame.minY) * node.textRasterScale))
+        var descenderPixels = 0
+        for y in firstBelow..<surface.height {
+            for x in 0..<surface.width where bytes[y * surface.bytesPerRow + x * 4 + 3] != 0 {
+                descenderPixels += 1
+            }
+        }
+        surface.unlock(options: .readOnly, seed: nil)
+        XCTAssertGreaterThan(descenderPixels, 0, "bitmap must contain the formerly cropped descender")
+        let capture = try XCTUnwrap(node.bitmapImageRepForCachingDisplay(in: node.bounds))
+        Capture.capturing = true
+        node.cacheDisplay(in: node.bounds, to: capture)
+        Capture.capturing = false
+        XCTAssertNil(layer.superlayer, "direct capture retires the old overflow ink")
+        presenter.settlePump()
+        let restored = try XCTUnwrap(node.textRasterOverflowLayer)
+        XCTAssertNotNil(restored.contents, "capture must restore live text without another app event")
+        node.applyStyle(["font_size": 52.0, "line_height": 0.6, "overflow_x": "hidden", "overflow_y": "hidden"])
+        XCTAssertTrue(try XCTUnwrap(node.layer).masksToBounds, "authored clipping still applies")
+        node.dropTextRaster()
+        XCTAssertNil(restored.superlayer)
+        XCTAssertNil(node.textRasterOverflowLayer)
+    }
+
     func testSharedLineBreakerReleasesParagraphInputAfterEachCall() {
         let engine = TextEngine(resolve: { _ in nil })
         for index in 0..<2 {
@@ -62,6 +339,61 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertFalse(overdraw.textRasterReady, "offscreen overdraw must not rasterize synchronously")
         presenter.settlePump()
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
+    }
+
+    func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-resize")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        func batch(_ ops: [[String: Any]]) {
+            presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        batch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text",
+             "props": ["text": "Why a magazine measures first and draws second"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
+        ])
+        let node = try XCTUnwrap(presenter.views[2])
+        XCTAssertTrue(node.rastersText)
+        XCTAssertFalse(presenter.textIsVisible(node))
+        // The pixels a worker painted for this width, published by the pump.
+        let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
+                                box: node.contentBox(), scale: window.backingScaleFactor)
+        node.textRasterKey = key
+        node.showTextRaster(pixels, for: key, deferOffscreen: true)
+        presenter.refreshVisibleText()
+        XCTAssertFalse(node.needsTextRaster)
+        XCTAssertTrue(node.layer?.contents as? IOSurface === pixels)
+
+        // Moving the paragraph is not resizing it: those pixels still fit.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 400.0, "h": 30.0]])
+        XCTAssertEqual(node.textRasterKey, key)
+        XCTAssertFalse(node.needsTextRaster)
+
+        // The window widens while the paragraph is off screen. Its layer
+        // would stretch the old surface across the new width.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 460.0, "h": 30.0]])
+        XCTAssertNotEqual(node.textRasterKey, key)
+        XCTAssertTrue(node.needsTextRaster, "a resized paragraph still owes the pump pixels")
+        XCTAssertTrue(node.layer?.contents as? IOSurface === pixels, "the old pixels stay up until new ones arrive")
+
+        // Scrolled back to it: painted at the width it has now, not stretched.
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 40.0, "w": 460.0, "h": 30.0]])
+        XCTAssertTrue(presenter.textIsVisible(node))
+        presenter.refreshVisibleText()
+        XCTAssertFalse(node.needsTextRaster)
+        XCTAssertEqual(node.textRasterKey?.size, node.bounds.size)
+        XCTAssertFalse(node.layer?.contents as? IOSurface === pixels)
     }
 
     func testWorkerPublicationDefersOnlyOffscreenCurrentPixels() throws {

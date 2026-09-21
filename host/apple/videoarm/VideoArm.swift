@@ -1,4 +1,4 @@
-// @ref LLP 1042. An AVPlayer and AVKit presentation survive every layout/keyboard change.
+// @ref LLP 1042. An AVPlayer and native presentation survive every layout/keyboard change.
 import Foundation
 import AVFoundation
 import AVKit
@@ -24,6 +24,13 @@ private final class VideoContainer: PlatformView {
     #endif
 }
 
+#if os(iOS)
+private final class VideoLayerView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+#endif
+
 private final class VideoArm: NSObject {
     let player = AVPlayer()
     let container = VideoContainer(frame: .zero)
@@ -31,8 +38,9 @@ private final class VideoArm: NSObject {
     #if os(macOS)
     let presentation = AVPlayerView(frame: .zero)
     #else
-    let controller = AVPlayerViewController()
-    var presentation: UIView { controller.view }
+    var controller: AVPlayerViewController?
+    var inline: VideoLayerView?
+    var presentation: UIView? { controller?.view ?? inline }
     #endif
     let context: UnsafeMutableRawPointer?
     let callback: VideoCallback
@@ -61,11 +69,12 @@ private final class VideoArm: NSObject {
         poster.imageScaling = .scaleProportionallyUpOrDown
         #else
         container.clipsToBounds = true
-        controller.player = player
         poster.contentMode = .scaleAspectFit
         poster.isUserInteractionEnabled = false
         #endif
+        #if os(macOS)
         container.addSubview(presentation)
+        #endif
         container.addSubview(poster)
         poster.isHidden = true
         playerObservations = [
@@ -83,6 +92,13 @@ private final class VideoArm: NSObject {
     func bool(_ name: String, _ fallback: Bool = false) -> Bool { props[name].map { $0 == "true" } ?? fallback }
     func number(_ name: String, _ fallback: Double) -> Double { props[name].flatMap(Double.init) ?? fallback }
     var rate: Float { Float(number("playbackRate", 1)) }
+    var renderer: String {
+        #if os(macOS)
+        return "AVKit"
+        #else
+        return controller != nil ? "AVKit" : inline != nil ? "AVPlayerLayer" : "AVPlayer"
+        #endif
+    }
     var snapshot: [String: Any] {
         let duration = player.currentItem?.duration.seconds ?? .nan
         return ["currentTime": seconds, "duration": duration.isFinite ? duration as Any : NSNull(),
@@ -90,7 +106,7 @@ private final class VideoArm: NSObject {
                 "playbackRate": player.rate, "readyState": player.currentItem?.status == .readyToPlay ? 4 : 0,
                 "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
                 "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
-                "src": props["src"] ?? "", "renderer": "AVKit", "generation": generation]
+                "src": props["src"] ?? "", "renderer": renderer, "generation": generation]
     }
     func emit(_ event: String = "snapshot", payload: String = "") {
         guard !invalidated else { return }
@@ -130,13 +146,14 @@ private final class VideoArm: NSObject {
         presentation.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
         presentation.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
         #else
-        controller.showsPlaybackControls = bool("controls")
-        controller.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
-        controller.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
-        controller.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
-        controller.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
-        controller.requiresLinearPlayback = bool("requiresLinearPlayback")
-        controller.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
+        configurePresentation()
+        controller?.showsPlaybackControls = bool("controls")
+        controller?.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        controller?.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
+        controller?.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
+        controller?.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
+        controller?.requiresLinearPlayback = bool("requiresLinearPlayback")
+        controller?.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
         #endif
         player.isMuted = bool("muted")
         player.volume = Float(number("volume", 1))
@@ -241,8 +258,36 @@ private final class VideoArm: NSObject {
         }
     }
     #if os(iOS)
+    /// Inline video without any requested AVKit interaction uses the native
+    /// player layer. Enabling a controller feature promotes the same player;
+    /// an existing controller remains its owner until this node is destroyed.
+    private func configurePresentation() {
+        guard props["src"] != nil || presentation != nil else { return }
+        let needsController = bool("controls")
+            || (!bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true))
+            || bool("canStartPictureInPictureAutomaticallyFromInline")
+            || bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
+            || bool("exitsFullScreenWhenPlaybackEnds") || bool("requiresLinearPlayback")
+            || bool("allowsVideoFrameAnalysis", true)
+        if controller == nil && needsController {
+            let native = AVPlayerViewController()
+            native.player = player
+            controller = native
+            container.insertSubview(native.view, belowSubview: poster)
+            inline?.playerLayer.player = nil
+            inline?.removeFromSuperview()
+            inline = nil
+            attach()
+        } else if controller == nil && inline == nil {
+            let surface = VideoLayerView(frame: container.bounds)
+            surface.isUserInteractionEnabled = false
+            surface.playerLayer.player = player
+            inline = surface
+            container.insertSubview(surface, belowSubview: poster)
+        }
+    }
     func attach() {
-        guard container.window != nil, controller.parent == nil else { return }
+        guard let controller, container.window != nil, controller.parent == nil else { return }
         var responder: UIResponder? = container.next
         while let current = responder {
             if let parent = current as? UIViewController { parent.addChild(controller); controller.didMove(toParent: parent); break }
@@ -260,7 +305,9 @@ private final class VideoArm: NSObject {
         #if os(macOS)
         presentation.videoGravity = gravity
         #else
-        controller.videoGravity = gravity
+        controller?.videoGravity = gravity
+        inline?.playerLayer.videoGravity = gravity
+        guard let presentation else { poster.frame = container.bounds; return }
         #endif
         var frame = container.bounds
         if (fit == "none" || fit == "scale-down"), naturalSize.width > 0, naturalSize.height > 0 {
@@ -279,7 +326,10 @@ private final class VideoArm: NSObject {
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
         player.replaceCurrentItem(with: nil)
         #if os(iOS)
-        controller.willMove(toParent: nil); controller.view.removeFromSuperview(); controller.removeFromParent()
+        controller?.willMove(toParent: nil); controller?.view.removeFromSuperview(); controller?.removeFromParent()
+        inline?.playerLayer.player = nil
+        inline?.removeFromSuperview()
+        controller = nil; inline = nil
         #endif
         container.removeFromSuperview()
     }

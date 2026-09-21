@@ -8,6 +8,7 @@ license.workspace = true
 description = "Caltrain on the web host: the app's wasm"
 publish = false
 build = "build.rs"
+default-run = "caltrain-dev"
 
 [lib]
 name = "caltrain_web"

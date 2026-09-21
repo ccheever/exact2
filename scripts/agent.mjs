@@ -5,7 +5,7 @@
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
-//   tree | layout | state | logs | screenshot <png> [window]
+//   tree [target] | layout [target] | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -45,7 +45,7 @@
 // phone. This is a trusted-LAN developer carrier, not an encrypted remote agent.
 // Build/install first with build.mjs --device. No Mac-local plan/assets paths.
 import { spawn, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect, createServer as createTCPServer } from 'node:net';
@@ -57,6 +57,114 @@ import { resolveApp } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A completed operation must release its deadline too, so an otherwise closed
+// driver does not stay alive until a losing timeout expires.
+async function waitAtMost(operation, ms, onTimeout) {
+  let timer;
+  const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
+  try { return await Promise.race([operation, deadline]); }
+  finally { clearTimeout(timer); }
+}
+
+/** @ref LLP 1035.005 D3 / 1035.002 D6 — only the driver reads source maps.
+ * The locator discovers candidates; the node's same-reply digest decides whether
+ * one is compatible. Identical plans can have different formatting/ranges, so
+ * compatibility does not establish the original authored source revision. */
+export function sourceMapReader(locator) {
+  const maps = new Map(), limit = 64 * 1024 * 1024;
+  const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+  const digest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  let lastCard = null, problem = 'no development source map';
+  const remote = typeof locator === 'string' && /^https?:\/\//i.test(locator);
+  async function fetchBytes(url, maximum = limit) {
+    const response = await fetch(url, { signal: AbortSignal.timeout(3000), redirect: 'error', cache: 'no-store' });
+    if (!response.ok) throw Error(`source map HTTP ${response.status}`);
+    if (Number(response.headers.get('content-length')) > maximum) { await response.body?.cancel(); throw Error('source map exceeds size budget'); }
+    const reader = response.body.getReader(), parts = [];
+    let length = 0;
+    try {
+      for (;;) {
+        const {done, value} = await reader.read();
+        if (done) break;
+        length += value.length;
+        if (length > maximum) throw Error('source map exceeds size budget');
+        parts.push(value);
+      }
+    } finally { await reader.cancel(); }
+    return Buffer.concat(parts, length);
+  }
+  const location = value => value && typeof value.file === 'string' && value.file.length > 0
+    && ['line', 'col', 'end_col'].every(key => Number.isSafeInteger(value[key]) && value[key] > 0)
+    && value.end_col >= value.col && typeof value.component === 'string';
+  const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
+  return {
+    async refresh() {
+      if (!locator) return false;
+      try {
+        let bytes, key = null, expected = null;
+        if (remote) {
+          const envelopeURL = new URL(new URL(locator).pathname.endsWith('/exact.json') ? locator : '/exact.json', locator);
+          const envelope = JSON.parse((await fetchBytes(envelopeURL, 1024 * 1024)).toString('utf8'));
+          const card = envelope.dev?.sourceMap;
+          if (!card) throw Error('no development source map');
+          if (!digest(card.sha256) || !Number.isSafeInteger(card.bytes) || card.bytes < 0 || card.bytes > limit
+            || typeof card.url !== 'string' || !digest(envelope.plan?.sha256)) throw Error('invalid source map card');
+          const url = new URL(card.url, envelopeURL);
+          if (url.origin !== envelopeURL.origin) throw Error('source map URL must use the development origin');
+          key = `${url.href}:${card.sha256}:${card.bytes}:${envelope.plan.sha256}`;
+          if (key === lastCard) return true;
+          bytes = await fetchBytes(url, card.bytes);
+          if (bytes.length !== card.bytes || hash(bytes) !== card.sha256) throw Error('source map card mismatch');
+          expected = envelope.plan.sha256;
+        } else {
+          const path = `${resolve(locator)}.map.json`;
+          if (statSync(path).size > limit) throw Error('source map exceeds size budget');
+          bytes = readFileSync(path);
+          if (bytes.length > limit) throw Error('source map exceeds size budget');
+          key = hash(bytes);
+          if (key === lastCard) return true;
+        }
+        const map = JSON.parse(bytes.toString('utf8'));
+        if (!digest(map.digest) || !Array.isArray(map.nodes) || (expected && map.digest !== expected)) throw Error('invalid or mismatched source map');
+        maps.delete(map.digest); maps.set(map.digest, map);
+        while (maps.size > 4) maps.delete(maps.keys().next().value);
+        lastCard = key; problem = 'source map does not match the running plan';
+      } catch (error) { problem = error.code === 'ENOENT' ? 'no development source map' : error.message; lastCard = null; }
+      return maps.size > 0;
+    },
+    attach(node) {
+      for (const style of Object.values(node.style ?? {})) delete style.origin;
+      const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
+      const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
+      if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
+        || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
+          && typeof b.origin === 'string' && /^(own|tag|class:.+)$/.test(b.origin))) {
+        node.sourceMap = {status: 'unavailable', reason: map ? 'invalid source location' : problem};
+        return;
+      }
+      node.sourceMap = {status: 'compatible', digest: map.digest, ...at(entry), chain: entry.chain.map(at)};
+      for (const {row, origin} of entry.bindings) {
+        const style = node.style?.[row];
+        if (style && ['authored', 'dynamic'].includes(style.source)) style.origin = origin;
+      }
+    },
+  };
+}
+
+/** A targeted reply owns its identity. A concurrently fetched tree may already
+ * describe a replacement plan with reused view IDs and cannot relabel it. */
+export function identifyInspectedNode(reply, target) {
+  const node = reply.node;
+  if (!node) return;
+  const testId = node.props?.testId;
+  if (typeof target !== 'number' && !/^\d+$/.test(String(target)) && testId !== target) {
+    throw Error(`layout: target ${target} changed during inspection; retry`);
+  }
+  if (testId != null) node.testId = testId;
+  const box = reply.nodes.find(value => value.id === node.id);
+  if (box) { box.type = node.type; if (testId != null) box.testId = testId; }
+}
 
 /** Browser-process diagnostics that do not describe the page or Exact. Page
  * exceptions and console errors arrive over CDP separately and remain logs. */
@@ -143,7 +251,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
   const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
   const close = async () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, sleep(2000)]);
+    await waitAtMost(exited, 2000);
     server.close();
     rmSync(profile, { recursive: true, force: true });
   };
@@ -184,7 +292,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
-    const frame = () => Promise.race([evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), sleep(250)]);
+    const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
@@ -409,7 +517,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await Promise.race([exited, sleep(2000)]); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
   let readyTimeout;
   try {
     const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
@@ -512,9 +620,9 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
   const exited = new Promise((r) => socket.on('close', () => { lines.fail('the app hung up; ' + hostLines.join('\n')); r(); }));
   const close = async () => {
     try { socket.end(); } catch {}
-    await Promise.race([exited, sleep(2000)]);
+    await waitAtMost(exited, 2000);
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-    await Promise.race([consoleExited, sleep(1000)]);
+    await waitAtMost(consoleExited, 1000);
     if (!consoleDone) {
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
@@ -522,7 +630,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     rmSync(dir, { recursive: true, force: true });
   };
   try {
-    const ready = await Promise.race([lines.next(), sleep(20000).then(() => { throw new Error('the app never became ready; ' + hostLines.join('\n')); })]);
+    const ready = await waitAtMost(lines.next(), 20000, () => { throw new Error('the app never became ready; ' + hostLines.join('\n')); });
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
     if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
     pid = ready.pid ?? null;
@@ -639,7 +747,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     const closeWithPointer = async () => {
       if (pointer) {
         // Never leave the operator's mouse button down.
-        if (contact && contactDesktop) { try { await Promise.race([pointer.ask({ op: 'up', ...contactDesktop }), sleep(1000)]); } catch {} }
+        if (contact && contactDesktop) { try { await waitAtMost(pointer.ask({ op: 'up', ...contactDesktop }), 1000); } catch {} }
         try { pointer.child.stdin.end(); pointer.child.kill('SIGTERM'); } catch {}
       }
       await close();
@@ -692,6 +800,9 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
   const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+  const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
+    ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
+  const sourceMaps = sourceMapReader(mapLocator);
   const s = {
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
@@ -709,8 +820,13 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (r.error) throw new Error(`${req.op}: ${r.error}`);
       return r;
     },
-    /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
-    tree: () => s.op({ op: 'tree' }),
+    /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
+    tree(target, { shallow = false } = {}) {
+      const req = { op: 'tree' };
+      if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+      if (shallow !== false) req.shallow = shallow;
+      return s.op(req);
+    },
     /** Every slot, derive, and resource by name, as typed JSON. */
     state: () => s.op({ op: 'state' }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
@@ -723,16 +839,23 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target) {
       const req = { op: 'layout' };
-      if (target != null) req.id = (await s.find(target)).id;
+      if (target != null) {
+        req.id = (await s.find(target)).id;
+        if (await sourceMaps.refresh()) req.plan = true;
+        const reply = await s.op(req);
+        identifyInspectedNode(reply, target);
+        if (reply.node) sourceMaps.attach(reply.node);
+        return reply;
+      }
       const [l, t] = await Promise.all([s.op(req), s.tree()]);
       const by = new Map(t.nodes.map((n) => [n.id, n]));
       for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
-      if (l.node) { const k = by.get(l.node.id); if (k?.props.testId) l.node.testId = k.props.testId; }
       return l;
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target) {
-      const t = await s.tree();
+      if (target == null) throw new Error(`no view matches ${target}`);
+      const t = await s.tree(target, { shallow: true });
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
       if (!node) throw new Error(`no view matches ${target}`);
       return node;
@@ -858,10 +981,12 @@ export function render(op, r) {
   switch (op) {
     case 'tree': {
       const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
+      const rootDepth = r.nodes[0]?.depth ?? 0;
       for (const n of r.nodes) {
+        const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
-        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(n.depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
     }
@@ -904,11 +1029,17 @@ function renderNode(n) {
   const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
   const instance = (n.instance ?? []).map((i) => (i.key !== undefined ? q(i.key) : `arm ${i.arm}`)).join(' / ');
   const out = [`node #${n.id}${n.testId != null ? ` [${n.testId}]` : ''} ${n.type}${n.site != null ? ` · site ${n.site}` : ''}${instance ? ` · instance ${instance}` : ''} · epoch ${n.epoch} · incarnation ${n.incarnation}`];
+  const source = n.sourceMap;
+  if (source?.status === 'compatible') {
+    const at = value => `${value.file}:${value.line}:${value.col}`;
+    out.push(`  @ ${at(source)} (${source.component}) · compatible source map`);
+    for (const call of source.chain) out.push(`    called from ${call.component} @ ${at(call)}`);
+  } else if (source) out.push(`  source unavailable: ${source.reason}`);
   // Rows and keys sort by name: a host that answers through a dictionary
   // (AppKit, UIKit) has no order to offer, and the transcript must not
   // depend on which host answered.
   const sorted = (o) => Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''})`);
+  for (const [row, v] of sorted(n.style)) out.push(`  ${row} = ${typeof v.value === 'string' ? v.value : q(v.value)} (${v.source}${v.from != null ? ` from #${v.from}` : ''}${v.origin ? `, ${v.origin}` : ''}${v.applied != null ? `, applied ${v.applied}` : ''})`);
   // @ref LLP 1043.000 §3 D4, D7 — web geometry is paragraph-content-local.
   const flowSpace = n.flow?.coordinate_space === 'content' ? 'leaf content box' : 'leaf border box';
   for (const { kind, ...values } of n.flow_shapes ?? []) out.push(`  flow ${kind} ${Object.entries(values).map(([k, v]) => `${k}=${q(v)}`).join(' ')} (${flowSpace})`);
@@ -934,13 +1065,9 @@ function renderNode(n) {
  */
 export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
-  let bin = resolve(root, 'target/debug/contract');
-  if (!existsSync(bin)) {
-    const b = spawnSync('cargo', ['build', '-q', '-p', 'contract'], { cwd: root, encoding: 'utf8' });
-    if (b.status !== 0) throw new Error(`cargo build -p contract: ${b.stderr}`);
-  }
-  const c = spawnSync(bin, ['test', resolve(file)], { encoding: 'utf8' });
-  if (c.status !== 0) throw new Error(c.stderr.trim());
+  // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
+  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
+  if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
   // Every test starts from the first frame: a session of its own.
@@ -1022,7 +1149,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree [target] | layout [target] | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
@@ -1031,7 +1158,10 @@ async function main(argv) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': case 'state': case 'logs': r = await s[op](); break;
+        case 'tree':
+          if (args.length > 1) throw Error('tree accepts at most one target');
+          r = await s.tree(args[0]); break;
+        case 'state': case 'logs': r = await s[op](); break;
         case 'layout': r = await s.layout(args[0]); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
         case 'tap':

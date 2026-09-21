@@ -1,5 +1,5 @@
 //! The development producer retains compiler processes, never unchecked app results.
-use super::{bake_in, compile_bytecode, Baked, Scratch, Seed, Tools};
+use super::{bake_in, compile_bytecode, BakeMode, Baked, Scratch, Seed, Tools};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -49,7 +49,9 @@ impl Producer {
             &self.tools,
             &self.stage.0,
             &mut self.previous,
-            self.compiler.as_mut(),
+            BakeMode::Development {
+                compiler: self.compiler.as_mut(),
+            },
             None,
             seed,
         )

@@ -5,6 +5,7 @@
 **Systems:** Scrolling (LLP 1010 §6 — the measured-row `list`, its window, settle loop and retirement), Apple host (`ChainingScrollView`, `Presenter.syncLists`, the batch bridge, `TextEngine.measure`), Kernel (layout from the root; the per-leaf measurement memo), Runner (`ListWindow`), Markdown reader (LLP 1033 — row granularity, `estimated-item-height`)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-18
+**Revised:** 2026-09-21
 **Related:** LLP 1033 (the reader; `apps/markdown/README.md` is the lane's running record), LLP 1010 §6 (bounded list memory, measured rows), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls, the engine follows), LLP 1008 §3, §5 (CoreText, the AppKit presenter), LLP 1001 §6 (the `TextMeasurer` seam), LLP 1043 (what a CoreText re-break costs)
 
 ## Summary
@@ -17,6 +18,15 @@ investigation. It decides nothing, changes no product code, and is not linked in
 
 The lane's latest matched series (2.24 MB corpus, 120 Hz wheel input, 900×700):
 **Exact 21.67 hitch ms/s, Legend 3.33** (medians of three).
+
+**Current answer, 2026-09-21:** that comparison and the findings below describe
+the pre-fix reader. The principal diagnosis was borne out and the ordinary macOS
+scroll path was substantially repaired the next day (§7). The evidence now
+supports a narrower concern: rare construction paths still have measured tail
+costs, UIKit does not yet have macOS's rationed presenter, and a repeatable 120 Hz
+advantage over Legend has not been established. It does **not** support saying
+that ordinary current macOS scrolling is generally slow. Section 8 audits the
+claim against current `origin/main` at `6e583ae1` and states what must be rerun.
 
 **The answer is placement, then redundancy — not throughput.** In the one series
 where both were profiled, Exact used *less* CPU than Legend while scrolling. But
@@ -413,3 +423,77 @@ presenter for each view it creates; the long ones are paragraphs of many inline
 runs, each of which is a `NodeView`. And a paragraph is typeset twice: once in
 black to be measured, once in its colours to be painted (`TextShapeKey` carries
 the paint), 0.7 ms at the median in the unit that paints it.
+
+## 8. Current evidence boundary — 2026-09-21
+
+The question this revision answers is whether Exact still has a general
+"native text and virtualized lists have frame-time cliffs" problem. That wording
+is too broad. The evidence supports three narrower propositions, at different
+strengths:
+
+| Proposition | Evidence and snapshot | Strength on current main |
+|---|---|---|
+| Ordinary macOS scrolling is no longer explained by the original synchronous-fill cliff | Late synthetic inputs fell from 624 of 2,400 to 6 after the list, Taffy and paint changes, and to 2 after disabling AppKit state saving. The 60 Hz Hitches series no longer separated Exact from Legend. The F2 correlation between Exact hitches and app updates disappeared (§7). | **Strong historical evidence of repair.** Later changes did not restore the old mechanism, but this is not a fresh measurement at `6e583ae1`. |
+| Exceptional row construction and large jumps had real tails | On the repaired 2026-09-19 build, a creating fill unit was 2.6 ms median and 7 ms p99. Long rows were paragraphs with many inline runs, each represented by a `NodeView`; coloured paint caused a second typeset, 0.7 ms median and 3 ms worst. A 250,000-point jump synchronously built its landing scrollport in one report and stalled for 30–55 ms. `QUEUE.md` retains all three as open work. | **Measured, unresolved at that snapshot; stale as a current-main number.** Commits after the measurements changed text reuse, child lookup and native batch costs, so the exact tails must be remeasured before attributing them to today's code. |
+| iOS lacks the macOS scheduling protection | LLP 1010 §6 says the Mac presenter fills between frames with a per-report budget and explicitly says, "UIKit does not do this yet." The shared runner can ration creation, but `PresenterIOS` still reports the whole window in the scroll callback and paints text when first seen (`QUEUE.md`). | **Strong structural evidence; no physical-phone performance measurement.** This establishes a missing mechanism, not an observed current iOS hitch rate. |
+
+### 8.1 What landed after the tail measurements
+
+The 7 ms row-fill and 30–55 ms jump measurements must not be quoted as though
+they were taken at current main. Between that profile and `6e583ae1`, relevant
+mainline work included:
+
+- `7442359c`, which stopped remounting retained siblings when prepending a native
+  child and reduced reverse-scroll presenter work in its diagnostics;
+- `cdd4e493`, `5dba3fcd`, `b2fc632d`, `90fe55ea`, `f3f419fb`, and `c95bbbd4`,
+  which reduced text-cache cleanup, line-breaking, scalar retirement and flow
+  lookup work;
+- `135b7b89` and `1413a403`, which reduced repeated native child and listener
+  searches during bulk construction;
+- `7bb344b2`, `d4fc0b51`, and `c7df13c7`, which removed native batch-string,
+  path-construction, and no-op chrome-set work.
+
+Those changes make the old measurements a valid bug-finding lead, not a current
+benchmark result. None is evidence that the large-jump path was eliminated, and
+the maintained queue still records it as synchronous.
+
+### 8.2 The Legend comparison is still open
+
+The evidence after the repair is mixed rather than convergent. One four-pair
+pilot at `06149e8d` favored Exact (mean hitch time 3.75 vs 5.00 ms/s), but the
+fixed eight-pair `a666d46f` comparison did not (median 5.83 vs 5.42), and the
+six-round integrated `e84ad146` pilot also favored Legend (mean 4.861 vs
+2.361; Exact won one round). Some trials had reduced presentation cadence, and
+the available 60 Hz synthesized-input result is not a physical 120 Hz result.
+The reader README therefore correctly says the lower-hitch goal remains
+unproven. No one of these small, noisy series establishes that current Exact is
+generally worse, either.
+
+### 8.3 Experiment that would close the question
+
+Freeze one current-main Exact binary and the pinned Legend control, then run a
+predeclared alternating comparison on a physical 120 Hz Mac with real HID wheel
+and trackpad input. Keep corpus, window, thermal state and background workload
+fixed; reject trials only by the recorded focus, input and content-validity
+rules already used by the lane. Report presentation cadence alongside Hitches
+so a low hitch count cannot be purchased by presenting fewer frames.
+
+Instrument the same Exact binary separately, without a Legend comparison, for:
+
+1. forward and reverse steady scrolling, including dense inline-run paragraphs;
+2. 250,000-point jumps and scroller drags, reporting p50, p95 and maximum
+   synchronous landing cost rather than only the worst observed stall;
+3. creating fill-unit cost grouped by inline-run count, with runner/kernel,
+   presenter, shaping and paint phases separated;
+4. CoreText shaping count per paragraph, to determine whether measure and paint
+   still duplicate work after the later reuse commits;
+5. uncovered-band and anchoring correctness at the existing 48,000-point/s
+   stress rate.
+
+Run the corresponding scroll, reversal and jump suite on a physical ProMotion
+iPhone. That is the evidence needed to turn the structural UIKit gap into a
+performance claim or to clear it.
+
+Until those runs exist, the defensible conclusion is: **ordinary macOS scrolling
+was repaired; construction-tail and jump work remain open leads; iOS lacks the
+Mac's scheduling mechanism; superiority to Legend at 120 Hz is unproven.**

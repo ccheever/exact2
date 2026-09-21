@@ -87,14 +87,20 @@ final class TextIdentity: Hashable {
     let catalog: TextCatalogIdentity
     let utf8Bytes: Int
     let utf16Count: Int
+    let runEnds: [Int]
     init(_ geometry: Spec, catalog: TextCatalogIdentity) {
         self.geometry = geometry; self.catalog = catalog
         utf8Bytes = geometry.runs.reduce(0) { $0 + $1.text.utf8.count }
-        utf16Count = geometry.runs.reduce(0) { $0 + $1.text.utf16.count }
+        var end = 0
+        runEnds = geometry.runs.map { run in
+            end += run.text.utf16.count
+            return end
+        }
+        utf16Count = end
     }
     static func == (lhs: TextIdentity, rhs: TextIdentity) -> Bool { lhs === rhs }
     func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
-    var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride }
+    var ownedBytes: Int { utf8Bytes + geometry.runs.count * MemoryLayout<Run>.stride + runEnds.count * MemoryLayout<Int>.stride }
 }
 
 /// Text/font metrics are interned by exact Run equality, not a digest or ABI
@@ -153,7 +159,13 @@ final class TextShape {
     let identity: TextIdentity
     let spec: Spec
     let typesetter: CTTypesetter
+    // Reuse unchanged CTLines across widths while a view still owns its prior
+    // paragraph. This weak reference adds no paragraph or width-history owner.
+    weak var lastParagraph: Paragraph?
     let attributed: NSAttributedString
+    // Unicode opportunities belong to this immutable source, never a width.
+    // Filled lazily by the session's TextEngine; raster workers do not use it.
+    var lineBreakBoundaries: [Int]?
     private(set) var flow: TextFlowSource?
     private(set) var prepareCount = 0
     func preparedFlow() -> TextFlowSource {
@@ -170,7 +182,8 @@ final class TextShape {
     // Policy estimate, not measurement of opaque CoreText allocations. Source
     // String payload is accounted once separately; paint key payload is owned.
     var ownedBytes: Int {
-        (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
+        (lineBreakBoundaries?.count ?? 0) * MemoryLayout<Int>.stride
+            + (flow?.ownedBytes ?? 0) + spec.runs.count * MemoryLayout<Run>.stride
             + key.paint.color.count * MemoryLayout<Double>.stride + key.paint.runs.reduce(0) {
             $0 + MemoryLayout<TextPaint.Inline>.stride + ($1.color?.count ?? 0) * MemoryLayout<Double>.stride
                 + $1.decoration.utf8.count + $1.href.utf8.count
@@ -266,7 +279,10 @@ struct TextResidency {
     static let maxColdEntries = 4096
     static let maxLookupEntries = 8192
     static let maxIdentities = 4096
-    private static let cleanupQuota = 4
+    // A paragraph request crosses several cache operations. One entry and one
+    // identity per operation amortize dead metadata cleanup; hard caps below
+    // remain the bound even when references die just after a sweep.
+    private static let cleanupQuota = 1
     let softTargetBytes: Int
     private let catalog = TextCatalogIdentity()
     private struct Entry {
@@ -292,7 +308,8 @@ struct TextResidency {
     private var first: TextEntryKey?, last: TextEntryKey?, sweepEntry: TextEntryKey?
     private var coldFirst: TextEntryKey?, coldLast: TextEntryKey?
     private var coldCount = 0
-    private var coldGroups: [TextIdentityToken: Set<TextEntryKey>] = [:]
+    // Retirement visits layouts only; saved scalar answers need no width retirement.
+    private var coldLayouts: [TextIdentityToken: Set<TextEntryKey>] = [:]
     private var geometryIndex: [TextGeometryKey: Set<TextEntryKey>] = [:]
     private var identities: [Int: Set<TextIdentityToken>] = [:]
     private var identityEntries: [TextIdentityToken: IdentityEntry] = [:]
@@ -401,7 +418,7 @@ struct TextResidency {
     mutating func retireWidths(_ key: TextParagraphKey) {
         maintain()
         // Only this source's cold variants; accepted widths stay weakly indexed.
-        for old in coldGroups[key.shape.token] ?? [] {
+        for old in coldLayouts[key.shape.token] ?? [] {
             maintenanceVisits &+= 1
             switch old {
             case .paragraph(let p) where p != key:
@@ -439,7 +456,7 @@ struct TextResidency {
         last = key
         if let coldLast { entries[coldLast]?.warmer = key } else { coldFirst = key }
         coldLast = key; coldCount += 1
-        coldGroups[value.identity.token, default: []].insert(key)
+        if value.shape != nil { coldLayouts[value.identity.token, default: []].insert(key) }
         if case .paragraph(let p) = key {
             geometryIndex[TextGeometryKey(token: p.shape.token, widthBits: p.widthBits), default: []].insert(key)
         }
@@ -456,6 +473,21 @@ struct TextResidency {
             coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
         }
         trim(incoming: 0, keeping: .shape(shape.key))
+    }
+    /// Checkpoints share immutable sources whose lazy preparation can grow.
+    /// Their copied charge tables must catch up before re-admitting cold work.
+    /// Restore is exceptional; ordinary lookups never scan the cache.
+    mutating func refreshAfterRestore() {
+        var seen: Set<ObjectIdentifier> = []
+        for entry in entries.values {
+            guard let shape = entry.cold?.shape else { continue }
+            let key = ObjectIdentifier(shape)
+            guard seen.insert(key).inserted, let old = coldShapes[key] else { continue }
+            ownedBudget += shape.ownedBytes - old.owned
+            opaqueBudget += shape.opaqueEstimate - old.opaque
+            coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
+        }
+        trim(incoming: 0, keeping: coldLast)
     }
     mutating func prepare(estimatedBytes: Int) {
         maintain(); trim(incoming: estimatedBytes, keeping: nil)
@@ -491,8 +523,10 @@ struct TextResidency {
         if let p = e.colder { entries[p]?.warmer = e.warmer } else { coldFirst = e.warmer }
         if let n = e.warmer { entries[n]?.colder = e.colder } else { coldLast = e.colder }
         entries[key]?.cold = nil; entries[key]?.colder = nil; entries[key]?.warmer = nil
-        coldGroups[value.identity.token]?.remove(key)
-        if coldGroups[value.identity.token]?.isEmpty == true { coldGroups.removeValue(forKey: value.identity.token) }
+        if value.shape != nil {
+            coldLayouts[value.identity.token]?.remove(key)
+            if coldLayouts[value.identity.token]?.isEmpty == true { coldLayouts.removeValue(forKey: value.identity.token) }
+        }
         coldCount -= 1
         charge(value, adding: false)
     }

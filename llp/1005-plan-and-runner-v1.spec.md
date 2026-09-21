@@ -240,6 +240,9 @@ Linux uses `Event::Navigate` directly. The handler chooses the router verb.
 An action taking no parameters ignores the location; otherwise it takes one string.
 A URL before boot is the launch fact, with no navigate dispatch.
 
+Listener and collection-pin lookup walk mounted instances without constructing
+lexical frames; event dispatch still reconstructs those frames for curried arguments.
+
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
 | Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
@@ -279,6 +282,14 @@ host’s native selection API; it accepts one string (LLP 1007 §4, 1008 §5).
 Linux reports this unsupported; it does not emulate a text selection surface.
 Keyed rows use one key rule:
 strings, finite numbers (`-0` is `0`), bools; NaN is refused (`KeyKind`).
+
+The runner indexes immutable node/region child sites once at boot. A compact
+sorted group table maps each exact `(parent, arm)` pair to a range in one child
+array. Realization, dependency analysis and list validation borrow those ranges
+instead of rescanning and sorting the whole plan for every row. Within a group,
+`order` then site index retain the prior ordering; a tied node precedes a region.
+The index stores plan structure only, is rebuilt with each runner, and uses
+memory proportional to plan sites rather than mounted rows or history length.
 
 **Atomicity.** A failure during settlement rolls back the action's slot
 writes and commands and leaves the kernel untouched. A failure after the

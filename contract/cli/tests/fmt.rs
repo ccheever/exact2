@@ -153,6 +153,51 @@ fn fmt_check_diffs_and_exits_non_zero_only_on_a_difference() {
 }
 
 #[test]
+fn fmt_check_keeps_distant_edits_local_without_rewriting_source() {
+    let dir = std::env::temp_dir().join(format!("exact-fmt-hunks-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a.contract");
+    let before = format!(
+        "component A\n  view\n{}",
+        (0..1000)
+            .map(|n| {
+                let gap = if n == 1 || n == 998 { "   " } else { " " };
+                format!("    text{gap}\"row {n}\"\n")
+            })
+            .collect::<String>()
+    );
+    std::fs::write(&file, &before).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["fmt", "--check"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stderr.is_empty());
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    let diff = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(
+        diff.lines().filter(|line| line.starts_with("@@")).count(),
+        2
+    );
+    assert_eq!(
+        diff.lines()
+            .filter(|line| line.starts_with("-    text"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        diff.lines()
+            .filter(|line| line.starts_with("+    text"))
+            .count(),
+        2
+    );
+    assert!(!diff.contains("row 500"));
+    assert!(diff.lines().count() < 25);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn formatter_refuses_unknown_flags_extra_paths_and_invalid_source_without_writing() {
     let dir = std::env::temp_dir().join(format!("exact-fmt-refusal-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();

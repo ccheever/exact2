@@ -189,7 +189,14 @@ test('resident reads see root replacement, refuse links, and do not hold Bun ope
     symlinkSync(join(other,'value'),join(root,'value'));await assert.rejects(get(root),/symlink/);
     assert.equal(Buffer.from(await get(other),'base64').toString(),'other','a refused read must not poison the pipe');
     await assert.rejects(filesystemRead({op:'put',root,path:'value'}),/only accepts get/);
-    const program=`import {filesystemRead} from ${JSON.stringify(new URL('./filesystem.mjs',import.meta.url).href)}; await filesystemRead({op:'get',root:${JSON.stringify(other)},path:'value'}); console.log('done');`;
+    writeFileSync(join(other,'large'),Buffer.alloc(1536*1024,65));
+    const program=`import {filesystemRead} from ${JSON.stringify(new URL('./filesystem.mjs',import.meta.url).href)};
+      for(let wave=0;wave<3;wave++) {
+        const replies=await Promise.all(Array.from({length:20},()=>filesystemRead({op:'get',root:${JSON.stringify(other)},path:'large'})));
+        if(replies.some(value=>Buffer.from(value,'base64').length!==1536*1024)) throw Error('incomplete read');
+        if(wave<2) await new Promise(resolve=>setTimeout(resolve,20));
+      }
+      console.log('done');`;
     const child=spawn(process.execPath,['--input-type=module','-e',program],{stdio:['ignore','pipe','pipe']});
     let output='', stderr='';
     await new Promise((resolve,reject)=>{
@@ -204,7 +211,7 @@ test('resident reads see root replacement, refuse links, and do not hold Bun ope
     });
     assert.equal(output.trim(),'done');
   } finally {rmSync(dir,{recursive:true,force:true});}
-});
+}, 200_000);
 
 test('filesystem callers retain their helper across rebuilds and report failed operations without retrying', () => {
   const dir=mkdtempSync(join(tmpdir(),'exact-helper-capture-'));

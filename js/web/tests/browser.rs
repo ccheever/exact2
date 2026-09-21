@@ -365,6 +365,103 @@ try {
     await fs.writeFile('app:/data/dir/a',new Uint8Array([1,2]));
     await Promise.all(Array.from({length:8},()=>fs.appendFile('app:/data/dir/a',new Uint8Array([3]))));
     if((await fs.stat('app:/data/dir/a')).size!==10)throw new Error('concurrent append lost bytes');
+    const [ownedA,ownedB]=await Promise.all([fs.readFile('app:/data/dir/a'),fs.readFile('app:/data/dir/a')]);
+    new Uint8Array(ownedA)[0]=99;
+    if(new Uint8Array(ownedB)[0]!==1||new Uint8Array(await fs.readFile('app:/data/dir/a'))[0]!==1)throw new Error('read buffers must own independent bytes');
+    structuredClone(ownedA,{transfer:[ownedA]});
+    if(new Uint8Array(await fs.readFile('app:/data/dir/a'))[0]!==1)throw new Error('detached read must not detach stored data');
+    const errors=async(promise,code)=>{try{await promise;}catch(error){if(error.code===code)return;throw error;}throw new Error('expected '+code);};
+    await errors(fs.readFile('app:/data/absent'),'ENOENT');
+    await errors(fs.stat('app:/data/absent'),'ENOENT');
+    await errors(fs.realpath('app:/data/absent'),'ENOENT');
+    await errors(fs.readFile('app:/data/dir'),'EISDIR');
+    await errors(fs.readdir('app:/data/dir/a'),'ENOTDIR');
+    await errors(fs.readdir('app:/data/absent'),'ENOENT');
+    for(const method of ['writeFile','atomicWriteFile','appendFile']) {
+      await errors(fs[method]('app:/data/dir',new Uint8Array([9])),'EISDIR');
+      await errors(fs[method]('app:/data/absent/a',new Uint8Array([9])),'ENOENT');
+      await errors(fs[method]('app:/data/dir/a/child',new Uint8Array([9])),'ENOTDIR');
+      const buffer=new Uint8Array([0,4,5,0]);
+      const saved=fs[method]('app:/cache/snapshot',buffer.subarray(1,3));
+      buffer.fill(99);structuredClone(buffer.buffer,{transfer:[buffer.buffer]});
+      await saved;
+      if([...new Uint8Array(await fs.readFile('app:/cache/snapshot'))].join()!=='4,5')throw new Error(method+' must snapshot input before waiting');
+      await fs.rm('app:/cache/snapshot');
+    }
+    await fs.atomicWriteFile('app:/cache/target',new Uint8Array([6]));
+    await errors(fs.copyFile('app:/data/absent','app:/cache/target'),'ENOENT');
+    await errors(fs.copyFile('app:/data/dir','app:/cache/target'),'EISDIR');
+    await errors(fs.copyFile('app:/data/dir/a','app:/data/dir'),'EISDIR');
+    await errors(fs.copyFile('app:/data/dir/a','app:/data/absent/a'),'ENOENT');
+    await refused(fs.copyFile('app:/data/dir/a','app:/data/dir/a'));
+    if(new Uint8Array(await fs.readFile('app:/cache/target'))[0]!==6)throw new Error('failed copy changed destination');
+    if((await fs.stat('app:/data/dir/a')).size!==10)throw new Error('failed mutation changed source');
+    await fs.copyFile('app:/data/dir/a','app:/cache/target');
+    await fs.atomicWriteFile('app:/cache/target',new Uint8Array([8]));
+    if((await fs.stat('app:/cache/target')).size!==1||new Uint8Array(await fs.readFile('app:/data/dir/a'))[0]!==1)throw new Error('overwrite must replace independent contents');
+    await fs.writeFile('app:/cache/unrelated-large',new Uint8Array(1024*1024));
+    let loadedBytes=0;
+    const originalReads=new Map(['get','getAll'].map(method=>[method,IDBObjectStore.prototype[method]]));
+    for(const [method,original] of originalReads)IDBObjectStore.prototype[method]=function(...args){
+      const request=original.apply(this,args);
+      if(this.transaction.db.name===`exact-storage:${encodeURIComponent(fsApp)}`)request.addEventListener('success',()=>{
+        const values=Array.isArray(request.result)?request.result:[request.result];
+        for(const value of values)loadedBytes+=value?.contents?.byteLength||0;
+      });
+      return request;
+    };
+    try {
+      await fs.readFile('app:/data/dir/a');await fs.stat('app:/data/dir/a');
+      await fs.realpath('app:/data/dir/a');await fs.readdir('app:/data/dir');
+      await fs.writeFile('app:/cache/target',new Uint8Array([6]));
+      await fs.atomicWriteFile('app:/cache/target',new Uint8Array([7]));
+      await fs.appendFile('app:/cache/target',new Uint8Array([8]));
+      await fs.copyFile('app:/data/dir/a','app:/cache/target');
+      await fs.mkdir('app:/cache/created/nested');
+      await fs.rename('app:/cache/created','app:/cache/renamed');
+      await fs.rm('app:/cache/renamed');
+      await fs.rm('app:/cache/unrelated-large');
+    } finally {for(const [method,original] of originalReads)IDBObjectStore.prototype[method]=original;}
+    if(loadedBytes>=1024*1024)throw new Error('filesystem operation loaded unrelated or removed file contents');
+    await fs.rm('app:/cache/unrelated-large');
+    await fs.mkdir('app:/data/ops/from/nested');await fs.mkdir('app:/data/ops/from0');
+    await fs.mkdir('app:/data/ops/to');await fs.mkdir('app:/data');
+    for(const path of ['app:/data/ops/from/\ufffftail','app:/data/ops/from/nested/🌿','app:/data/ops/from!'])await fs.writeFile(path,new Uint8Array([12]));
+    await errors(fs.mkdir('app:/data/ops/from!/child'),'ENOTDIR');
+    await errors(fs.rm('app:/data/ops/from!/child'),'ENOTDIR');
+    await errors(fs.rm('app:/data/absent/child'),'ENOENT');
+    await errors(fs.rename('app:/data/absent','app:/data/ops/to'),'ENOENT');
+    await errors(fs.rename('app:/data/ops/from','app:/data/absent/to'),'ENOENT');
+    await refused(fs.rename('app:/data/ops/from','app:/data/ops/from/nested/moved'));
+    await refused(fs.rename('app:/data/ops/from!','app:/data/ops/to'));
+    await errors(fs.rename('app:/data/ops/from','app:/data/ops'),'ENOTEMPTY');
+    await fs.writeFile('app:/data/ops/to/occupied',new Uint8Array([13]));
+    await errors(fs.rename('app:/data/ops/from','app:/data/ops/to'),'ENOTEMPTY');
+    await fs.rm('app:/data/ops/to/occupied');
+    const originalPut=IDBObjectStore.prototype.put;let puts=0;
+    IDBObjectStore.prototype.put=function(...args){
+      if(this.transaction.db.name===`exact-storage:${encodeURIComponent(fsApp)}`&&++puts===2)throw new Error('injected move failure');
+      return originalPut.apply(this,args);
+    };
+    try {
+      try{await fs.rename('app:/data/ops/from','app:/data/ops/to');throw new Error('move should fail');}
+      catch(error){if(error.message!=='injected move failure')throw error;}
+    } finally {IDBObjectStore.prototype.put=originalPut;}
+    if((await fs.readdir('app:/data/ops/to')).length||new Uint8Array(await fs.readFile('app:/data/ops/from/nested/🌿'))[0]!==12)throw new Error('failed move must roll back removed and inserted records');
+    await fs.rename('app:/data/ops/from','app:/data/ops/from');
+    await fs.rename('app:/data/ops/from','app:/data/ops/to');
+    if((await fs.readdir('app:/data/ops')).join()!=='from!,from0,to'||new Uint8Array(await fs.readFile('app:/data/ops/to/\ufffftail'))[0]!==12)throw new Error('move must preserve Unicode descendants and adjacent siblings');
+    await fs.writeFile('app:/data/ops/replaced',new Uint8Array([99]));
+    await fs.rename('app:/data/ops/from!','app:/data/ops/replaced');
+    if(new Uint8Array(await fs.readFile('app:/data/ops/replaced'))[0]!==12)throw new Error('file move must replace destination');
+    await fs.rm('app:/data/ops/to');
+    if((await fs.readdir('app:/data/ops')).join()!=='from0,replaced')throw new Error('recursive removal must preserve adjacent siblings');
+    await fs.rm('app:/data/ops');
+    await fs.mkdir('app:/data/list/nested');await fs.mkdir('app:/data/list0');
+    for(const path of ['app:/data/list/\ufffftail','app:/data/list/🌿','app:/data/list/nested/hidden','app:/data/list0/sibling'])await fs.writeFile(path,new Uint8Array([4]));
+    if((await fs.readdir('app:/data/list')).join()!==['nested','🌿','\ufffftail'].sort().join())throw new Error('directory keys must include Unicode direct children only');
+    if((await fs.stat('app:/data/list')).isDirectory!==true)throw new Error('directory metadata');
+    await fs.rm('app:/data/list');await fs.rm('app:/data/list0');
     await fs.copyFile('app:/data/dir/a','app:/cache/copy');
     await fs.rename('app:/data/dir','app:/data/moved');
     if((await fs.readdir('app:/data/moved')).join()!=='a'||await fs.realpath('app:/data//moved/a/')!=='app:/data/moved/a')throw new Error('directory rename/canonical path');
@@ -373,6 +470,26 @@ try {
     await refused(narrow.readFile('app:/data/moved/a'));narrow.dispose();
     await fs.rm('app:/data/moved');await fs.rm('app:/data/missing');
     if((await fs.readdir('app:/data')).length)throw new Error('recursive removal');
+    const {createFileStore}=await import('/storage-fs.js');
+    const ownedStore=createFileStore(fsApp);
+    const ownedPath='app:/cache/owned';
+    const ownedBytes=new Uint8Array([3,4,5]).buffer;
+    const ownedWrite=ownedStore.atomicWriteOwnedFile(ownedPath,ownedBytes);
+    if(ownedBytes.byteLength!==0)throw new Error('private write must take ownership before yielding');
+    await ownedWrite;
+    if([...new Uint8Array(await fs.readFile(ownedPath))].join()!=='3,4,5')throw new Error('owned write lost bytes');
+    const failedBytes=new Uint8Array([9]).buffer;
+    const oldOwnedPut=IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put=function(value,...args){
+      if(value.path===ownedPath)throw new Error('injected owned write failure');
+      return oldOwnedPut.call(this,value,...args);
+    };
+    try {
+      try {await ownedStore.atomicWriteOwnedFile(ownedPath,failedBytes);throw new Error('owned write should fail');}
+      catch(error){if(error.message!=='injected owned write failure')throw error;}
+    } finally {IDBObjectStore.prototype.put=oldOwnedPut;ownedStore.close();}
+    if(failedBytes.byteLength!==0||[...new Uint8Array(await fs.readFile(ownedPath))].join()!=='3,4,5')throw new Error('failed owned write must leave durable bytes unchanged');
+    if('atomicWriteOwnedFile' in fs)throw new Error('private transfer exposed through filesystem capability');
     const db=await sql.open('app:/data/live.db');
     await db.execute('CREATE TABLE t (value INTEGER)');
     await db.execute('INSERT INTO t VALUES (?)',[42n]);
@@ -598,7 +715,7 @@ try {
       if(result.tag!==0)throw new Error(source+': '+JSON.stringify(result));
       for(const [key,value] of result.writes||[]){if(value===null)snapshot.delete(key);else snapshot.set(key,value);}
       sessionStorage.setItem('fieldnotes-store',JSON.stringify([...snapshot]));
-      if(source!=='library'&&(result.writes?.length!==1||result.value.revision!==Number(snapshot.get('fieldnotes.revision'))))throw new Error('mutation revision must settle once');
+      if(source!=='library'&&source!=='openNote'&&(result.writes?.length!==1||result.value.revision!==Number(snapshot.get('fieldnotes.revision'))))throw new Error('mutation revision must settle once');
       return result.value;
     };
     const check=(condition,message)=>{if(!condition)throw new Error(message);};
@@ -620,7 +737,12 @@ try {
       service.dispose();realm.dispose();return {reloaded:true};
     }
     const saved=await ask('saveNote',['','Café 🌿','京都\nBinary-safe backups\u2028line separator\u2029paragraph separator',true,1]);check(!saved.failed,'TS creates notebook');
+    const {createFileStore}=await import('/storage-fs.js');
+    const files=createFileStore(identity.appId);
+    const beforeBackup=(await files.stat(db)).modifiedMs;
     const expected=await ask('backupNotes');check(!expected.failed,'TS original backup');
+    check((await files.stat(db)).modifiedMs===beforeBackup,'TypeScript backup does not rewrite an initialized database');
+    files.close();
     // These are the same value-only operations emitted by fieldnotes-data;
     // the native fixture separately executes the Rust source through ABI2.
     const rows=await request('sqlite',{path:db,commands:[command('query','SELECT id,title,body,pinned FROM notes ORDER BY pinned DESC,id DESC')]});
@@ -655,7 +777,17 @@ try {
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
     check((await request('fs.readFile',{path:binary})).base64==='AP8=','file byte representation exact');
-    const updated={version:1,notes:library.notes.map(({id,title,body,pinned})=>({id,title,body,pinned}))};
+    // Concurrent library/detail callers share a realm. Browser realms hold
+    // each whole storage-backed turn through connection close.
+    for(const placement of ['main','worker']) {
+      realm.dispose();realm=await prepare({script,receipt},{...identity,placement});
+      const [list,opened]=await Promise.all([ask('library',['',0,0]),ask('openNote',[saved.id,1])]);
+      check(list.ready&&opened.ready&&opened.body.includes('Binary-safe backups'),'concurrent library/detail reads settle on '+placement);
+    }
+    const updated={version:1,notes:await Promise.all(library.notes.map(async ({id})=>{
+      const note=await ask('openNote',[id,1]);check(note.ready,'read full body for portable backup');
+      return {id,title:note.title,body:note.body,pinned:note.pinned};
+    }))};
     await request('fs.atomicWriteFile',{path,text:JSON.stringify(updated,null,2)});
     await ask('deleteNote',[saved.id]);check((await ask('library',['',0,0])).total===0,'TS deletes before reload restore');
     const pending=service.run(JSON.stringify({version:1,op:'sqlite',args:{path:db,commands:[command('query','SELECT 1')]}}));

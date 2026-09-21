@@ -27,11 +27,23 @@ use std::fmt::Write as _;
 /// `{"error":…}`.
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
-        Some("tree") => tree(runner),
+        Some("tree") => tree_request(runner, request),
         Some("state") => state(runner),
         Some("tags") => tags(runner),
         Some("node") => match field_num(request, "id") {
-            Some(n) if n >= 0.0 && n == n.trunc() => node(runner, n as u32),
+            Some(n) if n >= 0.0 && n == n.trunc() => {
+                let mut reply = node(runner, n as u32);
+                if field_bool(request, "plan") && !reply.starts_with("{\"error\"") {
+                    // The digest and site belong to this exact synchronous read.
+                    // Kernel incarnations can repeat across host replacements.
+                    // Only an explicit development inspection computes identity.
+                    reply.pop();
+                    reply.push_str(",\"planDigest\":");
+                    quote(runner.inspection_digest(), &mut reply);
+                    reply.push('}');
+                }
+                reply
+            }
             _ => error("node needs an id"),
         },
         Some("logs") => match (after_key(request, "since"), field_num(request, "since")) {
@@ -69,7 +81,77 @@ pub fn error(message: &str) -> String {
 /// their schema names, the events it handles, its children — plus the
 /// kernel's epoch and incarnation (the consistency token: nothing moves
 /// between two calls unless the agent moved it).
+fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    let shallow = match after_key(request, "shallow") {
+        None => false,
+        Some(value) => match value.split([',', '}']).next().unwrap().trim() {
+            "true" => true,
+            "false" => false,
+            _ => return error("tree shallow must be a boolean"),
+        },
+    };
+    if after_key(request, "target").is_none() {
+        if shallow {
+            return error("shallow tree needs a target");
+        }
+        return tree(runner);
+    }
+    let name = field_str(request, "target");
+    let id = field_num(request, "target")
+        .filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc());
+    if name.is_none() && id.is_none() {
+        return error("tree target must be a view id or testId");
+    }
+    let kernel = runner.kernel();
+    let locate = |id| {
+        let mut node = kernel.node(id)?;
+        let mut depth = 0u16;
+        while let Some(parent) = node.parent {
+            node = kernel.node(parent)?;
+            depth = depth.saturating_add(1);
+        }
+        // The selector index also contains detached nodes; tree reads do not.
+        kernel
+            .arena()
+            .is_root(node.key.index)
+            .then_some((id, depth))
+    };
+    let found = if let Some(id) = id {
+        locate(id as u32)
+    } else {
+        kernel
+            .find_first_by_test_id(name.as_deref().unwrap())
+            .and_then(|key| locate(kernel.node_by_key(key)?.id))
+    };
+    let Some((root, depth)) = found else {
+        return error(&format!(
+            "no view matches {}",
+            name.unwrap_or_else(|| num(id.unwrap()).to_string())
+        ));
+    };
+    if shallow {
+        let mut row = kernel.row(root).expect("located live node");
+        row.depth = depth;
+        return tree_rows(runner, &[row], &[root]);
+    }
+    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
+    for row in &mut subtree {
+        row.depth = row.depth.saturating_add(depth);
+    }
+    tree_rows(runner, &subtree, &[root])
+}
+
+/// Every live root and node, in structural preorder.
 pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
+    let rows = runner.kernel().rows(None).unwrap_or_default();
+    tree_rows(runner, &rows, &runner.roots())
+}
+
+fn tree_rows<D: DataSource>(
+    runner: &Runner<D>,
+    rows: &[exact_kernel::export::NodeRow],
+    roots: &[u32],
+) -> String {
     let kernel = runner.kernel();
     let mut s = String::new();
     let _ = write!(
@@ -79,11 +161,11 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         kernel.incarnation(),
         num(runner.now_ms())
     );
-    ids(&runner.roots(), &mut s);
+    ids(roots, &mut s);
     s.push_str(",\"nodes\":[");
-    let rows = kernel.rows(None).unwrap_or_default();
+    let handlers = (rows.len() != 1).then(|| runner.handlers());
     let mut first = true;
-    for row in &rows {
+    for row in rows {
         let Some(node) = kernel.node(row.id) else {
             continue;
         };
@@ -103,7 +185,14 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         s.push_str(",\"props\":{");
         props_json(&node, &mut s);
         s.push_str("},\"handlers\":[");
-        for (i, e) in runner.handlers_of(node.id).into_iter().enumerate() {
+        let single;
+        let events = if let Some(all) = &handlers {
+            all.get(&node.id).map_or(&[][..], Vec::as_slice)
+        } else {
+            single = runner.handlers_of(node.id);
+            &single
+        };
+        for (i, e) in events.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
@@ -131,7 +220,9 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
             PropValue::Int(i) => {
                 let _ = write!(s, "{i}");
             }
-            PropValue::Float(f) => s.push_str(&num(*f)),
+            PropValue::Float(f) => {
+                let _ = write!(s, "{}", num(*f));
+            }
         }
     }
 }
@@ -369,7 +460,9 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
     };
     match v {
         RowValue::Dimension(Dimension::Auto) => out.push_str("\"auto\""),
-        RowValue::Dimension(Dimension::Points(p)) => out.push_str(&num(p as f64)),
+        RowValue::Dimension(Dimension::Points(p)) => {
+            let _ = write!(out, "{}", num(p as f64));
+        }
         RowValue::Dimension(Dimension::Percent(p)) => quote(&format!("{}%", num(p as f64)), out),
         RowValue::Dimension(Dimension::Env(edge, offset)) => {
             let edge = match edge {
@@ -389,10 +482,14 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             quote(&text, out)
         }
         RowValue::LineHeight(v) => match v {
-            exact_kernel::LineHeight::Number(n) => out.push_str(&num(n as f64)),
+            exact_kernel::LineHeight::Number(n) => {
+                let _ = write!(out, "{}", num(n as f64));
+            }
             _ => quote(&v.css(), out),
         },
-        RowValue::Number(n) => out.push_str(&num(n)),
+        RowValue::Number(n) => {
+            let _ = write!(out, "{}", num(n));
+        }
         RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
@@ -615,7 +712,9 @@ pub fn logs<D: DataSource>(runner: &Runner<D>, since: usize) -> String {
 pub fn typed_json(plan: &Plan, ty: TypesId, v: &Value, out: &mut String) {
     let row = plan.type_(ty);
     match (row.kind, v) {
-        (_, Value::Number(n)) => out.push_str(&num(*n)),
+        (_, Value::Number(n)) => {
+            let _ = write!(out, "{}", num(*n));
+        }
         (_, Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
         (_, Value::Str(s)) => quote(s, out),
         (_, Value::Unit) | (_, Value::Option(None)) => out.push_str("null"),
@@ -657,7 +756,9 @@ pub fn typed_json(plan: &Plan, ty: TypesId, v: &Value, out: &mut String) {
 /// A plan value as JSON with no type to hand: records positional.
 pub fn untyped_json(v: &Value, out: &mut String) {
     match v {
-        Value::Number(n) => out.push_str(&num(*n)),
+        Value::Number(n) => {
+            let _ = write!(out, "{}", num(*n));
+        }
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Str(s) => quote(s, out),
         Value::Unit | Value::Option(None) => out.push_str("null"),
@@ -675,35 +776,55 @@ pub fn untyped_json(v: &Value, out: &mut String) {
     }
 }
 
-/// A finite number as JSON; anything else is `null`.
-pub fn num(n: f64) -> String {
-    if n.is_finite() {
-        if n == n.trunc() && n.abs() < 1e15 {
-            format!("{}", n as i64)
-        } else {
-            format!("{n}")
+/// Format a finite number as JSON, or `null`, without a temporary string.
+pub fn num(n: f64) -> impl std::fmt::Display {
+    struct Number(f64);
+    impl std::fmt::Display for Number {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let n = self.0;
+            if n.is_finite() {
+                if n == n.trunc() && n.abs() < 1e15 {
+                    write!(f, "{}", n as i64)
+                } else {
+                    write!(f, "{n}")
+                }
+            } else {
+                f.write_str("null")
+            }
         }
-    } else {
-        "null".to_string()
     }
+    Number(n)
 }
 
 /// A JSON string.
 pub fn quote(s: &str, out: &mut String) {
     out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
+    let mut start = 0;
+    let bytes = s.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        let i = cursor;
+        let byte = bytes[i];
+        cursor += 1;
+        if !matches!(byte, b'"' | b'\\' | 0..=0x1f) {
+            continue;
         }
+        // Every escape is ASCII, so both slice boundaries are UTF-8 boundaries.
+        // Copy ordinary text together instead of decoding and pushing each char.
+        out.push_str(&s[start..i]);
+        match byte {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            _ => {
+                let _ = write!(out, "\\u{byte:04x}");
+            }
+        }
+        start = i + 1;
     }
+    out.push_str(&s[start..]);
     out.push('"');
 }
 
@@ -866,12 +987,39 @@ mod tests {
 
     #[test]
     fn numbers_render_as_json() {
-        assert_eq!(num(3.0), "3");
-        assert_eq!(num(-0.5), "-0.5");
-        assert_eq!(num(f64::NAN), "null");
-        assert_eq!(num(1e20), "100000000000000000000");
+        assert_eq!(num(3.0).to_string(), "3");
+        assert_eq!(num(-0.0).to_string(), "0");
+        assert_eq!(num(-0.5).to_string(), "-0.5");
+        assert_eq!(num(1e-8).to_string(), "0.00000001");
+        assert_eq!(num(f64::NAN).to_string(), "null");
+        assert_eq!(num(f64::INFINITY).to_string(), "null");
+        assert_eq!(num(f64::NEG_INFINITY).to_string(), "null");
+        assert_eq!(num(1e20).to_string(), "100000000000000000000");
+        let mut output = String::from("[");
+        write!(output, "{},{},{}]", num(-0.0), num(1e-8), num(f64::NAN)).unwrap();
+        assert_eq!(output, "[0,0.00000001,null]");
         let mut s = String::new();
         quote("tab\there \"q\" \u{1}", &mut s);
         assert_eq!(s, "\"tab\\there \\\"q\\\" \\u0001\"");
+    }
+
+    #[test]
+    fn quoted_strings_preserve_unicode_and_escape_boundaries() {
+        for input in [
+            "",
+            "plain",
+            "é🦀",
+            "\"é\\🦀\n",
+            "\u{2028}\u{2029}",
+            "\t\r\n",
+        ] {
+            let mut json = String::from("{\"text\":");
+            quote(input, &mut json);
+            json.push('}');
+            assert_eq!(field_str(&json, "text").as_deref(), Some(input));
+        }
+        let mut json = String::new();
+        quote("é\u{0}🦀\u{8}\u{c}\u{1f}\u{7f}", &mut json);
+        assert_eq!(json, "\"é\\u0000🦀\\u0008\\u000c\\u001f\u{7f}\"");
     }
 }

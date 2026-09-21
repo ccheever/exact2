@@ -1,23 +1,27 @@
 //! Generic tree consumers visit only mounted authored rows, never private wrappers.
 use super::*;
 impl Collection {
-    pub(in crate::instance) fn find(
+    pub(in crate::instance) fn find<const FRAMES: bool>(
         &self,
         view: ViewId,
         frames: &mut Vec<Frame>,
     ) -> Option<NodesId> {
         for row in &self.mounted {
-            frames.push(row.row.frame.clone());
+            if FRAMES {
+                frames.push(row.row.frame.clone());
+            }
             for child in &row.row.roots {
                 let found = match child {
-                    Child::Node(n) => n.find(view, frames),
-                    Child::Region(r) => r.find(view, frames),
+                    Child::Node(n) => n.find::<FRAMES>(view, frames),
+                    Child::Region(r) => r.find::<FRAMES>(view, frames),
                 };
                 if found.is_some() {
                     return found;
                 }
             }
-            frames.pop();
+            if FRAMES {
+                frames.pop();
+            }
         }
         None
     }
@@ -423,8 +427,14 @@ fn release_other_pins(
 /// Check the template, including inactive arms and rows not yet materialized.
 /// An explicit false remains an ordinary eager list; a dynamic nested opt-in
 /// could become enabled later and is rejected just like an explicit true.
-pub(super) fn validate_no_nested(plan: &Plan, region: RegionsId) -> Result<(), InstanceError> {
-    let mut stack = sites(plan, None, plan.region(region).arms.iter().next());
+pub(super) fn validate_no_nested(
+    plan: &Plan,
+    sites: &SiteIndex,
+    region: RegionsId,
+) -> Result<(), InstanceError> {
+    let mut stack = sites
+        .children(None, plan.region(region).arms.iter().next())
+        .to_vec();
     while let Some((_, site)) = stack.pop() {
         match site {
             Site::Node(node) => {
@@ -442,11 +452,11 @@ pub(super) fn validate_no_nested(plan: &Plan, region: RegionsId) -> Result<(), I
                         return Err(invalid("nested virtualized collections are not supported"));
                     }
                 }
-                stack.extend(sites(plan, Some(node), row.arm));
+                stack.extend(sites.children(Some(node), row.arm).iter().copied());
             }
             Site::Region(region) => {
                 for arm in plan.region(region).arms.iter() {
-                    stack.extend(sites(plan, None, Some(arm)));
+                    stack.extend(sites.children(None, Some(arm)).iter().copied());
                 }
             }
         }

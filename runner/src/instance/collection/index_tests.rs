@@ -795,3 +795,22 @@ fn identical_order_fastpath_does_not_mask_reorder_insert_delete_or_duplicate() {
     assert!(!index.set_measured_height("k1", old, 90.).unwrap());
     assert_eq!(index.height(2), Some(10.));
 }
+
+#[test]
+fn measured_bands_require_current_rows_without_scanning_the_band() {
+    let mut i = index(&vec![1.; 25_000]);
+    i.tree.visits.set(0);
+    assert!(i.range_measured(0..25_000));
+    assert!(i.tree.visits.get() < 100);
+    i.invalidate_row("k12000").unwrap();
+    assert!(!i.range_measured(0..25_000));
+    assert!(i.range_measured(0..12_000));
+    assert!(i.range_measured(12_001..25_000));
+    assert!(!i.range_measured(0..0));
+    i.invalidate_all().unwrap();
+    assert!(!i.range_measured(0..12_000));
+    let token = i.measurement_token("k0").unwrap();
+    i.set_measured_height("k0", token, 0.).unwrap();
+    assert!(i.range_measured(0..1));
+    assert!(!i.range_measured(0..2));
+}

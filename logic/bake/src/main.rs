@@ -26,13 +26,19 @@ fn card(file: &str, bytes: &[u8]) -> serde_json::Value {
     serde_json::json!({"file":file,"bytes":bytes.len(),"sha256":format!("{:x}",Sha256::digest(bytes))})
 }
 fn bake(args: &[String]) -> Result<(), String> {
-    if args.len() != 4 {
+    let mapped = args.len() == 5 && args[4] == "--map";
+    if args.len() != 4 && !mapped {
         return Err(
-            "usage: exact-logic-bake <app.contract> <app.module.wasm> <compat.json> <output.plan>"
+            "usage: exact-logic-bake <app.contract> <app.module.wasm> <compat.json> <output.plan> [--map]"
                 .into(),
         );
     }
-    let mut plan = contract::compile_path(Path::new(&args[0])).map_err(|e| e.to_string())?;
+    let (mut plan, map) = if mapped {
+        contract::compile_path_mapped(Path::new(&args[0])).map(|(plan, map)| (plan, Some(map)))
+    } else {
+        contract::compile_path(Path::new(&args[0])).map(|plan| (plan, None))
+    }
+    .map_err(|e| e.to_string())?;
     let bytes = std::fs::read(&args[1]).map_err(|e| e.to_string())?;
     let compat: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&args[2]).map_err(|e| e.to_string())?)
@@ -70,8 +76,21 @@ fn bake(args: &[String]) -> Result<(), String> {
     source
         .activate()
         .map_err(|e| format!("module activation: {e:?}"))?;
-    let baked = contract::bake(plan, source).map_err(|e| format!("bake: {e:?}"))?;
-    std::fs::write(&args[3], baked.encode()).map_err(|e| e.to_string())
+    let baked = contract::bake(plan, source)
+        .map_err(|e| {
+            map.as_ref().map_or_else(
+                || format!("bake: {e:?}"),
+                |map| map.bake_error(&e).to_string(),
+            )
+        })?
+        .encode();
+    // The caller owns a private output directory and publishes only after this
+    // request succeeds. A map failure must not report a complete candidate.
+    if let Some(map) = map {
+        std::fs::write(format!("{}.map.json", args[3]), map.json(&baked))
+            .map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&args[3], baked).map_err(|e| e.to_string())
 }
 fn serve() -> Result<(), String> {
     let mut input = std::io::stdin().lock();

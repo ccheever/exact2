@@ -105,11 +105,19 @@ remain `contract-fn-shadows-roster`.
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
 shape (LLP 1004 D4). **Files.** `use Name from "./file.contract"` brings a
-component, shape, or style from another Contract file, resolved by
+component, shape, style, or function from another Contract file, resolved by
 `contract::compile_path` (LLP 1017 P8, 2026-08-30: the used file's
 declarations are merged in after this file's own; a cycle, a missing file, an
 unknown name, or a name declared differently in both is refused by name);
 anything but a `.contract` path is `contract-no-imports`, as before.
+An unknown import keeps `contract-use-unknown` and its original file/span,
+and lists the referenced file's resolved exports by kind, in merge order
+within each kind. Transitive declarations are included; the importing file's
+own declarations and unrelated imports are excluded. Fonts cannot name a
+`use` and are not offered. Empty exports say so. Choices are constructed only
+on refusal. Four CLI repairs select a component, shape, style, and function
+from these choices; all other diagnostic fields and the repaired plans match
+the previous compiler, as do 18 app/fixture plans.
 `textarea` supplies `white-space: pre-wrap` and `overflow-wrap: break-word`,
 matching the browser control's wrapping defaults. An explicit declaration
 uses the ordinary style row and overrides that tag default.
@@ -265,6 +273,72 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
+Unknown written types retain `type-unknown` and their original token span. The
+message lists known named types: primitives and bare `action`, then declared
+shapes in sorted order without duplicate spellings. Forward/imported shapes are
+included; router shapes appear only when declared by `routes`. These are names,
+not a promise that every use is legal (shape cycles and other checks still apply).
+Valid resolution does no choice-list work. Four scripted CLI repairs use the
+reported choices and source ranges; all non-message diagnostic fields and repaired
+plans remain identical, as do the 18 app/fixture plans.
+
+Unknown component uses list the merged component declarations in source order,
+including imported declarations. They retain the refusing pass's existing id
+and original use span; the list describes declarations, not a promise that every
+component can be used without recursion at that position. Valid uses do not
+construct the diagnostic list.
+
+An unknown component prop retains `type-unknown-prop` at the first offending
+argument. Its message lists all distinct unknown props in call order and the
+declared props in declaration order, so one repair can remove every invalid
+argument. Injected values are not call props and are excluded from those choices;
+a component with no props says so. Missing-required-prop and prop-type checks
+keep their existing precedence. Valid calls do not build these diagnostic lists.
+
+An unknown function call retains `type-unknown-function` and its original span.
+For ASCII misspellings of 3–64 bytes, it suggests a single insertion, deletion,
+substitution or adjacent transposition only when one available global name fits:
+a declared `fn`, an admitted roster call, or the compiler calls `pending` and
+`path`. Router-only calls, including intrinsic `path`, require `routes`. Scoped action names, including conservative stems of lifted instance
+names, veto ambiguous suggestions; action names themselves and names containing
+`__` are not offered. This avoids exposing generated names or treating the
+expanded root as the child's authored scope. Existing arity/type refusals and
+valid calls do no suggestion work. Suggested replacements still undergo normal
+compilation; no typo is accepted as an alias.
+
+The driver now enriches action-valued refusals from the original authored tree:
+Call hints exclude intrinsic `pending`/`path` and global-function collisions; bare
+action references and timers retain those legal action spellings. This follows the
+refused expression kind even when a bare prop is called downstream.
+Handlers, action props and timers offer one unambiguous action spelling under the
+same ASCII edit rule. Candidates come from that component's actions and action
+props/injections, excluding local `each`/`match` shadows and names containing `__`.
+A global function is not a handler correction; timers offer declared actions only.
+When prop/provider substitution obscures the caller, an error-only mapped expansion
+traces the argument through instance parents and adds the original supplied
+expression as a related location. All matching instances must agree on the hint;
+ambiguous or untraceable origins get none. The primary diagnostic id and span stay
+unchanged, as do normal type/arity checks. Four CLI repair cases use the diagnostic
+location (related for forwarded arguments) to produce valid, byte-identical plans.
+The 18-app plan comparison is unchanged. Successful builds do not walk authored
+scopes or construct this diagnostic provenance; no compiled-plan metadata is added.
+
+Scope clones share immutable name/type frames while retaining independent frame
+stacks. Entering or leaving a branch changes only its own stack; shadowing and
+`Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
+ownership preserves the public scope's ability to cross threads. Frames live only
+as long as the scopes that use them; there is no cross-compilation cache.
+Ordinary state initializers grow one non-region frame after each initializer is
+inferred. Earlier bindings are retained without recopying the whole prefix; later
+states remain unavailable, and duplicate declarations are refused beforehand.
+Growth uses copy-on-write so any shared snapshot stays unchanged, retaining the
+same within-frame name lookup order. Row-owned initializers are still resolved in
+their owning region scopes in the later pass.
+Before constructing a component scope, inference has allocated every declaration's
+type entry, including unresolved derive and action parameter types. Scope construction
+copies bindings directly from that table into its owned snapshot, without first
+cloning the whole component type table and its unrelated data-source signatures.
+
 HTML `dialog` lowers to a View with `semanticTag="dialog"` and the absolute
 position default; `commandfor` and `command` are schema props, passed by their
 HTML names. Their presentation belongs to the host (LLP 1021 D2), with no
@@ -275,7 +349,13 @@ shape and arity (`change` and `key` supply a string as the last parameter,
 `hover` a bool, `press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and
 `handler_payload` in `contract-analyze`), timer
 actions exist and take no parameters, component uses name real components
-with each argument once, children carry no state.
+with each argument once. Effect declarations are checked once on each authored
+component, including stateful children (LLP 1017 P4c), so errors name authored
+slots and actions rather than lifted instance names. Membership still uses the
+resolved slots, including the root's implicit router state. A missing `writes`
+declaration reports every undeclared target in first-write order, including
+`send` and every branch, without repeating targets. The stable
+`analyze-write-not-declared` ID and first offending statement's span remain.
 
 **Lower** (`contract-lower`): shapes to `types`; declarations to `slots`,
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view
@@ -305,7 +385,10 @@ layout refusals; the measured ones are bake's, §3 Driver); a leaf tag with
 children, or a `text` holding anything
 but `text` runs, is `lower-leaf-children`); every expression through one assembler
 (`expr.rs`: `and`/`or` short-circuit through a local; inline `match` binds a
-local; a non-string template part gets `toString`). Row order is source
+local; a non-string template part gets `toString`). A template whose parts are
+all literal strings after component expansion emits one interned string, so a
+literal prefix passed to a component adds no runtime concatenation. Dynamic
+parts and non-string conversions retain their ordinary evaluation. Row order is source
 order, so compilation is byte-identical (`the_app_compiles_deterministically…`).
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`

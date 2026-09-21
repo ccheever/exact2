@@ -106,6 +106,51 @@ import XCTest
             profile: b.profile.bytes,scale: b.scale))
     }
     #if os(macOS)
+    func testOrdinaryBatchesStillAllowRegionRegistrationRefusalAndRetirement() {
+        let session = ExactApp.shared.makeSession(label: "region-registration")
+        defer { session.destroy() }
+        let controller = session.regions
+        func prepare(_ ops: [[String: Any]], error: String? = nil) {
+            controller.prepare(Batch(ops: ops, timers: false, motion: false, clock: nil, error: error))
+        }
+        func registration(_ incarnation: String) -> [String: Any] {
+            ["op": "region", "incarnation": incarnation, "owner": UInt32(1),
+             "content": UInt32(2), "pending": UInt32(3), "request": "0", "source": "1",
+             "publication": "0", "current": true, "frames": [[String: Any]](),
+             "members": [UInt32(1), UInt32(2), UInt32(3)]]
+        }
+        let ordinary: [[String: Any]] = [["op": "props", "id": UInt32(99), "set": ["text": "outside"]]]
+        let disabled: [String: Any] = ["op": "region", "disabled": "ordinary layout"]
+        for error: String? in [nil, "unrelated refusal"] {
+            prepare(ordinary, error: error)
+            XCTAssertEqual(controller.diagnostics["registered"] as? Bool, false)
+            XCTAssertNil(controller.failure)
+        }
+        prepare(ordinary + [["op": "region"]])
+        XCTAssertEqual(controller.failure, "invalid region wire", "the first malformed region must be inspected")
+        controller.reset()
+        prepare(ordinary + [registration("1")])
+        XCTAssertEqual(controller.diagnostics["registered"] as? Bool, true)
+        XCTAssertEqual(controller.currentSourcePublication, 0)
+        XCTAssertEqual(controller.currentGeneration, session.generation)
+        prepare(ordinary)
+        XCTAssertEqual(controller.currentSourcePublication, 0, "ordinary batches retain the active region")
+        prepare([registration("2"), disabled])
+        XCTAssertEqual(controller.diagnostics["registered"] as? Bool, false)
+        XCTAssertNil(controller.currentSourcePublication)
+        XCTAssertEqual(controller.currentGeneration, -1)
+        prepare(ordinary)
+        prepare([disabled] + ordinary + [registration("3")])
+        XCTAssertEqual(controller.diagnostics["registered"] as? Bool, true, "region operations retain their order")
+        XCTAssertEqual(controller.currentGeneration, session.generation)
+        XCTAssertNil(controller.failure)
+        prepare([["op": "region"]])
+        XCTAssertEqual(controller.failure, "invalid region wire", "active-region refusals still run")
+        prepare([disabled])
+        XCTAssertEqual(controller.diagnostics["registered"] as? Bool, false)
+        XCTAssertNil(controller.failure)
+    }
+
     func testPreApplyProtectsOldNewMembersAndAncestorsButAllowsGeometryAndSiblingTyping() {
         let protected: Set<UInt32> = [1,2,3,4,5]
         let neutral: [[String: Any]] = [

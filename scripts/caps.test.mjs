@@ -267,7 +267,7 @@ for (const [name, html, files, expectCode, expect] of [
   const brokenCopyRefused = await rejects(() => copyStaticTreeIfPresent(startupSource, join(dir, 'broken-copy')), error => error.message.includes('must be a real directory'));
   const shaderSource = join(dir, 'shader-source');
   const shaderTarget = join(dir, 'shader-target');
-  const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '../target/debug/exact-gpu-reflect');
+  const reflector = resolve(dirname(fileURLToPath(import.meta.url)), '..', process.env.CARGO_TARGET_DIR ?? 'target', 'debug/exact-gpu-reflect');
   if (!existsSync(reflector)) spawnSync('cargo', ['build', '-q', '-p', 'exact-gpu-reflect'], { cwd: resolve(dirname(fileURLToPath(import.meta.url)), '..') });
   mkdirSync(shaderSource);
   writeFileSync(join(shaderSource, 'surface.wgsl'), '@compute @workgroup_size(1) fn main() {}\n');
@@ -475,7 +475,7 @@ for (const [name, html, files, expectCode, expect] of [
   const dir = mkdtempSync(join(tmpdir(), 'exact-public-web-'));
   writeFileSync(join(dir, 'index.html'), 'public');
   writeFileSync(join(dir, '.exact-build.json'), 'private');
-  writeFileSync(join(dir, 'unexpected.txt'), 'private too');
+  writeFileSync(join(dir, 'app.plan.map.json'), '{"file":"private-source.contract"}');
   const origin = { kind: 'directory', describe: () => 'test-origin', get: async () => null };
   const table = await classify({ app: { id: 'com.exact.test', displayName: 'Test', dir, manifest: {} }, opts: { platform: [] },
     origin, channel: 'prod', snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
@@ -955,8 +955,7 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
 }
 
-// Edit diagnostics own their captured inputs and outputs, including on callback failure.
-{
+{ // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
   let source, run, isolated = false, caught = false;
   try {
@@ -966,6 +965,7 @@ for (const [name, html, files, expectCode, expect] of [
         && f.env.CARGO_TARGET_DIR.startsWith(run + '/') && f.env.EXACT_WEB_DIST.startsWith(source + '/')
         && spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: f.app.dir, env: f.env, encoding: 'utf8' }).stdout.trim() === source;
       writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
+      for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
   } catch (error) { caught = error.message === 'expected diagnostic callback failure'; }

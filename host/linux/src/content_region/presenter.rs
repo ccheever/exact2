@@ -42,8 +42,8 @@ impl<D: DataSource> Presenter<D> {
             Err(e) => Some(e),
         }
     }
-    /// Paint a frame and publish its pixels, hits and native source together.
-    pub fn frame(&mut self) -> Pixmap {
+    /// Paint a frame and publish its immutable pixels, hits and native source together.
+    pub fn frame(&mut self) -> Arc<Pixmap> {
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();
@@ -158,7 +158,7 @@ impl<D: DataSource> Presenter<D> {
                     let h = ((self.viewport.1 * self.brush.scale).round() as u32).max(1);
                     let mut blank = Pixmap::new(w, h).expect("a viewport has pixels");
                     blank.fill(tiny_skia::Color::WHITE);
-                    (blank, std::mem::take(&mut self.boxes))
+                    (Arc::new(blank), std::mem::take(&mut self.boxes))
                 }
             }
         };
@@ -209,7 +209,7 @@ impl<D: DataSource> Presenter<D> {
     }
 }
 
-fn retained_surface(old: &Pixmap, viewport: (f32, f32), scale: f32) -> Pixmap {
+fn retained_surface(old: &Arc<Pixmap>, viewport: (f32, f32), scale: f32) -> Arc<Pixmap> {
     let width = ((viewport.0 * scale).round() as u32).max(1);
     let height = ((viewport.1 * scale).round() as u32).max(1);
     if (width, height) == (old.width(), old.height()) {
@@ -222,5 +222,5 @@ fn retained_surface(old: &Pixmap, viewport: (f32, f32), scale: f32) -> Pixmap {
         next.data_mut()[y * width as usize * 4..][..copied]
             .copy_from_slice(&old.data()[y * old.width() as usize * 4..][..copied]);
     }
-    next
+    Arc::new(next)
 }

@@ -81,7 +81,7 @@ impl SumTree {
             self.measured[node] = self.measured[node * 2].min(self.measured[node * 2 + 1]);
         }
     }
-    fn min_epoch(&self, range: Range<usize>) -> u64 {
+    pub(super) fn min_epoch(&self, range: Range<usize>) -> u64 {
         let (mut left, mut right) = (range.start + self.base, range.end + self.base);
         let mut epoch = u64::MAX;
         while left < right {

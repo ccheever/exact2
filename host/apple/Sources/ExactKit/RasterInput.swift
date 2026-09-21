@@ -23,6 +23,7 @@ final class RasterCancellation: @unchecked Sendable {
 /// resolvers still verify through their existing bytes/url path. Remote inputs
 /// spool to a bounded temporary file and are reused for metadata and decode.
 final class RasterInput: @unchecked Sendable {
+    static var httpCacheUsage: [String: Int] { RasterDownload.cacheUsage }
     let url: URL
     let encodedBytes: Int
     private let temporary: Bool
@@ -63,6 +64,15 @@ final class RasterInput: @unchecked Sendable {
 }
 
 private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    // Encoded HTTP responses are separate from the decoded-raster ledger.
+    // Keep them across process restarts without another in-memory image cache.
+    private static let responseCache = URLCache(memoryCapacity: 0, diskCapacity: 64 * 1024 * 1024,
+        directory: FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("exact-raster-http", isDirectory: true))
+    static var cacheUsage: [String: Int] {
+        ["memoryBytes": responseCache.currentMemoryUsage, "memoryCapacity": responseCache.memoryCapacity,
+         "diskBytes": responseCache.currentDiskUsage, "diskCapacity": responseCache.diskCapacity]
+    }
     private let url: URL
     private let destination: URL
     private let file: FileHandle
@@ -77,8 +87,11 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
         super.init()
     }
     func run(_ cancellation: RasterCancellation) throws -> (URL, Int) {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil; configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let configuration = URLSessionConfiguration.default
+        configuration.urlCache = Self.responseCache; configuration.requestCachePolicy = .useProtocolCachePolicy
+        // Switching cache policy must not add ambient cookies or credentials.
+        configuration.httpCookieStorage = nil; configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForRequest = 15; configuration.timeoutIntervalForResource = 30
         let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: queue)

@@ -53,12 +53,18 @@ pub fn parse_source(src: &str, source_id: u32) -> Result<File, SyntaxError> {
             ..Span::point(1, 1)
         },
     )?;
+    parse_tokens(tokens).map(|(file, _)| file)
+}
+
+/// Parse lexer output and return its unchanged tokens for source-preserving tools.
+pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), SyntaxError> {
     let mut p = Parser {
         tokens,
         pos: 0,
         names: NameSpans::default(),
     };
-    p.file()
+    let file = p.file()?;
+    Ok((file, p.tokens))
 }
 
 struct Parser {
@@ -954,6 +960,7 @@ impl Parser {
                             attrs: Vec::new(),
                             children: Vec::new(),
                             span,
+                            instance: 0,
                         },
                     );
                 }
@@ -963,6 +970,7 @@ impl Parser {
                     attrs,
                     children,
                     span,
+                    instance: 0,
                 })
             }
         }

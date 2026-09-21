@@ -43,6 +43,8 @@ pub(crate) struct Collection {
     view: ViewId,
     region: RegionsId,
     index: HeightIndex,
+    estimated_height: f64,
+    bootstrap_rows: usize,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
     string_keys: bool,
@@ -96,7 +98,7 @@ impl Collection {
         for key in std::mem::take(&mut self.zero_heights) {
             if let Some(token) = self.index.measurement_token(&key) {
                 self.index
-                    .set_measured_height(&key, token, ESTIMATED_HEIGHT)
+                    .set_measured_height(&key, token, self.estimated_height)
                     .map_err(index_error)?;
             }
         }
@@ -128,12 +130,23 @@ impl Collection {
         let descriptor = plan.node(node);
         let mut enabled = false;
         let mut follow_end = false;
+        let mut estimated_height = ESTIMATED_HEIGHT;
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
             if binding.kind == BindingKind::Prop && binding.id == PropId::Virtualized as u16 {
                 enabled = u.eval(binding.expr, frames)? == Value::Bool(true);
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
                 follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::EstimatedItemHeight as u16
+            {
+                let Value::Number(height) = u.eval(binding.expr, frames)? else {
+                    return Err(invalid("estimated item height must be a number"));
+                };
+                if !height.is_finite() || height <= 0.0 {
+                    return Err(invalid("estimated item height must be positive and finite"));
+                }
+                estimated_height = height;
             }
         }
         if !enabled {
@@ -142,8 +155,8 @@ impl Collection {
         if descriptor.node_type != exact_kernel::NodeType::List as u8 {
             return Err(invalid("virtualized requires List"));
         }
-        let child_sites = sites(plan, Some(node), descriptor.arm);
-        let [(_, Site::Region(region))] = child_sites.as_slice() else {
+        let child_sites = u.sites.children(Some(node), descriptor.arm);
+        let [(_, Site::Region(region))] = child_sites else {
             return Err(invalid("collection needs one direct each"));
         };
         let region = *region;
@@ -152,17 +165,23 @@ impl Collection {
             return Err(invalid("collection needs one each arm"));
         }
         if !matches!(
-            sites(plan, None, row.arms.iter().next()).as_slice(),
+            u.sites.children(None, row.arms.iter().next()),
             [(_, Site::Node(_))]
         ) {
             return Err(invalid("collection row needs one flow root"));
         }
-        traversal::validate_no_nested(plan, region)?;
+        traversal::validate_no_nested(plan, u.sites, region)?;
         let mut this = Box::new(Self {
             preview: None,
             view,
             region,
-            index: HeightIndex::new(ESTIMATED_HEIGHT).map_err(index_error)?,
+            index: HeightIndex::new(estimated_height).map_err(index_error)?,
+            estimated_height,
+            // Keep the original provisional pixel budget, capped at sixteen
+            // rows. Actual nested-scrollport feedback determines the real window.
+            bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
+                .ceil()
+                .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
             items: Rc::new(Vec::new()),
             keys: Vec::new(),
             string_keys: true,
@@ -179,7 +198,7 @@ impl Collection {
                 .all(|f| {
                     f.item.is_none() && f.bound.is_none() && f.region.is_none() && f.row.is_none()
                 })
-                .then(|| dependencies::Memo::for_region(plan, region, true))
+                .then(|| dependencies::Memo::for_region(plan, u.sites, region, true))
                 .flatten(),
             revision: 0,
             next_epoch: 0,
@@ -287,8 +306,10 @@ impl Collection {
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
         self.invalidate_height_estimates()?;
+        if self.index.len() == 0 {
+            self.edge_armed = [true; 2];
+        }
         self.restore(anchor)?;
-        self.geometric_edges()?;
         self.realize_window(u, frames, true)?;
         advance(&mut self.revision)?;
         if let Some(m) = &mut self.key_memo {
@@ -348,14 +369,14 @@ impl Collection {
             .find(|row| {
                 row.wrapper == view
                     || row.row.roots.iter().any(|c| match c {
-                        Child::Node(n) => n.find(view, &mut Vec::new()).is_some(),
-                        Child::Region(r) => r.find(view, &mut Vec::new()).is_some(),
+                        Child::Node(n) => n.find::<false>(view, &mut Vec::new()).is_some(),
+                        Child::Region(r) => r.find::<false>(view, &mut Vec::new()).is_some(),
                     })
             })
             .and_then(|row| key_text(&row.row.key))
     }
-    /// Pins never qualify an edge. Also re-arm when a data/geometry change
-    /// removes the endpoint from the geometric window, even between reports.
+    /// Pins never qualify an edge. Re-arm only after the geometric window is
+    /// measured: replacement estimates cannot manufacture a temporary edge exit.
     fn geometric_edges(&mut self) -> Result<[bool; 2], InstanceError> {
         let mut reached = [false; 2];
         if let Some(g) = &self.geometry {
@@ -366,10 +387,12 @@ impl Collection {
                     .map_err(index_error)?;
                 reached = [0, self.index.len() - 1]
                     .map(|i| window.segments.iter().any(|range| range.contains(&i)));
+                if self.edge_armed != [true; 2] && self.index.range_measured(window.overscan) {
+                    for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
+                        *armed |= !reached;
+                    }
+                }
             }
-        }
-        for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
-            *armed |= !reached;
         }
         Ok(reached)
     }
@@ -397,7 +420,7 @@ impl Collection {
                 .segments
         } else {
             let first = self.index.row_at(0.0).map_err(index_error)?.unwrap_or(0);
-            std::iter::once(first..self.index.len().min(first + BOOTSTRAP_ROWS)).collect()
+            std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
             .into_iter()

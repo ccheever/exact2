@@ -126,8 +126,13 @@ fn orbs(ms: f64, width: f64) -> Vec<Value> {
         for i in 0..6 {
             for j in i + 1..6 {
                 let (dx, dy) = (p[j].0 - p[i].0, p[j].1 - p[i].1);
+                let reach = radii[i] + radii[j];
+                // A separated axis rules out contact without evaluating hypot.
+                if dx.abs() >= reach || dy.abs() >= reach {
+                    continue;
+                }
                 let distance = dx.hypot(dy);
-                if distance >= radii[i] + radii[j] || distance < 0.0001 {
+                if distance >= reach || distance < 0.0001 {
                     continue;
                 }
                 let (nx, ny) = (dx / distance, dy / distance);

@@ -11,24 +11,7 @@ pub struct Batch {
     ops: Vec<String>,
 }
 
-/// Quote a string as JSON.
-pub fn quote(s: &str, out: &mut String) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-}
+pub use exact_runner::agent::quote;
 
 fn string_map(pairs: &[(&str, String)], out: &mut String) {
     out.push('{');

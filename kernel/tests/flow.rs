@@ -334,7 +334,7 @@ fn worst_case_2000_paragraphs_32_exclusions_and_zero_sparse_storage() {
     let b = run(&mut flowed, true);
     assert_eq!(plain.arena().flow_entry_count(), 0);
     assert!(shape(&flowed, 2).len() == 32);
-    println!("flow bound: 2000 paragraphs x 32 exclusions = 64000 candidate leaf visits/pass; 10 passes: no exclusions {a:?}, moving exclusion {b:?}; zero-exclusion sparse entries = 0");
+    println!("flow bound: 2000 paragraphs x 32 exclusions = 64000 candidate shape checks/pass; 10 passes: no exclusions {a:?}, moving exclusion {b:?}; zero-exclusion sparse entries = 0");
 }
 
 #[test]
@@ -487,4 +487,96 @@ fn small_side_context_does_not_remeasure_ten_thousand_ordinary_leaves() {
     // load (it read 1.058 against a 1.05 bar on a busy machine while the counts held).
     // `rules/RULES.md`: a check is a count. The measurement counts above are the guard.
     println!("10000 ordinary leaves + small side context: plain {plain:?}, exclusion {flow:?}, ratio {:.4}", flow.as_secs_f64()/plain.as_secs_f64());
+}
+
+#[test]
+fn batched_exclusions_keep_preorder_across_nested_and_reordered_contexts() {
+    let mut k = base();
+    k.apply(
+        0,
+        0,
+        &[
+            create(4, NodeType::View),
+            exclusion(4, 200., 0.),
+            create(5, NodeType::View),
+            exclusion(5, 300., 0.),
+            create(10, NodeType::View),
+            sized(10, 600., 400.),
+            patch(10, &[(StyleId::PositionType, t("absolute"))]),
+            create(7, NodeType::View),
+            exclusion(7, 400., 0.),
+            create(11, NodeType::Text),
+            sized(11, 600., 400.),
+            text(11),
+            create(12, NodeType::Text),
+            text(12),
+            patch(
+                12,
+                &[
+                    (StyleId::PositionType, t("absolute")),
+                    (StyleId::Width, n(600.)),
+                    (StyleId::Top, n(0.)),
+                ],
+            ),
+            patch(3, &[(StyleId::Top, n(0.))]),
+            children(10, &[7, 11, 12]),
+            children(1, &[4, 5, 10, 2, 3]),
+        ],
+    )
+    .unwrap();
+    let fixed = vec![k.node(11).unwrap().key, k.node(2).unwrap().key];
+    let auto = vec![k.node(12).unwrap().key];
+    let first = layout(&mut k);
+    assert_eq!(first.flow_changed, fixed);
+    assert_eq!(first.flow_skipped, auto);
+    assert_eq!(
+        shape(&k, 11),
+        &[
+            circle(260., 60., 60.),
+            circle(360., 60., 60.),
+            circle(460., 60., 60.),
+            circle(160., 60., 60.)
+        ]
+    );
+    assert_eq!(
+        shape(&k, 2),
+        &[
+            circle(260., 60., 60.),
+            circle(360., 60., 60.),
+            circle(160., 60., 60.)
+        ]
+    );
+    assert!(layout(&mut k).flow_changed.is_empty());
+
+    k.apply(0, 0, &[children(1, &[3, 10, 5, 2, 4])]).unwrap();
+    let reordered = layout(&mut k);
+    assert_eq!(reordered.flow_changed, fixed);
+    assert_eq!(reordered.flow_skipped, auto);
+    assert_eq!(
+        shape(&k, 11),
+        &[
+            circle(160., 60., 60.),
+            circle(460., 60., 60.),
+            circle(360., 60., 60.),
+            circle(260., 60., 60.)
+        ]
+    );
+    assert_eq!(
+        shape(&k, 2),
+        &[
+            circle(160., 60., 60.),
+            circle(360., 60., 60.),
+            circle(260., 60., 60.)
+        ]
+    );
+
+    for id in [3, 4, 5, 7] {
+        k.apply(0, 0, &[patch(id, &[(StyleId::Display, t("none"))])])
+            .unwrap();
+    }
+    let removed = layout(&mut k);
+    assert_eq!(removed.flow_changed, fixed);
+    assert!(removed.flow_skipped.is_empty());
+    assert_eq!(k.arena().flow_entry_count(), 0);
+    assert!(layout(&mut k).flow_changed.is_empty());
 }

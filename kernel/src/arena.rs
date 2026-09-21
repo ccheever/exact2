@@ -13,7 +13,9 @@ use std::collections::{BTreeSet, HashMap};
 use taffy::NodeId;
 
 use crate::error::ApplyError;
-use crate::generated::{FieldSizing, NodeType, PropId, StyleId, StyleMask, StyleProps};
+use crate::generated::{
+    FieldSizing, InheritedStyle, NodeType, PropId, StyleId, StyleMask, StyleProps,
+};
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
 use crate::props::PropList;
 use crate::style::Env;
@@ -374,19 +376,40 @@ impl NodeArena {
     /// not mark inherited, are the node's own. One walk, however many rows.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
         let mut out = self.styles[slot as usize].clone();
-        let mut pending = rows.intersect(StyleMask::INHERITED).minus(out.mask);
+        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
+        out
+    }
+
+    /// Values used only to compare inherited rows across a topology change.
+    /// No unrelated style payloads are copied into these transient snapshots.
+    pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
+        let mut out = InheritedStyle::new(&self.styles[slot as usize]);
+        self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
+            out.copy_rows(from, mask)
+        });
+        out
+    }
+
+    fn copy_inherited(
+        &self,
+        slot: u32,
+        rows: StyleMask,
+        mut copy: impl FnMut(&StyleProps, StyleMask),
+    ) {
+        let mut pending = rows
+            .intersect(StyleMask::INHERITED)
+            .minus(self.styles[slot as usize].mask);
         let mut cur = self.parents[slot as usize];
         while !pending.is_empty() {
             let Some(p) = cur else { break };
             let ancestor = &self.styles[p as usize];
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
-                out.copy_rows(ancestor, found);
+                copy(ancestor, found);
                 pending = pending.minus(found);
             }
             cur = self.parents[p as usize];
         }
-        out
     }
 
     /// Append the text runs of the leaf rooted at `slot`, in order. A run
@@ -648,6 +671,78 @@ mod tests {
         assert!(!arena.is_ancestor(b, c));
         assert_eq!(arena.depth(c), 2);
         assert_eq!(arena.measure_owner(c), c);
+    }
+
+    #[test]
+    fn compact_inheritance_matches_full_styles_through_overrides_and_detach() {
+        use crate::style::StyleValue;
+        let number = StyleValue::Number;
+        let text = |s: &str| StyleValue::Text(s.into());
+        let samples = [
+            (StyleId::Direction, text("rtl")),
+            (StyleId::CaretColor, text("light-dark(#ffffff, #112233)")),
+            (StyleId::FontSize, number(24.0)),
+            (StyleId::FontWeight, number(700.0)),
+            (StyleId::FontStyle, text("italic")),
+            (StyleId::FontFamily, number(3.0)),
+            (StyleId::TextAlign, text("right")),
+            (StyleId::LineHeight, number(1.5)),
+            (StyleId::LetterSpacing, number(2.0)),
+            (StyleId::FontVariantNumeric, number(1.0)),
+            (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
+            (StyleId::WhiteSpace, text("pre-wrap")),
+            (StyleId::OverflowWrap, text("anywhere")),
+            (StyleId::InterpolateSize, text("allow-keywords")),
+        ];
+        let mut covered = StyleMask::EMPTY;
+        for (id, value) in samples {
+            covered.set(id);
+            let mut arena = NodeArena::new();
+            let root = arena.alloc(1, NodeType::View).unwrap();
+            let parent = arena.alloc(2, NodeType::View).unwrap();
+            let leaf = arena.alloc(3, NodeType::Text).unwrap();
+            arena.set_parent(parent, Some(root));
+            arena.set_parent(leaf, Some(parent));
+            let mut full = arena.computed_style(leaf, StyleMask::INHERITED);
+            let mut compact = arena.computed_inherited(leaf);
+            for step in 0..5 {
+                match step {
+                    0 => arena.style_mut(root).set_dynamic(id, &value).unwrap(),
+                    // Explicit initial values must override the ancestor.
+                    1 => arena.style_mut(parent).mask.set(id),
+                    2 => arena.style_mut(parent).clear(StyleMask::of(id)),
+                    3 => arena.set_parent(leaf, None),
+                    _ => arena
+                        .style_mut(leaf)
+                        .set_dynamic(StyleId::Width, &number(75.0))
+                        .unwrap(),
+                }
+                let next_full = arena.computed_style(leaf, StyleMask::INHERITED);
+                let next_compact = arena.computed_inherited(leaf);
+                let mut full_changed = StyleMask::EMPTY;
+                for row in StyleMask::INHERITED.iter() {
+                    if full.get(row) != next_full.get(row) {
+                        full_changed.set(row);
+                    }
+                }
+                let expected = if step == 4 {
+                    StyleMask::EMPTY
+                } else {
+                    StyleMask::of(id)
+                };
+                assert_eq!(full_changed, expected, "{id:?}, step {step}");
+                assert_eq!(compact.changed_mask(&next_compact), full_changed);
+                full = next_full;
+                compact = next_compact;
+            }
+            assert_eq!(full.width, crate::style::Dimension::Points(75.0));
+        }
+        assert_eq!(covered, StyleMask::INHERITED);
+        println!(
+            "inheritance snapshot: {} bytes; full style: {} bytes",
+            std::mem::size_of::<InheritedStyle>(),
+            std::mem::size_of::<StyleProps>()
+        );
     }
 
     #[test]

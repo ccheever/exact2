@@ -1,4 +1,4 @@
-//! The resident dev driver for Video Player: `dev <source> <out>`.
+//! The resident dev driver for Video Player: `video-player-dev <source> <out>`.
 //! Run through `bun host/web/dev.mjs --app video-player`, which pushes each plan to the page.
 
 fn main() -> std::process::ExitCode {

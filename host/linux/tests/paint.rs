@@ -278,7 +278,7 @@ fn a_device_scale_paints_more_pixels_for_the_same_points() {
         let mut p = fixture("scroll", 2.0, choice);
         let frame = p.frame();
         assert_eq!((frame.width(), frame.height()), (780, 1688));
-        let l = p.layout_json(None);
+        let l = p.layout_json(None, false);
         assert!(
             l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
             "points, not pixels"
@@ -404,4 +404,534 @@ fn an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action() {
         logs.contains("Linux dialog presentation is not implemented"),
         "{logs}"
     );
+}
+
+#[test]
+fn clipped_rectangle_fills_match_full_path_pixels() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::{rounded_rect, Raster};
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.75_f32, 1.0, 1.5, 2.0] {
+        for offset in [0.0, 0.25, 0.5, 0.99] {
+            for transform in [
+                Transform::identity(),
+                Transform::from_translate(3.25, -2.5),
+                Transform::from_scale(0.75, 1.25),
+                Transform::from_row(-1.0, 0.0, 0.0, 1.0, 95.0, 0.0),
+                Transform::from_rotate(11.0),
+            ] {
+                for radius in [0.0, 7.0] {
+                    for damage in [false, true] {
+                        let mut raster = Raster::new();
+                        raster.begin(96.0, 80.0, scale);
+                        let (width, height) =
+                            ((96.0 * scale).round() as u32, (80.0 * scale).round() as u32);
+                        let mut expected = Pixmap::new(width, height).unwrap();
+                        expected.fill(Color::WHITE);
+                        let device = Transform::from_scale(scale, scale);
+                        let mut mask = Mask::new(width, height).unwrap();
+                        if damage {
+                            expected.fill(Color::from_rgba8(39, 73, 117, 255));
+                            let rects = [(12.25, 10.5, 23.5, 30.25), (45.75, 20.25, 18.0, 29.5)];
+                            assert!(raster.damage(&expected, &rects));
+                            for (x, y, w, h) in rects {
+                                mask.fill_path(
+                                    &PathBuilder::from_rect(Rect::from_xywh(x, y, w, h).unwrap()),
+                                    FillRule::Winding,
+                                    false,
+                                    device,
+                                );
+                            }
+                            let mut clear = Paint::default();
+                            clear.set_color(Color::WHITE);
+                            clear.anti_alias = true;
+                            expected.fill_path(
+                                &PathBuilder::from_rect(
+                                    Rect::from_xywh(0.0, 0.0, 96.0, 80.0).unwrap(),
+                                ),
+                                &clear,
+                                FillRule::Winding,
+                                device,
+                                Some(&mask),
+                            );
+                        }
+                        for (index, clip) in [
+                            Shape {
+                                rect: (4.5, 5.25, 77.0, 65.5),
+                                radii: [radius; 4],
+                            },
+                            Shape {
+                                rect: (14.0 + offset, 9.0 + offset, 47.5, 46.25),
+                                radii: [radius / 2.0; 4],
+                            },
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            let ts = Transform::from_rotate_at(3.0, 48.0, 40.0);
+                            raster.push_clip(&clip, ts);
+                            let path = rounded_rect(&clip).unwrap();
+                            if index == 0 && !damage {
+                                mask.fill_path(
+                                    &path,
+                                    FillRule::Winding,
+                                    true,
+                                    device.pre_concat(ts),
+                                );
+                            } else {
+                                mask.intersect_path(
+                                    &path,
+                                    FillRule::Winding,
+                                    true,
+                                    device.pre_concat(ts),
+                                );
+                            }
+                        }
+                        for (rect, color) in [
+                            ((-20.0, -20.0, 150.0, 140.0), [170, 31, 54, 255]),
+                            (
+                                (21.0 + offset, 17.0 - offset, 91.25, 69.5),
+                                [11, 143, 217, 117],
+                            ),
+                            ((-30.0, 70.0, 20.0, 15.0), [10, 20, 30, 255]),
+                        ] {
+                            let shape = Shape {
+                                rect,
+                                radii: [radius; 4],
+                            };
+                            raster.fill(&shape, color, transform);
+                            let mut paint = Paint::default();
+                            paint.set_color(Color::from_rgba8(
+                                color[0], color[1], color[2], color[3],
+                            ));
+                            paint.anti_alias = true;
+                            expected.fill_path(
+                                &rounded_rect(&shape).unwrap(),
+                                &paint,
+                                FillRule::Winding,
+                                device.pre_concat(transform),
+                                Some(&mask),
+                            );
+                        }
+                        assert!(raster.finish().unwrap().data() == expected.data(), "scale={scale}, offset={offset}, transform={transform:?}, radius={radius}, damage={damage}");
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 320);
+    // Preserve the full-path fallback at tiny-skia's tiling boundary.
+    for width in [8191_u32, 8192] {
+        let mut raster = Raster::new();
+        raster.begin(width as f32, 8.0, 1.0);
+        let mut expected = Pixmap::new(width, 8).unwrap();
+        expected.fill(Color::WHITE);
+        let clip = Shape::rect((8180.5, 1.25, 18.0, 6.25));
+        raster.push_clip(&clip, Transform::identity());
+        let mut mask = Mask::new(width, 8).unwrap();
+        mask.fill_path(
+            &rounded_rect(&clip).unwrap(),
+            FillRule::Winding,
+            true,
+            Transform::identity(),
+        );
+        let shape = Shape::rect((0.0, 0.0, width as f32, 8.0));
+        raster.fill(&shape, [11, 143, 217, 117], Transform::identity());
+        let mut paint = Paint::default();
+        paint.set_color(Color::from_rgba8(11, 143, 217, 117));
+        paint.anti_alias = true;
+        expected.fill_path(
+            &rounded_rect(&shape).unwrap(),
+            &paint,
+            FillRule::Winding,
+            Transform::identity(),
+            Some(&mask),
+        );
+        assert!(
+            raster.finish().unwrap().data() == expected.data(),
+            "width={width}"
+        );
+    }
+}
+
+#[test]
+fn damage_clearing_matches_the_full_masked_viewport() {
+    use exact_linux::paint::Backend;
+    use exact_linux::raster::Raster;
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.7_f32, 0.75, 1.0, 1.1, 1.25, 1.5, 2.0, 2.3] {
+        for (width, height) in [(97.3, 83.7), (96.0, 80.0), (8191.0, 3.0), (8192.0, 3.0)] {
+            for offset in [0.0, 0.25, 0.5, 0.99] {
+                for rects in [
+                    vec![],
+                    vec![(0.0, 0.0, width, height)],
+                    vec![(12.0 + offset, 9.0 + offset, 24.5, 31.75)],
+                    vec![
+                        (-5.5, -7.25, 25.0, 33.0),
+                        (8.0 + offset, 9.0, 21.0, 23.0),
+                        (width - 2.25, height - 1.5, 20.0, 20.0),
+                    ],
+                    vec![(5.0, 6.0, 0.0, 3.0), (10.0, 9.0, -2.0, 4.0)],
+                    vec![(f32::NAN, 0.0, 3.0, 4.0), (20.0, 20.0, 7.0, 8.0)],
+                    vec![(-9000.0, -9000.0, 18000.0, 18000.0)],
+                ] {
+                    let mut raster = Raster::new();
+                    let (w, h) = (
+                        ((width * scale).round() as u32).max(1),
+                        ((height * scale).round() as u32).max(1),
+                    );
+                    let mut expected = Pixmap::new(w, h).unwrap();
+                    expected.fill(Color::from_rgba8(39, 73, 117, 139));
+                    assert!(raster.begin_damage(width, height, scale, &expected, &rects));
+                    let device = Transform::from_scale(scale, scale);
+                    let mut mask = Mask::new(w, h).unwrap();
+                    for &(x, y, w, h) in &rects {
+                        if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+                            mask.fill_path(
+                                &PathBuilder::from_rect(rect),
+                                FillRule::Winding,
+                                false,
+                                device,
+                            );
+                        }
+                    }
+                    let mut clear = Paint::default();
+                    clear.set_color(Color::WHITE);
+                    clear.anti_alias = true;
+                    expected.fill_path(
+                        &PathBuilder::from_rect(
+                            Rect::from_xywh(0.0, 0.0, w as f32 / scale, h as f32 / scale).unwrap(),
+                        ),
+                        &clear,
+                        FillRule::Winding,
+                        device,
+                        Some(&mask),
+                    );
+                    assert!(
+                        raster.finish().unwrap().data() == expected.data(),
+                        "scale={scale}, size={width}x{height}, offset={offset}, rects={rects:?}"
+                    );
+                    cases += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 896);
+}
+
+#[test]
+fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::{rounded_rect, Raster};
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.75_f32, 1.0, 1.25, 2.0] {
+        for width in [96_u32, 8191, 8192] {
+            for rects in [
+                vec![(8.0, 8.0, 64.0, 48.0)],
+                vec![(8.0, 8.0, 64.0, 48.0), (16.0, 16.0, 8.25, 9.75)],
+                vec![(8.0, 8.0, 12.0, 20.0), (40.0, 16.0, 16.0, 16.0)],
+                vec![(8.25, 8.5, 64.25, 47.75)],
+                vec![(-8.0, -8.0, width as f32 + 16.0, 80.0)],
+                vec![(f32::NAN, 8.0, 4.0, 4.0), (8.0, 8.0, 64.0, 48.0)],
+            ] {
+                for stop in 0..5 {
+                    for (rect, alpha, radius, ts) in [
+                        (
+                            (0.0, 0.0, width as f32, 64.0),
+                            255,
+                            0.0,
+                            Transform::identity(),
+                        ),
+                        ((16.0, 16.0, 32.0, 32.0), 255, 0.0, Transform::identity()),
+                        ((0.0, 0.0, 96.0, 64.0), 117, 0.0, Transform::identity()),
+                        ((0.25, 0.5, 95.5, 63.25), 255, 0.0, Transform::identity()),
+                        ((0.0, 0.0, 96.0, 64.0), 255, 4.0, Transform::identity()),
+                        (
+                            (0.0, 0.0, 96.0, 64.0),
+                            255,
+                            0.0,
+                            Transform::from_rotate(7.0),
+                        ),
+                        (
+                            (0.0, 0.0, 96.0, 64.0),
+                            255,
+                            0.0,
+                            Transform::from_row(-1.0, 0.0, 0.0, 1.0, 96.0, 0.0),
+                        ),
+                    ]
+                    .into_iter()
+                    .take(if width == 96 { 7 } else { 2 })
+                    {
+                        let (w, h) = (
+                            (width as f32 * scale).round() as u32,
+                            (64.0 * scale).round() as u32,
+                        );
+                        let mut raster = Raster::new();
+                        raster.begin(width as f32, 64.0, scale);
+                        let mut expected = Pixmap::new(w, h).unwrap();
+                        expected.fill(Color::WHITE);
+                        assert!(raster.damage(&expected, &rects));
+                        let device = Transform::from_scale(scale, scale);
+                        let mut root = Mask::new(w, h).unwrap();
+                        for &(x, y, w, h) in &rects {
+                            if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+                                root.fill_path(
+                                    &PathBuilder::from_rect(rect),
+                                    FillRule::Winding,
+                                    false,
+                                    device,
+                                );
+                            }
+                        }
+                        let clip = Shape {
+                            rect: (16.0, 12.0, 48.0, 40.0),
+                            radii: [7.0; 4],
+                        };
+                        let mut nested = root.clone();
+                        nested.intersect_path(
+                            &rounded_rect(&clip).unwrap(),
+                            FillRule::Winding,
+                            true,
+                            device,
+                        );
+                        let mut replacement = Mask::new(w, h).unwrap();
+                        replacement.fill_path(
+                            &rounded_rect(&clip).unwrap(),
+                            FillRule::Winding,
+                            true,
+                            device,
+                        );
+                        for stage in 0..=stop {
+                            let mask = match stage {
+                                0 => Some(&root),
+                                1 => {
+                                    raster.push_clip(&clip, Transform::identity());
+                                    Some(&nested)
+                                }
+                                2 => {
+                                    raster.pop_clip();
+                                    Some(&root)
+                                }
+                                3 => {
+                                    raster.pop_clip();
+                                    raster.push_clip(&clip, Transform::identity());
+                                    Some(&replacement)
+                                }
+                                _ => {
+                                    raster.begin(width as f32, 64.0, scale);
+                                    expected.fill(Color::WHITE);
+                                    None
+                                }
+                            };
+
+                            let shape = Shape {
+                                rect,
+                                radii: [radius; 4],
+                            };
+                            let color = [31 + stage * 23, 117, 193, alpha];
+                            raster.fill(&shape, color, ts);
+                            let mut paint = Paint::default();
+                            paint.set_color(Color::from_rgba8(
+                                color[0], color[1], color[2], color[3],
+                            ));
+                            paint.anti_alias = true;
+                            expected.fill_path(
+                                &rounded_rect(&shape).unwrap(),
+                                &paint,
+                                FillRule::Winding,
+                                device.pre_concat(ts),
+                                mask,
+                            );
+                        }
+                        assert!(
+                            raster.finish().unwrap().data() == expected.data(),
+                            "scale={scale}, width={width}, stop={stop}, rects={rects:?}"
+                        );
+                        cases += 1;
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 1320);
+}
+
+#[test]
+fn rounded_interiors_match_full_masked_paths_at_edges_and_in_layers() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::{rounded_rect, Raster};
+    use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, PixmapPaint, Rect, Transform};
+
+    let mut cases = 0;
+    for scale in [0.75_f32, 1.0, 1.25, 2.0] {
+        for transform in [
+            Transform::identity(),
+            Transform::from_row(-1.0, 0.0, 0.0, 1.0, 96.0, 0.0),
+            Transform::from_row(1.0, 0.0, 0.0, -1.0, 0.0, 80.0),
+            Transform::from_scale(0.75, 1.25),
+            Transform::from_rotate(7.0),
+            Transform::from_row(1.0, 0.0, 0.15, 1.0, 0.0, 0.0),
+        ] {
+            for radii in [
+                [4.0; 4],
+                [12.0; 4],
+                [4.0, 8.0, 12.0, 6.0],
+                [40.0; 4],
+                [4.0, -1.0, 4.0, 4.0],
+                [4.0, 0.0, 0.0, 4.0],
+            ] {
+                for rects in [
+                    vec![(24.0, 8.0, 40.0, 64.0)],
+                    vec![(8.0, 24.0, 80.0, 32.0)],
+                    vec![(24.0, 6.0, 40.0, 64.0)],
+                    vec![(4.0, 4.0, 24.0, 24.0)],
+                    vec![(24.0, 8.0, 20.0, 24.0), (48.0, 40.0, 16.0, 24.0)],
+                    vec![(24.0, 8.0, 40.0, 64.0), (28.25, 20.0, 8.5, 12.0)],
+                ] {
+                    for alpha in [117, 255] {
+                        for layer in [false, true] {
+                            let (w, h) =
+                                ((96.0 * scale).round() as u32, (80.0 * scale).round() as u32);
+                            let mut raster = Raster::new();
+                            raster.begin(96.0, 80.0, scale);
+                            let mut expected = Pixmap::new(w, h).unwrap();
+                            expected.fill(Color::WHITE);
+                            assert!(raster.damage(&expected, &rects));
+                            let device = Transform::from_scale(scale, scale);
+                            let mut mask = Mask::new(w, h).unwrap();
+                            for &(x, y, w, h) in &rects {
+                                mask.fill_path(
+                                    &PathBuilder::from_rect(Rect::from_xywh(x, y, w, h).unwrap()),
+                                    FillRule::Winding,
+                                    false,
+                                    device,
+                                );
+                            }
+                            let shape = Shape {
+                                rect: (3.25, 4.5, 88.25, 70.25),
+                                radii,
+                            };
+                            if layer {
+                                raster.push_opacity(0.37);
+                            }
+                            let result =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    raster.fill(&shape, [31, 117, 193, alpha], transform)
+                                }));
+                            assert!(result.is_ok(), "fill panic: scale={scale}, transform={transform:?}, radii={radii:?}, rects={rects:?}, alpha={alpha}, layer={layer}");
+                            let mut reference_layer = Pixmap::new(w, h).unwrap();
+                            let target = if layer {
+                                &mut reference_layer
+                            } else {
+                                &mut expected
+                            };
+                            let mut paint = Paint::default();
+                            paint.set_color(Color::from_rgba8(31, 117, 193, alpha));
+                            paint.anti_alias = true;
+                            if let Some(path) = rounded_rect(&shape) {
+                                target.fill_path(
+                                    &path,
+                                    &paint,
+                                    FillRule::Winding,
+                                    device.pre_concat(transform),
+                                    Some(&mask),
+                                );
+                            }
+                            if layer {
+                                raster.pop_opacity();
+                                expected.draw_pixmap(
+                                    0,
+                                    0,
+                                    reference_layer.as_ref(),
+                                    &PixmapPaint {
+                                        opacity: 0.37,
+                                        ..PixmapPaint::default()
+                                    },
+                                    Transform::identity(),
+                                    None,
+                                );
+                            }
+                            assert!(raster.finish().unwrap().data() == expected.data(), "scale={scale}, transform={transform:?}, radii={radii:?}, rects={rects:?}, alpha={alpha}, layer={layer}");
+                            cases += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 3456);
+}
+
+#[test]
+fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::Raster;
+    use tiny_skia::{Color, Transform};
+
+    let mut ordinary = Raster::new();
+    let mut direct = Raster::new();
+    for scale in [0.75_f32, 1.0, 1.5, 2.0] {
+        for (width, height) in [(48.0, 40.0), (63.5, 51.25), (1.0, 1.0)] {
+            for mismatch in [false, true] {
+                let w = ((width * scale).round() as u32).max(1);
+                let h = ((height * scale).round() as u32).max(1);
+                let mut previous = Pixmap::new(w + u32::from(mismatch), h).unwrap();
+                previous.fill(Color::from_rgba8(39, 73, 117, 139));
+                for unfinished in [false, true] {
+                    // A previous frame may have a cached clip or unfinished
+                    // opacity layers. Both entry points must retire that state.
+                    for raster in [&mut ordinary, &mut direct] {
+                        raster.begin(48.0, 40.0, 1.0);
+                        raster.push_clip(
+                            &Shape {
+                                rect: (2.0, 3.0, 40.0, 32.0),
+                                radii: [4.0; 4],
+                            },
+                            Transform::identity(),
+                        );
+                        raster.push_opacity(0.3);
+                        raster.fill(
+                            &Shape::rect((0.0, 0.0, 48.0, 40.0)),
+                            [190, 20, 80, 190],
+                            Transform::identity(),
+                        );
+                        if !unfinished {
+                            raster.finish().unwrap();
+                        }
+                    }
+                    let damage = [(5.0, 7.0, 20.0, 18.0)];
+                    ordinary.begin(width, height, scale);
+                    let expected_partial = ordinary.damage(&previous, &damage);
+                    let actual_partial =
+                        direct.begin_damage(width, height, scale, &previous, &damage);
+                    assert_eq!(actual_partial, expected_partial);
+                    assert_eq!(actual_partial, !mismatch);
+                    assert_eq!(
+                        direct.finish().unwrap().data(),
+                        ordinary.finish().unwrap().data()
+                    );
+                    // A following ordinary frame must lose all damage clipping.
+                    for raster in [&mut ordinary, &mut direct] {
+                        raster.begin(width, height, scale);
+                        raster.fill(
+                            &Shape::rect((0.0, 0.0, width, height)),
+                            [20, 170, 90, 255],
+                            Transform::identity(),
+                        );
+                    }
+                    assert_eq!(
+                        direct.finish().unwrap().data(),
+                        ordinary.finish().unwrap().data()
+                    );
+                }
+            }
+        }
+    }
 }

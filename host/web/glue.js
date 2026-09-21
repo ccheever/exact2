@@ -631,7 +631,8 @@ function apply(batch) {
         el.style.cssText = op.css;
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
-        listView(el, op.id);
+        // Shared collections own geometry feedback, including authored estimates.
+        if (!collectionOp?.items.some(item => item.view === op.id)) listView(el, op.id);
         break;
       }
       case "props": {
@@ -759,6 +760,17 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
+        else if (op.name === "openURL") {
+          if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
+            console.error("exact: openURL requires one string");
+          } else {
+            try {
+              const target = new URL(op.args[0]);
+              if (!["http:", "https:", "mailto:", "tel:"].includes(target.protocol)) throw Error("unsupported external URL scheme");
+              window.open(target.href, "_blank", "noopener,noreferrer");
+            } catch (error) { console.error("exact: openURL refused", String(error)); }
+          }
+        }
         else if (op.name === "copyText") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
             console.error("exact: copyText requires one string");
@@ -779,7 +791,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -961,10 +973,10 @@ const INHERITED_CSS = {
   font_style: "font-style", line_height: "line-height", letter_spacing: "letter-spacing",
   font_variant_numeric: "font-variant-numeric", direction: "direction", white_space: "white-space", overflow_wrap: "overflow-wrap", text_align: "text-align",
 };
-function nodeDetail(id) {
+function nodeDetail(id, plan = false) {
   const el = views.get(id);
   if (!el || !el.isConnected) return { error: `stale node #${id}` };
-  const node = ask({ op: "node", id });
+  const node = ask({ op: "node", id, ...(plan ? { plan: true } : {}) });
   if (node.error) return node;
   // The kernel's layout never runs on the web (LLP 1007 §9): its frames are
   // not observations here, so they are absent rather than zeros.
@@ -1037,8 +1049,8 @@ function guestOutline(frame) {
   for (const child of doc.body?.children ?? []) visit(child, 0);
   return outline;
 }
-function tree() {
-  const reply = ask({ op: "tree" });
+function tree(request) {
+  const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     if (!(el instanceof HTMLIFrameElement)) continue;
@@ -1177,7 +1189,7 @@ function agent(request) {
         }
         const reply = { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
         if (request.id != null) {
-          const detail = nodeDetail(request.id);
+          const detail = nodeDetail(request.id, request.plan === true);
           if (detail.error) return detail;
           reply.node = detail;
         }
@@ -1207,7 +1219,7 @@ function agent(request) {
       case "clock":
         return tagged(clock(request));
       case "tree":
-        return tree();
+        return tree(request);
       case "tags":
         return ask(request);
       default:
@@ -1291,6 +1303,14 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   if (flowLoading) await flowLoading;
   if (!current() || request !== bootAttempt) return null;
+  // A replacement must let the current executor finish its answers before
+  // the synchronous swap. Initial module readiness does not drain requests.
+  if (module) {
+    if (!(await waitForInflight(performance.now() + SETTLE_DEADLINE_MS))) {
+      throw new Error('module replacement waits for in-flight requests to settle; retry the update');
+    }
+    if (!current() || request !== bootAttempt) return null;
+  }
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
   let len;
   if (module) {
@@ -1333,7 +1353,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   pendingScrolls.clear();
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
-  for (const el of views.values()) if (el instanceof HTMLVideoElement) { el.pause(); el.removeAttribute("src"); el.load(); }
+  for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
   views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}

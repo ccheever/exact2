@@ -9,6 +9,23 @@ final class RegionPreparedSource {
     let sourceSHA256: String
     let attributed: NSAttributedString
     let typesetter: CTTypesetter
+    // Unicode opportunities depend on this exact source, never its width.
+    // Lazy so intrinsic and emergency-wrap layouts keep no boundary array.
+    // Like the typesetter, this storage is confined to the serial worker and
+    // released with its last live preparation owner; there is no width history.
+    lazy var lineBreakBoundaries: [Int] = {
+        let text = source.text as NSString
+        let length = source.utf16Count
+        let tokenizer = CFStringTokenizerCreate(nil, text as CFString,
+            CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
+        var boundaries: [Int] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
+            boundaries.append(range.location + range.length)
+        }
+        if boundaries.last != length { boundaries.append(length) }
+        return boundaries
+    }()
     init(_ source: RegionTextSource) {
         precondition(!Thread.isMainThread, "region preparation must be worker-owned")
         self.source = source
@@ -62,17 +79,8 @@ final class RegionWorkerLayout {
         // CoreText breaks a word when it cannot fit; CSS normal instead lets
         // that word overflow. Public Unicode line boundaries distinguish those
         // emergency breaks from ordinary opportunities (including CJK).
-        var boundaries: [Int] = []
+        let boundaries = spec.overflowWrap == 0 && width.isFinite ? preparation.lineBreakBoundaries : []
         var boundaryIndex = 0
-        if spec.overflowWrap == 0 && width.isFinite {
-            let text = spec.runs.map(\.text).joined() as NSString
-            let tokenizer = CFStringTokenizerCreate(nil, text as CFString, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-            while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-                let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-                boundaries.append(range.location + range.length)
-            }
-            if boundaries.last != length { boundaries.append(length) }
-        }
         while start < length {
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
             var count: Int

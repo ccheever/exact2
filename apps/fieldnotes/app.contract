@@ -2,12 +2,18 @@
 shape Note
   id: string
   title: string
-  body: string
   excerpt: string
   pinned: bool
 shape Library
   notes: list<Note>
   total: number
+  message: string
+  ready: bool
+shape Opened
+  version: number
+  title: string
+  body: string
+  pinned: bool
   message: string
   ready: bool
 shape Saved
@@ -28,12 +34,13 @@ shape Status
 component Fieldnotes
   state query = ""
   state noteId = ""
-  state title = ""
-  state body = ""
-  state pinned = false
-  state originalTitle = ""
-  state originalBody = ""
-  state originalPinned = false
+  state savedId = ""
+  state draftTitle = none
+  state draftBody = none
+  state draftPinned = none
+  state originalTitle = none
+  state originalBody = none
+  state originalPinned = none
   state version = 0
   state backups = false
   state importText = ""
@@ -44,12 +51,26 @@ component Fieldnotes
   derive saveRevision = match saved { case some(s) => s.revision, case none => 0 }
   derive serviceRevision = match status { case some(s) => s.revision, case none => 0 }
   resource library = library(query, saveRevision, serviceRevision) as shape Library
-  derive editingId = match saved { case some(s) => s.version == version and not s.failed ? s.id : noteId, case none => noteId }
-  derive referenceTitle = match saved { case some(s) => s.version == version and not s.failed ? s.title : originalTitle, case none => originalTitle }
-  derive referenceBody = match saved { case some(s) => s.version == version and not s.failed ? s.body : originalBody, case none => originalBody }
-  derive referencePinned = match saved { case some(s) => s.version == version and not s.failed ? s.pinned : originalPinned, case none => originalPinned }
+  mutation opened as shape Opened
+  derive openedTitle = match opened { case some(n) => n.version == version ? n.title : "", case none => "" }
+  derive openedBody = match opened { case some(n) => n.version == version ? n.body : "", case none => "" }
+  derive openedPinned = match opened { case some(n) => n.version == version and n.pinned, case none => false }
+  derive openedReady = noteId == "" or match opened { case some(n) => n.version == version and n.ready, case none => false }
+  derive openInterrupted = noteId != "" and not pending(opened) and match opened { case some(n) => n.version != version, case none => true }
+  derive openedMessage = match opened { case some(n) => n.version == version ? n.message : "", case none => "" }
+  derive title = match draftTitle { case some(value) => value, case none => openedTitle }
+  derive body = match draftBody { case some(value) => value, case none => openedBody }
+  derive pinned = match draftPinned { case some(value) => value, case none => openedPinned }
+  derive baseTitle = match originalTitle { case some(value) => value, case none => openedTitle }
+  derive baseBody = match originalBody { case some(value) => value, case none => openedBody }
+  derive basePinned = match originalPinned { case some(value) => value, case none => openedPinned }
+  derive baseId = savedId != "" ? savedId : noteId
+  derive editingId = match saved { case some(s) => s.version == version and not s.failed ? s.id : baseId, case none => baseId }
+  derive referenceTitle = match saved { case some(s) => s.version == version and not s.failed ? s.title : baseTitle, case none => baseTitle }
+  derive referenceBody = match saved { case some(s) => s.version == version and not s.failed ? s.body : baseBody, case none => baseBody }
+  derive referencePinned = match saved { case some(s) => s.version == version and not s.failed ? s.pinned : basePinned, case none => basePinned }
   derive dirty = title != referenceTitle or body != referenceBody or pinned != referencePinned
-  derive busy = pending(saved) or pending(status) or pending(library)
+  derive busy = pending(saved) or pending(status) or pending(library) or pending(opened)
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
 
   action search(value) writes query
@@ -60,45 +81,50 @@ component Fieldnotes
   action closeSearch writes query
     query = ""
     focus("note-body")
-  action changeTitle(value) writes title
-    title = value
-  action changeBody(value) writes body
-    body = value
-  action togglePin writes pinned
-    pinned = not pinned
-  action edit(id: string, name: string, text: string, pin: bool) writes noteId, title, body, pinned, originalTitle, originalBody, originalPinned, version, confirmDelete
+  action changeTitle(value) writes draftTitle
+    if openedReady and not pending(opened)
+      draftTitle = some(value)
+  action changeBody(value) writes draftBody
+    if openedReady and not pending(opened)
+      draftBody = some(value)
+  action togglePin writes draftPinned
+    draftPinned = some(not pinned)
+  action edit(id: string) writes opened, noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete
+    send opened = openNote(id, version + 1)
     noteId = id
-    title = name
-    body = text
-    pinned = pin
-    originalTitle = name
-    originalBody = text
-    originalPinned = pin
+    savedId = ""
+    draftTitle = none
+    draftBody = none
+    draftPinned = none
+    originalTitle = none
+    originalBody = none
+    originalPinned = none
     version = version + 1
     confirmDelete = false
     focus("note-body")
-  action newNote writes noteId, title, body, pinned, originalTitle, originalBody, originalPinned, version, confirmDelete, query, backups
+  action newNote writes noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete, query, backups
     noteId = ""
-    title = ""
-    body = ""
-    pinned = false
-    originalTitle = ""
-    originalBody = ""
-    originalPinned = false
+    savedId = ""
+    draftTitle = none
+    draftBody = none
+    draftPinned = none
+    originalTitle = none
+    originalBody = none
+    originalPinned = none
     version = version + 1
     confirmDelete = false
     query = ""
     backups = false
     focus("note-title")
-  action discard writes title, body, pinned
-    title = referenceTitle
-    body = referenceBody
-    pinned = referencePinned
-  action save writes saved, noteId, originalTitle, originalBody, originalPinned
-    noteId = editingId
-    originalTitle = referenceTitle
-    originalBody = referenceBody
-    originalPinned = referencePinned
+  action discard writes draftTitle, draftBody, draftPinned
+    draftTitle = some(referenceTitle)
+    draftBody = some(referenceBody)
+    draftPinned = some(referencePinned)
+  action save writes saved, savedId, originalTitle, originalBody, originalPinned
+    savedId = editingId
+    originalTitle = some(referenceTitle)
+    originalBody = some(referenceBody)
+    originalPinned = some(referencePinned)
     send saved = saveNote(editingId, title, body, pinned, version)
   action showBackups writes backups
     if backups
@@ -114,31 +140,33 @@ component Fieldnotes
     confirmRestore = true
   action cancelRestore writes confirmRestore
     confirmRestore = false
-  action restore writes status, confirmRestore, noteId, title, body, originalTitle, originalBody, pinned, originalPinned, version
+  action restore writes status, confirmRestore, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
     send status = restoreNotes(importText)
     confirmRestore = false
     noteId = ""
-    title = ""
-    body = ""
-    originalTitle = ""
-    originalBody = ""
-    pinned = false
-    originalPinned = false
+    savedId = ""
+    draftTitle = none
+    draftBody = none
+    originalTitle = none
+    originalBody = none
+    draftPinned = none
+    originalPinned = none
     version = version + 1
   action askDelete writes confirmDelete
     confirmDelete = true
   action cancelDelete writes confirmDelete
     confirmDelete = false
-  action remove writes status, confirmDelete, noteId, title, body, originalTitle, originalBody, pinned, originalPinned, version
+  action remove writes status, confirmDelete, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
     send status = deleteNote(editingId)
     confirmDelete = false
     noteId = ""
-    title = ""
-    body = ""
-    originalTitle = ""
-    originalBody = ""
-    pinned = false
-    originalPinned = false
+    savedId = ""
+    draftTitle = none
+    draftBody = none
+    originalTitle = none
+    originalBody = none
+    draftPinned = none
+    originalPinned = none
     version = version + 1
 
   view
@@ -209,7 +237,7 @@ component Fieldnotes
                     text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
                     text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="#63766a"
                 each note in library.notes key=note.id
-                  button press=edit(note.id, note.title, note.body, note.pinned) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "#31554a" : "#dedfd5") border-radius=9 background-color=(note.id == editingId ? "#e9eee4" : "#fcfbf7")
+                  button press=edit(note.id) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "#31554a" : "#dedfd5") border-radius=9 background-color=(note.id == editingId ? "#e9eee4" : "#fcfbf7")
                     column gap=6 align-items="flex-start"
                       when note.pinned
                         text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="#7b7957"
@@ -220,12 +248,12 @@ component Fieldnotes
           column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="#fffefa" border-style="solid" border-width=1 border-color="#dedfd5" border-radius=12
             row justify-content="space-between" align-items="center"
               text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="#63766a"
-              button press=togglePin disabled=busy testId="pin-note" padding=8
+              button press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
                 text (pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
-            input id="note-title" value=title change=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
-            textarea id="note-body" font-family="sans-serif" value=body change=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
+            input id="note-title" value=(pending(opened) ? "" : title) readonly=(pending(opened) or not openedReady) change=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
+            textarea id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : body) readonly=(pending(opened) or not openedReady) change=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
             row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
-              button press=save disabled=(busy or not dirty or (title == "" and body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
+              button press=save disabled=(busy or not openedReady or not dirty or (title == "" and body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
                 text "Save note" color="#ffffff" font-weight=600
               when dirty
                 button press=discard disabled=busy testId="discard" padding=12
@@ -240,6 +268,12 @@ component Fieldnotes
                   text "Delete note" color="#a34336" font-weight=700
                 button press=cancelDelete testId="cancel-delete" padding=10
                   text "Keep it"
+            when openInterrupted
+              text "Opening this note was interrupted. Try again." font-size=13 color="#a34336" testId="open-interrupted"
+              button press=edit(noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
+                text "Retry opening note" color="#31554a"
+            when openedMessage != ""
+              text openedMessage font-size=13 color="#a34336" testId="open-message"
             match saved
               case some(s)
                 when s.version == version

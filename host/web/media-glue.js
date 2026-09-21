@@ -3,6 +3,34 @@ const states = new WeakMap();
 const booleans = new Set(['autoplay', 'controls', 'loop', 'muted', 'playsinline', 'disablepictureinpicture', 'disableremoteplayback']);
 const numbers = { volume: [0, 1, 1], playbackRate: [0.25, 4, 1], currentTime: [0, Infinity, 0] };
 const mediaEvents = new Set(['loadedmetadata','durationchange','timeupdate','play','playing','pause','ended','waiting','seeking','seeked','ratechange','volumechange','error','canplay']);
+function syncPlayback(el) {
+  const state = states.get(el), props = el.exactMedia.props;
+  if (!state || state.retired) return;
+  if (props.paused == null) { state.paused = undefined; return; }
+  const paused = props.paused === 'true' || state.visibilityBlocked;
+  if (paused !== state.paused || props.src !== state.applied.src) {
+    state.paused = paused;
+    if (paused) el.pause();
+    else el.play().catch(error => { if (!state.retired && !state.paused) state.error(error.message); });
+  }
+}
+function syncVisibility(el) {
+  const state = states.get(el), props = el.exactMedia.props;
+  const value = props.playbackVisibilityThreshold == null ? NaN : Number(props.playbackVisibilityThreshold);
+  const threshold = props.paused != null && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+  if (state.threshold === threshold) return;
+  state.observer?.disconnect(); state.observer = null;
+  state.threshold = threshold;
+  state.visibilityBlocked = threshold !== null;
+  if (threshold === null) return;
+  state.observer = new IntersectionObserver(entries => {
+    if (state.retired || state.threshold !== threshold || !el.isConnected) return;
+    const entry = entries[entries.length - 1];
+    state.visibilityBlocked = !entry.isIntersecting || entry.intersectionRatio <= 0 || entry.intersectionRatio < threshold;
+    syncPlayback(el);
+  }, { threshold: [0, Math.max(Number.EPSILON, threshold)] });
+  state.observer.observe(el);
+}
 function update(el) {
   const state = states.get(el), props = el.exactMedia.props;
   const changed = name => props[name] !== state.applied[name];
@@ -19,10 +47,8 @@ function update(el) {
   }
   if (changed('preservesPitch')) el.preservesPitch = props.preservesPitch !== 'false';
   el.disablePictureInPicture = props.disablepictureinpicture === 'true' || props.allowsPictureInPicturePlayback === 'false';
-  if ((changed('paused') || changed('src')) && props.paused != null) {
-    if (props.paused === 'true') el.pause();
-    else el.play().catch(error => state.error(error.message));
-  }
+  syncVisibility(el);
+  syncPlayback(el);
   state.applied = { ...props };
 }
 globalThis.exact.installMedia = (el, send) => {
@@ -30,7 +56,7 @@ globalThis.exact.installMedia = (el, send) => {
   const emit = (name, payload = '') => {
     if (el.isConnected && el.exactMedia.handlers.includes(name)) send(`${name}\n${payload}`);
   };
-  const state = { applied: {}, seek: null, error: message => emit('error', message) };
+  const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, error: message => emit('error', message) };
   states.set(el, state);
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
@@ -39,4 +65,9 @@ globalThis.exact.installMedia = (el, send) => {
   });
   update(el);
   if (el.readyState) { emit('loadedmetadata'); if (Number.isFinite(el.duration)) emit('durationchange', String(el.duration)); }
+};
+
+globalThis.exact.removeMedia = el => {
+  const state = states.get(el);
+  if (state) { state.retired = true; state.observer?.disconnect(); states.delete(el); }
 };

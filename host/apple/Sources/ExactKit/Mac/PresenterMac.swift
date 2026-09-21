@@ -138,14 +138,21 @@ struct ChromeIndex {
 
     mutating func note(_ id: UInt32, props: [String: String]) {
         for key in Self.keys {
-            if props[key] != nil { byKey[key, default: []].insert(id) } else { byKey[key]?.remove(id) }
+            if props[key] != nil { byKey[key, default: []].insert(id) }
+            else if let index = byKey.index(forKey: key), byKey.values[index].contains(id) {
+                byKey.values[index].remove(id)
+            }
         }
         for (name, key, value) in Self.values {
-            if props[key] == value { byKey[name, default: []].insert(id) } else { byKey[name]?.remove(id) }
+            if props[key] == value { byKey[name, default: []].insert(id) }
+            else if let index = byKey.index(forKey: name), byKey.values[index].contains(id) {
+                byKey.values[index].remove(id)
+            }
         }
     }
     mutating func forget(_ id: UInt32) {
-        for key in byKey.keys { byKey[key]?.remove(id) }
+        // Only the member sets change; dictionary keys and indices stay fixed.
+        for index in byKey.indices where byKey.values[index].contains(id) { byKey.values[index].remove(id) }
     }
     func ids(_ key: String) -> Set<UInt32> { byKey[key] ?? [] }
     /// Whether anything that can hide a view or make it inert is mounted:
@@ -182,6 +189,7 @@ final class Presenter {
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
+    var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var selection = TextSelection(self)
     let textRasters = TextRasterizer()
@@ -225,7 +233,7 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
     }
 
     deinit {
@@ -538,6 +546,7 @@ final class Presenter {
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
+        videoVisibility?.reset()
         selection.structureChanged()
         visibleText.removeAll()
         textViewportIndex = nil
@@ -623,6 +632,8 @@ final class Presenter {
         listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
         listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
         for list in Array(listViews.values) {
+            // Shared collections use revisioned feedback, not the earlier
+            // item-height window protocol (which rejects their row tree).
             guard !collections.owns(list.id) else { continue }
             guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
             guard views[list.id] === list, let scroll = list.scroll,
@@ -756,6 +767,7 @@ final class Presenter {
             collections.endBatch()
             if outermost {
                 applying = false
+                videoVisibility?.changed()
                 let geometry = pendingGeometry
                 pendingGeometry = nil
                 let q = waiting
@@ -815,7 +827,8 @@ final class Presenter {
                 if parent.kind == "text" { parent.setTextChildren(want); continue }
                 for child in want { child.textParent = nil }
                 let container = parent.container
-                for child in container.subviews where !(want as [NSView]).contains(child) && child is NodeView { child.removeFromSuperview() }
+                let wanted = Set(want.map { ObjectIdentifier($0) })
+                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) { child.removeFromSuperview() }
                 for (i, child) in want.enumerated() {
                     if child.superview !== container {
                         child.prepareToMount()
@@ -826,7 +839,8 @@ final class Presenter {
                             container.addSubview(child, positioned: .below, relativeTo: first)
                         } else { container.addSubview(child) }
                     }
-                    if container.subviews.firstIndex(of: child) != i {
+                    let siblings = container.subviews
+                    if i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
@@ -863,6 +877,7 @@ final class Presenter {
             case "frame":
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.contentBox()
                 v.layoutTextArea()

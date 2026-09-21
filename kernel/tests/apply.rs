@@ -1298,3 +1298,104 @@ fn inherited_line_height_resolves_per_font_and_invalidates_through_tree_changes(
     .unwrap();
     check(&mut k, 30.0);
 }
+
+#[test]
+fn touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations() {
+    let mut k = build();
+    let before: Vec<_> = (1..=4).map(|id| k.node(id).unwrap().key).collect();
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[
+                Op::SetStyle {
+                    id: 4,
+                    patch: height(21.),
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: height(51.),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: height(71.),
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: height(52.),
+                },
+                Op::DestroyView { id: 3 },
+                Op::CreateView {
+                    id: 5,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 5,
+                    patch: height(53.),
+                },
+                Op::CreateView {
+                    id: 6,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 6,
+                    patch: height(54.),
+                },
+                Op::DestroyView { id: 5 },
+                Op::CreateView {
+                    id: 7,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 7,
+                    patch: height(55.),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 6, 7],
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(receipt.touched, before[..2]);
+    assert!(
+        receipt.touched.capacity() <= 4,
+        "retained receipt kept per-operation scratch"
+    );
+    let created = [k.node(6).unwrap().key, k.node(7).unwrap().key];
+    assert_eq!(receipt.created, created);
+    assert_eq!(receipt.destroyed.len(), 3);
+    assert_eq!(receipt.destroyed[..2], before[2..]);
+    for key in &receipt.destroyed {
+        assert!(k.node_by_key(*key).is_none());
+        assert!(
+            created.iter().any(|new| new.index == key.index),
+            "exercise reused slots"
+        );
+    }
+    // In a later batch those same allocations are ordinary touched nodes.
+    let next = k
+        .apply(
+            0,
+            3,
+            &[
+                Op::SetStyle {
+                    id: 7,
+                    patch: height(60.),
+                },
+                Op::SetStyle {
+                    id: 6,
+                    patch: height(61.),
+                },
+                Op::SetStyle {
+                    id: 7,
+                    patch: height(62.),
+                },
+            ],
+        )
+        .unwrap();
+    let mut expected = created.to_vec();
+    expected.sort_unstable();
+    assert_eq!(next.touched, expected);
+    assert!(next.created.is_empty());
+}

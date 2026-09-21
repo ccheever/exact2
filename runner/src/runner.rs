@@ -196,6 +196,8 @@ struct Timer {
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
+    sites: crate::instance::SiteIndex,
+    inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
     data: D,
     kernel: Kernel,
@@ -460,7 +462,9 @@ impl<D: DataSource> Runner<D> {
             .collect();
         let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
+            sites: crate::instance::SiteIndex::new(&plan),
             plan,
+            inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             data,
             kernel,
@@ -573,6 +577,7 @@ impl<D: DataSource> Runner<D> {
         let (tree, ops, surfaces) = {
             let mut u = Update {
                 env: runner.env(&[], &[]),
+                sites: &runner.sites,
                 ids: &mut ids,
                 ops: Vec::new(),
                 surfaces: Vec::new(),
@@ -671,6 +676,20 @@ impl<D: DataSource> Runner<D> {
         &self.plan
     }
 
+    /// Same immutable plan as a targeted node read. No work until an inspector
+    /// requests identity; a replacement runner owns a fresh cache.
+    pub(crate) fn inspection_digest(&self) -> &str {
+        self.inspection_digest.get_or_init(|| {
+            use sha2::{Digest, Sha256};
+            use std::fmt::Write;
+            let mut out = String::with_capacity(64);
+            for byte in Sha256::digest(self.plan.encode()) {
+                write!(out, "{byte:02x}").unwrap();
+            }
+            out
+        })
+    }
+
     /// The data source.
     pub fn data(&mut self) -> &mut D {
         &mut self.data
@@ -722,7 +741,7 @@ impl<D: DataSource> Runner<D> {
 
     /// The event kinds a view handles, for a host that attaches listeners.
     pub fn handlers_of(&self, view: ViewId) -> Vec<EventKind> {
-        let Some((node, _)) = self.tree.as_ref().and_then(|t| t.find(view)) else {
+        let Some(node) = self.tree.as_ref().and_then(|t| t.node(view)) else {
             return Vec::new();
         };
         self.plan

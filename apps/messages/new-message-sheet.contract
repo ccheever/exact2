@@ -1,0 +1,268 @@
+use PrimaryText from "./palette.contract"
+use AccentText from "./palette.contract"
+use PrimaryIcon from "./palette.contract"
+use PrimaryFill from "./palette.contract"
+use Recipients from "./models.contract"
+
+component NewMessageSheet
+  props
+    routeKey: string
+    contacts: Recipients
+    recipientSelection: string
+    recipientQuery: string
+    recipientShift: number
+    pageRecipients: action
+    newDraft: string
+    showContacts: bool
+    personPath: string
+    editable: bool
+    cancelNewMessage: action
+    selectRecipient: action
+    searchRecipient: action
+    recipientKey: action
+    browseContacts: action
+    chooseRecipient: action
+    writeNew: action
+    clearRecipientSelection: action
+    sendNewMessage: action
+  view
+    column navigationKey=routeKey
+      navigationPresentation="modal"
+      closedby=(newDraft == "" ? "closerequest": "none")
+      testId="new-message-layer"
+      position="absolute"
+      top=0
+      left=0
+      right=0
+      bottom=0
+      z-index=10
+      box position="absolute"
+        top="calc(env(safe-area-inset-top) + 40px)"
+        left=0
+        right=0
+        bottom=0
+        background-color="light-dark(#ffffff, #1c1c1e)"
+      column testId="new-message-sheet"
+        position="absolute"
+        top="env(safe-area-inset-top)"
+        left=0
+        right=0
+        bottom=0
+        border-radius=40
+        background-color="light-dark(#ffffff, #1c1c1e)"
+        overflow="hidden"
+        row testId="compose-header"
+          retainFocus=true
+          height=80
+          flex-shrink=0
+          align-items="center"
+          justify-content="center"
+          text "New Message" font-size=17 font-weight=600
+          button press=cancelNewMessage
+            id="back"
+            testId="cancel-new-message"
+            aria-label="Close new message"
+            position="absolute"
+            right=16
+            top=16
+            width=44
+            height=44
+            border-radius=22
+            backgroundMaterial="glass"
+            display="flex"
+            align-items="center"
+            justify-content="center"
+            image "symbol:close" font-size=22
+              font-weight=400
+              class=PrimaryIcon
+        row testId="recipient-field"
+          margin-left=16
+          margin-right=16
+          min-height=48
+          border-radius=24
+          backgroundMaterial="glass"
+          align-items="center"
+          padding-left=14
+          padding-right=12
+          gap=6
+          flex-shrink=0
+          text "To:" font-size=15 color="#8e8e93" flex-shrink=0
+          row flex=1
+            min-width=0
+            flex-wrap="wrap"
+            align-items="center"
+            column-gap=4
+            padding-top=4
+            padding-bottom=4
+            each person in contacts.selected key = person.id
+              button press=selectRecipient(person.id, person.without)
+                testId=`selected-recipient-${person.id}`
+                aria-label=`${person.name}${recipientSelection == person.id ? ", selected" : ""}`
+                background-color=(recipientSelection == person.id ? "light-dark(#007aff, #0a84ff)": "#00000000")
+                border-radius=4
+                max-width="100%"
+                height=32
+                display="flex"
+                align-items="center"
+                text person.name font-size=17
+                  color=(recipientSelection == person.id ? "#ffffff": "light-dark(#007aff, #0a84ff)")
+                  line-clamp=1
+            input id="recipient-search"
+              testId="recipient-search"
+              autocapitalize="none"
+              autocorrect="off"
+              spellcheck="false"
+              value=recipientQuery
+              change=searchRecipient
+              key=recipientKey
+              aria-label="To"
+              font-size=17
+              class=PrimaryText
+              flex=1
+              min-width=36
+              height=40
+              border-width=0
+          button press=browseContacts
+            testId="choose-contact"
+            aria-label="Add contact"
+            width=28
+            height=28
+            border-radius=14
+            background-color="light-dark(#e5e5ea, #48484a)"
+            display="flex"
+            align-items="center"
+            justify-content="center"
+            box width=14 height=14
+              box position="absolute"
+                left=6
+                top=0
+                width=2
+                height=14
+                border-radius=1
+                class=PrimaryFill
+              box position="absolute"
+                left=0
+                top=6
+                width=14
+                height=2
+                border-radius=1
+                class=PrimaryFill
+        scroll testId="recipient-results"
+          scrollTop=(0 - recipientShift)
+          flex=1
+          min-height=0
+          keyboardDismissMode="interactive"
+          margin-top=8
+          when recipientQuery != "" or showContacts
+            column padding-left=28 padding-right=20
+              when contacts.earlier != ""
+                button press=pageRecipients(contacts.earlier) testId="previous-recipients" padding=16
+                  text "Previous contacts" font-size=14 class=AccentText
+              each person in contacts.people key = person.id
+                button press=chooseRecipient(person.id)
+                  testId=`recipient-${person.id}`
+                  aria-label=person.name
+                  height=64
+                  display="flex"
+                  align-items="center"
+                  gap=12
+                  border-bottom-style="solid"
+                  border-bottom-width=0.5
+                  border-color="light-dark(#d9d9dc, #38383a)"
+                  column width=36
+                    height=36
+                    border-radius=18
+                    background-color=person.color
+                    align-items="center"
+                    justify-content="center"
+                    flex-shrink=0
+                    when person.initials != ""
+                      text person.initials font-size=14 color="#ffffff"
+                    else
+                      box width=32
+                        height=36
+                        scale=0.55
+                        clip-path=personPath
+                        background-color="#ffffff"
+                  text person.name font-size=17 line-clamp=1 class=AccentText
+              when contacts.later != ""
+                button press=pageRecipients(contacts.later) testId="more-recipients" padding=16
+                  text "More contacts" font-size=14 class=AccentText
+              when length(contacts.people) == 0
+                text "No Results" font-size=17 color="#8e8e93" text-align="center" padding=24
+        column padding-left=16
+          padding-right=16
+          padding-top=0
+          padding-bottom=16
+          flex-shrink=1
+          min-height=40.333333
+          row gap=12 align-items="flex-end" min-height=0
+            button disabled=true
+              aria-label="Add attachment"
+              width=40
+              height=40
+              border-radius=20
+              backgroundMaterial="glass"
+              display="flex"
+              align-items="center"
+              justify-content="center"
+              image "symbol:add" font-size=22 font-weight=400 tint-color="#b4b4b7"
+            row testId="new-composer-surface"
+              flex=1
+              min-width=0
+              min-height=40.333333
+              max-height="100%"
+              align-self="stretch"
+              box-sizing="border-box"
+              backgroundMaterial="glass"
+              border-radius=20
+              align-items="flex-end"
+              padding-left=16
+              padding-right=6.333333
+              padding-top=6
+              padding-bottom=6
+              gap=5
+              textarea id="new-composer"
+                testId="new-composer"
+                disabled=(not editable)
+                value=newDraft
+                change=writeNew
+                focus=clearRecipientSelection
+                placeholder=(contacts.target == "" ? "": "iMessage")
+                aria-label="New message"
+                class=PrimaryText
+                font-size=17
+                line-height="20px"
+                flex=1
+                min-width=0
+                field-sizing="content"
+                min-height=28.333333
+                max-height="100%"
+                align-self="stretch"
+                padding-top=4.166667
+                padding-bottom=4.166667
+                box-sizing="border-box"
+                border-width=0
+              button press=sendNewMessage
+                retainFocus=true
+                disabled=(not contacts.canSend)
+                testId="send-new-message"
+                aria-label="Send message"
+                width=38
+                height=28
+                box-sizing="border-box"
+                padding-left=(newDraft == "" ? 10: 0)
+                border-radius=14
+                background-color=(newDraft == "" ? "#00000000": (contacts.canSend ? "light-dark(#007aff, #0a84ff)": "light-dark(#e9e9eb, #3a3a3c)"))
+                display="flex"
+                align-items="center"
+                justify-content="center"
+                when newDraft != ""
+                  image "symbol:send" font-size=17
+                    font-weight=700
+                    tint-color=(contacts.canSend ? "#ffffff": "light-dark(#b4b4b7, #8e8e93)")
+                else
+                  image "symbol:microphone" font-size=17
+                    font-weight=400
+                    tint-color="light-dark(#b4b4b7, #8e8e93)"
+        box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0

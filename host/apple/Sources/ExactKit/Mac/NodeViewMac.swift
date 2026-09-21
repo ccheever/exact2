@@ -196,6 +196,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
+    var textRasterFrame: CGRect = .zero
+    var textRasterOverflowLayer: CALayer?
     var textRasterKey: TextRasterKey?
     var textRasterReady = false
     var textRasterPending = false
@@ -651,6 +653,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         // The list window and the text bands follow the scroll; they are not
         // part of it (`Presenter.scrolled`).
         presenter?.scrolled()
@@ -1107,6 +1110,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
     }
 
     override func viewDidChangeBackingProperties() {
@@ -1120,6 +1124,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
+        presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
         layoutTextArea()
@@ -1127,6 +1132,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
+        // Selection, capture, and decorated text return to direct painting.
+        if textRasterOverflowLayer != nil {
+            dropTextRaster()
+            // cacheDisplay does not invalidate the live backing layer. Restore
+            // its pixels on the pump after the offscreen capture has finished.
+            if Capture.capturing { presenter?.requestTextPublication() }
+        }
         repaintThrough()
         if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
             // A canvas nested under a canvas painted through its surface: its
@@ -1143,11 +1155,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
         let radius = number("border_radius", number("border_radius_top_left"))
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
         let bg = color("background_color", .clear)
         if bg.alphaComponent > 0 {
             bg.setFill()
-            path.fill()
+            if radius == 0 {
+                NSGraphicsContext.current?.cgContext.fill(bounds)
+            } else {
+                NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+            }
         }
         let borderColor = color("border_color", .clear)
         let uniform = number("border_width")
@@ -1189,7 +1204,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
-            path.addClip()
+            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).addClip()
             NSBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)

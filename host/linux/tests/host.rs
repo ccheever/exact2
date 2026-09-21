@@ -149,13 +149,23 @@ fn the_tree_lays_out_with_real_text_and_every_node_has_a_box() {
 #[test]
 fn layout_json_is_the_agent_api_shape() {
     let mut p = boot();
-    let l = p.layout_json(None);
+    let l = p.layout_json(None, false);
     assert!(
         l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"env\":{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0},\"nodes\":["),
         "{}",
         &l[..200]
     );
     assert_eq!(l.matches("\"sx\":").count(), 1, "one scroll container");
+    assert!(!l.contains("planDigest"));
+    let id = p.host().runner().roots()[0];
+    let plain: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id), false)).unwrap();
+    let mapped: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id), true)).unwrap();
+    assert!(plain["node"].get("planDigest").is_none());
+    assert_eq!(
+        mapped["node"]["planDigest"],
+        contract::plan_digest(&p.host().runner().plan().encode())
+    );
+    assert_eq!(plain["node"]["site"], mapped["node"]["site"]);
     assert!(
         l.contains("\"id\":1,\"x\":0,\"y\":0,\"w\":390,"),
         "{}",
@@ -712,4 +722,114 @@ fn new_trunk_apps_compile_and_present_on_the_linux_cpu_host() {
         assert!(presenter.resize(390., 580.).is_none(), "{app}");
         assert!(!presenter.boxes().is_empty(), "{app}");
     }
+}
+
+#[test]
+fn closed_popovers_keep_their_tree_but_never_paint_or_intercept_input() {
+    pin_font();
+    let plan = contract::compile(
+        r#"component App
+  state ordinary = 0
+  state destructive = 0
+  action normal writes ordinary
+    ordinary = ordinary + 1
+  action danger writes destructive
+    destructive = destructive + 1
+  view
+    column
+      button "Ordinary" press=normal testId="ordinary" width=200 height=100
+      column id="confirmation" popover="auto" position="absolute" top=0 left=0 width=200 height=100
+        button "Delete" press=danger testId="danger" width=200 height=50
+        input value="hidden" testId="hidden-input"
+"#,
+    )
+    .unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    let ordinary = view(&p, "ordinary");
+    let danger = view(&p, "danger");
+    let input = view(&p, "hidden-input");
+    assert!(!p.boxes().iter().any(|b| b.id == danger || b.id == input));
+    let detail: serde_json::Value =
+        serde_json::from_str(&p.layout_json(Some(danger), false)).unwrap();
+    assert_eq!(detail["node"]["visible"]["hidden"], true);
+    assert_eq!(detail["node"]["visible"]["inert"], true);
+    assert!(p.tap(danger).unwrap_err().contains("hidden or inert"));
+    assert!(p
+        .type_text(input, "must not arrive")
+        .unwrap_err()
+        .contains("hidden or inert"));
+    assert!(p
+        .wheel(danger, 0., 100.)
+        .unwrap_err()
+        .contains("hidden or inert"));
+    p.tap(ordinary).unwrap();
+    assert_eq!(p.host().runner().slot("ordinary"), Some(&Value::Number(1.)));
+    assert_eq!(
+        p.host().runner().slot("destructive"),
+        Some(&Value::Number(0.))
+    );
+    assert!(p.pointer_down(100., 25., 0.).unwrap());
+    p.pointer_up(100., 25., 10.).unwrap();
+    assert_eq!(p.host().runner().slot("ordinary"), Some(&Value::Number(2.)));
+    assert_eq!(
+        p.host().runner().slot("destructive"),
+        Some(&Value::Number(0.))
+    );
+}
+
+#[test]
+fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action() {
+    pin_font();
+    let plan = contract::compile(r#"component App
+  state count = 0
+  action recount writes count
+    count = count + 1
+  view
+    column
+      button press=recount popovertarget="menu" testId="invoke" width=200 height=50
+        text "Open" testId="label"
+      button "No handler" popovertarget="menu" testId="no-handler" width=200 height=50
+      button "Disabled" disabled=true press=recount popovertarget="menu" testId="disabled" width=200 height=50
+      column id="menu" popover="auto" position="absolute"
+        button "Item" press=recount
+"#).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    for name in ["invoke", "label", "no-handler"] {
+        let id = view(&p, name);
+        let answer = handle(&mut p, &format!(r#"{{"op":"tap","id":{id}}}"#));
+        assert!(
+            answer.contains("Linux does not support popover presentation"),
+            "{answer}"
+        );
+    }
+    let (mut host, error) = exact_linux::host::Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        390.,
+        844.,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let key = host.kernel().find_by_test_id("invoke")[0];
+    let invoke = host.kernel().node_by_key(key).unwrap().id;
+    assert_eq!(
+        host.dispatch_at(invoke, exact_runner::Event::Press, 50.)
+            .as_deref(),
+        Some("Linux does not support popover presentation")
+    );
+    assert_eq!(host.runner().slot("count"), Some(&Value::Number(0.)));
+    assert_eq!(host.now(), 0.);
+    p.tap(view(&p, "disabled")).unwrap();
+    assert!(p.pointer_down(100., 25., 0.).unwrap());
+    p.pointer_up(100., 25., 10.).unwrap();
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
+    assert!(p
+        .host()
+        .agent(r#"{"op":"logs"}"#)
+        .contains("Linux does not support popover presentation"));
 }

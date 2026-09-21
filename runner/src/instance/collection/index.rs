@@ -196,6 +196,11 @@ impl HeightIndex {
             .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
     }
 
+    /// Current measurements for a nonempty geometric band, in O(log N).
+    pub(crate) fn range_measured(&self, range: Range<usize>) -> bool {
+        !range.is_empty() && self.tree.min_epoch(range) >= self.epoch
+    }
+
     /// O(1) invalidation for width/typography/global content changes. No row scan
     /// or height reset: existing heights remain estimates until measured again.
     pub(crate) fn invalidate_all(&mut self) -> Result<(), IndexError> {

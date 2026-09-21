@@ -37,6 +37,7 @@ pub struct Session {
     last: Option<String>,
     stamp: Option<(SystemTime, u64)>,
     failed: bool,
+    source_map: bool,
 }
 
 fn unix_ms(t: SystemTime) -> f64 {
@@ -53,7 +54,15 @@ impl Session {
             last: None,
             stamp: None,
             failed: false,
+            source_map: true,
         }
+    }
+
+    /// Build a static plan without development-only source information.
+    pub fn static_build(source: impl Into<PathBuf>, out: impl Into<PathBuf>) -> Session {
+        let mut session = Self::new(source, out);
+        session.source_map = false;
+        session
     }
 
     /// The source path.
@@ -96,22 +105,34 @@ impl Session {
         // Compile exactly the snapshot `poll` compared with `last`. Reading
         // the path again here can observe the middle of the next save and
         // then suppress its final bytes as already seen.
-        let plan = contract::compile_path_source(&self.source, src)
-            .map_err(|e| format!("{}:{e}", self.source.display()))?;
+        let (plan, map) = if self.source_map {
+            contract::compile_path_source_mapped(&self.source, src)
+                .map(|(plan, map)| (plan, Some(map)))
+        } else {
+            contract::compile_path_source(&self.source, src).map(|plan| (plan, None))
+        }
+        .map_err(|e| e.to_string())?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
-        let baked = contract::bake(plan, D::default()).map_err(|e| format!("bake: {e:?}"))?;
+        let baked = contract::bake(plan, D::default()).map_err(|e| {
+            map.as_ref().map_or_else(
+                || format!("bake: {e:?}"),
+                |map| map.bake_error(&e).to_string(),
+            )
+        })?;
         let bake_ms = t.elapsed().as_secs_f64() * 1000.0;
         let bytes = baked.encode();
         contract::write_development_artifacts(&baked)?;
+        // Publish the map first, then its plan. Readers must check the digest
+        // because the two complete files cannot be renamed as one operation.
+        if let Some(map) = map {
+            let mut path = self.out.as_os_str().to_os_string();
+            path.push(".map.json");
+            write_atomic(&PathBuf::from(path), map.json(&bytes).as_bytes())?;
+        }
         // Atomic, and per process: the page never fetches a half-written
         // plan, and two drivers on one file cannot trip over one tmp.
-        let tmp = self
-            .out
-            .with_extension(format!("plan.{}.tmp", std::process::id()));
-        std::fs::write(&tmp, &bytes)
-            .and_then(|_| std::fs::rename(&tmp, &self.out))
-            .map_err(|e| format!("{}: {e}", self.out.display()))?;
+        write_atomic(&self.out, &bytes)?;
         Ok(Built {
             bytes,
             saved_ms,
@@ -120,6 +141,26 @@ impl Session {
             ready_ms: unix_ms(SystemTime::now()),
         })
     }
+}
+
+fn write_atomic(out: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let mut tmp = out.as_os_str().to_os_string();
+    tmp.push(format!(".{}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(|e| format!("{}: {e}", out.display()))?;
+    let result = file.write_all(bytes).and_then(|_| {
+        drop(file);
+        std::fs::rename(&tmp, out)
+    });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result.map_err(|e| format!("{}: {e}", out.display()))
 }
 
 /// `dev <source.contract> <out.plan>`: watch forever, one line per event on
@@ -135,8 +176,8 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
         eprintln!("usage: dev <source.contract> <out.plan> [--once]");
         return std::process::ExitCode::from(2);
     };
-    let mut session = Session::new(source, out);
     if args.iter().any(|a| a == "--once") {
+        let mut session = Session::static_build(source, out);
         return match session.poll::<D>() {
             Some(Ok(b)) => {
                 println!("plan {} bytes", b.bytes.len());
@@ -152,6 +193,7 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
             }
         };
     }
+    let mut session = Session::new(source, out);
     let mut stdout = std::io::stdout();
     loop {
         match session.poll::<D>() {

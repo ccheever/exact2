@@ -673,13 +673,13 @@ fn prior_height_projection_is_refused_without_clearing_its_publication() {
         epoch: k.epoch(),
         px: 120.,
     };
-    k.compute_layout_presented(1, Offer::definite(400., 300.), Some(sample))
+    k.compute_layout_presented(1, Offer::definite(400., 300.), &[sample])
         .unwrap();
     let before = frames(&k);
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
     assert_eq!(frames(&k), before);
-    k.compute_layout_presented(1, Offer::definite(400., 300.), Some(sample))
+    k.compute_layout_presented(1, Offer::definite(400., 300.), &[sample])
         .unwrap();
     assert_eq!(frames(&k), before);
     k.compute_layout(1, Offer::definite(400., 300.)).unwrap();
@@ -687,7 +687,7 @@ fn prior_height_projection_is_refused_without_clearing_its_publication() {
     ready(&mut k, 400., 1);
     let before = frames(&k);
     assert!(k
-        .compute_layout_presented(1, Offer::definite(400., 300.), Some(sample))
+        .compute_layout_presented(1, Offer::definite(400., 300.), &[sample])
         .is_err());
     assert_eq!(frames(&k), before);
 }

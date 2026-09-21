@@ -485,8 +485,22 @@ fn retained_identified_600_to_632_reuses_giant_shape() {
         .paragraph_identified(&stamp, Some(600.), || panic!("warm source"))
         .unwrap();
     let signature = |p: &Paragraph| {
+        // Wrapped rows borrow the same complete source line. Snapshot its bytes
+        // once, while retaining exact text equality for every row below.
+        let mut texts = HashMap::new();
         p.layout_runs()
-            .map(|r| format!("{:?} {:?} {:?} {:?}", r.text, r.glyphs, r.line_y, r.line_w))
+            .map(|r| {
+                let text = texts
+                    .entry((r.text.as_ptr(), r.text.len()))
+                    .or_insert_with(|| Rc::<str>::from(r.text))
+                    .clone();
+                (
+                    text,
+                    format!("{:?}", r.glyphs),
+                    r.line_y.to_bits(),
+                    r.line_w.to_bits(),
+                )
+            })
             .collect::<Vec<_>>()
     };
     let original = signature(&a);

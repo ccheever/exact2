@@ -71,6 +71,10 @@ final class RegionController {
     /// Before live create/style/children can trigger native painting or callbacks.
     func prepare(_ batch: Batch) {
         guard let session else { return }
+        let regionOps = batch.ops.filter { $0["op"] as? String == "region" }
+        // Ordinary apps have no retained region pixels to invalidate. Still
+        // inspect incoming ops so a first registration or refusal is processed.
+        guard snapshot != nil || !regionOps.isEmpty else { return }
         // Read old ancestry before any create/children/style operation can hide
         // its provenance. Include incoming members even when not mounted yet.
         var protected = members
@@ -87,7 +91,7 @@ final class RegionController {
         // region belongs to another root. Its paint changes are not disjoint.
         if let page = session.presenter.root.subviews.first as? NodeView { protected.insert(page.id) }
         var identityChanged = false
-        for op in batch.ops where op["op"] as? String == "region" {
+        for op in regionOps {
             guard let next = RegionSnapshot(op), let incoming = op["members"] as? [UInt32] else {
                 identityChanged = true; continue
             }
@@ -103,7 +107,7 @@ final class RegionController {
             desiredRaster = nil
             surface?.invalidateRetainedSource()
         }
-        for op in batch.ops where op["op"] as? String == "region" {
+        for op in regionOps {
             // @ref LLP 1043.000 §3 D7 — retire opaque raster before native flow.
             if op["disabled"] as? String != nil { reset(); continue }
             guard let next = RegionSnapshot(op) else { refuse("invalid region wire"); continue }

@@ -2,6 +2,25 @@
 use exact_kernel::{Kernel, PropId, ViewId};
 use std::collections::BTreeMap;
 
+pub(crate) const POPOVER_UNSUPPORTED: &str = "Linux does not support popover presentation";
+
+/// Popover invocation is a host default action, even without a press handler.
+/// Refuse it before running an application's accompanying refresh/action.
+pub(crate) fn popover_invoker(kernel: &Kernel, id: ViewId) -> bool {
+    let mut at = Some(id);
+    while let Some(id) = at {
+        let Some(node) = kernel.node(id) else { break };
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return false;
+        }
+        if node.node_type == exact_kernel::NodeType::Pressable {
+            return node.props.str(PropId::Popovertarget).is_some();
+        }
+        at = node.parent;
+    }
+    false
+}
+
 /// Hidden and inert, respectively, for each direct route child. An unmatched
 /// selection leaves the previously projected state alone.
 pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Vec<(bool, bool)>> {
@@ -23,6 +42,7 @@ pub fn route_visibility(keys: &[&str], selected: &str, modal: bool) -> Option<Ve
 pub(crate) struct Navigation {
     routes: BTreeMap<ViewId, (bool, bool)>,
     refused: BTreeMap<ViewId, String>,
+    popovers: bool,
 }
 
 impl Navigation {
@@ -30,10 +50,12 @@ impl Navigation {
         self.routes.retain(|id, _| kernel.node(*id).is_some());
         self.refused.retain(|id, _| kernel.node(*id).is_some());
         let mut logs = Vec::new();
+        self.popovers = false;
         for id in order {
             let Some(nav) = kernel.node(*id) else {
                 continue;
             };
+            self.popovers |= nav.props.str(PropId::Popover).is_some();
             if nav.props.str(PropId::NavigationBack).is_none() {
                 continue;
             }
@@ -77,8 +99,11 @@ impl Navigation {
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
             let (hidden, inert) = self.routes.get(&id).copied().unwrap_or_default();
-            result.0 |= hidden;
-            result.1 |= inert || node.props.bool(PropId::Inert) == Some(true);
+            // Linux has no top-layer presenter yet. Closed popovers retain
+            // their logical tree but must never paint or intercept input.
+            let closed = self.popovers && node.props.str(PropId::Popover).is_some();
+            result.0 |= hidden || closed;
+            result.1 |= inert || closed || node.props.bool(PropId::Inert) == Some(true);
             at = node.parent;
         }
         result

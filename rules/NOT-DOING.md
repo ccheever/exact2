@@ -80,6 +80,18 @@ additional standalone showcase apps wait behind this composition; existing full
 stress workloads and controls remain intact. No new UI framework, general job
 scheduler or cross-device synchronization service is implied.
 
+**Expanded (Charlie, 2026-09-20: "make an app that shows off clones of" the
+Pretext demos):** Reflow (`apps/reflow`) is a seventh showcase — balls, the
+illustrated dragon, masonry, a drag-to-reflow magazine, proportional ASCII
+art, an occlusion-culled wall and an obstacle-aware spread — to show exact2
+has Pretext's capabilities: text around shapes from the kernel (LLP 1043.000)
+and heights-before-layout from a data crate that measures with advances read
+out of the app's font files at build time and breaks lines with the hosts'
+own `exact-textflow` walker. Unblocks a public comparison on every host with
+no new kernel row and no app-side measurement seam. Take: no Pretext library,
+no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed;
+the dragon is a polygon, not a `shape-outside: <image>`.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
@@ -201,6 +213,12 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   campaign, 2026-09-17). Take: other animated layout properties and decorative
   effects wait behind that sheet and its nested collection. This is not a
   general layout-animation system or evidence of physical 120 Hz.
+  **Expanded (Charlie, Shop fidelity goal, 2026-09-19):** overlapping product
+  accordion heights are admitted for the Shop clone. Their shared layout must
+  move following content together when another section is tapped mid-animation.
+  Take: other animated layout properties and decorative effects remain behind
+  that consumer. The first increment accepts several numeric samples; automatic
+  content-height measurement and host adoption remain unfinished.
 - **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
   velocity; nothing else needs a driver.
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

@@ -87,7 +87,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
     use exact_js::{from_json, to_json, Shape};
     use exact_plan::Value;
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
+    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: list<Branch>\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -98,6 +98,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ("plain", "string"),
         ("boxed", "string"),
         ("object", "Object"),
+        ("branches", "Branches"),
         ("nullable", "list<option<number>>"),
         ("extra", "Pair"),
         ("missing", "Pair"),
@@ -140,5 +141,132 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
             ),
             Err(_) => assert!(actual.is_err(), "{mode} must refuse"),
         }
+    }
+}
+
+#[test]
+fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
+    use exact_plan::Value;
+    let plan = contract::compile("component App\n  resource reply = wire(\"\", \"sync\") as shape string\n  resource later = transfer(\"small\") as shape string\n  view\n    text \"fixture\"\n").unwrap();
+    for (wire, mode, expected) in [
+        (r#"{"tag":0,"value":7,"value":"last"}"#, "sync", Ok("last")),
+        (r#"{"value":"first","tag":2,"tag":0}"#, "sync", Ok("first")),
+        (
+            r#"{"tag":0,"value":"first","value":7}"#,
+            "sync",
+            Err("expected a string"),
+        ),
+        (
+            r#"{"tag":0,"value":7,"extra":1e400}"#,
+            "sync",
+            Err("number out of range"),
+        ),
+        (
+            r#"{"tag":0,"value":"\ud800"}"#,
+            "sync",
+            Err("answered something other than JSON"),
+        ),
+        (
+            r#"{"tag":2,"value":7,"kind":"BadArguments","message":"wire refusal"}"#,
+            "sync",
+            Err("BadArguments(\"wire refusal\")"),
+        ),
+        (
+            r#"{"tag":2,"value":1e400,"message":"wire refusal"}"#,
+            "sync",
+            Err("number out of range"),
+        ),
+        (r#"{"tag":3}"#, "async", Err("a call with no id")),
+        (r#"{"value":7,"call":1,"tag":3}"#, "async", Ok("settled")),
+        (
+            r#"{"tag":3,"call":1,"value":1e400}"#,
+            "async",
+            Err("number out of range"),
+        ),
+        (r#"{"tag":1,"call":1}"#, "sync", Err("pending on no ticket")),
+        (
+            r#"{"tag":1,"call":1,"ticket":123}"#,
+            "sync",
+            Err("awaits a fetch it never made"),
+        ),
+        (
+            r#"{"value":"missing tag"}"#,
+            "sync",
+            Err("answered with no tag"),
+        ),
+        ("[]", "sync", Err("answered with no tag")),
+        ("null", "sync", Err("answered with no tag")),
+        (
+            r#"{"tag":0,"value":"valid"} false"#,
+            "sync",
+            Err("trailing characters"),
+        ),
+        (
+            r#"{"tag":0,"value":""} false"#,
+            "capture",
+            Err("trailing characters"),
+        ),
+    ] {
+        let mut module = Module::loaded(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        )
+        .unwrap();
+        module.set_budget_ms(f64::INFINITY);
+        module.bind(&plan);
+        let answer = module.query("wire", &[Value::str(wire), Value::str(mode)]);
+        match expected {
+            Ok(value) => assert_eq!(answer.unwrap().as_str(), Some(value), "{wire}"),
+            Err(message) => assert!(
+                format!("{:?}", answer.unwrap_err()).contains(message),
+                "{wire}: expected {message}"
+            ),
+        }
+        // A refused or captured reply cannot contaminate the next answer.
+        assert_eq!(
+            module
+                .query("transfer", &[Value::str("small")])
+                .unwrap()
+                .as_str(),
+            Some("a later call")
+        );
+    }
+    let big = "a\\\0é😀\u{2028}\u{2029}".repeat(8192);
+    for (wire, mode) in [
+        (r#"{"tag":0,"value":""}"#, "capture"),
+        (r#"{"tag":3,"call":1}"#, "async-capture"),
+    ] {
+        let mut module = Module::loaded(
+            include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
+            "test.pure",
+            "",
+        )
+        .unwrap();
+        module.bind(&plan);
+        assert_eq!(
+            module
+                .query("wire", &[Value::str(wire), Value::str(mode)])
+                .unwrap()
+                .as_str(),
+            Some(big.as_str())
+        );
+        module.set_budget_ms(0.0);
+        assert!(format!(
+            "{:?}",
+            module
+                .query("transfer", &[Value::str("plain")])
+                .unwrap_err()
+        )
+        .contains("over the 0 ms budget"));
+        assert_eq!(module.overruns(), 1);
+        module.set_budget_ms(f64::INFINITY);
+        assert_eq!(
+            module
+                .query("transfer", &[Value::str("small")])
+                .unwrap()
+                .as_str(),
+            Some("a later call")
+        );
     }
 }

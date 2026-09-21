@@ -6,7 +6,9 @@ impl Parser {
     /// `font "Name" = "path.ttf"`, or a block of `weight [italic] = path`.
     pub(super) fn font_decl(&mut self) -> R<FontDecl> {
         let span = self.expect_word("font")?;
+        let name_span = self.peek().span;
         let name = self.str_lit("a declared family name")?;
+        self.names.names.insert(span, name_span);
         if self.eat_punct("=") {
             let source = self.str_lit("a TTF or OTF source path")?;
             self.newline()?;

@@ -64,6 +64,10 @@ A clock advance can collect several receipts against the final kernel tree.
 The host creates all surviving views before emitting their final `children`
 lists, so an early timer cannot attach a child that a later timer has not yet
 created in the presenter. Motion still consumes each receipt at its own time.
+When a batch creates several views, listener declarations come from one walk
+of that final instance tree. A single creation uses its individual lookup;
+batches without creations do no listener walk. The lookup lives only for the
+batch, so removed views and earlier timer states cannot leave stale listeners.
 
 The root lays out under `Offer::definite(viewport)`, and a root that is a
 block is as tall as its content — so, as in a browser, **the window is a
@@ -133,6 +137,10 @@ quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point
 grid, independently of the reported fractional baseline; that remaining raster
 placement difference is separate from an authored line box's height.
+The macOS paragraph raster includes glyph ink outside that layout box. Overflow
+uses a positioned child layer, preserving descenders and italic overhang without
+changing layout; authored clipping still applies. Fitting ink stays on the
+view's own layer. Direct painting retires the overflow layer.
 `line-height: normal` is the font's ascent +
 descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`
@@ -172,6 +180,24 @@ and a size cache hit ~97% under live resize (0322/0323). Here the numbers
 came out the same shape on the first measurement: 746 requests for 128 text
 nodes at boot (Taffy asks several times per node across its passes), 399
 answered from cache, ~17 µs per miss.
+
+On macOS, if a raster needs line breaks that measurement no longer retains,
+the fallback paragraph supplies both its attributed source and its lines.
+Urgent painting reuses those lines synchronously on their owning thread;
+background jobs copy the source and still create their own CoreText lines.
+No additional paragraph or width history is retained by the rasterizer.
+
+When measured breaks are present, urgent rendering also uses the engine's
+existing exact-painted `TextShape` cache for its typesetter. The source/paint
+key, catalog lifetime, cold-entry cap and 64 MiB soft target are unchanged;
+workers still receive copied attributed source and construct their own lines.
+Six alternating hidden-reader pairs at `5cf0e873` measured median landing
+8.85 → 8.40 ms, and a repeated 128-span fixture 13.59 → 12.47 ms. New-content
+forward scrolling was approximately flat; its estimated cold holdings grew
+25,533,706 → 27,197,669 bytes (not RSS). This is a bounded reuse trade, not
+physical 120 Hz evidence. Temporary probes and paired results are in
+`/tmp/exact-raster-shape-5cf0e873/`; changed pixels or unbounded source ownership
+remain disqualifying.
 
 ## 4. The C ABI (`host/apple/src/abi.rs`, `include/exact.h`)
 
@@ -241,6 +267,18 @@ binary batches instead of names, as §9 of LLP 1001 said it should.
 
 ## 5. The presenter (`host/apple/macos`)
 
+On macOS, region preparation scans a batch once for region operations. With
+neither a registered nor an incoming region, it skips retention bookkeeping;
+active regions keep the same pre-apply invalidation and ordered registration,
+refusal and retirement behavior (LLP 1041 §8.76). Eight alternating comparisons
+over captured reader batches measured this routine at 81.38 → 17.88 ms per
+240 batches without a region, and 83.66 → 69.98 ms with a registered region.
+The latter isolates preparation without worker or surface work. Six hidden-reader
+pairs had a median paired landing improvement of 7.8%, but substantial machine-load
+swings and a losing pair prevent a repeatable frame-rate claim. All 1,536 measured
+landings across the real and dense-inline fixtures retained viewport coverage.
+Evidence: `/tmp/exact-region-idle-eeb6b7dc/`; no physical 120 Hz result.
+
 A SwiftPM package (`Package.swift`, tools 5.9; a `CExact` system-library
 target over `exact.h`; `EXACT_LIB_DIR`/`EXACT_LIB` name the archive), AppKit
 only. `NodeView` is one flipped, layer-backed `NSView` per node with
@@ -295,7 +333,8 @@ An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
 `content` size. A new leading child is inserted before existing Exact-only
 siblings, preserving their mounts; containers with native decorations retain
-their existing ordering path. Frames are set from `frame` ops; `present` ops set an
+their existing ordering path. Child updates use an identity set for membership
+and compare each retained child's current position directly. Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
@@ -624,6 +663,25 @@ motion executor. Messages' full and filtered inboxes exercise held dragging,
 reversal and release. Exact's current drag-to-offset response still differs
 from the native Messages large-title list; enabling bounce does not establish
 matching native title motion.
+
+**Orthogonal carousels** (2026-09-19, Shop): `fitScroll` now derives forced
+vertical bounce from the current content geometry. It remains enabled for
+vertical overflow and for short containers without horizontal overflow; it is
+disabled when only the horizontal axis has travel (a half-point tolerance
+ignores subpixel extent noise). CSS makes the carousel's otherwise-visible
+vertical axis compute to auto, represented here as scroll. Unconditionally
+forcing vertical bounce on that axis swallowed Mac-hosted iOS wheel input.
+The source Shop page scrolled under that same input. Direct CUA checks verify
+vertical wheel scrolling in both directions over review cards, horizontal
+dragging, preserved horizontal position after page scrolling, and vertical
+wheel scrolling over the product gallery. UIKit still owns all motion; no
+pan recognizer, offset forwarding or deceleration change was added. A first
+candidate that rejected perpendicular pan starts did not fix the wheel case
+and was removed. AgentIOS wheel tests explicitly route to an ancestor and do
+not establish this physical UIKit behavior. Physical-iPhone acceptance,
+measured frame pacing and comprehensive nested boundary behavior remain open.
+Evidence is the Shop task's `.evidence/nested-scroll-checkpoint.json` and
+`work/reference/nested-scroll-fixed-*.png` captures.
 
 **Native swipe rows** (2026-09-10, Messages; `SwipeActionsIOS.swift`). An
 explicit `swipeContent` id on a scroll node requests a UIKit cell around that
@@ -1494,7 +1552,12 @@ a true flag with zero is an explicit zero box. The style dictionary retains
 ratios as numbers, lengths as `"24px"`, and `"normal"`; Swift resolves each
 ratio using the receiving node's computed font, matching kernel projection.
 CoreText measurement and painting include the paragraph strut and the
-ascent/descent extrema of only the runs on each line. Normal line height
+ascent/descent extrema of only the runs on each line. Each interned text identity
+retains its ordered UTF-16 run boundaries, counted in the text cache's owned
+payload. Line layout binary-searches those boundaries for each CoreText glyph
+run, including when bidi reorders runs or CoreText coalesces adjacent authored
+boxes. It visits only overlapping spans instead of rescanning the paragraph.
+Normal line height
 includes the shaped fallback font's metrics; explicit lengths size the
 authored inline box while fallback glyph ink can overflow. Native textarea
 paragraph attributes receive the same resolved length; TextKit's zero

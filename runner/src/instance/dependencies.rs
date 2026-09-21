@@ -1,7 +1,7 @@
 //! Conservative memo for outer keyed regions. The cache compares only referenced
 //! immutable globals, never a deep list walk. Row-local state and contextual
 //! expressions fall back to normal evaluation. No app annotation is required.
-use super::{sites, Site};
+use super::{Site, SiteIndex};
 use crate::vm::Env;
 use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
 use std::{collections::BTreeSet, rc::Rc};
@@ -22,7 +22,12 @@ pub(super) struct Memo {
     saved: Option<Vec<Value>>,
 }
 impl Memo {
-    pub(super) fn for_region(plan: &Plan, region: RegionsId, body_only: bool) -> Option<Self> {
+    pub(super) fn for_region(
+        plan: &Plan,
+        sites: &SiteIndex,
+        region: RegionsId,
+        body_only: bool,
+    ) -> Option<Self> {
         let mut inputs = BTreeSet::new();
         let mut stack = vec![Site::Region(region)];
         while let Some(site) = stack.pop() {
@@ -37,7 +42,7 @@ impl Memo {
                             scan(plan, plan.arg(arg).expr, &mut inputs)?;
                         }
                     }
-                    stack.extend(sites(plan, Some(n), node.arm).into_iter().map(|(_, s)| s));
+                    stack.extend(sites.children(Some(n), node.arm).iter().map(|(_, s)| *s));
                 }
                 Site::Region(r) => {
                     let row = plan.region(r);
@@ -46,7 +51,7 @@ impl Memo {
                         scan(plan, row.key, &mut inputs)?;
                     }
                     for arm in row.arms.iter() {
-                        stack.extend(sites(plan, None, Some(arm)).into_iter().map(|(_, s)| s));
+                        stack.extend(sites.children(None, Some(arm)).iter().map(|(_, s)| *s));
                     }
                 }
             }

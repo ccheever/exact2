@@ -47,6 +47,7 @@ export class MessagesReplica {
   private queued=0;
   private online=false;
   private error='';
+  private reconciliationOwed=false;
   namespace='';
   private constructor(private core:Core) {}
   static async open(storage:Storage,core:Core|undefined):Promise<MessagesReplica> {
@@ -60,7 +61,24 @@ export class MessagesReplica {
     client.held=await client.read();
     return client;
   }
-  private async call<T>(request:Request):Promise<T>{return result<T>(await this.core.call(request));}
+  private async call<T>(request:Request):Promise<T>{
+    // Reset/adoption can commit before a later step fails. Keep this debt across
+    // ticks, and clear it only after the model has been read and published.
+    if(request.op==='observe_store'||request.op==='adopt'||request.op==='settle')this.reconciliationOwed=true;
+    try {
+      const value=result<T>(await this.core.call(request));
+      if(request.op==='apply'){
+        const page=request.page as Request;
+        // Applying even an empty page can retire or rebase a queued prediction.
+        if(this.queued||(value as {touched:string[]}).touched.length||page.snapshot||page.snapshot_catchup||Object.keys(page.acknowledged??{}).length)this.reconciliationOwed=true;
+      }
+      return value;
+    }catch(error){
+      // A refused apply can still durably record a store reset.
+      if(request.op==='apply')this.reconciliationOwed=true;
+      throw error;
+    }
+  }
   private async next():Promise<number>{const n=++this.counter;await this.call({op:'set_meta',key:'exact:counter',value:String(n)});return n;}
   private recordId(key:string):string{return `${viewer}:${encodeURIComponent(key)}`;}
   async read():Promise<Records> {
@@ -92,14 +110,23 @@ export class MessagesReplica {
     await this.call({op:'set_meta',key:'exact:initialized',value:'1'});
   }
   async persist(records:Records,seed=false):Promise<void> {
+    return this.commit(records,seed,true);
+  }
+  // Omitted keys are unchanged; null deletes a record. Values are captured by
+  // commit before its first await, just as for a complete initial image.
+  async edit(records:Records):Promise<void> {return this.commit(records,false,false);}
+  private async commit(records:Records,seed:boolean,complete:boolean):Promise<void> {
     const changes:[string,unknown][]=[];
     // Validate the entire edit before admitting one atomic mutation.
-    for(const key of new Set([...(seed?[]:this.held.keys()),...records.keys()])) {
-      const payload=records.has(key)?records.get(key):null,text=JSON.stringify(payload);
+    for(const key of complete?new Set([...(seed?[]:this.held.keys()),...records.keys()]):records.keys()) {
+      const payload=records.has(key)?records.get(key):null;
       if(canonical(this.held.get(key)??null)===canonical(payload))continue;
+      const text=JSON.stringify(payload);
       if(text===undefined || jsonBytes(text)>payloadLimit)throw new Error(`A Messages record exceeds ${payloadLimit} UTF-8 bytes.`);
       if([...key].length>442)throw new Error('A Messages record key is too long.');
-      changes.push([key,payload]);
+      // Capture the durable value before any await: the app mutates its model
+      // in place, and held must remain an independent rollback image.
+      changes.push([key,JSON.parse(text)]);
     }
     if(!changes.length)return;
     if(changes.length>512)throw new Error('A Messages edit can change at most 512 records.');
@@ -110,10 +137,10 @@ export class MessagesReplica {
       keys:changes.map(([key])=>key),payloads:changes.map(([,payload])=>payload),
     },new_ids:[],predicted:[],viewer,now:0,predictable:true};
     await this.call({op:'admit',entry});this.queued++;
-    // Publish a new complete snapshot only after the durable prediction commits.
+    // Publish captured values only after the durable prediction commits.
     // Seeding rereads the store, because seedRecords preserves existing rows.
     if(!seed){
-      const committed=new Map(this.held);
+      const committed=complete?new Map(this.held):this.held;
       for(const [key,payload] of changes){if(payload===null)committed.delete(key);else committed.set(key,payload);}
       this.held=committed;
     }
@@ -185,9 +212,11 @@ export class MessagesReplica {
       try {
       await local(async()=>{
         this.queued=(await this.call<Queued[]>({op:'queued'})).length;
+        if(!this.reconciliationOwed)return;
         const current=await this.read();
         const changed=canonical([...current].sort())!==canonical([...this.held].sort());
-        this.held=current;if(changed)settle(current);
+        if(changed)settle(current);
+        this.held=current;this.reconciliationOwed=false;
       });
       }finally{this.syncing=false;}
     }

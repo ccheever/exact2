@@ -342,3 +342,41 @@ fn sixty_four_crossing_vertices_match_independent_fill_oracle() {
         }
     }
 }
+
+#[test]
+fn crossing_polygon_bands_preserve_vertices_and_open_edges_in_either_direction() {
+    let points = [(20., 0.), (80., 100.), (20., 100.), (80., 0.)];
+    for reverse in [false, true] {
+        for rotation in 0..points.len() {
+            let mut p = points.to_vec();
+            p.rotate_left(rotation);
+            if reverse {
+                p.reverse();
+            }
+            for shape in [
+                FlowShape::Polygon(p.clone().into()),
+                FlowShape::EvenOddPolygon(p.clone().into()),
+            ] {
+                for (top, bottom, extent) in [
+                    (-10., 0., None),
+                    (0., 10., Some((20., 80.))),
+                    (40., 50., Some((44., 56.))),
+                    (50., 60., Some((44., 56.))),
+                    (40., 60., Some((44., 56.))),
+                    (90., 100., Some((20., 80.))),
+                    (100., 110., None),
+                ] {
+                    let expected = extent.map_or_else(
+                        || vec![(0., 100.)],
+                        |(left, right)| vec![(0., left), (right, 100.)],
+                    );
+                    assert_eq!(
+                        band(std::slice::from_ref(&shape), top, bottom, 100., 0.),
+                        expected,
+                        "reverse={reverse} rotation={rotation} band={top}..{bottom}"
+                    );
+                }
+            }
+        }
+    }
+}

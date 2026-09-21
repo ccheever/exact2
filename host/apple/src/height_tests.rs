@@ -574,3 +574,213 @@ fn negative_spring_lobe_clips_only_height_presentation_and_settles() {
         assert!(h.has_hold(translate));
     }
 }
+
+fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
+    let source = r#"component App
+  state first = false
+  state second = false
+  state allowed = true
+  state hidden = false
+  state mounted = true
+  state contentHeight = 120
+  state counter = 0
+  action toggleFirst writes first
+    first = not first
+  action toggleSecond writes second
+    second = not second
+  action optOut writes allowed
+    allowed = false
+  action hide writes hidden
+    hidden = true
+  action show writes hidden
+    hidden = false
+  action remove writes mounted
+    mounted = false
+  action growContent writes contentHeight, counter
+    contentHeight = 240
+    counter = counter + 1
+  view
+    column width="100%" height="100%" interpolate-size=(allowed ? "allow-keywords" : "numeric-only")
+      button testId="first-toggle" press=toggleFirst
+        text "First"
+      button testId="second-toggle" press=toggleSecond
+        text "Second"
+      button testId="opt-out" press=optOut
+        text "Opt out"
+      button testId="hide" press=hide
+        text "Hide"
+      button testId="show" press=show
+        text "Show"
+      button testId="remove" press=remove
+        text "Remove"
+      button testId="grow-content" press=growContent
+        text `${counter}`
+      column testId="sections" display=(hidden ? "none" : "flex")
+        when mounted
+          column testId="first-body" height=(first ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not first) transition="height 1000ms linear"
+            box height=contentHeight
+          column testId="second-body" height=(second ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not second) transition="height 1000ms linear"
+            box height=80
+        box testId="following" height=20
+"#;
+    Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        measurer,
+        400.,
+        800.,
+    )
+    .unwrap()
+    .0
+}
+
+#[test]
+fn accordion_transitions_overlap_reverse_and_return_to_authored_layout() {
+    let mut h = accordions(Box::new(MonospaceMeasurer::default()));
+    assert_eq!(
+        (height(&h, "first-body"), height(&h, "second-body")),
+        (0., 0.)
+    );
+    assert!(h.engine().quiescent());
+    let following = h
+        .runner()
+        .kernel()
+        .node(view(&h, "following"))
+        .unwrap()
+        .frame
+        .y;
+    good(&press(&mut h, "first-toggle"));
+    assert_eq!(height(&h, "first-body"), 0., "no expanded-frame flash");
+    good(&h.tick(250.));
+    assert_eq!(height(&h, "first-body"), 30.);
+    good(&press(&mut h, "second-toggle"));
+    let measured = h.height_target_passes;
+    for time in 251..=500 {
+        good(&h.tick(time as f64));
+    }
+    assert_eq!(
+        h.height_target_passes, measured,
+        "motion ticks must not measure authored targets"
+    );
+    assert_eq!(
+        (height(&h, "first-body"), height(&h, "second-body")),
+        (60., 20.)
+    );
+    let next = h
+        .runner()
+        .kernel()
+        .node(view(&h, "following"))
+        .unwrap()
+        .frame
+        .y;
+    assert!((next - following - 80.).abs() < 0.001);
+    good(&press(&mut h, "first-toggle"));
+    assert_eq!(
+        height(&h, "first-body"),
+        60.,
+        "reversal begins at current presentation"
+    );
+    good(&h.tick(1000.));
+    assert_eq!(
+        (height(&h, "first-body"), height(&h, "second-body")),
+        (0., 60.)
+    );
+    good(&h.tick(1250.));
+    assert_eq!(
+        (height(&h, "first-body"), height(&h, "second-body")),
+        (0., 80.)
+    );
+    assert!(h.height_projection.is_empty());
+    let layouts = h.layout_calls;
+    good(&h.tick(1300.));
+    assert_eq!(h.layout_calls, layouts);
+}
+
+#[test]
+fn accordion_settled_content_changes_snap_but_active_content_retargets_continuously() {
+    let mut h = accordions(Box::new(MonospaceMeasurer::default()));
+    good(&press(&mut h, "first-toggle"));
+    good(&h.tick(250.));
+    good(&press(&mut h, "grow-content"));
+    assert_eq!(height(&h, "first-body"), 30.);
+    good(&h.tick(1250.));
+    assert_eq!(height(&h, "first-body"), 240.);
+    assert!(h.engine().quiescent());
+    // Same auto value, changed content, after settling: ordinary layout.
+    let mut h = accordions(Box::new(MonospaceMeasurer::default()));
+    good(&press(&mut h, "first-toggle"));
+    good(&h.tick(1000.));
+    good(&press(&mut h, "grow-content"));
+    assert_eq!(height(&h, "first-body"), 240.);
+    assert!(h.engine().quiescent());
+}
+
+#[test]
+fn accordion_opt_out_does_not_cancel_inflight_motion_but_prevents_new_keyword_transition() {
+    let mut h = accordions(Box::new(MonospaceMeasurer::default()));
+    good(&press(&mut h, "first-toggle"));
+    good(&h.tick(250.));
+    good(&press(&mut h, "opt-out"));
+    assert_eq!(height(&h, "first-body"), 30.);
+    good(&h.tick(500.));
+    assert_eq!(height(&h, "first-body"), 60.);
+    good(&h.tick(1000.));
+    assert_eq!(height(&h, "first-body"), 120.);
+    good(&press(&mut h, "first-toggle"));
+    assert_eq!(height(&h, "first-body"), 0.);
+    assert!(h.engine().quiescent());
+}
+
+#[test]
+fn accordion_hide_show_and_removal_retire_only_live_height_owners() {
+    let mut h = accordions(Box::new(MonospaceMeasurer::default()));
+    good(&press(&mut h, "first-toggle"));
+    good(&h.tick(250.));
+    good(&press(&mut h, "hide"));
+    assert_eq!(height(&h, "first-body"), 0.);
+    assert!(h.engine().quiescent());
+    good(&press(&mut h, "show"));
+    assert_eq!(height(&h, "first-body"), 120.);
+    assert!(h.engine().quiescent());
+    good(&press(&mut h, "second-toggle"));
+    good(&h.tick(500.));
+    good(&press(&mut h, "remove"));
+    assert!(h.height_transitions.is_empty());
+    assert!(h.height_projection.is_empty());
+    assert!(h.engine().quiescent());
+}
+
+#[test]
+fn accordion_measurement_refusal_preserves_frames_and_retries_without_panicking() {
+    use exact_kernel::{TextMeasureRequest, TextMeasurer, TextMetrics};
+    use std::{cell::Cell, rc::Rc};
+    struct Fallible(Rc<Cell<bool>>);
+    impl TextMeasurer for Fallible {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            if self.0.get() {
+                TextMetrics {
+                    width: f32::NAN,
+                    height: 0.,
+                    first_baseline: None,
+                }
+            } else {
+                MonospaceMeasurer::default().measure(request)
+            }
+        }
+    }
+    let failing = Rc::new(Cell::new(false));
+    let mut h = accordions(Box::new(Fallible(failing.clone())));
+    good(&press(&mut h, "first-toggle"));
+    good(&h.tick(250.));
+    let before = height(&h, "first-body");
+    failing.set(true);
+    let error = press(&mut h, "grow-content");
+    assert!(error.contains("InvalidTextMetrics"), "{error}");
+    assert_eq!(height(&h, "first-body"), before);
+    assert!(!error.contains("\"op\":\"frame\""));
+    failing.set(false);
+    good(&h.tick(250.));
+    assert_eq!(height(&h, "first-body"), before);
+    good(&h.tick(1250.));
+    assert_eq!(height(&h, "first-body"), 240.);
+}

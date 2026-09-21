@@ -14,6 +14,8 @@
  *   bun scripts/metrics.mjs --stress-url http://127.0.0.1:PORT --seconds 10 --target-hz 120
  *       sample a local fixture; repeat --tap <testId> to start workload controls
  *   bun scripts/metrics.mjs --interaction <testId> first browser action to measure
+ *   bun scripts/metrics.mjs --inspection <web|macos|ios|linux|host|host-ios> --app <name> [--session <label>] [--url <dev URL>] [--plan <file>]
+ *       targeted layout reply size and first/repeated digest latency (build the host first)
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
  *                                       rebuild, and the app's boot phases (minutes, not seconds)
@@ -30,10 +32,51 @@ import { dirname, resolve } from 'node:path';
 import { publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
-import { Cdp } from './agent.mjs';
+import { Cdp, open } from './agent.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+// Inspect an existing build through its actual carrier, without a source-copy
+// rebuild. These are round-trip timings, not CPU or physical frame latency.
+if (process.argv.includes('--inspection')) {
+  const option = name => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined;
+  const host = option('--inspection'), app = option('--app');
+  if (!['web', 'macos', 'ios', 'linux', 'host', 'host-ios'].includes(host)) throw Error('--inspection requires a host');
+  const s = await open({host, app, url: option('--url'), plan: option('--plan'), session: option('--session')});
+  try {
+    const tree = await s.tree(), target = option('--target');
+    const id = target ? (await s.find(target)).id : tree.nodes[0]?.id;
+    if (id == null) throw Error('inspection requires a live node');
+    async function sample(mapped) {
+      const start = performance.now(), reply = await s.op({op:'layout',id,...(mapped ? {plan:true} : {})});
+      const ms = performance.now() - start;
+      if (!reply.node || reply.node.id !== id || (mapped && !/^[a-f0-9]{64}$/.test(reply.node.planDigest ?? ''))
+        || (!mapped && reply.node.planDigest !== undefined)) throw Error('host did not supply the requested inspection shape');
+      return {ms,bytes:Buffer.byteLength(JSON.stringify(reply)),digest:reply.node.planDigest};
+    }
+    const plain = await sample(false), first = await sample(true), times = [[],[]], sizes = [[],[]];
+    for (let i=0;i<40;i++) for (const mapped of [i%2===0,i%2!==0]) {
+      const value = await sample(mapped);
+      if (mapped && value.digest !== first.digest) throw Error('the plan changed during measurement');
+      times[+mapped].push(value.ms); sizes[+mapped].push(value.bytes);
+    }
+    const summary = i => {
+      const values = times[i].sort((a,b)=>a-b);
+      return {p50_ms:values[20],p95_ms:values[37],max_reply_bytes:Math.max(...sizes[i])};
+    };
+    const result = {host,app:app??'caltrain',session:s.session,id,plan_digest:first.digest,
+      commit:spawnSync('git',['rev-parse','HEAD'],{cwd:ROOT,encoding:'utf8'}).stdout.trim(),
+      plain_first_ms:plain.ms,mapped_first_ms:first.ms,plain:summary(0),mapped:summary(1),
+      note:'Actual carrier round trips and JSON reply bytes, 40 alternating pairs on one newly opened session. First mapped read includes lazy canonical-plan hashing. Ordinary reads omit it. No source-map fetch, physical presentation, CPU or whole-app performance claim.'};
+    if (process.argv.includes('--json')) console.log(JSON.stringify(result,null,2));
+    else {
+      console.log(`inspection ${host}/${result.app}${s.session ? ` session ${s.session}` : ''} #${id}`);
+      console.log(`  first mapped ${first.ms.toFixed(3)} ms; plain ${plain.ms.toFixed(3)} ms`);
+      for (const name of ['plain','mapped']) console.log(`  ${name}: ${result[name].p50_ms.toFixed(3)}/${result[name].p95_ms.toFixed(3)} ms p50/p95; ${result[name].max_reply_bytes} B`);
+    }
+  } finally { await s.close(); }
+  process.exit(0);
+}
 // Explicitly sample an already-running local stress fixture. This mode records
 // its live source state and does not claim the private-capture build guarantee.
 if (process.argv.includes('--stress-url')) {

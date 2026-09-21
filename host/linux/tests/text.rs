@@ -46,7 +46,8 @@ fn agent_layout_adds_fragment_fields_only_for_flowed_paragraphs() {
             .node_by_key(kernel.find_by_test_id("para")[0])
             .unwrap()
             .id;
-        let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(id))).unwrap();
+        let reply: serde_json::Value =
+            serde_json::from_str(&p.layout_json(Some(id), false)).unwrap();
         let node = &reply["node"];
         assert_eq!(node["id"], id);
         if wrap == "auto" {

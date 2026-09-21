@@ -109,7 +109,7 @@ function* devGenerationRead(cache, pathname) {
     const match = /^\/__dev\/generation\/([0-9a-f]{32})\/([0-9]+)\/(.+)$/.exec(pathname);
     if (!match) return null;
     const name = staticRelative(decodeURIComponent(match[3]));
-    if (!['app.plan', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
+    if (!['app.plan', 'app.plan.map.json', 'exact.json', ...Object.values(MODULE_FILES)].includes(name) && !PUBLIC_TREES.some((tree) => ('/' + name).startsWith(tree))) return null;
     const prefix = `${match[1]}/${match[2]}`;
     const raw = (yield { op: 'get', root: resolve(cache), path: `${prefix}/exact.json` });
     if (raw === null) return null;
@@ -119,12 +119,14 @@ function* devGenerationRead(cache, pathname) {
     if (name === 'exact.json') return { name, body: envelopeBytes };
     const moduleKey = Object.keys(MODULE_FILES).find(key => MODULE_FILES[key] === name);
     const rustCard = Object.values(envelope.rust ?? {}).flatMap(v => [v.receipt, v.module]).find(card => card.url?.endsWith('/' + name) || card.url === name);
-    const card = name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
+    const card = name === 'app.plan.map.json' ? envelope.dev.sourceMap : name === 'app.plan' ? envelope.plan : moduleKey ? envelope.module?.[moduleKey] : rustCard ?? envelope.assets?.find((asset) => asset.name === name);
     if (!card) return null;
     const value = (yield { op: 'get', root: resolve(cache), path: `${prefix}/${name}` });
     if (value === null) return null;
     const body = Buffer.from(value, 'base64');
-    return body.length === card.bytes && sha256(body) === card.sha256 ? { name, body } : null;
+    if (body.length !== card.bytes || sha256(body) !== card.sha256) return null;
+    if (name === 'app.plan.map.json' && JSON.parse(body.toString('utf8')).digest !== envelope.plan?.sha256) return null;
+    return { name, body };
   } catch { return null; }
 }
 

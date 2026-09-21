@@ -34,7 +34,7 @@ unsafe impl GlobalAlloc for CountAlloc {
 static ALLOCATOR: CountAlloc = CountAlloc;
 
 #[test]
-fn moving_circle_600_frames_no_allocations_after_first() {
+fn moving_shapes_allocate_only_above_the_css_polygon_vertex_limit() {
     let text = "word ".repeat(1000);
     let prepared = Prepared::new(&text, Options::default(), &mut |r: std::ops::Range<
         usize,
@@ -68,4 +68,35 @@ fn moving_circle_600_frames_no_allocations_after_first() {
     let allocations = ALLOCATIONS.load(Ordering::Relaxed);
     println!("textflow: 1000 segments, 600 moving-circle frames: {micros:.3} µs/frame; {allocations} allocations; {:.1} fragments/frame",fragments as f64/600.0);
     assert_eq!(allocations, 0);
+
+    // Exercise both stack capacities and the larger programmatic fallback.
+    for vertices in [3, 4, 16, 17, 64, 65] {
+        let polygon = FlowShape::Polygon(
+            (0..vertices)
+                .map(|i| {
+                    let angle = i as f32 * std::f32::consts::TAU / vertices as f32;
+                    (100. + 90. * angle.cos(), 100. + 90. * angle.sin())
+                })
+                .collect(),
+        );
+        let mut free = Vec::new();
+        let shapes = [polygon];
+        exact_textflow::intervals(&shapes, 80., 100., 200., 0., &mut free);
+        ALLOCATIONS.store(0, Ordering::Relaxed);
+        COUNTING.store(true, Ordering::Relaxed);
+        for frame in 0..32 {
+            let top = 80. + (frame % 8) as f32;
+            exact_textflow::intervals(&shapes, top, top + 20., 200., 0., &mut free);
+            assert_eq!(free.len(), 2);
+            assert_eq!(free[0].0, 0.);
+            assert_eq!(free[1].1, 200.);
+        }
+        COUNTING.store(false, Ordering::Relaxed);
+        let allocations = ALLOCATIONS.load(Ordering::Relaxed);
+        if vertices <= 64 {
+            assert_eq!(allocations, 0, "{vertices} vertices");
+        } else {
+            assert!(allocations > 0, "programmatic scratch remains available");
+        }
+    }
 }

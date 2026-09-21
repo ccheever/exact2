@@ -220,6 +220,30 @@ every paragraph — `layout(shape, width:, breaks:)` runs
 sit beside the typesetter in `TextShape`. Read from the
 source and costed by the probe, not profiled in the app. Queued.
 
+**F7 implementation (2026-09-20):** normal finite-width layout lazily keeps
+Unicode opportunities beside the shape's existing typesetter and charges their
+array payload to the same cold residency budget. Intrinsic offers, emergency
+wrapping and measured-break paint handoffs do not prepare the array. It leaves
+with the shape; no separate text or width history is introduced. Restoring a
+checkpoint refreshes copied charges for shared lazy shape data, including the
+existing flow preparation, before trimming cold ownership.
+
+The earlier fresh-width Markdown resize profile contained 9 boundary-scanning
+samples within 45 layout samples (5,652 main-thread samples total): a lead, not
+an attributed frame-time result. An isolated optimized build of current native
+text sources compared the parent against this change in ABBA order, seven
+trials per group. Each synthetic trial laid out four multilingual paragraphs at
+300 changing widths: baseline group medians 128.46/135.11 µs per paragraph,
+candidate 111.52/110.85 µs, with 6,592 additional logical cold payload bytes.
+Forty paragraphs from the reader corpus across 60 widths gave baseline
+45.37/43.63 µs and candidate 35.18/41.32 µs, with 31,760 additional payload bytes.
+These are synchronous text-layout measurements, not displayed-frame or hitch
+comparisons; first-layout speed is not claimed. Geometry, line ranges, glyph
+IDs, positions and advances were byte-identical across 480 cases including
+mixed runs, narrow widths, clamp, Unicode and all overflow-wrap modes. Native
+coverage also checks fresh-layout parity, shape release and checkpoint charges;
+removing charge refresh makes the checkpoint regression fail.
+
 ## 4. Three ways to take the idea
 
 **A. The library as a dependency.** F1 and F2: no host can use it.

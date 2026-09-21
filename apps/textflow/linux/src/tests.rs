@@ -82,8 +82,20 @@ fn app_clock_flows_around_ball_and_auto_is_a_real_negative_control() {
 fn damage_is_local_and_pixels_equal_a_fresh_full_repaint() {
     let mut p = boot(true);
     let old = p.frame();
+    assert_eq!(
+        std::sync::Arc::strong_count(&old),
+        2,
+        "display and repaint share pixels"
+    );
+    let old_pixels = std::sync::Arc::downgrade(&old);
     assert!(p.clock(176.).1.is_none());
     let partial = p.frame();
+    assert_eq!(
+        std::sync::Arc::strong_count(&old),
+        1,
+        "history retires the prior frame"
+    );
+    assert_eq!(std::sync::Arc::strong_count(&partial), 2);
     let damage = p.damage_rects().to_vec();
     assert!(!damage.is_empty(), "flow_changed must reach CPU damage");
     assert!(damage
@@ -108,7 +120,9 @@ fn damage_is_local_and_pixels_equal_a_fresh_full_repaint() {
         }
     }
     assert!(changed > 100);
-    let json = p.layout_json(Some(id(&p, "ball-prose")));
+    drop(old);
+    assert!(old_pixels.upgrade().is_none(), "no hidden pixel history");
+    let json = p.layout_json(Some(id(&p, "ball-prose")), false);
     assert!(json.contains("\"fragments\":[{\"start\":0,"));
     assert!(p
         .host()

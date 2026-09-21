@@ -382,11 +382,14 @@ pub(crate) fn polygon_bands(
         let b = p[(i + 1) % p.len()];
         (a.0 as f64, a.1 as f64, b.0 as f64, b.1 as f64)
     };
-    let mut local_y = [0f64; 2082];
     let mut heap_y = Vec::new();
     let capacity = p.len().saturating_mul(p.len() - 1) / 2 + p.len() + 2;
-    let ys = if capacity <= local_y.len() {
-        &mut local_y[..capacity]
+    // Initialize the 16-vertex scratch only for small shapes; both CSS
+    // capacities remain on the stack, with heap scratch above 64 vertices.
+    let ys = if capacity <= 138 {
+        &mut [0f64; 138][..capacity]
+    } else if capacity <= 2082 {
+        &mut [0f64; 2082][..capacity]
     } else {
         heap_y.resize(capacity, 0.);
         &mut heap_y
@@ -400,9 +403,16 @@ pub(crate) fn polygon_bands(
             ys[count] = ay;
             count += 1;
         }
+        let (ux, uy) = (bx - ax, by - ay);
+        // For 0 < t < 1, ay + t*uy lies between these evaluated endpoints.
+        // Use ay+uy rather than by to preserve that bound under cancellation.
+        let end_y = ay + uy;
+        if ay.max(end_y) <= top || ay.min(end_y) >= bottom {
+            continue;
+        }
         for j in i + 1..p.len() {
             let (cx, cy, dx, dy) = edge(j);
-            let (ux, uy, vx, vy) = (bx - ax, by - ay, dx - cx, dy - cy);
+            let (vx, vy) = (dx - cx, dy - cy);
             let det = ux * vy - uy * vx;
             if det == 0. {
                 continue;
@@ -424,10 +434,11 @@ pub(crate) fn polygon_bands(
         high: f64,
         winding: i32,
     }
-    let mut local = [Crossing::default(); 64];
     let mut heap = Vec::new();
-    let crossings = if p.len() <= local.len() {
-        &mut local[..p.len()]
+    let crossings = if p.len() <= 16 {
+        &mut [Crossing::default(); 16][..p.len()]
+    } else if p.len() <= 64 {
+        &mut [Crossing::default(); 64][..p.len()]
     } else {
         heap.resize(p.len(), Crossing::default());
         &mut heap

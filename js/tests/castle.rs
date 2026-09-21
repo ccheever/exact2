@@ -119,6 +119,69 @@ fn later(a: Answer) -> exact_runner::Request {
 const LOGIN_OK: &str = r#"{"data":{"loginV2":{"token":"t0k","username":"ada"}}}"#;
 
 #[test]
+fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = scheduled(\"query\", 524288, true) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let older = [
+        Value::str("older"),
+        Value::Number(524288.0),
+        Value::Bool(true),
+    ];
+    let newer = [
+        Value::str("newer"),
+        Value::Number(262144.0),
+        Value::Bool(true),
+    ];
+    for (args, ceiling) in [(&older, 524288), (&newer, 262144)] {
+        let request = later(m.answer(&mut s, "scheduled", args).unwrap());
+        assert_eq!(request.method, "POST");
+        assert_eq!(
+            request.http,
+            exact_runner::HttpScheduling::Independent {
+                max_response_bytes: ceiling,
+            }
+        );
+    }
+    // The submitted search retains the ordered lane while suggestions overlap.
+    let ordered = [
+        Value::str("submitted"),
+        Value::Number(0.0),
+        Value::Bool(false),
+    ];
+    let request = later(m.answer(&mut s, "scheduled", &ordered).unwrap());
+    assert_eq!(request.http, exact_runner::HttpScheduling::Ordered);
+    for args in [&ordered[..], &newer[..], &older[..]] {
+        let expected = args[0].as_str().unwrap();
+        assert_eq!(
+            now(m
+                .parse(&mut s, "scheduled", args, response(200, expected))
+                .unwrap()),
+            Value::str(expected)
+        );
+    }
+    for bad in [
+        Value::Number(0.0),
+        Value::Number(-1.0),
+        Value::Number(1.5),
+        Value::Number(67108865.0),
+    ] {
+        let error = m
+            .answer(
+                &mut s,
+                "scheduled",
+                &[Value::str("invalid"), bad, Value::Bool(true)],
+            )
+            .unwrap_err();
+        assert!(
+            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            "{error:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
+#[test]
 fn parallel_fetches_keep_every_request_and_binary_response() {
     let mut m = module();
     let mut s = store();
@@ -459,4 +522,24 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
     stale.data().load().unwrap();
     stale.data_ready().unwrap();
     assert_eq!(text_of(&stale, "remembered").as_deref(), Some(""));
+}
+
+#[test]
+fn a_resumed_capture_over_budget_retires_the_call_and_keeps_later_answers_clean() {
+    let mut m = module();
+    let mut s = store();
+    let args = [Value::str("ada"), Value::str("pw")];
+    later(m.answer(&mut s, "login", &args).unwrap());
+    let body = serde_json::json!({"data":{"loginV2":{"token":"t0k","username":"a".repeat(65536)}}})
+        .to_string();
+    m.set_budget_ms(0.0);
+    let result = m.parse(&mut s, "login", &args, response(200, &body));
+    assert!(
+        matches!(result, Err(DataError::Unavailable(ref message)) if message.contains("over the 0 ms budget"))
+    );
+    assert_eq!(m.overruns(), 1);
+    assert_eq!(m.in_flight(), 0);
+    m.set_budget_ms(f64::INFINITY);
+    assert!(!session(&now(m.answer(&mut s, "logout", &[]).unwrap())).0);
+    assert!(!session(&now(m.answer(&mut s, "remember", &[]).unwrap())).0);
 }

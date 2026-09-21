@@ -1430,3 +1430,69 @@ fn content_below_the_client_height_keeps_its_extent_and_changes() {
     assert_eq!(content_of(&changed, scroll).1, 92.0);
     assert!(!changed.contains(&format!("\"op\":\"frame\",\"id\":{scroll},")));
 }
+
+#[test]
+fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
+    let plan = contract::compile(
+        r#"component App
+  state phase = 0
+  action next writes phase
+    phase = phase + 1
+  view
+    column
+      when phase == 1
+        column
+          text "next" press=next contextmenu=next testId="go"
+          text "plain" testId="plain"
+      else
+        text "next" press=next testId="go"
+"#,
+    )
+    .unwrap();
+    let (mut host, mut batch) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let mut old = None;
+    for phase in 0..3 {
+        let id = view(&host, "go");
+        let prefix = format!("\"create\",\"id\":{id},");
+        let create = batch
+            .split("{\"op\":")
+            .find(|part| part.starts_with(&prefix))
+            .unwrap();
+        let expected = if phase == 1 {
+            "\"handlers\":[\"press\",\"contextmenu\"]"
+        } else {
+            "\"handlers\":[\"press\"]"
+        };
+        assert!(create.contains(expected), "{create}");
+        let tree = host.agent(r#"{"op":"tree"}"#);
+        assert_eq!(tree.matches(expected).count(), 1);
+        let empty = if phase == 1 { 3 } else { 1 };
+        assert_eq!(tree.matches("\"handlers\":[]").count(), empty);
+        if phase == 1 {
+            let plain = view(&host, "plain");
+            let prefix = format!("\"create\",\"id\":{plain},");
+            let create = batch
+                .split("{\"op\":")
+                .find(|part| part.starts_with(&prefix))
+                .unwrap();
+            assert!(create.contains("\"handlers\":[]"), "{create}");
+        }
+        if let Some(gone) = old {
+            assert!(!tree.contains(&format!("{{\"id\":{gone},")));
+            assert!(host.runner().handlers_of(gone).is_empty());
+            assert!(!host.runner().handlers().contains_key(&gone));
+        }
+        old = Some(id);
+        if phase < 2 {
+            batch = host.dispatch_at(id, Event::Press, 0.0);
+        }
+    }
+    assert_eq!(count(&batch, "create"), 1, "single-create path");
+}

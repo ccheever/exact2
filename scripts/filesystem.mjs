@@ -124,8 +124,12 @@ function createReader() {
   const stop = () => child.kill();
   process.once('exit', stop);
   const pending = [];
-  let failure, stderr = '';
+  let failure, stderr = '', referenced = true;
   const reference = active => {
+    // Concurrent reads share one liveness reference. Repeated stderr.ref()
+    // calls on Bun can otherwise leave the idle reader keeping its parent alive.
+    if (referenced === active) return;
+    referenced = active;
     for (const handle of [child, child.stdout, child.stderr]) handle[active ? 'ref' : 'unref']();
   };
   const fail = error => {

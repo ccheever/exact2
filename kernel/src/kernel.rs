@@ -12,7 +12,7 @@ use std::sync::LazyLock;
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::export::{self, NodeRow};
-use crate::generated::{Display, NodeType, PropId, StyleId, StyleMask, StyleProps};
+use crate::generated::{BoxSizing, Display, NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, Offer, ViewId};
 use crate::layout::{self, LayoutReceipt, LayoutTree};
 use crate::props::PropList;
@@ -29,7 +29,7 @@ use crate::wire::{self, Op};
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;
 
-/// One sampled CSS height for a live box with an authored numeric pixel height.
+/// One sampled CSS height for a live numeric-height box or border-box auto height.
 /// This replaces only derived layout height, respecting current box sizing,
 /// min/max constraints and aspect ratio. It never authors a style or a commit.
 /// Existing root lowering is retained: an auto-width, nonabsolute root uses
@@ -410,10 +410,10 @@ impl Kernel {
         root: ViewId,
         offer: Offer,
     ) -> Result<LayoutReceipt, KernelError> {
-        self.compute_layout_presented(root, offer, None)
+        self.compute_layout_presented(root, offer, &[])
     }
 
-    /// Lay out with one cached derived height, or clear it with `None`.
+    /// Lay out with cached derived heights; an empty slice clears all owners.
     /// Preflight is atomic with respect to the previous projection/publication.
     /// Equal samples reuse layout caches; central authored style writes refresh
     /// every other field while retaining the sample. Clearing/switching restores
@@ -425,34 +425,25 @@ impl Kernel {
     /// nonabsolute root exception: derived box sizing there is border-box even
     /// when authored as content-box. No root sizing repair is made by projection.
     ///
-    /// Auto, percent, env, negative, hidden and inline heights are unsupported.
+    /// Auto height requires border-box sizing; percent, env, negative, hidden
+    /// and inline heights are unsupported. Sampling auto is explicit host intent,
+    /// not automatic transition adoption or a change to authored CSS defaults.
     /// If authoring changes eligibility, the adapter must retire its height
-    /// ownership and call ordinary layout (`None`); a fresh `Some` is refused.
+    /// ownership and omit that sample; unsupported samples are refused.
     pub fn compute_layout_presented(
         &mut self,
         root: ViewId,
         offer: Offer,
-        presented: Option<PresentedHeight>,
+        presented: &[PresentedHeight],
     ) -> Result<LayoutReceipt, KernelError> {
-        if self.region.is_some() {
-            return Err(
-                LayoutError::ContentRegion("use compute_region_layout while registered").into(),
-            );
+        let slot = self.layout_root_slot(root, offer)?;
+        for (i, sample) in presented.iter().enumerate() {
+            self.validate_presented_height(slot, *sample)?;
+            if presented[..i].iter().any(|p| p.node == sample.node) {
+                return Err(LayoutError::DuplicatePresentedHeight(sample.node).into());
+            }
         }
-        if !offer.is_finite() {
-            return Err(LayoutError::InvalidOffer.into());
-        }
-        let slot = self
-            .arena
-            .slot_of(root)
-            .ok_or(LayoutError::UnknownView(root))?;
-        if !self.arena.is_root(slot) {
-            return Err(LayoutError::NotARoot(root).into());
-        }
-        let projection = presented
-            .map(|p| self.validate_presented_height(slot, p))
-            .transpose()?;
-        self.layout.present_height(&self.arena, projection);
+        self.layout.present_heights(&self.arena, presented);
         let result = match layout::compute(
             &mut self.arena,
             &mut self.layout,
@@ -464,7 +455,7 @@ impl Kernel {
             Err(LayoutError::Engine(_)) => {
                 // The engine tree is derived state: rebuild it from the columns and retry once.
                 self.layout = LayoutTree::rebuild(&mut self.arena);
-                self.layout.present_height(&self.arena, projection);
+                self.layout.present_heights(&self.arena, presented);
                 layout::compute(
                     &mut self.arena,
                     &mut self.layout,
@@ -489,11 +480,105 @@ impl Kernel {
         Ok(receipt)
     }
 
-    fn validate_presented_height(
-        &self,
-        root: u32,
-        p: PresentedHeight,
-    ) -> Result<(u32, f32), LayoutError> {
+    /// Measure current authored border-box heights without publishing layout.
+    /// Active presentations are temporarily removed for this pass and restored
+    /// before returning, including after failure. Frames, overflow, flags,
+    /// authored styles, receipts and epoch remain unchanged. Results are used
+    /// border-box sizes after constraints, not unconstrained CSS intrinsic sizes.
+    ///
+    /// Call when a target's content or offer changes, not on every motion tick.
+    /// This does not register owners or define an automatic `height: auto`
+    /// transition policy. The caller still chooses which targets to animate.
+    pub fn measure_height_targets(
+        &mut self,
+        root: ViewId,
+        offer: Offer,
+        owners: &[NodeKey],
+    ) -> Result<Vec<PresentedHeight>, KernelError> {
+        let slot = self.layout_root_slot(root, offer)?;
+        for (i, owner) in owners.iter().enumerate() {
+            self.validate_presented_height(
+                slot,
+                PresentedHeight {
+                    node: *owner,
+                    epoch: self.epoch,
+                    px: 0.0,
+                },
+            )?;
+            if self.arena.style(owner.index).box_sizing != BoxSizing::BorderBox {
+                return Err(LayoutError::UnsupportedHeightMeasurement(*owner).into());
+            }
+            if owners[..i].contains(owner) {
+                return Err(LayoutError::DuplicatePresentedHeight(*owner).into());
+            }
+        }
+        if owners.is_empty() {
+            return Ok(Vec::new());
+        }
+        let previous = self.layout.height_samples(self.epoch);
+        self.layout.present_heights(&self.arena, &[]);
+        let measure = |kernel: &mut Self| {
+            let root = kernel
+                .arena
+                .taffy(slot)
+                .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
+            kernel
+                .layout
+                .compute(root, offer, &kernel.arena, kernel.measurer.as_mut())?;
+            owners
+                .iter()
+                .map(|node| {
+                    let engine_node = kernel.arena.taffy(node.index).ok_or_else(|| {
+                        LayoutError::Engine("height target has no engine node".into())
+                    })?;
+                    let px = kernel.layout.layout(engine_node).size.height;
+                    if !px.is_finite() || px < 0.0 {
+                        return Err(LayoutError::InvalidPresentedHeight);
+                    }
+                    Ok(PresentedHeight {
+                        node: *node,
+                        epoch: kernel.epoch,
+                        px,
+                    })
+                })
+                .collect()
+        };
+        let result = match measure(self) {
+            Err(LayoutError::Engine(_)) => {
+                self.layout = LayoutTree::rebuild(&mut self.arena);
+                measure(self)
+            }
+            result => result,
+        };
+        if result.is_err() {
+            // A contained invalid metric may have populated Taffy's cache with
+            // zero. Rebuild so the next measurement actually invokes the host.
+            self.layout = LayoutTree::rebuild(&mut self.arena);
+        }
+        self.layout.present_heights(&self.arena, &previous);
+        result.map_err(KernelError::from)
+    }
+
+    fn layout_root_slot(&self, root: ViewId, offer: Offer) -> Result<u32, KernelError> {
+        if self.region.is_some() {
+            return Err(
+                LayoutError::ContentRegion("use compute_region_layout while registered").into(),
+            );
+        }
+        if !offer.is_finite() {
+            return Err(LayoutError::InvalidOffer.into());
+        }
+        let slot = self
+            .arena
+            .slot_of(root)
+            .ok_or(LayoutError::UnknownView(root))?;
+        if !self.arena.is_root(slot) {
+            return Err(LayoutError::NotARoot(root).into());
+        }
+        Ok(slot)
+    }
+
+    fn validate_presented_height(&self, root: u32, p: PresentedHeight) -> Result<(), LayoutError> {
         if !p.px.is_finite() || p.px < 0.0 {
             return Err(LayoutError::InvalidPresentedHeight);
         }
@@ -510,9 +595,13 @@ impl Kernel {
         if slot != root && !self.arena.is_ancestor(root, slot) {
             return Err(LayoutError::PresentedHeightOutsideRoot(p.node));
         }
-        if self.arena.is_inline_run(slot)
-            || !matches!(self.arena.style(slot).height, Dimension::Points(px) if px.is_finite() && px >= 0.0)
-        {
+        let style = self.arena.style(slot);
+        let supported = match style.height {
+            Dimension::Points(px) => px.is_finite() && px >= 0.0,
+            Dimension::Auto => style.box_sizing == BoxSizing::BorderBox,
+            _ => false,
+        };
+        if self.arena.is_inline_run(slot) || !supported {
             return Err(LayoutError::UnsupportedPresentedHeight(p.node));
         }
         let mut ancestor = Some(slot);
@@ -522,7 +611,7 @@ impl Kernel {
             }
             ancestor = self.arena.parent(s);
         }
-        Ok((slot, p.px))
+        Ok(())
     }
 
     /// A replaced element's intrinsic size — the bitmap's pixel counts,
@@ -620,6 +709,12 @@ impl Kernel {
             .collect())
     }
 
+    /// One typed export row, with depth zero as for an exported subtree root.
+    /// Does not visit the node's descendants; detached live nodes are included.
+    pub fn row(&self, id: ViewId) -> Option<NodeRow> {
+        Some(export::row(&self.arena, self.arena.slot_of(id)?, 0))
+    }
+
     /// One node by wire id.
     pub fn node(&self, id: ViewId) -> Option<NodeRef<'_>> {
         let slot = self.arena.slot_of(id)?;
@@ -674,6 +769,23 @@ impl Kernel {
         detached.sort_unstable();
         out.extend(detached.into_iter().map(|s| self.arena.key(s)));
         out
+    }
+
+    /// First match in the same order as `find_by_test_id`, without collecting all matches.
+    pub fn find_first_by_test_id(&self, test_id: &str) -> Option<NodeKey> {
+        let indexed = self.selectors.lookup(test_id);
+        if indexed.len() <= 1 {
+            return indexed.first().map(|slot| self.arena.key(*slot));
+        }
+        let mut stack: Vec<u32> = self.arena.roots().iter().rev().copied().collect();
+        while let Some(slot) = stack.pop() {
+            if self.arena.props(slot).str(crate::generated::PropId::TestId) == Some(test_id) {
+                return Some(self.arena.key(slot));
+            }
+            stack.extend(self.arena.children(slot).iter().rev().copied());
+        }
+        // No attached match: the existing all-match query orders detached slots last.
+        indexed.iter().min().map(|slot| self.arena.key(*slot))
     }
 
     /// Retained commit receipts, oldest first.
@@ -742,6 +854,8 @@ mod presented_height_tests {
         let mut style = StyleProps::default();
         style.height = Dimension::Points(180.0);
         style.mask.set(StyleId::Height);
+        style.box_sizing = BoxSizing::BorderBox;
+        style.mask.set(StyleId::BoxSizing);
         k.apply(
             0,
             1,
@@ -752,7 +866,19 @@ mod presented_height_tests {
                 },
                 Op::SetStyle {
                     id: 1,
+                    patch: Box::new(style.clone()),
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
                     patch: Box::new(style),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
                 },
                 Op::AttachRoot { id: 1 },
             ],
@@ -763,22 +889,55 @@ mod presented_height_tests {
             epoch: k.epoch(),
             px: 320.0,
         };
+        let samples = [
+            p,
+            PresentedHeight {
+                node: k.node(2).unwrap().key,
+                px: 90.0,
+                ..p
+            },
+        ];
         let offer = Offer::definite(400.0, 600.0);
-        k.compute_layout_presented(1, offer, Some(p)).unwrap();
+        k.compute_layout_presented(1, offer, &samples).unwrap();
         // Missing derived state exercises the real Engine error/rebuild path,
         // without changing the authored columns or a production test hook.
         k.arena.set_taffy(p.node.index, None);
-        k.compute_layout_presented(1, offer, Some(p)).unwrap();
+        k.compute_layout_presented(1, offer, &samples).unwrap();
         assert!(!k.layout.faulted());
         assert_eq!(k.node(1).unwrap().frame.height, 320.0);
+        assert_eq!(k.node(2).unwrap().frame.height, 90.0);
         let node = k.arena.taffy(p.node.index).unwrap();
         assert!(!k.layout.is_dirty(node));
-        k.layout
-            .present_height(&k.arena, Some((p.node.index, p.px)));
+        k.layout.present_heights(&k.arena, &samples);
         assert!(
             !k.layout.is_dirty(node),
             "equal projection must not call Taffy set_style"
         );
+        // Target measurement recovers the derived tree without publishing the
+        // authored endpoint, and restores every active sample after rebuilding.
+        let before = k.export(None).unwrap();
+        k.arena.set_taffy(p.node.index, None);
+        let owners = samples.map(|p| p.node);
+        let targets = k.measure_height_targets(1, offer, &owners).unwrap();
+        assert_eq!(
+            targets.iter().map(|p| p.px).collect::<Vec<_>>(),
+            vec![180.0, 180.0]
+        );
+        assert_eq!(k.export(None).unwrap(), before);
+        assert_eq!(k.layout.height_samples(k.epoch()), samples);
+        k.arena.set_taffy(samples[1].node.index, None);
+        assert_eq!(
+            k.measure_height_targets(1, offer, &owners).unwrap(),
+            targets
+        );
+        assert_eq!(k.export(None).unwrap(), before);
+        assert_eq!(k.layout.height_samples(k.epoch()), samples);
+        assert!(k
+            .compute_layout_presented(1, offer, &samples)
+            .unwrap()
+            .changed
+            .is_empty());
+        let node = k.arena.taffy(p.node.index).unwrap();
         let mut style = k.arena.style(p.node.index).clone();
         style.height = Dimension::Points(400.0);
         k.apply(
@@ -796,6 +955,7 @@ mod presented_height_tests {
         );
         k.compute_layout(1, offer).unwrap();
         assert_eq!(k.node(1).unwrap().frame.height, 400.0);
+        assert_eq!(k.node(2).unwrap().frame.height, 180.0);
     }
 }
 

@@ -120,7 +120,9 @@ async function persist(sqlite, databases, id, session) {
       bytes = session.db.selectValue('PRAGMA page_count')
         ? sqlite.capi.sqlite3_js_db_export(session.db.pointer) : new Uint8Array();
     } finally { session.serializing = false; }
-    await session.files.atomicWriteFile(session.path, bytes);
+    // The exporter returns a fresh, full-buffer Uint8Array, independent of WASM.
+    // This private snapshot has no further owner after the atomic write.
+    await session.files.atomicWriteOwnedFile(session.path, bytes.buffer);
   }
   catch (error) {
     // Memory already committed. Invalidate every handle rather than exposing a

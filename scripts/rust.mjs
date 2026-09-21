@@ -203,7 +203,7 @@ export class RustBaker {
 
 /** Produce complete variants in private memory; publication is a separate act.
  * Native and Wasm artifacts share one baked plan and one stable input closure. */
-export async function buildRust(app, { compat, env = developmentBuildEnv(), nativeTarget = null, plan = null, profile = 'logic-dev', baker = null } = {}) {
+export async function buildRust(app, { compat, env = developmentBuildEnv(), nativeTarget = null, plan = null, profile = 'logic-dev', baker = null, sourceMap = false } = {}) {
   if (!rustPackage(app)) return null;
   if (!compat?.inputs?.grantCeiling && compat?.inputs?.grantCeiling !== '') throw new Error('Rust module build requires a completed app bake receipt');
   rustGrants(compat);
@@ -228,6 +228,7 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
   }
   const scratchRoot = resolve(app.target, 'rust-bake'); mkdirSync(scratchRoot, { recursive: true });
   const scratch = mkdtempSync(resolve(scratchRoot, 'candidate-'));
+  let map = null;
   try {
     {
       const compatPath = resolve(scratch, 'compat.json'); writeFileSync(compatPath, JSON.stringify(compat));
@@ -236,9 +237,13 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
       // exactly the immutable bytes used by this receipt, never that live path.
       writeFileSync(candidateModule,wasm);
       const worker=baker??new RustBaker(app,env);
-      try { await worker.bake([resolve(app.dir,'app.contract'),candidateModule,compatPath,baked]); }
+      try { await worker.bake([resolve(app.dir,'app.contract'),candidateModule,compatPath,baked,...(sourceMap ? ['--map'] : [])]); }
       finally { if(!baker)worker.close(); }
       const candidatePlan = readFileSync(baked);
+      if (sourceMap) {
+        map = readFileSync(baked + '.map.json');
+        if (JSON.parse(map).digest !== hash(candidatePlan)) throw new Error('Rust source map does not match its baked plan');
+      }
       if (plan && !Buffer.from(plan).equals(candidatePlan)) throw new Error('Rust wrapper and embedded data bake different first frames; they must share the same business-logic implementation');
       plan = candidatePlan;
     }
@@ -256,7 +261,7 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
         variants.tiered={receipt:rustReceipt(app,compat,plan,bytes,nativeTarget,'tiered'),bytes};
       }
     }
-    return { plan, variants, inputs, inputDigest: before };
+    return { plan, variants, inputs, inputDigest: before, sourceMap: map };
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
@@ -318,11 +323,11 @@ async function produce(app, env, baker = null) {
   const compat=readBuilds(app,env).find(r=>r.compat.inputs.platform==='web')?.compat;
   const host=/^host: (.+)$/m.exec(run(app,'rustc',['-vV'],env))?.[1];
   const nativeTarget=['darwin','linux'].includes(process.platform) && ['native','tiered'].includes(rustPolicy(app.manifest,process.platform==='darwin'?'macos':'linux'))?host:null;
-  const built=await buildRust(app,{compat,env,nativeTarget,baker});
+  const built=await buildRust(app,{compat,env,nativeTarget,baker,sourceMap:true});
   const directory=rustOutput(app);mkdirSync(directory,{recursive:true});
-  const generation=hash(Buffer.concat([built.plan,...Object.values(built.variants).map(v=>v.bytes)]));
+  const generation=hash(Buffer.concat([built.plan,...Object.values(built.variants).map(v=>v.bytes),built.sourceMap]));
   const stage=mkdtempSync(resolve(directory,'stage-'));
-  for(const [name,bytes] of new Map([['app.plan',built.plan],...rustFiles(built)])){mkdirSync(dirname(resolve(stage,name)),{recursive:true});writeFileSync(resolve(stage,name),bytes);}
+  for(const [name,bytes] of new Map([['app.plan',built.plan],['app.plan.map.json',built.sourceMap],...rustFiles(built)])){mkdirSync(dirname(resolve(stage,name)),{recursive:true});writeFileSync(resolve(stage,name),bytes);}
   const final=resolve(directory,generation);
   if(existsSync(final))rmSync(stage,{recursive:true,force:true});else renameSync(stage,final);
   const pointer=resolve(directory,`current-${process.pid}.tmp`);

@@ -28,6 +28,7 @@ use exact_runner::{DataSource, Event};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
@@ -116,7 +117,7 @@ pub struct Presenter<D: DataSource> {
     /// error; later refusals are journaled without retitling a live session.
     booting: bool,
     content_registration: Option<crate::content_region::ContentRegionRegistration>,
-    last_region_frame: Option<Pixmap>,
+    last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
 }
 
@@ -614,14 +615,16 @@ impl<D: DataSource> Presenter<D> {
         Ok(true)
     }
 
-    /// The store's facts into the runner (LLP 1030 D7): a `delivery`
-    /// resource is answered again, and the picture follows.
+    /// Commit changed store facts to the delivery resource (LLP 1030 D7).
     fn sync_delivery(&mut self) {
         let Some(u) = &self.updates else {
             return;
         };
         let mut delivery = self.host.runner().delivery().clone();
         u.status_into(&mut delivery);
+        if delivery == *self.host.runner().delivery() {
+            return;
+        }
         if let Some(e) = self.host.set_delivery(delivery) {
             eprintln!("exact: {e}");
         }
@@ -630,11 +633,9 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Run the commands the last commits asked for (LLP 1005 §3): the
-    /// delivery pair are the store's (LLP 1030 D7); `setScheme` is which
-    /// appearance a `light-dark()` colour resolves to on this painter, which
-    /// has no system appearance of its own (LLP 1034 D2); anything else is
-    /// named.
+    /// Run the last commits' commands (LLP 1005 §3): delivery belongs to the
+    /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
+    /// appearance (LLP 1034 D2); anything else is named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {
@@ -881,6 +882,7 @@ impl<D: DataSource> Presenter<D> {
                 self.dirty = true;
             }
         }
+        self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
@@ -990,7 +992,7 @@ impl<D: DataSource> Presenter<D> {
     /// what a painter knows — its painted box and a 1:1 capture; no window,
     /// no screen, nothing mounted, and the reply says so rather than
     /// guessing.
-    pub fn layout_json(&mut self, node: Option<u32>) -> String {
+    pub fn layout_json(&mut self, node: Option<u32>, include_plan: bool) -> String {
         let clock = self.host.now();
         let (vw, vh) = self.viewport;
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
@@ -1025,7 +1027,9 @@ impl<D: DataSource> Presenter<D> {
         }
         s.push(']');
         if let Some(id) = node {
-            let detail = self.host.agent(&format!("{{\"op\":\"node\",\"id\":{id}}}"));
+            let detail = self.host.agent(&format!(
+                "{{\"op\":\"node\",\"id\":{id},\"plan\":{include_plan}}}"
+            ));
             if detail.starts_with("{\"error\"") {
                 return detail;
             }
@@ -1125,6 +1129,10 @@ impl<D: DataSource> Presenter<D> {
     /// else drops it). Returns the node pressed, if any.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
         let hit = self.hit(x, y)?;
+        if crate::navigation::popover_invoker(self.host.kernel(), hit) {
+            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+            return None;
+        }
         if self.brush.region_blocks_action(hit) {
             return self.retained_press(hit, now_ms);
         }
@@ -1155,6 +1163,9 @@ impl<D: DataSource> Presenter<D> {
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
+        }
+        if crate::navigation::popover_invoker(self.host.kernel(), id) {
+            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         let b = self
             .box_of(id)
@@ -1366,6 +1377,7 @@ impl<D: DataSource> Presenter<D> {
     pub fn pump(&mut self, now_ms: f64) -> Option<String> {
         let region_error = self.poll_content_region();
         self.executor.begin_pump();
+        let region_error = region_error.or(self.dispatch_authored_scroll());
         self.refusal_turn = !self.refusal_turn;
         let mut outcomes = if self.refusal_turn {
             self.host

@@ -947,6 +947,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-route",
+ "sha2",
 ]
 
 [[package]]
@@ -2358,6 +2359,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "reflow-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-logic",
+ "reflow-data",
+]
+
+[[package]]
+name = "reflow-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+ "exact-textflow",
+ "ttf-parser",
+]
+
+[[package]]
+name = "reflow-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-linux",
+ "exact-logic",
+ "exact-textflow",
+ "reflow-data",
+]
+
+[[package]]
+name = "reflow-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-logic",
+ "exact-web",
+ "reflow-data",
 ]
 
 [[package]]

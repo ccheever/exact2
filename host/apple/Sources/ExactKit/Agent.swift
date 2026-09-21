@@ -92,7 +92,7 @@ public final class Agent {
             return
         }
         switch op {
-        case "tree": Agent.reply(session.webviews.tree())
+        case "tree": Agent.reply(session.webviews.tree(line))
         case "layout": Agent.reply(tagged(layout(req)))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
@@ -126,12 +126,12 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
-            var sections = stateSections()
-            sections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             var reply = session.agent(json)
             var nativeSections = stateSections()
+            nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
+            raster["encodedHTTPCache"] = RasterInput.httpCacheUsage
             nativeSections["raster"] = raster
             #if os(macOS)
             nativeSections["contentRegion"] = session.regions.diagnostics

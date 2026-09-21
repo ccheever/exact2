@@ -1,9 +1,14 @@
 # Queue
 
-- **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md) r2): slices 1–2 are implemented. `list virtualized=true` has `reachstart`/`reachend`, Messages stress has a bounded mode, and the Messages conversation answer is at most 200 rows around a cursor. Still owed: the Grok code review (balance exhausted), a macOS/AppKit drive of the stress bounded mode, and the declared edge limitation below. Shared views/buffers/heap and generic whole-value reconciliation remain deferred (LLP 1027.003 §9).
-- **Messages durable writes are O(total records)** (found by LLP 1027.004 r2 D5): every mutation JSON-clones the whole model (`snapshot()`) and `persist` diffs every key; startup and each sync page `restore` everything; Snapback's 512-record edit cap refuses deleting or recovering a conversation over 512 messages. Belongs with the in-progress Snapback migration: persist changed records only, and chunk or raise the cap for bulk deletes.
-- **Linux Messages transcript scroll commands** (S2 drive, 2026-09-18; pre-existing at ccc5367): after 215 UI sends, authored `scrollTop=1000221` / `scrollFollowEnd=true` leave the headless presenter at `sy=0`, both with the base’s 225 rows and S2’s bounded 200. Repair the Linux property path and re-drive latest/send plus earlier/later shifts. The reply drive also fails at the base: the presenter loses its held contact, and the Linux carrier refuses context-menu input. Evidence: `target/bounded-answers/s2/round2/base-classification.json` and the base drive captures beside it.
-- **Edge re-arming from provisional heights** (LLP 1027.004 D5, 2026-09-18): with the whole window visible and rows far below the 32 px estimate, re-measuring a replaced window counts the edge row as outside, re-arms it, and earlier/later loading can oscillate without scrolling. Re-arm only on a measured exit or after a reader scroll; add a 200-row, 1 px test that settles through measured feedback. Found by Astra's round-4 review of `e08e25a` (`llp/reviews/code-2026-09-18-bounded-answers.astra.md`).
+- **CPU nonfinite corner radius** (2026-09-21): a direct internal `Raster.fill` with radii `[4, NaN, 4, 4]`, scale 0.75 and a reflected transform panics in tiny-skia AA scan conversion. Reproduced on published `fb9f8b65`; no authored-app reproduction. Validate malformed internal geometry before path rasterization. Evidence: `/tmp/exact-rounded-interior-fb9f8b65/baseline-pixels.log`.
+
+- **Reflow follow-ups** (2026-09-20, `apps/reflow`): the dragon is a hand-placed polygon; a traced silhouette (`shape-outside: <image>`, LLP 1043.000 stage 5) would let a real illustration be the exclusion. On the web, ordinary paragraphs (magazine, cards) are broken by the browser, so a column can end one line short of the cut; only flowed text goes through the shared walker there. Web `wasm-opt` was not on PATH for the numbers in the README.
+- **Bounded resource answers** (Charlie, 2026-09-18, [LLP 1027.004](llp/1027.004-bounded-resource-answers.plan.md) r2): slices 1–2 are implemented. `list virtualized=true` has `reachstart`/`reachend`, Messages stress has a bounded mode, and the Messages conversation answer is at most 200 rows around a cursor. Still owed: the Grok code review (balance exhausted), a macOS/AppKit drive of the stress bounded mode. Shared views/buffers/heap and generic whole-value reconciliation remain deferred (LLP 1027.003 §9).
+- **A source call that awaits another is reported stuck** (2026-09-20, found implementing [LLP 1027.003.000](llp/1027.003.000-bounded-application-work-claude.plan.md) §13): the native prelude judges liveness per call, so a call with no ticket of its own is "pending on nothing" even while another call of the same module has storage outstanding. General module-wide liveness remains unresolved. Fieldnotes no longer needs that repair: its selected-note load owns a native continuation, and both browser placements serialize whole storage-backed calls through connection close. Concurrent library/detail reads and changed-code reload with a protected draft are covered by the existing native/browser tests. See §13's implementation correction.
+- **Bounded application work: plan r3, reviewed by two families** (Charlie, 2026-09-20): [LLP 1027.003.000](llp/1027.003.000-bounded-application-work-claude.plan.md) (Claude) and [LLP 1027.003.001](llp/1027.003.001-bounded-application-work-astra.plan.md) (Astra max) answer LLP 1027.003 §11–§13 independently. They agree: Fieldnotes first (a legal 1,000-note notebook cannot be opened), then Messages changed-record writes, then native filling; no heap, deltas or new apparatus. r2 §9 recommended 1027.003.001 as the spine with four amendments; r3 is the synthesis, reviewed by Astra max and Grok 4.6 xhigh (both MATERIAL FINDINGS, six defects raised by both families, dispositions in `llp/reviews/`) — this document's summary-only Fieldnotes answer with no pager, its sibling's chunked exact search with no stored folded column, the three-second idle sync tick as its own first Messages change, and hoisting `CREATE TABLE IF NOT EXISTS` out of the per-operation path. 1027.003.001 §8 found what both repairs cannot fix: browser SQLite exports the whole database after every non-query op (`host/web/storage-worker.js:113-123,189`) and every `storage-fs` operation `getAll()`s every file with contents (`host/web/storage-fs.js:166`). A contract compiler fix landed (a bool `derive` could not be a ternary condition); Fieldnotes now fetches short prefixes for unfiltered previews, with bounded 32-row full-body fallback, and loads only the selected editor body. Exact search still scans every body. TypeScript reads and Rust backups now check the stored schema instead of issuing no-op CREATE writes; browser whole-database export on actual writes remains open. Filesystem operations now fetch their required records or subtree keys; removal reads no deleted-file contents, and rename loads only the moved subtree and records it validates. Messages idle sync now skips full-history reads/comparisons unless reconciliation is owed; reset/adoption, apply and settlement failures retain the obligation until successful read/publication. Browser idle metadata commits now skip persistence when a bounded SQLite comparison finds every final value unchanged. Unchanged reply timer ticks now skip full-model snapshot/diff work too. Durable source footprints now avoid full-history snapshot/diff and held-map copies on local edits. Receipt transitions now visit only outgoing messages still awaiting Read. Sends and contact edits now preserve existing person positions and select only affected contacts. Recovery footprints now include only selected messages and expiry candidates; due expiry metadata scans and whole-database export for actual browser writes remain.
+- **Action spelling diagnostics** (LLP 1006 §3): handlers, action props and timers now use authored scopes; forwarded prop/provider errors link their supplied argument. Action-valued derived expressions and other untraceable substitution origins conservatively get no hint. Extend only with original binding provenance, never expanded-root name guesses.
+- **Messages remaining write costs** (LLP 1027.004 D5): durable source footprints now compare only their declared records, detaching changed payloads before storage awaits and updating held entries after admission. Sends/contact edits select affected people with stable positions; exact-ID contact lookups reuse that index. Sends retain only one pending reply for rollback. Receipt transitions are proportional to outgoing messages still awaiting Read. Recovery footprints now avoid unrelated archived payloads, including global expiry candidates and selected messages only. Forward idle reply ticks now use a conservative next-event time without scanning/copying pending schedules. Non-idle footprint selection traverses pending directly and creates entries only for due events. It also identifies receipt-only ticks and no-op rewinds that need no pending-map rollback copy. Reply removals retain only removed entries and their original positions; refusal rebuilds schedule order before model restore. Single blocking/deletion removals now retain one activity and its ordinal through a key-only `forEach` scan, rebuilding order only on refusal. Small message deletions now update surviving thread indexes in place, preserving receipt order; deleting at least half rebuilds the fewer surviving rows. Transcript/affected-reply/receipt filtering remains linear. Recovery operations skip expiry metadata scans before a conservative earliest deadline and skip future buckets when another bucket is due; restore rebuilds the bound. Recently Deleted summaries use each archive’s maintained minimum expiry instead of walking its messages; contact enumeration remains. Deletion appends to the owned archive without copying its existing rows; footprint selection still scans that conversation’s archive metadata. Inbox, recipient matches, and Recently Deleted now decorate/transfer/mount at most 200 people through Previous/More controls. Deleted selection and Recover All targets/count still span all archived contacts; scanning, the global target string, and selected-token removal strings remain unbounded. Name/address searches, ordinal scans on actual blocking/deletion, scans on due ticks/rewinds/stale early deadlines, and row metadata scans within due archive buckets remain bounded-work targets. Startup, changed sync and exceptional rollback still restore the full model. Snapback's 512-record cap refuses oversized bulk edits whole; retain that atomic refusal while improving the explanation and preflight.
+- **Linux popover presentation and Messages reply input** (2026-09-20): closed popovers are now hidden/inert and invokers report unsupported, fixing the hidden `permanentlyDelete` interception of ordinary inbox taps. Top-layer presentation, placement, light dismissal and closed normal-flow layout remain unimplemented (LLP 1021). The earlier reply drive loses its held contact, and the Linux carrier refuses context-menu input. The ordinary scroll-property path and the headless 215-send/earlier/later/latest drive are fixed. Evidence: `/tmp/exact-linux-popovers-306428c2/` and `/tmp/exact-scroll-commands-0a819c84/`.
 - **Messages native test fixtures keep the production 100 ms executor budget** (2026-09-18): `snapback_tests` failed the blocking suite at `e08e25a` with `conversation took 105.5 ms, over the 100 ms budget` at a 5–15-minute load average of about 25. The same binary passed three quiet reruns in about 0.2 s. Functional fixtures should disable the wall-clock budget as `apps/messages/apple/tests/window.rs` does. That file is also edited by the paused Snapback migration, so land it with that migration.
 - **Virtualize the Messages transcript** (LLP 1010 §6 consumer sweep; LLP 1027.004 D5): its horizontal timestamp-reveal wrapper is outside the collection's supported shape. Once virtualized, `reachstart`/`reachend` replace the explicit earlier/later rows with no source change.
 
@@ -43,28 +48,24 @@ sits on that list carries the trade it would take.
   descendant collapse y=110 → 150), so stable offsets and wrapping-context identity must be settled before measurement
   sees them, or bounded re-layout used instead (Charlie's call; LLP 1043.000 §8 "Stage 0"); the wasm cost is ~+77 KiB against the ruled ~64 KB;
   Euclidean `shape-margin` for ellipse/polygon; `justify` in fragments; iOS hit-testing and any iOS run at all;
-  Safari/Firefox; `shape-outside: <image>`; the 2,000-paragraph worst case regressed 5 → 54 ms a pass in the fix round.
+  Safari/Firefox; `shape-outside: <image>`.
 
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
   materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
 
-- **Web driver shutdown** (2026-09-14): Caltrain web smoke and Interview web
-  drive print success after closing sessions but leave Bun alive; find the
-  remaining handle. Explicit exit after the smoke returns completes cleanly.
-
-- **Markdown scrolling, on the 120 Hz machine** (2026-09-19): scrolling now measures
-  ahead of Legend on an M4 Pro at 60 Hz with input synthesized in-process
-  (`apps/markdown/README.md`: inputs committed later than one 120 Hz frame, of
-  2,400 — 624 before, 6 against Legend's 84 in the same sitting, 2 since AppKit's
-  persistence was switched off). Owed, all needing HID and Instruments
-  permission: the same comparison at 120 Hz with real wheel and trackpad input
-  under the Hitches instrument, which at 60 Hz no longer separates the two (0, 2, 1
-  hitches against Legend's 1, 0, 0, three of the four being the scroll's first
-  frame in either app); responsive scrolling for a contained list, which cannot be
-  driven from inside the process and is what keeps Legend's scroll off its main
-  thread. Repeat first-content and memory with this build.
+- **Markdown scrolling with real input** (2026-09-19): the separate upstream
+  `4d91f9e` build measured ahead of Legend with in-process input on an M4 Pro
+  at 60 Hz and an M5 Max Retina panel at 120 Hz (`apps/markdown/README.md`:
+  inputs later than 8.33 ms, of 2,400 — about 2 against 84 at 60 Hz; 1, 1, 1
+  against 1, 6, 4 at 120 Hz). The 120 Hz runs had a load average of 30–67;
+  an Instruments trace under that load made app updates about four times as
+  long. The later integrated build still has no demonstrated Hitches advantage.
+  Owed: a quiet-machine comparison with real wheel and trackpad input, which
+  requires Accessibility permission for the event sender; responsive scrolling
+  for a contained list, which the in-process probe cannot drive; and a repeat
+  of first-content and memory measurements on the integrated build.
 - **A list paragraph is typeset twice** (2026-09-19): in black to be measured, then
   in its colours to be painted, because `TextShapeKey` carries the paint; only the
   line breaks are handed over. 0.7 ms at the median and 3 ms at worst, since
@@ -79,29 +80,26 @@ sits on that list carries the trade it would take.
   scroll callback and paints text when first seen. The runner and host halves are
   shared (`list_viewport_within`, one-call settle); the presenter half is not made.
 - **A jump lands on rows built synchronously** (2026-09-19): a scroller drag or a
-  250,000-point jump builds a scrollport of rows in one report, 30–55 ms. The rows
-  are never blank; the frame is late. Paint them first and fill the rest, or show
-  the estimate's geometry for a frame.
+  250,000-point jump takes one main-thread period of 31–44 ms. The rows are never
+  blank; the frame is late. The first report creates 68 views for six to eight
+  visible rows (13 ms in the runner and kernel, 8.6 ms in the presenter); a second
+  follows when measured heights move the landing (5 ms), then visible paragraphs
+  paint. Shorten the per-row work before spreading the fill across frames, which
+  would expose blank rows.
 - **Published dependency validation** (2026-09-19): the isolated Markdown
   candidate restores origin's `ureq` 3.4.0 lock entry for clean published Ibex
   `9cbf9e62`. Final gates must use that adjacent clean checkout and explicitly
   identified Hermes/compiler artifacts; earlier runs used a dirty sibling
   requiring 3.4.2. The unrelated sibling changes remain untouched and are not
-  authorized for publication by this Exact task.
+  authorized for publication by this Exact task. A different Ibex checkout on
+  the M5 requires 3.4.2, so the path dependency still makes `--locked` depend
+  on which sibling checkout resolved the lockfile last.
 - **The macOS smoke fails on a Mac that shows legacy scrollers** (2026-09-19): on an
   M4 Pro mini with a mouse, `smoke.mjs macos` over the Markdown app at untouched
   `6214c47` failed its scroll fixture in 22 of 24 runs (the scroll node stops at
   669, not 652: a 17-point scroller) and its motion fixture in 8 of 24 (the box
   never leaves 50 wide); with the scrolling work, 24 and 9. Nothing else failed.
   The fixtures assume overlay scrollers, and something in the run is timing.
-
-- **Apple text: cache the line-break boundaries per spec** (2026-09-18; LLP 1043 F7):
-  under `overflow-wrap: normal` `TextEngine.layout` re-runs `CFStringTokenizer` over
-  the whole paragraph at every width (25–31 µs on a 79–120 µs snapshot, probe only);
-  the boundaries depend on the text alone. Keep them beside `typesetters`; confirm in
-  the Markdown resize trace first. LLP 1043 §5 lists what would reopen an arithmetic breaker.
-  Since 2026-09-19 one tokenizer is shared (`TextEngine.lineBoundaries`), which removed
-  making one per paragraph, a tenth of a first measure; the re-run per width is as it was.
 
 - **Router and viewport follow-ups** (2026-09-15; LLP 1038/1039): core, Contract
   routes, host projections, browser history and native URL entry points are implemented.
@@ -115,11 +113,9 @@ sits on that list carries the trade it would take.
   Simulator contact backend (1035.003 §3; the backend is Charlie's call — the held-read gate now passes at two placements after common-mode agent scheduling, `/tmp/messages-held-inspection/`), 1035.001
   slice 1 (XCTest units for the navigation/modal rules, journal lines for
   refused intents, a session-scoped blur in the two-session host), 1035.004's
-  six symbol roles, 1035.005's symbols, source-aware diagnostics and development
-  map (2026-09-20: `contract fmt` and continuation recovered with source-preserving
-  formatting; D2/D3 remain on `lane/1035-merge` and `lane/game`, with unresolved
-  review findings. Recover those without dropping newer compiler features or
-  misattributing imported declarations);
+  six symbol roles, 1035.005's remaining Messages responsibility extraction and
+  three-task authoring comparisons (§3). The formatter, symbols, source-aware
+  diagnostics and development maps are integrated (2026-09-20);
   `dynamic` as a `layout <node>` source once a constant binding can be told
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
@@ -557,13 +553,10 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Shared-target filesystem helper: the ada0b93 workspace sweep failed with `spawnSync .../exact-filesystem ENOENT`; the working checkout’s async reader also intermittently returned 404 when its helper exited after one request. Reproduce helper executable identity/lifecycle across worktrees before claiming a full green sweep; evidence in `/tmp/interview-snapback4-20260913/exact2-checks/` and `/tmp/interview-snapback4-20260913/ui/`.
   LLP 1039's web smoke passed every assertion but retained its `exact-filesystem --serve-reads` child after printing success; closing that recorded child let Bun exit 0. Close the helper at the end of a finite bake/smoke process (`/tmp/lane-router/1039/smoke-web.log`, `launched-pids.txt`).
 
-- Diagnostic source capture: the September 14 optional suite passed 55/56 cases; its source-isolation/cleanup assertion failed. A focused reproduction was interrupted after walking `snapback-sb4/snapback4/target/debug/deps` as ignored source for minutes; the assertion's cause remains unconfirmed. Exclude actual Cargo output directories of local dependency workspaces, while preserving ignored real inputs: derive output roots from Cargo instead of excluding every directory named `target`.
-
 - Native development URL latency: Charlie observes about one second for Update Lab Contract edits on the physical iPhone while localhost clients update almost immediately (2026-09-14). Notification already uses SSE. `PlanURL` now fetches up to four verified payloads concurrently after the envelope; it still creates a fresh URLSession per fetch and refetches unchanged payloads. A physical-phone sample measured envelope 56.5 ms, payload fetches 1,347.8 ms, and prepare/commit 32.1 ms (`target/update-lab-phone-timing.json`). Payload fetching dominates this sample; isolate connection setup versus transfer, then consider a shared session and verified reuse by digest. Preserve byte limits, complete-generation validation and failed-candidate retention.
 
 - Update completion event (Charlie, 2026-09-14): expose one app lifecycle notification after an admitted generation commits and its executors are ready, covering Contract, TypeScript and Rust. Include which artifact digests changed; refused/superseded candidates emit nothing, and initialization stays after first pixel. Update Lab now uses its existing 250 ms task to show executed probe versions automatically; an event would remove that sampling delay without making real apps poll. Define the shared Contract lifecycle hook before adding separate host callbacks.
 
-- Fieldnotes aggregate library size: the app admits 1,000 notes of up to 20,000 UTF-16 units each, but `library` reads every body in one SQLite result. Real Chrome with 1,000 emoji notes at the per-note limit returns `query result exceeds 16 MiB limit` and cannot open the notebook. Paginate/search in SQLite and load full bodies only for the selected note so allowed stored data remains readable; preserve ordering, filtering, IDs and draft guards. Backup now uses one size-bounded SQLite statement in both languages, preserves one read snapshot and returns the existing 4 MiB backup notice. A generic worker would not repair this result-size failure (LLP 1027.001).
 
 - Worker placement follow-ups (LLP 1027.002, landed 2026-09-14): drive the placed Fieldnotes on an iOS simulator through the shared Apple host; a macOS frame-gap instrument (a display link's callback cadence in `state`) so §5 step 5 is judged on the device, not only in Chrome; a forgotten ticket's held call still takes its turn (D5 says it may be removed before it starts) — tell the composer when the runner forgets; Rust on a web Worker waits behind a consumer (the NOT-DOING take); the development producer refreshes a Rust-owned resource's first-frame value only at a Cargo bake, and refuses a Rust source shared by several resources until then.
 
@@ -576,14 +569,11 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Storage reload assertion (2026-09-14, router verification): the workspace sweep failed `exact-js --test storage` / `unload_invalidates_continuations_and_configuration_survives_reload` with `"cancel"` instead of `"again"`; the focused seven-test storage rerun passed. Reproduce the cancelled file operation/reload interaction before claiming the full workspace sweep green. Evidence: `target/router-test.log`, `target/router-test-retry.log` in `exact2-wt-router`.
 
-- Web smoke teardown (2026-09-14, router verification): `bun scripts/smoke.mjs web` printed `web smoke: ok in 34.6 s` and all three Caltrain tests passed, but the Bun process remained alive afterward; the launched exec session was interrupted (exit 130). Identify the retained handle and make successful smoke runs exit naturally. Evidence: `target/router-smoke.log` in `exact2-wt-router`.
-
 - Interview router row 4 (LLP 1038 F10): seed an isolated agent-mode replica for the own-data/scroll swipe drive; first finish the static fixture’s held swipes with Simulator unobscured (other desktop apps blocked contact).
 - Interview iPad-wide iOS (LLP 1038): drive the rail on a real wide simulator viewport; the iPhone agent ignores `--size` and reports 402 × 874 for both requested sizes.
 - Interview backend list arguments (LLP 1038): let `/state` accept question/person/post ID lists and return every stacked record; the pre-replica path currently sends only each list’s first ID.
 
 - Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
-- Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 # Graceful-overload consumers (2026-09-16)
 
 LLP 1041 starts `messages-stress` and `completion-storm` as opt-in synthetic
@@ -599,12 +589,6 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - Web textflow size review (LLP 1043.000 §6.2, M5): optimized textflow-web grew from the observed pre-M5 834,019 bytes to 905,398 bytes (+71,379), above the approximate 64 KB revisit threshold. Caltrain is currently 1,022,149 bytes; the orchestrator has the pre-program comparison. Review code/data size while preserving the ruling that the shared crate stays linked. Evidence: `target/textflow-scratch/m5/size-baseline.json`, `wasm-probe.json`.
 - Public UI coverage (LLP 1035.006): select the first settings slice (labels, buttons, switches, checkboxes, radio groups, and text entry), choose each platform's disposition, then implement and hand-check the concrete examples. The ordered catalog distinguishes accepted support from reviewed deferrals; drafting it does not admit every excluded capability.
-
-- Tooling follow-up (2026-09-19): `bun scripts/caps.test.mjs` still passes 59/61 after the Snapback 0.2.30 recovery. The absent-root watcher misses deletion (`created=true, deleted=false, recreated=true`), and diagnostic source/output isolation and failure cleanup fails. These match the saved 2026-09-17 findings; Apple packaging checks pass.
-  Parent-event mapping now reconciles `gpu` changes into `gpu/shaders`, with
-  last-good symlink refusal tested. Live event delivery remains unresolved:
-  fresh Bun and Node probes coalesced or delayed events, and a rejected root
-  identity-polling prototype still missed a later file edit after recreation.
 
 - Markdown/native collection integration (2026-09-18): the retained reader's
   explicit row-height list and upstream `virtualized` collection both build.
@@ -628,3 +612,7 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - Hermes incremental rebuild inputs (2026-09-19): `js/build.rs` captures macOS/Linux engine archives in OUT_DIR but only watches iOS archives; replacing the external compiler/VM can leave a warm native build stale. Add upgrade invalidation together with `scripts/app.mjs` receipt identity support for external SDK inputs; simply adding external rerun-if-changed paths currently makes bake receipt capture refuse them. Until then, clean exact-js when provisioning a new compiler/engine.
 
 - Linux baseline failures found during dependency verification (2026-09-19): `exact-gpu` references Apple-only `SurfaceTargetUnsafe::CoreAnimationLayer` on Linux; Hermes ICU `DateTimeFormat.formatToParts` returns timestamp text (same with old 6badada and new e3371863); Ibex loader-case fixture expects a case-insensitive filesystem. Repair separately from the dependency upgrade; current Linux full-workspace checks are not green.
+
+- Contract lint fixture (2026-09-20): `conditional_style_literals_are_refused_at_the_offending_branch` expects conditional `top="0px"` to fail, but current lowering accepts that CSS length. Reconcile the fixture with current schema; full Contract tests are not green. Found while validating the independent shared-list estimate correction.
+
+- Shop Exact delivery sheet: content-to-sheet handoff needs continuous input/geometry measurement. Three iOS experiments (2026-09-20) matched short expansion/collapse but did not prove transfer, reversal or inertia; repeated source endpoint drags varied. They were preserved outside the repo and reverted to the staged baseline. Do not restart the same endpoint-fitting loop. Evidence: sibling shopify-exact/.evidence/content-handoff-experiments.json. Header coalesced-input admission remains repaired; Google Maps integration is separate.

@@ -111,8 +111,10 @@ impl NodeInst {
                 "item-height must be positive and finite",
             ));
         }
-        let sites = sites(u.env.plan, Some(self.node), u.env.plan.node(self.node).arm);
-        let [(_, Site::Region(region))] = sites.as_slice() else {
+        let sites = u
+            .sites
+            .children(Some(self.node), u.env.plan.node(self.node).arm);
+        let [(_, Site::Region(region))] = sites else {
             return Err(InstanceError::List("list requires one direct each"));
         };
         if u.env.plan.region(*region).kind != RegionKind::Each {
@@ -684,10 +686,10 @@ impl Tree {
                                         && (row.wrapper == Some(pin)
                                             || row.roots.iter().any(|c| match c {
                                                 Child::Node(n) => {
-                                                    n.find(pin, &mut Vec::new()).is_some()
+                                                    n.find::<false>(pin, &mut Vec::new()).is_some()
                                                 }
                                                 Child::Region(r) => {
-                                                    r.find(pin, &mut Vec::new()).is_some()
+                                                    r.find::<false>(pin, &mut Vec::new()).is_some()
                                                 }
                                             }))
                                 };

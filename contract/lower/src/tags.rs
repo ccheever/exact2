@@ -62,6 +62,7 @@ pub fn tag(name: &str) -> Option<Tag> {
         fixed_props,
         positional: None,
     };
+    let semantic = |name| view(vec![], vec![(p("semanticTag"), name)]);
     Some(match name {
         "view" | "box" => view(vec![], vec![]),
         "column" => view(
@@ -76,9 +77,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             vec![(s("position_type"), "absolute")],
             vec![(p("semanticTag"), "dialog")],
         ),
-        "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" => {
-            view(vec![], vec![(p("semanticTag"), leak(name))])
-        }
+        "main" => semantic("main"),
+        "header" => semantic("header"),
+        "nav" => semantic("nav"),
+        "section" => semantic("section"),
+        "footer" => semantic("footer"),
+        "article" => semantic("article"),
+        "aside" => semantic("aside"),
         "list" => Tag {
             node_type: NodeType::List,
             fixed_styles: vec![],
@@ -152,12 +157,6 @@ pub fn tag(name: &str) -> Option<Tag> {
         },
         _ => return None,
     })
-}
-
-fn leak(name: &str) -> &'static str {
-    // The semantic tag set is closed above; leaking a handful of short
-    // strings once per process is the simplest way to hand out `&'static`.
-    Box::leak(name.to_string().into_boxed_str())
 }
 
 /// What a prop attribute's value must be.
@@ -244,6 +243,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "playbackRate" => AttrTarget::Prop(p("playbackRate")),
         "currentTime" => AttrTarget::Prop(p("currentTime")),
         "paused" => AttrTarget::Prop(p("paused")),
+        "playbackVisibilityThreshold" => AttrTarget::Prop(p("playbackVisibilityThreshold")),
         "preservesPitch" => AttrTarget::Prop(p("preservesPitch")),
         "allowsPictureInPicturePlayback" => AttrTarget::Prop(p("allowsPictureInPicturePlayback")),
         "canStartPictureInPictureAutomaticallyFromInline" => {
@@ -447,6 +447,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "overscroll-behavior-y" => styles(&["overscroll_behavior_y"]),
         "z-index" => styles(&["z_index"]),
         "transition" => styles(&["transition"]),
+        "interpolate-size" => styles(&["interpolate_size"]),
         "translate" => styles(&["translate"]),
         "scale" => styles(&["scale"]),
         "rotate" => styles(&["rotate"]),
@@ -535,9 +536,17 @@ pub(crate) fn validate_list(
             .iter()
             .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))
         {
+            if heights.len() == 1
+                && heights[0].name == "estimated-item-height"
+                && matches!(heights[0].value, Expr::Number(n, _) if n.is_finite() && n > 0.0)
+            {
+                // Shared collection template, viewport and flow checks follow
+                // in check_collection, including their specific diagnostics.
+                return Ok(());
+            }
             return super::err(
                 "lower-list-height",
-                "choose virtualized or an explicit row height, not both",
+                "virtualized lists accept one positive literal `estimated-item-height`, not a fixed row height",
                 span,
             );
         }
@@ -558,15 +567,18 @@ pub(crate) fn validate_list(
                 span,
             );
         }
-    } else if expanded
-        .iter()
-        .any(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
-    {
-        return super::err(
-            "lower-list-height",
-            "row height declarations belong on `list`",
-            span,
-        );
+    } else {
+        let heights: Vec<_> = expanded
+            .iter()
+            .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
+            .collect();
+        if !heights.is_empty() {
+            return super::err(
+                "lower-list-height",
+                "row height hints belong on `list`",
+                span,
+            );
+        }
     }
     if tag == "list"
         && !expanded
@@ -580,4 +592,65 @@ pub(crate) fn validate_list(
         );
     }
     Ok(())
+}
+
+/// Suggest one unambiguous single-edit spelling from the existing attribute
+/// lookup. No second vocabulary is maintained, and this never admits an alias.
+pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
+    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
+        return None;
+    }
+    let mut found: Option<String> = None;
+    let mut consider = |bytes: &[u8]| {
+        let candidate = std::str::from_utf8(bytes).expect("ASCII spelling edits");
+        if candidate == name {
+            return true;
+        }
+        let admitted = match attr(candidate) {
+            Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
+            Some(_) => !style_only,
+            None => false,
+        };
+        if admitted {
+            if found.as_deref().is_some_and(|old| old != candidate) {
+                return false;
+            }
+            found = Some(candidate.to_owned());
+        }
+        true
+    };
+    const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
+    let mut candidate = name.as_bytes().to_vec();
+    for index in 0..name.len() {
+        let original = candidate.remove(index);
+        if !consider(&candidate) {
+            return None;
+        }
+        candidate.insert(index, original);
+        for &letter in LETTERS {
+            candidate[index] = letter;
+            if !consider(&candidate) {
+                return None;
+            }
+        }
+        candidate[index] = original;
+        if index + 1 < name.len() {
+            candidate.swap(index, index + 1);
+            if !consider(&candidate) {
+                return None;
+            }
+            candidate.swap(index, index + 1);
+        }
+    }
+    for index in 0..=name.len() {
+        candidate.insert(index, b'a');
+        for &letter in LETTERS {
+            candidate[index] = letter;
+            if !consider(&candidate) {
+                return None;
+            }
+        }
+        candidate.remove(index);
+    }
+    found
 }

@@ -422,6 +422,16 @@ this throughput improvement does not establish smooth giant-block rendering.
 
 ### 8.4 Bounded native HTTP admission and completion pumping
 
+TypeScript sources can make the same explicit promise through
+`fetch(url, {exactIndependentHttp: {maxResponseBytes: 524288}})` (2026-09-20,
+Shop merchant typeahead consumer). The native prelude and Rust seam validate an
+integer ceiling from 1 through 64 MiB before admission; omitted metadata remains
+ordered. This is a native scheduling hint, ignored by browser fetch, whose
+admission remains browser-owned. Only use it when both the HTTP operation and
+its settlement may reorder. The Shop consumer opts in suggestions, with bounded
+query-keyed answer caching and account guards, while submitted searches retain
+ordered capacity. It adds no worker, grant, timer, or larger queue.
+
 Native requests now stay ordered by default. A source can explicitly promise
 that an HTTP operation **and its settlement** may overlap/reorder, with a declared
 response ceiling. Storage and native continuations cannot opt in. Two independent
@@ -872,6 +882,48 @@ checkpoints, opaque font/shaping storage and allocator/RSS costs are not silentl
 counted as cold or refunded on cache eviction. Neither policy is a total-memory
 ceiling, a bound on arbitrary paragraph size, or a global two-width limit.
 
+**Apple incremental cleanup (2026-09-20):** a paragraph request crosses several
+residency operations. Each now examines one entry and one identity for dead weak
+metadata, down from four each. Cold eviction, source lifetime, lookup/identity
+count caps and checkpoint isolation keep their existing rules; dead metadata
+can take more operations to retire. The existing 10/100/1,000-history regression
+observed 29/25/33 maintenance visits for its hit/miss/accept sequence, versus
+99/97/97 before, with all 269 native tests passing. An isolated optimized
+40-reader-paragraph, 60-width ABBA probe (seven trials per group) measured
+baseline medians 61.68/61.42 µs per layout and candidate 51.96/49.43 µs. Logical
+cold payload and output checksums matched; 480 complete line/glyph snapshots
+also matched. These timings compare this cleanup change against the Unicode
+boundary-cache parent under the same run conditions, not against another app
+or a displayed-frame target. A preceding strong-entry weak-lookup shortcut had
+no consistent benefit and was not retained.
+
+**Apple width-retirement index (2026-09-20):** scalar measurements remain in
+bounded cold storage for reuse, but are no longer indexed among the shapes and
+paragraphs that width retirement examines. This removes a scan of saved scalar
+widths without changing their ownership, eviction, accounting or lookup rules.
+The new 10/100/1,000-width regression previously observed 12/102/1,002 visits;
+it now observes two in each case, and every saved metric still resolves. All
+270 native tests pass; 480 complete line/glyph snapshots remain identical.
+An isolated reader ABBA comparison with optimized Swift and the same debug
+native bridge measured baseline medians 56.58/51.18 µs and candidate 48.70/50.44 µs,
+with identical checksums and logical cold payload. Native launch delays and
+variable timings limit the timing claim; the eliminated scan is the firm result,
+not an established scrolling or displayed-frame improvement.
+
+**Apple unchanged-line reuse (2026-09-20):** an immutable text shape weakly
+remembers its last paragraph. A new width can reuse an ordinary CTLine when
+its exact source range remains unchanged; line-clamped paragraphs are excluded.
+No additional paragraph owner or width history is retained. The new regression
+fails on the parent; all 272 native tests pass, including paint, ellipsis and
+accepted-paragraph release checks. All 480 held-paragraph line/glyph snapshots
+match, with 58 lines reused versus zero on the parent. An isolated 40-paragraph,
+60-width probe accepting each layout as a view does measured paired medians
+29.89/23.64, 28.53/22.70 and 28.24/22.02 µs (parent/candidate, seven trials per
+group). Both use optimized Swift and the same debug native bridge, produce
+the same checksum and retain zero cold payload. This is a paragraph-resize
+work reduction, not a physical scrolling or displayed-frame result.
+
+
 **Actual Linux:** fourteen residency and seven existing text tests pass with
 strict all-targets Clippy on the frozen Ubuntu ARM64 source. Eighteen fresh
 processes compare the raster foundation with the four Linux residency files,
@@ -1161,6 +1213,76 @@ input ACK timing. No RSS bound, autonomous background progress, UIKit or
 physical 120-Hz result is claimed.
 
 ### 8.12 Numeric sheet-height presentation trial, 2026-09-17
+
+**Shop consumer extension, Codex, 2026-09-19:** the kernel now accepts
+`&[PresentedHeight]` on `compute_layout_presented`; an empty slice restores all
+current authored heights. Several product sections must share a single layout
+publication when their animations overlap. The complete set is validated before
+mutation, including rejection of duplicate generational owners. Equal samples
+in any order reuse layout state; removing one restores only that owner's latest
+authored style. The retained vector grows with active owners and reuses capacity
+on subsequent frames; callers pass borrowed slices without a per-call sample
+allocation. Rebuild reapplies the complete validated set. Existing Apple/Linux
+and interaction-gallery callers pass their optional single sample as a slice;
+their one-owner admission policy is unchanged. Numeric-only eligibility and the
+registered-content-region exclusion remain. Content-sized section measurement,
+automatic host adoption, app wiring and physical motion verification are still
+required; this kernel increment alone does not animate the Shop accordions.
+Validation: all 263 kernel tests pass, including 23 projection cases; the
+Apple unit/integration groups pass 161 tests. The scoped Linux unit, Height,
+height-binding and hold groups pass 348 with one existing GPU test ignored;
+the gallery's eight windowed collection tests pass. Strict all-target Clippy
+for kernel/Apple/Linux/gallery, workspace formatting, caps and boot pass.
+Full-workspace build/test/Clippy remain failed at the filesystem helper in
+application bakes. These are layout/host checks, not physical animation evidence.
+**Content-height measurement, Codex, 2026-09-19:**
+`Kernel::measure_height_targets(root, offer, owners)` returns the current
+authored used border-box heights, including content-sized `auto` boxes. It
+validates the complete request before touching derived layout, temporarily
+removes active projections, computes the authored target layout, then restores
+every prior projection before returning. It publishes no frames, overflow,
+flags, authored styles, receipts or epoch. Engine recovery reapplies the prior
+sample set; invalid host metrics preserve publication and invalidate the bad
+measurement cache. Text, width and same-epoch intrinsic-size changes are read
+from the current tree. Empty requests do not lay out. Query results and the
+saved projection set allocate only for this target pass, not for each motion
+frame. Repeated equal text offers reuse measured-leaf metrics.
+
+Explicit presentation now also admits `height: auto` on a border-box owner;
+percent/env heights and content-box auto remain refused. Ordinary layout and
+`height_target`/host admission remain unchanged: this is no automatic animation
+policy. Measurements include used min/max constraints and are not the raw
+intrinsic size or a complete implementation of CSS `interpolate-size`.
+Automatic host adoption, content/offer invalidation, authored opt-in and physical
+accordion comparison remain unfinished. Hosts must call this on target changes,
+not indiscriminately on every animation tick.
+
+**Shop host integration, Codex, 2026-09-19:** the inherited schema row
+`interpolate-size` defaults to `numeric-only`; `allow-keywords` opts eligible
+Apple border-box numeric/auto Height transitions into automatic ownership.
+The existing receipt walk tracks declarations. Authored epoch changes and
+viewport/inset/intrinsic invalidation trigger one target pass; motion ticks reuse
+samples without target measurement. Settled auto content changes use ordinary
+layout; active changes retarget the shared engine continuously. Changing the
+opt-in alone does not cancel an active transition. Hiding/removing owners retires
+their Height state, and failed measurements preserve published frames for retry.
+The manual draggable owner remains separate. Automatic adoption requires one
+layout root and no registered content region; Linux automatic adoption is still
+open. This is not full CSS intrinsic-size/calc-size support.
+
+Dimension decoding now accepts CSS pixel-length strings as well as numeric
+values, sharing the checked number grammar with translation. This permits
+same-type Contract branches between `"0px"` and `"auto"`. The Shop app retains
+clipped, inert section bodies and declares a 260 ms easing transition plus
+chevron rotation. Browser CSS supplies the web animation. Actual app probes on
+both web and iOS observe 263 → 103.3 points at 65 ms, matching following-sibling
+movement and continuous reversal back to 263. Five new Apple-host cases pass,
+including simultaneous owners and no target query during motion ticks. The
+curve is provisional: source timing, physical frame pacing, performance impact
+and broader CSS parity are not established by these checks.
+
+The original single-owner trial and its measurements below are historical.
+
 
 The kernel trial separates sampled layout height from authored state.
 Leibniz owns the kernel prototype and tests in an isolated worktree; Tuft owns
@@ -4895,6 +5017,26 @@ and complete patch `e634e23e36f08e845074c608b445d470b1be6d1964ea8d8ba610f401774f
 Independent constructor-instrumentation inverses recover both production arms;
 all10 recorded processes/five groups are absent. The measured repeated
 preparation in §8.78 motivates this change but does not quantify its saving.
+
+**2026-09-20 — Unicode boundaries share the live preparation too.** Normal
+finite-width layout now computes its nil-locale line-break opportunities once
+per preparation. Intrinsic and emergency-wrap layouts do not populate the lazy
+array. The serial-worker owner, exact-source lookup and last-owner release stay
+the same; this retains one integer array with the preparation, outside the
+pixel/index/hit budgets, and adds no width history.
+
+An optimized Swift comparison of the actual worker, in ABBAAB order, measured
+repeated-width shape medians of108.69→83.20µs for30 reader paragraphs,
+323.19→237.45µs for mixed Unicode and268.83→240.12ms for a2,242,305-byte source.
+These include line construction and metadata; they are not physical scrolling
+or full-app latency results. All324 paired glyph/geometry snapshots agree,
+including clamps, all three wrap modes and intrinsic-to-finite reuse. Evidence:
+`/tmp/exact-region-boundaries-b0417312/`. The extra boundary storage lives as
+long as its preparation: measured array capacities are288–2,528B per reader paragraph
+and3,145,696B for that large source. The64-binding limit remains no total-memory
+bound. Optimized native validation also exposed an existing alias-lifetime test
+failure on unchanged code; its assertion now explicitly extends the retained
+alias through the ownership check.
 
 ### 8.80 Full-body validation of shared preparation, 2026-09-18
 
@@ -9153,7 +9295,34 @@ the prior normal-clock diagnostic are unchanged. All compile/run operations
 are terminal with no guard actions;14 recorded PIDs/groups are freshly absent.
 Closure free space is76.81GB, above the user's25GB cleanup trigger.
 
-### 8.167 Single-run immutable raster sources remove actual Messages preparation work
+### 8.167 UIKit height-drag recognition with coalesced input, 2026-09-20
+
+Shop Exact's live delivery sheet exposed a UIKit input case on iOS-on-Mac: at
+`gestureRecognizerShouldBegin`, the real header pan had translation
+(0, -175.927875) and velocity (0, 0). The velocity-only admission rejected it.
+Height admission now uses translation direction when velocity is exactly zero,
+while rejecting non-finite input and retaining velocity precedence otherwise.
+The UIKit adapter also applies the first recognized translation after catching
+the current presentation; previously it subtracted that whole first sample
+from all later movement, losing coalesced drags. Hold ownership, cancellation,
+layout constraints and authored release/spring choice remain unchanged.
+This deliberately changes the UIKit first-sample behavior from the earlier
+header increment; AppKit/web recognition thresholds are unchanged.
+
+A signed Shop Exact iOS-on-Mac build now moves through 447 → 653 → 217 → 447
+point resting heights via CUA pointer drags, with screenshots matching the
+source's three vertical resting positions. Internal receipt navigation returns
+to the expanded sheet. This verifies positions and input acceptance, not
+physical-iPhone gestures, continuous frame pacing or source-equivalent motion.
+Content-to-sheet scroll-boundary handoff remains unimplemented. The app has a
+latest-scan placeholder pending Google Maps integration, not a completed map.
+The pure direction regression joins the existing Height tests; all 266 Apple
+Swift tests pass. That run first required repairing an existing CollectionMac
+test double to match `onList`'s eight-argument/Bool signature; no production
+collection behavior changed. Evidence is the Shop Exact task's
+`work/delivery-drag-*` files and app `.evidence/delivery-sheet-checkpoint.json`.
+
+### 8.168 Single-run immutable raster sources remove actual Messages preparation work
 
 The next candidate constructs a raster Job's single-run NSAttributedString directly,
 using the same extracted font/color/kern/decoration attributes. It removes the mutable

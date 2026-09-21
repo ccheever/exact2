@@ -57,7 +57,9 @@ make sense to do next.
 
 ```sh
 cargo run -q -p contract -- build apps/messages/app.contract --json
+cargo run -q -p contract -- build apps/messages/app.contract -o /tmp/messages.plan --map
 cargo run -q -p contract -- symbols apps/messages/app.contract
+cargo run -q -p contract -- symbols apps/messages/app.contract --name selectRecipient
 cargo run -q -p contract -- fmt --stdout apps/messages/app.contract
 cargo run -q -p contract -- fmt --check apps/messages/app.contract
 ```
@@ -65,10 +67,15 @@ cargo run -q -p contract -- fmt --check apps/messages/app.contract
 `symbols` prints JSON with `definitions` and `references`. Each reference's
 `to` is an index into `definitions`; locations include the original file,
 1-based line and byte column, and an exclusive `end_col`. Component interfaces,
-local bindings, parameters, typed shape fields and literal IDs are navigable.
-Shared shape/function/style files can be queried directly. The query uses the
+local bindings, parameters, typed shape fields, font families and literal IDs are navigable.
+Shared shape/function/style/font files can be queried directly. The query uses the
 compiler's import and type rules and writes no files. Repeated literal IDs have
 an edge to each matching declaration; dynamic IDs have no static target.
+
+`--name <exact-name>` returns all matching definitions across scopes and their
+references, with `to` indices into that response's smaller `definitions` array.
+Names are exact and case-sensitive, not patterns; no match returns empty arrays.
+The complete source graph is still checked. `symbols --help` shows the syntax.
 
 `build --json` writes one diagnostics array to stdout: `[]` on success, or a
 stable `id`, `message`, original `file`, `line`, `col`, `end_col`, and `related`
@@ -79,6 +86,32 @@ means no source range, and a null file means no file is associated. No prose is
 mixed into JSON, including argument and output-write failures. Exit codes are
 0 for success, 1 for compilation/I/O failure, and 2 for invalid arguments.
 `-o <file.plan>` writes the same plan bytes in either output mode.
+
+`build --map -o <file.plan>` also writes `<file.plan>.map.json`, keyed by
+SHA-256 of the plan bytes. Each plan node has its original file and range,
+component call-site chain, and the winning style row's origin (`own`,
+`class:<Name>`, or `tag`). Slots, derives and actions retain their declarations,
+including state and actions lifted from child components. Maps are separate
+files; ordinary compilation collects neither instantiation provenance nor lowering sites. The compiler API's
+`compile_path_mapped` and `compile_path_source_mapped` return the map alongside
+the plan; `SourceMap::bake_error` resolves measured layout refusals, and
+`SourceMap::json` takes the final encoded bytes after baking. A consumer must
+verify the map's digest against the plan actually accepted by its session.
+The resident Contract, TypeScript and portable Rust producers emit maps after
+baking. Temporary source captures retain the original app filenames. The dev
+server keeps the matching map at the generation's `app.plan.map.json` URL,
+declared under `dev.sourceMap`; it is never an asset or module payload. Static
+builds and production publication omit it. `agent.mjs ... "layout <target>"`
+reads the map beside `--plan` or from the development `--url`/`EXACT_DEV_PLAN`
+envelope. It shows the declaration, component callers and winning authored style
+origins only when the same node reply carries the matching plan digest. The
+runner computes that digest lazily once per accepted plan; ordinary inspection
+does no hashing. Missing, invalid or stale maps leave geometry available with a
+source-unavailable explanation. The driver retains four recent map digests for
+sessions that keep an older plan after a refused reload. A fresh driver may lack
+that older map and refuses the join. “Compatible source map” means the compiled
+plan matches: formatting-only edits can change source locations without changing
+the plan, so this is not an original-source revision guarantee.
 
 `fmt --stdout` previews source-preserving formatting; `--check` prints a diff
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
@@ -335,6 +368,11 @@ cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --ch
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
 ```
+
+Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
+Debug assertions and overflow checks remain enabled; the normal development
+profile still leaves app and engine code unoptimized. Tests keep their full frame
+counts. Use release builds when comparing application frame costs.
 
 The shared build scripts select development trust explicitly too. Direct Cargo
 builds otherwise use production trust: an updating native artifact requires

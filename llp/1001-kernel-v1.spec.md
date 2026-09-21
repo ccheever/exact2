@@ -311,7 +311,10 @@ ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
 
 - **Selector index.** `testId` is a kernel citizen: an exact-value multimap,
   maintained on set/clear/destroy/reset, returned in structural tree order
-  (`Kernel::find_by_test_id`).
+  (`Kernel::find_by_test_id`). `find_first_by_test_id` uses that same order:
+  unique names resolve directly from the index; repeated names stop at the first
+  structural match, with detached slots last. Targeted agent reads separately
+  verify attachment and recover depth from the current ancestors.
 - **The environment** (2026-08-30). A dimension row takes a fourth kind beside
   `auto`, points, and percent: an `env()` length — CSS's
   `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,
@@ -386,9 +389,14 @@ Per-node flags (`STYLE_DIRTY`, `TEXT_DIRTY`, `CHILDREN_DIRTY`, `PROPS_DIRTY`,
 `PAINT_DIRTY`, `GEOMETRY_CHANGED`, `CREATED`), one published epoch
 (`Kernel::epoch`, bumped only by a commit that changed something), and a
 `CommitReceipt` per batch (`created`, `destroyed`, `touched`, `layout_invalidated`)
-retained in a 64-deep ring. `compute_layout(root, offer)` runs Taffy over that
-root, publishes absolute frames, and returns a `LayoutReceipt` naming exactly the
-nodes whose frame bits changed — the changed-geometry receipt.
+retained in a 64-deep ring. During apply, touched generation-checked keys collect
+in a vector. Adjacent duplicates collapse before sorting; publication removes
+remaining duplicates, destroyed generations and newly created nodes, in slot
+order. The retained vector releases excess scratch capacity. The same-batch
+reuse case is held by `tests/apply.rs::touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generations`.
+`compute_layout(root, offer)` runs Taffy over that root, publishes absolute frames,
+and returns a `LayoutReceipt` naming exactly the nodes whose frame bits changed —
+the changed-geometry receipt.
 
 Frames retain fractional CSS pixel geometry (Messages, 2026-09-09). Taffy's
 whole-point rounding is disabled when constructing the layout tree, including
@@ -447,10 +455,14 @@ a `<div>`; a paragraph's `direction` and `text_align` inherit into its
 measurement too. Invalidation is the kernel's: a write to an inherited row
 marks and touches every logical descendant that does not set the row itself
 (text rows remeasure its paragraph, the rest repaint), stopping under an
-override; a child moved between parents propagates only the rows whose
-computed value differs, and an orphan re-attached is re-derived in full. The
-receipt therefore names what an inherited change reached; no host re-derives
-descendants per frame. A light/dark pair is preserved for the host to resolve.
+override. Attaching or moving a child propagates only rows whose computed
+value differs, including an orphan's own/default values before attachment.
+The transient before/after snapshot holds only the schema's inherited rows;
+it shares the ancestor walk with full computed styles and retains no cache.
+Ancestry changes still invalidate paragraph paint/source metadata and a moved
+text node's measure ownership. The receipt names what an inherited change
+reached; no host re-derives descendants per frame. A light/dark pair is
+preserved for the host to resolve.
 `kernel/tests/apply.rs` holds colour (reparenting, cleared overrides) and the
 text rows (a bare, a bold and a small run; the touched set after an ancestor
 change, a move and a clear; an identical write touching nothing).
@@ -510,6 +522,11 @@ type, flags, depth, frame), per-node masked style patches, per-node typed props.
 never allocates from a count (sections, rows, children) it has not first bounded
 by the bytes actually present — with the arithmetic in `u64`, so a 32-bit wasm
 target cannot overflow on a hostile length either.
+
+`Kernel::row(id)` returns the same typed metadata for one live node, including
+detached nodes, with subtree-relative depth zero. It allocates no traversal and
+does not visit descendants. Agent shallow reads check live-root attachment and
+supply the absolute tree depth before serializing that one row.
 
 ## 8. Errors
 

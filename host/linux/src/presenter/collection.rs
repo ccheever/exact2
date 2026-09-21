@@ -13,6 +13,7 @@ pub(super) struct ModelScroll {
     key: NodeKey,
     sequence: u64,
     top: f32,
+    left: Option<f32>,
 }
 
 #[derive(Default)]
@@ -20,6 +21,8 @@ pub(super) struct State {
     cursors: BTreeMap<ViewId, Cursor>,
     queue: VecDeque<ViewId>,
     interaction: Option<ViewId>,
+    authored_scroll: Option<bool>,
+    scroll_events: VecDeque<(ViewId, NodeKey)>,
 }
 #[derive(Default)]
 struct Cursor {
@@ -31,6 +34,10 @@ struct Cursor {
     queued: bool,
     requested_top: Option<f64>,
     model_scroll: Option<ModelScroll>,
+    ordinary: bool,
+    requested_left: Option<f64>,
+    follow_end: bool,
+    maximum: Option<(f32, f32)>,
 }
 impl Cursor {
     fn advance(&mut self) {
@@ -47,6 +54,18 @@ impl Cursor {
         self.key = Some(key);
     }
     fn model_top(&mut self, key: NodeKey, top: f32, displayed: bool, offset: &mut (f32, f32)) {
+        self.model_offset(key, (offset.0, top), displayed, offset);
+        if let Some(pending) = &mut self.model_scroll {
+            pending.left = None;
+        }
+    }
+    fn model_offset(
+        &mut self,
+        key: NodeKey,
+        target: (f32, f32),
+        displayed: bool,
+        offset: &mut (f32, f32),
+    ) {
         if displayed {
             // An exhausted input sequence cannot qualify a future ACK, just
             // as it cannot qualify a Runner correction below.
@@ -56,10 +75,11 @@ impl Cursor {
             self.model_scroll = Some(ModelScroll {
                 key,
                 sequence: self.sequence,
-                top,
+                top: target.1,
+                left: Some(target.0),
             });
         } else {
-            offset.1 = top;
+            *offset = target;
         }
     }
     fn geometry(&mut self, dimensions: (f64, f64, f64, f64)) {
@@ -83,6 +103,12 @@ impl Cursor {
     }
 }
 impl State {
+    fn scroll_event(&mut self, view: ViewId, key: NodeKey) {
+        if !self.scroll_events.contains(&(view, key)) {
+            self.scroll_events.retain(|(id, _)| *id != view);
+            self.scroll_events.push_back((view, key));
+        }
+    }
     pub(super) fn pending(&self) -> bool {
         !self.queue.is_empty()
     }
@@ -95,18 +121,27 @@ impl State {
     }
     pub(super) fn advance_all(&mut self) {
         for cursor in self.cursors.values_mut() {
-            cursor.advance();
+            if !cursor.ordinary {
+                cursor.advance();
+            }
         }
     }
     fn schedule(&mut self, snapshots: &[CollectionSnapshot]) {
         let live: BTreeSet<_> = snapshots.iter().map(|s| s.view).collect();
-        self.cursors.retain(|id, _| live.contains(id));
+        self.cursors
+            .retain(|id, cursor| cursor.ordinary || live.contains(id));
         self.queue.retain(|id| live.contains(id));
         for snapshot in snapshots {
             let cursor = self.cursors.entry(snapshot.view).or_insert_with(|| Cursor {
                 sequence: snapshot.scroll_sequence,
                 ..Cursor::default()
             });
+            if cursor.ordinary {
+                *cursor = Cursor {
+                    sequence: snapshot.scroll_sequence,
+                    ..Cursor::default()
+                };
+            }
             if !cursor.queued {
                 cursor.queued = true;
                 self.queue.push_back(snapshot.view);
@@ -205,6 +240,140 @@ fn pin_owner(
 }
 
 impl<D: DataSource> Presenter<D> {
+    /// Ordinary scroll containers consume changed requests after layout, just
+    /// like the browser's prop writes. The existing picture receipt also owns
+    /// these offsets: an in-flight frame cannot move the input base early.
+    pub(super) fn sync_authored_scroll(&mut self) {
+        let enabled = *self.collection.authored_scroll.get_or_insert_with(|| {
+            self.host.runner().plan().bindings.iter().any(|binding| {
+                binding.kind == exact_plan::BindingKind::Prop
+                    && [
+                        PropId::ScrollTop,
+                        PropId::ScrollLeft,
+                        PropId::ScrollFollowEnd,
+                    ]
+                    .iter()
+                    .any(|id| binding.id == *id as u16)
+            })
+        });
+        if !enabled {
+            return;
+        }
+        let collections: BTreeSet<_> = self.host.collections().iter().map(|s| s.view).collect();
+        let mut live = BTreeSet::new();
+        for view in self.host.preorder() {
+            if collections.contains(&view) {
+                continue;
+            }
+            let Some(node) = self.host.kernel().node(view) else {
+                continue;
+            };
+            let number = |id| {
+                node.props
+                    .get(id)
+                    .and_then(exact_kernel::PropValue::as_float)
+                    .filter(|n| n.is_finite())
+            };
+            let top = number(PropId::ScrollTop);
+            let left = number(PropId::ScrollLeft);
+            let follow = node.props.bool(PropId::ScrollFollowEnd) == Some(true);
+            if top.is_none() && left.is_none() && !follow {
+                continue;
+            }
+            let axes = effective_overflow(&node);
+            if axes == (Overflow::Visible, Overflow::Visible) {
+                continue;
+            }
+            live.insert(view);
+            let bounds = self.brush.scroll_bounds(
+                self.host.kernel(),
+                self.host.content_region(),
+                &node,
+                None,
+            );
+            let cursor = self.collection.cursors.entry(view).or_default();
+            cursor.bind(node.key, 0);
+            cursor.ordinary = true;
+            let offset = self.scroll.entry(view).or_default();
+            let current = cursor
+                .model_scroll
+                .map_or(*offset, |p| (p.left.unwrap_or(offset.0), p.top));
+            let changed_top = top != cursor.requested_top;
+            let changed_left = left != cursor.requested_left;
+            if changed_top || changed_left {
+                cursor.advance();
+            }
+            cursor.requested_top = top;
+            cursor.requested_left = left;
+            if self.host.route_visibility(view).0 {
+                cursor.model_scroll = None;
+                cursor.follow_end = follow;
+                continue;
+            }
+            let mut target = current;
+            if follow
+                && (!cursor.follow_end || current.1 >= cursor.maximum.map_or(0., |m| m.1) - 1.)
+            {
+                target.1 = bounds.max.1;
+            }
+            cursor.follow_end = follow;
+            cursor.maximum = Some(bounds.max);
+            // Explicit requests win over end-following in the same commit.
+            if changed_top {
+                if let Some(top) = top {
+                    target.1 = top.clamp(0., bounds.max.1 as f64) as f32;
+                }
+            }
+            if changed_left {
+                if let Some(left) = left {
+                    target.0 = left.clamp(0., bounds.max.0 as f64) as f32;
+                }
+            }
+            target = bounds.clamp(target);
+            if target != current || ((changed_top || changed_left) && target != *offset) {
+                let before = *offset;
+                cursor.model_offset(node.key, target, self.display.attached(), offset);
+                if *offset != before {
+                    self.collection.scroll_event(view, node.key);
+                    self.executor.notify();
+                }
+                self.dirty = true;
+            }
+        }
+        self.collection
+            .cursors
+            .retain(|view, cursor| !cursor.ordinary || live.contains(view));
+    }
+
+    // Browser scroll events are coalesced per event-loop turn. Report the
+    // current acknowledged position, never an unpresented model target.
+    pub(super) fn dispatch_authored_scroll(&mut self) -> Option<String> {
+        let events = std::mem::take(&mut self.collection.scroll_events);
+        let mut error = None;
+        for (view, key) in events {
+            if self.host.kernel().node(view).is_none_or(|n| n.key != key)
+                || self.host.route_visibility(view).1
+                || !self
+                    .host
+                    .runner()
+                    .handlers_of(view)
+                    .contains(&EventKind::Scroll)
+            {
+                continue;
+            }
+            // An earlier handler may have changed this pending target. Fold
+            // that change into this event, at its original queue position.
+            self.collection.scroll_events.retain(|(id, _)| *id != view);
+            let (x, y) = self.scroll_of(view);
+            let result =
+                self.host
+                    .dispatch_at(view, Event::Scroll(x as f64, y as f64), self.host.now());
+            let after = self.after_commit();
+            error = error.or(result).or(after);
+        }
+        error
+    }
+
     fn pending_model_scroll(&self, view: ViewId) -> Option<ModelScroll> {
         let cursor = self.collection.cursors.get(&view)?;
         let pending = cursor.model_scroll?;
@@ -224,10 +393,14 @@ impl<D: DataSource> Presenter<D> {
         let mut next = None;
         for &view in self.collection.cursors.keys() {
             if let Some(pending) = self.pending_model_scroll(view) {
-                next.get_or_insert_with(|| self.scroll.clone())
+                let offset = next
+                    .get_or_insert_with(|| self.scroll.clone())
                     .entry(view)
-                    .or_default()
-                    .1 = pending.top;
+                    .or_default();
+                offset.1 = pending.top;
+                if let Some(left) = pending.left {
+                    offset.0 = left;
+                }
             }
         }
         next
@@ -244,7 +417,9 @@ impl<D: DataSource> Presenter<D> {
                 let pending = self.pending_model_scroll(b.id)?;
                 // A retained-region replay may clamp to older pixels. It cannot
                 // acknowledge a future target that this picture did not paint.
-                (b.scroll?.1 == pending.top).then_some((b.id, pending))
+                let offset = b.scroll?;
+                (offset.1 == pending.top && pending.left.is_none_or(|left| offset.0 == left))
+                    .then_some((b.id, pending))
             })
             .collect()
     }
@@ -260,7 +435,16 @@ impl<D: DataSource> Presenter<D> {
             }
             // A newer model correction on the same input sequence survives B,
             // but the interaction base becomes precisely B's painted position.
-            self.scroll.entry(view).or_default().1 = accepted.top;
+            let offset = self.scroll.entry(view).or_default();
+            let before = *offset;
+            offset.1 = accepted.top;
+            if let Some(left) = accepted.left {
+                offset.0 = left;
+            }
+            if *offset != before && self.collection.cursors[&view].ordinary {
+                self.collection.scroll_event(view, accepted.key);
+                self.executor.notify();
+            }
             if current == accepted {
                 self.collection.cursors.get_mut(&view).unwrap().model_scroll = None;
             } else {
@@ -360,6 +544,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn collection_scroll_turn(&mut self, view: ViewId, owned_edge: bool) {
+        self.collection.scroll_events.retain(|(id, _)| *id != view);
         if let Some(cursor) = self.collection.cursors.get_mut(&view) {
             cursor.advance();
         }

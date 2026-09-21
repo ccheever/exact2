@@ -255,15 +255,19 @@ pub enum LayoutError {
     InvalidTextMetrics(ViewId),
     /// A sampled CSS height is non-finite or negative.
     InvalidPresentedHeight,
+    /// More than one sample supplies the same generational node.
+    DuplicatePresentedHeight(NodeKey),
     /// The sample was stamped before/after the current authored epoch.
     StalePresentedHeight { expected: u64, actual: u64 },
     /// The sampled allocation has been removed or its slot reused.
     UnknownPresentedNode(NodeKey),
     /// The sampled node is detached or belongs to a different root.
     PresentedHeightOutsideRoot(NodeKey),
-    /// Height is not authored as nonnegative pixels, or the node has no visible
-    /// independent box (inline text or display:none on its ancestor path).
+    /// Height is neither nonnegative pixels nor border-box auto, or the node
+    /// has no visible independent box (inline text or a display:none ancestor).
     UnsupportedPresentedHeight(NodeKey),
+    /// Target measurement currently requires authored border-box sizing.
+    UnsupportedHeightMeasurement(NodeKey),
     /// The layout engine reported an error (a kernel bug, never a producer error).
     Engine(String),
 }

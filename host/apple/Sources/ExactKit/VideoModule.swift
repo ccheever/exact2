@@ -2,10 +2,10 @@
 import Foundation
 #if os(macOS)
 import AppKit
-private typealias MediaPlatformView = NSView
+typealias MediaPlatformView = NSView
 #else
 import UIKit
-private typealias MediaPlatformView = UIView
+typealias MediaPlatformView = UIView
 #endif
 private typealias MediaCallback = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
 private final class VideoModule {
@@ -47,6 +47,19 @@ final class VideoView {
     private var last: [String: String] = [:]
     private var observed: [String: Any] = ["unavailable": true]
     private var intrinsicSize: CGSize?
+    private var visibilityBlocked = false
+    private var visibilityThreshold: CGFloat? {
+        guard let owner, owner.props["paused"] != nil,
+              let raw = owner.props["playbackVisibilityThreshold"],
+              let value = Double(raw), value.isFinite, (0...1).contains(value) else { return nil }
+        return CGFloat(value)
+    }
+    func refreshVisibility() {
+        guard let threshold = visibilityThreshold, let owner else { return }
+        let ratio = VideoVisibilityHost.fraction(owner)
+        let blocked = ratio <= 0 || ratio < threshold
+        if blocked != visibilityBlocked { update() }
+    }
 
     init(owner: NodeView) {
         self.owner = owner
@@ -66,6 +79,7 @@ final class VideoView {
     }
     deinit { invalidate() }
     func invalidate() {
+        owner?.presenter?.videoVisibility?.remove(self)
         guard let handle else { return }
         self.handle = nil
         VideoModule.shared?.destroy(handle)
@@ -75,7 +89,7 @@ final class VideoView {
     func layout() {
         guard let owner else { return }
         platformView?.frame = owner.contentBox()
-        let radius = owner.number("border_radius")
+        let radius = owner.number("border_radius", owner.number("border_radius_top_left"))
         #if os(macOS)
         platformView?.wantsLayer = true
         platformView?.layer?.cornerRadius = radius
@@ -88,6 +102,16 @@ final class VideoView {
     func update() {
         guard let owner, let module = VideoModule.shared, let handle else { return }
         var props = owner.props
+        if let threshold = visibilityThreshold {
+            if owner.presenter?.videoVisibility == nil { owner.presenter?.videoVisibility = VideoVisibilityHost() }
+            owner.presenter?.videoVisibility?.track(self)
+            let ratio = VideoVisibilityHost.fraction(owner)
+            visibilityBlocked = ratio <= 0 || ratio < threshold
+            if visibilityBlocked { props["paused"] = "true" }
+        } else {
+            visibilityBlocked = false
+            owner.presenter?.videoVisibility?.remove(self)
+        }
         props["objectFit"] = owner.style["object_fit"] as? String ?? "contain"
         for name in ["src", "poster"] {
             if let source = props[name], !source.isEmpty {
@@ -104,7 +128,12 @@ final class VideoView {
     }
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }
-        return observed
+        var result = observed
+        if visibilityThreshold != nil, let owner {
+            result["intersectionRatio"] = VideoVisibilityHost.fraction(owner)
+            result["visibilityPaused"] = visibilityBlocked
+        }
+        return result
     }
     private func receive(_ message: [String: Any]) {
         if let state = message["state"] as? [String: Any] { observed = state }
@@ -124,5 +153,67 @@ final class VideoView {
             guard let self, let owner, owner.video === self, let session = owner.presenter?.session else { return }
             session.apply(session.runtime.media(owner.id, event: event, payload: payload, now: session.now()))
         }
+    }
+}
+
+
+/// Optional media policy. Scroll/layout notifications coalesce without app actions
+/// or a frame clock; only a threshold crossing changes the player's paused request.
+final class VideoVisibilityHost {
+    private final class WeakVideo {
+        weak var value: VideoView?
+        init(_ value: VideoView) { self.value = value }
+    }
+    private var videos: [ObjectIdentifier: WeakVideo] = [:]
+    private var queued = false
+    func track(_ video: VideoView) {
+        let key = ObjectIdentifier(video)
+        if videos[key] == nil { videos[key] = WeakVideo(video) }
+        changed()
+    }
+    func remove(_ video: VideoView) { videos.removeValue(forKey: ObjectIdentifier(video)) }
+    func reset() { videos.removeAll() }
+    func changed() {
+        guard !videos.isEmpty, !queued else { return }
+        queued = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.queued = false
+            for (key, entry) in self.videos {
+                if let video = entry.value { video.refreshVisibility() }
+                else { self.videos.removeValue(forKey: key) }
+            }
+        }
+    }
+    /// Rectangular intersection, as IntersectionObserver without trackVisibility:
+    /// ancestor clipping and the viewport count; sibling occlusion/opacity do not.
+    static func fraction(_ view: MediaPlatformView) -> CGFloat {
+        guard let window = view.window, view.bounds.width > 0, view.bounds.height > 0 else { return 0 }
+        #if os(macOS)
+        guard let root = window.contentView else { return 0 }
+        let box = view.convert(view.bounds, to: root)
+        var clipped = box.intersection(root.bounds)
+        var ancestor: NSView? = view
+        while let current = ancestor {
+            if current.isHidden { return 0 }
+            if current !== view && (current is NSClipView || current.clipsToBounds || current.layer?.masksToBounds == true) {
+                clipped = clipped.intersection(current.convert(current.bounds, to: root))
+            }
+            ancestor = current.superview
+        }
+        #else
+        let box = view.convert(view.bounds, to: window)
+        var clipped = box.intersection(window.bounds)
+        var ancestor: UIView? = view
+        while let current = ancestor {
+            if current.isHidden { return 0 }
+            if current !== view && current.clipsToBounds {
+                clipped = clipped.intersection(current.convert(current.bounds, to: window))
+            }
+            ancestor = current.superview
+        }
+        #endif
+        guard !clipped.isNull, box.width > 0, box.height > 0 else { return 0 }
+        return min(1, max(0, clipped.width * clipped.height / (box.width * box.height)))
     }
 }

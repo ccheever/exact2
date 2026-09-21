@@ -45,6 +45,25 @@ pub struct File {
     pub components: Vec<Component>,
 }
 
+impl File {
+    /// Describe an unknown component and the merged declarations in source order.
+    /// Only refusal paths call this; valid uses allocate no diagnostic list.
+    pub fn unknown_component_message(&self, name: &str) -> String {
+        let names = self
+            .components
+            .iter()
+            .map(|component| format!("`{}`", component.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let choices = if names.is_empty() {
+            "no components are declared".to_owned()
+        } else {
+            format!("declared components: {names}")
+        };
+        format!("unknown component `{name}`; {choices}")
+    }
+}
+
 /// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutesDecl {
@@ -300,6 +319,21 @@ pub struct Component {
     pub span: Span,
 }
 
+impl Component {
+    /// Describe every required prop absent from a use, in declaration order.
+    /// Called only after a missing argument is found; valid uses allocate nothing.
+    pub fn missing_props_message(&self, args: &[Attr]) -> String {
+        let missing = self
+            .props
+            .iter()
+            .filter(|prop| !args.iter().any(|arg| arg.name == prop.name))
+            .map(|prop| format!("`{}`", prop.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("`{}` needs {missing}", self.name)
+    }
+}
+
 /// `name = expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
@@ -454,6 +488,12 @@ pub enum Node {
         children: Vec<Node>,
         /// Where.
         span: Span,
+        /// The inliner's (LLP 1035.005 D3): the index into
+        /// [`Expanded::instances`](crate::Expanded::instances) of the
+        /// component instantiation this element was expanded in — the
+        /// root's own elements are 0, a used component's are its use's;
+        /// 0 as parsed. The development map and refusal diagnostics read it.
+        instance: u32,
     },
     /// `Name(arg=expr, …)`, with the nodes indented under it filling the
     /// component's `slot` (LLP 1017 P4b).
@@ -661,6 +701,31 @@ impl Expr {
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. } => *s,
+        }
+    }
+}
+
+/// One ASCII insertion, deletion, substitution, or adjacent transposition.
+pub fn one_spelling_edit(a: &[u8], b: &[u8]) -> bool {
+    if !a.is_ascii()
+        || !b.is_ascii()
+        || a.len() > 64
+        || b.len() > 64
+        || a.len().abs_diff(b.len()) > 1
+        || a == b
+    {
+        return false;
+    }
+    let i = a.iter().zip(b).take_while(|(a, b)| a == b).count();
+    match a.len().cmp(&b.len()) {
+        std::cmp::Ordering::Less => a[i..] == b[i + 1..],
+        std::cmp::Ordering::Greater => a[i + 1..] == b[i..],
+        std::cmp::Ordering::Equal => {
+            a[i + 1..] == b[i + 1..]
+                || (i + 1 < a.len()
+                    && a[i] == b[i + 1]
+                    && a[i + 1] == b[i]
+                    && a[i + 2..] == b[i + 2..])
         }
     }
 }

@@ -1,8 +1,152 @@
-//! Component checks that require recursive action or view traversal.
+//! Type diagnostics and component checks that require recursive traversal.
 
-use super::{err, infer, types_scope, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
-use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
-use std::collections::BTreeMap;
+use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
+use contract_syntax::{one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Describe unknown props and declared choices after the first unknown is found.
+pub(super) fn unknown_props(component: &Component, args: &[Attr], span: Span) -> TypeError {
+    let mut seen = BTreeSet::new();
+    let unknown = args
+        .iter()
+        .filter(|arg| !component.props.iter().any(|prop| prop.name == arg.name))
+        .filter(|arg| seen.insert(arg.name.as_str()))
+        .map(|arg| format!("`{}`", arg.name))
+        .collect::<Vec<_>>();
+    let noun = if unknown.len() == 1 { "prop" } else { "props" };
+    let choices = if component.props.is_empty() {
+        "this component declares no props".to_owned()
+    } else {
+        let names = component
+            .props
+            .iter()
+            .map(|prop| format!("`{}`", prop.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("available props: {names}")
+    };
+    TypeError {
+        id: "type-unknown-prop",
+        message: format!(
+            "`{}` has no {noun} {}; {choices}",
+            component.name,
+            unknown.join(", ")
+        ),
+        span,
+    }
+}
+
+impl Shapes {
+    pub(super) fn unknown_type(&self, name: &str, span: Span) -> TypeError {
+        let primitives = ["number", "string", "bool", "unit", "action"];
+        let names = primitives
+            .into_iter()
+            .chain(
+                self.map
+                    .keys()
+                    .map(String::as_str)
+                    .filter(|name| !primitives.contains(name)),
+            )
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        TypeError {
+            id: "type-unknown",
+            message: format!("unknown type `{name}`; known named types: {names}"),
+            span,
+        }
+    }
+
+    pub(super) fn unknown_field(&self, shape: &str, field: &str, span: Span) -> TypeError {
+        let fields = self.map.get(shape).map(Vec::as_slice).unwrap_or_default();
+        let names = fields
+            .iter()
+            .map(|(name, _)| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let hint = if fields.is_empty() {
+            "this shape declares no fields".to_owned()
+        } else {
+            format!("available fields: {names}")
+        };
+        TypeError {
+            id: "type-unknown-field",
+            message: format!("`{shape}` has no field `{field}`; {hint}"),
+            span,
+        }
+    }
+}
+
+// Suggestions change only a refusal's text. Global functions have authored
+// names here; lifted child actions do not, so scoped actions only disambiguate.
+pub(super) fn unknown_function(
+    name: &str,
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> TypeError {
+    let mut message = format!(
+        "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
+    );
+    if let Some(candidate) = similar_function(name, scope, shapes) {
+        message.push_str(&format!("; did you mean `{candidate}`?"));
+    }
+    TypeError {
+        id: "type-unknown-function",
+        message,
+        span,
+    }
+}
+
+fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Option<&'a str> {
+    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
+        return None;
+    }
+    let global = |candidate: &str| {
+        candidate == "pending"
+            || (candidate == "path" && shapes.routes.is_some())
+            || shapes.fns.contains_key(candidate)
+            || super::Stdlib::from_name(candidate)
+                .is_some_and(|f| super::routes::require_table(f, shapes, Span::default()).is_ok())
+    };
+    let names = shapes
+        .fns
+        .keys()
+        .map(String::as_str)
+        .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
+        .chain(["pending", "path"]);
+    let mut found = None;
+    for candidate in names {
+        if candidate.contains("__")
+            || !one_spelling_edit(name.as_bytes(), candidate.as_bytes())
+            || !global(candidate)
+        {
+            continue;
+        }
+        if found.is_some_and(|previous| previous != candidate) {
+            return None;
+        }
+        found = Some(candidate);
+    }
+    let candidate = found?;
+    for frame in &scope.frames {
+        for (scoped, _, _) in &frame.names {
+            // Expansion can append instance suffixes. The stem is only a
+            // conservative ambiguity veto, never an offered correction.
+            let authored = scoped.split("__").next().unwrap();
+            if authored != candidate
+                && one_spelling_edit(name.as_bytes(), authored.as_bytes())
+                && matches!(
+                    scope.lookup(scoped),
+                    Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(_)))
+                )
+            {
+                return None;
+            }
+        }
+    }
+    Some(candidate)
+}
 
 /// Reject shape cycles before lowering recursively materializes plan types.
 pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
@@ -77,7 +221,7 @@ fn owner_scopes(
     let mut scopes = BTreeMap::new();
     collect_owner_scopes(
         &c.view,
-        &types_scope(c, ct, types),
+        &types.component_scope(c, ct),
         &types.shapes,
         &mut scopes,
     )?;

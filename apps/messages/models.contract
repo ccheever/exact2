@@ -1,0 +1,116 @@
+shape Person
+  id: string
+  name: string
+  initials: string
+  color: string
+  preview: string
+  time: string
+  unread: bool
+  draft: string
+  reply: string
+  muted: bool
+shape Inbox
+  people: list<Person>
+  earlier: string
+  later: string
+shape DeletedConversation
+  id: string
+  name: string
+  initials: string
+  color: string
+  count: number
+  days: number
+  chosen: bool
+  selection: string
+shape DeletedInbox
+  people: list<DeletedConversation>
+  earlier: string
+  later: string
+  targets: string
+  count: number
+shape Recipient
+  id: string
+  name: string
+  without: string
+shape Recipients
+  selected: list<Recipient>
+  people: list<Person>
+  earlier: string
+  later: string
+  target: string
+  canSend: bool
+  last: string
+  withoutLast: string
+  resolved: string
+shape SavedReaction
+  id: string
+  value: string
+  name: string
+  initials: string
+  color: string
+  own: bool
+  offset: number
+  edge: bool
+shape ReactionGroup
+  value: string
+  people: list<SavedReaction>
+  width: number
+shape Message
+  chosen: bool
+  selection: string
+  id: string
+  body: string
+  outgoing: bool
+  time: string
+  reaction: string
+  reactionCount: number
+  reactionEntries: list<SavedReaction>
+  reactionGroups: list<ReactionGroup>
+  reactionPanelWidth: number
+  day: string
+  timeLabel: string
+  delivery: string
+  reply: string
+  tail: bool
+  replyRoot: string
+  replyCount: number
+  sender: string
+  senderName: string
+  senderInitials: string
+  senderColor: string
+  showSender: bool
+shape ReactionChoice
+  id: string
+  value: string
+  label: string
+shape Conversation
+  earlier: string
+  later: string
+  hasEarlier: bool
+  hasLater: bool
+  selectionCount: number
+  selectedText: string
+  muted: bool
+  blocked: bool
+  knownContact: bool
+  contactKind: string
+  contactAddress: string
+  id: string
+  name: string
+  initials: string
+  color: string
+  messages: list<Message>
+  revision: number
+  scrollRevision: number
+  reactions: list<ReactionChoice>
+  replies: list<Message>
+  typingName: string
+  typingAvatar: string
+  typingRoot: string
+shape Change
+  revision: number
+  pending: bool
+shape ComposerDraft
+  thread: string
+  draft: string
+  reply: string

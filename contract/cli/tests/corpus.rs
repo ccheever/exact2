@@ -151,6 +151,54 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 }
 
 #[test]
+fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
+    let src = r#"component App
+  state value = 7
+  state wrapped = some(value)
+  state next = match wrapped { case some(value) => value + 1, case none => value }
+  state again = value + next
+  view
+    text `${value} ${next} ${again}` testId="values"
+"#;
+    let r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "values").as_deref(), Some("7 8 15"));
+}
+
+#[test]
+fn state_initializers_refuse_later_names_and_leaked_locals() {
+    for (declarations, id, line) in [
+        (
+            "  state next = later\n  state later = 1\n",
+            "type-unknown-name",
+            2,
+        ),
+        ("  state own = own\n", "type-unknown-name", 2),
+        (
+            "  state value = 1\n  state value = 2\n",
+            "type-duplicate-name",
+            3,
+        ),
+        (
+            "  state value = match some(1) { case some(local) => local, case none => 0 }\n  state leaked = local\n",
+            "type-unknown-name",
+            3,
+        ),
+    ] {
+        let source = format!("component App\n{declarations}  view\n    text \"value\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{source}");
+        assert_eq!(error.span.line, line, "{source}");
+    }
+}
+
+#[test]
 fn button_primary_text_is_a_real_accessible_text_child() {
     let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
     let plan = contract::compile(src).unwrap();
@@ -638,4 +686,78 @@ fn css_line_height_literals_and_dynamic_lengths_use_the_existing_value_grammar()
 "#,
     )
     .unwrap();
+}
+
+#[test]
+fn inlined_literal_string_templates_cost_the_same_as_literal_text() {
+    let source = |body: &str| format!("component App\n  view\n    {body}\n");
+    for (template, literal) in [
+        (r#"`hello ${"世界"}!`"#, r#""hello 世界!""#),
+        (r#"`${""}${""}`"#, r#""""#),
+        (r#"``"#, r#""""#),
+    ] {
+        assert_eq!(
+            contract::compile(&source(&format!("text {template}")))
+                .unwrap()
+                .encode(),
+            contract::compile(&source(&format!("text {literal}")))
+                .unwrap()
+                .encode()
+        );
+    }
+    let reused = r#"component App
+  view
+    Label(prefix="reply-typing")
+component Label
+  props
+    prefix: string
+  view
+    text "dot" testId=`${prefix}-dot-0`
+"#;
+    let literal = source(r#"text "dot" testId="reply-typing-dot-0""#);
+    assert_eq!(
+        contract::compile(reused).unwrap().encode(),
+        contract::compile(&literal).unwrap().encode()
+    );
+}
+
+#[test]
+fn template_folding_preserves_dynamic_values_and_string_conversion() {
+    let source = r#"component App
+  state name = "one"
+  state n = 2
+  action change writes name, n
+    name = "two"
+    n = 3
+  view
+    Label(prefix="前", name=name, n=n)
+component Label
+  props
+    prefix: string
+    name: string
+    n: number
+  view
+    text `${prefix}:${name}:${n}:${true}` testId="result"
+"#;
+    let mut runner = Runner::boot(
+        contract::compile(source).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for expected in ["前:one:2:true", "前:two:3:true"] {
+        let key = runner.kernel().find_by_test_id("result")[0];
+        assert_eq!(
+            runner
+                .kernel()
+                .node_by_key(key)
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some(expected)
+        );
+        runner.act("change", vec![]).unwrap();
+    }
 }

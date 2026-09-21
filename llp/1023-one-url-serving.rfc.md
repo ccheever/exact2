@@ -197,7 +197,11 @@ The browser uses the same generation protocol:
   full asset resolver, fonts, and shader namespace, then accept and commit
   together. Native acceptance covers every session owned by the app (1031).
   Browser font loading leaves the old page running until synchronous host
-  acceptance. Omitted names have no embedded or previous-generation fallback.
+  acceptance. A browser module replacement drains the current executor's
+  requests within the existing settlement deadline, then rechecks candidate
+  currency before the synchronous swap; timeout preserves the live page.
+  Initial module readiness alone does not imply those requests have drained.
+  Omitted names have no embedded or previous-generation fallback.
   Failure preserves the old page, resources, and current generation. An
   unavailable optional GPU does not block core generation acceptance; a
   loaded GPU still validates shaders before accepting the candidate.

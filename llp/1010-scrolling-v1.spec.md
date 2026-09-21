@@ -570,6 +570,20 @@ the encoded-size admission limit is not a pre-allocation bound on those reads.
 Encoded caches, GPU/framework storage and whole-process footprint are reported
 separately from the 32 MiB Exact-owned raster account.
 
+**Apple HTTP reuse, 2026-09-20:** Shop's repeated-launch comparison exposed
+that the raster downloader disabled HTTP caching even for CDN responses with
+year-long freshness. `RasterInput.swift` now uses protocol cache semantics with
+an app-sandbox URLCache configured for 64 MiB disk capacity and zero memory
+capacity. This is encoded-response storage, not an increase to the decoded
+raster budget; Foundation's transient allocations remain outside that ledger.
+Cookies and credential storage stay disabled. Streaming size limits, cancellation,
+metadata admission and decode reservations still apply to cached responses.
+Agent state reports encoded HTTP disk/memory usage separately. A loopback test
+verifies fresh reuse, no-store refetch and ETag/304 revalidation across distinct
+URLSessions; a separate process-restart probe retrieves identical JPEG bytes
+twice with one network request. No physical-phone startup improvement is claimed
+from these checks.
+
 **Shared core verified 2026-09-17:** `exact-raster` passes 18 ownership tests
 and strict all-targets Clippy. Tests retain 20 MiB of displayed backing while
 two cancelled 6 MiB decodes still own their allocations; cancellation and reset
@@ -695,7 +709,10 @@ those later slices.
 ### 6.5 Shared viewport collection implementation, 2026-09-16
 
 `list virtualized=true` opts into the shared runner collection. An ordinary
-`each` and `virtualized=false` retain eager behavior. The initial supported
+`each` and `virtualized=false` retain eager behavior unless the list explicitly
+selects the fixed/measured row policy of §6.2 with `item-height` or
+`estimated-item-height`. Shared collections accept only the estimated hint;
+exactly one policy owns the list. The initial supported
 shape is a bounded vertical list with one direct keyed `each`, whose body
 has one normal-flow element root. Wrap multiple or conditional roots in a
 column. Absolute/overlapping rows and alternate container layouts are rejected.
@@ -757,8 +774,12 @@ including the browser's integer scroll range for fractional CSS row extents.
 commits. Only nonempty virtualized collections qualify: the geometric window
 (scrollport plus one viewport of overscan) must contain the first/last supplied
 row; bootstrap rows and pins alone never qualify. Edges start armed, disarm on
-successful dispatch, and re-arm only when an evaluation finds the current edge
-row outside that geometric window. Changing endpoint keys does not re-arm them.
+successful dispatch, and re-arm when the current edge row is outside a nonempty
+geometric window whose entire overscan band has current measurements. The existing
+height index checks that band in O(log N), without measuring offscreen rows.
+Replacement estimates, width/content invalidation and a hidden scrollport cannot
+manufacture an exit. Changing endpoint keys does not re-arm them. An empty data
+set resets arming for later nonempty data but dispatches no edge itself.
 Each edge fires at most once per feedback call. When both qualify, start precedes
 end; end runs in the same call only after a pure no-op start (no state change or
 request started). Otherwise end remains armed, waits for the first action's async
@@ -850,3 +871,9 @@ Failed and final binaries remain separate. Final source manifest:
 `6840b5e9c16c7ed8fd1530cfe67481c88e12bc0f5578d526dc4de6ba08912827`;
 evidence: `/tmp/exact2-linux-endfollow-final-6840b5e9/`. This adapter-only follow-up
 does not alter the measured runner or replace the paired diagnostic above.
+
+**2026-09-19 Shop consumer correction:** the Apple presenters now exclude shared-collection-owned lists from the earlier item-height `syncLists` callback. Reporting both protocols for the same node sent a collection row tree to `Tree::update_list`, raised `not a windowed list`, and poisoned the Shop iOS runner at startup. The focused `CollectionMacTests.testSharedCollectionResizeUsesOnlyRevisionedFeedback` passes; Shop's web and iOS simulator probes traverse eleven captured feed sections, evict offscreen rows, return to usable top-row links, and play/pause the visible native video. Both probes report three mounted cards at the settled top. This is bounded-view evidence, not a physical-iPhone frame-pacing or startup comparison.
+
+**2026-09-19 tall-card bootstrap estimate:** shared `virtualized=true` lists accept the existing `estimated-item-height` as one positive literal. The runner seeds its height index from that hint and bounds bootstrap by the previous 16 × 32-point provisional budget (at most sixteen rows); measured heights replace the estimate. Invalidated heights revert to the authored estimate. Compiler cases and a 25,000-row integration exercise verify bounded bootstrap, replacement by actual measurements, distant scroll and return without rebuilding the source. Six compiler collection tests, 64 runner collection tests, targeted package tests and clippy pass. Shop's alternating simulator comparison reports median exec-to-first-draw 566.2 → 426.4 ms over five launches per build. Web must also exclude collection snapshot views from legacy list registration: the authored estimate otherwise activates `exact_list` on a shared collection and poisons the runner. The reproduced failure is fixed and Shop's full-feed browser/iOS probes pass. These are consumer-specific measurements, not whole-runtime or physical-phone parity.
+
+**2026-09-20 Shop compiler integration:** current main routed a shared `virtualized=true` list through legacy explicit-height validation and rejected its existing estimate. Restricting legacy validation to lists without a `virtualized` attribute restores the shared collection validator, including its unbounded-viewport diagnostic. The pre-change consumer build and existing collection case failed; all six collection compiler cases and the Shop web/device builds pass afterward. The broader Contract suite stops at `lint::conditional_style_literals_are_refused_at_the_offending_branch`, whose column fixture expects `top="0px"` to be invalid although current lowering accepts it; this is outside the list branch. Full runtime checks are recorded separately and are not claimed green.

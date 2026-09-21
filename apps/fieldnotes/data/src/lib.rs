@@ -21,6 +21,7 @@ const DIRECTORY: &str = "app:/data/backups";
 const PATH: &str = "app:/data/backups/fieldnotes.json";
 
 enum Pending {
+    Schema,
     Read,
     Directory { text: String, count: usize },
     Write { text: String, count: usize },
@@ -47,6 +48,7 @@ pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
         exact_data::Placed::new(Backup::default(), rust),
         &[
             "library",
+            "openNote",
             "saveNote",
             "readBackup",
             "restoreNotes",
@@ -65,13 +67,27 @@ pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
 
 impl Backup {
     fn read(&mut self) -> Answer {
-        self.pending = Some(Pending::Read);
+        self.pending = Some(Pending::Schema);
         Answer::Later(storage::request(
             "sqlite",
             json!({"path":"app:/data/fieldnotes.db","commands":[
-                {"kind":"execute","sql":CREATE,"params":[]},
-                {"kind":"query","sql":SELECT,"params":[]}
+                {"kind":"query","sql":"SELECT 1 FROM sqlite_schema WHERE type='table' AND name='notes'","params":[]}
             ]}),
+        ))
+    }
+
+    fn read_notes(&mut self, initialize: bool) -> Answer {
+        self.pending = Some(Pending::Read);
+        let mut commands = Vec::new();
+        // Browser execute exports the whole file, even when CREATE is a no-op.
+        // Check the current file each time; it may have been replaced or deleted.
+        if initialize {
+            commands.push(json!({"kind":"execute","sql":CREATE,"params":[]}));
+        }
+        commands.push(json!({"kind":"query","sql":SELECT,"params":[]}));
+        Answer::Later(storage::request(
+            "sqlite",
+            json!({"path":"app:/data/fieldnotes.db","commands":commands}),
         ))
     }
 
@@ -102,7 +118,11 @@ impl Backup {
 
 fn notes(value: &Json) -> Result<Vec<backup::Note>, String> {
     let invalid = || "Invalid notebook storage response.".to_string();
-    let rows = value[1]["rows"].as_array().ok_or_else(invalid)?;
+    let result = value
+        .as_array()
+        .and_then(|results| results.last())
+        .ok_or_else(invalid)?;
+    let rows = result["rows"].as_array().ok_or_else(invalid)?;
     rows.iter()
         .map(|row| {
             if row[1].is_null() || row[2].is_null() {
@@ -172,6 +192,10 @@ impl DataSource for Backup {
             Err(message) => return Self::status(store, Err(message)),
         };
         match pending {
+            Pending::Schema => match value[0]["rows"].as_array() {
+                Some(rows) => Ok(self.read_notes(rows.is_empty())),
+                None => Self::status(store, Err("Invalid notebook storage response.".into())),
+            },
             Pending::Read => {
                 let mut all = backup::Builder::default();
                 let rows = match notes(&value) {

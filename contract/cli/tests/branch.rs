@@ -68,3 +68,39 @@ fn a_branch_may_nest_and_an_omitted_else_is_fine() {
     assert_eq!(r.slot("s"), Some(&Value::str("again")));
     assert_eq!(r.slot("n"), Some(&Value::Number(2.0)));
 }
+
+#[test]
+fn cloned_scopes_keep_shadowing_and_region_depth_independent() {
+    use contract_types::{Ref, Scope, Ty};
+
+    fn send_sync<T: Send + Sync>() {}
+    send_sync::<Scope>();
+    let mut outer = Scope::default();
+    let nested = Ty::Option(Box::new(Ty::List(Box::new(Ty::Record("Row".into())))));
+    outer.push(vec![("value".into(), Ref::Slot(0), nested.clone())]);
+    outer.push_region(Some(("item".into(), Ref::Item(0), Ty::Number)));
+    let mut left = outer.clone();
+    let mut right = outer.clone();
+    left.push(vec![("value".into(), Ref::Param(0), Ty::String)]);
+    left.push_region(Some(("bound".into(), Ref::Bound(0), nested.clone())));
+    right.push_region(None);
+    right.push_region(Some(("item".into(), Ref::Item(0), Ty::Bool)));
+
+    assert_eq!(outer.lookup("value"), Some((Ref::Slot(0), nested.clone())));
+    assert_eq!(left.lookup("value"), Some((Ref::Param(0), Ty::String)));
+    assert_eq!(left.lookup("item"), Some((Ref::Item(1), Ty::Number)));
+    assert_eq!(left.lookup("bound"), Some((Ref::Bound(0), nested.clone())));
+    assert_eq!(right.lookup("item"), Some((Ref::Item(0), Ty::Bool)));
+    assert_eq!(right.region_depth(), 3);
+    assert_eq!(outer.region_depth(), 1);
+    assert_eq!(outer.lookup("bound"), None);
+
+    outer.pop();
+    left.pop();
+    left.pop();
+    right.pop();
+    assert_eq!(outer.lookup("item"), None);
+    assert_eq!(left.lookup("item"), Some((Ref::Item(0), Ty::Number)));
+    assert_eq!(right.lookup("item"), Some((Ref::Item(1), Ty::Number)));
+    assert_eq!(left.lookup("value"), Some((Ref::Slot(0), nested)));
+}

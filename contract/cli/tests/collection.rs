@@ -7,7 +7,10 @@ const ROW: &str = "      each x in rows key=x\n        text `${x}`";
 fn literal_opt_in_and_ordinary_each_compile() {
     for list in [
         "list virtualized=true height=200",
+        "list virtualized=true estimated-item-height=400 height=200",
         "list virtualized=false height=200",
+        "list virtualized=false estimated-item-height=400 height=200",
+        "list estimated-item-height=400 height=200",
         "scroll height=200",
         "column",
     ] {
@@ -33,6 +36,42 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
             "list virtualized=1 height=200",
             ROW,
             "lower-collection-opt-in",
+        ),
+        (
+            "list virtualized=true estimated-item-height=0 height=200",
+            ROW,
+            "lower-list-height",
+        ),
+        (
+            "list virtualized=true estimated-item-height=-10 height=200",
+            ROW,
+            "lower-list-height",
+        ),
+        (
+            "list virtualized=true estimated-item-height=yes height=200",
+            ROW,
+            "lower-list-height",
+        ),
+        (
+            "list virtualized=true item-height=400 height=200",
+            ROW,
+            "lower-list-height",
+        ),
+        (
+            "list virtualized=true estimated-item-height=400 item-height=400 height=200",
+            ROW,
+            "lower-list-height",
+        ),
+        ("column estimated-item-height=400", ROW, "lower-list-height"),
+        (
+            "list virtualized=true estimated-item-height=400",
+            ROW,
+            "lower-collection-unbounded",
+        ),
+        (
+            "list virtualized=true estimated-item-height=400 height=200",
+            "      text \"no each\"",
+            "lower-collection-template",
         ),
         ("list virtualized=true", ROW, "lower-collection-unbounded"),
         (
@@ -149,7 +188,8 @@ fn runner_scroll_has_no_resource_queries_and_row_handlers_use_owned_slots() {
     assert!(r.kernel().find_by_test_id("row-0").is_empty());
     let key = r.kernel().find_by_test_id("row-1000")[0];
     let id = r.kernel().node_by_key(key).unwrap().id;
-    assert!(r.handlers().contains_key(&id));
+    assert_eq!(r.handlers_of(id), r.handlers()[&id]);
+    assert!(!r.handlers_of(id).is_empty());
     r.dispatch(id, Event::Press).unwrap();
     let label = r.kernel().find_by_test_id("label-1000")[0];
     assert_eq!(
@@ -173,7 +213,11 @@ fn runner_scroll_has_no_resource_queries_and_row_handlers_use_owned_slots() {
         Some("1 1")
     );
     r.collection_feedback(feedback(&r, 0.0)).unwrap();
+    assert!(r.handlers_of(id).is_empty());
     r.collection_feedback(feedback(&r, 32_000.0)).unwrap();
+    for (view, events) in r.handlers() {
+        assert_eq!(r.handlers_of(view), events);
+    }
     let label = r.kernel().find_by_test_id("label-1000")[0];
     assert_eq!(
         r.kernel()
@@ -245,4 +289,75 @@ fn inherited_typography_changes_measurement_epochs_without_rekeying() {
         })
         .collect();
     assert!(r.collection_feedback(old).unwrap().receipts.is_empty());
+}
+
+#[test]
+fn tall_estimate_bounds_bootstrap_and_actual_measurements_replace_it() {
+    let source = INTERACTIVE.replace(
+        "virtualized=true height=320",
+        "virtualized=true estimated-item-height=400 height=320",
+    );
+    let mut r = Runner::boot(
+        contract::compile(&source).unwrap(),
+        Rows { queries: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.collections()[0].rows.len(), 2);
+    assert_eq!(r.collections()[0].total_extent, 10_000_000.0);
+    let queries = r.data_ref().queries;
+    let initial = feedback(&r, 0.0);
+    r.collection_feedback_bytes(&initial.encode().unwrap())
+        .unwrap();
+    let row = r.collections()[0].rows[0].clone();
+    let mut measured = feedback(&r, 0.0);
+    measured.measurements.push(exact_runner::RowMeasurement {
+        view: row.view,
+        epoch: row.epoch,
+        height: 800.0,
+    });
+    r.collection_feedback_bytes(&measured.encode().unwrap())
+        .unwrap();
+    assert_eq!(r.collections()[0].rows[0].height, 800.0);
+    let distant = feedback(&r, 40_000.0);
+    r.collection_feedback_bytes(&distant.encode().unwrap())
+        .unwrap();
+    assert!(r.collections()[0].rows.len() < 5);
+    assert!(r.collections()[0].rows[0].index > 90);
+    let top = feedback(&r, 0.0);
+    r.collection_feedback_bytes(&top.encode().unwrap()).unwrap();
+    assert_eq!(r.collections()[0].rows[0].index, 0);
+    assert_eq!(r.collections()[0].rows[0].height, 800.0);
+    assert_eq!(r.data_ref().queries, queries);
+    assert_eq!(r.last_instance_work().rows_keyed, 0);
+}
+
+#[test]
+fn row_height_hints_select_exactly_one_window_owner() {
+    for opt in ["", "virtualized=false", "virtualized=true"] {
+        for hint in ["item-height=400", "estimated-item-height=400"] {
+            if opt == "virtualized=true" && hint == "item-height=400" {
+                continue; // Rejected by the compiler cases above.
+            }
+            let source = source(
+                &format!("list {opt} {hint} height=200 testId=\"rows\""),
+                ROW,
+            );
+            let r = Runner::boot(
+                contract::compile(&source).unwrap(),
+                Rows { queries: 0 },
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let key = r.kernel().find_by_test_id("rows")[0];
+            let id = r.kernel().node_by_key(key).unwrap().id;
+            let shared = opt == "virtualized=true";
+            assert_eq!(r.collections().len(), usize::from(shared), "{opt} {hint}");
+            assert_eq!(r.list_status(id).is_some(), !shared, "{opt} {hint}");
+        }
+    }
 }

@@ -506,6 +506,12 @@ impl<D: DataSource> Host<D> {
     /// Deliver an event at the app's clock (milliseconds). A refusal is the
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
+        if matches!(event, Event::Press)
+            && crate::navigation::popover_invoker(self.runner.kernel(), view)
+        {
+            self.log(crate::navigation::POPOVER_UNSUPPORTED);
+            return Some(crate::navigation::POPOVER_UNSUPPORTED.into());
+        }
         self.now_ms = now_ms.max(self.now_ms);
         if matches!(event, Event::Press)
             && self
@@ -547,6 +553,10 @@ impl<D: DataSource> Host<D> {
                 || node.style.display == exact_kernel::Display::None
                 || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
                 || node.props.str(exact_kernel::PropId::Commandfor).is_some()
+                || node
+                    .props
+                    .str(exact_kernel::PropId::Popovertarget)
+                    .is_some()
             {
                 return false;
             }

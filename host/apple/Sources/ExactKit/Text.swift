@@ -309,6 +309,7 @@ final class TextEngine {
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.residency = residency
+            engine.residency.refreshAfterRestore()
             engine.catalog = catalog
             engine.dropMeasuredBreaks()
         }
@@ -460,6 +461,14 @@ final class TextEngine {
         return a
     }
 
+    /// Urgent raster work stays on the text engine's owning thread and uses
+    /// the existing bounded residency policy for its exact painted typesetter.
+    func rasterLines(_ spec: Spec, ranges: [CFRange]) -> (NSAttributedString, [CTLine]) {
+        let identity = residency.identity(spec)
+        let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
+        return (source.attributed, ranges.map { CTTypesetterCreateLine(source.typesetter, $0) })
+    }
+
     /// The line ranges and baselines the kernel's measurement of `spec` at
     /// `width` produced, if that measurement is still resident. Plain values:
     /// a worker typesets its own lines from them (TextRasterMac.swift).
@@ -517,6 +526,7 @@ final class TextEngine {
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
         let p = layout(shape, width: width, breaks: breaks)
+        shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
         return p
     }
@@ -560,6 +570,10 @@ final class TextEngine {
                   Double(height).bitPattern == Double(strutHeight).bitPattern else { return extents(run) }
             return minimum
         }
+        // Source spans stay ordered even when CoreText reorders bidi glyph runs.
+        // The interned identity owns the UTF-16 boundaries used by every layout.
+        let runEnds = shape.identity.runEnds
+        let previous = spec.lineClamp == 0 ? shape.lastParagraph : nil
         var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
@@ -575,7 +589,12 @@ final class TextEngine {
         var boundaries: [Int] = []
         var boundaryIndex = 0
         if spec.overflowWrap == 0 && width.isFinite && breaks == nil {
-            boundaries = lineBoundaries(spec.runs.map(\.text).joined() as NSString, length: length)
+            if let cached = shape.lineBreakBoundaries { boundaries = cached }
+            else {
+                boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
+                shape.lineBreakBoundaries = boundaries
+                residency.refresh(shape)
+            }
         }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
@@ -592,7 +611,14 @@ final class TextEngine {
                 }
             }
             if count <= 0 { count = length - start }
-            var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
+            let range = CFRangeMake(start, count)
+            let oldLine = previous.flatMap { lines.count < $0.lines.count ? $0.lines[lines.count] : nil }
+            var line: CTLine
+            // Ordinary CTLines depend on this immutable shape and their exact
+            // source range. Width-dependent ellipses never enter this path.
+            if let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
+                line = oldLine
+            } else { line = CTTypesetterCreateLine(typesetter, range) }
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
             }
@@ -610,14 +636,19 @@ final class TextEngine {
             }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
-                var offset = 0
+                var first = 0, last = runEnds.count
+                while first < last {
+                    let middle = first + (last - first) / 2
+                    if runEnds[middle] <= range.location { first = middle + 1 }
+                    else { last = middle }
+                }
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
-                for authored in spec.runs {
-                    let end = offset + (authored.text as NSString).length
-                    defer { offset = end }
-                    guard offset < range.location + range.length && end > range.location else { continue }
+                for index in first..<spec.runs.count {
+                    let offset = index == 0 ? 0 : runEnds[index - 1]
+                    if offset >= range.location + range.length { break }
+                    let authored = spec.runs[index]
                     matched = true
                     if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink

@@ -13,40 +13,36 @@ fn source(attrs: &str) -> String {
     format!("component App\n  view\n    view width=600 height=400\n      text \"Words\" width=600 height=400 testId=\"p\"\n      view {attrs}\n")
 }
 #[test]
-fn flow_auto_does_not_change_existing_property_diagnostics() {
-    // @ref LLP 1043.000 §3 D1 — only the new enum needs a literal `auto`.
-    for property in [
-        "display",
-        "overflow",
-        "touch-action",
-        "font-size",
-        "opacity",
+fn auto_values_follow_each_rows_codec_and_vocabulary() {
+    // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
+    for (property, row, reason) in [
+        (
+            "display",
+            "display",
+            "one of \"block\", \"flex\", \"grid\", \"none\"",
+        ),
+        (
+            "overflow",
+            "overflow_x",
+            "one of \"visible\", \"hidden\", \"scroll\"",
+        ),
+        ("font-size", "font_size", "number"),
+        ("opacity", "opacity", "number"),
     ] {
         let error = contract::compile(&source(&format!("{property}=\"auto\""))).unwrap_err();
         assert_eq!(error.id, "lower-attr-value", "{property}: {error}");
         assert_eq!(
             error.message,
-            format!(
-                "`{property}=\"auto\"` is not a value for `{}`: expected {}",
-                if property == "overflow" {
-                    "overflow_x".into()
-                } else {
-                    property.replace('-', "_")
-                },
-                if matches!(property, "font-size" | "opacity") {
-                    "number"
-                } else {
-                    "text"
-                }
-            ),
+            format!("`{property}=\"auto\"` is not a value for `{row}`: expected {reason}"),
             "{property}"
         );
     }
     contract::compile(&source(
-        "width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\"",
+        "width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\" touch-action=\"auto\"",
     ))
     .unwrap();
 }
+
 #[test]
 fn supported_css_forms_and_precise_refusals() {
     for shape in [

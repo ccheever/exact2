@@ -1,8 +1,219 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
+import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
+
+const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
+  chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
+  bindings: [{row:'color',origin:'class:Bubble'}, {row:'font-size',origin:'own'}]}]});
+const inspected = planDigest => ({id: 1, site: 0, planDigest, props: {testId:'bubble'}, type:'Text', style: {
+  color: {value:'red',source:'dynamic'}, 'font-size': {value:14,source:'inherited',from:2}}});
+
+test('authored tests use the configured compiler target and preserve compiler and launch failures', () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'exact-test-compiler-')));
+  const root = new URL('../../', import.meta.url).pathname;
+  const target = join(dir, 'custom target'), tools = join(dir, 'tools');
+  const file = join(dir, 'suite.test.contract'), runner = join(dir, 'run.mjs');
+  mkdirSync(tools);
+  // A Cargo fixture materializes a compiler only in its configured target.
+  // It supports both build-then-execute and cargo run; no real Cargo lock is
+  // acquired from inside a test that may itself be running under Cargo.
+  const compiler = `#!${process.execPath}\nimport {readFileSync,writeFileSync} from 'node:fs';
+writeFileSync(process.env.COMPILER_TRACE, JSON.stringify(process.argv.slice(2)));
+if (readFileSync(process.argv[3], 'utf8') === 'refuse') { console.error('fixture.contract:7:3: invalid test step'); process.exit(2); }
+console.log('[]');\n`;
+  writeFileSync(join(tools, 'cargo'), `#!${process.execPath}\nimport {mkdirSync,writeFileSync} from 'node:fs';
+import {resolve,dirname} from 'node:path'; import {spawnSync} from 'node:child_process';
+const bin=resolve(process.env.CARGO_TARGET_DIR,'debug/contract'), args=process.argv.slice(2);
+mkdirSync(dirname(bin),{recursive:true}); writeFileSync(bin,${JSON.stringify(compiler)},{mode:0o755});
+if(args.includes('run')) { const r=spawnSync(bin,args.slice(args.indexOf('--')+1),{stdio:'inherit'}); process.exit(r.status ?? 1); }
+`, {mode: 0o755});
+  writeFileSync(runner, `import {runTests} from ${JSON.stringify(new URL('../../scripts/agent.mjs', import.meta.url).href)};
+try { console.log(JSON.stringify(await runTests({host:'linux',file:'suite.test.contract'}))); }
+catch(e) { console.error(e.message); process.exitCode=1; }
+`);
+  try {
+    for (const configured of [target, relative(root, target)]) {
+      const trace = join(dir, 'compiler.json');
+      const env = {...process.env, PATH: tools, CARGO_TARGET_DIR: configured, COMPILER_TRACE: trace};
+      writeFileSync(file, 'accept');
+      const good = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
+      expect(good.status).toBe(0);
+      expect(JSON.parse(good.stdout)).toEqual({passed:0,failed:0,results:[]});
+      expect(JSON.parse(readFileSync(trace, 'utf8'))).toEqual(['test', file]);
+      writeFileSync(file, 'refuse');
+      const bad = spawnSync(process.execPath, [runner], {cwd: dir, env, encoding:'utf8'});
+      expect(bad.status).toBe(1);
+      expect(bad.stderr).toContain('fixture.contract:7:3: invalid test step');
+    }
+    const missing = spawnSync(process.execPath, [runner], {
+      cwd:dir, env:{...process.env,PATH:join(dir,'absent')}, encoding:'utf8',
+    });
+    expect(missing.status).toBe(1);
+    expect(missing.stderr).toContain('cargo');
+    expect(missing.stderr).not.toContain('TypeError');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('driver deadlines release their timer on success, rejection and timeout', async () => {
+  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
+  const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
+  const timers = new Set();
+  const wait = vm.runInNewContext(`(${implementation})`, {
+    setTimeout(callback) { timers.add(callback); return callback; },
+    clearTimeout(callback) { timers.delete(callback); },
+  });
+  expect(await wait(Promise.resolve('ready'), 20000)).toBe('ready');
+  expect(timers.size).toBe(0);
+  const failed = new Error('app exited');
+  await expect(wait(Promise.reject(failed), 20000)).rejects.toBe(failed);
+  expect(timers.size).toBe(0);
+  const pending = new Promise(() => {});
+  const closed = wait(pending, 2000);
+  expect(timers.size).toBe(1);
+  [...timers][0]();
+  expect(await closed).toBeUndefined();
+  expect(timers.size).toBe(0);
+  const late = wait(pending, 20000, () => { throw failed; });
+  [...timers][0]();
+  await expect(late).rejects.toBe(failed);
+  expect(timers.size).toBe(0);
+});
+
+test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
+  const a = 'a'.repeat(64), b = 'b'.repeat(64), reader = sourceMapReader(path);
+  try {
+    expect(await reader.refresh()).toBe(false);
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(a)));
+    expect(await reader.refresh()).toBe(true);
+    const node = inspected(a); reader.attach(node);
+    expect(node.sourceMap.status).toBe('compatible');
+    expect(node.sourceMap.line).toBe(12);
+    expect(node.style.color.origin).toBe('class:Bubble');
+    expect(node.style['font-size'].origin).toBeUndefined();
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(b, 22)));
+    await reader.refresh();
+    const refusedReload = inspected(a); reader.attach(refusedReload);
+    expect(refusedReload.sourceMap.line).toBe(12);
+    const accepted = inspected(b); reader.attach(accepted);
+    expect(accepted.sourceMap.line).toBe(22);
+    const stale = inspected('c'.repeat(64)); reader.attach(stale);
+    expect(stale.sourceMap.status).toBe('unavailable');
+    writeFileSync(path + '.map.json', JSON.stringify(mapAt(b, 24)));
+    await reader.refresh(); reader.attach(accepted);
+    expect(accepted.sourceMap.line).toBe(24);
+    expect(accepted.sourceMap.status).toBe('compatible');
+    const malformed = mapAt(b); malformed.nodes[0].line = -1;
+    writeFileSync(path + '.map.json', JSON.stringify(malformed));
+    await reader.refresh(); reader.attach(inspected(a));
+    const invalid = inspected(b); reader.attach(invalid);
+    expect(invalid.sourceMap.status).toBe('unavailable');
+    writeFileSync(path + '.map.json', '{bad JSON');
+    expect(await reader.refresh()).toBe(true); // Valid older entries remain useful.
+    const noIdentity = inspected(undefined); reader.attach(noIdentity);
+    expect(noIdentity.sourceMap.status).toBe('unavailable');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('local map refresh observes same-size edits with restored timestamps and recovers after missing or malformed files', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-refresh-')), path = join(dir, 'app.plan');
+  const file = path + '.map.json', digest = 'a'.repeat(64), reader = sourceMapReader(path);
+  const node = inspected(digest);
+  try {
+    const first = JSON.stringify(mapAt(digest, 12)), changed = JSON.stringify(mapAt(digest, 24));
+    expect(first.length).toBe(changed.length);
+    writeFileSync(file, first);
+    const stat = statSync(file);
+    for (let i = 0; i < 3; i++) {
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(12);
+    }
+    writeFileSync(file, changed); utimesSync(file, stat.atime, stat.mtime);
+    expect(await reader.refresh()).toBe(true); reader.attach(node);
+    expect(node.sourceMap.line).toBe(24);
+    for (const missing of [false, true]) {
+      if (missing) rmSync(file); else writeFileSync(file, '{bad JSON');
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(24);
+      writeFileSync(file, changed);
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(24);
+    }
+    writeFileSync(file, first);
+    expect(await reader.refresh()).toBe(true); reader.attach(node);
+    expect(node.sourceMap.line).toBe(12);
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('HTTP map discovery validates its card, origin and plan, independently of the node identity', async () => {
+  const digest = 'a'.repeat(64), body = Buffer.from(JSON.stringify(mapAt(digest)));
+  let mapURL = '/map', cardHash = createHash('sha256').update(body).digest('hex'), planHash = digest, mapReads = 0;
+  const server = createServer((req,res) => {
+    if (req.url === '/exact.json') res.end(JSON.stringify({plan:{sha256:planHash},dev:{sourceMap:{url:mapURL,sha256:cardHash,bytes:body.length}}}));
+    else { mapReads++; res.end(body); }
+  });
+  await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
+  const url = `http://127.0.0.1:${server.address().port}/nested/app`;
+  try {
+    const reader = sourceMapReader(url);
+    expect(await reader.refresh()).toBe(true);
+    expect(await reader.refresh()).toBe(true);
+    expect(mapReads).toBe(1);
+    const node = inspected(digest); reader.attach(node);
+    expect(node.sourceMap.status).toBe('compatible');
+    const different = inspected('b'.repeat(64)); reader.attach(different);
+    expect(different.sourceMap.status).toBe('unavailable');
+    cardHash = 'b'.repeat(64);
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    cardHash = createHash('sha256').update(body).digest('hex'); planHash = 'b'.repeat(64);
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    planHash = digest; mapURL = 'http://different.invalid/map';
+    expect(await sourceMapReader(url).refresh()).toBe(false);
+    expect(mapReads).toBe(3);
+  } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+});
+
+test('targeted inspection uses its own node identity and renders declaration, callers and winning styles', async () => {
+  const node = inspected('a'.repeat(64)), reply = {node,nodes:[{id:1,x:0,y:0,w:20,h:10}],viewport:{w:100,h:100},clock:0};
+  identifyInspectedNode(reply,'bubble');
+  expect(reply.nodes[0].testId).toBe('bubble');
+  expect(() => identifyInspectedNode(reply,'replacement')).toThrow('changed during inspection');
+  identifyInspectedNode(reply,1);
+  node.sourceMap = {status:'compatible',...mapAt(node.planDigest).nodes[0]};
+  node.style.color.origin = 'class:Bubble';
+  const output = render('layout',reply);
+  expect(output).toContain('@ /app/ui/bubble.contract:12:3 (Bubble) · compatible source map');
+  expect(output).toContain('called from App @ /app/app.contract:45:5');
+  expect(output).toContain('(dynamic, class:Bubble)');
+  expect(output).not.toContain(node.planDigest);
+});
+
+test('retained development source maps survive later generations and refuse mismatched plans', async () => {
+  const cache = mkdtempSync(join(tmpdir(), 'exact-dev-source-map-'));
+  const epoch = 'a'.repeat(32), prefix = `/__dev/generation/${epoch}/`;
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex');
+  const card = bytes => ({ bytes: bytes.length, sha256: digest(bytes) });
+  try {
+    for (const seq of [1, 2, 3, 4]) {
+      const plan = Buffer.from(`plan ${seq}`);
+      const map = Buffer.from(JSON.stringify({digest: seq === 3 ? digest('different') : digest(plan), nodes: [{file: `source-${seq}.contract`}]}));
+      const envelope = Buffer.from(JSON.stringify({exact: 1, plan: card(plan), assets: [], dev: {epoch, seq, ...(seq === 4 ? {} : {sourceMap: card(map)})}}));
+      retainDevGeneration(cache, epoch, seq, new Map([['app.plan', plan], ['app.plan.map.json', map], ['exact.json', envelope]]));
+    }
+    expect(JSON.parse(readDevGeneration(cache, prefix + '1/app.plan.map.json').body).nodes[0].file).toBe('source-1.contract');
+    expect(JSON.parse((await readDevGenerationAsync(cache, prefix + '2/app.plan.map.json')).body).nodes[0].file).toBe('source-2.contract');
+    expect(readDevGeneration(cache, prefix + '3/app.plan.map.json')).toBeNull();
+    expect(await readDevGenerationAsync(cache, prefix + '4/app.plan.map.json')).toBeNull();
+  } finally { rmSync(cache, {recursive: true, force: true}); }
+});
 
 // Like http-body/request-refusal.test.mjs, run the actual glue with host doubles.
 // Include the real public object and nodeDetail so registration and flow facts
@@ -61,6 +272,23 @@ function plain(reply) {
   expect(typeof reply).toBe('object');
   expect(reply.then).toBeUndefined();
 }
+
+test('only an explicit targeted layout carries its same-reply accepted plan', () => {
+  const c = fixture(), requests = [];
+  c.ask = request => {
+    requests.push(request);
+    if (request.op === 'node') return {id: request.id, type: 'Text', props: {testId:'current'}, ...(request.plan ? {planDigest:'a'.repeat(64)} : {})};
+    return {epoch:2,incarnation:1,clock:0};
+  };
+  const initial = c.exact.agent({op:'layout',id:1});
+  plain(initial);
+  expect(initial.error).toBeUndefined();
+  expect(initial.node.planDigest).toBeUndefined();
+  const result = c.exact.agent({op:'layout',id:1,plan:true});
+  plain(result);
+  expect(result.node.planDigest).toBe('a'.repeat(64));
+  expect(requests.filter(r=>r.op==='node').map(r=>r.plan ?? false)).toEqual([false,true]);
+});
 
 test('ordinary reads and inputs are synchronous; the awaited entry returns the same reply', async () => {
   const f = fixture();
@@ -390,4 +618,66 @@ test('initial flow loading cannot hold the first frame or module activation', as
   await checkpoint();
   expect(f.logs.lines.at(-1)).toContain('textflow module: Error: flow unavailable');
   await boot;
+});
+
+test('module replacement drains current requests before swapping and rechecks supersession', async () => {
+  for (const result of ['accept', 'superseded', 'timeout']) {
+    const f = fixture(false), entered = deferred(), drained = deferred();
+    let current = true, swaps = 0;
+    f.waitForInflight = async deadline => {
+      expect(deadline).toBe(20010);
+      entered.resolve();
+      return drained.promise;
+    };
+    f.setInputReady = value => { f.inputReady = value; };
+    f.wasm.exact_boot_module = () => { swaps++; return '{"ops":[],"timers":true}'; };
+    const candidate = {realm:{id:1},receipt:new Uint8Array([1])};
+    const update = f.boot(new Uint8Array([1]), null, () => current, candidate);
+    const outcome = update.then(value => ({value}), error => ({error}));
+    await entered.promise;
+    expect(swaps).toBe(0);
+    expect(f.views.size).toBe(1);
+    expect(f.inputReady).toBe(true);
+    if (result === 'superseded') current = false;
+    drained.resolve(result !== 'timeout');
+    const reply = await outcome;
+    if (result === 'accept') {
+      expect(reply.error).toBeUndefined();
+      expect(swaps).toBe(1);
+      expect(f.activeModule).toBe(candidate);
+    } else {
+      expect(swaps).toBe(0);
+      expect(f.views.size).toBe(1);
+      expect(f.activeModule).toBeNull();
+      if (result === 'timeout') expect(String(reply.error)).toContain('in-flight requests');
+      else expect(reply.value).toBeNull();
+    }
+  }
+});
+
+
+test('scoped tree rendering trims only shared indentation and preserves guest depth', () => {
+  const node = {id:7,parent:3,depth:4,type:'WebView',props:{testId:'panel'},handlers:[],children:[8],guest:[{depth:0,tag:'button',text:'guest'}]};
+  const child = {id:8,parent:7,depth:5,type:'Text',props:{text:'child'},handlers:[],children:[]};
+  const lines = render('tree',{epoch:1,incarnation:2,clock:0,roots:[7],nodes:[node,child]}).split('\n');
+  expect(lines.slice(1)).toEqual(['WebView#7 [panel]','  [guest] button "guest"','  Text#8 "child"']);
+  expect(node.depth).toBe(4);
+});
+
+
+test('tree forwards its target and preserves host annotations and runner errors', () => {
+  const f = fixture(), requests = [];
+  vm.runInContext(declaration('tree'), f);
+  const iframe = new f.HTMLIFrameElement();
+  iframe.getAttribute = () => '/guest';
+  f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
+  f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
+  f.ask = request => {
+    requests.push(request);
+    return request.target === 'missing' ? {error:'no view matches missing'} : {roots:[7],nodes:[{id:7,type:'WebView'}]};
+  };
+  const reply = f.exact.agent({op:'tree',target:'panel',shallow:true});
+  expect(requests[0]).toEqual({op:'tree',target:'panel',shallow:true});
+  expect(reply.nodes[0]).toEqual({id:7,type:'WebView',url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
+  expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });

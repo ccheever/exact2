@@ -198,9 +198,19 @@ function captureGeneration(reuseCurrentAssets = false) {
   if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
   const planBytes = currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
+  // Source metadata stays beside the dev generation, never in its assets or
+  // module receipt. A static/Rust bake may have replaced the plan without a map.
+  const encodedMap = currentModule || currentRust ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
+  const mapBytes = currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
+  files.delete('app.plan.map.json');
+  if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
+    try {
+      if (JSON.parse(mapBytes.toString('utf8')).digest === createHash('sha256').update(planBytes).digest('hex')) files.set('app.plan.map.json', mapBytes);
+    } catch { /* Unavailable metadata must not prevent a valid app reload. */ }
+  }
   const module = currentModule ? moduleCards(files, app.id) : null;
   if (currentRust) for (const [name, body] of currentRust) {
-    if (name === 'app.plan') continue;
+    if (name === 'app.plan' || name === 'app.plan.map.json') continue;
     // A Contract/TS bake can reuse the exact accepted Rust artifact. Bind
     // its receipt to the new common plan; each client validates both
     // executors together before restart with carry.
@@ -241,6 +251,10 @@ function captureGeneration(reuseCurrentAssets = false) {
   })).digest('hex');
   const prefix = `/__dev/generation/${epoch}/${seq}/`;
   envelope.dev = { epoch, program, seq, generation, events: '/__dev' };
+  if (files.has('app.plan.map.json')) {
+    const body = files.get('app.plan.map.json');
+    envelope.dev.sourceMap = { url: prefix + 'app.plan.map.json', sha256: createHash('sha256').update(body).digest('hex'), bytes: body.length };
+  }
   envelope.plan.url = prefix + 'app.plan';
   if (rust) envelope.rust = Object.fromEntries(Object.entries(rust).map(([kind, variant]) => [kind, { ...variant, receipt:{...variant.receipt,url:prefix+variant.receipt.url},module:{...variant.module,url:prefix+variant.module.url} }]));
   if (module) envelope.module = Object.fromEntries(Object.entries(module).map(([key, card]) => [key, { ...card, url: prefix + MODULE_FILES[key] }]));
@@ -263,7 +277,7 @@ function startCompiler() {
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'dev', '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -395,7 +409,7 @@ function startModuleCompiler() {
         // An edit arriving during compilation supersedes its entire candidate.
         if (request.id !== moduleRun) continue;
         if (!reply.ok) throw new Error(reply.error || 'module producer refused the candidate');
-        const candidate = new Map(['app.plan', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
+        const candidate = new Map(['app.plan', 'app.plan.map.json', ...Object.values(MODULE_FILES)].map(name => [name, readFileSync(resolve(request.output, name))]));
         moduleCards(candidate, app.id);
         const previous = currentModule;
         currentModule = candidate;

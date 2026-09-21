@@ -258,7 +258,16 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         }
     }
     Ok(Request {
-        http: exact_runner::HttpScheduling::Ordered,
+        http: match j.get("max_response_bytes") {
+            None => exact_runner::HttpScheduling::Ordered,
+            Some(value) => exact_runner::HttpScheduling::Independent {
+                max_response_bytes: value
+                    .as_u64()
+                    .filter(|n| (1..=64 << 20).contains(n))
+                    .ok_or("invalid independent HTTP response ceiling")?
+                    as u32,
+            },
+        },
         continuation: None,
         storage: None,
         grants: None,
@@ -528,8 +537,14 @@ impl Module {
         self.parked.len()
     }
 
-    /// The prelude's reply for one step, decoded by the source's result shape.
-    fn step(sig: &Sig, engine: &mut Engine, source: &str, text: &str) -> Step {
+    /// Decode once, retaining metadata for async dispatch and the typed answer
+    /// for settlement. Captured replies retain their JSON restoration path.
+    fn decode_reply(
+        sig: &Sig,
+        engine: &mut Engine,
+        source: &str,
+        text: &str,
+    ) -> Result<exact_js_value::Reply, DataError> {
         // Captured large strings still use path restoration into JSON. Ordinary
         // answers decode directly to Value, without a second full value tree.
         let captured = engine.has_reply_strings();
@@ -541,19 +556,21 @@ impl Module {
         } else {
             exact_js_value::reply_from_json_text(text, &sig.result)
         };
+        decoded.map_err(|e| {
+            engine.clear_reply();
+            DataError::Unavailable(format!(
+                "`{source}` answered something other than JSON: {e}"
+            ))
+        })
+    }
+
+    /// Dispatch a decoded reply, restoring captured strings before shape checking.
+    fn step(sig: &Sig, engine: &mut Engine, source: &str, decoded: exact_js_value::Reply) -> Step {
         let exact_js_value::Reply {
             fields: mut reply,
             mut value,
-        } = match decoded {
-            Ok(j) => j,
-            Err(e) => {
-                engine.clear_reply();
-                return Step::Done(Err(DataError::Unavailable(format!(
-                    "`{source}` answered something other than JSON: {e}"
-                ))));
-            }
-        };
-        if captured {
+        } = decoded;
+        if engine.has_reply_strings() {
             if let Err(error) = engine.restore_reply(&mut reply) {
                 return Step::Done(Err(DataError::Unavailable(format!(
                     "`{source}` answered outside its shape: {error}"
@@ -636,29 +653,29 @@ impl Module {
         let args_text = Json::Array(json_args).to_string();
         self.host.store = store.map(|s| s as *mut Store);
         let started = Instant::now();
-        let result: Result<String, DataError> = (|| {
+        let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             let text = engine
                 .call("__exact_call", [source, &args_text, ""])
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
-            let reply: Json = serde_json::from_str(&text).map_err(|e| {
-                DataError::Unavailable(format!(
-                    "`{source}` answered something other than JSON: {e}"
-                ))
-            })?;
-            if reply.get("tag").and_then(Json::as_u64) == Some(3) {
-                let call = reply.get("call").and_then(Json::as_u64).ok_or_else(|| {
-                    DataError::Unavailable(format!("`{source}`: a call with no id"))
-                })?;
+            let mut reply = Module::decode_reply(sig, engine, source, &text)?;
+            if reply.fields.get("tag").and_then(Json::as_u64) == Some(3) {
+                let call = reply
+                    .fields
+                    .get("call")
+                    .and_then(Json::as_u64)
+                    .ok_or_else(|| {
+                        DataError::Unavailable(format!("`{source}`: a call with no id"))
+                    })?;
                 engine
                     .drain()
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
                 let text = engine
                     .call("__exact_settle", [&call.to_string(), "", ""])
                     .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
-                return Ok(text);
+                reply = Module::decode_reply(sig, engine, source, &text)?;
             }
-            Ok(text)
+            Ok(Module::step(sig, engine, source, reply))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -672,14 +689,7 @@ impl Module {
                 self.budget_ms
             )));
         }
-        let text = result?;
-        let sig = self.sigs.get(source).expect("checked above");
-        match Module::step(
-            sig,
-            self.engine.as_mut().expect("checked above"),
-            source,
-            &text,
-        ) {
+        match result? {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
                 let request = if ticket == 0 {
@@ -727,7 +737,7 @@ impl Module {
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
-        let result: Result<String, DataError> = (|| {
+        let result: Result<Step, DataError> = (|| {
             let engine = self.engine.as_mut().expect("checked above");
             if ticket == 0 {
                 if matches!(outcome, Outcome::Failed { .. }) {
@@ -750,9 +760,15 @@ impl Module {
             engine
                 .drain()
                 .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
-            engine
+            let text = engine
                 .call("__exact_settle", [&call.to_string(), "", ""])
-                .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))
+                .map_err(|e| DataError::Unavailable(format!("`{source}` threw: {e}")))?;
+            let Some(sig) = self.sigs.get(source) else {
+                engine.clear_reply();
+                return Err(DataError::UnknownSource(source.to_string()));
+            };
+            let reply = Module::decode_reply(sig, engine, source, &text)?;
+            Ok(Module::step(sig, engine, source, reply))
         })();
         self.host.store = None;
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
@@ -766,17 +782,7 @@ impl Module {
                 self.budget_ms
             )));
         }
-        let text = result?;
-        let Some(sig) = self.sigs.get(source) else {
-            self.engine.as_mut().expect("checked above").clear_reply();
-            return Err(DataError::UnknownSource(source.to_string()));
-        };
-        match Module::step(
-            sig,
-            self.engine.as_mut().expect("checked above"),
-            source,
-            &text,
-        ) {
+        match result? {
             Step::Done(r) => r.map(Answer::Now),
             Step::Pending { call, ticket } => {
                 let request = if ticket == 0 {

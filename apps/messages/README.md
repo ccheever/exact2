@@ -22,10 +22,58 @@ positioning is not verified.
 Per-thread indexes bound transcript reads to a binary search, the window and
 its two neighbors. Selection uses only selected IDs (sorted by order in O(S log S));
 the reply sheet still returns all R rows of its indexed root, including its own
-receipt. Thus an open reply chain can still cost O(N) when R=N. Durable writes
-remain O(total records): `snapshot()` clones the model, `persist` diffs it, and
-startup/sync `restore` loads it all. The 512-record edit cap still limits bulk
-delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
+receipt. Thus an open reply chain can still cost O(N) when R=N.
+
+Durable sources declare the records they can change. Drafts, unread/mute/block state
+and reactions compare only their selected records; no full-history snapshot or
+held-map copy occurs on those saves. Changed values are detached before storage
+awaits and installed only after admission. Omitted keys remain unchanged; explicit
+nulls delete records. Unknown durable sources refuse before mutation. Tests compare
+every durable source against the complete model and actual device, including a
+negative control that deliberately omits a write.
+
+Sources known not to alter reply scheduling also skip copying the pending-reply
+map before persistence. Sends, blocks, conversation deletion and reply ticks keep
+their full rollback copy, as do future sources by default. Failed saves restore
+reply order and the previous clock; the ordinary full-model rollback still prunes
+invalid schedules. Two native Hermes comparisons, each with eight alternating
+pairs, measured 5,000 pending conversations created through real sends. Drafts
+fell from 0.55 to 0.34–0.37 ms, reactions from 0.43–0.45 to 0.23–0.26 ms, and unread
+changes from 0.64–0.65 to 0.43–0.46 ms. Ten pending conversations were roughly flat;
+Bun/Wasm gains were smaller and mixed. This removes work proportional to pending
+conversations from these saves, not from reply ticks or the whole application.
+
+Person positions remain stable across prepends/appends, so sends and contact edits
+include only their affected people. Imported numeric positions are retained; if an
+extreme finite value prevents insertion, positions rebase in the same atomic edit,
+still subject to the 512-record cap.
+
+Recovery operations now capture only selected messages and expiry candidates,
+including expired rows in other conversations. They no longer serialize/compare
+unrelated archived payloads. Failed admission restores both expiry and the selected
+change; the 512-record limit still refuses oversized expiry or purge atomically.
+
+Some costs remain: people lookup scales with contacts, and deletion/recovery still
+scan recoverable row metadata for expiry. Receipt transitions use a derived set of outgoing messages still
+awaiting Read; insertion, recovery and restore rebuild it, while marking a receipt
+clears it. The persistence footprint captures those rows before the handler runs. Thread removal still rebuilds
+its indexes. Startup, changed sync and exceptional rollback still restore the whole
+model. The 512-record edit cap still refuses oversized edits atomically
+(LLP 1027.004 D5; tracked in `QUEUE.md`).
+
+The 300 ms reply timer skips snapshot/diff work when no receipt or generated reply
+changes the model revision. It still updates the local clock; real changes keep the
+existing persistence and rollback path. This check applies only to reply ticks:
+reading recently deleted messages can expire durable rows without a revision change.
+
+An idle sync no longer rereads or compares the history. Reset/adoption, applied
+changes, snapshot catch-up and outbox settlement mark reconciliation as owed;
+failed reads or model publication leave that flag set for the next tick. Status
+and queued counts still update, and changed syncs still reread the full history.
+On the browser, small metadata-only device commits first compare their final values
+with SQLite. Unchanged metadata skips persistence; actual changes still commit the
+original batch. This avoids whole-database exports on idle sync. The comparison adds
+one read to actual small metadata writes; data-bearing and large commits bypass it.
 
 The development connection is explicit in `snapback-client.ts`: origin
 `http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own

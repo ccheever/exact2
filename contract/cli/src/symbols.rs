@@ -1,13 +1,13 @@
-//! Compiler-owned navigation over the same imports, syntax and types as a build.
-//! @ref LLP 1035.005 D2 — JSON queries before an editor protocol.
+//! Compiler-owned navigation and refusal hints over the authored source.
+//! @ref LLP 1035.005 D2 — JSON queries before an editor protocol; LLP 1006 §3 — diagnostics.
 
 use crate::{
     sources::{self, Sources},
-    CompileError,
+    CompileError, RelatedLocation,
 };
 use contract_syntax::*;
 use contract_types::{Ref, Scope, Ty, Types};
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, io::Write, path::Path};
 
 struct Definition {
     kind: &'static str,
@@ -20,12 +20,15 @@ struct Reference {
     span: Span,
     to: usize,
 }
+type Names = BTreeMap<String, usize>;
+type Owners = BTreeMap<String, Names>;
 #[derive(Default)]
 struct Graph {
     definitions: Vec<Definition>,
     references: Vec<Reference>,
-    // Locals resolve by lexical stack; named declarations by namespace/owner.
-    index: BTreeMap<(&'static str, String, String, String), usize>,
+    // Nested namespace keys let queries borrow names instead of allocating
+    // temporary component/owner/name Strings for every lookup.
+    index: BTreeMap<&'static str, BTreeMap<String, Owners>>,
     ids: BTreeMap<String, Vec<usize>>,
 }
 impl Graph {
@@ -38,15 +41,19 @@ impl Graph {
         owner: Option<&str>,
     ) -> usize {
         let index = self.definitions.len();
-        self.index.insert(
-            (
-                kind,
-                component.unwrap_or("").into(),
-                owner.unwrap_or("").into(),
-                name.into(),
-            ),
-            index,
-        );
+        // Locals use the lexical stack; IDs use the multi-target index below.
+        // testId/provide are declarations only. All stay in navigation output,
+        // without unused entries in the named-declaration lookup index.
+        if !matches!(kind, "local" | "parameter" | "id" | "testId" | "provide") {
+            self.index
+                .entry(kind)
+                .or_default()
+                .entry(component.unwrap_or("").into())
+                .or_default()
+                .entry(owner.unwrap_or("").into())
+                .or_default()
+                .insert(name.into(), index);
+        }
         self.definitions.push(Definition {
             kind,
             name: name.into(),
@@ -67,12 +74,10 @@ impl Graph {
         owner: Option<&str>,
     ) -> Option<usize> {
         self.index
-            .get(&(
-                kind,
-                component.unwrap_or("").into(),
-                owner.unwrap_or("").into(),
-                name.into(),
-            ))
+            .get(kind)?
+            .get(component.unwrap_or(""))?
+            .get(owner.unwrap_or(""))?
+            .get(name)
             .copied()
     }
     fn refer(&mut self, span: Span, to: usize) {
@@ -95,50 +100,98 @@ impl Graph {
             }
         }
     }
-    fn json(&self, sources: &Sources) -> String {
-        let location = |span: Span| {
-            serde_json::json!({
-                "file": sources.path(span).to_string_lossy(), "line": span.line,
-                "col": span.col, "end_col": span.end_col,
-            })
-        };
-        let definitions: Vec<_> = self
-            .definitions
-            .iter()
-            .map(|d| {
-                let mut value = location(d.span);
-                value["kind"] = d.kind.into();
-                value["name"] = d.name.clone().into();
-                if let Some(c) = &d.component {
-                    value["component"] = c.clone().into();
-                }
-                if let Some(o) = &d.owner {
-                    value["owner"] = o.clone().into();
-                }
-                value
-            })
-            .collect();
-        let references: Vec<_> = self
-            .references
-            .iter()
-            .map(|r| {
-                let d = &self.definitions[r.to];
-                let mut value = location(r.span);
-                value["kind"] = d.kind.into();
-                value["name"] = d.name.clone().into();
-                value["to"] = r.to.into();
-                value
-            })
-            .collect();
-        serde_json::json!({"definitions": definitions, "references": references}).to_string()
+    fn json(&self, sources: &Sources, name: Option<&str>) -> String {
+        // Emit the existing graph directly, without cloning every name and
+        // filename into a second tree of JSON objects.
+        let mut out = Vec::with_capacity(if name.is_some() {
+            0
+        } else {
+            (self.definitions.len() + self.references.len()) * 128
+        });
+        let mut selected = name.map(|_| vec![None; self.definitions.len()]);
+        out.extend_from_slice(b"{\"definitions\":[");
+        let mut count = 0;
+        for (i, definition) in self.definitions.iter().enumerate() {
+            if name.is_some_and(|name| definition.name != name) {
+                continue;
+            }
+            if let Some(selected) = &mut selected {
+                selected[i] = Some(count);
+            }
+            if count != 0 {
+                out.push(b',');
+            }
+            write_symbol(&mut out, sources, definition, definition.span, None);
+            count += 1;
+        }
+        out.extend_from_slice(b"],\"references\":[");
+        count = 0;
+        for reference in &self.references {
+            let to = match &selected {
+                Some(selected) => match selected[reference.to] {
+                    Some(to) => to,
+                    None => continue,
+                },
+                None => reference.to,
+            };
+            if count != 0 {
+                out.push(b',');
+            }
+            write_symbol(
+                &mut out,
+                sources,
+                &self.definitions[reference.to],
+                reference.span,
+                Some(to),
+            );
+            count += 1;
+        }
+        out.extend_from_slice(b"]}");
+        String::from_utf8(out).expect("JSON serialization is UTF-8")
     }
+}
+
+fn write_symbol(
+    out: &mut Vec<u8>,
+    sources: &Sources,
+    definition: &Definition,
+    span: Span,
+    to: Option<usize>,
+) {
+    // Keep the previous sorted property order as well as its optional fields.
+    write!(out, "{{\"col\":{}", span.col).unwrap();
+    if to.is_none() {
+        if let Some(component) = &definition.component {
+            out.extend_from_slice(b",\"component\":");
+            quote(out, component);
+        }
+    }
+    write!(out, ",\"end_col\":{},\"file\":", span.end_col).unwrap();
+    quote(out, &sources.path(span).to_string_lossy());
+    out.extend_from_slice(b",\"kind\":");
+    quote(out, definition.kind);
+    write!(out, ",\"line\":{},\"name\":", span.line).unwrap();
+    quote(out, &definition.name);
+    if let Some(to) = to {
+        write!(out, ",\"to\":{to}").unwrap();
+    } else if let Some(owner) = &definition.owner {
+        out.extend_from_slice(b",\"owner\":");
+        quote(out, owner);
+    }
+    out.push(b'}');
+}
+
+fn quote(out: &mut Vec<u8>, value: &str) {
+    serde_json::to_writer(out, value).expect("writing JSON into a Vec cannot fail");
 }
 
 /// Definitions and references as JSON, with exact original byte ranges.
 /// Uses the build's import policy and type checker. No plan or bake is produced.
 /// Local bindings, parameters and shape fields are included; built-in names have
 /// no authored definition. Repeated ID declarations produce multiple edges.
-pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
+/// `name` selects every exact matching declaration and its references, with `to`
+/// indices local to that response. Validation still covers the whole source graph.
+pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileError> {
     let src = std::fs::read_to_string(path).map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
@@ -192,7 +245,7 @@ pub fn symbols_json(path: &Path) -> Result<String, CompileError> {
         }
     }
     r.file(expanded.as_ref().map(|e| &e.root));
-    Ok(r.graph.json(&sources))
+    Ok(r.graph.json(&sources, name))
 }
 
 struct Resolver<'a> {
@@ -207,6 +260,10 @@ struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     fn declarations(&mut self) {
         let names = &self.file.names;
+        for font in &self.file.fonts {
+            self.graph
+                .define("font", &font.name, names.name(font.span), None, None);
+        }
         for shape in &self.file.shapes {
             self.graph
                 .define("shape", &shape.name, names.name(shape.span), None, None);
@@ -384,6 +441,11 @@ impl<'a> Resolver<'a> {
         contract_types::infer(expr, &self.scope, &self.types.shapes).unwrap_or(Ty::Unknown)
     }
     fn file(&mut self, expanded_root: Option<&Component>) {
+        for style in &self.file.styles {
+            for attr in style.attrs.iter().filter(|a| a.name == "font-family") {
+                self.attr(attr);
+            }
+        }
         for shape in &self.file.shapes {
             for field in &shape.fields {
                 self.ty(&field.ty);
@@ -623,6 +685,7 @@ impl<'a> Resolver<'a> {
     fn attr(&mut self, a: &Attr) {
         match (a.name.as_str(), &a.value) {
             ("id" | "testId", Expr::Str(..)) => {}
+            ("font-family", Expr::Str(name, span)) => self.refer("font", name, *span, None, None),
             ("class", Expr::Ident(name, span)) => self.refer("style", name, *span, None, None),
             ("navigationBack" | "contextTarget" | "popovertarget", Expr::Str(id, span)) => {
                 self.graph.id(id, *span)
@@ -698,4 +761,388 @@ impl<'a> Resolver<'a> {
             }
         }
     }
+}
+
+// Expansion lifts child declarations into the root. Only the original tree
+// can say which action spellings the author can use at a failing handler.
+// Walk it on refusal only; successful compilation does no diagnostic work.
+pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> CompileError {
+    if !matches!(
+        error.id.as_str(),
+        "type-unknown-name" | "type-unknown-function" | "analyze-unknown-action"
+    ) {
+        return error;
+    }
+    let refused = error.message.split('`').nth(1).unwrap_or("").to_owned();
+    #[derive(Clone, Copy)]
+    struct HintContext<'a> {
+        refused: &'a str,
+        call: bool,
+        provider: bool,
+    }
+    let context = HintContext {
+        refused: &refused,
+        call: error.id == "type-unknown-function",
+        provider: false,
+    };
+    fn action_type(file: &File, ty: &Option<TypeExpr>) -> bool {
+        matches!(ty, Some(TypeExpr::Named(name, _)) if name == "action")
+            && !file.shapes.iter().any(|shape| shape.name == "action")
+    }
+    fn suggestion<'a>(
+        file: &File,
+        c: &'a Component,
+        name: &str,
+        shadowed: &[&str],
+        timer: bool,
+        call: bool,
+    ) -> Option<&'a str> {
+        if !name.is_ascii() || !(3..=64).contains(&name.len()) {
+            return None;
+        }
+        let names = c.actions.iter().map(|a| a.name.as_str()).chain(
+            c.props
+                .iter()
+                .chain(&c.injects)
+                .filter(|p| !timer && action_type(file, &p.ty))
+                .map(|p| p.name.as_str()),
+        );
+        let mut found = None;
+        for candidate in names {
+            if candidate.contains("__")
+                || shadowed.contains(&candidate)
+                || (call
+                    && (matches!(candidate, "pending" | "path")
+                        || file.fns.iter().any(|f| f.name == candidate)))
+                || !contract_syntax::one_spelling_edit(name.as_bytes(), candidate.as_bytes())
+            {
+                continue;
+            }
+            if found.is_some_and(|old| old != candidate) {
+                return None;
+            }
+            found = Some(candidate);
+        }
+        found
+    }
+    fn view(
+        file: &File,
+        c: &Component,
+        nodes: &[Node],
+        span: Span,
+        shadowed: &mut Vec<String>,
+        context: HintContext<'_>,
+    ) -> Option<(String, Option<String>)> {
+        for node in nodes {
+            let attrs = match node {
+                Node::Element { attrs, .. } => Some((attrs, None)),
+                Node::Use { name, args, .. } => file
+                    .components
+                    .iter()
+                    .find(|target| target.name == *name)
+                    .map(|target| (args, Some(target))),
+                _ => None,
+            };
+            if let Some((attrs, target)) = attrs {
+                for attr in attrs {
+                    let is_action = match target {
+                        Some(target) => target
+                            .props
+                            .iter()
+                            .any(|p| p.name == attr.name && action_type(file, &p.ty)),
+                        None => contract_analyze::HANDLERS.contains(&attr.name.as_str()),
+                    };
+                    if is_action && attr.value.span() == span {
+                        if let Expr::Ident(name, _) | Expr::Call(name, _, _) = &attr.value {
+                            if name != context.refused
+                                || c.props.iter().chain(&c.injects).any(|p| p.name == *name)
+                            {
+                                continue;
+                            }
+                            let locals: Vec<_> = shadowed.iter().map(String::as_str).collect();
+                            return Some((
+                                name.clone(),
+                                suggestion(file, c, name, &locals, false, context.call)
+                                    .map(str::to_owned),
+                            ));
+                        }
+                    }
+                }
+            }
+            let found = match node {
+                Node::Element { children, .. } | Node::Use { children, .. } => {
+                    view(file, c, children, span, shadowed, context)
+                }
+                Node::Provide { expr, body, .. } => {
+                    if context.provider
+                        && expr.span() == span
+                        && expression_name(expr) == Some(context.refused)
+                    {
+                        let locals: Vec<_> = shadowed.iter().map(String::as_str).collect();
+                        return Some((
+                            context.refused.to_owned(),
+                            suggestion(file, c, context.refused, &locals, false, context.call)
+                                .map(str::to_owned),
+                        ));
+                    }
+                    view(file, c, body, span, shadowed, context)
+                }
+                Node::Each { var, body, .. } => {
+                    shadowed.push(var.clone());
+                    let found = view(file, c, body, span, shadowed, context);
+                    shadowed.pop();
+                    found
+                }
+                Node::Match { some, none, .. } => {
+                    shadowed.push(some.0.clone());
+                    let found = view(file, c, &some.1, span, shadowed, context);
+                    shadowed.pop();
+                    found.or_else(|| view(file, c, none, span, shadowed, context))
+                }
+                Node::When {
+                    then, otherwise, ..
+                } => view(file, c, then, span, shadowed, context)
+                    .or_else(|| view(file, c, otherwise, span, shadowed, context)),
+                Node::Children { .. } => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+    fn expression_name(expr: &Expr) -> Option<&str> {
+        match expr {
+            Expr::Ident(name, _) | Expr::Call(name, _, _) => Some(name),
+            _ => None,
+        }
+    }
+    fn walk<'a>(nodes: &'a [Node], visit: &mut impl FnMut(&'a Node)) {
+        for node in nodes {
+            visit(node);
+            match node {
+                Node::Element { children, .. } | Node::Use { children, .. } => {
+                    walk(children, visit)
+                }
+                Node::Provide { body, .. } | Node::Each { body, .. } => walk(body, visit),
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, visit);
+                    walk(otherwise, visit);
+                }
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, visit);
+                    walk(none, visit);
+                }
+                Node::Children { .. } => {}
+            }
+        }
+    }
+    fn authored_expr(nodes: &[Node], span: Span) -> Option<&Expr> {
+        let mut found = None;
+        walk(nodes, &mut |node| match node {
+            Node::Element { attrs, .. } | Node::Use { args: attrs, .. } => {
+                if let Some(a) = attrs.iter().find(|a| a.value.span() == span) {
+                    found = Some(&a.value);
+                }
+            }
+            Node::Provide { expr, .. } if expr.span() == span => found = Some(expr),
+            _ => {}
+        });
+        found
+    }
+    fn supplied<'a>(
+        nodes: &'a [Node],
+        use_span: Span,
+        name: &str,
+        inject: bool,
+        providers: &mut Vec<(&'a str, &'a Expr)>,
+    ) -> Option<&'a Expr> {
+        for node in nodes {
+            if let Node::Use { args, span, .. } = node {
+                if *span == use_span {
+                    return if inject {
+                        providers
+                            .iter()
+                            .rev()
+                            .find(|(n, _)| *n == name)
+                            .map(|(_, expr)| *expr)
+                    } else {
+                        args.iter().find(|a| a.name == name).map(|a| &a.value)
+                    };
+                }
+            }
+            let found = match node {
+                Node::Element { children, .. } | Node::Use { children, .. } => {
+                    supplied(children, use_span, name, inject, providers)
+                }
+                Node::Provide {
+                    name: key,
+                    expr,
+                    body,
+                    ..
+                } => {
+                    providers.push((key, expr));
+                    let found = supplied(body, use_span, name, inject, providers);
+                    providers.pop();
+                    found
+                }
+                Node::Each { body, .. } => supplied(body, use_span, name, inject, providers),
+                Node::When {
+                    then, otherwise, ..
+                } => supplied(then, use_span, name, inject, providers)
+                    .or_else(|| supplied(otherwise, use_span, name, inject, providers)),
+                Node::Match { some, none, .. } => {
+                    supplied(&some.1, use_span, name, inject, providers)
+                        .or_else(|| supplied(none, use_span, name, inject, providers))
+                }
+                Node::Children { .. } => None,
+            };
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+    fn origin(
+        file: &File,
+        instances: &[contract_syntax::Instance],
+        mut instance: u32,
+        mut span: Span,
+        refused: &str,
+    ) -> Option<(u32, Span)> {
+        loop {
+            let site = &instances[instance as usize];
+            let c = file.components.iter().find(|c| c.name == site.component)?;
+            let expr = authored_expr(&c.view, span)?;
+            let name = expression_name(expr)?;
+            let inject = c.injects.iter().any(|p| p.name == name);
+            if name == refused && !inject && !c.props.iter().any(|p| p.name == name) {
+                return Some((instance, span));
+            }
+            if !inject && !c.props.iter().any(|p| p.name == name) {
+                return None;
+            }
+            let mut child = instance;
+            loop {
+                let site = &instances[child as usize];
+                let parent = site.parent?;
+                let c = file
+                    .components
+                    .iter()
+                    .find(|c| c.name == instances[parent as usize].component)?;
+                if let Some(expr) = supplied(&c.view, site.span, name, inject, &mut Vec::new()) {
+                    instance = parent;
+                    span = expr.span();
+                    break;
+                }
+                if !inject {
+                    return None;
+                }
+                child = parent;
+            }
+        }
+    }
+    for c in &file.components {
+        let found = if error.id == "analyze-unknown-action" {
+            c.tasks
+                .iter()
+                .find(|task| task.every.2 == error.span)
+                .map(|task| {
+                    (
+                        task.every.1.clone(),
+                        suggestion(file, c, &task.every.1, &[], true, false).map(str::to_owned),
+                    )
+                })
+        } else {
+            view(file, c, &c.view, error.span, &mut Vec::new(), context)
+        };
+        if let Some((_name, candidate)) = found {
+            // A similarly spelled global function cannot repair an action-valued
+            // position. Replace only the old hint, retaining the refusal and span.
+            if let Some(at) = error.message.find("; did you mean `") {
+                error.message.truncate(at);
+            }
+            if let Some(candidate) = candidate {
+                error
+                    .message
+                    .push_str(&format!("; did you mean `{candidate}`?"));
+            }
+            return error;
+        }
+    }
+    if error.id != "analyze-unknown-action" {
+        if let Ok(expanded) = contract_syntax::expand_mapped(file) {
+            let mut sites = Vec::new();
+            walk(&expanded.root.view, &mut |node| {
+                if let Node::Element {
+                    attrs, instance, ..
+                } = node
+                {
+                    if attrs.iter().any(|a| {
+                        contract_analyze::HANDLERS.contains(&a.name.as_str())
+                            && a.value.span() == error.span
+                            && expression_name(&a.value) == Some(refused.as_str())
+                    }) {
+                        sites.push(*instance);
+                    }
+                }
+            });
+            if !sites.is_empty() {
+                if let Some(at) = error.message.find("; did you mean `") {
+                    error.message.truncate(at);
+                }
+            }
+            let mut resolved = Vec::new();
+            for instance in sites {
+                let Some((owner, span)) =
+                    origin(file, &expanded.instances, instance, error.span, &refused)
+                else {
+                    return error;
+                };
+                let c = file
+                    .components
+                    .iter()
+                    .find(|c| c.name == expanded.instances[owner as usize].component)
+                    .unwrap();
+                let Some((_, Some(candidate))) = view(
+                    file,
+                    c,
+                    &c.view,
+                    span,
+                    &mut Vec::new(),
+                    HintContext {
+                        provider: true,
+                        ..context
+                    },
+                ) else {
+                    return error;
+                };
+                resolved.push((span, candidate));
+            }
+            if let Some((_, candidate)) = resolved.first() {
+                if resolved.iter().all(|(_, name)| name == candidate) {
+                    if let Some(at) = error.message.find("; did you mean `") {
+                        error.message.truncate(at);
+                    }
+                    error
+                        .message
+                        .push_str(&format!("; did you mean `{candidate}`?"));
+                    let mut related = error.related.into_vec();
+                    for (span, _) in resolved {
+                        if !related.iter().any(|r| r.span == span) {
+                            related.push(RelatedLocation {
+                                span,
+                                file: None,
+                                note: format!("the unknown action `{refused}` is supplied here"),
+                            });
+                        }
+                    }
+                    error.related = related.into_boxed_slice();
+                }
+            }
+        }
+    }
+    error
 }

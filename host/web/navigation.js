@@ -409,6 +409,9 @@ export function collectionController({ root, views, report, settled=()=>{},
   }
   function pointerUp(event) {
     if (event.pointerId !== interaction?.pointer || interaction?.lease) return;
+    // A child-to-ancestor capture transfer keeps the same contact and row pin.
+    if (event.type === 'lostpointercapture'
+        && event.composedPath().some(node => node.hasPointerCapture?.(event.pointerId))) return;
     interaction = null; focusChanged();
   }
   root.addEventListener('focusin', focusChanged, true);
@@ -1219,6 +1222,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       on('pointermove',move);
       const finish=e=>{
         if(!drag||drag.pointer!==e.pointerId)return;
+        // Taking capture from a text child bubbles that child's capture loss here.
+        if(e.type==='lostpointercapture'&&e.target!==el)return;
         if(!drag.holds){stop();return;}
         if(e.type==='pointerup'&&!move(e))return;
         const ended=drag; drag=null; active.delete(id); suppressClick=true;

@@ -14,6 +14,7 @@
 
 pub mod compat;
 mod logic;
+mod map;
 mod receipt;
 mod sources;
 mod symbols;
@@ -24,6 +25,7 @@ pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::rust_entry;
+pub use map::{plan_digest, SourceMap};
 pub use receipt::write_development_artifacts;
 pub use symbols::symbols_json;
 pub use typescript::typescript;
@@ -47,6 +49,9 @@ pub enum BakeError {
         id: &'static str,
         /// What and where — the node by its `testId` when it has one.
         message: String,
+        /// The offending plan node, when a measured node caused the refusal.
+        /// A development source map resolves it to the authored declaration.
+        site: Option<exact_plan::NodesId>,
     },
 }
 
@@ -54,7 +59,7 @@ impl std::fmt::Display for BakeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             BakeError::Runner(e) => write!(f, "{e:?}"),
-            BakeError::Lint { id, message } => write!(f, "[{id}] {message}"),
+            BakeError::Lint { id, message, .. } => write!(f, "[{id}] {message}"),
         }
     }
 }
@@ -212,6 +217,15 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
 /// exist in the used file; a name declared differently in both is refused;
 /// a cycle is refused.
 pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
+    compile_path_source(path, &read_source(path)?)
+}
+
+/// Compile a file with the development map of the nodes it produces.
+pub fn compile_path_mapped(path: &Path) -> Result<(Plan, SourceMap), CompileError> {
+    compile_path_source_mapped(path, &read_source(path)?)
+}
+
+fn read_source(path: &Path) -> Result<String, CompileError> {
     let src = std::fs::read_to_string(path).map_err(|e| CompileError {
         pass: "use",
         id: "contract-use-unreadable".into(),
@@ -220,13 +234,30 @@ pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
         file: Some(path.to_path_buf()),
         related: Box::new([]),
     })?;
-    compile_path_source(path, &src)
+    Ok(src)
 }
 
 /// Compile source bytes with their file path for relative `use` and font
 /// resolution. Unlike [`compile_path`], this never re-reads the root file;
 /// callers that watch a file can compile the exact snapshot they observed.
 pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError> {
+    compile_path_output(path, src, false).map(|(plan, _)| plan)
+}
+
+/// Compile the exact observed root source snapshot and retain its source map.
+/// Relative imports and fonts resolve as in [`compile_path_source`].
+pub fn compile_path_source_mapped(
+    path: &Path,
+    src: &str,
+) -> Result<(Plan, SourceMap), CompileError> {
+    compile_path_output(path, src, true).map(|(plan, map)| (plan, map.expect("map requested")))
+}
+
+fn compile_path_output(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+) -> Result<(Plan, Option<SourceMap>), CompileError> {
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -240,7 +271,8 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
-    let mut plan = compile_file(file, Some(&app_root)).map_err(|e| sources.resolve(e))?;
+    let (mut plan, sites) =
+        compile_file_output(&file, Some(&app_root), mapped).map_err(|e| sources.resolve(e))?;
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
@@ -265,7 +297,7 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
         }
         plan.app_id = manifest.id;
     }
-    Ok(plan)
+    Ok((plan, sites.map(|sites| SourceMap::new(sites, sources))))
 }
 
 /// The `test` blocks of a file (LLP 1017 P7) — normally `app.test.contract`
@@ -376,10 +408,32 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
-    contract_analyze::check_routes_root(&file, true)?;
-    let checked = contract_types::check(&file)?;
-    let analysis = contract_analyze::check(&checked)?;
-    Ok(contract_lower::lower(&checked, &analysis, asset_root)?)
+    compile_file_output(&file, asset_root, false).map(|(plan, _)| plan)
+}
+
+fn compile_file_output(
+    file: &File,
+    asset_root: Option<&Path>,
+    mapped: bool,
+) -> Result<(Plan, Option<contract_lower::Sites>), CompileError> {
+    contract_analyze::check_routes_root(file, true)?;
+    let checked = if mapped {
+        contract_types::check_mapped(file)
+    } else {
+        contract_types::check(file)
+    }
+    .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
+    let analysis = contract_analyze::check(&checked)
+        .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
+    if mapped {
+        let (plan, sites) = contract_lower::lower_mapped(&checked, &analysis, asset_root)?;
+        Ok((plan, Some(sites)))
+    } else {
+        Ok((
+            contract_lower::lower(&checked, &analysis, asset_root)?,
+            None,
+        ))
+    }
 }
 
 /// Boot the plan once against `data` and write every resource's boot value
@@ -448,6 +502,7 @@ fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
         let ty = plan.type_(row.ty);
         if ty.kind != exact_plan::TypeKind::Record {
             return Err(BakeError::Lint {
+                site: None,
                 id: "bake-delivery-field",
                 message: format!(
                     "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
@@ -459,6 +514,7 @@ fn delivery_shape(plan: &Plan) -> Result<(), BakeError> {
             let field = plan.str(plan.field(f).name);
             if !FIELDS.contains(&field) {
                 return Err(BakeError::Lint {
+                    site: None,
                     id: "bake-delivery-field",
                     message: format!(
                         "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
@@ -482,6 +538,7 @@ fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
         let ty = plan.type_(row.ty);
         if ty.kind != exact_plan::TypeKind::Record {
             return Err(BakeError::Lint {
+                site: None,
                 id: "bake-viewport-field",
                 message: format!(
                     "`resource {name} = {SOURCE}()` must be `as shape` a record of {}",
@@ -493,6 +550,7 @@ fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
             let field = plan.str(plan.field(f).name);
             if !FIELDS.contains(&field) {
                 return Err(BakeError::Lint {
+                    site: None,
                     id: "bake-viewport-field",
                     message: format!(
                         "`{name}` declares `{field}`, which {SOURCE} does not answer; it answers {}",
@@ -515,11 +573,13 @@ fn viewport_shape(plan: &Plan) -> Result<(), BakeError> {
 fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
     let (w, h) = LINT_VIEWPORT;
     let roots = runner.roots();
-    let kernel = runner.kernel_mut();
     for root in &roots {
-        kernel
+        let site = runner.site_of(*root).map(|(site, _)| site);
+        runner
+            .kernel_mut()
             .compute_layout(*root, Offer::definite(w, h))
             .map_err(|e| BakeError::Lint {
+                site,
                 id: "bake-layout",
                 message: format!("the first frame does not lay out: {e:?}"),
             })?;
@@ -570,6 +630,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
                 };
                 if extent > 0.0 && (node.frame.height - (extent + bottom_padding)).abs() < 0.5 {
                     return Err(BakeError::Lint {
+                        site: runner.site_of(node.id).map(|(site, _)| site),
                         id: "bake-scroll-unbounded",
                         message: format!(
                             "{at} is exactly as tall as its children ({:.0} pt) at {w:.0}×{h:.0} and nothing bounds it, so it grows with its content and never scrolls — give it a `height`, `max-height`, or `flex`",
@@ -595,6 +656,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
                 }
                 if !replaced {
                     return Err(BakeError::Lint {
+                        site: runner.site_of(node.id).map(|(site, _)| site),
                         id: "bake-zero-size",
                         message: format!(
                             "{at} has zero area ({:.0}×{:.0}) at {w:.0}×{h:.0}, so nothing can press it — give it children or a size",

@@ -23,7 +23,7 @@ pub mod routes;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use checks::{
     check_injects, check_shape_cycles, check_stmts, check_view, infer_owned_state_initializers,
@@ -185,7 +185,7 @@ impl Shapes {
                         // unknown types, never action typos accepted silently.
                         Ty::Action(Vec::new())
                     } else {
-                        return err("type-unknown", format!("unknown type `{other}`"), *span);
+                        return Err(self.unknown_type(other, *span));
                     }
                 }
             },
@@ -240,24 +240,25 @@ struct Frame {
 /// parameters or region frames.
 #[derive(Debug, Clone, Default)]
 pub struct Scope {
-    frames: Vec<Frame>,
+    // Branches own their stacks, and shared frames remain immutable.
+    frames: Vec<Arc<Frame>>,
 }
 
 impl Scope {
     /// Push a non-region frame (component declarations, action parameters).
     pub fn push(&mut self, names: Vec<(String, Ref, Ty)>) {
-        self.frames.push(Frame {
+        self.frames.push(Arc::new(Frame {
             names,
             region: false,
-        });
+        }));
     }
 
     /// Push a region frame binding at most one name (`each` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
-        self.frames.push(Frame {
+        self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
             region: true,
-        });
+        }));
     }
 
     /// Pop the innermost frame.
@@ -474,13 +475,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             match &t {
                 Ty::Record(shape) => match shapes.field(shape, field) {
                     Some((_, ft)) => ft,
-                    None => {
-                        return err(
-                            "type-unknown-field",
-                            format!("`{shape}` has no field `{field}`"),
-                            *span,
-                        )
-                    }
+                    None => return Err(shapes.unknown_field(shape, field, *span)),
                 },
                 other => {
                     return err(
@@ -596,7 +591,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::location(f, args, shapes)?;
                 Ty::from_roster(f.returns())
             } else {
-                return err("type-unknown-function", format!("`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"), *span);
+                return Err(checks::unknown_function(name, scope, shapes, *span));
             }
         }
         Expr::Unary(op, inner, span) => {
@@ -684,8 +679,16 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             }
         }
         Expr::Ternary(c, a, b, span) => {
-            if infer(c, scope, shapes)? != Ty::Bool {
-                return err("type-condition", "a condition must be a bool", c.span());
+            // Naming the type defers a condition still `?` (a derive the fixpoint has
+            // not settled) the way `Binary` above does: the message carries `?`, the
+            // round skips it, and the strict pass reports what never types.
+            let tc = infer(c, scope, shapes)?;
+            if tc != Ty::Bool {
+                return err(
+                    "type-condition",
+                    format!("a condition must be a bool, given `{tc}`"),
+                    c.span(),
+                );
             }
             let ta = infer(a, scope, shapes)?;
             let tb = infer(b, scope, shapes)?;
@@ -912,6 +915,15 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 
 /// Check a file: shared declarations, then every component.
 pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
+    check_with_sites(file, false)
+}
+
+/// Check with development source provenance retained for mapped lowering.
+pub fn check_mapped(file: &File) -> Result<Checked<'_>, TypeError> {
+    check_with_sites(file, true)
+}
+
+fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, TypeError> {
     if file.components.is_empty() {
         return err(
             "analyze-no-component",
@@ -929,7 +941,12 @@ pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
     // are checked standalone as views over their props.
     // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
     // child's own declarations, lifted in — what lowering will lower.
-    let expanded = contract_syntax::expand(file).map_err(|e| TypeError {
+    let expanded = if capture_sites {
+        contract_syntax::expand_mapped(file)
+    } else {
+        contract_syntax::expand(file)
+    }
+    .map_err(|e| TypeError {
         id: e.id,
         message: e.message,
         span: e.span,
@@ -1004,7 +1021,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                 let Some(target) = file.components.iter().position(|c| &c.name == name) else {
                     return err(
                         "type-unknown-component",
-                        format!("unknown component `{name}`"),
+                        file.unknown_component_message(name),
                         *span,
                     );
                 };
@@ -1014,7 +1031,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                     let Some(arg) = args.iter().find(|a| a.name == p.name) else {
                         return err(
                             "type-missing-prop",
-                            format!("`{name}` needs `{}`", p.name),
+                            target_c.missing_props_message(args),
                             *span,
                         );
                     };
@@ -1029,11 +1046,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                 }
                 for a in args {
                     if !target_c.props.iter().any(|p| p.name == a.name) {
-                        return err(
-                            "type-unknown-prop",
-                            format!("`{name}` has no prop `{}`", a.name),
-                            a.span,
-                        );
+                        return Err(checks::unknown_props(target_c, args, a.span));
                     }
                 }
             }
@@ -1151,7 +1164,7 @@ fn check_component(
         ct.mutations.push(shapes.resolve(&m.shape)?);
     }
     // Slots from initializers (may hold `?` inside an option).
-    {
+    if !c.states.is_empty() {
         let mut scope = Scope::default();
         let mut names: Vec<(String, Ref, Ty)> = c
             .props
@@ -1163,8 +1176,8 @@ fn check_component(
             let i = c.props.len() + j;
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
         }
+        scope.push(names);
         for (i, s) in c.states.iter().enumerate() {
-            scope.frames_reset(&names);
             let t = if i == 0 && owners.is_some() && shapes.routes.is_some() {
                 Ty::Record("Router".into())
             } else if owners
@@ -1175,7 +1188,9 @@ fn check_component(
             } else {
                 infer(&s.expr, &scope, shapes)?
             };
-            names.push((s.name.clone(), Ref::Slot(i as u32), t.clone()));
+            // Duplicate declarations were refused above. Each initializer sees
+            // only earlier slots, without copying their names and types again.
+            scope.push_name((s.name.clone(), Ref::Slot(i as u32), t.clone()));
             ct.slots.push(t);
         }
     }
@@ -1192,8 +1207,9 @@ fn check_component(
     }
     // Derives: iterate to a fixpoint so order does not matter and `?` fills.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
+    // Every declaration now has a type entry before constructing a full scope.
     for _round in 0..(c.derives.len() + 2) {
-        let scope = types_scope(c, &ct, types);
+        let scope = types.component_scope(c, &ct);
         let mut changed = false;
         for (i, d) in c.derives.iter().enumerate() {
             match infer(&d.expr, &scope, shapes) {
@@ -1220,7 +1236,7 @@ fn check_component(
         }
     }
     // Everything must now type; re-infer derives strictly to surface errors.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     for (i, d) in c.derives.iter().enumerate() {
         ct.derives[i] = infer(&d.expr, &scope, shapes)?;
         if !ct.derives[i].is_complete() {
@@ -1243,11 +1259,11 @@ fn check_component(
     // Handler call sites give untyped parameters their types.
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     refine_params_from_view(&c.view, &scope, c, &mut ct, shapes)?;
     // Action bodies: writes refine slots; assignments must unify.
     for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types_scope(c, &ct, types);
+        let mut scope = types.component_scope(c, &ct);
         scope.push(
             a.params
                 .iter()
@@ -1267,7 +1283,7 @@ fn check_component(
     // the final scope, unified with the sends' (recorded as their bodies were
     // checked). One source, one signature.
     {
-        let scope = types_scope(c, &ct, types);
+        let scope = types.component_scope(c, &ct);
         for (i, r) in c.resources.iter().enumerate() {
             let mut params = Vec::with_capacity(r.args.len());
             for arg in &r.args {
@@ -1297,7 +1313,7 @@ fn check_component(
         }
     }
     // The view types.
-    let scope = types_scope(c, &ct, types);
+    let scope = types.component_scope(c, &ct);
     check_view(&c.view, &scope, shapes)?;
     for t in &c.tasks {
         if infer(&t.every.0, &scope, shapes)? != Ty::Number {
@@ -1311,19 +1327,13 @@ fn check_component(
     Ok(ct)
 }
 
-fn types_scope(c: &Component, ct: &ComponentTypes, types: &Types) -> Scope {
-    let mut ct = ct.clone();
-    // Fill any not-yet-computed derive slots so the scope has every name.
-    while ct.derives.len() < c.derives.len() {
-        ct.derives.push(Ty::Unknown);
-    }
-    while ct.actions.len() < c.actions.len() {
-        ct.actions.push(Vec::new());
-    }
-    types.component_scope(c, &ct)
-}
-
 impl Scope {
+    fn push_name(&mut self, name: (String, Ref, Ty)) {
+        Arc::make_mut(self.frames.last_mut().expect("initializer scope frame"))
+            .names
+            .push(name);
+    }
+
     fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
         self.frames.clear();
         self.push(names.to_vec());
