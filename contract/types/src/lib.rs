@@ -475,13 +475,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             match &t {
                 Ty::Record(shape) => match shapes.field(shape, field) {
                     Some((_, ft)) => ft,
-                    None => {
-                        return err(
-                            "type-unknown-field",
-                            format!("`{shape}` has no field `{field}`"),
-                            *span,
-                        )
-                    }
+                    None => return Err(shapes.unknown_field(shape, field, *span)),
                 },
                 other => {
                     return err(

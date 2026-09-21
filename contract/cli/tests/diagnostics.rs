@@ -336,3 +336,51 @@ fn compat_cli_validates_all_options_before_reading_the_manifest() {
     );
     assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 1);
 }
+
+#[test]
+fn unknown_record_fields_name_declared_choices_at_the_original_import() {
+    let app = App::new("record-fields");
+    let root = app.write(
+        "app.contract",
+        "use Person from \"./lib/model.contract\"\nuse Row from \"./lib/row.contract\"\ncomponent App\n  resource person = load() as shape Person\n  view\n    Row(person=person)\n",
+    );
+    app.write(
+        "lib/model.contract",
+        "shape Person\n  id: string\n  name: string\n  unread: bool\n",
+    );
+    let source = "use Person from \"./model.contract\"\ncomponent Row\n  props\n    person: Person\n  view\n    text `${person.nmae}`\n";
+    let row = app
+        .write("lib/row.contract", source)
+        .canonicalize()
+        .unwrap();
+    let expected = contract::compile_path(&root).unwrap_err();
+    assert_eq!(expected.id, "type-unknown-field");
+    assert_eq!(
+        expected.message,
+        "`Person` has no field `nmae`; available fields: `id`, `name`, `unread`"
+    );
+    let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+    same_error(&errors[0], &expected);
+    assert_eq!(errors[0]["file"], row.to_str().unwrap());
+    assert_eq!(errors[0]["line"], 6);
+    assert_eq!(errors[0]["col"], 20);
+    assert_eq!(errors[0]["end_col"], 24);
+    let human = app.run(&[root.to_str().unwrap()]);
+    assert_eq!(human.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&human.stderr).contains(&expected.message));
+    for field in ["id", "name", "unread"] {
+        app.write(
+            "lib/row.contract",
+            &source.replace("person.nmae", &format!("person.{field}")),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+    app.write("lib/model.contract", "shape Person\n");
+    app.write("lib/row.contract", source);
+    let empty = contract::compile_path(&root).unwrap_err();
+    assert_eq!(empty.id, "type-unknown-field");
+    assert_eq!(
+        empty.message,
+        "`Person` has no field `nmae`; this shape declares no fields"
+    );
+}

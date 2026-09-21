@@ -1,8 +1,29 @@
-//! Component checks that require recursive action or view traversal.
+//! Type diagnostics and component checks that require recursive traversal.
 
 use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
 use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::BTreeMap;
+
+impl Shapes {
+    pub(super) fn unknown_field(&self, shape: &str, field: &str, span: Span) -> TypeError {
+        let fields = self.map.get(shape).map(Vec::as_slice).unwrap_or_default();
+        let names = fields
+            .iter()
+            .map(|(name, _)| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let hint = if fields.is_empty() {
+            "this shape declares no fields".to_owned()
+        } else {
+            format!("available fields: {names}")
+        };
+        TypeError {
+            id: "type-unknown-field",
+            message: format!("`{shape}` has no field `{field}`; {hint}"),
+            span,
+        }
+    }
+}
 
 /// Reject shape cycles before lowering recursively materializes plan types.
 pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
