@@ -203,6 +203,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textRasterReady = false
     var textRasterFailed = false
     var textRasterPending = false
+    var textRasterUsesStrips = false
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
@@ -1150,7 +1151,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     override func draw(_ rect: NSRect) {
         // Selection, capture, and decorated text return to direct painting.
-        if textRasterOverflowLayer != nil {
+        if textRasterUsesStrips {
+            textRasterOverflowLayer?.removeFromSuperlayer()
+            textRasterOverflowLayer = nil
+        } else if textRasterOverflowLayer != nil {
             dropTextRaster()
             // cacheDisplay does not invalidate the live backing layer. Restore
             // its pixels on the pump after the offscreen capture has finished.

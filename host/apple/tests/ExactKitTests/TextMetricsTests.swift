@@ -551,13 +551,19 @@ final class TextMetricsTests: XCTestCase {
         batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 460.0, "h": 30.0]])
         XCTAssertNotEqual(node.textRasterKey, key)
         XCTAssertTrue(node.needsTextRaster, "a resized paragraph still owes the pump pixels")
-        XCTAssertTrue(node.layer?.contents as? IOSurface === pixels, "the old pixels stay up until new ones arrive")
+        XCTAssertTrue(node.textRasterOverflowLayer?.contents as? IOSurface === pixels, "the accepted pixels stay at their original size")
+        XCTAssertEqual(node.textRasterOverflowLayer?.frame.size, key.size)
+        XCTAssertNil(node.layer?.contents, "the resized backing layer cannot stretch the accepted raster")
 
         // Scrolled back to it: painted at the width it has now, not stretched.
         batch([["op": "frame", "id": 2, "x": 0.0, "y": 40.0, "w": 460.0, "h": 30.0]])
         XCTAssertTrue(presenter.textIsVisible(node))
         presenter.refreshVisibleText()
-        XCTAssertFalse(node.needsTextRaster)
+        if node.needsTextRaster {
+            XCTAssertTrue(node.textRasterUsesStrips, "a missed worker deadline draws correct new-width strips")
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in !node.needsTextRaster }, object: nil)
+            wait(for: [ready], timeout: 3)
+        }
         XCTAssertEqual(node.textRasterKey?.size, node.bounds.size)
         XCTAssertFalse(node.layer?.contents as? IOSurface === pixels)
     }
@@ -763,5 +769,55 @@ final class TextMetricsTests: XCTestCase {
             }
         }
     }
+    func testVisibleResizePublishesWorkersTogetherOrDrawsCurrentStripsAndRejectsOldWidth() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "parallel-resize")
+        let p = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.close(); session.destroy() }
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
+        for id in 2...4 {
+            ops.append(["op": "create", "id": id, "kind": "text",
+                        "props": ["text": String(repeating: "independent paragraph \(id) ", count: 32)]])
+        }
+        ops += [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0]]
+        for id in 2...4 {
+            ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id - 2) * 110,
+                        "w": 400.0, "h": 100.0])
+        }
+        p.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        let nodes = try (2...4).map { try XCTUnwrap(p.views[UInt32($0)]) }
+        XCTAssertTrue(nodes.allSatisfy { $0.textRasterReady })
+        for node in nodes {
+            node.frame.size.width = 240
+            node.textRasterGeometryChanged()
+            XCTAssertEqual(node.textRasterOverflowLayer?.frame.width, 400)
+        }
+        p.textRasters.replaceVisible(nodes, wait: 0)
+        let ready = nodes.filter { $0.textRasterReady && $0.textRasterKey?.size.width == 240 }
+        XCTAssertTrue(ready.isEmpty || ready.count == nodes.count, "the replacement set is atomic")
+        XCTAssertTrue(nodes.allSatisfy { $0.textRasterReady || $0.textRasterUsesStrips })
+        for node in nodes where node.textRasterUsesStrips {
+            XCTAssertEqual(p.textVisibleRect(node), p.textScrollportRect(node))
+            XCTAssertFalse(node.wantsUpdateLayer)
+        }
+        // Supersede a group before its main-thread completion can publish.
+        for node in nodes {
+            node.frame.size.width = 320
+            node.textRasterGeometryChanged()
+        }
+        p.textRasters.replaceVisible(nodes, wait: 0)
+        let done = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            p.refreshVisibleText(limit: 0)
+            return nodes.allSatisfy { $0.textRasterReady && $0.textRasterKey?.size.width == 320 }
+        }, object: nil)
+        wait(for: [done], timeout: 3)
+        XCTAssertTrue(nodes.allSatisfy { !$0.textRasterUsesStrips && $0.textRasterFrame.width >= 320 })
+    }
+
 }
 #endif
