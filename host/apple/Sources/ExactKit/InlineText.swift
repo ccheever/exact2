@@ -19,10 +19,13 @@ struct InlineText: Decodable {
         id = try c.decode(UInt32.self, forKey: .id)
         parent = try c.decode(UInt32.self, forKey: .parent)
         props = try c.decodeIfPresent([String: String].self, forKey: .props) ?? [:]
-        let style = try c.decodeIfPresent(NodeStyle.self, forKey: .style) ?? [:]
-        lightRun = Self.run(props["text"] ?? "", style: style, href: props["href"] ?? "", dark: false)
-        darkColor = style["text_color"]?.channels(dark: true)
-        hasSchemeColor = style["text_color"]?.isSchemeColor ?? false
+        let style = try c.decodeIfPresent(InlineStyle.self, forKey: .style) ?? InlineStyle()
+        var value = style.run
+        value.text = props["text"] ?? ""
+        value.href = props["href"] ?? ""
+        lightRun = value
+        darkColor = style.color?.dark
+        hasSchemeColor = style.color?.paired ?? false
         handlers = try c.decodeIfPresent(Set<String>.self, forKey: .handlers) ?? []
         paints = try c.decodeIfPresent(Bool.self, forKey: .paint) ?? false
     }
@@ -46,6 +49,66 @@ struct InlineText: Decodable {
                    lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                    color: style["text_color"]?.channels(dark: dark),
                    decoration: style["text_decoration_line"]?.string ?? "", href: href)
+    }
+}
+
+// Paragraphs read only text rows, directly into their resolved representation.
+// Decoding every style entry through a generic JSON value spends the saved apply
+// time in speculative type probes and temporary dictionaries. No wire change.
+private struct InlineStyle: Decodable {
+    var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+    var color: InlineColor?
+    init() {}
+    enum CodingKeys: String, CodingKey {
+        case font_size, font_weight, font_family, font_style, line_height, letter_spacing, text_color, text_decoration_line
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let size = Float(try c.decodeIfPresent(Double.self, forKey: .font_size) ?? 16)
+        run.size = CGFloat(size)
+        run.weight = Int(try c.decodeIfPresent(Double.self, forKey: .font_weight) ?? 400)
+        run.family = Int(try c.decodeIfPresent(Double.self, forKey: .font_family) ?? 0)
+        run.italic = try c.decodeIfPresent(String.self, forKey: .font_style) == "italic"
+        if let height = try c.decodeIfPresent(InlineLineHeight.self, forKey: .line_height) {
+            run.lineHeight = height.pixels.map(CGFloat.init) ?? height.ratio.map { CGFloat($0 * size) }
+        }
+        run.letterSpacing = CGFloat(Float(try c.decodeIfPresent(Double.self, forKey: .letter_spacing) ?? 0))
+        run.decoration = try c.decodeIfPresent(String.self, forKey: .text_decoration_line) ?? ""
+        color = try c.decodeIfPresent(InlineColor.self, forKey: .text_color)
+        run.color = color?.light
+    }
+}
+
+private struct InlineLineHeight: Decodable {
+    var pixels: Float?
+    var ratio: Float?
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let n = try? c.decode(Double.self) { ratio = Float(n) }
+        else {
+            let text = try c.decode(String.self)
+            if text.hasSuffix("px") { pixels = Float(text.dropLast(2)) }
+        }
+    }
+}
+
+private struct InlineColor: Decodable {
+    let light: [Double]
+    let dark: [Double]
+    let paired: Bool
+    init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        paired = c.count == 2
+        if paired {
+            light = try c.decode([Double].self)
+            dark = try c.decode([Double].self)
+        } else {
+            light = try (0..<4).map { _ in try c.decode(Double.self) }
+            dark = light
+        }
+        guard c.isAtEnd, light.count == 4, dark.count == 4 else {
+            throw DecodingError.dataCorruptedError(in: c, debugDescription: "expected RGBA or light/dark RGBA")
+        }
     }
 }
 
