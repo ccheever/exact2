@@ -163,14 +163,16 @@ export function createFileStore(appId) {
       transaction.oncomplete = () => resolve(result);
       transaction.onabort = () => reject(error || failure(transaction.error?.message || 'transaction aborted'));
       transaction.onerror = () => {}; // onabort reports once, including quota failures.
-      const request = path === undefined ? store.getAll() : store.get(path);
+      const requests = path === undefined ? [store.getAll()]
+        : [...new Set(Array.isArray(path) ? path : [path])].map(key => store.get(key));
       // '/' sorts immediately before '0': the exclusive upper bound includes
       // every descendant name, even one containing U+FFFF, but no sibling path.
       const keys = list ? store.getAllKeys(IDBKeyRange.bound(`${path}/`, `${path}0`, false, true)) : null;
-      let pending = keys ? 2 : 1;
+      let pending = requests.length + (keys ? 1 : 0);
       const ready = () => {
         if (--pending) return;
-        const values = path === undefined ? request.result : request.result ? [request.result] : [];
+        const values = path === undefined ? requests[0].result
+          : requests.map(request => request.result).filter(Boolean);
         const records = new Map(values.map(value => [value.path, value]));
         const changes = {
           put(value) { records.set(value.path, value); store.put(value); },
@@ -180,7 +182,7 @@ export function createFileStore(appId) {
         try { result = operation(records, changes, keys?.result); }
         catch (cause) { error = cause; transaction.abort(); }
       };
-      request.onsuccess = ready;
+      for (const request of requests) request.onsuccess = ready;
       if (keys) keys.onsuccess = ready;
     });
   }
@@ -201,7 +203,7 @@ export function createFileStore(appId) {
       }
       changes.put({ path, kind: 'file', contents, modifiedMs: now() });
       if (!previous) changes.touch(parentOf(path));
-    });
+    }, [path, parentOf(path)]);
   }
   return Object.freeze({
     directories: roots,
@@ -291,7 +293,7 @@ export function createFileStore(appId) {
         if (records.has(to)) file(records, to);
         changes.put({ path: to, kind: 'file', contents: source.contents.slice(0), modifiedMs: now() });
         changes.touch(parentOf(to));
-      });
+      }, [from, to, parentOf(to)]);
     },
     async realpath(path) {
       path = normalizePath(path);

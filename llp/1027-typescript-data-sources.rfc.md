@@ -1042,8 +1042,10 @@ serialize; conflicts with other tabs or live databases return `Unavailable`.
 Database bytes are ordinary SQLite files in the same namespace. Single-file reads
 fetch only the requested IndexedDB record; directory listing reads its directory
 record and descendant keys in the same transaction, without file contents. Read
-buffers belong to the caller because IndexedDB clones each result. File mutations
-still scan the app's records, and SQLite mutations write a whole database snapshot.
+buffers belong to the caller because IndexedDB clones each result. Writes and appends
+fetch their target and parent; copies fetch source, destination and destination parent,
+within the same write transaction. Directory creation, removal and rename still scan
+the app's records, and SQLite mutations write a whole database snapshot.
 A stat still reads the target record, including its contents, but no unrelated file.
 Quota/persistence failures reject and invalidate a divergent SQLite connection.
 Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.

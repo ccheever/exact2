@@ -377,6 +377,49 @@ try {
     await errors(fs.readFile('app:/data/dir'),'EISDIR');
     await errors(fs.readdir('app:/data/dir/a'),'ENOTDIR');
     await errors(fs.readdir('app:/data/absent'),'ENOENT');
+    for(const method of ['writeFile','atomicWriteFile','appendFile']) {
+      await errors(fs[method]('app:/data/dir',new Uint8Array([9])),'EISDIR');
+      await errors(fs[method]('app:/data/absent/a',new Uint8Array([9])),'ENOENT');
+      await errors(fs[method]('app:/data/dir/a/child',new Uint8Array([9])),'ENOTDIR');
+      const buffer=new Uint8Array([0,4,5,0]);
+      const saved=fs[method]('app:/cache/snapshot',buffer.subarray(1,3));
+      buffer.fill(99);structuredClone(buffer.buffer,{transfer:[buffer.buffer]});
+      await saved;
+      if([...new Uint8Array(await fs.readFile('app:/cache/snapshot'))].join()!=='4,5')throw new Error(method+' must snapshot input before waiting');
+      await fs.rm('app:/cache/snapshot');
+    }
+    await fs.atomicWriteFile('app:/cache/target',new Uint8Array([6]));
+    await errors(fs.copyFile('app:/data/absent','app:/cache/target'),'ENOENT');
+    await errors(fs.copyFile('app:/data/dir','app:/cache/target'),'EISDIR');
+    await errors(fs.copyFile('app:/data/dir/a','app:/data/dir'),'EISDIR');
+    await errors(fs.copyFile('app:/data/dir/a','app:/data/absent/a'),'ENOENT');
+    await refused(fs.copyFile('app:/data/dir/a','app:/data/dir/a'));
+    if(new Uint8Array(await fs.readFile('app:/cache/target'))[0]!==6)throw new Error('failed copy changed destination');
+    if((await fs.stat('app:/data/dir/a')).size!==10)throw new Error('failed mutation changed source');
+    await fs.copyFile('app:/data/dir/a','app:/cache/target');
+    await fs.atomicWriteFile('app:/cache/target',new Uint8Array([8]));
+    if((await fs.stat('app:/cache/target')).size!==1||new Uint8Array(await fs.readFile('app:/data/dir/a'))[0]!==1)throw new Error('overwrite must replace independent contents');
+    await fs.writeFile('app:/cache/unrelated-large',new Uint8Array(1024*1024));
+    let loadedBytes=0;
+    const originalReads=new Map(['get','getAll'].map(method=>[method,IDBObjectStore.prototype[method]]));
+    for(const [method,original] of originalReads)IDBObjectStore.prototype[method]=function(...args){
+      const request=original.apply(this,args);
+      if(this.transaction.db.name===`exact-storage:${encodeURIComponent(fsApp)}`)request.addEventListener('success',()=>{
+        const values=Array.isArray(request.result)?request.result:[request.result];
+        for(const value of values)loadedBytes+=value?.contents?.byteLength||0;
+      });
+      return request;
+    };
+    try {
+      await fs.readFile('app:/data/dir/a');await fs.stat('app:/data/dir/a');
+      await fs.realpath('app:/data/dir/a');await fs.readdir('app:/data/dir');
+      await fs.writeFile('app:/cache/target',new Uint8Array([6]));
+      await fs.atomicWriteFile('app:/cache/target',new Uint8Array([7]));
+      await fs.appendFile('app:/cache/target',new Uint8Array([8]));
+      await fs.copyFile('app:/data/dir/a','app:/cache/target');
+    } finally {for(const [method,original] of originalReads)IDBObjectStore.prototype[method]=original;}
+    if(loadedBytes>=1024*1024)throw new Error('point operations or listing loaded unrelated file contents');
+    await fs.rm('app:/cache/unrelated-large');
     await fs.mkdir('app:/data/list/nested');await fs.mkdir('app:/data/list0');
     for(const path of ['app:/data/list/\ufffftail','app:/data/list/🌿','app:/data/list/nested/hidden','app:/data/list0/sibling'])await fs.writeFile(path,new Uint8Array([4]));
     if((await fs.readdir('app:/data/list')).join()!==['nested','🌿','\ufffftail'].sort().join())throw new Error('directory keys must include Unicode direct children only');
