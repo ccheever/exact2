@@ -5,6 +5,10 @@ import { createTimerScheduler } from "./timer-glue.js";
 // DOM originals are retained offscreen (detached, never a second accessible copy).
 // Fragments carry the original slices in logical DOM order. The browser owns
 // bidi within each fragment, links, find-in-page, selection and accessibility.
+// This is the exclusions executor, not a replacement for ordinary CSS text.
+// Per-fragment bidi/shaping is not paragraph-wide browser parity; detached
+// source alone cannot supply browser find or accessibility for unmounted lines.
+// @ref LLP 1044.001 §7.4 — giant-paragraph admission requires that parity first.
 
 // Per-frame glue: O(P + E*ancestor-depth + R + F log R + changed source units),
 // plus wasm's documented bound; preparations are O(source + ranges*log runs).

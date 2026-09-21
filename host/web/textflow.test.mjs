@@ -382,6 +382,39 @@ test('oversize text is journaled while ordinary source stays visible', async () 
   } finally { f.close(); }
 });
 
+// @ref LLP 1044.001 §7.4 — the bounded experiment must not promote a partial
+// or differently shaped paragraph when the exclusions executor refuses it.
+for (const bytes of [1024 * 1024, 4 * 1024 * 1024]) {
+  test(`${bytes}-byte text keeps its authored DOM through width and font changes`, async () => {
+    const f = controllerFixture();
+    try {
+      const unit = 'Café 🦀 東京 e\u0301 ';
+      f.link.textContent = unit.repeat(Math.ceil(bytes / new TextEncoder().encode(unit).length));
+      const source = f.p.textContent, nodes = [...f.p.childNodes], linkText = f.link.childNodes[0];
+      f.select(); f.selection.focusOffset = linkText.data.length - 7;
+      for (const width of [600, 1160, 600]) {
+        const batch = { ops: [{ op: 'style', id: 2 }], timers: false };
+        f.controller.beforeBatch(batch); f.p.box.width = width; f.controller.afterBatch(batch);
+        await f.settle();
+        expect(f.p.textContent).toBe(source);
+        expect(f.p.childNodes).toEqual(nodes);
+        expect(f.link.childNodes[0]).toBe(linkText);
+        expect(f.link.attrs.href).toBe('/story');
+        expect(f.selection.focusNode).toBe(linkText);
+        expect(f.selection.focusOffset).toBe(linkText.data.length - 7);
+        expect(f.controller.facts(2).fragments).toEqual([]);
+        expect(f.controller.facts(2).skipped).toContain('64 KiB');
+      }
+      f.fontEvents.get('loadingdone')(); await f.settle();
+      expect(f.p.textContent).toBe(source);
+      expect(f.p.childNodes).toEqual(nodes);
+      expect(f.link.childNodes[0]).toBe(linkText);
+      expect(f.calls).not.toContain(1); // no approximate preparation or partial paint
+      expect(f.calls).not.toContain(2);
+    } finally { f.close(); }
+  });
+}
+
 test('timer scheduling chooses RAF at 16ms, one timeout at 1000ms, and no agent wake', () => {
   expect(timerWake(116, 100)).toEqual({ kind: 'frame' });
   expect(timerWake(1100, 100)).toEqual({ kind: 'timeout', ms: 1000 });
