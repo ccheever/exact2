@@ -114,6 +114,14 @@ impl<D: DataSource> Host<D> {
             )
             .map_err(|e| format!("region layout: {e:?}"))?;
         self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+        self.pending_layout.extend(
+            receipt
+                .shell
+                .updated
+                .iter()
+                .chain(&receipt.shell.flow_changed)
+                .copied(),
+        );
         // @ref LLP 1043.000 §3 D7 — the opt-in worker surface is opaque and
         // has a separate paragraph artifact. Retire it before any flowed ink:
         // ordinary native views own the region until its next registration.
@@ -130,10 +138,12 @@ impl<D: DataSource> Host<D> {
                 .map_err(|e| format!("region flow fallback: {e:?}"))?;
             self.content_region = None;
             batch.region("{\"op\":\"region\",\"disabled\":\"flowed text uses native fragments\"}");
-            self.runner
+            let receipt = self
+                .runner
                 .kernel_mut()
                 .compute_layout(root, offer)
                 .map_err(|e| format!("region flow layout: {e:?}"))?;
+            self.record_layout(&receipt);
             return Ok(());
         }
         // Final shell/native flow is published by emit_layout against its mirror.

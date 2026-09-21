@@ -153,6 +153,7 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
+        self.queue_layout(id);
         if let Some(owner) = self.paragraph_owner(id) {
             self.dirty_paragraphs.insert(owner);
             if owner != id {
@@ -202,6 +203,7 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        self.queue_layout(id);
         if self.reconcile_projection(id, batch) {
             return;
         }
@@ -219,6 +221,9 @@ impl<D: DataSource> Host<D> {
         let props = props_for(&node);
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
+        if self.mirror.get(&id).and_then(|m| m.props.get("spellcheck")) != props.get("spellcheck") {
+            self.queue_layout_subtree(id);
+        }
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props
@@ -242,6 +247,10 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
+        let children = self.runner.kernel().node(id).expect("live").children();
+        if self.mirror.get(&id).is_none_or(|m| m.children != children) {
+            self.queue_layout_subtree(id);
+        }
         for child in self.runner.kernel().node(id).expect("live").children() {
             self.reconcile_projection(child, batch);
         }
