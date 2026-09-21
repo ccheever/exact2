@@ -345,8 +345,20 @@ impl RegionState {
             None => RegionSelection::Pending(b.pending),
         };
         let mut changed = Vec::new();
-        publish(arena, &shell_frames, true, &mut changed);
-        publish(arena, &frames, current || selected.is_none(), &mut changed);
+        let updated = shell_frames
+            .iter()
+            .chain(frames.iter())
+            .map(|f| f.node)
+            .collect();
+        arena.begin_layout_publication(root);
+        publish(arena, root, &shell_frames, true, &mut changed);
+        publish(
+            arena,
+            root,
+            &frames,
+            current || selected.is_none(),
+            &mut changed,
+        );
         // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
         let (flow_changed, flow_skipped) =
             crate::flow::resolve_region(arena, root, &shell_frames, &frames);
@@ -359,6 +371,7 @@ impl RegionState {
                 epoch,
                 root: arena.key(root),
                 changed,
+                updated,
                 flow_changed,
                 flow_skipped,
             },
@@ -810,6 +823,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
 }
 fn publish(
     arena: &mut NodeArena,
+    root: u32,
     frames: &[RegionFrame],
     current: bool,
     changed: &mut Vec<NodeKey>,
@@ -838,7 +852,7 @@ fn publish(
             }
         }
         if moved {
-            flags.insert(NodeFlags::GEOMETRY_CHANGED);
+            arena.mark_geometry_changed(s, root);
             changed.push(f.node)
         } else {
             flags.remove(NodeFlags::GEOMETRY_CHANGED)

@@ -290,3 +290,42 @@ Reconcile every `EXACT PATCH` marker with this inventory, compare against the
 selected upstream package, and run the available upstream tests and Exact's
 five checks. The crates.io package does not include the generated browser
 conformance corpus. Do not describe those absent fixtures as tested.
+
+## Patch 9: sparse layout writes and caller-proven boundary replay (S6)
+
+`tree/taffy_tree.rs` records changed unrounded layouts at their existing write
+seam. `take_layout_changes` transfers those node identities to the kernel;
+repeated writes are allowed and removed identities are ignored. No layout
+algorithm, cache key, root sizing rule or rounding behavior changes.
+
+A sparse opt-in map retains the exact final `LayoutInput` and `LayoutOutput`
+for candidate boundaries only. `mark_dirty_to` clears the dirty path through
+that boundary; `compute_boundary_with_measure` replays the same input through
+Taffy's ordinary child-layout algorithm, retaining the parent-assigned location
+and updating the box's own overflow. This is one serial Taffy owner, without a
+second engine or a continuation/pending-layout API. Callers must establish an
+independent formatting context and invalidate ancestors when its output changes.
+
+The kernel currently admits text invalidation inside an ordinary block with
+point width/height and hidden/scroll overflow on both axes, under block,
+nonabsolute, nonintrinsic/nonpercentage ancestors and an unchanged definite
+viewport. The root's viewport percentage lowering is retained. Descendant
+percentages use the saved input's original parent size and definiteness. A
+changed size, baseline or collapsed-margin output propagates normally; clipped
+internal overflow publishes on the boundary. Flex/grid ancestors, auto/percent
+boundary sizes, visible overflow, changed offers, exclusions, concurrent style
+or topology changes, and nested dirty boundaries take the normal root path.
+
+Kernel publication follows sparse ancestor paths in document order and descends
+where absolute origins move. Per-root publication generations expire old geometry
+flags without a sweep. Apple accumulates the resulting publication candidates
+through silent list passes, including overflow-only changes, before comparing
+against its presenter mirror. Region/exclusion publication retains its existing
+conservative traversal.
+
+Regressions in `kernel::locality_tests` compare all frames and overflow bitwise
+with a fresh engine, assert one measure and three publication visits among 100
+and 2,000 unrelated siblings, and exercise negative dependencies, mixed dirty
+sources, changed viewports and reparenting. Apple layout tests cover silent
+settlement and inherited spelling hints on unmoved editors. Existing layout,
+reader, exclusion, region and upstream differential expectations are unchanged.

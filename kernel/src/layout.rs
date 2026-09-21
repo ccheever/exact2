@@ -3,13 +3,16 @@
 //! [`LayoutTree`] owns the Taffy tree as a derived structure over the arena's
 //! columns. Text leaves carry their slot as the Taffy node context so the
 //! measure closure can hand the host measurer the leaf's runs. After a pass,
-//! [`compute`] walks the root, publishes absolute frames into the arena's frame
+//! [`compute`] publishes affected paths and moved subtrees into the arena's frame
 //! column, resolves exclusions into sparse leaf coordinates, and returns
 //! independent frame-change and flow-change receipts.
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
 
+mod publication;
+
+use std::collections::{HashMap, HashSet};
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput};
 use taffy::util::{MaybeResolve, ResolveOrZero};
@@ -32,6 +35,10 @@ pub struct LayoutReceipt {
     pub root: NodeKey,
     /// Every node whose absolute frame changed, in preorder.
     pub changed: Vec<NodeKey>,
+    /// Publication candidates in preorder: changed frames, parent-relative
+    /// origins and scroll extents. Region passes may include unchanged nodes.
+    /// Hosts accumulate these across silent passes before emission.
+    pub updated: Vec<NodeKey>,
     /// Leaves whose resolved exclusions changed bitwise, in preorder (LLP 1043.000 D4).
     pub flow_changed: Vec<NodeKey>,
     /// Intersecting paragraphs whose height required measurement; M8 enables flow.
@@ -80,8 +87,33 @@ pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
     pass: u64,
     fault: Option<String>,
+    slots: HashMap<NodeId, u32>,
+    deferred: HashSet<NodeId>,
+    offers: HashMap<NodeId, Offer>,
+    #[cfg(test)]
+    pub(crate) publication_visits: usize,
+    #[cfg(test)]
+    pub(crate) boundary_replays: usize,
     // Derived heights only. Retain capacity across frames and owner changes.
     presented_heights: Vec<(NodeKey, NodeId, f32)>,
+}
+
+// A non-visible overflow on both axes establishes a formatting context and
+// prevents descendants' scrollable overflow/margins from escaping the box.
+fn boundary_style(s: &taffy::Style) -> bool {
+    s.display == taffy::Display::Block
+        && s.position == taffy::Position::Relative
+        && s.size.width.into_option().is_some()
+        && s.size.height.into_option().is_some()
+        && s.aspect_ratio.is_none()
+        && matches!(
+            s.overflow.x,
+            taffy::Overflow::Hidden | taffy::Overflow::Scroll
+        )
+        && matches!(
+            s.overflow.y,
+            taffy::Overflow::Hidden | taffy::Overflow::Scroll
+        )
 }
 
 impl Default for LayoutTree {
@@ -101,6 +133,13 @@ impl LayoutTree {
             taffy,
             pass: 0,
             fault: None,
+            slots: HashMap::new(),
+            deferred: HashSet::new(),
+            offers: HashMap::new(),
+            #[cfg(test)]
+            publication_visits: 0,
+            #[cfg(test)]
+            boundary_replays: 0,
             presented_heights: Vec::new(),
         }
     }
@@ -125,6 +164,7 @@ impl LayoutTree {
 
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
     pub fn new_leaf(&mut self, style: taffy::style::Style, slot: u32, measured: bool) -> NodeId {
+        let boundary = boundary_style(&style);
         let result = if measured {
             self.taffy.new_leaf_with_context(
                 style,
@@ -137,7 +177,11 @@ impl LayoutTree {
             self.taffy.new_leaf(style)
         };
         match result {
-            Ok(node) => node,
+            Ok(node) => {
+                self.slots.insert(node, slot);
+                self.taffy.track_layout_input(node, boundary);
+                node
+            }
             Err(e) => {
                 // Unreachable: leaf allocation cannot fail. Record it and hand back a
                 // placeholder that every later call reports as a fault.
@@ -149,6 +193,9 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
+        self.flush_deferred();
+        self.slots.remove(&node);
+        self.offers.remove(&node);
         self.presented_heights
             .retain(|(_, active, _)| *active != node);
         let r = self.taffy.remove(node);
@@ -173,7 +220,9 @@ impl LayoutTree {
         if self.taffy.style(node).is_ok_and(|old| *old == style) {
             return;
         }
+        self.flush_deferred();
         self.clear_measurements(node);
+        self.taffy.track_layout_input(node, boundary_style(&style));
         let r = self.taffy.set_style(node, style);
         self.note("set_style", r);
     }
@@ -249,6 +298,7 @@ impl LayoutTree {
 
     /// Replace a node's ordered children.
     pub fn set_children(&mut self, parent: NodeId, children: &[NodeId]) {
+        self.flush_deferred();
         self.clear_measurements(parent);
         let r = self.taffy.set_children(parent, children);
         self.note("set_children", r);
@@ -257,8 +307,110 @@ impl LayoutTree {
     /// Mark a node (and its ancestors) dirty.
     pub fn mark_dirty(&mut self, node: NodeId) {
         self.clear_measurements(node);
-        let r = self.taffy.mark_dirty(node);
-        self.note("mark_dirty", r);
+        self.deferred.insert(node);
+    }
+
+    fn flush_deferred(&mut self) {
+        for node in std::mem::take(&mut self.deferred) {
+            let r = self.taffy.mark_dirty(node);
+            self.note("mark_dirty", r);
+        }
+    }
+
+    // Only ordinary block ancestors under the same definite viewport are
+    // admitted. Flex/grid intrinsic contributions, percentages, baselines and
+    // out-of-flow sizing retain the ordinary ancestor invalidation path.
+    fn boundary_for(&self, node: NodeId, root: NodeId) -> Option<NodeId> {
+        let mut at = self.taffy.parent(node);
+        let mut boundary = None;
+        while let Some(n) = at {
+            let s = self.taffy.style(n).ok()?;
+            if s.display != taffy::Display::Block
+                || s.position != taffy::Position::Relative
+                || s.aspect_ratio.is_some()
+            {
+                return None;
+            }
+            if n == root {
+                return boundary;
+            }
+            if !(s.size.width.is_auto() || s.size.width.into_option().is_some())
+                || !(s.size.height.is_auto() || s.size.height.into_option().is_some())
+            {
+                return None;
+            }
+            if boundary.is_none() && boundary_style(s) && self.taffy.last_layout_input(n).is_some()
+            {
+                boundary = Some(n);
+            }
+            at = self.taffy.parent(n);
+        }
+        None
+    }
+
+    fn prepare_boundaries(
+        &mut self,
+        root: NodeId,
+        offer: Offer,
+        arena: &NodeArena,
+    ) -> Vec<(NodeId, LayoutInput, taffy::tree::LayoutOutput)> {
+        let local = self.offers.get(&root) == Some(&offer)
+            && matches!(
+                (offer.width, offer.height),
+                (AxisOffer::Definite(_), AxisOffer::Definite(_))
+            )
+            && !self.taffy.dirty(root).unwrap_or(true)
+            && arena.exclusion_slots.is_empty()
+            && arena.flow.is_empty();
+        let mut boundaries = HashSet::new();
+        for node in std::mem::take(&mut self.deferred) {
+            if let Some(boundary) = local.then(|| self.boundary_for(node, root)).flatten() {
+                self.taffy.mark_dirty_to(node, boundary);
+                boundaries.insert(boundary);
+            } else {
+                let r = self.taffy.mark_dirty(node);
+                self.note("mark_dirty", r);
+            }
+        }
+        // One unrelated dirty source may invalidate the root after the first
+        // boundary was chosen. A regular root pass then handles all sources.
+        if self.taffy.dirty(root).unwrap_or(true) {
+            for node in boundaries {
+                if let Some(parent) = self.taffy.parent(node) {
+                    let r = self.taffy.mark_dirty(parent);
+                    self.note("mark_dirty", r);
+                }
+            }
+            return Vec::new();
+        }
+        // Nested candidates cannot be replayed independently: the outer one
+        // owns the final constraints, so recompute the root in that rare case.
+        if boundaries.iter().any(|&node| {
+            let mut at = self.taffy.parent(node);
+            while let Some(n) = at {
+                if boundaries.contains(&n) {
+                    return true;
+                }
+                at = self.taffy.parent(n);
+            }
+            false
+        }) {
+            for node in boundaries {
+                if let Some(parent) = self.taffy.parent(node) {
+                    let r = self.taffy.mark_dirty(parent);
+                    self.note("mark_dirty", r);
+                }
+            }
+            return Vec::new();
+        }
+        boundaries
+            .into_iter()
+            .filter_map(|node| {
+                self.taffy
+                    .last_layout_input(node)
+                    .map(|(input, output)| (node, input, output))
+            })
+            .collect()
     }
 
     fn clear_measurements(&mut self, node: NodeId) {
@@ -270,6 +422,16 @@ impl LayoutTree {
     /// Whether a node needs layout.
     pub fn is_dirty(&self, node: NodeId) -> bool {
         self.taffy.dirty(node).unwrap_or(true)
+            || self.deferred.iter().any(|&dirty| {
+                let mut at = Some(dirty);
+                while let Some(n) = at {
+                    if n == node {
+                        return true;
+                    }
+                    at = self.taffy.parent(n);
+                }
+                false
+            })
     }
 
     /// The engine's layout for a node, relative to its parent.
@@ -346,6 +508,7 @@ impl LayoutTree {
                 stack.extend(arena.children(slot));
             }
         }
+        let boundaries = self.prepare_boundaries(root, offer, arena);
         let available = Size {
             width: to_available(offer.width),
             height: to_available(offer.height),
@@ -354,10 +517,10 @@ impl LayoutTree {
         let pass = self.pass;
         let mut runs: Vec<TextRun<'_>> = Vec::new();
         let mut invalid_metrics = None;
-        let measure = |inputs: LayoutInput,
-                       _node,
-                       context: Option<&mut MeasureContext>,
-                       style: &taffy::Style| {
+        let mut measure = |inputs: LayoutInput,
+                           _node,
+                           context: Option<&mut MeasureContext>,
+                           style: &taffy::Style| {
             let mut first_baseline = None;
             // @ref LLP 1043.000 §3 D3 — upstream supplies the full layout input.
             // The proof is separate from the ordinary size-only callback offers.
@@ -484,6 +647,25 @@ impl LayoutTree {
             output.baselines = Baselines::from_first(first_baseline.map(|b| b + inset.top));
             output
         };
+        #[cfg(test)]
+        {
+            self.boundary_replays = boundaries.len();
+        }
+        for (node, input, previous) in boundaries {
+            let mut output = self
+                .taffy
+                .compute_boundary_with_measure(node, input, &mut measure);
+            // Both axes clip here; the changed internal extent is published on
+            // this box but cannot contribute to an ancestor's scrollable extent.
+            output.scrollable_overflow_rect = previous.scrollable_overflow_rect;
+            if output != previous {
+                if let Some(parent) = self.taffy.parent(node) {
+                    self.taffy
+                        .mark_dirty(parent)
+                        .map_err(|e| LayoutError::Engine(format!("boundary: {e:?}")))?;
+                }
+            }
+        }
         let result = self
             .taffy
             .compute_layout_with_measure(root, available, measure);
@@ -491,6 +673,7 @@ impl LayoutTree {
         if let Some(view) = invalid_metrics {
             return Err(LayoutError::InvalidTextMetrics(view));
         }
+        self.offers.insert(root, offer);
         Ok(())
     }
 
@@ -531,13 +714,6 @@ impl LayoutTree {
     }
 }
 
-const PASS_CLEARS: [NodeFlags; 4] = [
-    NodeFlags::CREATED,
-    NodeFlags::STYLE_DIRTY,
-    NodeFlags::TEXT_DIRTY,
-    NodeFlags::CHILDREN_DIRTY,
-];
-
 /// Lay out `root_slot` and publish frames and resolved flow. The receipt uses
 /// epoch zero; the kernel facade supplies its transaction epoch. Inline
 /// runs have no geometry of their own: their frames are zero and they never
@@ -555,71 +731,7 @@ pub fn compute(
         .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
     tree.compute(root, offer, arena, measurer)?;
 
-    let mut changed = Vec::new();
-    let mut exclusions = Vec::new();
-    let mut stack = vec![(root_slot, 0.0, 0.0, false)];
-    while let Some((slot, ox, oy, hidden)) = stack.pop() {
-        let hidden = hidden || arena.style(slot).display == crate::Display::None;
-        // @ref LLP 1043.000 §3 D2–D4 — collect in publication/document order.
-        if !hidden && crate::flow::is_exclusion(arena, slot) {
-            exclusions.push(slot);
-        }
-        let frame = if arena.is_inline_run(slot) {
-            Frame::default()
-        } else {
-            let Some(node) = arena.taffy(slot) else {
-                continue;
-            };
-            let l = tree.layout(node);
-            arena.set_content(
-                slot,
-                (
-                    l.scrollable_overflow_rect.right,
-                    l.scrollable_overflow_rect.bottom,
-                ),
-            );
-            Frame {
-                x: ox + l.location.x,
-                y: oy + l.location.y,
-                width: l.size.width,
-                height: l.size.height,
-            }
-        };
-        let first = arena.flags(slot).has(NodeFlags::CREATED);
-        let moved = !arena.is_inline_run(slot) && (first || !arena.frame(slot).bits_eq(frame));
-        arena.set_frame(slot, frame);
-        let flags = arena.flags_mut(slot);
-        for clear in PASS_CLEARS {
-            flags.remove(clear);
-        }
-        if moved {
-            flags.insert(NodeFlags::GEOMETRY_CHANGED);
-            changed.push(arena.key(slot));
-        } else {
-            flags.remove(NodeFlags::GEOMETRY_CHANGED);
-        }
-        for child in arena.children(slot).iter().rev() {
-            stack.push((*child, frame.x, frame.y, hidden));
-        }
-    }
-    let (flow_changed, flow_skipped) = crate::flow::resolve(
-        arena,
-        root_slot,
-        &exclusions,
-        |arena, slot| {
-            arena
-                .taffy(slot)
-                .is_none_or(|node| tree.height_measured(node))
-        },
-        |_| true,
-    );
-    Ok(LayoutReceipt {
-        epoch: 0,
-        root: arena.key(root_slot),
-        changed,
-        flow_changed,
-        flow_skipped,
-    })
+    Ok(publication::publish(arena, tree, root_slot))
 }
 
 #[cfg(test)]

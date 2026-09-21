@@ -31,9 +31,15 @@ pub struct NodeArena {
     local_ids: Vec<ViewId>,
     parents: Vec<Option<u32>>,
     children: Vec<Vec<u32>>,
+    child_indices: Vec<usize>,
+    // Sources whose pass flags need consuming. Geometry flags expire by pass,
+    // so a small edit after a large layout never clears N prior changed nodes.
+    pub(crate) layout_dirty: BTreeSet<u32>,
     styles: Vec<StyleProps>,
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
+    layout_passes: Vec<u64>,
+    geometry_passes: Vec<(u32, u64)>,
     frames: Vec<Frame>,
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: HashMap<u32, crate::flow::FlowState>,
@@ -68,9 +74,13 @@ impl Clone for NodeArena {
             local_ids: self.local_ids.clone(),
             parents: self.parents.clone(),
             children: self.children.clone(),
+            child_indices: self.child_indices.clone(),
+            layout_dirty: self.layout_dirty.clone(),
             styles: self.styles.clone(),
             props: self.props.clone(),
             flags: self.flags.clone(),
+            layout_passes: self.layout_passes.clone(),
+            geometry_passes: self.geometry_passes.clone(),
             frames: self.frames.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
@@ -209,7 +219,12 @@ impl NodeArena {
 
     /// Dirty flags.
     pub fn flags(&self, slot: u32) -> NodeFlags {
-        self.flags[slot as usize]
+        let mut flags = self.flags[slot as usize];
+        let (root, pass) = self.geometry_passes[slot as usize];
+        if self.layout_passes[root as usize] != pass {
+            flags.remove(NodeFlags::GEOMETRY_CHANGED);
+        }
+        flags
     }
 
     /// Resolved exclusions in this leaf's border-box coordinates.
@@ -484,9 +499,12 @@ impl NodeArena {
                 self.local_ids.push(0);
                 self.parents.push(None);
                 self.children.push(Vec::new());
+                self.child_indices.push(0);
                 self.styles.push(StyleProps::default());
                 self.props.push(PropList::new());
                 self.flags.push(NodeFlags::default());
+                self.layout_passes.push(0);
+                self.geometry_passes.push((0, 0));
                 self.frames.push(Frame::default());
                 self.contents.push((0.0, 0.0));
                 self.intrinsic.push(None);
@@ -507,6 +525,7 @@ impl NodeArena {
         self.styles[s] = StyleProps::default();
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
+        self.layout_dirty.insert(slot);
         self.frames[s] = Frame::default();
         self.contents[s] = (0.0, 0.0);
         self.intrinsic[s] = None;
@@ -520,6 +539,7 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.exclusion_slots.remove(&slot);
+        self.layout_dirty.remove(&slot);
         self.flow.remove(&slot);
         let s = slot as usize;
         debug_assert!(self.live[s], "free of a dead slot");
@@ -548,11 +568,43 @@ impl NodeArena {
     }
 
     pub(crate) fn set_children(&mut self, slot: u32, children: Vec<u32>) {
+        for (index, &child) in children.iter().enumerate() {
+            self.child_indices[child as usize] = index;
+        }
         self.children[slot as usize] = children;
     }
 
-    pub(crate) fn children_mut(&mut self, slot: u32) -> &mut Vec<u32> {
-        &mut self.children[slot as usize]
+    pub(crate) fn remove_child(&mut self, parent: u32, child: u32) {
+        self.children[parent as usize].retain(|&c| c != child);
+        for (index, &child) in self.children[parent as usize].iter().enumerate() {
+            self.child_indices[child as usize] = index;
+        }
+    }
+
+    pub(crate) fn child_index(&self, slot: u32) -> usize {
+        self.child_indices[slot as usize]
+    }
+
+    pub(crate) fn begin_layout_publication(&mut self, root: u32) {
+        self.layout_passes[root as usize] += 1;
+    }
+
+    pub(crate) fn mark_geometry_changed(&mut self, slot: u32, root: u32) {
+        self.flags[slot as usize].insert(NodeFlags::GEOMETRY_CHANGED);
+        self.geometry_passes[slot as usize] = (root, self.layout_passes[root as usize]);
+    }
+
+    pub(crate) fn consume_layout_flags(&mut self, slot: u32) {
+        self.layout_dirty.remove(&slot);
+        for clear in [
+            NodeFlags::CREATED,
+            NodeFlags::STYLE_DIRTY,
+            NodeFlags::TEXT_DIRTY,
+            NodeFlags::CHILDREN_DIRTY,
+            NodeFlags::GEOMETRY_CHANGED,
+        ] {
+            self.flags[slot as usize].remove(clear);
+        }
     }
 
     pub(crate) fn update_exclusion_count(&mut self, slot: u32, _was: bool) {
@@ -572,6 +624,8 @@ impl NodeArena {
     }
 
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
+        self.layout_dirty.insert(slot);
+        self.flags[slot as usize] = self.flags(slot);
         &mut self.flags[slot as usize]
     }
 

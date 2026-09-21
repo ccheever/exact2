@@ -988,3 +988,244 @@ mod paragraph_domain_tests {
         assert_eq!(before, k.node(1).unwrap().paragraph_stamp().unwrap());
     }
 }
+
+#[cfg(test)]
+mod locality_tests {
+    use super::*;
+    use crate::{AxisOffer, NodeType, PropId, StyleId, StyleValue};
+    use std::{cell::Cell, rc::Rc};
+
+    struct Count(Rc<Cell<usize>>);
+    impl TextMeasurer for Count {
+        fn measure(&mut self, r: &crate::TextMeasureRequest<'_>) -> crate::TextMetrics {
+            self.0.set(self.0.get() + 1);
+            MonospaceMeasurer::default().measure(r)
+        }
+    }
+    fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
+        let mut patch = StyleProps::default();
+        for (row, value) in rows {
+            patch.set_dynamic(*row, value).unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    }
+    fn text(id: u32, value: &str) -> Op {
+        Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: value.into(),
+        }
+    }
+    fn fixture(n: u32, extra: Vec<Op>) -> (Kernel, Rc<Cell<usize>>) {
+        let calls = Rc::new(Cell::new(0));
+        let mut k = Kernel::new(Box::new(Count(calls.clone())));
+        let mut ops = vec![];
+        for id in 1..=n + 3 {
+            ops.push(Op::CreateView {
+                id,
+                node_type: if id <= 2 {
+                    NodeType::View
+                } else {
+                    NodeType::Text
+                },
+            });
+            if id >= 3 {
+                ops.push(text(id, "short text"));
+            }
+        }
+        ops.push(style(
+            2,
+            &[
+                (StyleId::Width, StyleValue::Number(200.0)),
+                (StyleId::Height, StyleValue::Number(80.0)),
+                (StyleId::OverflowX, StyleValue::Text("hidden".into())),
+                (StyleId::OverflowY, StyleValue::Text("scroll".into())),
+            ],
+        ));
+        ops.extend(extra);
+        ops.extend([
+            Op::SetChildren {
+                id: 2,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: std::iter::once(2).chain(4..=n + 3).collect(),
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(900.0, 700.0)).unwrap();
+        calls.set(0);
+        (k, calls)
+    }
+    fn equal_fresh(k: &Kernel, offer: Offer) {
+        let mut fresh = k.rehydrate(Box::new(MonospaceMeasurer::default()));
+        fresh.compute_layout(1, offer).unwrap();
+        for slot in k.arena.iter_live() {
+            assert!(
+                k.arena.frame(slot).bits_eq(fresh.arena.frame(slot)),
+                "frame {}",
+                k.arena.local_id(slot)
+            );
+            let bits = |(w, h): (f32, f32)| (w.to_bits(), h.to_bits());
+            assert_eq!(
+                bits(k.arena.content(slot)),
+                bits(fresh.arena.content(slot)),
+                "overflow {}",
+                k.arena.local_id(slot)
+            );
+        }
+    }
+    #[test]
+    fn contained_text_edits_visit_only_the_dirty_path_and_publish_internal_overflow() {
+        for n in [100, 2000] {
+            let (mut k, calls) = fixture(n, vec![]);
+            let offer = Offer::definite(900.0, 700.0);
+            for (i, words) in [
+                "other text".to_string(),
+                "long text ".repeat(200),
+                "tiny".into(),
+            ]
+            .iter()
+            .enumerate()
+            {
+                calls.set(0);
+                k.apply(0, i as u64 + 2, &[text(3, words)]).unwrap();
+                let r = k.compute_layout(1, offer).unwrap();
+                assert_eq!(k.layout.boundary_replays, 1);
+                assert_eq!(k.layout.publication_visits, 3, "unrelated nodes: {n}");
+                assert_eq!(calls.get(), 1);
+                assert!(r
+                    .changed
+                    .iter()
+                    .all(|key| k.node_by_key(*key).unwrap().id == 3));
+                assert!(r
+                    .updated
+                    .iter()
+                    .all(|key| [2, 3].contains(&k.node_by_key(*key).unwrap().id)));
+                if i == 1 {
+                    assert!(r.updated.contains(&k.node(2).unwrap().key));
+                }
+                equal_fresh(&k, offer);
+                assert!(!k
+                    .arena
+                    .flags(k.node(4).unwrap().key.index)
+                    .has(crate::NodeFlags::GEOMETRY_CHANGED));
+            }
+            assert!(k.compute_layout(1, offer).unwrap().updated.is_empty());
+            assert_eq!(k.layout.publication_visits, 0);
+        }
+    }
+    #[test]
+    fn coupled_styles_and_changed_viewports_refuse_local_replay() {
+        use StyleId::*;
+        let cases = [
+            vec![style(
+                1,
+                &[
+                    (Display, StyleValue::Text("flex".into())),
+                    (AlignItems, StyleValue::Text("baseline".into())),
+                ],
+            )],
+            vec![style(1, &[(Display, StyleValue::Text("grid".into()))])],
+            vec![style(
+                2,
+                &[
+                    (OverflowX, StyleValue::Text("visible".into())),
+                    (OverflowY, StyleValue::Text("visible".into())),
+                ],
+            )],
+            vec![style(2, &[(Width, StyleValue::Auto)])],
+            vec![style(2, &[(Width, StyleValue::Percent(50.0))])],
+            vec![style(2, &[(Height, StyleValue::Auto)])],
+            vec![style(2, &[(Height, StyleValue::Percent(50.0))])],
+            vec![style(
+                2,
+                &[(PositionType, StyleValue::Text("absolute".into()))],
+            )],
+            vec![style(
+                4,
+                &[
+                    (PositionType, StyleValue::Text("absolute".into())),
+                    (WrapFlow, StyleValue::Text("both".into())),
+                    (Width, StyleValue::Number(40.0)),
+                    (Height, StyleValue::Number(40.0)),
+                ],
+            )],
+        ];
+        for extra in cases {
+            let (mut k, _) = fixture(8, extra);
+            k.apply(0, 2, &[text(3, &"more words ".repeat(80))])
+                .unwrap();
+            let offer = Offer::definite(900.0, 700.0);
+            k.compute_layout(1, offer).unwrap();
+            assert_eq!(k.layout.boundary_replays, 0);
+            equal_fresh(&k, offer);
+        }
+        let (mut k, _) = fixture(8, vec![]);
+        for (i, offer) in [
+            Offer::definite(800.0, 600.0),
+            Offer {
+                width: AxisOffer::MinContent,
+                height: AxisOffer::MaxContent,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            k.apply(0, i as u64 + 2, &[text(3, &"wider ".repeat(20 + i))])
+                .unwrap();
+            k.compute_layout(1, offer).unwrap();
+            assert_eq!(k.layout.boundary_replays, 0);
+            equal_fresh(&k, offer);
+        }
+    }
+    #[test]
+    fn contained_and_coupled_edits_in_one_batch_propagate_together() {
+        let (mut k, _) = fixture(20, vec![]);
+        let offer = Offer::definite(900.0, 700.0);
+        k.apply(
+            0,
+            2,
+            &[
+                text(3, &"inside ".repeat(80)),
+                text(4, &"outside ".repeat(200)),
+            ],
+        )
+        .unwrap();
+        let r = k.compute_layout(1, offer).unwrap();
+        assert_eq!(k.layout.boundary_replays, 0);
+        assert!(r.changed.contains(&k.node(5).unwrap().key));
+        equal_fresh(&k, offer);
+        // Style and topology edits after deferred text invalidation must flush it.
+        k.apply(
+            0,
+            3,
+            &[
+                text(3, "small"),
+                style(2, &[(StyleId::Width, StyleValue::Number(250.0))]),
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, offer).unwrap();
+        equal_fresh(&k, offer);
+        k.apply(
+            0,
+            4,
+            &[
+                text(3, "moved"),
+                Op::SetChildren {
+                    id: 2,
+                    children: vec![4, 3],
+                },
+            ],
+        )
+        .unwrap();
+        k.compute_layout(1, offer).unwrap();
+        equal_fresh(&k, offer);
+    }
+}

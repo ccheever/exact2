@@ -161,6 +161,10 @@ pub struct TaffyTree<NodeContext = ()> {
     /// The indexes in the outer vector correspond to the position of the child [`NodeData`]
     parents: SlotMap<DefaultKey, Option<NodeId>>,
 
+    // EXACT PATCH 9: sparse publication and opt-in replay at proven boundaries.
+    changed_layouts: Vec<NodeId>,
+    layout_inputs: SecondaryMap<DefaultKey, Option<(LayoutInput, LayoutOutput)>>,
+
     /// Layout mode configuration
     config: TaffyConfig,
 }
@@ -215,6 +219,11 @@ impl<NodeContext> CacheTree for TaffyTree<NodeContext> {
     }
 
     fn cache_store(&mut self, node_id: NodeId, input: &LayoutInput, layout_output: LayoutOutput) {
+        if input.run_mode == RunMode::PerformLayout {
+            if let Some(saved) = self.layout_inputs.get_mut(node_id.into()) {
+                *saved = Some((*input, layout_output));
+            }
+        }
         self.nodes[node_id.into()].cache.store(input, layout_output)
     }
 
@@ -380,7 +389,11 @@ where
 
     #[inline(always)]
     fn set_unrounded_layout(&mut self, node_id: NodeId, layout: &Layout) {
-        self.taffy.nodes[node_id.into()].unrounded_layout = *layout;
+        let old = &mut self.taffy.nodes[node_id.into()].unrounded_layout;
+        if *old != *layout {
+            *old = *layout;
+            self.taffy.changed_layouts.push(node_id);
+        }
     }
 
     #[inline(always)]
@@ -408,7 +421,7 @@ where
     }
 
     fn cache_store(&mut self, node_id: NodeId, input: &LayoutInput, layout_output: LayoutOutput) {
-        self.taffy.nodes[node_id.into()].cache.store(input, layout_output)
+        self.taffy.cache_store(node_id, input, layout_output)
     }
 
     fn cache_clear(&mut self, node_id: NodeId) {
@@ -544,6 +557,8 @@ impl<NodeContext> TaffyTree<NodeContext> {
             parents: SlotMap::with_capacity(capacity),
             node_context_data: SecondaryMap::with_capacity(capacity),
             config: TaffyConfig::default(),
+            changed_layouts: Vec::new(),
+            layout_inputs: SecondaryMap::new(),
         }
     }
 
@@ -601,6 +616,8 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.nodes.clear();
         self.children.clear();
         self.parents.clear();
+        self.changed_layouts.clear();
+        self.layout_inputs.clear();
     }
 
     /// Remove a specific node from the tree and drop it
@@ -625,6 +642,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let _ = self.children.remove(key);
         let _ = self.parents.remove(key);
         let _ = self.nodes.remove(key);
+        self.layout_inputs.remove(key);
 
         Ok(node)
     }
@@ -885,6 +903,62 @@ impl<NodeContext> TaffyTree<NodeContext> {
         mark_dirty_recursive(&mut self.nodes, &self.parents, node.into());
 
         Ok(())
+    }
+
+    /// EXACT PATCH 9: observe unrounded writes without a whole-tree traversal.
+    /// Entries can repeat and may name removed nodes; consumers resolve identities.
+    pub fn take_layout_changes(&mut self) -> Vec<NodeId> {
+        core::mem::take(&mut self.changed_layouts)
+    }
+
+    /// Retain final layout inputs only for a caller-proven containment candidate.
+    pub fn track_layout_input(&mut self, node: NodeId, track: bool) {
+        let key = node.into();
+        if track {
+            if !self.layout_inputs.contains_key(key) {
+                self.layout_inputs.insert(key, None);
+            }
+        } else {
+            self.layout_inputs.remove(key);
+        }
+    }
+
+    /// The exact prior final inputs and output, including definiteness/baselines.
+    pub fn last_layout_input(&self, node: NodeId) -> Option<(LayoutInput, LayoutOutput)> {
+        self.layout_inputs.get(node.into()).copied().flatten()
+    }
+
+    /// Clear caches through `boundary`, inclusive. The caller must either replay
+    /// that boundary with its saved inputs or invalidate its ancestors too.
+    pub fn mark_dirty_to(&mut self, node: NodeId, boundary: NodeId) {
+        let mut at = Some(node);
+        while let Some(node) = at {
+            self.nodes[node.into()].mark_dirty();
+            if node == boundary { break; }
+            at = self.parent(node);
+        }
+    }
+
+    /// Replay an independent formatting context without root sizing or moving
+    /// its parent-assigned origin. The caller proves independence and checks the
+    /// returned parent-facing output before reusing any ancestor caches.
+    pub fn compute_boundary_with_measure<MeasureFunction>(
+        &mut self,
+        node: NodeId,
+        inputs: LayoutInput,
+        measure_function: MeasureFunction,
+    ) -> LayoutOutput
+    where
+        MeasureFunction: FnMut(LayoutInput, NodeId, Option<&mut NodeContext>, &Style) -> LayoutOutput,
+    {
+        let mut view = TaffyView { taffy: self, measure_function };
+        let output = LayoutPartialTree::compute_child_layout(&mut view, node, inputs);
+        let mut layout = view.taffy.nodes[node.into()].unrounded_layout;
+        layout.size = output.size;
+        #[cfg(feature = "content_size")]
+        { layout.scrollable_overflow_rect = output.scrollable_overflow_rect; }
+        view.set_unrounded_layout(node, &layout);
+        output
     }
 
     /// Indicates whether the layout of this node needs to be recomputed

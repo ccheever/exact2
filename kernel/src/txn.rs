@@ -389,7 +389,7 @@ pub fn apply(
                     if arena.node_type(parent) == NodeType::Text {
                         invalidate_text(arena, layout, parent);
                     }
-                    arena.children_mut(parent).retain(|c| *c != slot);
+                    arena.remove_child(parent, slot);
                     sync_children(arena, layout, parent);
                     arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
                     touched.push(arena.key(parent));
@@ -518,7 +518,7 @@ pub fn apply(
                             if arena.node_type(p) == NodeType::Text {
                                 invalidate_text(arena, layout, p);
                             }
-                            arena.children_mut(p).retain(|c| c != n);
+                            arena.remove_child(p, *n);
                             sync_children(arena, layout, p);
                             arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                             touched.push(arena.key(p));
