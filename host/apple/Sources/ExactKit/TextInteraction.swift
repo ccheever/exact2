@@ -33,9 +33,13 @@ extension NodeView {
         setNeedsDisplay()
         #endif
     }
+    // Accessibility needs the source, not a colour-resolved layout specification.
+    var paragraphText: String {
+        props["text"] ?? inlineText.lazy.filter(\.paints).map(\.text).joined()
+    }
     func updateTextAccessibility() {
         guard isParagraph else { return }
-        let label = props["accessibilityLabel"] ?? paragraphSpec().runs.map(\.text).joined()
+        let label = props["accessibilityLabel"] ?? paragraphText
         #if os(macOS)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
@@ -56,7 +60,7 @@ extension NodeView {
     func textAccessibilityChildren() -> [Any]? {
         let interactive = inlineText.filter { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }
         guard !interactive.isEmpty else { return nil }
-        let text = paragraphSpec().runs.map(\.text).joined() as NSString
+        let text = paragraphText as NSString
         let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #if os(macOS)
         return children

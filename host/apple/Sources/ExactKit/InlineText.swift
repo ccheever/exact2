@@ -6,7 +6,9 @@ struct InlineText {
     let id: UInt32
     let parent: UInt32
     let props: [String: String]
-    let style: [String: Any]
+    private let lightRun: Run
+    private let darkColor: [Double]?
+    let hasSchemeColor: Bool
     let handlers: Set<String>
     let paints: Bool
     var range: NSRange = NSRange(location: 0, length: 0)
@@ -15,13 +17,20 @@ struct InlineText {
         guard let id = wire["id"] as? Int, let parent = wire["parent"] as? Int else { return nil }
         self.id = UInt32(id); self.parent = UInt32(parent)
         props = wire["props"] as? [String: String] ?? [:]
-        style = wire["style"] as? [String: Any] ?? [:]
+        let style = wire["style"] as? [String: Any] ?? [:]
+        lightRun = Self.run(props["text"] ?? "", style: style, href: props["href"] ?? "", dark: false)
+        darkColor = Self.channels(style["text_color"], dark: true)
+        hasSchemeColor = (style["text_color"] as? [[Double]])?.count == 2
         handlers = Set(wire["handlers"] as? [String] ?? [])
         paints = wire["paint"] as? Bool ?? false
     }
 
-    var hasSchemeColor: Bool { style.values.contains { ($0 as? [[Double]])?.count == 2 } }
-    func run(dark: Bool) -> Run { Self.run(props["text"] ?? "", style: style, href: props["href"] ?? "", dark: dark) }
+    var text: String { lightRun.text }
+    func run(dark: Bool) -> Run {
+        var value = lightRun
+        if dark { value.color = darkColor }
+        return value
+    }
 
     static func channels(_ value: Any?, dark: Bool) -> [Double]? {
         if let c = value as? [Double], c.count == 4 { return c }
@@ -72,7 +81,7 @@ extension Presenter {
         var offset = 0
         var rows = wire.compactMap(InlineText.init)
         for i in rows.indices {
-            let count = rows[i].paints ? (rows[i].props["text"] ?? "").utf16.count : 0
+            let count = rows[i].paints ? rows[i].text.utf16.count : 0
             rows[i].range = NSRange(location: offset, length: count)
             offset += count
             inlineOwners[rows[i].id] = (id, i)

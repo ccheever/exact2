@@ -138,6 +138,11 @@ final class TextMetricsTests: XCTestCase {
              "style": ["font_size": size, "text_color": [[10.0, 20.0, 30.0, 255.0], [210.0, 220.0, 230.0, 255.0]]]],
         ] }
         p.applyParagraph(1, rows(16))
+        XCTAssertNil(node.cachedTextSpec, "accessibility must not build a paragraph spec")
+        XCTAssertEqual(node.accessibilityLabel(), "Plain " + value)
+        _ = node.paragraphSpec()
+        node.updateTextAccessibility()
+        XCTAssertNotNil(node.cachedTextSpec, "accessibility must preserve the cached spec")
         XCTAssertEqual(p.views.count, 1)
         XCTAssertEqual(p.inlineText(3)?.range, NSRange(location: 6, length: value.utf16.count))
         XCTAssertEqual(p.inlineText(4)?.range, p.inlineText(3)?.range)
