@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use exact_plan::Value;
@@ -42,10 +43,12 @@ pub struct Markdown {
     /// The document being read now: what a refusal falls back to.
     open: Option<(PathBuf, Document)>,
     /// Results the worker has finished, by the path that was asked for.
-    done: Arc<Mutex<HashMap<String, Opened>>>,
+    done: Arc<Mutex<HashMap<String, (u64, Opened)>>>,
     /// Paths handed out as continuation tokens and not yet taken.
     inflight: HashMap<u64, String>,
     next: u64,
+    /// Newest open, published before its continuation joins the ordered lane.
+    generation: Arc<AtomicU64>,
 }
 
 impl Markdown {
@@ -147,6 +150,13 @@ pub fn name_of(path: &Path) -> String {
 /// Read and parse one path on the host's worker. A directory opens the
 /// README beside it, the way a repository page does on the web.
 pub fn read(asked: &str) -> Opened {
+    read_cancellable(asked, &|| false)
+}
+
+fn read_cancellable(asked: &str, cancel: &dyn Fn() -> bool) -> Opened {
+    if cancel() {
+        return Err("file open superseded".into());
+    }
     let path = PathBuf::from(asked);
     let path = if path.is_dir() {
         ["README.md", "readme.md", "index.md", "README.markdown"]
@@ -168,12 +178,17 @@ pub fn read(asked: &str) -> Opened {
         ));
     }
     let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if cancel() {
+        return Err("file open superseded".into());
+    }
     // Text, not bytes: a file that is not UTF-8 is not this reader's, and
     // saying so is better than showing replacement characters.
     let text =
         String::from_utf8(bytes).map_err(|_| format!("{} is not UTF-8 text", name_of(&path)))?;
     let base = path.parent().map(Path::to_path_buf).unwrap_or_default();
-    let doc = parse(&text, &|target: &str| resolve(&base, target));
+    let doc =
+        markdown_parse::parse_cancellable(&text, &|target: &str| resolve(&base, target), cancel)
+            .ok_or_else(|| "file open superseded".to_string())?;
     Ok((path, doc))
 }
 
@@ -250,13 +265,15 @@ impl DataSource for Markdown {
             return Err(DataError::BadArguments("open(path)".into()));
         };
         let asked = asked.to_string();
+        self.next += 1;
+        self.generation.store(self.next, Ordering::Release);
+        self.inflight.clear();
+        if let Ok(mut done) = self.done.lock() {
+            done.clear();
+        }
         if asked.is_empty() {
             return Ok(Answer::Now(self.welcome()));
         }
-        if let Some(result) = self.done.lock().ok().and_then(|mut d| d.remove(&asked)) {
-            return Ok(Answer::Now(self.opened(&asked, result)));
-        }
-        self.next += 1;
         self.inflight.insert(self.next, asked);
         Ok(Answer::Later(Request::continuation(self.next)))
     }
@@ -264,10 +281,22 @@ impl DataSource for Markdown {
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         let asked = self.inflight.remove(&token)?;
         let done = Arc::clone(&self.done);
+        let generation = Arc::clone(&self.generation);
         Some(Box::new(move || {
-            let result = read(&asked);
+            let cancel = || generation.load(Ordering::Acquire) != token;
+            let result = read_cancellable(&asked, &cancel);
             if let Ok(mut map) = done.lock() {
-                map.insert(asked, result);
+                // Check while holding the result lock: a superseding answer
+                // clears it under the same lock. A→B→A must not accept old A.
+                if !cancel() {
+                    map.insert(asked, (token, result));
+                }
+            }
+            if cancel() {
+                return Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    message: "file open superseded".into(),
+                };
             }
             // The reply carries nothing: the document went into `done`
             // whole, rather than through a serialization and back.
@@ -293,7 +322,13 @@ impl DataSource for Markdown {
             Some(Value::Str(s)) => s.to_string(),
             _ => String::new(),
         };
-        let result = self.done.lock().ok().and_then(|mut d| d.remove(&asked));
+        let result = self
+            .done
+            .lock()
+            .ok()
+            .and_then(|mut d| d.remove(&asked))
+            .filter(|(generation, _)| *generation == self.next)
+            .map(|(_, result)| result);
         let result = match (result, outcome) {
             (Some(result), _) => result,
             // The worker never ran it: a surface with no filesystem (a
@@ -308,5 +343,124 @@ impl DataSource for Markdown {
             }
         };
         Ok(Answer::Now(self.opened(&asked, result)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_running_scan_releases_the_lane_for_the_newest_file() {
+        use std::sync::mpsc::sync_channel;
+        let directory =
+            std::env::temp_dir().join(format!("exact-markdown-cancel-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let old = directory.join("old.md");
+        let new = directory.join("new.md");
+        std::fs::write(&old, "[x".repeat(512 * 1024)).unwrap();
+        std::fs::write(&new, "# Latest\n\nReady.").unwrap();
+        let mut source = Markdown::new();
+        let token = open(&mut source, old.to_str().unwrap());
+        let generation = Arc::clone(&source.generation);
+        let (started, checkpoint) = sync_channel(0);
+        let (resume, resumed) = sync_channel(0);
+        let (queued, next) = sync_channel::<Box<dyn FnOnce() -> Outcome + Send>>(0);
+        // One worker, just as in the host's ordered continuation lane. Pause
+        // at a real scanner checkpoint so the supersession is deterministic.
+        let worker = std::thread::spawn(move || {
+            let calls = std::cell::Cell::new(0);
+            let result = read_cancellable(old.to_str().unwrap(), &|| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 8 {
+                    started.send(()).unwrap();
+                    resumed.recv().unwrap();
+                }
+                generation.load(Ordering::Acquire) != token
+            });
+            assert_eq!(result.unwrap_err(), "file open superseded");
+            assert_eq!(
+                calls.get(),
+                8,
+                "the stopped scan must not resume visiting input"
+            );
+            next.recv().unwrap()()
+        });
+        checkpoint.recv().unwrap();
+        let latest = open(&mut source, new.to_str().unwrap());
+        resume.send(()).unwrap();
+        queued.send(source.continuation(latest).unwrap()).unwrap();
+        let outcome = worker.join().unwrap();
+        source
+            .parse(
+                &mut Store::default(),
+                "open",
+                &[Value::str(new.to_str().unwrap())],
+                outcome,
+            )
+            .unwrap();
+        assert_eq!(source.open.as_ref().unwrap().1.title, "Latest");
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn open(source: &mut Markdown, path: &str) -> u64 {
+        let answer = source
+            .answer(&mut Store::default(), "open", &[Value::str(path)])
+            .unwrap();
+        let Answer::Later(request) = answer else {
+            panic!("expected continuation")
+        };
+        request.continuation.unwrap()
+    }
+
+    #[test]
+    fn superseded_continuations_abort_even_when_the_path_is_reopened() {
+        let mut source = Markdown::new();
+        let first = open(&mut source, "/missing/A.md");
+        let first = source.continuation(first).unwrap();
+        let second = open(&mut source, "/missing/B.md");
+        let second = source.continuation(second).unwrap();
+        let latest = open(&mut source, "/missing/A.md");
+        let latest = source.continuation(latest).unwrap();
+        for stale in [first, second] {
+            assert!(matches!(
+                stale(),
+                Outcome::Failed {
+                    kind: FailureKind::Aborted,
+                    ..
+                }
+            ));
+            assert!(source.done.lock().unwrap().is_empty());
+        }
+        assert!(matches!(latest(), Outcome::Response(_)));
+        let mut done = source.done.lock().unwrap();
+        let (generation, result) = done.remove("/missing/A.md").unwrap();
+        assert_eq!(generation, source.next);
+        assert!(
+            result.is_err(),
+            "the current file's I/O refusal is still delivered"
+        );
+    }
+
+    #[test]
+    fn welcome_supersedes_pending_reads_and_releases_completed_results() {
+        let mut source = Markdown::new();
+        let token = open(&mut source, "/missing/A.md");
+        let stale = source.continuation(token).unwrap();
+        source
+            .answer(&mut Store::default(), "open", &[Value::str("")])
+            .unwrap();
+        assert!(matches!(
+            stale(),
+            Outcome::Failed {
+                kind: FailureKind::Aborted,
+                ..
+            }
+        ));
+        let token = open(&mut source, "/missing/A.md");
+        source.continuation(token).unwrap()();
+        assert_eq!(source.done.lock().unwrap().len(), 1);
+        open(&mut source, "/missing/B.md");
+        assert!(source.done.lock().unwrap().is_empty());
     }
 }
