@@ -11,7 +11,8 @@
 //! ever fails it stops and reports [`ApplyError::Internal`] — loud and typed,
 //! never a silent skip and never a panic.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use crate::id::{IdMap, IdSet};
+use std::collections::BTreeSet;
 
 use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
@@ -53,24 +54,24 @@ enum State {
 /// The batch's view of the tree during validation: the arena plus overrides.
 struct Staged<'a> {
     arena: &'a NodeArena,
-    created: HashMap<ViewId, NodeType>,
-    destroyed: HashSet<ViewId>,
-    parents: HashMap<ViewId, Option<ViewId>>,
-    children: HashMap<ViewId, Vec<ViewId>>,
-    roots_added: HashSet<ViewId>,
-    roots_removed: HashSet<ViewId>,
+    created: IdMap<ViewId, NodeType>,
+    destroyed: IdSet<ViewId>,
+    parents: IdMap<ViewId, Option<ViewId>>,
+    children: IdMap<ViewId, Vec<ViewId>>,
+    roots_added: IdSet<ViewId>,
+    roots_removed: IdSet<ViewId>,
 }
 
 impl<'a> Staged<'a> {
     fn new(arena: &'a NodeArena) -> Self {
         Staged {
             arena,
-            created: HashMap::new(),
-            destroyed: HashSet::new(),
-            parents: HashMap::new(),
-            children: HashMap::new(),
-            roots_added: HashSet::new(),
-            roots_removed: HashSet::new(),
+            created: IdMap::default(),
+            destroyed: IdSet::default(),
+            parents: IdMap::default(),
+            children: IdMap::default(),
+            roots_added: IdSet::default(),
+            roots_removed: IdSet::default(),
         }
     }
 
@@ -254,7 +255,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         node_type,
                     });
                 }
-                let mut seen = HashSet::with_capacity(children.len());
+                let mut seen = IdSet::with_capacity_and_hasher(children.len(), Default::default());
                 for child in children {
                     if *child == *id {
                         return Err(ApplyError::SelfChild { op_index, id: *id });
@@ -362,7 +363,7 @@ pub fn apply(
         ..CommitReceipt::default()
     };
     let mut touched: Vec<NodeKey> = Vec::new();
-    let mut created: HashSet<u32> = HashSet::new();
+    let mut created: IdSet<u32> = IdSet::default();
 
     for (op_index, op) in ops.iter().enumerate() {
         match op {
@@ -487,7 +488,7 @@ pub fn apply(
                     continue;
                 }
                 let old: Vec<u32> = arena.children(slot).to_vec();
-                let retained: HashSet<u32> = new.iter().copied().collect();
+                let retained: IdSet<u32> = new.iter().copied().collect();
                 let detached: Vec<_> = old
                     .iter()
                     .copied()

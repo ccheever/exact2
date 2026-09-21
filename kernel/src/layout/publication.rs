@@ -1,7 +1,7 @@
 //! Sparse absolute-frame publication. Child indices are maintained on topology
 //! writes, so a dirty path never searches its parent's unrelated child list.
 use super::*;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -> LayoutReceipt {
     #[cfg(test)]
@@ -13,7 +13,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             arena.layout_dirty.insert(slot);
         }
     }
-    let mut paths: BTreeMap<u32, BTreeSet<(usize, u32)>> = BTreeMap::new();
+    let mut paths: IdMap<u32, BTreeSet<(usize, u32)>> = IdMap::default();
     let mut has_sources = false;
     let mut detached = Vec::new();
     for &slot in &arena.layout_dirty {

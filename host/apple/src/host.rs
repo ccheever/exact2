@@ -46,6 +46,7 @@ mod layout;
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
 mod transform_drag_wire;
+use exact_kernel::id::{IdMap, IdSet};
 use ibex2::host::Secrets;
 use std::collections::{BTreeMap, BTreeSet};
 use transform_drag::TransformDrags;
@@ -85,11 +86,11 @@ pub(crate) struct Mirror {
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
-    mirror: BTreeMap<ViewId, Mirror>,
-    keys: BTreeMap<NodeKey, ViewId>,
-    inline_runs: BTreeMap<ViewId, (ViewId, Vec<EventKind>)>,
+    mirror: IdMap<ViewId, Mirror>,
+    keys: IdMap<NodeKey, ViewId>,
+    inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
     dirty_paragraphs: BTreeSet<ViewId>,
-    pending_layout: BTreeSet<NodeKey>,
+    pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -319,11 +320,11 @@ impl<D: DataSource> Host<D> {
         prepare(runner.plan());
         let mut host = Host {
             runner,
-            mirror: BTreeMap::new(),
-            keys: BTreeMap::new(),
-            inline_runs: BTreeMap::new(),
+            mirror: IdMap::default(),
+            keys: IdMap::default(),
+            inline_runs: IdMap::default(),
             dirty_paragraphs: BTreeSet::new(),
-            pending_layout: BTreeSet::new(),
+            pending_layout: IdSet::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: Engine::new(),

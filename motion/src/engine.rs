@@ -17,7 +17,8 @@
 
 use crate::property::{Property, Value};
 use crate::transition::{Curve, Running, TransitionError, Transitions};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
 
 mod hold;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
@@ -113,16 +114,40 @@ pub struct SpringFrames {
     pub values: Vec<Value>,
 }
 
+// Engine keys are host-allocated integers, never text. Frame order belongs
+// to `dirty`, not the target lookup table.
+#[derive(Debug, Default)]
+struct SlotHasher(u64);
+impl Hasher for SlotHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.write_u64(u64::from(*byte));
+        }
+    }
+    fn write_u8(&mut self, value: u8) {
+        self.write_u64(u64::from(value));
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
 /// The motion state of every node the host has told it about.
 #[derive(Debug, Default)]
 pub struct Engine {
     now: f64,
     transitions: BTreeMap<u64, Transitions>,
-    slots: BTreeMap<(u64, Property), Slot>,
+    slots: HashMap<(u64, Property), Slot, BuildHasherDefault<SlotHasher>>,
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
-    dirty: BTreeSet<(u64, Property)>,
+    dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
 }
 
 impl Engine {
@@ -337,7 +362,8 @@ impl Engine {
     /// The values that changed since the last frame, in node order. Taking
     /// them clears the set; a host paints exactly these.
     pub fn frame(&mut self) -> Vec<Presentation> {
-        let dirty = std::mem::take(&mut self.dirty);
+        let mut dirty: Vec<_> = std::mem::take(&mut self.dirty).into_iter().collect();
+        dirty.sort_unstable();
         dirty
             .into_iter()
             .filter_map(|key| {

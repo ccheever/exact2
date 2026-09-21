@@ -8,7 +8,8 @@
 //! The arena is the authored truth. Frames and Taffy handles are derived
 //! columns: rehydration is columns-plus-rebuild, never serialized engine state.
 
-use std::collections::{BTreeSet, HashMap};
+use crate::id::IdMap;
+use std::collections::BTreeSet;
 
 use taffy::NodeId;
 
@@ -42,7 +43,7 @@ pub struct NodeArena {
     geometry_passes: Vec<(u32, u64)>,
     frames: Vec<Frame>,
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
-    pub(crate) flow: HashMap<u32, crate::flow::FlowState>,
+    pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: BTreeSet<u32>,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
@@ -54,7 +55,7 @@ pub struct NodeArena {
     is_root: Vec<bool>,
     free: Vec<u32>,
     roots: Vec<u32>,
-    by_local: HashMap<ViewId, u32>,
+    by_local: IdMap<ViewId, u32>,
     live_count: usize,
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.

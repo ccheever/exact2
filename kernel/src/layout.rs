@@ -12,7 +12,7 @@
 
 mod publication;
 
-use std::collections::{HashMap, HashSet};
+use crate::id::{IdMap, IdSet};
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput};
 use taffy::util::{MaybeResolve, ResolveOrZero};
@@ -87,9 +87,9 @@ pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
     pass: u64,
     fault: Option<String>,
-    slots: HashMap<NodeId, u32>,
-    deferred: HashSet<NodeId>,
-    offers: HashMap<NodeId, Offer>,
+    slots: IdMap<NodeId, u32>,
+    deferred: IdSet<NodeId>,
+    offers: IdMap<NodeId, Offer>,
     #[cfg(test)]
     pub(crate) publication_visits: usize,
     #[cfg(test)]
@@ -133,9 +133,9 @@ impl LayoutTree {
             taffy,
             pass: 0,
             fault: None,
-            slots: HashMap::new(),
-            deferred: HashSet::new(),
-            offers: HashMap::new(),
+            slots: IdMap::default(),
+            deferred: IdSet::default(),
+            offers: IdMap::default(),
             #[cfg(test)]
             publication_visits: 0,
             #[cfg(test)]
@@ -362,7 +362,7 @@ impl LayoutTree {
             && !self.taffy.dirty(root).unwrap_or(true)
             && arena.exclusion_slots.is_empty()
             && arena.flow.is_empty();
-        let mut boundaries = HashSet::new();
+        let mut boundaries = IdSet::default();
         for node in std::mem::take(&mut self.deferred) {
             if let Some(boundary) = local.then(|| self.boundary_for(node, root)).flatten() {
                 self.taffy.mark_dirty_to(node, boundary);

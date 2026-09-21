@@ -6,6 +6,40 @@
 //! destroyed and its slot reused, so a stale reference can never alias a newer
 //! node. Receipts and agent refs carry `NodeKey`s, never bare `u32`s.
 
+use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// Hash table for internal integer identities (slots, NodeKey and layout IDs).
+/// Iteration order is unspecified. Keep ordered receipts and user strings out.
+pub type IdMap<K, V> = HashMap<K, V, BuildHasherDefault<IdHasher>>;
+/// Membership set for internal integer identities; not an ordered work queue.
+pub type IdSet<K> = HashSet<K, BuildHasherDefault<IdHasher>>;
+
+/// Small integer-key hasher. These keys are allocated by the kernel/runner;
+/// this is not a hash for arbitrary text or a persisted identity.
+#[derive(Debug, Default)]
+pub struct IdHasher(u64);
+
+impl Hasher for IdHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.write_u64(u64::from(*byte));
+        }
+    }
+    fn write_u32(&mut self, value: u32) {
+        self.write_u64(u64::from(value));
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
+}
+
 /// The producer's wire-local node id. Unique among live nodes in one kernel.
 pub type ViewId = u32;
 
