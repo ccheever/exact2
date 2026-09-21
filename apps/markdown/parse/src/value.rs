@@ -12,18 +12,7 @@ use std::rc::Rc;
 struct Values {
     strings: HashSet<Rc<str>>,
     indices: HashMap<usize, Value>,
-    runs: HashMap<RunKey, Value>,
     empty_list: Value,
-}
-
-#[derive(Hash, PartialEq, Eq)]
-struct RunKey {
-    index: usize,
-    text: Rc<str>,
-    href: Rc<str>,
-    bold: bool,
-    italic: bool,
-    code: bool,
 }
 
 impl Values {
@@ -31,21 +20,17 @@ impl Values {
         Self {
             strings: HashSet::new(),
             indices: HashMap::new(),
-            runs: HashMap::new(),
             empty_list: Value::list(Vec::new()),
         }
     }
 
-    fn text(&mut self, text: &str) -> Rc<str> {
-        self.strings.get(text).cloned().unwrap_or_else(|| {
+    fn string(&mut self, text: &str) -> Value {
+        let text = self.strings.get(text).cloned().unwrap_or_else(|| {
             let text: Rc<str> = Rc::from(text);
             self.strings.insert(text.clone());
             text
-        })
-    }
-
-    fn string(&mut self, text: &str) -> Value {
-        Value::Str(self.text(text))
+        });
+        Value::Str(text)
     }
 
     fn index(&mut self, index: usize) -> Value {
@@ -56,27 +41,14 @@ impl Values {
     }
 
     fn run(&mut self, index: usize, run: &Run) -> Value {
-        let key = RunKey {
-            index,
-            text: self.text(&run.text),
-            href: self.text(&run.href),
-            bold: run.bold,
-            italic: run.italic,
-            code: run.code,
-        };
-        if let Some(value) = self.runs.get(&key) {
-            return value.clone();
-        }
-        let value = Value::record(vec![
+        Value::record(vec![
             self.index(index),
-            Value::Str(key.text.clone()),
+            self.string(&run.text),
             Value::Number(if run.bold { 700.0 } else { 400.0 }),
             self.string(if run.italic { "italic" } else { "normal" }),
             Value::Bool(run.code),
-            Value::Str(key.href.clone()),
-        ]);
-        self.runs.insert(key, value.clone());
-        value
+            self.string(&run.href),
+        ])
     }
 
     fn runs(&mut self, list: &[Run]) -> Value {

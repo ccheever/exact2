@@ -36,11 +36,6 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
     shared(&first[3], &first[4]);
     let a = fields(&fields(&first[7])[0]);
     let b = fields(&fields(&second[7])[0]);
-    let (Value::Record(ar), Value::Record(br)) = (&fields(&first[7])[0], &fields(&second[7])[0])
-    else {
-        panic!("expected run records");
-    };
-    assert!(Rc::ptr_eq(ar, br));
     for i in [0, 1, 3, 5] {
         shared(&a[i], &b[i]);
     }
@@ -67,7 +62,7 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
 }
 
 #[test]
-fn run_sharing_preserves_every_style_link_and_index() {
+fn document_string_sharing_preserves_styles_links_and_indices() {
     use markdown_parse::{Block, Document, Run};
     let plain = Run::text("same");
     let doc = Document {
