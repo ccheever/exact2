@@ -126,7 +126,7 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let Some((root, depth)) = found else {
         return error(&format!(
             "no view matches {}",
-            name.unwrap_or_else(|| num(id.unwrap()))
+            name.unwrap_or_else(|| num(id.unwrap()).to_string())
         ));
     };
     if shallow {
@@ -220,7 +220,9 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
             PropValue::Int(i) => {
                 let _ = write!(s, "{i}");
             }
-            PropValue::Float(f) => s.push_str(&num(*f)),
+            PropValue::Float(f) => {
+                let _ = write!(s, "{}", num(*f));
+            }
         }
     }
 }
@@ -458,7 +460,9 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
     };
     match v {
         RowValue::Dimension(Dimension::Auto) => out.push_str("\"auto\""),
-        RowValue::Dimension(Dimension::Points(p)) => out.push_str(&num(p as f64)),
+        RowValue::Dimension(Dimension::Points(p)) => {
+            let _ = write!(out, "{}", num(p as f64));
+        }
         RowValue::Dimension(Dimension::Percent(p)) => quote(&format!("{}%", num(p as f64)), out),
         RowValue::Dimension(Dimension::Env(edge, offset)) => {
             let edge = match edge {
@@ -478,10 +482,14 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             quote(&text, out)
         }
         RowValue::LineHeight(v) => match v {
-            exact_kernel::LineHeight::Number(n) => out.push_str(&num(n as f64)),
+            exact_kernel::LineHeight::Number(n) => {
+                let _ = write!(out, "{}", num(n as f64));
+            }
             _ => quote(&v.css(), out),
         },
-        RowValue::Number(n) => out.push_str(&num(n)),
+        RowValue::Number(n) => {
+            let _ = write!(out, "{}", num(n));
+        }
         RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
@@ -704,7 +712,9 @@ pub fn logs<D: DataSource>(runner: &Runner<D>, since: usize) -> String {
 pub fn typed_json(plan: &Plan, ty: TypesId, v: &Value, out: &mut String) {
     let row = plan.type_(ty);
     match (row.kind, v) {
-        (_, Value::Number(n)) => out.push_str(&num(*n)),
+        (_, Value::Number(n)) => {
+            let _ = write!(out, "{}", num(*n));
+        }
         (_, Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
         (_, Value::Str(s)) => quote(s, out),
         (_, Value::Unit) | (_, Value::Option(None)) => out.push_str("null"),
@@ -746,7 +756,9 @@ pub fn typed_json(plan: &Plan, ty: TypesId, v: &Value, out: &mut String) {
 /// A plan value as JSON with no type to hand: records positional.
 pub fn untyped_json(v: &Value, out: &mut String) {
     match v {
-        Value::Number(n) => out.push_str(&num(*n)),
+        Value::Number(n) => {
+            let _ = write!(out, "{}", num(*n));
+        }
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Str(s) => quote(s, out),
         Value::Unit | Value::Option(None) => out.push_str("null"),
@@ -764,17 +776,24 @@ pub fn untyped_json(v: &Value, out: &mut String) {
     }
 }
 
-/// A finite number as JSON; anything else is `null`.
-pub fn num(n: f64) -> String {
-    if n.is_finite() {
-        if n == n.trunc() && n.abs() < 1e15 {
-            format!("{}", n as i64)
-        } else {
-            format!("{n}")
+/// Format a finite number as JSON, or `null`, without a temporary string.
+pub fn num(n: f64) -> impl std::fmt::Display {
+    struct Number(f64);
+    impl std::fmt::Display for Number {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let n = self.0;
+            if n.is_finite() {
+                if n == n.trunc() && n.abs() < 1e15 {
+                    write!(f, "{}", n as i64)
+                } else {
+                    write!(f, "{n}")
+                }
+            } else {
+                f.write_str("null")
+            }
         }
-    } else {
-        "null".to_string()
     }
+    Number(n)
 }
 
 /// A JSON string.
@@ -955,10 +974,17 @@ mod tests {
 
     #[test]
     fn numbers_render_as_json() {
-        assert_eq!(num(3.0), "3");
-        assert_eq!(num(-0.5), "-0.5");
-        assert_eq!(num(f64::NAN), "null");
-        assert_eq!(num(1e20), "100000000000000000000");
+        assert_eq!(num(3.0).to_string(), "3");
+        assert_eq!(num(-0.0).to_string(), "0");
+        assert_eq!(num(-0.5).to_string(), "-0.5");
+        assert_eq!(num(1e-8).to_string(), "0.00000001");
+        assert_eq!(num(f64::NAN).to_string(), "null");
+        assert_eq!(num(f64::INFINITY).to_string(), "null");
+        assert_eq!(num(f64::NEG_INFINITY).to_string(), "null");
+        assert_eq!(num(1e20).to_string(), "100000000000000000000");
+        let mut output = String::from("[");
+        write!(output, "{},{},{}]", num(-0.0), num(1e-8), num(f64::NAN)).unwrap();
+        assert_eq!(output, "[0,0.00000001,null]");
         let mut s = String::new();
         quote("tab\there \"q\" \u{1}", &mut s);
         assert_eq!(s, "\"tab\\there \\\"q\\\" \\u0001\"");
