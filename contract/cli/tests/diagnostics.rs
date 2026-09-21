@@ -576,3 +576,78 @@ fn missing_effects_include_sends_and_do_not_repeat_targets() {
     }
     assert!(contract::compile(&source.replace("WRITES", " writes result, waiting")).is_ok());
 }
+
+#[test]
+fn missing_providers_report_every_absent_inject_on_the_use_path() {
+    let app = App::new("missing-provides");
+    // A provider in a sibling branch cannot satisfy the component use.
+    let root = app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+    app.write("lib/card.contract", "component Card\n  inject\n    theme: string\n    locale: string\n    density: number\n  view\n    text `${theme} ${locale} ${density}`\n");
+    for (providers, missing) in [
+        (vec![], vec!["theme", "locale", "density"]),
+        (vec!["density = 2"], vec!["theme", "locale"]),
+        (
+            vec!["locale = \"en\"", "theme = \"Light\""],
+            vec!["density"],
+        ),
+        (
+            vec!["theme = 1", "theme = \"Night\""],
+            vec!["locale", "density"],
+        ),
+    ] {
+        let mut source = "use Card from \"./card.contract\"\ncomponent Row\n  view\n".to_owned();
+        let mut indent = "    ".to_owned();
+        for provider in &providers {
+            source.push_str(&format!("{indent}provide {provider}\n"));
+            indent.push_str("  ");
+        }
+        source.push_str(&format!("{indent}Card()\n"));
+        let path = app
+            .write("lib/row.contract", &source)
+            .canonicalize()
+            .unwrap();
+        let names = missing
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let scopes = missing
+            .iter()
+            .map(|name| format!("`provide {name} = …`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let message = if missing.len() == 1 {
+            format!("`Card` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
+        } else {
+            format!("`Card` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
+        };
+        let expected = contract::compile_path(&root).unwrap_err();
+        assert_eq!(expected.id, "syntax-missing-provide");
+        assert_eq!(expected.message, message);
+        let errors = diagnostics(
+            &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+            1,
+        );
+        assert_eq!(errors.len(), 1);
+        same_error(&errors[0], &expected);
+        assert_eq!(errors[0]["file"], path.to_str().unwrap());
+        assert_eq!(errors[0]["line"], 4 + providers.len());
+        assert_eq!(errors[0]["col"], indent.len() + 1);
+        assert_eq!(errors[0]["end_col"], indent.len() + 5);
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert_eq!(human.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&human.stderr).contains(&message));
+        // Repair all reported names at the caller. Nearer providers in Row
+        // remain authoritative, including the correctly typed inner shadow.
+        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Outer\"\n      provide locale = \"en\"\n        provide density = 1\n          Row()\n");
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+        app.write("app.contract", "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    view\n      provide locale = \"Sibling\"\n        text \"Other branch\"\n      Row()\n");
+    }
+    // An unused component can still require providers from its future caller.
+    app.write(
+        "app.contract",
+        "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    text \"No instance\"\n",
+    );
+    assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+}

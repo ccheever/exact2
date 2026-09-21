@@ -221,14 +221,27 @@ fn inline_nodes(
                 }
                 for p in &c.injects {
                     let Some((_, e)) = ctx.provides.iter().rev().find(|(n, _)| n == &p.name) else {
-                        return err(
-                            "syntax-missing-provide",
-                            format!(
-                                "`{name}` injects `{}`, and nothing above this use provides it: wrap the use in `provide {} = …`",
-                                p.name, p.name
-                            ),
-                            *span,
-                        );
+                        let missing: Vec<_> = c
+                            .injects
+                            .iter()
+                            .filter(|inject| !ctx.provides.iter().any(|(n, _)| n == &inject.name))
+                            .collect();
+                        let names = missing
+                            .iter()
+                            .map(|p| format!("`{}`", p.name))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let scopes = missing
+                            .iter()
+                            .map(|p| format!("`provide {} = …`", p.name))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let message = if missing.len() == 1 {
+                            format!("`{name}` injects {names}, and nothing above this use provides it: wrap the use in {scopes}")
+                        } else {
+                            format!("`{name}` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
+                        };
+                        return err("syntax-missing-provide", message, *span);
                     };
                     child_subst.insert(p.name.clone(), e.clone());
                 }
