@@ -37,6 +37,26 @@ pub(super) fn unknown_props(component: &Component, args: &[Attr], span: Span) ->
 }
 
 impl Shapes {
+    pub(super) fn unknown_type(&self, name: &str, span: Span) -> TypeError {
+        let primitives = ["number", "string", "bool", "unit", "action"];
+        let names = primitives
+            .into_iter()
+            .chain(
+                self.map
+                    .keys()
+                    .map(String::as_str)
+                    .filter(|name| !primitives.contains(name)),
+            )
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        TypeError {
+            id: "type-unknown",
+            message: format!("unknown type `{name}`; known named types: {names}"),
+            span,
+        }
+    }
+
     pub(super) fn unknown_field(&self, shape: &str, field: &str, span: Span) -> TypeError {
         let fields = self.map.get(shape).map(Vec::as_slice).unwrap_or_default();
         let names = fields

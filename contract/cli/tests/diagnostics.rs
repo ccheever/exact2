@@ -386,6 +386,67 @@ fn unknown_record_fields_name_declared_choices_at_the_original_import() {
 }
 
 #[test]
+fn unknown_types_list_named_choices_at_the_original_import() {
+    let app = App::new("type-choices");
+    let root = app.write(
+        "app.contract",
+        "use Wrapper from \"./lib/model.contract\"\nshape Zulu\n  value: number\ncomponent App\n  view\n    text \"é\"\n",
+    );
+    app.write("lib/contact.contract", "shape Contact\n  name: string\n");
+    let source =
+        "use Contact from \"./contact.contract\"\nshape Wrapper\n  value: list<option<Contcat>>\n";
+    let model = app
+        .write("lib/model.contract", source)
+        .canonicalize()
+        .unwrap();
+    let expected = contract::compile_path(&root).unwrap_err();
+    assert_eq!(expected.id, "type-unknown");
+    assert_eq!(expected.message, "unknown type `Contcat`; known named types: `number`, `string`, `bool`, `unit`, `action`, `Contact`, `Wrapper`, `Zulu`");
+    let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+    same_error(&errors[0], &expected);
+    assert_eq!(errors[0]["file"], model.to_str().unwrap());
+    assert_eq!(errors[0]["line"], 3);
+    assert_eq!(errors[0]["col"], 22);
+    assert_eq!(errors[0]["end_col"], 29);
+    let human = app.run(&[root.to_str().unwrap()]);
+    assert_eq!(human.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&human.stderr).contains(&expected.message));
+    app.write("lib/model.contract", &source.replace("Contcat", "Contact"));
+    assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+}
+
+#[test]
+fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
+    let app = App::new("type-choice-namespaces");
+    let body = "component App\n  props\n    value: strng\n  view\n    text \"hello\"\n";
+    let primitive_names = "`number`, `string`, `bool`, `unit`, `action`";
+    for prefix in ["", "shape string\n", "shape Later\n  value: number\n"] {
+        let root = app.write("app.contract", &format!("{prefix}{body}"));
+        let error = contract::compile_path(&root).unwrap_err();
+        let extra = if prefix.contains("Later") {
+            ", `Later`"
+        } else {
+            ""
+        };
+        assert_eq!(error.id, "type-unknown");
+        assert_eq!(
+            error.message,
+            format!("unknown type `strng`; known named types: {primitive_names}{extra}")
+        );
+    }
+    let root = app.write("app.contract", &format!("routes nav\n  home \"/\"\n{body}"));
+    let error = contract::compile_path(&root).unwrap_err();
+    assert_eq!(error.id, "type-unknown");
+    assert_eq!(error.message, format!("unknown type `strng`; known named types: {primitive_names}, `Entry`, `Params`, `Router`, `Tab`"));
+    // Field resolution has already seen later declarations, even when it fails
+    // while resolving the first shape's fields.
+    let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
+    let error = contract::compile_path(&root).unwrap_err();
+    assert_eq!(error.id, "type-unknown");
+    assert!(error.message.ends_with("`First`, `Later`"));
+}
+
+#[test]
 fn missing_component_props_report_the_whole_call_interface() {
     let app = App::new("missing-props");
     let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Light\"\n      Row()\n";

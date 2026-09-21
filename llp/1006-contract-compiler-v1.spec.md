@@ -273,6 +273,15 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
+Unknown written types retain `type-unknown` and their original token span. The
+message lists known named types: primitives and bare `action`, then declared
+shapes in sorted order without duplicate spellings. Forward/imported shapes are
+included; router shapes appear only when declared by `routes`. These are names,
+not a promise that every use is legal (shape cycles and other checks still apply).
+Valid resolution does no choice-list work. Four scripted CLI repairs use the
+reported choices and source ranges; all non-message diagnostic fields and repaired
+plans remain identical, as do the 18 app/fixture plans.
+
 Unknown component uses list the merged component declarations in source order,
 including imported declarations. They retain the refusing pass's existing id
 and original use span; the list describes declarations, not a promise that every

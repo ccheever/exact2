@@ -185,7 +185,7 @@ impl Shapes {
                         // unknown types, never action typos accepted silently.
                         Ty::Action(Vec::new())
                     } else {
-                        return err("type-unknown", format!("unknown type `{other}`"), *span);
+                        return Err(self.unknown_type(other, *span));
                     }
                 }
             },
