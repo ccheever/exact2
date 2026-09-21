@@ -354,6 +354,21 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     expect(deleted('', 'maya').people.find((p:any)=>p.id==='').selection).toBe('maya');
     expect(deleted('', '|maya|maya||unknown').people.find((p:any)=>p.id==='maya').selection).toBe('unknown');
 
+    // Chip removal keeps normalized input order and removes every matching ID,
+    // including an imported empty contact ID selected by an empty segment.
+    const chips=recipients('', 'maya|unknown||alex|maya|weekend|');
+    expect(chips.selected.map((p:any)=>[p.id,p.without])).toEqual([
+      ['maya','|alex'],['','maya|alex'],['alex','maya|'],
+    ]);
+    expect(chips.withoutLast).toBe('maya|');
+    expect(chips.last).toBe('alex');
+    const pendingChips=recipients('', 'alex|maya|alex', 'fresh@example.test');
+    expect(pendingChips.selected.map((p:any)=>[p.id,p.without])).toEqual([
+      ['alex','maya'],['maya','alex'],
+    ]);
+    expect(pendingChips.resolved).toBe('alex|maya|address:fresh%40example.test');
+    expect(pendingChips.withoutLast).toBe('alex');
+
     // Existing groups use the first matching joined member list. Imported
     // separators and an empty group ID must retain that lookup behavior.
     const grouped=new Map<string,any>(initial);

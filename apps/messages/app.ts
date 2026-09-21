@@ -402,7 +402,7 @@ const sources: Sources = {
     }),targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+recoverable.get(p.id)!.rows.length,0)};
   },
   recipients: ([ids,query,body,_revision,cursor])=>{
-    const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim(),folded=text.toLowerCase();
+    const selected=selectedPeople(ids),selectionIds=selected.map(p=>p.id),selectedIds=new Set(selectionIds),text=query.trim(),folded=text.toLowerCase();
     const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===folded) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
     const matches=folded
@@ -410,9 +410,9 @@ const sources: Sources = {
       :people.filter(p=>p.address && !selectedIds.has(p.id));
     if(pending && !selectedIds.has(pending.id) && !matches.some(p=>p.id===pending.id)) matches.unshift(pending);
     const page=contactWindow(matches,cursor);
-    return {...page,selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
+    return {...page,selected:selected.map(p=>({id:p.id,name:p.name,without:selectionIds.filter(id=>id!==p.id).join('|')})),
       people:page.people.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
-      last:selected[selected.length-1]?.id || '',withoutLast:selected.slice(0,-1).map(p=>p.id).join('|'),
+      last:selected[selected.length-1]?.id || '',withoutLast:selectionIds.slice(0,-1).join('|'),
       target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending) && !!body.trim()};
   },
   conversationDraft: ([id,_revision])=>({thread:id,...(drafts.get(id)||{draft:'',reply:''})}),
