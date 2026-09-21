@@ -450,9 +450,6 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
     const index=indexes.get(key);
     for(const messageId of ids){const row=index?.byId.get(messageId);if(row)putMessage(records,key,row,null);}
   };
-  const recovery=(records:Records)=>{
-    for(const [key,rows] of recoverable)for(const row of rows)putMessage(records,key,row.message,row.expires);
-  };
   let capture:()=>Records,removes=false;
   switch(source){
     case 'markRead':case 'setConversationUnread':case 'muteConversation':case 'blockConversation':case 'saveDraft':
@@ -496,24 +493,35 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
         return rows;
       };break;
     }
-    case 'recentlyDeleted':case 'purgeConversations':
-      removes=true;capture=()=>{const rows:Records=new Map();recovery(rows);return rows;};break;
-    case 'deleteConversation':
-      removes=true;capture=()=>{
-        const rows:Records=new Map();person(rows,id);
-        for(const row of threads.get(id)||[])putMessage(rows,id,row,null);
-        recovery(rows);return rows;
-      };break;
-    case 'deleteMessages': {
-      const selected=String(args[1]).split('|');
-      removes=true;capture=()=>{const rows:Records=new Map();person(rows,id);live(rows,id,selected);recovery(rows);return rows;};break;
-    }
-    case 'recoverConversations': {
-      const selected=[...new Set(id.split('|'))].map(key=>({key,ids:(recoverable.get(key)||[]).map(row=>row.message.id)}));
+    case 'recentlyDeleted':case 'purgeConversations':case 'deleteConversation':case 'deleteMessages':case 'recoverConversations': {
+      const selected=new Map<string,Set<string>>(),persons=new Set<string>();
+      const include=(key:string,messageId:string)=>{
+        let ids=selected.get(key);if(!ids){ids=new Set();selected.set(key,ids);}ids.add(messageId);
+      };
+      const now=Number(args[source==='recentlyDeleted'||source==='deleteMessages'?2:1]);
+      // Expiry can remove rows outside the selected conversation. Capture only
+      // those candidates, retaining the handler's strict > comparison.
+      for(const [key,rows] of recoverable)for(const row of rows)if(!(row.expires>now))include(key,row.message.id);
+      if(source==='deleteConversation'){
+        persons.add(id);for(const row of threads.get(id)||[])include(id,row.id);
+      }else if(source==='deleteMessages'){
+        persons.add(id);for(const key of String(args[1]).split('|'))include(id,key);
+      }else if(source==='recoverConversations'||source==='purgeConversations'){
+        for(const key of new Set(id.split('|'))){
+          if(source==='recoverConversations')persons.add(key);
+          for(const row of recoverable.get(key)||[])include(key,row.message.id);
+        }
+      }
       removes=true;capture=()=>{
         const rows:Records=new Map();
-        for(const {key,ids} of selected){person(rows,key);live(rows,key,ids);}
-        recovery(rows);return rows;
+        for(const key of persons)person(rows,key);
+        for(const [key,ids] of selected){
+          live(rows,key,ids);
+          // The same key moves between live and archived storage on delete or
+          // recover. As in snapshot(), archived rows take precedence.
+          for(const row of recoverable.get(key)||[])if(ids.has(row.message.id))putMessage(rows,key,row.message,row.expires);
+        }
+        return rows;
       };break;
     }
     default:throw new Error(`Messages source has no durable footprint: ${source}`);

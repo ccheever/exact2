@@ -1188,3 +1188,84 @@ fn oversized_position_rebase_refuses_whole_and_allows_a_later_edit() {
     );
     assert_eq!(draft["draft"], "After refused rebase");
 }
+
+#[test]
+fn recovery_edits_skip_unrelated_archive_and_oversized_expiry_refuses_whole() {
+    let root = record_fixture("recovery-footprint", |queued| {
+        let template = queued
+            .iter()
+            .flat_map(|entry| entry["args"]["payloads"].as_array().unwrap())
+            .find(|row| row["kind"] == "message" && row["conversation"] == "sam")
+            .unwrap();
+        (0..1000)
+            .map(|i| {
+                let mut row = template.clone();
+                let id = format!("archived-{i}");
+                row["message"]["id"] = id.clone().into();
+                row["message"]["order"] = (i + 100).into();
+                row["message"]["replyRoot"] = id.clone().into();
+                row["expires"] = 2592000000u64.into();
+                (format!("message:sam:{id}"), row)
+            })
+            .collect()
+    });
+    let mut model = open(&root);
+    let archived = |model: &mut Model| {
+        model.call(
+            "recentlyDeleted",
+            vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+        )
+    };
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    model.delete("maya", "m1");
+    assert_eq!(archived(&mut model)["count"], 1001.);
+    model.recover("maya");
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    model.delete("maya", "m2");
+    model.call(
+        "purgeConversations",
+        vec![Value::str("maya"), Value::Number(0.)],
+    );
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    let error = model
+        .try_call(
+            "recentlyDeleted",
+            vec![
+                Value::str(""),
+                Value::Number(0.),
+                Value::Number(2592000000.),
+            ],
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("512"));
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    let error = model
+        .try_call(
+            "purgeConversations",
+            vec![Value::str("sam"), Value::Number(0.)],
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("512"));
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    model.call(
+        "saveDraft",
+        vec![
+            Value::str("maya"),
+            Value::str("After refused expiry"),
+            Value::str(""),
+        ],
+    );
+    drop(model);
+    let mut model = open(&root);
+    assert_eq!(archived(&mut model)["count"], 1000.);
+    let chat = model.chat("maya", "", "", "");
+    assert!(rows(&chat).iter().any(|row| text(row, "id") == "m1"));
+    assert!(!rows(&chat).iter().any(|row| text(row, "id") == "m2"));
+    assert_eq!(
+        model.call(
+            "conversationDraft",
+            vec![Value::str("maya"), Value::Number(0.)]
+        )["draft"],
+        "After refused expiry"
+    );
+}

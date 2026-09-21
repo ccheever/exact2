@@ -37,8 +37,13 @@ include only their affected people. Imported numeric positions are retained; if 
 extreme finite value prevents insertion, positions rebase in the same atomic edit,
 still subject to the 512-record cap.
 
-Some costs remain: people lookup scales with contacts, and deletion/recovery scans
-recoverable rows for expiry. Receipt transitions use a derived set of outgoing messages still
+Recovery operations now capture only selected messages and expiry candidates,
+including expired rows in other conversations. They no longer serialize/compare
+unrelated archived payloads. Failed admission restores both expiry and the selected
+change; the 512-record limit still refuses oversized expiry or purge atomically.
+
+Some costs remain: people lookup scales with contacts, and deletion/recovery still
+scan recoverable row metadata for expiry. Receipt transitions use a derived set of outgoing messages still
 awaiting Read; insertion, recovery and restore rebuild it, while marking a receipt
 clears it. The persistence footprint captures those rows before the handler runs. Thread removal still rebuilds
 its indexes. Startup, changed sync and exceptional rollback still restore the whole

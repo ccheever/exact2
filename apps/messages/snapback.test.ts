@@ -271,6 +271,32 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       await act('advanceReplies',[now,'maya',now*1000]);
       if(now===103)expect(app.fixtureEditKeys()).not.toContain('message:maya:m9');
     }
+    // Unrelated archived rows must stay out of a local edit, but cross-thread
+    // expiry must still be committed, retried and represented as deletion.
+    const archivedIds:string[]=[];
+    for(const [thread,now] of [['sam',0],['jules',86400000]] as const){
+      const body=`Recovery footprint ${thread}`;
+      const sent=await act('sendMessage',[thread,body,'',200,5000]);
+      const id=sent.live.find(([,row]:any)=>row.kind==='message' && row.conversation===thread && row.message.body===body)[1].message.id;
+      archivedIds.push(id);await act('deleteMessages',[thread,id,now]);
+    }
+    await act('recentlyDeleted',['',0,0]);expect(app.fixtureEditKeys()).toEqual([]);
+    await act('deleteMessages',['maya','m1',0]);
+    expect(app.fixtureEditKeys().sort()).toEqual(['message:maya:m1','person:maya']);
+    await act('recoverConversations',['maya',0]);
+    expect(app.fixtureEditKeys().sort()).toEqual(['message:maya:m1','person:maya']);
+    await act('purgeConversations',['',0]);expect(app.fixtureEditKeys()).toEqual([]);
+    // An empty delete does not run expiry in the handler, even at a later clock.
+    const noDelete=canonical((await inspect()).live);
+    await act('deleteMessages',['maya','missing-message',31*86400000]);
+    expect(canonical((await inspect()).live)).toEqual(noDelete);
+    failCommit=true;
+    await expect(call('recentlyDeleted',['',0,30.5*86400000])).rejects.toThrow('footprint commit refused');
+    expect(canonical((await inspect()).live)).toEqual(noDelete);
+    await act('recentlyDeleted',['',0,30.5*86400000]);
+    expect(app.fixtureEditKeys()).toEqual(['message:sam:'+encodeURIComponent(archivedIds[0])]);
+    await act('recoverConversations',['jules',30.5*86400000]);
+    expect(app.fixtureEditKeys().sort()).toEqual(['message:jules:'+encodeURIComponent(archivedIds[1]),'person:jules']);
     await act('deleteMessages',['maya','m9|m10',0]);
     await act('recentlyDeleted',['',0,0]);
     await act('recoverConversations',['maya',0]);
