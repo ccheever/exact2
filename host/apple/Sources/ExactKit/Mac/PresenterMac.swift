@@ -319,12 +319,14 @@ final class Presenter {
     private var inScrollCallback = false
     private var textPending = false
     private var textTurn = false
+    private var listBatchPending = false
+    private var listFinalizationCost: TimeInterval = 0.0005
     private var refreshInterval: TimeInterval = 1.0 / 60
     static func listSliceBudget(_ interval: TimeInterval) -> TimeInterval {
         min(0.004, max(0.001, interval * 0.24))
     }
     var sliceBudget: TimeInterval { Self.listSliceBudget(refreshInterval) }
-    /// Charge the whole report (decode, layout, apply and finalization) to the
+    /// Charge the report (decode, layout and apply) to the
     /// rows it created. Cheap rows share those fixed costs in the next report.
     /// Grow at most twofold and retain recent expensive samples conservatively.
     struct ListFillCost {
@@ -405,7 +407,15 @@ final class Presenter {
 
     /// After a batch: paint what is visible now, admit the rest over frames.
     private func batchApplied() {
+        listBatchPending = true
+        guard listSyncDepth == 0 else { return }
         syncLists(limit: ExactEnv.agentMode ? 0 : 1)
+    }
+
+    /// All reports in a fill share one visibility/index pass. No intermediate
+    /// hierarchy is painted, and the next scroll observes the final cover.
+    private func finishListBatch() {
+        listBatchPending = false
         coverLists()
         // Mounting and layout already spent this frame's main-thread time.
         // Keep visible pixels urgent; prepare offscreen text in a later slice.
@@ -603,6 +613,8 @@ final class Presenter {
         listCovers.removeAll()
         listTravel.removeAll()
         listFillCosts.removeAll()
+        listBatchPending = false
+        listFinalizationCost = 0.0005
         listSyncPending = false
         textPending = false
         listGeometry.removeAll()
@@ -679,7 +691,17 @@ final class Presenter {
     func syncLists(limit: UInt32 = 0, deadline: TimeInterval? = nil) {
         guard !applying, listSyncDepth == 0 else { return }
         listSyncDepth += 1
-        defer { listSyncDepth -= 1 }
+        defer {
+            listSyncDepth -= 1
+            if listBatchPending {
+                let started = CACurrentMediaTime()
+                finishListBatch()
+                if deadline != nil {
+                    let elapsed = CACurrentMediaTime() - started
+                    listFinalizationCost = max(elapsed, listFinalizationCost * 0.75 + elapsed * 0.25)
+                }
+            }
+        }
         var admittedReport = false
         listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
         listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
@@ -704,9 +726,9 @@ final class Presenter {
             for attempt in 0..<8 {
                 let started = CACurrentMediaTime()
                 if let deadline {
-                    let remaining = deadline - started
+                    let remaining = deadline - started - listFinalizationCost
                     let rows = (listFillCosts[list.id] ?? ListFillCost()).rows(within: remaining)
-                    if remaining <= 0 || (rows == 0 && admittedReport) {
+                    if started >= deadline || (rows == 0 && admittedReport) {
                         listPending.insert(list.id)
                         break
                     }
@@ -722,6 +744,10 @@ final class Presenter {
                 let stamp = [top, height, width, origin, Double(focus), Double(interaction), listVelocity(list.id)]
                     + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
                 if listGeometry[list.id] == stamp && !listPending.contains(list.id) { break }
+                if let deadline, CACurrentMediaTime() >= deadline {
+                    listPending.insert(list.id)
+                    break
+                }
                 listGeometry[list.id] = stamp
                 let previous = Set(rows.map(\.id))
                 admittedReport = true
@@ -860,6 +886,7 @@ final class Presenter {
             }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
+        var reparented = Set<UInt32>()
         let structureChanged = batch.ops.contains { ["children", "roots", "destroy", "create", "style"].contains($0["op"] as? String ?? "") }
         if structureChanged { selection.structureChanged() }
         for op in batch.ops {
@@ -910,9 +937,13 @@ final class Presenter {
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
                 let container = parent.container
                 let wanted = Set(want.map { ObjectIdentifier($0) })
-                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) { child.removeFromSuperview() }
+                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) {
+                    if let node = child as? NodeView { reparented.insert(node.id) }
+                    child.removeFromSuperview()
+                }
                 for (i, child) in want.enumerated() {
                     if child.superview !== container {
+                        reparented.insert(child.id)
                         child.prepareToMount()
                         // Appending then moving the first child above nil puts
                         // it last and needlessly remounts every retained sibling.
@@ -988,7 +1019,7 @@ final class Presenter {
             default: break
             }
         }
-        navigation.sync(batch)
+        navigation.sync(batch, reparented: reparented)
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser

@@ -9,16 +9,19 @@ final class NavigationHost {
     init(presenter: Presenter) { self.presenter = presenter }
     func reset() { refused.removeAll(); gates.removeAll() }
 
-    func sync(_ batch: Batch) {
+    func sync(_ batch: Batch, reparented: Set<UInt32> = []) {
         var touched = Set<UInt32>()
-        var subtrees = Set<UInt32>()
+        var subtrees = reparented
         for op in batch.ops {
             if let raw = op["id"] as? Int {
                 let id = UInt32(raw)
                 if op["op"] as? String == "destroy" { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
                 else { touched.insert(id) }
             }
-            if ["children", "roots"].contains(op["op"] as? String ?? "") {
+            // A children op names retained siblings too. Only changed ancestry
+            // can change their inherited gates; a list append must not revisit
+            // every paragraph and cell already mounted in the window.
+            if op["op"] as? String == "roots" {
                 subtrees.formUnion((op["ids"] as? [Int] ?? []).map(UInt32.init))
             }
         }

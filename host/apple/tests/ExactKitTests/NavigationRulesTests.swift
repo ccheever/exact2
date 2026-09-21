@@ -11,6 +11,45 @@ import XCTest
 @testable import ExactKit
 
 final class NavigationRulesTests: XCTestCase {
+    func testListSiblingUpdatesAndReparentingPreserveInheritedAvailability() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        defer { p.reset() }
+        func apply(_ ops: [[String: Any]]) {
+            p.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        }
+        apply([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view", "props": ["inert": "true"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "create", "id": 4, "kind": "input"],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [3]],
+            ["op": "roots", "ids": [1, 2]]
+        ])
+        let input = try XCTUnwrap(p.views[4])
+        XCTAssertFalse(input.isAccessibilityHidden())
+        apply([
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [3, 5]]
+        ])
+        XCTAssertFalse(input.isAccessibilityHidden(), "retaining a sibling preserves its inherited gate")
+        apply([
+            ["op": "children", "id": 1, "ids": [5]],
+            ["op": "children", "id": 2, "ids": [3]]
+        ])
+        XCTAssertTrue(input.isAccessibilityHidden(), "moving a retained subtree under inert changes descendants")
+        apply([["op": "props", "id": 2, "clear": ["inert"]]])
+        XCTAssertFalse(input.isAccessibilityHidden(), "an ancestor gate change still visits unchanged descendants")
+        apply([["op": "props", "id": 2, "set": ["inert": "true"]]])
+        XCTAssertTrue(input.isAccessibilityHidden())
+        apply([
+            ["op": "children", "id": 2, "ids": []],
+            ["op": "children", "id": 1, "ids": [3, 5]]
+        ])
+        XCTAssertFalse(input.isAccessibilityHidden(), "moving out of inert restores descendants")
+    }
+
     func testNativeAvailabilityFollowsCurrentStateAndAncestorChanges() {
         _ = NSApplication.shared
         let p = Presenter()
