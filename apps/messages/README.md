@@ -23,8 +23,11 @@ Per-thread indexes bound transcript reads to a binary search, the window and
 its two neighbors. Selection uses only selected IDs (sorted by order in O(S log S));
 the reply sheet still returns all R rows of its indexed root, including its own
 receipt. Thus an open reply chain can still cost O(N) when R=N. Durable writes
-remain O(total records): `snapshot()` clones the model, `persist` diffs it, and
-startup/sync `restore` loads it all. The 512-record edit cap still limits bulk
+remain O(total records): `snapshot()` enumerates the model, `persist` compares every
+key, and startup/changed-sync `restore` loads it all. Only changed payloads are
+JSON-detached, before the first storage await, so later model edits cannot mutate
+the pending save or its committed rollback image. Unchanged payloads retain their
+already-owned values. The 512-record edit cap still limits bulk
 delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
 
 The 300 ms reply timer skips snapshot/diff work when no receipt or generated reply

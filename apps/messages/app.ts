@@ -405,8 +405,9 @@ function snapshot():Records {
   const put=(conversation:string,message:StoredMessage,expires:number|null)=>records.set(`message:${encodeURIComponent(conversation)}:${encodeURIComponent(message.id)}`,{kind:'message',conversation,message,expires});
   for(const [id,rows] of threads)for(const message of rows)put(id,message,null);
   for(const [id,rows] of recoverable)for(const row of rows)put(id,row.message,row.expires);
-  // Detach the persisted image: source actions mutate the live maps in place.
-  return new Map([...records].map(([key,value])=>[key,JSON.parse(JSON.stringify(value))]));
+  // persist detaches changed values before awaiting storage; unchanged rows
+  // already have an owned copy in the replica.
+  return records;
 }
 function restore(records:Records):void {
   type PersonRecord={kind:'person';person:typeof people[number];position:number;conversation:boolean;muted:boolean;blocked:boolean;deleted:boolean;draft:{draft:string;reply:string}|null;group:string[]|null;contact:typeof localContacts extends Map<string,infer C>?C:null};

@@ -113,11 +113,14 @@ export class MessagesReplica {
     const changes:[string,unknown][]=[];
     // Validate the entire edit before admitting one atomic mutation.
     for(const key of new Set([...(seed?[]:this.held.keys()),...records.keys()])) {
-      const payload=records.has(key)?records.get(key):null,text=JSON.stringify(payload);
+      const payload=records.has(key)?records.get(key):null;
       if(canonical(this.held.get(key)??null)===canonical(payload))continue;
+      const text=JSON.stringify(payload);
       if(text===undefined || jsonBytes(text)>payloadLimit)throw new Error(`A Messages record exceeds ${payloadLimit} UTF-8 bytes.`);
       if([...key].length>442)throw new Error('A Messages record key is too long.');
-      changes.push([key,payload]);
+      // Capture the durable value before any await: the app mutates its model
+      // in place, and held must remain an independent rollback image.
+      changes.push([key,JSON.parse(text)]);
     }
     if(!changes.length)return;
     if(changes.length>512)throw new Error('A Messages edit can change at most 512 records.');

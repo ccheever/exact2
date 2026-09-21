@@ -151,6 +151,32 @@ test('0.2.30 device retains offline edits, acquires receipts, reopens, and rolls
     expect(client.initial().has('draft')).toBe(false);
     expect(result<any>(await core.call({op:'sync_state'})).watermark).toBe(oldWatermark);
     recordQueries=0;await sync();expect(recordQueries).toBe(0);
+    // Capture changed values before the first storage await, including nested
+    // objects and arrays. Caller mutations must not alter the admitted value or
+    // the rollback image, either while persistence is pending or after it ends.
+    const owned={nested:{text:'Captured 🌲'},list:[1,2],z:null};
+    const image=new Map(client.initial());image.set('owned',owned);
+    const saving=client.persist(image);
+    expect(client.initial().has('owned')).toBe(false);
+    owned.nested.text='Changed during await';owned.list.push(3);image.delete('owned');
+    await saving;
+    const captured={nested:{text:'Captured 🌲'},list:[1,2],z:null};
+    expect(client.initial().get('owned')).toEqual(captured);
+    owned.nested.text='Changed after await';owned.list.push(4);
+    expect(client.initial().get('owned')).toEqual(captured);
+    await sync();({client,core}=await open());
+    expect(client.initial().get('owned')).toEqual(captured);
+    const reordered=new Map(client.initial());
+    reordered.set('owned',{z:null,list:[1,2],nested:{text:'Captured 🌲'}});
+    writes=0;await client.persist(reordered);expect(writes).toBe(0);
+    const changed=new Map(client.initial());changed.set('owned',owned);
+    failCommit=true;await expect(client.persist(changed)).rejects.toThrow('disk fixture');
+    expect(client.initial().get('owned')).toEqual(captured);
+    await client.persist(changed);
+    owned.nested.text='After second save';
+    expect(client.initial().get('owned')).toEqual({nested:{text:'Changed after await'},list:[1,2,3,4],z:null});
+    await sync();({client,core}=await open());
+    expect(client.initial().get('owned')).toEqual({nested:{text:'Changed after await'},list:[1,2,3,4],z:null});
   }finally{
     globalThis.fetch=originalFetch;server.kill();await server.exited;sql.close();await rm(dir,{recursive:true,force:true});
   }
