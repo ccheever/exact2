@@ -139,7 +139,9 @@ import CoreText
         for background: [CGFloat] in [[1,1,1,1], [0,0,0,0]] {
             for scale in [1, 2] {
                 for scroll: CGFloat in [0, 0.375, 27.25, 103.875] {
-                    let width = 400 * scale, height = 100 * scale
+                    let large = background[3] == 0 && scale == 2
+                    let size = CGSize(width: large ? 1200 : 400, height: large ? 500 : 100)
+                    let width = Int(size.width) * scale, height = Int(size.height) * scale
                     let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
                         bytesPerRow: width * 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
                     ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: background)!)
@@ -150,8 +152,14 @@ import CoreText
                     let expected = Data(bytes: ctx.data!, count: width * height * 4)
                     let request = RegionRasterRequest(serial: 1, publication: 1, generation: 1,
                         rows: [RegionPaintRow(artifact: 7, box: CGRect(x: 7.25, y: 0.125, width: 320, height: ordinary.height))],
-                        scroll: CGPoint(x: 0, y: scroll), size: CGSize(width: 400, height: 100), scale: scale,
-                        profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue, background: background, selectionColor: [0.2,0.4,0.8,0.45])
+                        scroll: CGPoint(x: 0, y: scroll), size: size, scale: scale,
+                        profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue, background: background, selectionColor: [0.2,0.4,0.8,0.45],
+                        pixelLimit: large ? RegionRasterRequest.maximumPixelLimit : 8 * 1024 * 1024)
+                    if large {
+                        var surface = request; surface.pixelLimit = 8 * 1024 * 1024
+                        XCTAssertNil(surface.bytes, "the registered surface keeps its existing admission")
+                        XCTAssertNotNil(request.bytes, "a reader admits its whole visible viewport")
+                    }
                     let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
                     DispatchQueue(label: "region-pixel-test").async {
                         do {

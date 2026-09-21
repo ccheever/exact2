@@ -89,7 +89,7 @@ final class RegionReaderParagraph {
         reply?(nil, nil)
     }
     var diagnostics: [String: Any] {
-        ["id": view, "pending": accepted == nil || accepted?.metadata.offeredWidth != wantedWidth,
+        ["id": view, "pending": failed != nil || accepted == nil || accepted?.metadata.offeredWidth != wantedWidth,
          "width": accepted?.metadata.offeredWidth ?? 0, "wantedWidth": wantedWidth,
          "height": accepted?.metadata.height ?? 0, "lines": accepted?.metadata.lines.count ?? 0,
          "utf16": accepted?.metadata.source.utf16Count ?? 0, "sha256": accepted?.metadata.sourceSHA256 ?? "",
@@ -150,8 +150,14 @@ final class RegionReaderParagraph {
         // even when CSS normal lets a million-character word overflow.
         let top = (pointRequest == nil ? candidateTop : nil) ?? max(0, port.minY - content.minY)
         let width = ceil(min(p.offeredWidth + 32, port.width + 32) * CGFloat(scale)) / CGFloat(scale)
-        let capacity = floor(CGFloat(8 * 1024 * 1024) / (width * CGFloat(scale) * 4)) / CGFloat(scale)
-        let height = min(capacity, ceil(port.height * 2 * CGFloat(scale)) / CGFloat(scale))
+        let rowBytes = width * CGFloat(scale * scale) * 4
+        let overscan = floor(CGFloat(8 * 1024 * 1024) / rowBytes * CGFloat(scale)) / CGFloat(scale)
+        let capacity = floor(CGFloat(RegionRasterRequest.maximumPixelLimit) / rowBytes * CGFloat(scale)) / CGFloat(scale)
+        let visible = ceil(port.height * CGFloat(scale)) / CGFloat(scale)
+        guard capacity >= visible else { failed = "Text viewport exceeds region pixel budget"; return }
+        // Spend the larger admission on visible coverage only. Ordinary-sized
+        // windows retain the previous overscan allowance and allocation size.
+        let height = min(capacity, max(visible, min(overscan, visible * 2)))
         let before = min(port.height / 2, max(0, (height - port.height) / 2))
         let y = max(0, floor((top - before) * CGFloat(scale)) / CGFloat(scale))
         let box = CGRect(x: 0, y: 0, width: p.offeredWidth, height: p.height)
@@ -165,7 +171,7 @@ final class RegionReaderParagraph {
             // and opacity. Overflow ink must not repaint its ancestor's box.
             background: [0, 0, 0, 0],
             selectionColor: [selected.redComponent, selected.greenComponent, selected.blueComponent, selected.alphaComponent],
-            interaction: pointRequest)
+            interaction: pointRequest, pixelLimit: RegionRasterRequest.maximumPixelLimit)
         if let old = wantedRaster, old.sameOutput(as: next) { return }
         if pointRequest == nil, let raster, raster.request.publication == artifact.id,
            raster.request.rows == next.rows, raster.request.size.width == next.size.width,
@@ -264,7 +270,7 @@ final class RegionReaderParagraph {
         }
         update(node)
         let box = node.contentBox()
-        if let image {
+        if let image, failed == nil {
             let frame = imageFrame.offsetBy(dx: box.minX, dy: box.minY)
             context.saveGState()
             context.translateBy(x: frame.minX, y: frame.maxY)

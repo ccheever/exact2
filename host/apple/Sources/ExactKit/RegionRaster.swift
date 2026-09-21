@@ -23,6 +23,10 @@ struct RegionRasterRequest: Sendable {
     let background: [CGFloat]
     let selectionColor: [CGFloat]
     var interaction: RegionPointRequest? = nil
+    // The registered region surface keeps its 8 MiB contract. A reader can
+    // admit a larger visible viewport, never a document-sized bitmap.
+    var pixelLimit: Int = 8 * 1024 * 1024
+    static let maximumPixelLimit = 32 * 1024 * 1024
     // A continuing selection gesture may outlive replacement highlight pixels,
     // but never a source/geometry/palette change. New hits still require all pixels.
     func sameInkAndGeometry(as other: RegionRasterRequest) -> Bool {
@@ -44,7 +48,7 @@ struct RegionRasterRequest: Sendable {
         if let range, let i = rows.firstIndex(where: { $0.artifact == artifact }) { rows[i].selection = range }
         return RegionRasterRequest(serial: serial,publication: publication,generation: generation,rows: rows,
             scroll: scroll,size: size,scale: scale,profile: profile,format: format,
-            background: background,selectionColor: selectionColor,interaction: interaction)
+            background: background,selectionColor: selectionColor,interaction: interaction,pixelLimit: pixelLimit)
     }
     var width: Int { Int(size.width * CGFloat(scale)) }
     var height: Int { Int(size.height * CGFloat(scale)) }
@@ -58,10 +62,11 @@ struct RegionRasterRequest: Sendable {
               selectionColor.count == 4,
               selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
               scroll.x.isFinite, scroll.y.isFinite, rows.count <= 64,
+              pixelLimit > 0, pixelLimit <= Self.maximumPixelLimit,
               format == CGImageAlphaInfo.premultipliedLast.rawValue else { return nil }
         let (stride, a) = Int(w).multipliedReportingOverflow(by: 4)
         let (bytes, b) = stride.multipliedReportingOverflow(by: Int(h))
-        return a || b || bytes > 8 * 1024 * 1024 ? nil : bytes
+        return a || b || bytes > pixelLimit ? nil : bytes
     }
 }
 enum RegionRasterRefusal: Error { case capacity, invalid, missingArtifact, profile, context }
@@ -70,10 +75,10 @@ final class RegionPixelAccount: @unchecked Sendable {
     private let lock = NSLock()
     private var value = RegionPixelStats()
     var stats: RegionPixelStats { lock.lock(); defer { lock.unlock() }; return value }
-    func reserve(_ bytes: Int) -> RegionPixelCharge? {
+    func reserve(_ bytes: Int, limit: Int = 8 * 1024 * 1024) -> RegionPixelCharge? {
         lock.lock(); defer { lock.unlock() }
-        guard bytes > 0, bytes <= 8 * 1024 * 1024, value.owners < 2,
-              bytes <= 16 * 1024 * 1024 - value.bytes else { return nil }
+        guard bytes > 0, bytes <= limit, limit <= RegionRasterRequest.maximumPixelLimit, value.owners < 2,
+              bytes <= 2 * RegionRasterRequest.maximumPixelLimit - value.bytes else { return nil }
         value.bytes += bytes; value.owners += 1; value.peak = max(value.peak, value.bytes)
         return RegionPixelCharge(self, bytes)
     }
@@ -204,7 +209,7 @@ final class RegionPaintIndex {
         let request = interaction.map { intent.selecting($0.selection,artifact: $0.query.artifact) } ?? intent
         guard request.publication == publication, request.rows.count == rows.count,
               let count = request.bytes else { throw RegionRasterRefusal.invalid }
-        guard let charge = account.reserve(count) else { throw RegionRasterRefusal.capacity }
+        guard let charge = account.reserve(count, limit: request.pixelLimit) else { throw RegionRasterRefusal.capacity }
         guard let space = request.profile.makeSpace() else { throw RegionRasterRefusal.profile }
         let pixels = try RegionPixels(count: count, charge: charge, profile: request.profile) { pointer in
             guard let ctx = CGContext(data: pointer, width: request.width, height: request.height,
