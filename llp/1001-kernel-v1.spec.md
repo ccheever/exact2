@@ -311,7 +311,10 @@ ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
 
 - **Selector index.** `testId` is a kernel citizen: an exact-value multimap,
   maintained on set/clear/destroy/reset, returned in structural tree order
-  (`Kernel::find_by_test_id`).
+  (`Kernel::find_by_test_id`). `find_first_by_test_id` uses that same order:
+  unique names resolve directly from the index; repeated names stop at the first
+  structural match, with detached slots last. Targeted agent reads separately
+  verify attachment and recover depth from the current ancestors.
 - **The environment** (2026-08-30). A dimension row takes a fourth kind beside
   `auto`, points, and percent: an `env()` length — CSS's
   `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,

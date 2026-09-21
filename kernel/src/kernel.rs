@@ -765,6 +765,23 @@ impl Kernel {
         out
     }
 
+    /// First match in the same order as `find_by_test_id`, without collecting all matches.
+    pub fn find_first_by_test_id(&self, test_id: &str) -> Option<NodeKey> {
+        let indexed = self.selectors.lookup(test_id);
+        if indexed.len() <= 1 {
+            return indexed.first().map(|slot| self.arena.key(*slot));
+        }
+        let mut stack: Vec<u32> = self.arena.roots().iter().rev().copied().collect();
+        while let Some(slot) = stack.pop() {
+            if self.arena.props(slot).str(crate::generated::PropId::TestId) == Some(test_id) {
+                return Some(self.arena.key(slot));
+            }
+            stack.extend(self.arena.children(slot).iter().rev().copied());
+        }
+        // No attached match: the existing all-match query orders detached slots last.
+        indexed.iter().min().map(|slot| self.arena.key(*slot))
+    }
+
     /// Retained commit receipts, oldest first.
     pub fn receipts(&self) -> impl Iterator<Item = &CommitReceipt> {
         self.receipts.iter()

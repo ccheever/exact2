@@ -436,3 +436,115 @@ fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
         1
     );
 }
+
+#[test]
+fn targeted_tree_uses_current_attachment_and_root_order() {
+    use exact_kernel::{NodeType, Op, PropId};
+    let mut runner = Runner::boot(
+        contract::compile("component App\n  view\n    column testId=\"root\"\n      column testId=\"branch\"\n        text \"leaf\" testId=\"leaf\"\n").unwrap(),
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    ).unwrap();
+    let ask = |runner: &Runner<Stations>, target: serde_json::Value| -> serde_json::Value {
+        serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target}).to_string(),
+        ))
+        .unwrap()
+    };
+    let root = runner.roots()[0];
+    let branch = ask(&runner, "branch".into())["roots"][0].as_u64().unwrap() as u32;
+    let leaf = ask(&runner, "leaf".into())["roots"][0].as_u64().unwrap() as u32;
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            100,
+            &[
+                Op::CreateView {
+                    id: 9000,
+                    node_type: NodeType::Text,
+                },
+                Op::SetProp {
+                    id: 9000,
+                    prop: PropId::TestId,
+                    value: "leaf".into(),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([leaf])
+    );
+    let matches = |runner: &Runner<Stations>| {
+        assert_eq!(
+            runner.kernel().find_first_by_test_id("leaf"),
+            runner.kernel().find_by_test_id("leaf").first().copied()
+        );
+        runner
+            .kernel()
+            .find_by_test_id("leaf")
+            .into_iter()
+            .map(|key| runner.kernel().node_by_key(key).unwrap().id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(matches(&runner), vec![leaf, 9000]);
+    assert!(ask(&runner, 9000.into())["error"].is_string());
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            101,
+            &[Op::SetChildren {
+                id: root,
+                children: vec![],
+            }],
+        )
+        .unwrap();
+    // A live selector can refer to an unattached node or an unattached subtree.
+    assert_eq!(matches(&runner), vec![leaf, 9000]);
+    for target in [
+        serde_json::json!(leaf),
+        serde_json::json!(branch),
+        "leaf".into(),
+        "branch".into(),
+    ] {
+        assert!(ask(&runner, target)["error"].is_string());
+    }
+    assert_eq!(
+        ask(&runner, "root".into())["nodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            102,
+            &[Op::AttachRoot { id: 9000 }, Op::AttachRoot { id: branch }],
+        )
+        .unwrap();
+    // The later allocation was attached first: root order wins over slot order.
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([9000])
+    );
+    assert_eq!(matches(&runner), vec![9000, leaf]);
+    assert_eq!(ask(&runner, 9000.into())["nodes"][0]["depth"], 0);
+    let reattached = ask(&runner, leaf.into());
+    assert_eq!(reattached["nodes"][0]["depth"], 1);
+    assert_eq!(reattached["nodes"][0]["parent"], branch);
+    runner
+        .kernel_mut()
+        .apply(0, 103, &[Op::DestroyView { id: 9000 }])
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "leaf".into())["roots"],
+        serde_json::json!([leaf])
+    );
+}

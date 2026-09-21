@@ -92,28 +92,37 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         return error("tree target must be a view id or testId");
     }
     let kernel = runner.kernel();
-    let rows = kernel.rows(None).unwrap_or_default();
-    let found = rows.iter().position(|row| {
-        if let Some(id) = id {
-            row.id == id as u32
-        } else {
-            kernel
-                .node(row.id)
-                .is_some_and(|node| node.props.str(exact_kernel::PropId::TestId) == name.as_deref())
+    let locate = |id| {
+        let mut node = kernel.node(id)?;
+        let mut depth = 0u16;
+        while let Some(parent) = node.parent {
+            node = kernel.node(parent)?;
+            depth = depth.saturating_add(1);
         }
-    });
-    let Some(start) = found else {
+        // The selector index also contains detached nodes; tree reads do not.
+        kernel
+            .arena()
+            .is_root(node.key.index)
+            .then_some((id, depth))
+    };
+    let found = if let Some(id) = id {
+        locate(id as u32)
+    } else {
+        kernel
+            .find_first_by_test_id(name.as_deref().unwrap())
+            .and_then(|key| locate(kernel.node_by_key(key)?.id))
+    };
+    let Some((root, depth)) = found else {
         return error(&format!(
             "no view matches {}",
             name.unwrap_or_else(|| num(id.unwrap()))
         ));
     };
-    let root = &rows[start];
-    let mut subtree = kernel.rows(Some(root.id)).unwrap_or_default();
+    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
     for row in &mut subtree {
-        row.depth = row.depth.saturating_add(root.depth);
+        row.depth = row.depth.saturating_add(depth);
     }
-    tree_rows(runner, &subtree, &[root.id])
+    tree_rows(runner, &subtree, &[root])
 }
 
 /// Every live root and node, in structural preorder.
