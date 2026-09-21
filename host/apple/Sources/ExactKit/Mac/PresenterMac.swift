@@ -363,7 +363,8 @@ final class Presenter {
         }
         mutating func cancel() {
             queued = nil
-            lastPostSyncSlice = nil
+            // Emptying or settling the pump cancels its queued turn, but
+            // fresh work in this same frame still shares the slice allowance.
         }
     }
     static func listSliceBudget(_ interval: TimeInterval) -> TimeInterval {

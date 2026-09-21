@@ -318,6 +318,7 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.002))
         XCTAssertTrue(schedule.takePostSync(token, at: 10.003))
         XCTAssertFalse(schedule.takePostSync(token, at: 10.003))
+        schedule.cancel() // The slice drained the pump and stopped its link.
         XCTAssertNil(schedule.queuePostSync(at: 10.011), "a second callback in this frame adds no slice")
         XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.014))
         XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.020), "idle filling resumes without another callback")
@@ -349,7 +350,8 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.003))
         XCTAssertTrue(schedule.takePostSync(current, at: 10.004))
         schedule.cancel()
-        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.005))
+        XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.005), "restarting the pump does not buy another slice in this frame")
+        XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.022))
     }
 
     func testBudgetPendingReportsSameGeometryWithoutRecursiveAdmission() {
