@@ -138,7 +138,8 @@ typedef struct ExactMeasureRequest {
 typedef struct ExactMetrics {
     float width;
     float height;
-    float baseline;        /* top to first alphabetic baseline; < 0 = unknown */
+    float baseline;        /* top to first alphabetic baseline; -1 = unknown;
+                              -2 = pending native metrics for this revision */
 } ExactMetrics;
 
 /* Region completion takes one retained native artifact on every return path. */

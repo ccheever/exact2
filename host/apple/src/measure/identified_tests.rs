@@ -272,11 +272,6 @@ fn namespace_and_reused_node_generation_cannot_alias() {
 fn malformed_raw_results_are_returned_sanitized_but_never_memoized() {
     let invalid = [
         CMetrics {
-            width: 73.0,
-            height: 17.0,
-            baseline: -2.0,
-        },
-        CMetrics {
             width: f32::NAN,
             height: 17.0,
             baseline: 12.0,
@@ -339,6 +334,67 @@ fn malformed_raw_results_are_returned_sanitized_but_never_memoized() {
         assert_eq!(m.measure_identified(&stamp(&k), &req), valid);
         assert_eq!(state.borrow().calls, 2);
     }
+}
+
+#[test]
+fn pending_owner_keeps_accepted_extent_when_reversing_to_an_old_width() {
+    let mut k = fixture("worker paragraph");
+    let runs = [run("worker paragraph")];
+    let state = RefCell::new(Foreign {
+        answers: [
+            (80.0, 60.0, -2.0),
+            (80.0, 90.0, 12.0),
+            (40.0, 90.0, -2.0),
+            (40.0, 180.0, 12.0),
+            (80.0, 180.0, -2.0),
+            (80.0, 90.0, 12.0),
+        ]
+        .into_iter()
+        .map(|(width, height, baseline)| CMetrics {
+            width,
+            height,
+            baseline,
+        })
+        .collect(),
+        ..Foreign::default()
+    });
+    let mut m = callback(&state);
+    for (width, height) in [
+        (80.0, 60.0),
+        (80.0, 90.0),
+        (40.0, 90.0),
+        (40.0, 180.0),
+        (80.0, 180.0),
+        (80.0, 90.0),
+    ] {
+        let req = request(&runs, AxisOffer::Definite(width), AxisOffer::MaxContent);
+        assert_eq!(m.measure_identified(&stamp(&k), &req).height, height);
+    }
+    assert_eq!(state.borrow().calls, 6);
+    assert_eq!(
+        m.memo.counts(),
+        (1, 1, 0),
+        "no historic asynchronous scalar facts"
+    );
+    k.apply(
+        0,
+        1,
+        &[Op::SetProp {
+            id: 1,
+            prop: PropId::Text,
+            value: "replacement".into(),
+        }],
+    )
+    .unwrap();
+    let runs = [run("replacement")];
+    let req = request(&runs, AxisOffer::Definite(80.0), AxisOffer::MaxContent);
+    m.measure_identified(&stamp(&k), &req);
+    m.measure_identified(&stamp(&k), &req);
+    assert_eq!(
+        state.borrow().calls,
+        7,
+        "a new synchronous revision still memoizes"
+    );
 }
 
 #[test]

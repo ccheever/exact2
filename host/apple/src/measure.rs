@@ -293,6 +293,9 @@ impl TextMeasurer for CallbackMeasurer {
             return metrics;
         }
         let raw = self.foreign_measure(request, Some(stamp));
+        if raw.baseline == -2.0 {
+            self.memo.defer_to_owner(stamp);
+        }
         let valid = raw.width.is_finite()
             && raw.width >= 0.0
             && raw.height.is_finite()

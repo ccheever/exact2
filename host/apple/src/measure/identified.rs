@@ -1,6 +1,7 @@
 //! Payload-free, per-measurer scalar memo. Catalog lifetime is this measurer's
 //! lifetime: each boot/candidate constructs a new one before installing fonts.
-//! Misses still execute the complete synchronous native measurement path.
+//! Misses consult the native owner. A pending revision keeps consulting that
+//! owner so scalar history cannot bypass its accepted/pending geometry.
 use exact_kernel::{AxisOffer, NodeKey, ParagraphStamp, TextMetrics};
 use std::collections::{HashMap, VecDeque};
 
@@ -30,6 +31,7 @@ struct Owner {
     stamp: ParagraphStamp,
     values: [Option<(Offers, TextMetrics)>; OFFERS],
     next: usize,
+    asynchronous: bool,
 }
 impl Owner {
     fn new(stamp: &ParagraphStamp) -> Self {
@@ -37,12 +39,14 @@ impl Owner {
             stamp: stamp.clone(),
             values: [None; OFFERS],
             next: 0,
+            asynchronous: false,
         }
     }
     fn refresh(&mut self, stamp: &ParagraphStamp) {
         if !self.stamp.same_metrics(stamp) {
             self.values = [None; OFFERS];
             self.next = 0;
+            self.asynchronous = false;
         }
         // Retain only the current proof, including after paint-only changes.
         self.stamp = stamp.clone();
@@ -65,6 +69,9 @@ impl Memo {
     ) -> Option<TextMetrics> {
         let owner = self.owners.get_mut(&stamp.owner())?;
         owner.refresh(stamp);
+        if owner.asynchronous {
+            return None;
+        }
         let key = Offers(width.into(), height.into());
         owner
             .values
@@ -79,6 +86,22 @@ impl Memo {
         height: AxisOffer,
         metrics: TextMetrics,
     ) {
+        let owner = self.owner(stamp);
+        if owner.asynchronous {
+            return;
+        }
+        owner.values[owner.next] = Some((Offers(width.into(), height.into()), metrics));
+        owner.next = (owner.next + 1) % OFFERS;
+    }
+    /// A native owner publishes accepted geometry and controls the pending
+    /// extent. Historical scalar widths must not bypass that current receipt.
+    pub(super) fn defer_to_owner(&mut self, stamp: &ParagraphStamp) {
+        let owner = self.owner(stamp);
+        owner.values = [None; OFFERS];
+        owner.next = 0;
+        owner.asynchronous = true;
+    }
+    fn owner(&mut self, stamp: &ParagraphStamp) -> &mut Owner {
         let key = stamp.owner();
         if !self.owners.contains_key(&key) {
             if self.owners.len() == OWNERS {
@@ -91,8 +114,7 @@ impl Memo {
         }
         let owner = self.owners.get_mut(&key).expect("inserted owner");
         owner.refresh(stamp);
-        owner.values[owner.next] = Some((Offers(width.into(), height.into()), metrics));
-        owner.next = (owner.next + 1) % OFFERS;
+        owner
     }
     #[cfg(test)]
     pub(super) fn counts(&self) -> (usize, usize, usize) {
