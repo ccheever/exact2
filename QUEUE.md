@@ -55,17 +55,17 @@ sits on that list carries the trade it would take.
   on the Air); investigate without weakening the limit. Interview's new Mac
   materials still need Reduce Transparency/Increase Contrast and older-OS pixels.
 
-- **Markdown scrolling, on the 120 Hz machine** (2026-09-19): scrolling now measures
-  ahead of Legend on an M4 Pro at 60 Hz with input synthesized in-process
-  (`apps/markdown/README.md`: inputs committed later than one 120 Hz frame, of
-  2,400 — 624 before, 6 against Legend's 84 in the same sitting, 2 since AppKit's
-  persistence was switched off). Owed, all needing HID and Instruments
-  permission: the same comparison at 120 Hz with real wheel and trackpad input
-  under the Hitches instrument, which at 60 Hz no longer separates the two (0, 2, 1
-  hitches against Legend's 1, 0, 0, three of the four being the scroll's first
-  frame in either app); responsive scrolling for a contained list, which cannot be
-  driven from inside the process and is what keeps Legend's scroll off its main
-  thread. Repeat first-content and memory with this build.
+- **Markdown scrolling with real input** (2026-09-19): the separate upstream
+  `4d91f9e` build measured ahead of Legend with in-process input on an M4 Pro
+  at 60 Hz and an M5 Max Retina panel at 120 Hz (`apps/markdown/README.md`:
+  inputs later than 8.33 ms, of 2,400 — about 2 against 84 at 60 Hz; 1, 1, 1
+  against 1, 6, 4 at 120 Hz). The 120 Hz runs had a load average of 30–67;
+  an Instruments trace under that load made app updates about four times as
+  long. The later integrated build still has no demonstrated Hitches advantage.
+  Owed: a quiet-machine comparison with real wheel and trackpad input, which
+  requires Accessibility permission for the event sender; responsive scrolling
+  for a contained list, which the in-process probe cannot drive; and a repeat
+  of first-content and memory measurements on the integrated build.
 - **A list paragraph is typeset twice** (2026-09-19): in black to be measured, then
   in its colours to be painted, because `TextShapeKey` carries the paint; only the
   line breaks are handed over. 0.7 ms at the median and 3 ms at worst, since
@@ -80,15 +80,20 @@ sits on that list carries the trade it would take.
   scroll callback and paints text when first seen. The runner and host halves are
   shared (`list_viewport_within`, one-call settle); the presenter half is not made.
 - **A jump lands on rows built synchronously** (2026-09-19): a scroller drag or a
-  250,000-point jump builds a scrollport of rows in one report, 30–55 ms. The rows
-  are never blank; the frame is late. Paint them first and fill the rest, or show
-  the estimate's geometry for a frame.
+  250,000-point jump takes one main-thread period of 31–44 ms. The rows are never
+  blank; the frame is late. The first report creates 68 views for six to eight
+  visible rows (13 ms in the runner and kernel, 8.6 ms in the presenter); a second
+  follows when measured heights move the landing (5 ms), then visible paragraphs
+  paint. Shorten the per-row work before spreading the fill across frames, which
+  would expose blank rows.
 - **Published dependency validation** (2026-09-19): the isolated Markdown
   candidate restores origin's `ureq` 3.4.0 lock entry for clean published Ibex
   `9cbf9e62`. Final gates must use that adjacent clean checkout and explicitly
   identified Hermes/compiler artifacts; earlier runs used a dirty sibling
   requiring 3.4.2. The unrelated sibling changes remain untouched and are not
-  authorized for publication by this Exact task.
+  authorized for publication by this Exact task. A different Ibex checkout on
+  the M5 requires 3.4.2, so the path dependency still makes `--locked` depend
+  on which sibling checkout resolved the lockfile last.
 - **The macOS smoke fails on a Mac that shows legacy scrollers** (2026-09-19): on an
   M4 Pro mini with a mouse, `smoke.mjs macos` over the Markdown app at untouched
   `6214c47` failed its scroll fixture in 22 of 24 runs (the scroll node stops at
