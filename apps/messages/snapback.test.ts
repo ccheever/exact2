@@ -449,6 +449,23 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     const replaced=await act('sendMessage',['maya','Later replacement','',2300,2300000]);
     expect((await act('advanceReplies',[2215,'maya',2215000])).revision).toBe(replaced.revision);
     expect((await act('advanceReplies',[2303,'maya',2303000])).revision).toBe(replaced.revision+1);
+    // One tick can read and reply to one thread, read another, and leave a
+    // future thread alone. Refusal restores the captured receipt rows and order.
+    await act('sendMessage',['maya','Mixed due reply','',3000,3000000]);
+    await act('sendMessage',['dad','Mixed due receipt','',3012,3012000]);
+    const beforeMixedDue=await act('sendMessage',['sam','Mixed future reply','',4000,4000000]);
+    failCommit=true;
+    await expect(call('advanceReplies',[3015,'maya',3015000])).rejects.toThrow('footprint commit refused');
+    const refusedMixedDue=await inspect();
+    expect(canonical(refusedMixedDue.live)).toEqual(canonical(beforeMixedDue.live));
+    expect(refusedMixedDue.pending).toEqual(beforeMixedDue.pending);
+    expect(refusedMixedDue.ticks).toBe(beforeMixedDue.ticks);
+    const mixedDue=await act('advanceReplies',[3015,'maya',3015000]);
+    for(const [body,delivery] of [['Mixed due reply','Read'],['Mixed due receipt','Read'],['Mixed future reply','Delivered']]){
+      expect(mixedDue.live.find(([,row]:any)=>row.kind==='message' && row.message.body===body)[1].message.delivery).toBe(delivery);
+    }
+    expect(mixedDue.live.length).toBe(beforeMixedDue.live.length+1);
+    expect(mixedDue.pending).toEqual(beforeMixedDue.pending.filter(([id]:[string,unknown])=>id!=='maya'));
     // Expiry deadlines survive earlier insertions, strict equality, refusal,
     // rewind, removal of the earliest archive, and reopening the durable model.
     const day=86400000;

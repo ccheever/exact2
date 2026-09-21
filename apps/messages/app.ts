@@ -510,10 +510,13 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       };break;
     case 'advanceReplies': {
       const now=Number(args[0]);
-      const due=[...pending].map(([key,activity])=>({key,receipt:ticks<activity.start && now>=activity.start,reply:now>=activity.end})).filter(row=>row.receipt||row.reply)
-        // Capture row references before the handler marks them and clears the
-        // derived index. Persistence reads their new values after the handler.
-        .map(row=>({...row,receipts:row.receipt?[...(indexes.get(row.key)?.awaitingRead||[])]:[]}));
+      const due:{key:string,reply:boolean,receipts:StoredMessage[]}[]=[];
+      pending.forEach((activity,key)=>{
+        const receipt=ticks<activity.start && now>=activity.start,reply=now>=activity.end;
+        // Capture only due row references before the handler marks them and
+        // clears the index. Persistence reads their values after the handler.
+        if(receipt||reply)due.push({key,reply,receipts:receipt?[...(indexes.get(key)?.awaitingRead||[])]:[]});
+      });
       capture=()=>{
         const rows:Records=new Map();
         for(const {key,receipts,reply} of due){
