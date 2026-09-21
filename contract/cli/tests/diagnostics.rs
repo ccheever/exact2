@@ -438,6 +438,76 @@ fn missing_component_props_report_the_whole_call_interface() {
 }
 
 #[test]
+fn unknown_component_props_report_all_names_and_declared_choices() {
+    let app = App::new("unknown-props");
+    let root = app.write("app.contract", "");
+    app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n  inject\n    theme: string\n  view\n    text `${theme} ${title} ${count}`\n");
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  view\n    provide theme = \"Light\"\n      Card(ARGS)\n";
+    for view in ["Row()", "text \"Unused import\""] {
+        app.write(
+            "app.contract",
+            &format!("use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    {view}\n"),
+        );
+        for (extra, message) in [
+            (
+                "titel=\"Typo\"",
+                "`Card` has no prop `titel`; available props: `title`, `count`",
+            ),
+            (
+                "colour=\"red\", titel=\"Typo\", theme=\"Wrong\"",
+                "`Card` has no props `colour`, `titel`, `theme`; available props: `title`, `count`",
+            ),
+            (
+                "titel=\"First\", titel=\"Second\"",
+                "`Card` has no prop `titel`; available props: `title`, `count`",
+            ),
+        ] {
+            let source = row.replace("ARGS", &format!("title=\"Item\", count=1, {extra}"));
+            let path = app
+                .write("lib/row.contract", &source)
+                .canonicalize()
+                .unwrap();
+            let expected = contract::compile_path(&root).unwrap_err();
+            assert_eq!(expected.id, "type-unknown-prop");
+            assert_eq!(expected.message, message);
+            let first = extra.split('=').next().unwrap();
+            let col = source.lines().nth(4).unwrap().find(first).unwrap() + 1;
+            let errors = diagnostics(
+                &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+                1,
+            );
+            assert_eq!(errors.len(), 1);
+            same_error(&errors[0], &expected);
+            assert_eq!(errors[0]["file"], path.to_str().unwrap());
+            assert_eq!(errors[0]["line"], 5);
+            assert_eq!(errors[0]["col"], col);
+            assert_eq!(errors[0]["end_col"], col + first.len());
+            assert!(!app.0.join("refused.plan").exists());
+            let human = app.run(&[root.to_str().unwrap()]);
+            assert_eq!(human.status.code(), Some(1));
+            assert!(String::from_utf8_lossy(&human.stderr).contains(message));
+        }
+        app.write(
+            "lib/row.contract",
+            &row.replace("ARGS", "title=\"Item\", count=1"),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+    app.write("app.contract", "component Empty\n  view\n    text \"No props\"\ncomponent App\n  view\n    Empty(extra=true)\n");
+    let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+    assert_eq!(errors[0]["id"], "type-unknown-prop");
+    assert_eq!(
+        errors[0]["message"],
+        "`Empty` has no prop `extra`; this component declares no props"
+    );
+    app.write(
+        "app.contract",
+        "component Empty\n  view\n    text \"No props\"\ncomponent App\n  view\n    Empty()\n",
+    );
+    assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+}
+
+#[test]
 fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
     let app = App::new("action-effects");
     let used = "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    column\n      Toggle()\n      Toggle()\n";

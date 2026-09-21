@@ -265,6 +265,13 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
+An unknown component prop retains `type-unknown-prop` at the first offending
+argument. Its message lists all distinct unknown props in call order and the
+declared props in declaration order, so one repair can remove every invalid
+argument. Injected values are not call props and are excluded from those choices;
+a component with no props says so. Missing-required-prop and prop-type checks
+keep their existing precedence. Valid calls do not build these diagnostic lists.
+
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared

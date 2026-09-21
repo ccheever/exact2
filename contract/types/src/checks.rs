@@ -1,8 +1,40 @@
 //! Type diagnostics and component checks that require recursive traversal.
 
 use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
-use contract_syntax::{Component, Expr, File, Node, Span, Stmt, TypeExpr};
-use std::collections::BTreeMap;
+use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Describe unknown props and declared choices after the first unknown is found.
+pub(super) fn unknown_props(component: &Component, args: &[Attr], span: Span) -> TypeError {
+    let mut seen = BTreeSet::new();
+    let unknown = args
+        .iter()
+        .filter(|arg| !component.props.iter().any(|prop| prop.name == arg.name))
+        .filter(|arg| seen.insert(arg.name.as_str()))
+        .map(|arg| format!("`{}`", arg.name))
+        .collect::<Vec<_>>();
+    let noun = if unknown.len() == 1 { "prop" } else { "props" };
+    let choices = if component.props.is_empty() {
+        "this component declares no props".to_owned()
+    } else {
+        let names = component
+            .props
+            .iter()
+            .map(|prop| format!("`{}`", prop.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("available props: {names}")
+    };
+    TypeError {
+        id: "type-unknown-prop",
+        message: format!(
+            "`{}` has no {noun} {}; {choices}",
+            component.name,
+            unknown.join(", ")
+        ),
+        span,
+    }
+}
 
 impl Shapes {
     pub(super) fn unknown_field(&self, shape: &str, field: &str, span: Span) -> TypeError {

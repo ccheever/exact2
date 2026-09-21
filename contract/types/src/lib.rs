@@ -1046,11 +1046,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                 }
                 for a in args {
                     if !target_c.props.iter().any(|p| p.name == a.name) {
-                        return err(
-                            "type-unknown-prop",
-                            format!("`{name}` has no prop `{}`", a.name),
-                            a.span,
-                        );
+                        return Err(checks::unknown_props(target_c, args, a.span));
                     }
                 }
             }
