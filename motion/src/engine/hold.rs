@@ -139,6 +139,7 @@ impl Engine {
             let slot = self.slots.get_mut(&key).expect("both adopted properties");
             slot.presented = values[i];
             slot.running = None;
+            self.running.remove(&key);
             slot.owner = Some(Owner::Held(serial + i as u64));
             self.dirty.insert(key);
             HoldStart {
@@ -209,6 +210,7 @@ impl Engine {
         let value = presented.unwrap_or(slot.presented);
         slot.presented = value;
         slot.running = None;
+        self.running.remove(&key);
         slot.owner = Some(Owner::Held(serial));
         self.dirty.insert(key);
         Ok(Some(HoldStart {
@@ -320,6 +322,9 @@ impl Engine {
             .running
             .as_ref()
             .map(|_| Owner::Returning(token.serial));
+        if slot.running.is_some() {
+            self.running.insert(key);
+        }
         self.dirty.insert(key);
         Ok(true)
     }

@@ -119,6 +119,9 @@ pub struct Engine {
     now: f64,
     transitions: BTreeMap<u64, Transitions>,
     slots: BTreeMap<(u64, Property), Slot>,
+    // Observed targets provide CSS's before-change style, but only live curves
+    // need a clock. Holds and settled slots never enter this index.
+    running: BTreeSet<(u64, Property)>,
     dirty: BTreeSet<(u64, Property)>,
 }
 
@@ -164,6 +167,7 @@ impl Engine {
     /// No clock change occurs, and old hold tokens immediately become stale.
     pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
         self.dirty.remove(&(node, property));
+        self.running.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -252,6 +256,7 @@ impl Engine {
                 slot.target = after;
                 let Some(declaration) = declaration.filter(|_| current.value != after) else {
                     slot.presented = after;
+                    self.running.remove(&key);
                     self.dirty.insert(key);
                     return Ok(());
                 };
@@ -291,6 +296,9 @@ impl Engine {
                 slot.running = Some(next);
             }
         }
+        if slot.running.is_some() {
+            self.running.insert(key);
+        }
         self.dirty.insert(key);
         Ok(())
     }
@@ -301,10 +309,9 @@ impl Engine {
     pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
         self.validate_time(now)?;
         self.now = now;
-        for (key, slot) in self.slots.iter_mut() {
-            let Some(running) = &slot.running else {
-                continue;
-            };
+        self.running.retain(|key| {
+            let slot = self.slots.get_mut(key).expect("running slot");
+            let running = slot.running.as_ref().expect("indexed curve");
             let sample = running.sample(now);
             slot.presented = sample.value;
             if sample.done {
@@ -312,7 +319,8 @@ impl Engine {
                 slot.owner = None;
             }
             self.dirty.insert(*key);
-        }
+            !sample.done
+        });
         Ok(())
     }
 
@@ -386,15 +394,21 @@ impl Engine {
 
     /// Whether nothing is running.
     pub fn quiescent(&self) -> bool {
-        self.slots.values().all(|s| s.running.is_none())
+        self.running.is_empty()
     }
 
     /// The clock time at which the last running transition ends, or `None`
     /// when quiescent. An agent advances here instead of waiting.
     pub fn settle_time(&self) -> Option<f64> {
-        self.slots
-            .values()
-            .filter_map(|s| s.running.as_ref().map(Running::end_time))
+        self.running
+            .iter()
+            .map(|key| {
+                self.slots[key]
+                    .running
+                    .as_ref()
+                    .expect("indexed curve")
+                    .end_time()
+            })
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
 }
@@ -407,4 +421,59 @@ fn validate_value(property: Property, value: Value) -> Result<(), EngineError> {
         return Err(EngineError::InvalidValueShape);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Easing, TimingFunction, Transition, TransitionProperty};
+
+    #[test]
+    fn the_clock_index_contains_curves_only_and_retires_them() {
+        let mut engine = Engine::new();
+        let change = |node, value| Change {
+            node,
+            property: Property::Opacity,
+            value: Value::scalar(value),
+            velocity: None,
+        };
+        for node in 0..4096 {
+            engine.observe(change(node, 1.0)).unwrap();
+        }
+        engine.frame();
+        // advance and settle_time iterate this index, never the idle slots.
+        assert!(engine.running.is_empty());
+        engine.advance(1.0).unwrap();
+        assert!(engine.frame().is_empty());
+        assert_eq!(engine.slots.len(), 4096);
+        assert_eq!(engine.settle_time(), None);
+
+        engine
+            .set_transitions(
+                7,
+                Transitions(vec![Transition::new(
+                    TransitionProperty::All,
+                    1.0,
+                    TimingFunction::Easing(Easing::Linear),
+                )]),
+            )
+            .unwrap();
+        engine.observe(change(7, 0.0)).unwrap();
+        assert_eq!(engine.running.len(), 1);
+        engine.advance(1.5).unwrap();
+        assert_eq!(engine.value(7, Property::Opacity), Some(Value::scalar(0.5)));
+        let held = engine
+            .begin_hold(7, Property::Opacity, 1.5, None)
+            .unwrap()
+            .unwrap();
+        assert!(engine.running.is_empty());
+        engine.end_hold(held.token, 1.5, HoldEnd::Cancel).unwrap();
+        assert_eq!(engine.running.len(), 1);
+        engine.advance(engine.settle_time().unwrap()).unwrap();
+        assert!(engine.running.is_empty());
+        engine.observe(change(7, 1.0)).unwrap();
+        assert_eq!(engine.running.len(), 1);
+        engine.remove_property(7, Property::Opacity);
+        assert!(engine.running.is_empty());
+    }
 }
