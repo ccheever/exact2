@@ -799,19 +799,32 @@ pub fn num(n: f64) -> impl std::fmt::Display {
 /// A JSON string.
 pub fn quote(s: &str, out: &mut String) {
     out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
+    let mut start = 0;
+    let bytes = s.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        let i = cursor;
+        let byte = bytes[i];
+        cursor += 1;
+        if !matches!(byte, b'"' | b'\\' | 0..=0x1f) {
+            continue;
         }
+        // Every escape is ASCII, so both slice boundaries are UTF-8 boundaries.
+        // Copy ordinary text together instead of decoding and pushing each char.
+        out.push_str(&s[start..i]);
+        match byte {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            _ => {
+                let _ = write!(out, "\\u{byte:04x}");
+            }
+        }
+        start = i + 1;
     }
+    out.push_str(&s[start..]);
     out.push('"');
 }
 
@@ -988,5 +1001,25 @@ mod tests {
         let mut s = String::new();
         quote("tab\there \"q\" \u{1}", &mut s);
         assert_eq!(s, "\"tab\\there \\\"q\\\" \\u0001\"");
+    }
+
+    #[test]
+    fn quoted_strings_preserve_unicode_and_escape_boundaries() {
+        for input in [
+            "",
+            "plain",
+            "é🦀",
+            "\"é\\🦀\n",
+            "\u{2028}\u{2029}",
+            "\t\r\n",
+        ] {
+            let mut json = String::from("{\"text\":");
+            quote(input, &mut json);
+            json.push('}');
+            assert_eq!(field_str(&json, "text").as_deref(), Some(input));
+        }
+        let mut json = String::new();
+        quote("é\u{0}🦀\u{8}\u{c}\u{1f}\u{7f}", &mut json);
+        assert_eq!(json, "\"é\\u0000🦀\\u0008\\u000c\\u001f\u{7f}\"");
     }
 }
