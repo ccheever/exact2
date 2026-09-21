@@ -8,6 +8,58 @@ fn here(source: &str) -> markdown_parse::Document {
 }
 
 #[test]
+fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
+    use exact_plan::Value;
+    use std::rc::Rc;
+    fn fields(value: &Value) -> &[Value] {
+        match value {
+            Value::Record(values) | Value::List(values) => values,
+            _ => panic!("expected fields or items"),
+        }
+    }
+    fn shared(a: &Value, b: &Value) {
+        let (Value::Str(a), Value::Str(b)) = (a, b) else {
+            panic!("expected strings");
+        };
+        assert!(Rc::ptr_eq(a, b));
+    }
+    let doc = here("alpha **β** [site](next.md)\n\nalpha **β** [site](next.md)");
+    let value = markdown_parse::value::blocks(&doc);
+    let blocks = fields(&value);
+    let first = fields(&blocks[0]);
+    let second = fields(&blocks[1]);
+    assert_eq!(first[0].as_str(), Some("0"));
+    assert_eq!(second[0].as_str(), Some("1"));
+    for i in [1, 3, 4, 5] {
+        shared(&first[i], &second[i]);
+    }
+    shared(&first[3], &first[4]);
+    let a = fields(&fields(&first[7])[0]);
+    let b = fields(&fields(&second[7])[0]);
+    for i in [0, 1, 3, 5] {
+        shared(&a[i], &b[i]);
+    }
+    shared(&first[0], &a[0]);
+    let (Value::List(a), Value::List(b)) = (&first[8], &second[8]) else {
+        panic!("expected empty cells");
+    };
+    assert!(a.is_empty() && Rc::ptr_eq(a, b));
+    assert_eq!(Value::from_bytes(&value.to_bytes()).unwrap(), value);
+    // A separate conversion has independent ownership; closing a document
+    // must not leave its content in an intern pool.
+    let Value::Str(text) = &first[1] else {
+        unreachable!();
+    };
+    let weak = Rc::downgrade(text);
+    drop(value);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(
+        fields(&markdown_parse::value::block(usize::MAX, &doc.blocks[0]))[0].as_str(),
+        Some(usize::MAX.to_string().as_str())
+    );
+}
+
+#[test]
 fn headings_paragraphs_and_emphasis() {
     let doc = here("# Title\n\nSome **bold** and *slanted* and `code` text.\n");
     assert_eq!(doc.title, "Title");
