@@ -87,7 +87,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
     use exact_js::{from_json, to_json, Shape};
     use exact_plan::Value;
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
+    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: list<Branch>\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -98,6 +98,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ("plain", "string"),
         ("boxed", "string"),
         ("object", "Object"),
+        ("branches", "Branches"),
         ("nullable", "list<option<number>>"),
         ("extra", "Pair"),
         ("missing", "Pair"),

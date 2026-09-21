@@ -63,6 +63,14 @@ function transfer(mode:string):unknown {
   if(mode==='throw')return {first:big,get extra(){throw new Error('getter failed');}};
   if(mode==='cycle'){const value:any={first:big};value.cycle=value;return value;}
   if(mode==='bigint')return {first:big,extra:1n};
+  if(mode==='branches') {
+    let reads=0;
+    const shared={text:big};
+    return {first:{left:shared,right:{toJSON(){return shared;}}},
+      get second(){reads++;shared.text=big+' changed';return shared;},
+      last:[{left:{text:'small'},right:shared},{left:shared,right:{text:big}}],
+      get reads(){return reads;}};
+  }
   if(mode==='object') {
     let reads=0;
     const shared={text:big};

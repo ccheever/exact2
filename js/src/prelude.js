@@ -220,26 +220,35 @@
   function ok(value) {
     var reply = { tag: 0, value: value === undefined ? null : value };
     if (typeof captureString !== "function") return JSON.stringify(reply);
-    var paths = new WeakMap(), root = true;
+    var head = null, root = true;
     return JSON.stringify(reply, function (key, item) {
       var first = root;
       root = false;
-      if (typeof item === "string" && item.length >= 65536) {
-        var parent = first ? null : paths.get(this), depth = first ? 0 : 1;
-        for (var link = parent; link; link = link.parent) depth++;
+      var large = typeof item === "string" && item.length >= 65536;
+      var object = item !== null && typeof item === "object";
+      var parent = null;
+      if (!first && (large || object)) {
+        parent = head;
+        while (parent && parent.value !== this) parent = parent.parent;
+      }
+      if (large) {
+        head = parent;
+        // The root link identifies its holder but has no result-path key.
+        var depth = first ? 0 : 1;
+        for (var link = parent; link && link.parent; link = link.parent) depth++;
         var path = [];
         function pathKey(key) {
           Object.defineProperty(path, --depth, {value:key, enumerable:true, writable:true, configurable:true});
         }
         if (!first) pathKey(key);
-        for (var link = parent; link; link = link.parent) pathKey(link.key);
+        for (var link = parent; link && link.parent; link = link.parent) pathKey(link.key);
         // Application toJSON hooks apply to its values, never our path metadata.
         Object.defineProperty(path, "toJSON", {value:undefined});
         captureString(JSON.stringify(path), item);
         return "";
       }
-      // Retain one link per visited object; only a captured string needs a path.
-      if (item !== null && typeof item === "object") paths.set(item, first ? null : {parent:paths.get(this), key:key});
+      // Only ancestors of the current object are needed for later capture paths.
+      if (object) head = {value:item, parent:parent, key:key};
       return item;
     });
   }
