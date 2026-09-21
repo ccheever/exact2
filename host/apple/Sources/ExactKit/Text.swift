@@ -441,14 +441,20 @@ final class TextEngine {
     }
 
     func attributed(_ spec: Spec) -> NSAttributedString {
-        let s = NSMutableAttributedString()
+        // The measure callback sees dense paragraphs as many small runs. Build
+        // their text once, then assign UTF-16 spans, instead of allocating and
+        // appending an attributed string for every run.
+        let s = NSMutableAttributedString(string: spec.runs.map(\.text).joined())
         let color = TextEngine.color(spec.color)
+        var offset = 0
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            s.append(NSAttributedString(string: r.text, attributes: a))
+            let length = r.text.utf16.count
+            if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
+            offset += length
         }
         return s
     }

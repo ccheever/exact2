@@ -25,6 +25,45 @@ func regionInvalidationFixture(ops: [[String: Any]], protected: Set<UInt32>) -> 
 }
 
 final class TextMetricsTests: XCTestCase {
+    func testDenseMeasureSourcePreservesUTF16SpansAndAttributes() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let texts = ["e", "\u{301} 😀", "漢字", "", " café ", "אבג"]
+        let runs = (0..<120).map { i in
+            Run(text: texts[i % texts.count], size: CGFloat(14 + i % 3),
+                weight: i % 2 == 0 ? 400 : 700, family: 0, italic: i % 3 == 0,
+                lineHeight: nil, letterSpacing: i % 2 == 0 ? 0 : 0.5,
+                color: i % 4 == 0 ? [255, 0, 0, 255] : nil,
+                decoration: i % 5 == 0 ? "line-through" : "", href: "https://example.com")
+        }
+        let spec = Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        // The former append path is the equivalence oracle, including a
+        // combining sequence split across runs and zero-length style spans.
+        let appended = NSMutableAttributedString()
+        for run in runs {
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
+                .foregroundColor: TextEngine.color(run.color ?? spec.color)]
+            if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
+            if run.decoration.isEmpty { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            appended.append(NSAttributedString(string: run.text, attributes: attrs))
+        }
+        let actual = engine.attributed(spec)
+        XCTAssertEqual(Array(actual.string.utf16), Array(appended.string.utf16))
+        XCTAssertTrue(actual.isEqual(to: appended))
+        let a = CTTypesetterCreateWithAttributedString(actual)
+        let b = CTTypesetterCreateWithAttributedString(appended)
+        for width in [75.0, 320.0, 800.0] {
+            var start = 0
+            while start < actual.length {
+                let count = CTTypesetterSuggestLineBreak(a, start, width)
+                XCTAssertEqual(count, CTTypesetterSuggestLineBreak(b, start, width))
+                guard count > 0 else { XCTFail("no line progress"); break }
+                start += count
+            }
+        }
+    }
+
     func testReaderTravelPreservesSpeedAcrossDrawsAndReversesImmediately() {
         var travel = RegionReaderTravel()
         XCTAssertEqual(travel.sample(0, at: 1), 0)

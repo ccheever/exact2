@@ -220,9 +220,11 @@ impl ListWindow {
             self.width = Some(geometry.width);
         }
         if let Active::Rows { rows } = active {
-            let indices: BTreeMap<_, _> = rows
+            let indices: exact_kernel::id::IdMap<_, _> = rows
                 .iter()
-                .filter_map(|row| Some((row.wrapper?, *self.positions.get(&key_text(&row.key)?)?)))
+                .zip(&self.placed)
+                .filter(|(_, (index, ..))| *index != usize::MAX)
+                .filter_map(|(row, (index, ..))| Some((row.wrapper?, *index)))
                 .collect();
             for (wrapper, height) in geometry.rows {
                 if let Some(index) = indices.get(wrapper) {
@@ -274,11 +276,13 @@ impl ListWindow {
         let mut keys = Vec::with_capacity(items.len());
         let mut positions = BTreeMap::new();
         for (index, item) in items.iter().enumerate() {
-            let mut inner = frames.to_vec();
-            inner.push(Frame {
-                item: Some(item.clone()),
-                ..Frame::default()
-            });
+            let inner = with_frame(
+                frames,
+                Frame {
+                    item: Some(item.clone()),
+                    ..Frame::default()
+                },
+            );
             let key = u.eval(u.env.plan.region(region).key, &inner)?;
             let text = key_text(&key).ok_or(InstanceError::KeyKind { region })?;
             if positions.insert(text, index).is_some() {
@@ -427,19 +431,16 @@ impl ListWindow {
             }
         }
         for index in &wanted {
-            let key = self.keys[*index].clone();
-            let mut frame = Frame {
-                item: Some(self.items[*index].clone()),
-                region: Some(region.0),
-                ..Frame::default()
-            };
             let top = self.heights.offset(*index);
             let mut row = if let Some((mut row, was, of)) = old.remove(index) {
-                frame.row = Some(row.slots.clone());
-                row.frame = frame.clone();
-                let mut inner = frames.to_vec();
-                inner.push(frame);
                 if refresh {
+                    row.frame = Frame {
+                        item: Some(self.items[*index].clone()),
+                        region: Some(region.0),
+                        row: Some(row.slots.clone()),
+                        ..Frame::default()
+                    };
+                    let inner = with_frame(frames, row.frame.clone());
                     update_all(u, &mut row.roots, &inner)?;
                 } else if was == top && of == count {
                     // Where it was, as many as there were: nothing to say.
@@ -450,7 +451,13 @@ impl ListWindow {
                 row
             } else {
                 self.created += 1;
-                Row::create(u, region, key, self.items[*index].clone(), frames)?
+                Row::create(
+                    u,
+                    region,
+                    self.keys[*index].clone(),
+                    self.items[*index].clone(),
+                    frames,
+                )?
             };
             let wrapper = match row.wrapper {
                 Some(id) => id,
@@ -629,8 +636,7 @@ impl Row {
             row: Some(slots.clone()),
             ..Frame::default()
         };
-        let mut inner = frames.to_vec();
-        inner.push(frame.clone());
+        let inner = with_frame(frames, frame.clone());
         for (i, slot) in plan.slots.iter().enumerate() {
             if slot.owner == Some(region) {
                 let value = u.eval(slot.init, &inner)?;
@@ -731,16 +737,14 @@ impl Tree {
                     }
                     Child::Region(r) => match &mut r.active {
                         Active::Arm { roots, frame, .. } => {
-                            let mut inner = frames.to_vec();
-                            inner.push(frame.clone());
+                            let inner = with_frame(frames, frame.clone());
                             if walk(roots, &inner, u, view, geometry, create_limit)? {
                                 return Ok(true);
                             }
                         }
                         Active::Rows { rows } => {
                             for row in rows {
-                                let mut inner = frames.to_vec();
-                                inner.push(row.frame.clone());
+                                let inner = with_frame(frames, row.frame.clone());
                                 if walk(&mut row.roots, &inner, u, view, geometry, create_limit)? {
                                     return Ok(true);
                                 }

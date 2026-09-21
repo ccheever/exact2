@@ -249,15 +249,29 @@ impl<D: DataSource> Host<D> {
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
         let children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
-            self.queue_layout_subtree(id);
+            // Retained children still inherit from the same parent. Only an
+            // arriving subtree needs its descendants' spelling hints revisited;
+            // changed ancestor hints already queue their subtree in update().
+            let previous: IdSet<_> = self
+                .mirror
+                .get(&id)
+                .into_iter()
+                .flat_map(|m| m.children.iter().copied())
+                .collect();
+            self.queue_layout(id);
+            for child in &children {
+                if !previous.contains(child) {
+                    self.queue_layout_subtree(*child);
+                }
+            }
         }
-        for child in self.runner.kernel().node(id).expect("live").children() {
-            self.reconcile_projection(child, batch);
+        for child in &children {
+            self.reconcile_projection(*child, batch);
         }
         if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
             return;
         }
-        let mut children = self.runner.kernel().node(id).expect("live").children();
+        let mut children = children;
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)

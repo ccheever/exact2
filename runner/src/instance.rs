@@ -266,6 +266,15 @@ impl Site {
     }
 }
 
+// A region adds one lexical frame. Reserve it with the inherited frames so
+// row construction does not allocate and then immediately reallocate.
+fn with_frame(frames: &[Frame], frame: Frame) -> Vec<Frame> {
+    let mut inner = Vec::with_capacity(frames.len() + 1);
+    inner.extend_from_slice(frames);
+    inner.push(frame);
+    inner
+}
+
 /// Realize the sites under (`parent`, `arm`) for the first time.
 fn realize(
     u: &mut Update<'_>,
@@ -623,8 +632,7 @@ impl RegionInst {
                         bound: None,
                         ..Default::default()
                     };
-                    let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    let inner = with_frame(frames, frame.clone());
                     let key = u.eval(row.key, &inner)?;
                     let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
                         region: self.region,
@@ -662,8 +670,7 @@ impl RegionInst {
                                 && dependencies::same_item(&r.frame.item, &frame.item);
                             frame.row = Some(r.slots.clone());
                             r.frame = frame.clone();
-                            let mut inner = frames.to_vec();
-                            inner.push(frame);
+                            let inner = with_frame(frames, frame);
                             if unchanged {
                                 u.work.rows_reused += 1;
                             } else {
@@ -676,8 +683,7 @@ impl RegionInst {
                             // evaluated here so an initializer may read the item.
                             let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
                             frame.row = Some(slots.clone());
-                            let mut inner = frames.to_vec();
-                            inner.push(frame.clone());
+                            let inner = with_frame(frames, frame.clone());
                             for (i, s) in plan.slots.iter().enumerate() {
                                 if s.owner == Some(self.region) {
                                     let v = u.eval(s.init, &inner)?;
@@ -731,8 +737,7 @@ impl RegionInst {
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
-        let mut inner = frames.to_vec();
-        inner.push(new_frame.clone());
+        let inner = with_frame(frames, new_frame.clone());
         if *arm == want {
             *frame = new_frame;
             return update_all(u, roots, &inner);

@@ -945,12 +945,10 @@ impl<D: DataSource> Host<D> {
                     self.create(id, &handlers, &mut batch);
                 }
             }
-            for key in r.created.iter().chain(r.touched.iter()) {
+            for key in &r.touched {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    if r.touched.contains(key) {
-                        self.update(id, &mut batch);
-                    }
+                    self.update(id, &mut batch);
                 }
             }
         }

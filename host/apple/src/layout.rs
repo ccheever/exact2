@@ -9,7 +9,9 @@ impl<D: DataSource> Host<D> {
 
     pub(super) fn queue_layout(&mut self, id: ViewId) {
         if let Some(node) = self.runner.kernel().node(id) {
-            self.pending_layout.insert(node.key);
+            if !node.is_inline_run() {
+                self.pending_layout.insert(node.key);
+            }
         }
     }
 
@@ -19,7 +21,9 @@ impl<D: DataSource> Host<D> {
         let mut stack = vec![id];
         while let Some(id) = stack.pop() {
             if let Some(node) = self.runner.kernel().node(id) {
-                self.pending_layout.insert(node.key);
+                if !node.is_inline_run() {
+                    self.pending_layout.insert(node.key);
+                }
                 stack.extend(node.children());
             }
         }
@@ -102,7 +106,9 @@ impl<D: DataSource> Host<D> {
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {
         // Preserve publication order without a tree insertion for each touch.
-        let mut pending: Vec<_> = std::mem::take(&mut self.pending_layout).into_iter().collect();
+        let mut pending: Vec<_> = std::mem::take(&mut self.pending_layout)
+            .into_iter()
+            .collect();
         pending.sort_unstable();
         for key in pending {
             let Some(node) = self.runner.kernel().node_by_key(key) else {
@@ -289,5 +295,64 @@ mod tests {
             Some("true")
         );
         assert_eq!(host.mirror[&field].frame, frame);
+    }
+
+    #[test]
+    fn a_new_sibling_does_not_requeue_retained_subtrees_but_a_move_does() {
+        let mut host = fixture();
+        let root = id(&host, "root");
+        let port = id(&host, "port");
+        let field = id(&host, "field");
+        let field_key = host.runner.kernel().node(field).unwrap().key;
+        let added = 999;
+        let mut children = host.runner.kernel().node(root).unwrap().children();
+        children.push(added);
+        host.runner
+            .kernel_mut()
+            .apply(
+                0,
+                2,
+                &[
+                    Op::CreateView {
+                        id: added,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetProp {
+                        id: added,
+                        prop: PropId::Spellcheck,
+                        value: "true".into(),
+                    },
+                    Op::SetChildren { id: root, children },
+                ],
+            )
+            .unwrap();
+        let mut batch = Batch::new();
+        host.create(added, &[], &mut batch);
+        host.emit_children(root, &mut batch);
+        assert!(!host.pending_layout.contains(&field_key));
+        host.layout(&mut batch).unwrap();
+
+        host.runner
+            .kernel_mut()
+            .apply(
+                0,
+                3,
+                &[Op::SetChildren {
+                    id: added,
+                    children: vec![field],
+                }],
+            )
+            .unwrap();
+        host.emit_children(port, &mut batch);
+        host.emit_children(added, &mut batch);
+        assert!(host.pending_layout.contains(&field_key));
+        host.layout(&mut batch).unwrap();
+        assert_eq!(
+            host.mirror[&field]
+                .props
+                .get("spellcheck")
+                .map(String::as_str),
+            Some("true")
+        );
     }
 }
