@@ -1471,6 +1471,10 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
             "\"handlers\":[\"press\"]"
         };
         assert!(create.contains(expected), "{create}");
+        let tree = host.agent(r#"{"op":"tree"}"#);
+        assert_eq!(tree.matches(expected).count(), 1);
+        let empty = if phase == 1 { 3 } else { 1 };
+        assert_eq!(tree.matches("\"handlers\":[]").count(), empty);
         if phase == 1 {
             let plain = view(&host, "plain");
             let prefix = format!("\"create\",\"id\":{plain},");
@@ -1481,6 +1485,7 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
             assert!(create.contains("\"handlers\":[]"), "{create}");
         }
         if let Some(gone) = old {
+            assert!(!tree.contains(&format!("{{\"id\":{gone},")));
             assert!(host.runner().handlers_of(gone).is_empty());
             assert!(!host.runner().handlers().contains_key(&gone));
         }

@@ -94,6 +94,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
     ids(&runner.roots(), &mut s);
     s.push_str(",\"nodes\":[");
     let rows = kernel.rows(None).unwrap_or_default();
+    let handlers = runner.handlers();
     let mut first = true;
     for row in &rows {
         let Some(node) = kernel.node(row.id) else {
@@ -115,7 +116,7 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         s.push_str(",\"props\":{");
         props_json(&node, &mut s);
         s.push_str("},\"handlers\":[");
-        for (i, e) in runner.handlers_of(node.id).into_iter().enumerate() {
+        for (i, e) in handlers.get(&node.id).into_iter().flatten().enumerate() {
             if i > 0 {
                 s.push(',');
             }

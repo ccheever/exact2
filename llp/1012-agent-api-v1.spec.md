@@ -196,6 +196,10 @@ app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
 same pre-boot fact as the OS callbacks; Linux receives the URL as argv.
 
+Each `tree` response gathers live handler declarations in one instance-tree walk
+before serializing nodes. Handler order and empty lists are unchanged; no handler
+map survives the response, so branch and collection changes are observed afresh.
+
 | op | request to the host | reply | who answers |
 |---|---|---|---|
 | `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
