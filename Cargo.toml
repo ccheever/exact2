@@ -44,6 +44,14 @@ debug = true
 [profile.dev.package.tiny-skia]
 opt-level = 3
 
+# Keep PNG screenshot and image byte loops fast in the same development loop.
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+
 # Fast independent business-logic links in the resident development loop.
 [profile.logic-dev]
 inherits = "dev"
