@@ -390,6 +390,17 @@ fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
         for tag in ["epoch", "incarnation", "clock"] {
             assert_eq!(scoped[tag], full[tag]);
         }
+        for shallow in [false, true] {
+            let request = serde_json::json!({"op":"tree", "target":node["id"], "shallow":shallow});
+            let reply: serde_json::Value =
+                serde_json::from_str(&exact_runner::agent::handle(&runner, &request.to_string()))
+                    .unwrap();
+            let mut expected = scoped.clone();
+            if shallow {
+                expected["nodes"] = serde_json::json!([node]);
+            }
+            assert_eq!(reply, expected);
+        }
     }
     let first = nodes
         .iter()
@@ -399,6 +410,25 @@ fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
         ask(&runner, "repeated".into())["nodes"],
         ask(&runner, first["id"].clone())["nodes"]
     );
+    let shallow: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
+        &runner,
+        r#"{"op":"tree","target":"repeated","shallow":true}"#,
+    ))
+    .unwrap();
+    assert_eq!(shallow["nodes"], serde_json::json!([first]));
+    assert!(
+        exact_runner::agent::handle(&runner, r#"{"op":"tree","shallow":true}"#)
+            .contains("shallow tree needs a target")
+    );
+    for bad in [
+        serde_json::json!(1),
+        serde_json::json!("true"),
+        serde_json::Value::Null,
+    ] {
+        let request = serde_json::json!({"op":"tree", "target":"root", "shallow":bad});
+        assert!(exact_runner::agent::handle(&runner, &request.to_string())
+            .contains("tree shallow must be a boolean"));
+    }
     let branch = ask(&runner, "branch".into());
     assert!(branch["nodes"].as_array().unwrap().len() > 1);
     assert!(branch["nodes"]
@@ -420,6 +450,12 @@ fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
         );
     }
     runner.act("toggle", vec![]).unwrap();
+    for target in ["branch".into(), first["id"].clone()] {
+        let request = serde_json::json!({"op":"tree", "target":target, "shallow":true});
+        assert!(
+            exact_runner::agent::handle(&runner, &request.to_string()).contains("no view matches")
+        );
+    }
     assert!(ask(&runner, "branch".into())["error"]
         .as_str()
         .unwrap()
@@ -448,11 +484,25 @@ fn targeted_tree_uses_current_attachment_and_root_order() {
         "/",
     ).unwrap();
     let ask = |runner: &Runner<Stations>, target: serde_json::Value| -> serde_json::Value {
-        serde_json::from_str(&exact_runner::agent::handle(
+        let response: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
             runner,
             &serde_json::json!({"op":"tree", "target":target}).to_string(),
         ))
-        .unwrap()
+        .unwrap();
+        let shallow: serde_json::Value = serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target, "shallow":true}).to_string(),
+        ))
+        .unwrap();
+        let mut expected = response.clone();
+        if let Some(nodes) = expected
+            .get_mut("nodes")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            nodes.truncate(1);
+        }
+        assert_eq!(shallow, expected);
+        response
     };
     let root = runner.roots()[0];
     let branch = ask(&runner, "branch".into())["roots"][0].as_u64().unwrap() as u32;

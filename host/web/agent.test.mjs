@@ -676,8 +676,8 @@ test('tree forwards its target and preserves host annotations and runner errors'
     requests.push(request);
     return request.target === 'missing' ? {error:'no view matches missing'} : {roots:[7],nodes:[{id:7,type:'WebView'}]};
   };
-  const reply = f.exact.agent({op:'tree',target:'panel'});
-  expect(requests[0]).toEqual({op:'tree',target:'panel'});
+  const reply = f.exact.agent({op:'tree',target:'panel',shallow:true});
+  expect(requests[0]).toEqual({op:'tree',target:'panel',shallow:true});
   expect(reply.nodes[0]).toEqual({id:7,type:'WebView',url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });

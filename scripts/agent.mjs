@@ -820,10 +820,11 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (r.error) throw new Error(`${req.op}: ${r.error}`);
       return r;
     },
-    /** Every live node in preorder, or one target and its descendants; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
-    tree(target) {
+    /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
+    tree(target, { shallow = false } = {}) {
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+      if (shallow !== false) req.shallow = shallow;
       return s.op(req);
     },
     /** Every slot, derive, and resource by name, as typed JSON. */
@@ -853,7 +854,8 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target) {
-      const t = await s.tree(target);
+      if (target == null) throw new Error(`no view matches ${target}`);
+      const t = await s.tree(target, { shallow: true });
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
       if (!node) throw new Error(`no view matches ${target}`);
       return node;

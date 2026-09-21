@@ -153,7 +153,12 @@ fn envelope_round_trips_rows_styles_and_props() {
     assert_eq!(snap.epoch, k.epoch());
     let rows = k.rows(Some(10)).unwrap();
     assert_eq!(snap.rows.len(), 3);
+    assert!(k.row(999).is_none());
     for (decoded, live) in snap.rows.iter().zip(rows.iter()) {
+        let mut point = k.row(live.id).unwrap();
+        assert_eq!(point.depth, 0);
+        point.depth = live.depth;
+        assert_eq!(point, *live);
         assert_eq!(decoded.id, live.id);
         assert_eq!(decoded.parent, live.parent);
         assert_eq!(decoded.node_type, live.node_type);
@@ -187,6 +192,61 @@ fn envelope_round_trips_rows_styles_and_props() {
             .and_then(|v| v.as_float()),
         Some(2.5)
     );
+}
+
+#[test]
+fn point_row_tracks_inline_attachment_detachment_and_reused_ids() {
+    let mut k = kernel();
+    k.apply(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 13,
+                node_type: NodeType::Text,
+            },
+            Op::SetChildren {
+                id: 11,
+                children: vec![13],
+            },
+        ],
+    )
+    .unwrap();
+    let inline = k.row(13).unwrap();
+    assert_eq!(inline.parent, Some(11));
+    assert_eq!(
+        inline.flags & export::ROW_INLINE_RUN,
+        export::ROW_INLINE_RUN
+    );
+    assert_eq!(inline.flags & export::ROW_ROOT, 0);
+    k.apply(
+        0,
+        3,
+        &[Op::SetChildren {
+            id: 11,
+            children: vec![],
+        }],
+    )
+    .unwrap();
+    let detached = k.row(13).unwrap();
+    assert_eq!(detached.key, inline.key);
+    assert_eq!(detached.parent, None);
+    assert_eq!(detached.flags & export::ROW_INLINE_RUN, 0);
+    k.apply(0, 4, &[Op::DestroyView { id: 13 }]).unwrap();
+    assert!(k.row(13).is_none());
+    k.apply(
+        0,
+        5,
+        &[Op::CreateView {
+            id: 13,
+            node_type: NodeType::View,
+        }],
+    )
+    .unwrap();
+    let replacement = k.row(13).unwrap();
+    assert_ne!(replacement.key, inline.key);
+    assert_eq!(replacement.node_type, NodeType::View);
+    assert_eq!(replacement.parent, None);
 }
 
 #[test]

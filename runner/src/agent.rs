@@ -82,7 +82,18 @@ pub fn error(message: &str) -> String {
 /// kernel's epoch and incarnation (the consistency token: nothing moves
 /// between two calls unless the agent moved it).
 fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    let shallow = match after_key(request, "shallow") {
+        None => false,
+        Some(value) => match value.split([',', '}']).next().unwrap().trim() {
+            "true" => true,
+            "false" => false,
+            _ => return error("tree shallow must be a boolean"),
+        },
+    };
     if after_key(request, "target").is_none() {
+        if shallow {
+            return error("shallow tree needs a target");
+        }
         return tree(runner);
     }
     let name = field_str(request, "target");
@@ -118,6 +129,11 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             name.unwrap_or_else(|| num(id.unwrap()))
         ));
     };
+    if shallow {
+        let mut row = kernel.row(root).expect("located live node");
+        row.depth = depth;
+        return tree_rows(runner, &[row], &[root]);
+    }
     let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
     for row in &mut subtree {
         row.depth = row.depth.saturating_add(depth);

@@ -709,6 +709,12 @@ impl Kernel {
             .collect())
     }
 
+    /// One typed export row, with depth zero as for an exported subtree root.
+    /// Does not visit the node's descendants; detached live nodes are included.
+    pub fn row(&self, id: ViewId) -> Option<NodeRow> {
+        Some(export::row(&self.arena, self.arena.slot_of(id)?, 0))
+    }
+
     /// One node by wire id.
     pub fn node(&self, id: ViewId) -> Option<NodeRef<'_>> {
         let slot = self.arena.slot_of(id)?;

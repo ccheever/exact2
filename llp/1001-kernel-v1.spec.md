@@ -523,6 +523,11 @@ never allocates from a count (sections, rows, children) it has not first bounded
 by the bytes actually present — with the arithmetic in `u64`, so a 32-bit wasm
 target cannot overflow on a hostile length either.
 
+`Kernel::row(id)` returns the same typed metadata for one live node, including
+detached nodes, with subtree-relative depth zero. It allocates no traversal and
+does not visit descendants. Agent shallow reads check live-root attachment and
+supply the absolute tree depth before serializing that one row.
+
 ## 8. Errors
 
 One convention (`error.rs`): `Result` with a typed error naming the exact
