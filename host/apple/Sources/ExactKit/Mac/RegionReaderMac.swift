@@ -88,6 +88,7 @@ final class RegionReaderParagraph {
     private(set) var raster: RegionRaster?
     private var image: CGImage?
     private var imageFrame = CGRect.zero
+    private let ink = CALayer()
     private var wantedWidth: CGFloat = 0
     private var shapeWidth: CGFloat?
     private var serial: UInt64 = 0
@@ -113,7 +114,7 @@ final class RegionReaderParagraph {
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         profile = NativeProfile.capture(original: space, data: space.copyICCData(), account: profileAccount).owner!
     }
-    deinit { service.close() }
+    deinit { service.close(); ink.removeFromSuperlayer() }
     func matches(_ r: ExactMeasureRequest) -> Bool {
         index == r.node_index && generation == r.node_generation && revision == r.revision
     }
@@ -132,6 +133,7 @@ final class RegionReaderParagraph {
         guard source != nil else { return }
         service.reset()
         source = nil; candidate = nil; accepted = nil; raster = nil; image = nil
+        ink.contents = nil; ink.removeFromSuperlayer()
         shapeWidth = nil; wantedRaster = nil; candidateTop = nil; failed = nil
         waitingForPixels = false
         travel = RegionReaderTravel()
@@ -152,6 +154,7 @@ final class RegionReaderParagraph {
     func update(_ node: NodeView, afterFrame: Bool = false) {
         RegionReaderTiming.begin()
         defer { RegionReaderTiming.end() }
+        defer { present(in: node) }
         let started = CACurrentMediaTime()
         let post = Presenter.signposts.beginInterval("reader-demand")
         defer {
@@ -202,7 +205,8 @@ final class RegionReaderParagraph {
         // even when CSS normal lets a million-character word overflow.
         let top = (pointRequest == nil ? candidateTop : nil) ?? max(0, port.minY - content.minY)
         let width = ceil(min(p.offeredWidth + 64, port.width + 64) * CGFloat(scale)) / CGFloat(scale)
-        let rowBytes = width * CGFloat(scale * scale) * 4
+        let rowBytes = CGFloat(RegionRasterRequest.stride(width: Int(width * CGFloat(scale)),
+            format: RegionRasterRequest.compositedFormat) * scale)
         let overscan = floor(CGFloat(8 * 1024 * 1024) / rowBytes * CGFloat(scale)) / CGFloat(scale)
         let capacity = floor(CGFloat(RegionRasterRequest.maximumPixelLimit) / rowBytes * CGFloat(scale)) / CGFloat(scale)
         let visible = ceil(port.height * CGFloat(scale)) / CGFloat(scale)
@@ -218,7 +222,7 @@ final class RegionReaderParagraph {
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
             scroll: CGPoint(x: -32, y: band.y), size: CGSize(width: width, height: band.height), scale: scale,
-            profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
+            profile: profile, format: RegionRasterRequest.compositedFormat,
             // The existing view owns CSS backgrounds, including rounded corners
             // and opacity. Overflow ink must not repaint its ancestor's box.
             background: [0, 0, 0, 0],
@@ -299,7 +303,8 @@ final class RegionReaderParagraph {
                 }
             }
             publishing = false
-            node.needsDisplay = true
+            present(in: node)
+            if changed { node.needsDisplay = true }
             node.presenter?.requestTextPublication()
             // Width publication just refit and anchored the native viewport.
             // Its existing display wake observes the settled geometry; only a
@@ -316,6 +321,33 @@ final class RegionReaderParagraph {
             node.presenter?.session?.log("reader region: \(reason)")
             node.needsDisplay = true
         }
+    }
+
+    /// A band moves with the document as composited pixels. Drawing it through
+    /// NodeView's backing store replays and uploads newly exposed strips during
+    /// AppKit's scroll synchronization, even though the worker already painted it.
+    var hasPixels: Bool { image != nil && failed == nil }
+    @discardableResult
+    func present(in node: NodeView) -> Bool {
+        guard hasPixels, !Capture.capturing, node.canvasAbove == nil,
+              let layer = node.layer, let surface = raster?.pixels.surface else {
+            if ink.superlayer != nil {
+                ink.removeFromSuperlayer()
+                if Capture.capturing { node.presenter?.requestTextPublication() }
+            }
+            return false
+        }
+        let box = node.contentBox()
+        let frame = imageFrame.offsetBy(dx: box.minX, dy: box.minY)
+        guard ink.superlayer !== layer || ink.frame != frame || (ink.contents as AnyObject?) !== surface else { return true }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if ink.superlayer !== layer { layer.addSublayer(ink) }
+        ink.frame = frame
+        ink.contentsScale = CGFloat(raster?.request.scale ?? 2)
+        ink.contents = surface
+        CATransaction.commit()
+        return true
     }
 
     /// A width change follows the source offset on the top visible line, with

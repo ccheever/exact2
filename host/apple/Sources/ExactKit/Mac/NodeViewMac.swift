@@ -991,12 +991,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // Empty container layers carry geometry and children, with no bitmap.
     private(set) var hasBoxPaint = false
     override var wantsUpdateLayer: Bool {
+        if let readerParagraph, readerParagraph.hasPixels {
+            return !hasBoxPaint && !Capture.capturing && canvasAbove == nil
+        }
         if kind == "text" { return rastersText }
         return !hasBoxPaint && !Capture.capturing && kind != "image"
             && kind != "canvas" && kind != "iframe"
     }
     override func updateLayer() {
-        if kind == "text" {
+        if let readerParagraph {
+            readerParagraph.update(self)
+            layer?.contents = nil
+        } else if kind == "text" {
             // AppKit asks for its overdraw as well as for what is on screen.
             // Only what is on screen without pixels is painted here, rather
             // than shown blank; the rest is a worker's.
@@ -1231,7 +1237,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
             if let readerParagraph, let ctx = NSGraphicsContext.current?.cgContext {
-                readerParagraph.draw(self, in: ctx, dirty: textDirty)
+                if !readerParagraph.present(in: self) {
+                    readerParagraph.draw(self, in: ctx, dirty: textDirty)
+                }
             } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
                 presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
                 TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: textDirty)

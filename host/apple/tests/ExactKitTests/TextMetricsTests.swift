@@ -88,11 +88,17 @@ final class TextMetricsTests: XCTestCase {
         let deadline = Date(timeIntervalSinceNow: 3)
         while reader.raster == nil && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.001)) }
         let first = try XCTUnwrap(reader.raster)
+        let ink = try XCTUnwrap(node.layer?.sublayers?.first { $0.contents is IOSurface })
+        let firstImage = ink.contents as AnyObject?
+        XCTAssertTrue(node.wantsUpdateLayer, "scrolling accepted ink must not repaint the backing store")
+        XCTAssertEqual(ink.frame.size, first.request.size)
+        XCTAssertLessThan(ink.frame.height, node.bounds.height)
         // Hold the real workers while a successor is demanded. The displayed
         // raster must remain owned until actual replacement pixels arrive.
         RegionTextExecutor.queue.isSuspended = true
         scroll.contentView.scroll(to: CGPoint(x: 0, y: 60)); reader.update(node)
         XCTAssertTrue(reader.raster === first)
+        XCTAssertTrue(ink.contents as AnyObject? === firstImage)
         RegionTextExecutor.queue.isSuspended = false
         var top: CGFloat = 60
         while reader.raster === first && Date() < deadline {
@@ -106,6 +112,16 @@ final class TextMetricsTests: XCTestCase {
                              "the worker prepared pixels beyond the first moving viewport")
         XCTAssertNotNil(next.request.bytes)
         XCTAssertEqual(next.request.publication, first.request.publication)
+        XCTAssertTrue(ink.superlayer === node.layer)
+        XCTAssertFalse(ink.contents as AnyObject? === firstImage)
+        XCTAssertEqual(ink.frame.origin.y, next.request.scroll.y + node.contentBox().minY)
+        Capture.capturing = true
+        XCTAssertFalse(node.wantsUpdateLayer, "capture uses the accepted bitmap through draw")
+        XCTAssertFalse(reader.present(in: node))
+        Capture.capturing = false
+        reader.invalidatePaint()
+        XCTAssertNil(ink.superlayer)
+        XCTAssertNil(ink.contents)
     }
 
     func testUnbreakableLineRasterIsBoundedAndContainsVisibleInk() throws {
