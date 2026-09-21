@@ -252,6 +252,9 @@ enum FontRegistry {
 }
 
 final class TextEngine {
+    #if os(macOS)
+    var readerParagraphs: [UInt32: RegionReaderParagraph] = [:]
+    #endif
     var fonts: [String: PlatformFont] = [:]
     private var residency: TextResidency
     var residencyStats: TextResidencyStats { residency.stats }
@@ -322,6 +325,9 @@ final class TextEngine {
     /// residency namespace prevents old accepted font identities from aliasing
     /// the candidate; checkpoints retain and restore their original namespace.
     func install(_ pointer: UnsafePointer<ExactFontCatalog>?) {
+        #if os(macOS)
+        readerParagraphs.removeAll()
+        #endif
         fonts.removeAll(keepingCapacity: true)
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         dropMeasuredBreaks()
@@ -800,6 +806,9 @@ final class TextEngine {
     /// paints.
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        #if os(macOS)
+        if let pending = readerMeasure(request) { return pending }
+        #endif
         let lookupStarted = CACurrentMediaTime()
         let knownIdentity = residency.borrowedIdentity(request)
         let intrinsic = request.width < 0

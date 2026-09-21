@@ -2,6 +2,17 @@
 // No CTLine/CTTypesetter crosses this queue. Immutable glyph/caret values do.
 import Foundation
 
+/// The existing raster workers also execute region preparation. Per-region
+/// dependencies preserve CoreText confinement without a second worker pool.
+enum RegionTextExecutor {
+    static let queue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "exact.text"; q.qualityOfService = .userInitiated
+        q.maxConcurrentOperationCount = 2
+        return q
+    }()
+}
+
 final class RegionArtifact: Sendable {
     let id: UInt64
     let sourceID: UInt64
@@ -35,7 +46,15 @@ private struct RegionLayoutBinding {
 /// access layouts/paint. close() retains self until those owners die on queue;
 /// every controller calls it on reset/destroy, including undelivered completion.
 final class RegionService: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "exact.region.text")
+    private let scheduling = NSLock()
+    private weak var tail: Operation?
+    private func enqueue() {
+        scheduling.lock(); defer { scheduling.unlock() }
+        let operation = BlockOperation { self.turn() }
+        if let tail { operation.addDependency(tail) }
+        tail = operation
+        RegionTextExecutor.queue.addOperation(operation)
+    }
     private let lock = NSLock()
     private var active = false
     private var closed = false
@@ -73,7 +92,7 @@ final class RegionService: @unchecked Sendable {
         let start = !active
         if start { active = true }
         lock.unlock()
-        if start { queue.async { self.turn() } }
+        if start { enqueue() }
     }
     /// Publish accepted receipt intent even while a previous shape owns the
     /// serial slot. No source capture, allocation refund or queue submission.
@@ -100,7 +119,7 @@ final class RegionService: @unchecked Sendable {
         let start = !active
         if start { active = true }
         lock.unlock()
-        if start { queue.async { self.turn() } }
+        if start { enqueue() }
     }
     /// Generation reset never replaces queue/admission/accounts. An old active
     /// shape continues to occupy the slot until its actual allocations unwind.
@@ -115,7 +134,7 @@ final class RegionService: @unchecked Sendable {
         if start { active = true }
         lock.unlock()
         withExtendedLifetime(abandoned) {}
-        if start { queue.async { self.turn() } }
+        if start { enqueue() }
     }
     func close() {
         lock.lock()
@@ -127,10 +146,10 @@ final class RegionService: @unchecked Sendable {
         if start { active = true }
         lock.unlock()
         withExtendedLifetime(abandoned) {} // payload destruction outside admission lock
-        if start { queue.async { self.turn() } }
+        if start { enqueue() }
     }
     private func turn() {
-        dispatchPrecondition(condition: .onQueue(queue))
+        precondition(!Thread.isMainThread)
         lock.lock()
         let stop = closed, release = retired, job = latest, jobEpoch = epoch, clear = resetStorage
         resetStorage = false
@@ -172,7 +191,7 @@ final class RegionService: @unchecked Sendable {
                         beforeLayoutConstruction()
                         do {
                             layout = try RegionWorkerLayout.shape(request.source, width: width, retainHits: request.width >= 0,
-                                                                 preparation: preparation, beforeMetadata: {
+                                                                 preparation: preparation, compact: request.compact, beforeMetadata: {
                                 if self.abandonShape(request, epoch: jobEpoch) { throw RegionShapeCheckpoint.abandoned }
                             })
                         } catch RegionShapeCheckpoint.abandoned {
@@ -211,7 +230,7 @@ final class RegionService: @unchecked Sendable {
         if !stopAfterWork && !stale { mailbox = answer; waiting = true }
         lock.unlock()
         if stopAfterWork { paint = nil; layouts.removeAll(); return }
-        if stale { queue.async { self.turn() }; return }
+        if stale { enqueue(); return }
         DispatchQueue.main.async { [self] in
             lock.lock()
             guard epoch == jobEpoch else { lock.unlock(); return }
@@ -220,7 +239,7 @@ final class RegionService: @unchecked Sendable {
             waiting = false
             lock.unlock()
             if let answer, resume { deliver(answer) }
-            if resume { queue.async { self.turn() } }
+            if resume { enqueue() }
         }
     }
 }

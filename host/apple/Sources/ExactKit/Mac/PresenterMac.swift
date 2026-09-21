@@ -260,6 +260,7 @@ final class Presenter {
         var waiting: [(CGFloat, NodeView)] = []
         var rasters: [NodeView] = []
         let candidates = textViewportIndex!.candidates(reach: Self.textRasterReach)
+        for node in candidates { node.readerParagraph?.update(node) }
         let replacementsDeferred = !inScrollCallback && textRasters.replaceVisible(candidates, wait: sliceBudget)
         var rastersDeferred = false
         for node in candidates where node.needsTextRaster && node.rastersText {
@@ -966,6 +967,7 @@ final class Presenter {
                 heightBindings.removeValue(forKey: id)
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
+                session?.text.readerParagraphs.removeValue(forKey: id)
                 let gone = views.removeValue(forKey: id)
                 chrome.forget(id)
                 scrollers.remove(id)

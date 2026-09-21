@@ -146,6 +146,7 @@ final class RegionWorkerLayout {
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
+            var lineInk = fontInk
             var aboveExplicit = source.strutExplicit, belowExplicit = aboveExplicit
             func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
                 if a > above { above = a; aboveExplicit = explicit }
@@ -155,6 +156,9 @@ final class RegionWorkerLayout {
             }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
+                let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
+                let shapedFont = attributes[kCTFontAttributeName] as! CTFont
+                if compact { lineInk = lineInk.union(CTFontGetBoundingBox(shapedFont)) }
                 var matched = false, includesNormal = false
                 // CoreText can coalesce adjacent spans with the same glyph
                 // attributes even when their authored line heights differ.
@@ -175,8 +179,6 @@ final class RegionWorkerLayout {
                     continue
                 }
                 if matched && !includesNormal { continue }
-                let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
-                let shapedFont = attributes[kCTFontAttributeName] as! CTFont
                 let a = CTFontGetAscent(shapedFont), d = CTFontGetDescent(shapedFont), l = CTFontGetLeading(shapedFont)
                 // Normal line height includes the actual emoji/fallback face's
                 // metrics, as CTLine measurement did before typed line heights.
@@ -190,7 +192,7 @@ final class RegionWorkerLayout {
             if retainHits {
                 if compact {
                     summaries.append(RegionLine(line, flush: flush, width: width, captureHits: false,
-                                                conservativeInk: fontInk.isNull ? .zero : fontInk))
+                                                conservativeInk: lineInk.isNull ? .zero : lineInk))
                 } else { lines.append(line) }
             }
             lineCount += 1

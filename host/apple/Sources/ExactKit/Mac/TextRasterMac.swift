@@ -51,7 +51,6 @@ final class TextRasterizer {
         let scale: CGFloat
     }
 
-    private let queue = DispatchQueue(label: "exact.text-raster", qos: .userInitiated, attributes: .concurrent)
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
     // A slice limits admission rate, not outstanding work. Keep no backlog:
     // the next pump tries the still-nearby paragraphs again when a worker is
@@ -102,7 +101,7 @@ final class TextRasterizer {
         }
         if urgent { node.useTextStrips() }
         active += 1
-        queue.async { [weak self, weak node] in
+        RegionTextExecutor.queue.addOperation { [weak self, weak node] in
             let image = Self.render(job)
             DispatchQueue.main.async { [weak self, weak node] in
                 self?.active -= 1
@@ -159,7 +158,7 @@ final class TextRasterizer {
         // Two bounded lanes, no job per paragraph queued behind old widths.
         for lane in 0..<workers {
             result.group.enter()
-            queue.async {
+            RegionTextExecutor.queue.addOperation {
                 for index in stride(from: lane, to: work.count, by: workers) {
                     result.put(Self.render(work[index].2), at: index)
                 }
@@ -261,7 +260,7 @@ extension NodeView {
 
     var canRasterText: Bool {
         if textRasterFailed, textRasterKey != nil { return false }
-        guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, window != nil,
+        guard readerParagraph == nil, kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, window != nil,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }

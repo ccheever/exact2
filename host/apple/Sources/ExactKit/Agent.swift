@@ -135,6 +135,7 @@ public final class Agent {
             nativeSections["raster"] = raster
             #if os(macOS)
             nativeSections["contentRegion"] = session.regions.diagnostics
+            nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {

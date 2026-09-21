@@ -161,6 +161,9 @@ extension Presenter {
 extension NodeView {
     /// Hit the same CoreText geometry as selection, rejecting blank space after a line.
     func textOffset(at point: CGPoint) -> Int? {
+        #if os(macOS)
+        if let readerParagraph { return readerParagraph.offset(at: point, node: self) }
+        #endif
         let box = contentBox()
         guard box.contains(point), let paragraph = paragraphLayout() else { return nil }
         let spec = paragraphSpec()

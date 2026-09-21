@@ -22,7 +22,7 @@ extension NodeView {
 
     func paragraphLayout() -> Paragraph? {
         #if os(macOS)
-        if presenter?.session?.regions.owns(self) == true { return nil }
+        if readerParagraph != nil || presenter?.session?.regions.owns(self) == true { return nil }
         #endif
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
@@ -55,6 +55,9 @@ extension NodeView {
     }
 
     func invalidateText() {
+        #if os(macOS)
+        readerParagraph?.invalidatePaint()
+        #endif
         cachedTextSpec = nil
         // Keep the previous accepted geometry alive through the next lookup.
         // A paint-only revision can reuse its ranges without breaking again.

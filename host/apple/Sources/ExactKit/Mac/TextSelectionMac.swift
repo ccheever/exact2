@@ -27,6 +27,11 @@ final class TextSelection {
     private var logicalFocus: Position?
     private var allListText = false
     private var positions: [UInt32: Position] = [:]
+    private var gesture: UInt64 = 0
+    private var motion: UInt64 = 0
+    private var pendingBegin = false
+    private var deferredDrag: NSEvent?
+    private var deferredEnd: (NodeView, NSEvent)?
 
     func structureChanged() {
         ordered = nil
@@ -75,6 +80,7 @@ final class TextSelection {
     }
 
     func clear() {
+        gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         anchor = nil; focus = nil
         anchorIndex = 0; focusIndex = 0
         dragged = false
@@ -83,9 +89,28 @@ final class TextSelection {
     }
 
     func begin(_ node: NodeView, event: NSEvent) {
+        gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
+        let point = node.local(event.locationInWindow)
+        if let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil {
+            pendingBegin = true
+            let current = gesture
+            reader.resolveOffset(at: point, node: node) { [weak self, weak node] index, _ in
+                guard let self, let node, self.gesture == current else { return }
+                self.pendingBegin = false
+                guard let index else { self.clear(); return }
+                self.begin(node, event: event, index: index)
+                let drag = self.deferredDrag, end = self.deferredEnd
+                self.deferredDrag = nil; self.deferredEnd = nil
+                if let drag { self.drag(drag) }
+                if let end { self.end(end.0, event: end.1) }
+            }
+        } else { begin(node, event: event, index: index(node, at: point)) }
+    }
+
+    private func begin(_ node: NodeView, event: NSEvent, index: Int) {
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
-        anchorIndex = index(node, at: node.local(event.locationInWindow))
+        anchorIndex = index
         focusIndex = anchorIndex
         dragged = false
         if event.clickCount >= 3 {
@@ -108,19 +133,41 @@ final class TextSelection {
     }
 
     func drag(_ event: NSEvent) {
+        if pendingBegin { deferredDrag = event; return }
         guard anchor != nil || list != nil else { return }
         dragged = true
         let point = event.locationInWindow
         let nodes = paragraphs.filter { list == nil || $0.isDescendant(of: list!) }
         guard let node = nodes.min(by: { distance($0, point) < distance($1, point) }) else { return }
+        motion += 1
+        let local = node.local(point)
+        if let reader = node.readerParagraph, reader.offset(at: local, node: node) == nil {
+            let current = gesture, sequence = motion
+            reader.resolveOffset(at: local, node: node) { [weak self, weak node] index, _ in
+                guard let self, let node, self.gesture == current, self.motion == sequence, let index else { return }
+                self.extend(node, event: event, index: index)
+            }
+        } else { extend(node, event: event, index: index(node, at: local)) }
+    }
+
+    private func extend(_ node: NodeView, event: NSEvent, index: Int) {
         focus = node
-        focusIndex = index(node, at: node.local(point))
+        focusIndex = index
         if let (_, value) = position(node, offset: focusIndex), list != nil { logicalFocus = value }
         node.autoscroll(with: event)
         invalidate()
     }
 
     func end(_ node: NodeView, event: NSEvent) {
+        if pendingBegin { deferredEnd = (node, event); return }
+        if !dragged, anchor === node, let reader = node.readerParagraph {
+            let current = gesture
+            reader.resolveOffset(at: node.local(event.locationInWindow), node: node) { [weak self] _, url in
+                guard let self, self.gesture == current, let url, let session = self.presenter?.session else { return }
+                session.delegate?.exactSession(session, command: "openURL", args: [url])
+            }
+            return
+        }
         guard !dragged, anchor === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
         // The containing app owns navigation (local Markdown, anchors,
         // browser URLs); no arbitrary URL scheme is launched by the presenter.
@@ -128,6 +175,7 @@ final class TextSelection {
     }
 
     func selectAll() {
+        gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let nodes = paragraphs
         if let first = nodes.first(where: { position($0, offset: 0) != nil }),
            let (owner, start) = position(first, offset: 0),
@@ -163,7 +211,10 @@ final class TextSelection {
         return parts.joined(separator: "\n\n")
     }
 
-    private func length(_ node: NodeView) -> Int { node.paragraphSpec().runs.reduce(0) { $0 + ($1.text as NSString).length } }
+    private func length(_ node: NodeView) -> Int {
+        if let source = node.readerParagraph?.accepted?.metadata.source { return source.utf16Count }
+        return node.paragraphSpec().runs.reduce(0) { $0 + ($1.text as NSString).length }
+    }
 
     func range(_ node: NodeView) -> NSRange? {
         if let list {
@@ -234,6 +285,7 @@ final class TextSelection {
     }
 
     private func index(_ node: NodeView, at point: NSPoint) -> Int {
+        if let reader = node.readerParagraph { return reader.offset(at: point, node: node) ?? 0 }
         let content = node.contentBox()
         if point.y < content.minY { return 0 }
         if point.y > content.maxY { return length(node) }

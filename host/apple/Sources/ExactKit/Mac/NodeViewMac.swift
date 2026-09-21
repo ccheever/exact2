@@ -1230,7 +1230,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isParagraph, !textDirty.isEmpty, presenter?.session?.regions.owns(self) != true {
             // The same paragraph the kernel measured at this width, painted.
             let spec = paragraphSpec()
-            if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
+            if let readerParagraph, let ctx = NSGraphicsContext.current?.cgContext {
+                readerParagraph.draw(self, in: ctx, dirty: textDirty)
+            } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
                 presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
                 TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: textDirty)
             }
