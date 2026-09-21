@@ -300,7 +300,10 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
 const sources: Sources = {
   syncMessages: () => changed(),
   syncState: () => replica?.status() || 'Conversation preview',
-  inbox: ([query,_revision])=>({people:people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(query.toLowerCase())).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))}),
+  inbox: ([query,_revision])=>{
+    const folded=query.toLowerCase();
+    return {people:people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(folded)).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))};
+  },
   recentlyDeleted: ([selection,_revision,now])=>{
     expireDeleted(now);
     const ids=new Set(selection.split('|'));
@@ -314,10 +317,10 @@ const sources: Sources = {
     return {people:rows,targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+p.count,0)};
   },
   recipients: ([ids,query,body,_revision])=>{
-    const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim();
-    const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===text.toLowerCase()) || addressPerson(text)):undefined;
+    const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim(),folded=text.toLowerCase();
+    const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===folded) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
-    const matches=people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(text.toLowerCase()));
+    const matches=people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(folded));
     if(pending && !selectedIds.has(pending.id) && !matches.some(p=>p.id===pending.id)) matches.unshift(pending);
     return {selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
       people:matches.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
