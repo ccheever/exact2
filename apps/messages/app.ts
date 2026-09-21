@@ -107,7 +107,7 @@ const muted = new Set<string>();
 const blocked = new Set<string>();
 const localContacts = new Map<string,{first:string,last:string,company:string,phone:string,email:string,notes:string}>();
 const deleted = new Set<string>();
-const recoverable = new Map<string,{message:StoredMessage,expires:number}[]>();
+const recoverable = new Map<string,{rows:{message:StoredMessage,expires:number}[],expires:number}>();
 const recoveryDay = 86400000;
 // Lower bound for every archived row's expiry. Removing rows may leave it early;
 // archive and restore include new deadlines, and an actual scan tightens it.
@@ -148,19 +148,21 @@ function message(id:string,body:string,outgoing:boolean,time:string,sender=outgo
 function expireDeleted(now:number) {
   if(now<nextRecoveryExpiry)return;
   nextRecoveryExpiry=Infinity;
-  for(const [id,records] of recoverable) {
-    const kept=records.filter(r=>{
+  for(const [id,archive] of recoverable) {
+    let expires=Infinity;
+    const kept=archive.rows.filter(r=>{
       if(!(r.expires>now))return false;
-      nextRecoveryExpiry=Math.min(nextRecoveryExpiry,r.expires);return true;
+      expires=Math.min(expires,r.expires);return true;
     });
-    if(kept.length)recoverable.set(id,kept);else recoverable.delete(id);
+    if(kept.length){recoverable.set(id,{rows:kept,expires});nextRecoveryExpiry=Math.min(nextRecoveryExpiry,expires);}else recoverable.delete(id);
   }
 }
 function archiveMessages(id:string,rows:StoredMessage[],now:number) {
   expireDeleted(now);
   if(rows.length){
     const expires=now+30*recoveryDay;
-    recoverable.set(id,[...(recoverable.get(id)||[]),...rows.map(message=>({message,expires}))]);
+    const previous=recoverable.get(id);
+    recoverable.set(id,{rows:[...(previous?.rows||[]),...rows.map(message=>({message,expires}))],expires:Math.min(previous?.expires??Infinity,expires)});
     nextRecoveryExpiry=Math.min(nextRecoveryExpiry,expires);
   }
 }
@@ -300,9 +302,9 @@ const sources: Sources = {
     expireDeleted(now);
     const ids=new Set(selection.split('|'));
     const rows=people.flatMap(p=>{
-      const records=recoverable.get(p.id);if(!records?.length)return [];
-      return [{id:p.id,name:p.name,initials:p.initials,color:p.color,count:records.length,
-        days:Math.ceil((Math.min(...records.map(r=>r.expires))-now)/recoveryDay),chosen:ids.has(p.id),
+      const archive=recoverable.get(p.id);if(!archive?.rows.length)return [];
+      return [{id:p.id,name:p.name,initials:p.initials,color:p.color,count:archive.rows.length,
+        days:Math.ceil((archive.expires-now)/recoveryDay),chosen:ids.has(p.id),
         selection:(ids.has(p.id)?[...ids].filter(id=>id!==p.id):[...ids,p.id]).filter(Boolean).join('|')}];
     });
     const chosen=selection?rows.filter(p=>p.chosen):rows;
@@ -361,7 +363,7 @@ const sources: Sources = {
   recoverConversations: ([selection,now])=>{
     expireDeleted(now);
     for(const id of new Set(selection.split('|'))) {
-      const records=recoverable.get(id);if(!records?.length)continue;
+      const records=recoverable.get(id)?.rows;if(!records?.length)continue;
       for(const row of records)insertMessage(id,row.message);
       recoverable.delete(id);deleted.delete(id);refreshPreview(id);revision++;
     }
@@ -450,7 +452,7 @@ function snapshot():Records {
   const records:Records=new Map();
   people.forEach(person=>putPerson(records,person));
   for(const [id,rows] of threads)for(const message of rows)putMessage(records,id,message,null);
-  for(const [id,rows] of recoverable)for(const row of rows)putMessage(records,id,row.message,row.expires);
+  for(const [id,archive] of recoverable)for(const row of archive.rows)putMessage(records,id,row.message,row.expires);
   // persist detaches changed values before awaiting storage; unchanged rows
   // already have an owned copy in the replica.
   return records;
@@ -530,7 +532,7 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       // Expiry can remove rows outside the selected conversation. Capture only
       // those candidates, retaining the handler's strict > comparison. Negating
       // < also scans for NaN rather than silently retaining expired rows.
-      if(!(now<nextRecoveryExpiry))for(const [key,rows] of recoverable)for(const row of rows)if(!(row.expires>now))include(key,row.message.id);
+      if(!(now<nextRecoveryExpiry))for(const [key,archive] of recoverable)for(const row of archive.rows)if(!(row.expires>now))include(key,row.message.id);
       if(source==='deleteConversation'){
         persons.add(id);for(const row of threads.get(id)||[])include(id,row.id);
       }else if(source==='deleteMessages'){
@@ -538,7 +540,7 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       }else if(source==='recoverConversations'||source==='purgeConversations'){
         for(const key of new Set(id.split('|'))){
           if(source==='recoverConversations')persons.add(key);
-          for(const row of recoverable.get(key)||[])include(key,row.message.id);
+          for(const row of recoverable.get(key)?.rows||[])include(key,row.message.id);
         }
       }
       removes=true;capture=()=>{
@@ -548,7 +550,7 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
           live(rows,key,ids);
           // The same key moves between live and archived storage on delete or
           // recover. As in snapshot(), archived rows take precedence.
-          for(const row of recoverable.get(key)||[])if(ids.has(row.message.id))putMessage(rows,key,row.message,row.expires);
+          for(const row of recoverable.get(key)?.rows||[])if(ids.has(row.message.id))putMessage(rows,key,row.message,row.expires);
         }
         return rows;
       };break;
@@ -589,7 +591,11 @@ function restore(records:Records):void {
     if(row.draft)drafts.set(id,row.draft);if(row.group)groups.set(id,row.group);if(row.contact)localContacts.set(id,row.contact);
   }
   for(const row of messages.sort((a,b)=>compareMessages(a.message,b.message))){
-    if(row.expires!==null){const rows=recoverable.get(row.conversation)||[];rows.push({message:row.message,expires:row.expires});recoverable.set(row.conversation,rows);nextRecoveryExpiry=Math.min(nextRecoveryExpiry,row.expires);}
+    if(row.expires!==null){
+      const archive=recoverable.get(row.conversation)||{rows:[],expires:Infinity};
+      archive.rows.push({message:row.message,expires:row.expires});archive.expires=Math.min(archive.expires,row.expires);
+      recoverable.set(row.conversation,archive);nextRecoveryExpiry=Math.min(nextRecoveryExpiry,row.expires);
+    }
     else insertMessage(row.conversation,row.message);
     messageOrder=Math.max(messageOrder,row.message.order+1);
   }

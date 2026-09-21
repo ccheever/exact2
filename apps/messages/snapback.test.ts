@@ -477,6 +477,25 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect(new Map((await act('recentlyDeleted',['',0,39*day])).live).has(reopenedExpiry)).toBe(false);
     const nonfiniteExpiry=await archiveOne('maya','Nonfinite expiry clock',10*day);
     expect(new Map((await act('recentlyDeleted',['',0,NaN])).live).has(nonfiniteExpiry)).toBe(false);
+    // One archive can contain different deadlines in insertion order. Its
+    // summary minimum must advance after partial expiry and rebuild on reopen.
+    await archiveOne('maya','Summary latest',10*day);
+    await archiveOne('maya','Summary earliest',0);
+    await archiveOne('maya','Summary middle',9*day);
+    const summary=async(now:number)=>{
+      const result=await call('recentlyDeleted',['maya',0,now]);await inspect();
+      return result.people.find((p:any)=>p.id==='maya');
+    };
+    expect(await summary(0)).toMatchObject({count:3,days:30,chosen:true});
+    expect(await summary(30*day)).toMatchObject({count:2,days:9});
+    failCommit=true;
+    await expect(call('recentlyDeleted',['maya',0,39*day])).rejects.toThrow('footprint commit refused');
+    expect(await summary(30*day)).toMatchObject({count:2,days:9});
+    app=await import(output+`?instance=${generation++}`);
+    await call('conversation',['maya',0,'','','']);
+    expect(await summary(30*day)).toMatchObject({count:2,days:9});
+    expect(await summary(39*day)).toMatchObject({count:1,days:1});
+    expect(await summary(40*day)).toBeUndefined();
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);
