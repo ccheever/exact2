@@ -28,7 +28,10 @@ function message(error: unknown): string {
 async function database(storage: Storage): Promise<Database> {
   const db = await storage.sqlite.open('app:/data/fieldnotes.db');
   try {
-    await db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)');
+    // On web, even a no-op execute exports the complete database. Check each
+    // opened file instead of caching readiness across replacement or deletion.
+    const schema = await db.query("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='notes'");
+    if (!schema.rows.length) await db.execute('CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, body TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0)');
     return db;
   } catch (error) { await db.close(); throw error; }
 }

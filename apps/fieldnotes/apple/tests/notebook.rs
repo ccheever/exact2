@@ -732,6 +732,22 @@ fn rust_backup_keeps_one_snapshot_when_another_writer_changes_a_later_note() {
     else {
         panic!("backup must read storage");
     };
+    let schema = rust
+        .module
+        .continuation(request.continuation.unwrap())
+        .unwrap();
+    let Answer::Later(request) = rust
+        .module
+        .parse(
+            &mut rust.store,
+            "backupNotes",
+            &[],
+            std::thread::spawn(schema).join().unwrap(),
+        )
+        .unwrap()
+    else {
+        panic!("backup must read its snapshot after checking the schema");
+    };
     let read = rust
         .module
         .continuation(request.continuation.unwrap())
@@ -1244,4 +1260,64 @@ fn previews_preserve_unicode_whitespace_truncation_and_large_ids() {
         app.library("HIGHER\n")["notes"].as_array().unwrap().len(),
         1
     );
+}
+
+#[test]
+fn schema_checks_initialize_fresh_and_replaced_databases_without_cached_readiness() {
+    let root = Root::new();
+    let path = root.0.join("data/fieldnotes.db");
+    let mut ts = Notebook::open(&root);
+    for source in [
+        "library",
+        "saveNote",
+        "backupNotes",
+        "restoreNotes",
+        "deleteNote",
+        "openNote",
+    ] {
+        let _ = std::fs::remove_file(&path);
+        let args = match source {
+            "library" => vec![Value::str(""), Value::Number(0.), Value::Number(0.)],
+            "saveNote" => vec![
+                Value::str(""),
+                Value::str("Fresh"),
+                Value::str("Body"),
+                Value::Bool(false),
+                Value::Number(1.),
+            ],
+            "restoreNotes" => vec![Value::str(r#"{"version":1,"notes":[]}"#)],
+            "deleteNote" => vec![Value::str("1")],
+            "openNote" => vec![Value::str("1"), Value::Number(1.)],
+            _ => vec![],
+        };
+        let result = ts.call(source, args);
+        if source == "openNote" {
+            assert!(
+                result["message"].as_str().unwrap().contains("deleted"),
+                "{result}"
+            );
+        } else {
+            assert_ne!(result["failed"], true, "{source}: {result}");
+        }
+        assert_eq!(ts.library("")["ready"], true, "{source}");
+    }
+    let mut rust = Notebook::with_data(&root, exact_data_host::Storage::new(AbiBackup::default()));
+    for _ in 0..2 {
+        std::fs::remove_file(&path).unwrap();
+        let result = rust.call("backupNotes", vec![]);
+        assert_eq!(result["failed"], false, "{result}");
+        let backup: Json = serde_json::from_str(result["backupText"].as_str().unwrap()).unwrap();
+        assert_eq!(backup["notes"], json!([]));
+    }
+    // A schema query failure must leave the file alone, not replace damaged data.
+    std::fs::write(&path, b"not a SQLite database").unwrap();
+    assert_eq!(
+        ts.call(
+            "library",
+            vec![Value::str(""), Value::Number(0.), Value::Number(0.)]
+        )["ready"],
+        false
+    );
+    assert_eq!(rust.call("backupNotes", vec![])["failed"], true);
+    assert_eq!(std::fs::read(&path).unwrap(), b"not a SQLite database");
 }

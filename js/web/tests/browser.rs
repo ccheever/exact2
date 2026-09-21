@@ -620,7 +620,12 @@ try {
       service.dispose();realm.dispose();return {reloaded:true};
     }
     const saved=await ask('saveNote',['','Café 🌿','京都\nBinary-safe backups\u2028line separator\u2029paragraph separator',true,1]);check(!saved.failed,'TS creates notebook');
+    const {createFileStore}=await import('/storage-fs.js');
+    const files=createFileStore(identity.appId);
+    const beforeBackup=(await files.stat(db)).modifiedMs;
     const expected=await ask('backupNotes');check(!expected.failed,'TS original backup');
+    check((await files.stat(db)).modifiedMs===beforeBackup,'TypeScript backup does not rewrite an initialized database');
+    files.close();
     // These are the same value-only operations emitted by fieldnotes-data;
     // the native fixture separately executes the Rust source through ABI2.
     const rows=await request('sqlite',{path:db,commands:[command('query','SELECT id,title,body,pinned FROM notes ORDER BY pinned DESC,id DESC')]});
