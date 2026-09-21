@@ -536,7 +536,7 @@ public final class ExactSession {
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
         for op in batch.ops {
-            let props = (op["props"] as? [String: String]) ?? (op["set"] as? [String: String]) ?? [:]
+            let props = op.props
             if let source = props["src"] ?? props["imageSource"], URL(string: source)?.scheme == nil, !source.hasPrefix("//") {
                 let path = source.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
                 let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
@@ -594,7 +594,7 @@ public final class ExactSession {
         guard state != .destroyed else { return }
         let outermost = !applying
         applying = true
-        for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
+        for op in batch.ops where op.op == .router { routerOp = op.payload }
         #if os(macOS)
         regions.prepare(batch)
         #endif
@@ -809,7 +809,7 @@ struct SessionTimerTrace {
     mutating func record(_ batch: Batch, at now: Double) -> String? {
         if started == nil { started = now }
         if !batch.ops.isEmpty { applies += 1 }
-        let count = batch.ops.filter { $0["op"] as? String == "flow" }.count
+        let count = batch.ops.filter { $0.op == .flow }.count
         if count > 0 {
             if let lastFlow { maxGap = max(maxGap, now - lastFlow) }
             lastFlow = now

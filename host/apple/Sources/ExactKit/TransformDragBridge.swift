@@ -1,7 +1,7 @@
 import CExact
 import Foundation
 
-struct TransformDragReply {
+struct TransformDragReply: Decodable {
     let accepted: Bool
     let committed: Bool
     let runtime: UInt64?
@@ -12,19 +12,23 @@ struct TransformDragReply {
     let batch: Batch
 
     init?(_ data: Data) {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let batch = object["batch"] as? [String: Any] else { return nil }
-        func key(_ name: String) -> UInt64? { (object[name] as? String).flatMap(UInt64.init) }
-        accepted = object["accepted"] as? Bool == true
-        committed = object["committed"] as? Bool == true
-        runtime = key("runtime"); sequence = key("geometrySequence")
-        translate = key("translateToken"); scale = key("scaleToken")
-        value = (object["value"] as? [Double]).flatMap(TransformDragPosition.init)
-        self.batch = Batch(ops: batch["ops"] as? [[String: Any]] ?? [],
-            timers: batch["timers"] as? Bool ?? false, motion: batch["motion"] as? Bool ?? false,
-            clock: batch["clock"] as? Double, error: batch["error"] as? String,
-            timerDueMs: batch["timer_due_ms"] as? Double, pending: batch["pending"] as? Bool ?? false)
+        guard let reply = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
+        self = reply
     }
+    enum CodingKeys: String, CodingKey {
+        case accepted, committed, runtime, geometrySequence, translateToken, scaleToken, value, batch
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func key(_ name: CodingKeys) throws -> UInt64? { try c.decodeIfPresent(String.self, forKey: name).flatMap(UInt64.init) }
+        accepted = try c.decodeIfPresent(Bool.self, forKey: .accepted) ?? false
+        committed = try c.decodeIfPresent(Bool.self, forKey: .committed) ?? false
+        runtime = try key(.runtime); sequence = try key(.geometrySequence)
+        translate = try key(.translateToken); scale = try key(.scaleToken)
+        value = try c.decodeIfPresent([Double].self, forKey: .value).flatMap(TransformDragPosition.init)
+        batch = try c.decode(Batch.self, forKey: .batch)
+    }
+
 }
 
 extension Runtime {

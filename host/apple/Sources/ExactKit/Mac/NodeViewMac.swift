@@ -207,7 +207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
-    var style: [String: Any] = [:]
+    var style: NodeStyle = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = []
     var translate = CGPoint.zero
@@ -504,7 +504,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let uniform = number("border_width")
         let content = bounds.insetBy(left: number("border_width_left", uniform) + number("padding_left"), top: number("border_width_top", uniform) + number("padding_top"), right: number("border_width_right", uniform) + number("padding_right"), bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
         clip.frame = content; leaf.frame = clip.bounds
-        switch style["object_fit"] as? String ?? "fill" {
+        switch style["object_fit"]?.string ?? "fill" {
         case "contain": leaf.imageScaling = .scaleProportionallyUpOrDown
         case "none": leaf.imageScaling = .scaleNone
         case "scale-down": leaf.imageScaling = .scaleProportionallyDown
@@ -792,19 +792,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        switch style[key] {
-        case let c as [Double] where c.count == 4: return c
-        case let pair as [[Double]] where pair.count == 2:
-            let half = (dark ?? drawsDark) ? pair[1] : pair[0]
-            return half.count == 4 ? half : nil
-        default: return nil
-        }
+        style[key]?.channels(dark: dark ?? drawsDark)
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
     var hasSchemeColor: Bool {
-        style.values.contains { ($0 as? [[Double]])?.count == 2 }
+        style.values.contains { $0.isSchemeColor }
     }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
@@ -828,7 +822,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         needsDisplay = true
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
-        if let n = style[key] as? Double { return CGFloat(n) }
+        if let n = style[key]?.number { return CGFloat(n) }
         return fallback
     }
 
@@ -891,7 +885,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     private var hasScrollLayoutBox: Bool {
         var ancestor: NSView? = self
         while let current = ancestor {
-            if let node = current as? NodeView, node.style["display"] as? String == "none" { return false }
+            if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
             ancestor = current.superview
         }
         return true
@@ -1017,7 +1011,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
     }
 
-    func applyStyle(_ s: [String: Any]) {
+    func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
         style = s
         let uniformBorder = number("border_width")
@@ -1036,7 +1030,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
-        let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
+        let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
@@ -1070,8 +1064,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.scrollsY = oy == "scroll"
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
-        let bx = s["overscroll_behavior_x"] as? String ?? "auto"
-        let by = s["overscroll_behavior_y"] as? String ?? "auto"
+        let bx = s["overscroll_behavior_x"]?.string ?? "auto"
+        let by = s["overscroll_behavior_y"]?.string ?? "auto"
         scroll?.containX = bx != "auto"
         scroll?.containY = by != "auto"
         scroll?.bouncesX = bx == "contain"
@@ -1083,7 +1077,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let ey: NSScrollView.Elasticity = by == "contain" ? .allowed : by == "none" ? .none : .automatic
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
-        let scrollbarWidth = s["scrollbar_width"] as? String ?? "auto"
+        let scrollbarWidth = s["scrollbar_width"]?.string ?? "auto"
         scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
         scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
@@ -1092,7 +1086,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         styleTextArea()
         if let f = field, let t = text {
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
+            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
             f.textColor = color("text_color", .black)
             applyPlaceholder(f)
             f.frame = contentBox()
@@ -1216,7 +1210,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             // stretches, `contain`/`cover` keep the ratio, `none` is the
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
-            let fit = style["object_fit"] as? String ?? "fill"
+            let fit = style["object_fit"]?.string ?? "fill"
             let content = bounds.insetBy(
                 left: number("border_width_left", uniform) + number("padding_left"),
                 top: number("border_width_top", uniform) + number("padding_top"),

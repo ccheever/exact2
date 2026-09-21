@@ -76,7 +76,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func visible(_ node: NodeView) -> Bool {
         var ancestor: NSView? = node
         while let view = ancestor {
-            if let node = view as? NodeView, node.style["display"] as? String == "none" { return false }
+            if let node = view as? NodeView, node.style["display"]?.string == "none" { return false }
             if view.isHidden && !(projected && view === owner) { return false }
             ancestor = view.superview
         }

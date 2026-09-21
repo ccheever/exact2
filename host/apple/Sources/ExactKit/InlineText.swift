@@ -2,7 +2,7 @@
 import Foundation
 import CoreText
 
-struct InlineText {
+struct InlineText: Decodable {
     let id: UInt32
     let parent: UInt32
     let props: [String: String]
@@ -13,16 +13,18 @@ struct InlineText {
     let paints: Bool
     var range: NSRange = NSRange(location: 0, length: 0)
 
-    init?(_ wire: [String: Any]) {
-        guard let id = wire["id"] as? Int, let parent = wire["parent"] as? Int else { return nil }
-        self.id = UInt32(id); self.parent = UInt32(parent)
-        props = wire["props"] as? [String: String] ?? [:]
-        let style = wire["style"] as? [String: Any] ?? [:]
+    enum CodingKeys: String, CodingKey { case id, parent, props, style, handlers, paint }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UInt32.self, forKey: .id)
+        parent = try c.decode(UInt32.self, forKey: .parent)
+        props = try c.decodeIfPresent([String: String].self, forKey: .props) ?? [:]
+        let style = try c.decodeIfPresent(NodeStyle.self, forKey: .style) ?? [:]
         lightRun = Self.run(props["text"] ?? "", style: style, href: props["href"] ?? "", dark: false)
-        darkColor = Self.channels(style["text_color"], dark: true)
-        hasSchemeColor = (style["text_color"] as? [[Double]])?.count == 2
-        handlers = Set(wire["handlers"] as? [String] ?? [])
-        paints = wire["paint"] as? Bool ?? false
+        darkColor = style["text_color"]?.channels(dark: true)
+        hasSchemeColor = style["text_color"]?.isSchemeColor ?? false
+        handlers = try c.decodeIfPresent(Set<String>.self, forKey: .handlers) ?? []
+        paints = try c.decodeIfPresent(Bool.self, forKey: .paint) ?? false
     }
 
     var text: String { lightRun.text }
@@ -32,24 +34,18 @@ struct InlineText {
         return value
     }
 
-    static func channels(_ value: Any?, dark: Bool) -> [Double]? {
-        if let c = value as? [Double], c.count == 4 { return c }
-        if let pair = value as? [[Double]], pair.count == 2, pair[dark ? 1 : 0].count == 4 { return pair[dark ? 1 : 0] }
-        return nil
-    }
-
-    static func run(_ text: String, style: [String: Any], href: String = "", dark: Bool) -> Run {
-        func number(_ key: String, _ fallback: Double = 0) -> Double { style[key] as? Double ?? fallback }
+    static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool) -> Run {
+        func number(_ key: String, _ fallback: Double = 0) -> Double { style[key]?.number ?? fallback }
         let size = Float(number("font_size", 16))
         let height: CGFloat?
-        if let ratio = style["line_height"] as? Double { height = CGFloat(Float(ratio) * size) }
-        else if let px = style["line_height"] as? String, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
+        if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }
+        else if let px = style["line_height"]?.string, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
         else { height = nil }
         return Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
-                   family: Int(number("font_family")), italic: style["font_style"] as? String == "italic",
+                   family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-                   color: channels(style["text_color"], dark: dark),
-                   decoration: style["text_decoration_line"] as? String ?? "", href: href)
+                   color: style["text_color"]?.channels(dark: dark),
+                   decoration: style["text_decoration_line"]?.string ?? "", href: href)
     }
 }
 
@@ -75,11 +71,11 @@ extension Presenter {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
     }
-    func applyParagraph(_ id: UInt32, _ wire: [[String: Any]]) {
+    func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }
         forgetParagraph(node)
         var offset = 0
-        var rows = wire.compactMap(InlineText.init)
+        var rows = runs
         for i in rows.indices {
             let count = rows[i].paints ? rows[i].text.utf16.count : 0
             rows[i].range = NSRange(location: offset, length: count)

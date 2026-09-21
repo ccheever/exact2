@@ -10,7 +10,7 @@ final class CollectionMacTests: XCTestCase {
          "correction": correction as Any? ?? NSNull()]
     }
     private func batch(_ ops: [[String: Any]]) -> Batch {
-        Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil)
+        batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)
     }
     private func fixture(collection: Bool = true, estimatedItemHeight: String? = nil,
                          configure: (Presenter) -> Void = { _ in }) -> (Presenter, NodeView) {

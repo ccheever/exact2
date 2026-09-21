@@ -148,8 +148,8 @@ final class CollectionHost {
     }
     func beginBatch(_ batch: Batch) {
         batchDepth += 1
-        for op in batch.ops where op["op"] as? String == "collections" {
-            guard let items = op["items"] as? [[String: Any]] else { continue }
+        for op in batch.ops where op.op == .collections {
+            guard let items = op.payload["items"] as? [[String: Any]] else { continue }
             let snapshots = items.compactMap(CollectionSnapshot.init)
             guard snapshots.count == items.count else { continue }
             let live = Set(snapshots.map(\.view))

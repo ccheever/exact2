@@ -157,16 +157,16 @@ import XCTest
             ["op":"frame","id":2,"w":200,"h":100], ["op":"content","id":3,"h":900],
             ["op":"props","id":UInt32(99),"set":["text":"outside typing"]],
             ["op":"children","id":UInt32(99),"ids":[UInt32(100)]]]
-        XCTAssertFalse(RegionRetentionInvalidation.required(ops: neutral,protected: protected))
+        XCTAssertFalse(regionInvalidationFixture(ops: neutral,protected: protected))
         for kind in ["props","style","destroy","create","present","surface"] {
             for id: UInt32 in [1,3,5] {
-                XCTAssertTrue(RegionRetentionInvalidation.required(ops: [["op":kind,"id":id]],protected: protected))
+                XCTAssertTrue(regionInvalidationFixture(ops: [["op":kind,"id":id]],protected: protected))
             }
         }
-        XCTAssertTrue(RegionRetentionInvalidation.required(ops: [["op":"children","id":UInt32(99),"ids":[UInt32(3)]]],protected: protected),"reparent into a previously unrelated ancestor")
-        XCTAssertTrue(RegionRetentionInvalidation.required(ops: [["op":"roots","ids":[UInt32(1)]]],protected: protected))
-        XCTAssertTrue(RegionRetentionInvalidation.required(ops: [["op":"unknown"]],protected: protected))
-        XCTAssertTrue(RegionRetentionInvalidation.required(ops: [["op":"style"]],protected: protected))
+        XCTAssertTrue(regionInvalidationFixture(ops: [["op":"children","id":UInt32(99),"ids":[UInt32(3)]]],protected: protected),"reparent into a previously unrelated ancestor")
+        XCTAssertTrue(regionInvalidationFixture(ops: [["op":"roots","ids":[UInt32(1)]]],protected: protected))
+        XCTAssertTrue(regionInvalidationFixture(ops: [["op":"unknown"]],protected: protected))
+        XCTAssertTrue(regionInvalidationFixture(ops: [["op":"style"]],protected: protected))
     }
     func testSourceOrContextABACannotRearmWithoutFreshPixels() {
         var state = RegionRetentionValidity()
@@ -179,9 +179,9 @@ import XCTest
         let protected: Set<UInt32> = [1]
         let aba: [[String: Any]] = [["op":"props","id":UInt32(1),"set":["text":"B"]],
                                    ["op":"props","id":UInt32(1),"set":["text":"A"]]]
-        if RegionRetentionInvalidation.required(ops: aba,protected: protected) { state.invalidate() }
+        if regionInvalidationFixture(ops: aba,protected: protected) { state.invalidate() }
         XCTAssertFalse(state.valid)
-        XCTAssertFalse(RegionRetentionInvalidation.required(ops: [["op":"frame","id":UInt32(1)]],protected: protected))
+        XCTAssertFalse(regionInvalidationFixture(ops: [["op":"frame","id":UInt32(1)]],protected: protected))
         XCTAssertFalse(state.valid)
         state.acceptedPixels()
         XCTAssertTrue(state.valid)

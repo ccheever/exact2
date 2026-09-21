@@ -46,7 +46,7 @@ final class TextFlowPresentationTests: XCTestCase {
     func testPresenterFlowClearsOnlyItsParagraphAndTranslatesPadding() throws {
         let session = ExactApp.shared.makeSession(label: "flow-batch")
         defer { session.destroy() }
-        func apply(_ ops: [[String: Any]]) { session.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
+        func apply(_ ops: [[String: Any]]) { session.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
         let text = String(repeating: "The river leaves room for the light. ", count: 12)
         apply([
             ["op": "create", "id": 1, "kind": "text", "props": ["text": text],

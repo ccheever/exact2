@@ -73,7 +73,7 @@ extension NodeView {
     }
     func styleTextArea() {
         guard let f = textArea, let t = text else { return }
-        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
+        f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
         f.textColor = color("text_color", .black)
         f.insertionPointColor = caretColor
         let paragraph = NSMutableParagraphStyle()

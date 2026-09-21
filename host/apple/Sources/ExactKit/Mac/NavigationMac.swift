@@ -13,16 +13,15 @@ final class NavigationHost {
         var touched = Set<UInt32>()
         var subtrees = reparented
         for op in batch.ops {
-            if let raw = op["id"] as? Int {
-                let id = UInt32(raw)
-                if op["op"] as? String == "destroy" { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
+            if let id = op.nodeID {
+                if op.op == .destroy { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
                 else { touched.insert(id) }
             }
             // A children op names retained siblings too. Only changed ancestry
             // can change their inherited gates; a list append must not revisit
             // every paragraph and cell already mounted in the window.
-            if op["op"] as? String == "roots" {
-                subtrees.formUnion((op["ids"] as? [Int] ?? []).map(UInt32.init))
+            if op.op == .roots {
+                subtrees.formUnion(op.ids)
             }
         }
         for nav in presenter.carrying("navigationBack") {

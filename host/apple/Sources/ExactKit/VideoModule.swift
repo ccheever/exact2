@@ -112,7 +112,7 @@ final class VideoView {
             visibilityBlocked = false
             owner.presenter?.videoVisibility?.remove(self)
         }
-        props["objectFit"] = owner.style["object_fit"] as? String ?? "contain"
+        props["objectFit"] = owner.style["object_fit"]?.string ?? "contain"
         for name in ["src", "poster"] {
             if let source = props[name], !source.isEmpty {
                 let resolved = NodeView.resolveSource(source, app: owner.presenter?.session?.app)

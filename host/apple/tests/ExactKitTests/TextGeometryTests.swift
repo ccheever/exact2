@@ -75,7 +75,7 @@ final class TextGeometryTests: XCTestCase {
         let run: [String: Any] = ["id": 3, "parent": 2, "paint": true, "style": style,
                                   "props": ["text": "retained run", "testId": "run"], "handlers": ["press"]]
         func apply(_ ops: [[String: Any]]) {
-            presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+            presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         }
         apply([
             ["op": "create", "id": 1, "kind": "view"],
@@ -208,7 +208,7 @@ final class TextGeometryTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
         ]
-        presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         var reported: [Double] = []
         presenter.onList = { _, top, _, _, _, _, _, _ in reported.append(top); return false }
         presenter.views[1]!.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 5000))
@@ -472,7 +472,7 @@ final class TextGeometryTests: XCTestCase {
         let value = "First line\nThird café 👩🏽‍💻"
         // A command may precede its target in the wire batch: delivery waits
         // for the complete batch, then stays inside this session.
-        session.apply(Batch(ops: [
+        session.apply(batchFixture(ops: [
             ["op": "command", "name": "selectText", "args": ["message"]],
             ["op": "create", "id": 1, "kind": "textarea", "props": ["id": "message", "editable": "false", "value": value]],
             ["op": "roots", "ids": [1]],
@@ -528,7 +528,7 @@ final class TextGeometryTests: XCTestCase {
         node.props = ["text": "First line\nSecond link", "href": "example.md"]
         session.presenter.root.addSubview(node)
         for (alignment, flush) in [("left", 0.0), ("center", 0.5), ("right", 1.0)] {
-            node.style = ["font_size": 16.0, "line_height": "20px", "text_align": alignment,
+            node.style = ["font_size": 16.0, "line_height": "20px", "text_align": .string(alignment),
                           "padding_left": 20.0, "padding_top": 25.0, "padding_right": 30.0,
                           "border_width": 2.0]
             node.invalidateText()

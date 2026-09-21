@@ -97,7 +97,7 @@ private final class Presentation {
     let backgroundHomeFrame: CGRect
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
-    var geometry: [UInt32: (node: NodeView, ops: [String: [String: Any]])] = [:]
+    var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
     var presenting = true
     var animated = false
     var alreadyDismissed = false
@@ -154,7 +154,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func prepare(_ batch: Batch) {
         for layer in layers where batch.ops.contains(where: {
-            $0["op"] as? String == "destroy" && $0["id"] as? Int == Int(layer.route.id)
+            $0.op == .destroy && $0.id == layer.route.id
         }) {
             let controller = layer.controller
             controller.freeze()
@@ -179,8 +179,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func defersGeometry(for node: NodeView) -> Bool { background(for: node) != nil }
 
-    func deferGeometry(_ op: [String: Any], for node: NodeView) -> Bool {
-        guard let layer = background(for: node), let kind = op["op"] as? String else { return false }
+    func deferGeometry(_ op: BatchOp, for node: NodeView) -> Bool {
+        guard let layer = background(for: node) else { return false }
+        let kind = op.op
         var saved = layer.geometry[node.id] ?? (node, [:])
         saved.ops[kind] = op
         layer.geometry[node.id] = saved
@@ -197,9 +198,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         // identity cannot replay geometry into its replacement.
         let geometry = layer.geometry
         layer.geometry = [:]
-        for (id, kind) in NavigationRules.replayOrder(deferred: geometry.mapValues { Set($0.ops.keys) }) {
+        for (id, kind) in NavigationRules.replayOrder(deferred: geometry.mapValues { Set($0.ops.keys.map(\.rawValue)) }) {
             if let saved = geometry[id], presenter.views[id] === saved.node,
-               let op = saved.ops[kind] { presenter.applyGeometry(op) }
+               let op = saved.ops[BatchOp.Kind(rawValue: kind) ?? .unknown] { presenter.applyGeometry(op) }
         }
         for saved in geometry.values where presenter.views[saved.node.id] === saved.node {
             saved.node.restoreScrollPosition()

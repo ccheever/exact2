@@ -10,8 +10,8 @@ import Foundation
 
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
-public struct Batch {
-    public let ops: [[String: Any]]
+public struct Batch: Decodable {
+    public let ops: [BatchOp]
     public let timers: Bool
     public let motion: Bool
     /// The runner's clock after the call, milliseconds (LLP 1012 `clock`).
@@ -20,6 +20,29 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    enum CodingKeys: String, CodingKey {
+        case ops, timers, motion, clock, error, pending
+        case timerDueMs = "timer_due_ms"
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ops = try c.decodeIfPresent([BatchOp].self, forKey: .ops) ?? []
+        timers = try c.decodeIfPresent(Bool.self, forKey: .timers) ?? false
+        motion = try c.decodeIfPresent(Bool.self, forKey: .motion) ?? false
+        clock = try c.decodeIfPresent(Double.self, forKey: .clock)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        timerDueMs = try c.decodeIfPresent(Double.self, forKey: .timerDueMs)
+        pending = try c.decodeIfPresent(Bool.self, forKey: .pending) ?? false
+    }
+    init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
+        self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
+        self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
+    }
+    static func decode(_ data: Data) -> Batch {
+        (try? JSONDecoder().decode(Batch.self, from: data))
+            ?? Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
+    }
+
 }
 
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
@@ -50,10 +73,7 @@ final class Runtime {
 
     func read(_ len: UInt32) -> Batch {
         let data = Data(bytes: exact_out(rt), count: Int(len))
-        guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
-        }
-        return Batch(ops: obj["ops"] as? [[String: Any]] ?? [], timers: obj["timers"] as? Bool ?? false, motion: obj["motion"] as? Bool ?? false, clock: obj["clock"] as? Double, error: obj["error"] as? String, timerDueMs: obj["timer_due_ms"] as? Double, pending: obj["pending"] as? Bool ?? false)
+        return Batch.decode(data)
     }
     /// A payload into the runtime's input buffer; its length. An empty
     /// payload clears the buffer without dereferencing anything.
@@ -97,12 +117,12 @@ final class Runtime {
     func contextmenu(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 10, 0, now)) }
     func holdBegin(_ view: UInt32, property: UInt32, now: Double) -> (NativeHold?, Batch) {
         let batch = read(exact_hold_begin(rt, view, property, now))
-        let start = batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init)
+        let start = batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }
         return (start, batch)
     }
     func heightDragBegin(_ handleKey: UInt64, targetKey: UInt64, now: Double) -> (NativeHold?, Batch) {
         let batch = read(exact_height_drag_begin(rt, handleKey, targetKey, now))
-        return (batch.ops.first { $0["op"] as? String == "hold" }.flatMap(NativeHold.init), batch)
+        return (batch.ops.first { $0.op == .hold }.flatMap { NativeHold($0.payload) }, batch)
     }
     func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
         read(exact_height_drag_update(rt, token, height, now))

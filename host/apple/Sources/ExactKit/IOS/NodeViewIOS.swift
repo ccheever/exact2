@@ -93,7 +93,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
-    var style: [String: Any] = [:]
+    var style: NodeStyle = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = [] {
         didSet {
@@ -126,7 +126,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
-        let action = style["touch_action"] as? String ?? "auto"
+        let action = style["touch_action"]?.string ?? "auto"
         if action == "auto" || action == "manipulation" { return true }
         let values = action.split(separator: " ")
         if abs(velocity.x) > abs(velocity.y) {
@@ -449,7 +449,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let uniform = number("border_width")
         let content = bounds.insetBy(left: number("border_width_left", uniform) + number("padding_left"), top: number("border_width_top", uniform) + number("padding_top"), right: number("border_width_right", uniform) + number("padding_right"), bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
         leaf.frame = content; leaf.clipsToBounds = true
-        switch style["object_fit"] as? String ?? "fill" {
+        switch style["object_fit"]?.string ?? "fill" {
         case "contain": leaf.contentMode = .scaleAspectFit
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
@@ -609,12 +609,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// CSS's admitted `x mandatory` / `start` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard (style["scroll_snap_type"] as? String) == "x mandatory" else { return }
+        guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
         let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
         var positions: [CGFloat] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
-                if (node.style["scroll_snap_align"] as? String) == "start" {
+                if (node.style["scroll_snap_align"]?.string) == "start" {
                     let rect = node.convert(node.bounds, to: scrollView)
                     // A snap area wider than the viewport can be explored
                     // freely while it covers the viewport (CSS Snap §5.2.2).
@@ -623,7 +623,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                     positions.append(min(end, max(start, targetContentOffset.pointee.x)))
                 }
                 // A nested scroll container captures its own snap areas.
-                if node.scroll == nil && (node.style["scroll_snap_type"] as? String ?? "none") == "none" { visit(node.container) }
+                if node.scroll == nil && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
             }
         }
         visit(scrollView)
@@ -703,8 +703,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             // parent box first made those visible choices impossible to tap.
             let outsideX = point.x < bounds.minX || point.x > bounds.maxX
             let outsideY = point.y < bounds.minY || point.y > bounds.maxY
-            if outsideX && (style["overflow_x"] as? String ?? "visible") != "visible" { return nil }
-            if outsideY && (style["overflow_y"] as? String ?? "visible") != "visible" { return nil }
+            if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
+            if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
                 if child === materialView, materialKind == "glass", let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
@@ -754,20 +754,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        switch style[key] {
-        case let c as [Double] where c.count == 4: return c
-        case let pair as [[Double]] where pair.count == 2:
-            let half = (dark ?? drawsDark) ? pair[1] : pair[0]
-            return half.count == 4 ? half : nil
-        default: return nil
-        }
+        style[key]?.channels(dark: dark ?? drawsDark)
     }
     func color(_ key: String, _ fallback: UIColor) -> UIColor {
         guard let c = channels(key) else { return fallback }
         return TextEngine.color(c)
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
-        if let n = style[key] as? Double { return CGFloat(n) }
+        if let n = style[key]?.number { return CGFloat(n) }
         return fallback
     }
 
@@ -810,7 +804,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     private var hasScrollLayoutBox: Bool {
         var ancestor: UIView? = self
         while let current = ancestor {
-            if let node = current as? NodeView, node.style["display"] as? String == "none" { return false }
+            if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
             ancestor = current.superview
         }
         return true
@@ -1021,7 +1015,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         default: scroll?.keyboardDismissMode = .none
         }
     }
-    func applyStyle(_ s: [String: Any]) {
+    func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
         style = s
         updateSymbol()
@@ -1031,7 +1025,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
-        let ox = s["overflow_x"] as? String ?? "visible", oy = s["overflow_y"] as? String ?? "visible"
+        let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ScrollView(frame: bounds)
             sv.backgroundColor = .clear
@@ -1048,12 +1042,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             sv.removeFromSuperview()
             scroll = nil
         }
-        scroll?.decelerationRate = (s["scroll_snap_type"] as? String) == "x mandatory" ? .fast : .normal
+        scroll?.decelerationRate = (s["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
-        let indicators = (s["scrollbar_width"] as? String ?? "auto") != "none"
+        let indicators = (s["scrollbar_width"]?.string ?? "auto") != "none"
         scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
         scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
         updateKeyboardDismissal()
@@ -1061,7 +1055,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clipsToBounds = ox == "hidden" || oy == "hidden"
         styleTextArea()
         if let f = field, let t = text {
-            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic")
+            f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
             f.textColor = color("text_color", .black)
             applyPlaceholder(f)
             f.frame = contentBox()
@@ -1177,7 +1171,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             // stretches, `contain`/`cover` keep the ratio, `none` is the
             // natural size, `scale-down` the smaller of none and contain;
             // an unknown value is the initial `fill`.
-            let fit = style["object_fit"] as? String ?? "fill"
+            let fit = style["object_fit"]?.string ?? "fill"
             let content = bounds.insetBy(
                 left: number("border_width_left", uniform) + number("padding_left"),
                 top: number("border_width_top", uniform) + number("padding_top"),

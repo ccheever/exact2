@@ -114,7 +114,7 @@ final class PageScrollMacTests: XCTestCase {
             XCTAssertEqual(p.root.frame, old)
             XCTAssertTrue(p.deferGeometry {})
         }
-        p.apply(Batch(ops: [
+        p.apply(batchFixture(ops: [
             ["op": "create", "id": 1, "kind": "view", "props": ["viewportFit": "cover"]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 960.0, "h": 900.0],
             ["op": "roots", "ids": [1]]

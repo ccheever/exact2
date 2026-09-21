@@ -6,14 +6,14 @@ extension NodeView {
     var usedLineHeight: CGFloat? {
         // JSON carries shortest f32 decimals; the measurement ABI carries f32
         // values. Resolve in the kernel's precision before widening for CoreText.
-        if let ratio = style["line_height"] as? Double { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
-        if let length = style["line_height"] as? String, length.hasSuffix("px"), let n = Float(length.dropLast(2)) { return CGFloat(n) }
+        if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
+        if let length = style["line_height"]?.string, length.hasSuffix("px"), let n = Float(length.dropLast(2)) { return CGFloat(n) }
         return nil
     }
 
     func textRun(_ value: String) -> Run {
         Run(text: value, size: CGFloat(Float(number("font_size", 16))), weight: Int(number("font_weight", 400)),
-            family: Int(number("font_family")), italic: (style["font_style"] as? String) == "italic",
+            family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
             lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))))
     }
 
@@ -69,7 +69,7 @@ extension NodeView {
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
         let align: Int
-        switch style["text_align"] as? String {
+        switch style["text_align"]?.string {
         case "center": align = 1
         case "right": align = 2
         case "justify": align = 3
@@ -88,7 +88,7 @@ extension NodeView {
         }
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
                         color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
-                        overflowWrap: style["overflow_wrap"] as? String == "anywhere" ? 2 : style["overflow_wrap"] as? String == "break-word" ? 1 : 0, direction: style["direction"] as? String == "rtl" ? 1 : 0, whiteSpace: style["white_space"] as? String == "pre-wrap" ? 1 : 0, strut: textRun(""))
+                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: style["direction"]?.string == "rtl" ? 1 : 0, whiteSpace: style["white_space"]?.string == "pre-wrap" ? 1 : 0, strut: textRun(""))
         cachedTextSpec = spec
         return spec
     }

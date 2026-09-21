@@ -3,11 +3,11 @@ import CoreGraphics
 import QuartzCore
 
 enum ClipPath {
-    static func path(_ value: Any?) -> CGPath? {
-        guard let commands = value as? [[Any]], !commands.isEmpty else { return nil }
+    static func path(_ value: BatchValue?) -> CGPath? {
+        guard let commands = value?.array, !commands.isEmpty else { return nil }
         let path = CGMutablePath()
         for command in commands {
-            guard let kind = command.first as? String, let values = command.last as? [Double] else { continue }
+            guard let kind = command.array?.first?.string, let values = command.array?.last?.numbers else { continue }
             func point(_ index: Int) -> CGPoint { CGPoint(x: values[index], y: values[index + 1]) }
             switch kind {
             case "M" where values.count == 2: path.move(to: point(0))

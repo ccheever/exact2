@@ -484,23 +484,23 @@ final class Presenter {
         }
         var beganGeometry = false
         for op in batch.ops {
-            guard let kind = op["op"] as? String else { continue }
-            if !beganGeometry && (kind == "frame" || kind == "content") {
+            let kind = op.op
+            if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
                 // Mount the native owner under the root's available box before
                 // content geometry lets UIKit settle its scroll relationship.
                 if let first = root.subviews.first as? NodeView {
-                    for frame in batch.ops where frame["op"] as? String == "frame" && frame["id"] as? Int == Int(first.id) {
+                    for frame in batch.ops where frame.op == .frame && frame.id == first.id {
                         applyGeometry(frame)
                     }
                 }
                 navigation.installInitialOwner(batch)
             }
-            let id = UInt32(op["id"] as? Int ?? 0)
-            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
+            let id = op.id
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
             switch kind {
-            case "transform-drag":
-                if let binding = TransformDragBinding(op) {
+            case .transformDrag:
+                if let binding = TransformDragBinding(op.payload) {
                     if binding.target == nil {
                         if transformBindings[binding.id]?.handleKey == binding.handleKey
                             && transformBindings[binding.id]?.runtime == binding.runtime {
@@ -510,13 +510,13 @@ final class Presenter {
                     } else { transformBindings[binding.id] = binding }
                     views[binding.id]?.updateTransformDragGesture()
                 }
-            case "retire-motion":
-                if let rawRuntime = op["runtime"] as? String, let runtime = UInt64(rawRuntime),
-                   let rawToken = op["token"] as? String, let token = UInt64(rawToken) {
+            case .retireMotion:
+                if let rawRuntime = op.payload["runtime"] as? String, let runtime = UInt64(rawRuntime),
+                   let rawToken = op.payload["token"] as? String, let token = UInt64(rawToken) {
                     session?.transformInputHold?.retire(runtime: runtime, token: token)
                 }
-            case "height-drag":
-                if let binding = HeightDragBinding(op) {
+            case .heightDrag:
+                if let binding = HeightDragBinding(op.payload) {
                     if binding.target == nil {
                         if heightBindings[binding.id]?.handleKey == binding.handleKey {
                             heightBindings.removeValue(forKey: binding.id)
@@ -524,24 +524,24 @@ final class Presenter {
                     } else { heightBindings[binding.id] = binding }
                     views[binding.id]?.updateHeightDragGesture()
                 }
-            case "create":
-                let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
-                v.handlers = Set(op["handlers"] as? [String] ?? [])
-                v.applyStyle(op["style"] as? [String: Any] ?? [:])
-                v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
+            case .create:
+                let v = NodeView(id: id, kind: op.kind, presenter: self)
+                v.handlers = op.handlers
+                v.applyStyle(op.style)
+                v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
-            case "paragraph":
-                applyParagraph(id, op["runs"] as? [[String: Any]] ?? [])
-            case "props":
-                views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
-            case "flow":
-                views[id]?.applyFlow(op["shapes"] as? [[String: Any]] ?? [])
-            case "style":
-                views[id]?.applyStyle(op["style"] as? [String: Any] ?? [:])
-            case "children":
+            case .paragraph:
+                applyParagraph(id, op.runs)
+            case .props:
+                views[id]?.applyProps(set: op.props, clear: op.clear)
+            case .flow:
+                views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
+            case .style:
+                views[id]?.applyStyle(op.style)
+            case .children:
                 guard let parent = views[id] else { continue }
-                let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
+                let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 for case let child as NodeView in container.subviews where !(want as [UIView]).contains(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
@@ -551,11 +551,11 @@ final class Presenter {
                 // it when it is already there.
                 let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
                 for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
-            case "surface":
-                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
-            case "command":
-                onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
-            case "destroy":
+            case .surface:
+                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] as? [Any] ?? []) }
+            case .command:
+                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .destroy:
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
@@ -568,16 +568,16 @@ final class Presenter {
                 scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
-            case "roots":
+            case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
-            case "frame", "content":
+                for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
+            case .frame, .content:
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
-            case "present":
+            case .present:
                 guard let v = views[id] else { continue }
-                let x = CGFloat(op["x"] as? Double ?? 0)
-                switch op["property"] as? String {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op["y"] as? Double ?? 0)); v.applyTransform()
+                let x = CGFloat(op.x)
+                switch op.property {
+                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
@@ -615,15 +615,15 @@ final class Presenter {
 
     /// Geometry can be deferred for the source route while a modal owns the
     /// session viewport. Replaying it uses the same path as the original batch.
-    func applyGeometry(_ op: [String: Any]) {
-        let id = UInt32(op["id"] as? Int ?? 0)
+    func applyGeometry(_ op: BatchOp) {
+        let id = op.id
         guard let v = views[id] else { return }
-        switch op["op"] as? String {
-        case "frame":
+        switch op.op {
+        case .frame:
             // A frame is set untransformed (UIKit's `frame` is undefined
             // under a transform); the presentation goes back on after.
             v.transform = .identity
-            v.frame = CGRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+            v.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
             v.scroll?.frame = v.bounds
             v.field?.frame = v.contentBox()
             v.layoutTextArea()
@@ -632,8 +632,8 @@ final class Presenter {
             v.web?.frame = v.bounds
             v.fitScroll()
             v.applyTransform()
-        case "content":
-            v.content = CGSize(width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+        case .content:
+            v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
         default: break
         }
@@ -656,7 +656,7 @@ final class Presenter {
     private func contextPanel(_ preview: NodeView) -> NodeView? {
         var parent = preview.superview as? NodeView
         while let node = parent {
-            if node.style["position_type"] as? String == "absolute" { return node }
+            if node.style["position_type"]?.string == "absolute" { return node }
             parent = node.superview as? NodeView
         }
         return nil
@@ -676,11 +676,10 @@ final class Presenter {
     /// out the source again. The preview owns this bounded presentation state.
     private func prepareContexts(_ batch: Batch) {
         for op in batch.ops {
-            let kind = op["op"] as? String
-            guard kind == "create" || kind == "props",
-                  let id = op["id"] as? Int,
-                  let props = op[kind == "create" ? "props" : "set"] as? [String: String],
-                  let target = props["contextTarget"],
+            let kind = op.op
+            guard kind == .create || kind == .props,
+                  let id = op.nodeID,
+                  let target = op.props["contextTarget"],
                   contextAnchors[UInt32(id)]?.target != target,
                   let source = carrying("id").first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }

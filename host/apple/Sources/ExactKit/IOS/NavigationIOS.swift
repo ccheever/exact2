@@ -63,7 +63,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     func prepare(_ batch: Batch) {
         guard let top = navigation?.topViewController as? RouteController else { return }
-        if batch.ops.contains(where: { $0["op"] as? String == "destroy" && $0["id"] as? Int == Int(top.node.id) }) {
+        if batch.ops.contains(where: { $0.op == .destroy && $0.id == top.node.id }) {
             top.freeze()
         }
     }
@@ -91,8 +91,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             container = root
             routeIDs = root.container.subviews.compactMap { ($0 as? NodeView)?.id }
         }
-        for op in batch.ops where op["op"] as? String == "children" && op["id"] as? Int == Int(root.id) {
-            routeIDs = (op["ids"] as? [Int] ?? []).map { UInt32($0) }
+        for op in batch.ops where op.op == .children && op.id == root.id {
+            routeIDs = op.ids
         }
         let routes = routeIDs.compactMap { presenter.views[$0] }.filter { $0.props["navigationKey"] != nil }
         // D1: the stack is the prefix through the route the root names; a

@@ -41,7 +41,7 @@ final class MouseSwipe {
             if let view = current as? NodeView {
                 if view.disabled { return }
                 if view.handlers.contains("swiperight") {
-                    let action = view.style["touch_action"] as? String ?? "auto"
+                    let action = view.style["touch_action"]?.string ?? "auto"
                     guard action == "none" || action.split(separator: " ").contains("pan-y") else { return }
                     candidate = view; origin = event.locationInWindow; last = origin
                     timestamp = event.timestamp; velocity = 0

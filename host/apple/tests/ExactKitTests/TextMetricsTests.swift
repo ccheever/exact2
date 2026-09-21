@@ -8,6 +8,22 @@ import CExact
 import XCTest
 @testable import ExactKit
 
+// Exercise the production decoder even when a fixture is written as JSON values.
+func batchFixture(ops: [[String: Any]], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) -> Batch {
+    let wire: [String: Any] = ["ops": ops, "timers": timers, "motion": motion,
+        "clock": clock as Any? ?? NSNull(), "error": error as Any? ?? NSNull(),
+        "timer_due_ms": timerDueMs as Any? ?? NSNull(), "pending": pending]
+    return try! JSONDecoder().decode(Batch.self, from: JSONSerialization.data(withJSONObject: wire))
+}
+extension Presenter {
+    func applyParagraphFixture(_ id: UInt32, _ rows: [[String: Any]]) {
+        applyParagraph(id, try! JSONDecoder().decode([InlineText].self, from: JSONSerialization.data(withJSONObject: rows)))
+    }
+}
+func regionInvalidationFixture(ops: [[String: Any]], protected: Set<UInt32>) -> Bool {
+    RegionRetentionInvalidation.required(ops: batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil).ops, protected: protected)
+}
+
 final class TextMetricsTests: XCTestCase {
     func testUnbreakableLineRasterIsBoundedAndContainsVisibleInk() throws {
         _ = NSApplication.shared
@@ -91,6 +107,57 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNotNil(node.textRaster)
     }
 
+    func testTypedBatchKeepsRunStylesAndInvalidatesOnlyWhenTextChanges() throws {
+        let wire = #"""
+        {"ops":[
+          {"op":"create","id":1,"kind":"text","style":{"text_align":"right","line_clamp":2}},
+          {"op":"paragraph","id":1,"runs":[
+            {"id":4294967295,"parent":1,"paint":true,
+             "props":{"text":"e\u0301 👩‍🚀","href":"example.md","testId":"styled"},"handlers":["press","hover"],
+             "style":{"font_size":14.72,"font_weight":700,"font_family":3,"font_style":"italic",
+               "line_height":1.3,"letter_spacing":0.1,"text_decoration_line":"underline",
+               "text_color":[[1,2,3,255],[201,202,203,255]]}}]},
+          {"op":"frame","id":1,"x":1.25,"y":-2.5,"w":300,"h":80},
+          {"op":"roots","ids":[1]}],"clock":12.5,"timers":true,"timer_due_ms":16,"motion":false}
+        """#
+        let batch = try JSONDecoder().decode(Batch.self, from: Data(wire.utf8))
+        XCTAssertNil(batch.error)
+        XCTAssertEqual(batch.timerDueMs, 16)
+        XCTAssertEqual(batch.clock, 12.5)
+        XCTAssertTrue(batch.ops.allSatisfy { $0.payload.isEmpty })
+        let p = Presenter()
+        p.apply(batch)
+        let node = try XCTUnwrap(p.views[1])
+        node.appearance = NSAppearance(named: .aqua)
+        XCTAssertNil(node.cachedTextSpec)
+        let inline = try XCTUnwrap(p.inlineText(UInt32.max))
+        let light = inline.run(dark: false), dark = inline.run(dark: true)
+        XCTAssertEqual(light.text, "e\u{301} 👩‍🚀")
+        XCTAssertEqual(light.size, CGFloat(Float(14.72)))
+        XCTAssertEqual(light.lineHeight, CGFloat(Float(14.72) * Float(1.3)))
+        XCTAssertEqual(light.letterSpacing, CGFloat(Float(0.1)))
+        XCTAssertEqual(light.weight, 700); XCTAssertEqual(light.family, 3); XCTAssertTrue(light.italic)
+        XCTAssertEqual(light.decoration, "underline"); XCTAssertEqual(light.href, "example.md")
+        XCTAssertEqual(light.color, [1, 2, 3, 255]); XCTAssertEqual(dark.color, [201, 202, 203, 255])
+        XCTAssertEqual(inline.props["testId"], "styled"); XCTAssertEqual(inline.handlers, ["press", "hover"])
+        let spec = node.paragraphSpec()
+        XCTAssertEqual(spec.runs, [light]); XCTAssertEqual(spec.align, 2); XCTAssertEqual(spec.lineClamp, 2)
+        p.apply(batchFixture(ops: [["op": "frame", "id": 1, "w": 250, "h": 80]], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertEqual(node.cachedTextSpec, spec, "geometry does not change a paragraph spec")
+        node.updateTextAccessibility()
+        XCTAssertEqual(node.cachedTextSpec, spec)
+        p.apply(batchFixture(ops: [["op": "props", "id": 1, "set": ["text": "replacement", "accessibilityLabel": "spoken"]],
+            ["op": "style", "id": 1, "style": [:]]], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertNil(node.cachedTextSpec)
+        XCTAssertEqual(node.accessibilityLabel(), "spoken")
+        XCTAssertEqual(node.paragraphSpec().runs.map(\.text), ["replacement"])
+        XCTAssertEqual(node.paragraphSpec().align, 0)
+        p.apply(batchFixture(ops: [["op": "props", "id": 1, "clear": ["text", "accessibilityLabel"]]], timers: false, motion: false, clock: nil, error: nil))
+        XCTAssertEqual(node.accessibilityLabel(), light.text)
+        XCTAssertEqual(node.paragraphSpec().runs, [light])
+        XCTAssertNotNil(Batch.decode(Data(#"{"ops":[{"op":"frame","id":-1}]}"#.utf8)).error)
+    }
+
     func testDenseInlineCountsDoNotCreateNativeViews() {
         for repetitions in [16, 256, 4096] {
             let presenter = Presenter()
@@ -98,7 +165,7 @@ final class TextMetricsTests: XCTestCase {
                 ["id": i + 2, "parent": 1, "paint": true,
                  "props": ["text": "run", "testId": "run-\(i)"], "style": ["font_weight": i % 2 == 0 ? 700 : 400]]
             }
-            presenter.apply(Batch(ops: [["op": "create", "id": 1, "kind": "text"],
+            presenter.apply(batchFixture(ops: [["op": "create", "id": 1, "kind": "text"],
                 ["op": "paragraph", "id": 1, "runs": rows]], timers: false, motion: false, clock: nil, error: nil))
             XCTAssertEqual(presenter.views.count, 1)
             XCTAssertEqual(presenter.inlineOwners.count, repetitions * 8)
@@ -112,9 +179,9 @@ final class TextMetricsTests: XCTestCase {
         let old = NodeView(id: 1, kind: "text", presenter: p)
         let next = NodeView(id: 2, kind: "text", presenter: p)
         p.views[1] = old; p.views[2] = next
-        p.applyParagraph(1, [["id": 3, "parent": 1, "paint": true, "props": ["text": "retained"]]])
-        p.applyParagraph(2, [["id": 3, "parent": 2, "paint": true, "props": ["text": "retained"]]])
-        p.applyParagraph(1, [])
+        p.applyParagraphFixture(1, [["id": 3, "parent": 1, "paint": true, "props": ["text": "retained"]]])
+        p.applyParagraphFixture(2, [["id": 3, "parent": 2, "paint": true, "props": ["text": "retained"]]])
+        p.applyParagraphFixture(1, [])
         XCTAssertTrue(p.textHost(3) === next)
         XCTAssertEqual(p.inlineText(3)?.props["text"], "retained")
         p.forgetParagraph(next)
@@ -137,7 +204,7 @@ final class TextMetricsTests: XCTestCase {
             ["id": 4, "parent": 3, "paint": true, "props": ["text": value],
              "style": ["font_size": size, "text_color": [[10.0, 20.0, 30.0, 255.0], [210.0, 220.0, 230.0, 255.0]]]],
         ] }
-        p.applyParagraph(1, rows(16))
+        p.applyParagraphFixture(1, rows(16))
         XCTAssertNil(node.cachedTextSpec, "accessibility must not build a paragraph spec")
         XCTAssertEqual(node.accessibilityLabel(), "Plain " + value)
         _ = node.paragraphSpec()
@@ -172,7 +239,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertEqual(old.baselines, colored.baselines)
         XCTAssertEqual(old.lines.map { CTLineGetStringRange($0).length }, colored.lines.map { CTLineGetStringRange($0).length })
         XCTAssertNil(colored.shape?.lineBreakBoundaries, "paint reuses ranges without discovering breaks")
-        p.applyParagraph(1, rows(24))
+        p.applyParagraphFixture(1, rows(24))
         let resized = try XCTUnwrap(node.paragraphLayout())
         XCTAssertFalse(colored.shape?.identity === resized.shape?.identity)
         XCTAssertNotNil(resized.shape?.lineBreakBoundaries)
@@ -207,7 +274,7 @@ final class TextMetricsTests: XCTestCase {
             for align in ["left", "center", "right"] { for text in texts {
                 window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
                 let node = NodeView(id: 1, kind: "text", presenter: presenter)
-                node.applyStyle(["font_size": 16.0, "line_height": "24px", "text_align": align,
+                node.applyStyle(["font_size": 16.0, "line_height": "24px", "text_align": .string(align),
                                  "text_color": [[30.0, 60.0, 90.0, 255.0], [220.0, 180.0, 150.0, 255.0]]])
                 presenter.views[1] = node
                 let inline: [String: Any] = ["id": 2, "parent": 1, "paint": true,
@@ -215,7 +282,7 @@ final class TextMetricsTests: XCTestCase {
                               "text_color": [180.0, 70.0, 40.0, 255.0]],
                     "props": ["text": text, "href": "https://example.invalid/"]]
                 let regular: [String: Any] = ["id": 3, "parent": 1, "paint": true, "props": ["text": "Regular → "]]
-                presenter.applyParagraph(1, text.isEmpty ? [inline] : [regular, inline])
+                presenter.applyParagraphFixture(1, text.isEmpty ? [inline] : [regular, inline])
                 node.frame = NSRect(x: 0, y: 800, width: width, height: 240)
                 node.prepareToMount()
                 presenter.root.addSubview(node)
@@ -409,7 +476,7 @@ final class TextMetricsTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport
         defer { window.close(); session.destroy() }
-        presenter.apply(Batch(ops: [
+        presenter.apply(batchFixture(ops: [
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "The Measured Page"],
              "style": ["font_size": 52.0, "font_weight": 700, "line_height": 0.6]],
             ["op": "roots", "ids": [1]],
@@ -481,7 +548,7 @@ final class TextMetricsTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport
         defer { window.close(); session.destroy() }
-        presenter.apply(Batch(ops: [
+        presenter.apply(batchFixture(ops: [
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
@@ -529,7 +596,7 @@ final class TextMetricsTests: XCTestCase {
         window.contentView = presenter.viewport
         defer { window.close(); session.destroy() }
         func batch(_ ops: [[String: Any]]) {
-            presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+            presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         }
         batch([
             ["op": "create", "id": 1, "kind": "view"],
@@ -589,7 +656,7 @@ final class TextMetricsTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport
         defer { window.close(); session.destroy() }
-        presenter.apply(Batch(ops: [
+        presenter.apply(batchFixture(ops: [
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "visible paragraph"]],
             ["op": "create", "id": 3, "kind": "text", "props": ["text": "offscreen paragraph"]],
@@ -672,7 +739,7 @@ final class TextMetricsTests: XCTestCase {
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport
         defer { window.close(); session.destroy() }
-        presenter.apply(Batch(ops: [
+        presenter.apply(batchFixture(ops: [
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "A paragraph around a shape"]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0],
@@ -742,8 +809,8 @@ final class TextMetricsTests: XCTestCase {
                 ])
                 return try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])
             }
-            parent.style = try style(16)
-            presenter.applyParagraph(1, [["id": 2, "parent": 1, "paint": true,
+            parent.style = try JSONDecoder().decode(NodeStyle.self, from: JSONSerialization.data(withJSONObject: style(16)))
+            presenter.applyParagraphFixture(1, [["id": 2, "parent": 1, "paint": true,
                 "props": ["text": text], "style": try style(14.72)]])
             parent.invalidateText()
             let spec = parent.paragraphSpec()
@@ -801,7 +868,7 @@ final class TextMetricsTests: XCTestCase {
             ops.append(["op": "frame", "id": id, "x": 0.0, "y": Double(id - 2) * 110,
                         "w": 400.0, "h": 100.0])
         }
-        p.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+        p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         let nodes = try (2...4).map { try XCTUnwrap(p.views[UInt32($0)]) }
         XCTAssertTrue(nodes.allSatisfy { $0.textRasterReady })
         for node in nodes {

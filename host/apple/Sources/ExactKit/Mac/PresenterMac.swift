@@ -879,15 +879,15 @@ final class Presenter {
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
         var reparented = Set<UInt32>()
-        let structureChanged = batch.ops.contains { ["children", "roots", "destroy", "create", "style"].contains($0["op"] as? String ?? "") }
+        let structureChanged = batch.ops.contains { [.children, .roots, .destroy, .create, .style].contains($0.op) }
         if structureChanged { selection.structureChanged() }
         for op in batch.ops {
-            guard let kind = op["op"] as? String else { continue }
-            let id = UInt32(op["id"] as? Int ?? 0)
-            if kind == "children" { touched(id, children: true) } else if kind != "roots" && kind != "create" { touched(id, textChanged: kind == "props" || kind == "style" || kind == "destroy") }
+            let kind = op.op
+            let id = op.id
+            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
             switch kind {
-            case "transform-drag":
-                if let binding = TransformDragBinding(op) {
+            case .transformDrag:
+                if let binding = TransformDragBinding(op.payload) {
                     if binding.target == nil {
                         if transformBindings[binding.id]?.handleKey == binding.handleKey
                             && transformBindings[binding.id]?.runtime == binding.runtime {
@@ -896,37 +896,37 @@ final class Presenter {
                         }
                     } else { transformBindings[binding.id] = binding }
                 }
-            case "retire-motion":
-                if let rawRuntime = op["runtime"] as? String, let runtime = UInt64(rawRuntime),
-                   let rawToken = op["token"] as? String, let token = UInt64(rawToken) {
+            case .retireMotion:
+                if let rawRuntime = op.payload["runtime"] as? String, let runtime = UInt64(rawRuntime),
+                   let rawToken = op.payload["token"] as? String, let token = UInt64(rawToken) {
                     session?.transformInputHold?.retire(runtime: runtime, token: token)
                 }
-            case "height-drag":
-                if let binding = HeightDragBinding(op) {
+            case .heightDrag:
+                if let binding = HeightDragBinding(op.payload) {
                     if binding.target == nil {
                         if heightBindings[binding.id]?.handleKey == binding.handleKey {
                             heightBindings.removeValue(forKey: binding.id)
                         }
                     } else { heightBindings[binding.id] = binding }
                 }
-            case "create":
-                let v = NodeView(id: id, kind: op["kind"] as? String ?? "view", presenter: self)
-                v.handlers = Set(op["handlers"] as? [String] ?? [])
-                v.applyStyle(op["style"] as? [String: Any] ?? [:])
-                v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
+            case .create:
+                let v = NodeView(id: id, kind: op.kind, presenter: self)
+                v.handlers = op.handlers
+                v.applyStyle(op.style)
+                v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
-            case "paragraph":
-                applyParagraph(id, op["runs"] as? [[String: Any]] ?? [])
-            case "props":
-                views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
-            case "flow":
-                views[id]?.applyFlow(op["shapes"] as? [[String: Any]] ?? [])
-            case "style":
-                views[id]?.applyStyle(op["style"] as? [String: Any] ?? [:])
-            case "children":
+            case .paragraph:
+                applyParagraph(id, op.runs)
+            case .props:
+                views[id]?.applyProps(set: op.props, clear: op.clear)
+            case .flow:
+                views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
+            case .style:
+                views[id]?.applyStyle(op.style)
+            case .children:
                 guard let parent = views[id] else { continue }
-                let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
+                let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) {
@@ -950,11 +950,11 @@ final class Presenter {
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
                 }
-            case "surface":
-                if let v = views[id] { session?.canvases.surface(view: v, name: op["name"] as? String ?? "", values: op["values"] as? [Any] ?? []) }
-            case "command":
-                onCommand?(op["name"] as? String ?? "", op["args"] as? [Any] ?? [])
-            case "destroy":
+            case .surface:
+                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] as? [Any] ?? []) }
+            case .command:
+                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .destroy:
                 mouseSwipe.retire(id)
                 mouseLayoutPan.retire(id)
                 mouseHeightDrag.retire(id)
@@ -975,15 +975,15 @@ final class Presenter {
                 listTravel.removeValue(forKey: id)
                 listFillCosts.removeValue(forKey: id)
                 gone?.removeFromSuperview()
-            case "roots":
+            case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
-                for r in (op["ids"] as? [Int] ?? []).compactMap({ views[UInt32($0)] }) {
+                for r in op.ids.compactMap({ views[UInt32($0)] }) {
                     r.prepareToMount()
                     root.addSubview(r)
                 }
-            case "frame":
+            case .frame:
                 guard let v = views[id] else { continue }
-                v.frame = NSRect(x: op["x"] as? Double ?? 0, y: op["y"] as? Double ?? 0, width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                v.frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.contentBox()
@@ -993,16 +993,16 @@ final class Presenter {
                 v.web?.frame = v.bounds
                 v.fitScroll()
                 v.applyTransform()
-            case "content":
+            case .content:
                 if let v = views[id] {
-                    v.content = CGSize(width: op["w"] as? Double ?? 0, height: op["h"] as? Double ?? 0)
+                    v.content = CGSize(width: op.w, height: op.h)
                     v.fitScroll()
                 }
-            case "present":
+            case .present:
                 guard let v = views[id] else { continue }
-                let x = CGFloat(op["x"] as? Double ?? 0)
-                switch op["property"] as? String {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op["y"] as? Double ?? 0)); v.applyTransform()
+                let x = CGFloat(op.x)
+                switch op.property {
+                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x
@@ -1035,7 +1035,7 @@ final class Presenter {
         toolbar.sync()
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
-        if structureChanged || batch.ops.contains(where: { $0["op"] as? String == "props" }) {
+        if structureChanged || batch.ops.contains(where: { $0.op == .props }) {
             keyViewLoopChanged(whileScrolling: listSyncDepth > 0)
         }
     }
@@ -1048,7 +1048,7 @@ final class Presenter {
                   let source = views.values.first(where: { $0.props["id"] == target }),
                   source.window != nil else { continue }
             var ancestor = preview.superview as? NodeView
-            while let node = ancestor, node.style["position_type"] as? String != "absolute" {
+            while let node = ancestor, node.style["position_type"]?.string != "absolute" {
                 ancestor = node.superview as? NodeView
             }
             guard let panel = ancestor, let parent = panel.superview else { continue }

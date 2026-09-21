@@ -71,7 +71,7 @@ final class RegionController {
     /// Before live create/style/children can trigger native painting or callbacks.
     func prepare(_ batch: Batch) {
         guard let session else { return }
-        let regionOps = batch.ops.filter { $0["op"] as? String == "region" }
+        let regionOps = batch.ops.filter { $0.op == .region }
         // Ordinary apps have no retained region pixels to invalidate. Still
         // inspect incoming ops so a first registration or refusal is processed.
         guard snapshot != nil || !regionOps.isEmpty else { return }
@@ -92,7 +92,7 @@ final class RegionController {
         if let page = session.presenter.root.subviews.first as? NodeView { protected.insert(page.id) }
         var identityChanged = false
         for op in regionOps {
-            guard let next = RegionSnapshot(op), let incoming = op["members"] as? [UInt32] else {
+            guard let next = RegionSnapshot(op.payload), let incoming = op.payload["members"] as? [UInt32] else {
                 identityChanged = true; continue
             }
             protect(next); protected.formUnion(incoming)
@@ -109,15 +109,15 @@ final class RegionController {
         }
         for op in regionOps {
             // @ref LLP 1043.000 §3 D7 — retire opaque raster before native flow.
-            if op["disabled"] as? String != nil { reset(); continue }
-            guard let next = RegionSnapshot(op) else { refuse("invalid region wire"); continue }
+            if op.payload["disabled"] as? String != nil { reset(); continue }
+            guard let next = RegionSnapshot(op.payload) else { refuse("invalid region wire"); continue }
             if generation != session.generation || snapshot?.incarnation != next.incarnation {
                 reset(); generation = session.generation
                 if lifetime == nil { lifetime = RegionServiceLifetime { [weak self] answer in self?.receive(answer) } }
             }
             snapshot = next
             if batch.error == nil { service?.updateShapeRequest(next.request, generation: generation) }
-            members = Set((op["members"] as? [UInt32]) ?? [])
+            members = Set((op.payload["members"] as? [UInt32]) ?? [])
             if next.publication == 0 { candidate = nil }
             else if candidate?.snapshot.publication != next.publication {
                 var retained: [UInt64: RegionArtifact] = [:]
@@ -320,17 +320,18 @@ final class RegionController {
 /// motion-binding metadata are neutral. Protected full props/style dictionaries
 /// invalidate even if an apparent change might be geometry-only.
 enum RegionRetentionInvalidation {
-    static func required(ops: [[String: Any]], protected: Set<UInt32>) -> Bool {
+    static func required(ops: [BatchOp], protected: Set<UInt32>) -> Bool {
         for op in ops {
-            guard let kind = op["op"] as? String else { return true }
+            let kind = op.op
             switch kind {
-            case "region", "frame", "content", "hold", "height-drag", "transform-drag", "retire-motion":
+            case .region, .frame, .content, .hold, .heightDrag, .transformDrag, .retireMotion:
                 continue
-            case "create", "props", "style", "destroy", "present", "surface":
-                guard let id = op["id"] as? UInt32 else { return true }
+            case .create, .props, .style, .destroy, .present, .surface:
+                guard let id = op.nodeID else { return true }
                 if protected.contains(id) { return true }
-            case "children":
-                guard let id = op["id"] as? UInt32, let children = op["ids"] as? [UInt32] else { return true }
+            case .children:
+                guard let id = op.nodeID else { return true }
+                let children = op.ids
                 if protected.contains(id) || children.contains(where: protected.contains) { return true }
             default:
                 // Roots, routing/commands, collection ownership and unknown
