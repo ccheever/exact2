@@ -9321,3 +9321,59 @@ Swift tests pass. That run first required repairing an existing CollectionMac
 test double to match `onList`'s eight-argument/Bool signature; no production
 collection behavior changed. Evidence is the Shop Exact task's
 `work/delivery-drag-*` files and app `.evidence/delivery-sheet-checkpoint.json`.
+
+### 8.168 Single-run immutable raster sources remove actual Messages preparation work
+
+The next candidate constructs a raster Job's single-run NSAttributedString directly,
+using the same extracted font/color/kern/decoration attributes. It removes the mutable
+aggregate, append and final copy call; zero/multiple runs retain the builder+copy.
+Other TextEngine callers, CoreText reconstruction, surfaces, two-worker admission,
+urgent rendering and publication remain unchanged. There is no new cache or owner.
+
+The same twelve methods pass469 assertions with ignored construction sentinels and
+398 without production instrumentation. Original construction with a test-only API
+bridge fails exactly46 named construction assertions; all pixel/attribute/lifetime
+and publication controls pass. Thirteen source cases produce26 exact active-BGRA
+surface comparisons at1x/2x, with deliberate paint corruption as a negative control.
+This uses all75 actual Swift sources and the retained ABI8 Reusable Messages Rust
+archive, through an assertion adapter/direct calls, not Xcode XCTest or a new bake.
+
+Two fresh virtual-clock, actual Session/Presenter/NSWindow fixtures keep all10,000
+rows,32 changed rows per step and9,968 identical prefix rows across eight updates.
+Four changed tail rows remain visible. Each arm prepares50 single-run raster jobs:
+48 urgent and2 asynchronous. Mutable-builder/append/copy call counts fall50/50/50
+→0/0/0, including48/48/48→0/0/0 for urgent jobs. All eight full History hashes and48
+current urgent raster hashes match exactly; job identities and geometry also match.
+The960x932 window and943x582 port are fixture geometry, not a matched normal-clock
+carrier. These counts do not measure physical allocations, CPU or frame latency.
+
+Preserved initial failures are fixture-only: missing mounted style/layer setup
+(two unexpected publication failures in both arms), and an immediate pixel check
+wrongly applied to pending nonurgent jobs. The corrected check retains all job
+counts but requires current pixels only for urgent jobs. An offline Python3.9
+zip-keyword failure is also retained. Production bytes did not change during fixes.
+
+Evidence is MAIN`target/mac-single-run-raster-source-validation-v1/REPORT.md`
+(`05d739dc`) and manifest`ec3ace06`:775 files/71,765,285B, excluding reproducible
+module cache. Fresh closure proves16 recorded PIDs/groups absent, no guard actions
+and76.415GB free. A fresh normal-clock A/B is next; reuse of retained control53e2d1cf
+requires preserving its7594 runtime/plan foundation in the candidate. Historical
+cell timings cannot supply the control. No native speedup or physical120Hz is claimed.
+
+### 8.169 Current-main integration of the single-run candidate, 2026-09-21
+
+PR30 now includes origin/main `c4113c5`. Main has since gained urgent painted
+line/typesetter reuse and prepared paragraph sources. The integration keeps those
+paths and their immutable copy unchanged; `rasterSource` applies only to the
+remaining fresh-source fallback. The earlier 50-job construction result in §8.168
+belongs to its older base and does not establish eligibility or gain here. The
+urgent publication test's optional source counters now expect no fallback call.
+
+A new common normal-clock observer was ported to current main, and both proposed
+arms differ only in Text.swift and the raster fallback. The first fresh control
+build stalled before its new Rust build scripts entered main: sampled stacks were
+at `_dyld_start`, with zero accumulated CPU; macOS syspolicyd concurrently used a
+full core and repeatedly logged driver errors. This indicates a host execution
+problem, not a measured candidate regression. No native comparison has run, and
+the integrated correctness tests remain unexecuted pending host recovery. The PR
+stays draft; no current-main speedup is claimed.

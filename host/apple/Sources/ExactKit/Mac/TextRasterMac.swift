@@ -86,8 +86,11 @@ final class TextRasterizer {
         node.textRasterReady = false
         node.textRasterPending = false
         let reused = urgent && paragraph == nil ? engine.rasterLines(spec, ranges: ranges) : nil
-        let source = paragraph?.shape?.attributed ?? reused?.0 ?? engine.attributed(spec)
-        let job = Job(source: source.copy() as! NSAttributedString,
+        let source: NSAttributedString
+        if let prepared = paragraph?.shape?.attributed ?? reused?.0 {
+            source = prepared.copy() as! NSAttributedString
+        } else { source = engine.rasterSource(spec) }
+        let job = Job(source: source,
                       ranges: ranges, baselines: baselines,
                       flush: spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0,
                       box: key.box, size: key.size, scale: scale)
