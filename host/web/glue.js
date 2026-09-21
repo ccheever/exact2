@@ -1049,8 +1049,8 @@ function guestOutline(frame) {
   for (const child of doc.body?.children ?? []) visit(child, 0);
   return outline;
 }
-function tree() {
-  const reply = ask({ op: "tree" });
+function tree(request) {
+  const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     if (!(el instanceof HTMLIFrameElement)) continue;
@@ -1219,7 +1219,7 @@ function agent(request) {
       case "clock":
         return tagged(clock(request));
       case "tree":
-        return tree();
+        return tree(request);
       case "tags":
         return ask(request);
       default:

@@ -116,7 +116,7 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     match field_str(line, "op").as_deref() {
-        Some("tree") => unavailable_tree(p),
+        Some("tree") => unavailable_tree(p, line),
         Some("state") => {
             // The runner's state, then the sections a painter cannot observe
             // (LLP 1035.002 D2): present as `unavailable`, never absent, so a
@@ -213,9 +213,9 @@ fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> S
 }
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
-fn unavailable_tree<D: DataSource>(p: &Presenter<D>) -> String {
+fn unavailable_tree<D: DataSource>(p: &Presenter<D>, request: &str) -> String {
     p.host()
-        .agent("{\"op\":\"tree\"}")
+        .agent(request)
         .replace(
             "\"type\":\"WebView\",\"props\":",
             "\"type\":\"WebView\",\"unavailable\":true,\"props\":",

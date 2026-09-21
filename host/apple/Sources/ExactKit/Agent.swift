@@ -92,7 +92,7 @@ public final class Agent {
             return
         }
         switch op {
-        case "tree": Agent.reply(session.webviews.tree())
+        case "tree": Agent.reply(session.webviews.tree(line))
         case "layout": Agent.reply(tagged(layout(req)))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements

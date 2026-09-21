@@ -191,18 +191,28 @@ responses; the public operations are unchanged.
 Public: what `scripts/agent.mjs` exposes as a session (`open({host, plan,
 size})`), and what the CLI runs one per argument. A target is a `testId`
 (first in preorder) or a view id; the driver resolves it through `tree`, so a
-host only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
+host input path only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
 app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
 same pre-boot fact as the OS callbacks; Linux receives the URL as argv.
 
-Each `tree` response gathers live handler declarations in one instance-tree walk
-before serializing nodes. Handler order and empty lists are unchanged; no handler
-map survives the response, so branch and collection changes are observed afresh.
+`tree <target>` (library `tree(target)`) returns the target and its descendants.
+The wire request adds `target`, a numeric view id or string `testId`; repeated
+`testId`s select the first node in live structural preorder. Missing, retired,
+and malformed targets are refused. `roots` names the selected node; node fields,
+including the real parent and absolute tree depth, match the full response.
+The text renderer removes only the common leading indentation. Without a target,
+`tree` still returns every live node. Input target resolution uses this scoped
+read, then sends the resolved view id through the existing host input path.
+
+Each multi-node `tree` response gathers live handler declarations in one
+instance-tree walk; a single-node response uses point lookup. Handler order and
+empty lists are unchanged; no handler map survives the response, so branch and
+collection changes are observed afresh.
 
 | op | request to the host | reply | who answers |
 |---|---|---|---|
-| `tree` | `{"op":"tree"}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
+| `tree` | `{"op":"tree"[,"target":V or "testId"]}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (`Kernel::rows` + props) |
 | `state` | `{"op":"state"}` | `epoch`, `incarnation`, `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null`. **Then the host's three sections (2026-09-10, LLP 1035.002 D2)** — observations of its view tree, never a second model: `focus{logical, editor, responder, pending}` (the node holding the platform's focus, the editor when it is one, the responder's class, a focus a sheet is still holding for its presentation), `keyboard{visible, overlap, top?, guide?, policy, interactive}` (the software keyboard's overlap with the viewport, its top edge and the layout guide in the viewport's space where the host has them, the `interactiveWidget` policy, a drag dismissing it), `navigation{url, route, stack[], presentation, closedby, transition{interactive, phase}}` (the last `router` op's canonical URL or null when absent (LLP 1038 D11), the route the root names, the platform's stack by key, `modal` or null, the close policy, and `idle`｜`in-progress`｜`cancelled`｜`completed`). UIKit reports its first responder, keyboard and navigation controller; AppKit its first responder, no keyboard, the stack as the rule's prefix; the page `activeElement`, `visualViewport` and the DOM's routes; Linux each section as `{"unavailable": true}`, present so "no keyboard" reads apart from "no report" | runner (the plan's type table) + host (the sections) |
 | `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
 | `layout` | `{"op":"layout"}` / `{…,"id":V}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId`. **With `id` (2026-09-09, LLP 1035.002 D1, `layout <target>` on the CLI): `node{…}` explains that one node** — the runner's half (`epoch`, `incarnation`, `site`, `instance`, every row it sets or inherits as `{value, source: authored | inherited (+from) | initial}`, `props`, the kernel's `frame` in the parent and `absolute`) merged with the host's (`space{viewport, local, window?, screen?, capture{scale}}`, the `scroll` and `clip` chains outermost first, `visible{hidden, inert, inViewport, clipped}`, `native{…}` — what was mounted; the web adds `browser{…}`, its own computed values for the inherited rows). A space a host cannot observe is absent; a stale id is refused by name | runner (the node's rows and sources, the private `node` message) + host (the spaces) |

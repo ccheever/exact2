@@ -5,7 +5,7 @@
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
-//   tree | layout | state | logs | screenshot <png> [window]
+//   tree [target] | layout [target] | state | logs | screenshot <png> [window]
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
@@ -820,8 +820,12 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (r.error) throw new Error(`${req.op}: ${r.error}`);
       return r;
     },
-    /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
-    tree: () => s.op({ op: 'tree' }),
+    /** Every live node in preorder, or one target and its descendants; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
+    tree(target) {
+      const req = { op: 'tree' };
+      if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+      return s.op(req);
+    },
     /** Every slot, derive, and resource by name, as typed JSON. */
     state: () => s.op({ op: 'state' }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
@@ -849,7 +853,7 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     },
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target) {
-      const t = await s.tree();
+      const t = await s.tree(target);
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
       if (!node) throw new Error(`no view matches ${target}`);
       return node;
@@ -975,10 +979,12 @@ export function render(op, r) {
   switch (op) {
     case 'tree': {
       const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
+      const rootDepth = r.nodes[0]?.depth ?? 0;
       for (const n of r.nodes) {
+        const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(n.depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
-        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(n.depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
     }
@@ -1141,7 +1147,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree [target] | layout [target] | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
@@ -1150,7 +1156,10 @@ async function main(argv) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': case 'state': case 'logs': r = await s[op](); break;
+        case 'tree':
+          if (args.length > 1) throw Error('tree accepts at most one target');
+          r = await s.tree(args[0]); break;
+        case 'state': case 'logs': r = await s[op](); break;
         case 'layout': r = await s.layout(args[0]); break;
         case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
         case 'tap':

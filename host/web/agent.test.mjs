@@ -654,3 +654,30 @@ test('module replacement drains current requests before swapping and rechecks su
     }
   }
 });
+
+
+test('scoped tree rendering trims only shared indentation and preserves guest depth', () => {
+  const node = {id:7,parent:3,depth:4,type:'WebView',props:{testId:'panel'},handlers:[],children:[8],guest:[{depth:0,tag:'button',text:'guest'}]};
+  const child = {id:8,parent:7,depth:5,type:'Text',props:{text:'child'},handlers:[],children:[]};
+  const lines = render('tree',{epoch:1,incarnation:2,clock:0,roots:[7],nodes:[node,child]}).split('\n');
+  expect(lines.slice(1)).toEqual(['WebView#7 [panel]','  [guest] button "guest"','  Text#8 "child"']);
+  expect(node.depth).toBe(4);
+});
+
+
+test('tree forwards its target and preserves host annotations and runner errors', () => {
+  const f = fixture(), requests = [];
+  vm.runInContext(declaration('tree'), f);
+  const iframe = new f.HTMLIFrameElement();
+  iframe.getAttribute = () => '/guest';
+  f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
+  f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
+  f.ask = request => {
+    requests.push(request);
+    return request.target === 'missing' ? {error:'no view matches missing'} : {roots:[7],nodes:[{id:7,type:'WebView'}]};
+  };
+  const reply = f.exact.agent({op:'tree',target:'panel'});
+  expect(requests[0]).toEqual({op:'tree',target:'panel'});
+  expect(reply.nodes[0]).toEqual({id:7,type:'WebView',url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
+  expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
+});

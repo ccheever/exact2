@@ -339,3 +339,100 @@ fn numeric_keys_keep_identity_and_listener_catalog_follows_topology() {
     assert_listener_lookup(&runner);
     assert_ne!(runner.kernel().find_by_test_id("key-0")[0], before);
 }
+
+#[test]
+fn targeted_tree_is_the_same_live_subtree_and_keeps_first_preorder_matching() {
+    let source = r#"component App
+  state shown = true
+  action toggle writes shown
+    shown = !shown
+  view
+    column testId="root"
+      when shown
+        column testId="branch"
+          button "first" press=toggle testId="repeated"
+          column
+            text "nested" testId="nested"
+          button "second" press=toggle testId="repeated"
+      else
+        text "gone" testId="replacement"
+      text "other sibling" testId="other"
+"#;
+    let mut runner = Runner::boot(
+        contract::compile(source).unwrap(),
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let ask = |runner: &Runner<Stations>, target: serde_json::Value| -> serde_json::Value {
+        serde_json::from_str(&exact_runner::agent::handle(
+            runner,
+            &serde_json::json!({"op":"tree", "target":target}).to_string(),
+        ))
+        .unwrap()
+    };
+    let full: serde_json::Value =
+        serde_json::from_str(&exact_runner::agent::tree(&runner)).unwrap();
+    let nodes = full["nodes"].as_array().unwrap();
+    for (start, node) in nodes.iter().enumerate() {
+        let depth = node["depth"].as_u64().unwrap();
+        let end = start
+            + 1
+            + nodes[start + 1..]
+                .iter()
+                .take_while(|child| child["depth"].as_u64().unwrap() > depth)
+                .count();
+        let scoped = ask(&runner, node["id"].clone());
+        assert_eq!(scoped["nodes"].as_array().unwrap(), &nodes[start..end]);
+        assert_eq!(scoped["roots"], serde_json::json!([node["id"]]));
+        for tag in ["epoch", "incarnation", "clock"] {
+            assert_eq!(scoped[tag], full[tag]);
+        }
+    }
+    let first = nodes
+        .iter()
+        .find(|n| n["props"]["testId"] == "repeated")
+        .unwrap();
+    assert_eq!(
+        ask(&runner, "repeated".into())["nodes"],
+        ask(&runner, first["id"].clone())["nodes"]
+    );
+    let branch = ask(&runner, "branch".into());
+    assert!(branch["nodes"].as_array().unwrap().len() > 1);
+    assert!(branch["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|n| n["props"]["testId"] != "other"));
+    for bad in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!(4294967296u64),
+        serde_json::json!(true),
+        serde_json::Value::Null,
+        serde_json::json!([]),
+    ] {
+        assert_eq!(
+            ask(&runner, bad)["error"],
+            "tree target must be a view id or testId"
+        );
+    }
+    runner.act("toggle", vec![]).unwrap();
+    assert!(ask(&runner, "branch".into())["error"]
+        .as_str()
+        .unwrap()
+        .contains("no view matches"));
+    assert!(ask(&runner, first["id"].clone())["error"]
+        .as_str()
+        .unwrap()
+        .contains("no view matches"));
+    assert_eq!(
+        ask(&runner, "replacement".into())["nodes"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}

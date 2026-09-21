@@ -294,11 +294,11 @@ final class WebViews {
         return .success(data)
     }
 
-    func tree() -> [String: Any] {
-        guard let session, let data = session.agent("{\"op\":\"tree\"}").data(using: .utf8),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var nodes = root["nodes"] as? [[String: Any]]
+    func tree(_ line: String = "{\"op\":\"tree\"}") -> [String: Any] {
+        guard let session, let data = session.agent(line).data(using: .utf8),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return ["error": "unreadable tree"] }
+        guard var nodes = root["nodes"] as? [[String: Any]] else { return root }
         for index in nodes.indices {
             guard let id = (nodes[index]["id"] as? NSNumber)?.uint32Value,
                   let entry = entries[id]

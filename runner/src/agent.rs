@@ -27,7 +27,7 @@ use std::fmt::Write as _;
 /// `{"error":…}`.
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
-        Some("tree") => tree(runner),
+        Some("tree") => tree_request(runner, request),
         Some("state") => state(runner),
         Some("tags") => tags(runner),
         Some("node") => match field_num(request, "id") {
@@ -81,7 +81,52 @@ pub fn error(message: &str) -> String {
 /// their schema names, the events it handles, its children — plus the
 /// kernel's epoch and incarnation (the consistency token: nothing moves
 /// between two calls unless the agent moved it).
+fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    if after_key(request, "target").is_none() {
+        return tree(runner);
+    }
+    let name = field_str(request, "target");
+    let id = field_num(request, "target")
+        .filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc());
+    if name.is_none() && id.is_none() {
+        return error("tree target must be a view id or testId");
+    }
+    let kernel = runner.kernel();
+    let rows = kernel.rows(None).unwrap_or_default();
+    let found = rows.iter().position(|row| {
+        if let Some(id) = id {
+            row.id == id as u32
+        } else {
+            kernel
+                .node(row.id)
+                .is_some_and(|node| node.props.str(exact_kernel::PropId::TestId) == name.as_deref())
+        }
+    });
+    let Some(start) = found else {
+        return error(&format!(
+            "no view matches {}",
+            name.unwrap_or_else(|| num(id.unwrap()))
+        ));
+    };
+    let root = &rows[start];
+    let mut subtree = kernel.rows(Some(root.id)).unwrap_or_default();
+    for row in &mut subtree {
+        row.depth = row.depth.saturating_add(root.depth);
+    }
+    tree_rows(runner, &subtree, &[root.id])
+}
+
+/// Every live root and node, in structural preorder.
 pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
+    let rows = runner.kernel().rows(None).unwrap_or_default();
+    tree_rows(runner, &rows, &runner.roots())
+}
+
+fn tree_rows<D: DataSource>(
+    runner: &Runner<D>,
+    rows: &[exact_kernel::export::NodeRow],
+    roots: &[u32],
+) -> String {
     let kernel = runner.kernel();
     let mut s = String::new();
     let _ = write!(
@@ -91,12 +136,11 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         kernel.incarnation(),
         num(runner.now_ms())
     );
-    ids(&runner.roots(), &mut s);
+    ids(roots, &mut s);
     s.push_str(",\"nodes\":[");
-    let rows = kernel.rows(None).unwrap_or_default();
-    let handlers = runner.handlers();
+    let handlers = (rows.len() != 1).then(|| runner.handlers());
     let mut first = true;
-    for row in &rows {
+    for row in rows {
         let Some(node) = kernel.node(row.id) else {
             continue;
         };
@@ -116,7 +160,14 @@ pub fn tree<D: DataSource>(runner: &Runner<D>) -> String {
         s.push_str(",\"props\":{");
         props_json(&node, &mut s);
         s.push_str("},\"handlers\":[");
-        for (i, e) in handlers.get(&node.id).into_iter().flatten().enumerate() {
+        let single;
+        let events = if let Some(all) = &handlers {
+            all.get(&node.id).map_or(&[][..], Vec::as_slice)
+        } else {
+            single = runner.handlers_of(node.id);
+            &single
+        };
+        for (i, e) in events.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
