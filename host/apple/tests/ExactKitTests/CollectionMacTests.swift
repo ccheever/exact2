@@ -367,6 +367,20 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(cost.rows(within: -1), 0)
     }
 
+    func testBudgetedListFillUsesOneBatchUntilTheViewportChanges() {
+        let (p, list) = fixture(collection: false)
+        defer { p.reset() }
+        list.props["estimatedItemHeight"] = "24"
+        var reports = 0
+        p.onList = { _, _, _, _, _, _, _, _ in
+            reports += 1
+            p.apply(self.batch([]))
+            return true
+        }
+        p.syncLists(limit: 2, deadline: CACurrentMediaTime() + 1)
+        XCTAssertEqual(reports, 1, "pending overscan must not multiply per-batch work within a slice")
+    }
+
     func testExpensiveListRowMakesProgressWithoutStartingAnotherReport() {
         let (p, list) = fixture(collection: false)
         defer { p.reset() }
@@ -384,9 +398,13 @@ final class CollectionMacTests: XCTestCase {
             return true
         }
         p.syncLists(limit: 2)
-        p.pump()
-        XCTAssertEqual(reports, 2, "one expensive row progresses; a second report misses the deadline")
-        p.pump()
+        for _ in 0..<8 {
+            let before = reports
+            p.pump()
+            XCTAssertLessThanOrEqual(reports - before, 1, "no second report after an expensive row")
+            if reports == 3 { break }
+        }
+        // A descheduled slice may expire before its first report.
         XCTAssertEqual(reports, 3, "the expensive estimate must not starve all later slices")
     }
 

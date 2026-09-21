@@ -348,8 +348,6 @@ final class Presenter {
     private var listFillCosts: [UInt32: ListFillCost] = [:]
     private struct ListTravel {
         var top: CGFloat, time: TimeInterval, velocity: Double = 0
-        var lead: CGFloat = .infinity
-        var shrinking = false
     }
     private var listTravel: [UInt32: ListTravel] = [:]
     func listVelocity(_ id: UInt32) -> Double {
@@ -368,19 +366,13 @@ final class Presenter {
                 let speed = Double(delta) / max(elapsed, refreshInterval / 2)
                 travel.velocity = elapsed > 0.15 || speed * travel.velocity <= 0
                     ? speed : travel.velocity * 0.5 + speed * 0.5
-                if let cover = listCovers[id] {
-                    let lead = travel.velocity >= 0 ? cover.bottom + cover.origin - port.maxY
-                        : port.minY - cover.top - cover.origin
-                    travel.shrinking = lead < travel.lead
-                    travel.lead = lead
-                }
                 travel.top = port.minY; travel.time = now
             }
             listTravel[id] = travel
         }
     }
-    private var leadShrinking: Bool {
-        listTravel.contains { listVelocity($0.key) != 0 && $0.value.shrinking }
+    private var listIsMoving: Bool {
+        listTravel.contains { listVelocity($0.key) != 0 }
     }
 
     /// A scroll container moved. Nothing here may take long: AppKit is inside
@@ -468,10 +460,11 @@ final class Presenter {
     }
 
     /// The display link owns the deadline. A report sizes its overscan from
-    /// measured end-to-end row cost; another report must fit the time left.
-    /// Never give away a list turn while travel consumes lead.
+    /// measured row cost, reserving the shared finalization pass. A fill can
+    /// briefly grow the lead while still losing ground over two frames: keep
+    /// filling during travel, and admit text after it instead of alternating.
     func pump() {
-        if listSyncPending && (leadShrinking || !(textTurn && textPending)) {
+        if listSyncPending && (listIsMoving || !(textTurn && textPending)) {
             let post = Self.signposts.beginInterval("pump-list")
             let deadline = CACurrentMediaTime() + sliceBudget
             listSyncPending = false
@@ -772,11 +765,10 @@ final class Presenter {
                 let changed = top != Double(scroll.contentView.bounds.minY)
                     || height != Double(scroll.contentSize.height)
                     || width != Double(content.frame.width) || origin != Double(content.frame.minY)
-                if !changed || listShowsViewport(scroll, content: content) {
-                    guard more, deadline != nil else { break }
-                    reportLimit = limit
-                    continue
-                }
+                // One measured batch amortizes the fixed passes. Spending a
+                // slice's tail on another tiny report pays them again; only a
+                // native correction exposing missing pixels requires a retry.
+                guard changed, !listShowsViewport(scroll, content: content) else { break }
                 if attempt == 7 { listPending.insert(list.id) }
                 reportLimit = limit == 0 ? 0 : 1
             }
