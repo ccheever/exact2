@@ -479,12 +479,12 @@ final class Presenter {
 
     private func startPump() {
         // A view-bound link follows display moves. Before its first tick on a
-        // new screen, seed the budget from that screen instead of spending a
-        // stale 60 Hz allowance on a 120 Hz display. Later ticks supply the
+        // new screen or after idle, seed the budget from that screen instead
+        // of spending a stale 60 Hz allowance on a 120 Hz display. Ticks supply the
         // actual interval (including variable refresh), even when skipped.
         if let screen = viewport.window?.screen,
            let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? UInt32,
-           pumpScreen != id {
+           pumpLink == nil || pumpScreen != id {
             pumpScreen = id
             pumpSchedule.updateInterval(1 / Double(max(1, screen.maximumFramesPerSecond)))
         }
