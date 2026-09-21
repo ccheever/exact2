@@ -134,10 +134,10 @@ final class TextRasterizer {
     func replaceVisible(_ nodes: [NodeView], wait: TimeInterval) -> Bool {
         var jobs: [(NodeView, TextRasterKey, Job)] = []
         var deferred = false
-        for node in nodes where node.canRasterText && (node.textRaster != nil || node.textRasterUsesStrips) {
+        for node in nodes where node.needsTextRaster && node.canRasterText && (node.textRaster != nil || node.textRasterUsesStrips) {
             let key = key(node)
             if node.textRasterKey == key {
-                if node.textRasterReady { node.presentTextRaster() }
+                if node.textRasterReady && node.textRasterPending { node.presentTextRaster() }
                 continue
             }
             let visible = node.presenter?.textIsVisible(node) == true
@@ -284,10 +284,9 @@ extension NodeView {
     /// pixels stay up until the new ones replace them, as `invalidateText`
     /// leaves them for a changed paragraph.
     func textRasterGeometryChanged() {
-        if let key = textRasterKey, key.size != bounds.size || key.box != contentBox() {
-            textRasterKey = nil
-            textRasterPending = false
-        }
+        if let key = textRasterKey, key.size == bounds.size && key.box == contentBox() { return }
+        textRasterKey = nil
+        textRasterPending = false
         // Position the accepted surface at its original dimensions immediately;
         // the node's new frame must never stretch old glyphs.
         if textRaster != nil { presentTextRaster() }
