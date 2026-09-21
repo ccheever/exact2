@@ -284,7 +284,10 @@ final class Presenter {
             rasterBudget -= 1
             if !textRasters.ensure(node, urgent: false) { rastersDeferred = true }
         }
-        for node in textViewportIndex!.candidates(reach: Self.textBandSlack) where node.needsTextRaster && !node.rastersText {
+        // Region readers own their pixel bands and publish positioned layers.
+        // The ordinary backing-store band must not invalidate them a second time.
+        for node in textViewportIndex!.candidates(reach: Self.textBandSlack)
+            where node.readerParagraph == nil && node.needsTextRaster && !node.rastersText {
             let want = textBand(node, reach: Self.textBandSlack)
             guard !want.isEmpty else { continue }
             let old = visibleText[node.id]

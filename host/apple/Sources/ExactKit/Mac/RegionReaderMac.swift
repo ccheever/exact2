@@ -303,9 +303,12 @@ final class RegionReaderParagraph {
                 }
             }
             publishing = false
-            present(in: node)
-            if changed { node.needsDisplay = true }
-            node.presenter?.requestTextPublication()
+            let composited = present(in: node)
+            if changed || !composited { node.needsDisplay = true }
+            // A moving layer has already published. Only a new width needs
+            // the pump's settled geometry, or a draw/canvas needs repainting.
+            // Pixel-capacity retries retain their own display wake above.
+            if changed || !composited { node.presenter?.requestTextPublication() }
             // Width publication just refit and anchored the native viewport.
             // Its existing display wake observes the settled geometry; only a
             // moving band needs an immediate successor in this receipt turn.
