@@ -308,7 +308,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
   const start=cursor===''?Math.max(0,rows.length-windowSize):Math.max(0,anchor-windowSize/2);
   const end=Math.min(rows.length,start+windowSize);
   const selectedRows=[...new Set(selection.split('|'))].flatMap(id=>{const row=index.byId.get(id);return row?[row]:[];});
-  const selected=new Set(selectedRows.map(m=>m.id));
+  const selectionIds=selectedRows.map(m=>m.id),selected=new Set(selectionIds);
   const decorate=(visible:StoredMessage[],before:StoredMessage|undefined,after:StoredMessage|undefined,lastOutgoing:StoredMessage|undefined)=>{
     return visible.map((m,i)=>{
       const previous=i===0?before:visible[i-1],next=i===visible.length-1?after:visible[i+1];
@@ -322,7 +322,7 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
       const byValue=new Map<string,typeof entries>();
       for(const entry of entries){const group=byValue.get(entry.value)||[];group.push({...entry,offset:group.length*18});byValue.set(entry.value,group);}
       const reactionGroups=[...byValue].map(([value,people])=>({value,people,width:32+(people.length-1)*18}));
-      return {...content,reaction:saved.me||'',reactionCount:entries.length,reactionEntries:entries,reactionGroups,reactionPanelWidth:Math.max(124,18+reactionGroups.length*98),chosen:selected.has(m.id),selection:(selected.has(m.id)?[...selected].filter(id=>id!==m.id):[...selected,m.id]).join("|"),timeLabel:startsDay?`${m.day} ${m.time}`:'',delivery:m===lastOutgoing?m.delivery:'',
+      return {...content,reaction:saved.me||'',reactionCount:entries.length,reactionEntries:entries,reactionGroups,reactionPanelWidth:Math.max(124,18+reactionGroups.length*98),chosen:selected.has(m.id),selection:(selected.has(m.id)?selectionIds.filter(id=>id!==m.id):[...selectionIds,m.id]).join('|'),timeLabel:startsDay?`${m.day} ${m.time}`:'',delivery:m===lastOutgoing?m.delivery:'',
         tail:!sameRun(m,next),
         senderName:sender?.name || '',senderInitials:sender?.initials || '',senderColor:sender?.color || '',
         showSender:!!sender && (startsDay || previous!.sender!==m.sender),
@@ -357,6 +357,7 @@ const sources: Sources = {
     contactCursor(cursor);
     expireDeleted(now);
     const ids=new Set(selection.split('|'));
+    const selectionIds=[...ids].filter(Boolean);
     const matches=people.filter(p=>!!recoverable.get(p.id)?.rows.length);
     const chosen=selection?matches.filter(p=>ids.has(p.id)):matches;
     const page=contactWindow(matches,cursor);
@@ -364,7 +365,7 @@ const sources: Sources = {
       const archive=recoverable.get(p.id)!;
       return {id:p.id,name:p.name,initials:p.initials,color:p.color,count:archive.rows.length,
         days:Math.ceil((archive.expires-now)/recoveryDay),chosen:ids.has(p.id),
-        selection:(ids.has(p.id)?[...ids].filter(id=>id!==p.id):[...ids,p.id]).filter(Boolean).join('|')};
+        selection:(ids.has(p.id)?selectionIds.filter(id=>id!==p.id):p.id?[...selectionIds,p.id]:selectionIds).join('|')};
     }),targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+recoverable.get(p.id)!.rows.length,0)};
   },
   recipients: ([ids,query,body,_revision,cursor])=>{

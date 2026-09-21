@@ -334,6 +334,25 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     const expired=deleted(at,archivedSelection,30*day);
     expect(expired).toEqual({people:[],earlier:'',later:'',targets:'',count:0});
     expect(deleted('',archivedSelection,0)).toEqual(expired);
+    // Imported empty identifiers retain existing selection separators. A chat
+    // can select its empty-ID message; archive selection omits empty entries.
+    const unusual=new Map<string,any>(initial);
+    const template=initial.find(([,r]:any)=>r.kind==='message' && r.conversation==='maya')[1];
+    unusual.set('fixture:empty-message',{...template,message:{...template.message,id:'',replyRoot:'',order:-1}});
+    const person=unusual.get('person:maya');
+    unusual.set('fixture:empty-person',{...person,person:{...person.person,id:'',name:'Empty identifier'},position:-1});
+    unusual.set('fixture:empty-archive',{...template,conversation:'',message:{...template.message,id:'empty-archive'},expires:30*day});
+    unusual.set('fixture:maya-archive',{...template,message:{...template.message,id:'maya-archive'},expires:30*day});
+    f.restore(unusual);
+    const emptySelection=f.sources.conversation(['maya',0,'','','']);
+    expect(emptySelection.selectionCount).toBe(1);
+    expect(emptySelection.messages.find((m:any)=>m.id==='').chosen).toBe(true);
+    expect(emptySelection.messages.find((m:any)=>m.id==='m1').selection).toBe('|m1');
+    const selectedMessage=f.sources.conversation(['maya',0,'','m1','']);
+    expect(selectedMessage.messages.find((m:any)=>m.id==='').selection).toBe('m1|');
+    expect(deleted().people.find((p:any)=>p.id==='').selection).toBe('');
+    expect(deleted('', 'maya').people.find((p:any)=>p.id==='').selection).toBe('maya');
+    expect(deleted('', '|maya|maya||unknown').people.find((p:any)=>p.id==='maya').selection).toBe('unknown');
 
   }finally{await rm(dir,{recursive:true,force:true});}
 });
