@@ -1,4 +1,5 @@
-// Stationary opaque viewport pixels. Fractional content/scroll phase stays inside
+// Stationary viewport pixels (opaque surfaces or transparent reader ink).
+// Fractional content/scroll phase stays inside
 // worker drawing; output edges and the final copy are integral device pixels.
 import Foundation
 import CoreGraphics
@@ -52,7 +53,7 @@ struct RegionRasterRequest: Sendable {
         guard (scale == 1 || scale == 2), w.isFinite, h.isFinite,
               w > 0, h > 0, w <= 16384, h <= 16384,
               w.rounded() == w, h.rounded() == h,
-              background.count == 4, background[3] == 1,
+              background.count == 4, (background[3] == 1 || background[3] == 0),
               background.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
               selectionColor.count == 4,
               selectionColor.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1 }),
@@ -210,7 +211,9 @@ final class RegionPaintIndex {
                     bitsPerComponent: 8, bytesPerRow: request.width * 4, space: space,
                     bitmapInfo: request.format) else { return false }
             ctx.setFillColor(CGColor(colorSpace: CGColorSpaceCreateDeviceRGB(), components: request.background)!)
+            ctx.setBlendMode(.copy)
             ctx.fill(CGRect(x: 0, y: 0, width: request.width, height: request.height))
+            ctx.setBlendMode(.normal)
             ctx.translateBy(x: 0, y: CGFloat(request.height))
             ctx.scaleBy(x: CGFloat(request.scale), y: -CGFloat(request.scale))
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)

@@ -156,21 +156,14 @@ final class RegionReaderParagraph {
         let y = max(0, floor((top - before) * CGFloat(scale)) / CGFloat(scale))
         let box = CGRect(x: 0, y: 0, width: p.offeredWidth, height: p.height)
         let selection = node.presenter?.selection.range(node) ?? NSRange(location: 0, length: 0)
-        var background = node.presenter?.pageBackground ?? .textBackgroundColor
-        var parent: NSView? = node
-        while let current = parent {
-            if let current = current as? NodeView, let rgba = current.channels("background_color", dark: current.drawsDark), rgba[3] == 255 {
-                background = TextEngine.color(rgba); break
-            }
-            parent = current.superview
-        }
-        let rgb = background.usingColorSpace(.sRGB) ?? .white
         let selected = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.45).usingColorSpace(.sRGB)!
         let next = RegionRasterRequest(serial: serial + 1, publication: artifact.id, generation: 0,
             rows: [RegionPaintRow(artifact: artifact.id, box: box, selection: selection)],
             scroll: CGPoint(x: 0, y: y), size: CGSize(width: width, height: height), scale: scale,
             profile: profile, format: CGImageAlphaInfo.premultipliedLast.rawValue,
-            background: [rgb.redComponent, rgb.greenComponent, rgb.blueComponent, 1],
+            // The existing view owns CSS backgrounds, including rounded corners
+            // and opacity. Overflow ink must not repaint its ancestor's box.
+            background: [0, 0, 0, 0],
             selectionColor: [selected.redComponent, selected.greenComponent, selected.blueComponent, selected.alphaComponent],
             interaction: pointRequest)
         if let old = wantedRaster, old.sameOutput(as: next) { return }
@@ -321,15 +314,17 @@ extension TextEngine {
             readerParagraphs.removeValue(forKey: request.view)
             return nil
         }
-        RegionReaderTiming.begin()
-        defer { RegionReaderTiming.end() }
         if let old = readerParagraphs[request.view], old.matches(request) {
+            RegionReaderTiming.begin()
+            defer { RegionReaderTiming.end() }
             return old.metrics(width: CGFloat(request.width))
         }
         let bytes = UnsafeBufferPointer(start: request.runs, count: request.count).reduce(0) { $0 + $1.len }
         guard bytes >= 64 * 1024 || (bytes >= 16 * 1024 && request.count >= 256) else {
             readerParagraphs[request.view] = nil; return nil
         }
+        RegionReaderTiming.begin()
+        defer { RegionReaderTiming.end() }
         let value = RegionReaderParagraph(request, bytes: bytes)
         readerParagraphs[request.view] = value
         return value.metrics(width: CGFloat(request.width))
