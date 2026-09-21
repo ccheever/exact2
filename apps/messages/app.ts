@@ -472,7 +472,7 @@ function putMessage(records:Records,conversation:string,message:StoredMessage,ex
 // Declare each durable source's footprint before running it. Unknown sources
 // refuse before mutation, rather than silently omitting a newly authored edit.
 // Returned nulls delete only keys that disappeared from this footprint.
-function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records,keepsPending:boolean} {
+function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records,keepsPending:boolean,rollbackPending?:()=>void} {
   rebasedPeople=false;
   const id=String(args[0]);
   // These sources leave reply scheduling untouched. Future sources retain the
@@ -488,7 +488,7 @@ function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records
     const index=indexes.get(key);
     for(const messageId of ids){const row=index?.byId.get(messageId);if(row)putMessage(records,key,row,null);}
   };
-  let capture:()=>Records,removes=false;
+  let capture:()=>Records,rollbackPending:(()=>void)|undefined,removes=false;
   switch(source){
     case 'markRead':case 'setConversationUnread':case 'muteConversation':case 'blockConversation':case 'saveDraft':
       capture=()=>{const rows:Records=new Map();person(rows,id);return rows;};break;
@@ -516,15 +516,29 @@ function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records
     case 'advanceReplies': {
       const now=Number(args[0]);
       const due:{key:string,reply:boolean,receipts:StoredMessage[]}[]=[];
+      const removed:{key:string,activity:{start:number,end:number,reply:string},position:number}[]=[];
+      let position=0;
       keepsPending=true;
       pending.forEach((activity,key)=>{
         // Match the handler's removal branch, including nonfinite clocks.
-        if(!(now<activity.end))keepsPending=false;
+        if(!(now<activity.end)){keepsPending=false;removed.push({key,activity,position});}
+        position++;
         const receipt=ticks<activity.start && now>=activity.start,reply=now>=activity.end;
         // Capture only due row references before the handler marks them and
         // clears the index. Persistence reads their values after the handler.
         if(receipt||reply)due.push({key,reply,receipts:receipt?[...(indexes.get(key)?.awaitingRead||[])]:[]});
       });
+      if(removed.length)rollbackPending=()=>{
+        // Success retains only removed entries. Rebuild original insertion
+        // order on refusal, before restore prunes inadmissible schedules.
+        const survivors=[...pending];let next=0;
+        pending.clear();
+        for(const {key,activity,position} of removed){
+          while(pending.size<position){const [id,value]=survivors[next++];pending.set(id,value);}
+          pending.set(key,activity);
+        }
+        for(;next<survivors.length;next++){const [id,value]=survivors[next];pending.set(id,value);}
+      };
       capture=()=>{
         const rows:Records=new Map();
         for(const {key,receipts,reply} of due){
@@ -572,7 +586,7 @@ function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records
     default:throw new Error(`Messages source has no durable footprint: ${source}`);
   }
   const before=removes?capture():undefined;
-  return {keepsPending,capture:()=>{
+  return {keepsPending,rollbackPending,capture:()=>{
     const after=capture();
     if(rebasedPeople)people.forEach(p=>putPerson(after,p));
     if(before)for(const key of before.keys())if(!after.has(key))after.set(key,null);
@@ -650,14 +664,15 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
     if(source==='advanceReplies' && idleReplyTick(Number(args[0])))return changed();
-    const {capture:records,keepsPending}=editRecords(source,args);
-    // Unblocking and removing an absent schedule leave the map untouched. An
-    // actual removal still needs the full copy to restore its insertion order.
+    const {capture:records,keepsPending,rollbackPending}=editRecords(source,args);
+    // Unblocking and removing an absent schedule leave the map untouched. A
+    // block/delete removal still copies the map; reply ticks capture removals
+    // during their existing scan and reconstruct order only on refusal.
     // A send only sets its own entry. Map.set preserves an existing entry's
     // position, so rollback needs one value rather than a copy of every reply.
     const sentId=source==='sendMessage'?String(args[0]):undefined;
     const previousActivity=sentId===undefined?undefined:pending.get(sentId);
-    const previousPending=keepsPending||sentId!==undefined?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision,previousPendingTime=nextPendingTime;
+    const previousPending=keepsPending||rollbackPending||sentId!==undefined?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision,previousPendingTime=nextPendingTime;
     const value=await sources[source](args,store,storage,native);
     // Reply ticks change durable records only when a receipt or reply advances
     // revision. Keep their clock update, but avoid copying an unchanged history.
@@ -666,6 +681,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
     try{await client.edit(records());}catch(error){
       // Undo before restore prunes schedules for absent/deleted/blocked threads.
       if(sentId!==undefined){if(previousActivity)pending.set(sentId,previousActivity);else pending.delete(sentId);}
+      rollbackPending?.();
       restore(client.initial());if(previousPending){pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);}ticks=previousTicks;
       nextPendingTime=previousPendingTime;
       // A failed save must not leave an invalid model that every later read

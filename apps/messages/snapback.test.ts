@@ -472,6 +472,25 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     }
     expect(mixedDue.live.length).toBe(beforeMixedDue.live.length+1);
     expect(mixedDue.pending).toEqual(beforeMixedDue.pending.filter(([id]:[string,unknown])=>id!=='maya'));
+    // Sparse reply removals restore original insertion order at every position,
+    // with survivors between removals and with no survivors at all.
+    await act('advanceReplies',[10000,'maya',10000000]);
+    const replyIds=['maya','dad','sam','alex','jules'];
+    for(const id of replyIds)await act('blockConversation',[id,false]);
+    for(const removed of [[0],[2],[4],[0,2,4],[0,1,2,3,4]]){
+      await act('advanceReplies',[10000,'maya',10000000]);
+      for(let i=0;i<replyIds.length;i++)await act('sendMessage',[replyIds[i],'Ordered reply removal','',removed.includes(i)?5000:6000,5000000]);
+      const before=await inspect();
+      expect(before.pending.map(([id]:[string,unknown])=>id)).toEqual(replyIds);
+      failCommit=true;
+      await expect(call('advanceReplies',[5015,'maya',5015000])).rejects.toThrow('footprint commit refused');
+      const refused=await inspect();
+      expect(canonical(refused.live)).toEqual(canonical(before.live));
+      expect(refused.pending).toEqual(before.pending);expect(refused.ticks).toBe(before.ticks);
+      const retried=await act('advanceReplies',[5015,'maya',5015000]);
+      expect(retried.pending).toEqual(before.pending.filter((_:unknown,i:number)=>!removed.includes(i)));
+      expect(retried.live.length).toBe(before.live.length+removed.length);
+    }
     // Expiry deadlines survive earlier insertions, strict equality, refusal,
     // rewind, removal of the earliest archive, and reopening the durable model.
     const day=86400000;
@@ -598,5 +617,15 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     app.undeclaredFixtureSource();
     await expect(call('undeclared',[])).rejects.toThrow('no durable footprint');
     expect(canonical((await inspect()).live)).toEqual(canonical(intact.live));
+    // The existing 512-record limit can refuse a whole due batch before disk
+    // admission. Its larger removal set must also restore every schedule.
+    for(let i=0;i<260;i++)await call('sendMessage',[`address:reply-cap-${i}%40example.test`,'Batch reply','',0,0]);
+    const beforeCap=await inspect();
+    expect(beforeCap.pending.length).toBe(260);
+    await expect(call('advanceReplies',[15,'maya',15000])).rejects.toThrow('at most 512 records');
+    const refusedCap=await inspect();
+    expect(canonical(refusedCap.live)).toEqual(canonical(beforeCap.live));
+    expect(refusedCap.pending).toEqual(beforeCap.pending);expect(refusedCap.ticks).toBe(beforeCap.ticks);
+    expect((await act('saveDraft',['maya','After refused reply batch',''])).pending).toEqual(beforeCap.pending);
   }finally{globalThis.fetch=originalFetch;sql.close();await rm(dir,{recursive:true,force:true});}
 },30000);
