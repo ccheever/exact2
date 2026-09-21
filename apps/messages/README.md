@@ -32,9 +32,13 @@ nulls delete records. Unknown durable sources refuse before mutation. Tests comp
 every durable source against the complete model and actual device, including a
 negative control that deliberately omits a write.
 
-Some costs remain: people lookup scales with contacts, sends include every person
-because a prepend renumbers stored positions, and deletion/recovery scans recoverable
-rows for expiry. Receipt transitions use a derived set of outgoing messages still
+Person positions remain stable across prepends/appends, so sends and contact edits
+include only their affected people. Imported numeric positions are retained; if an
+extreme finite value prevents insertion, positions rebase in the same atomic edit,
+still subject to the 512-record cap.
+
+Some costs remain: people lookup scales with contacts, and deletion/recovery scans
+recoverable rows for expiry. Receipt transitions use a derived set of outgoing messages still
 awaiting Read; insertion, recovery and restore rebuild it, while marking a receipt
 clears it. The persistence footprint captures those rows before the handler runs. Thread removal still rebuilds
 its indexes. Startup, changed sync and exceptional rollback still restore the whole

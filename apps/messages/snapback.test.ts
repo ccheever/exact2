@@ -210,12 +210,13 @@ test('every durable source footprint matches the complete model and durable devi
     const built=await Bun.build({entrypoints:[entry],target:'bun',outdir:dir,naming:'app.mjs',plugins:[{
       name:'full-model-oracle',setup(build){build.onLoad({filter:/\/apps\/messages\/app\.ts$/},async args=>({
         loader:'ts',contents:await readFile(args.path,'utf8')+`
-export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),sources:Object.keys(sources)}));}
+export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),peopleOrder:people.map(p=>p.id),sources:Object.keys(sources)}));}
 export function omitFixtureEdit(){const edit=replica.edit.bind(replica);replica.edit=async records=>{replica.edit=edit;return edit(new Map());};}
 export function undeclaredFixtureSource(){sources.undeclared=()=>{people[0].unread=!people[0].unread;return changed();};}
 let fixtureKeys=[];
 export function recordFixtureEdits(){const edit=replica.edit.bind(replica);replica.edit=async records=>{fixtureKeys=[...records.keys()];return edit(records);};}
 export function fixtureEditKeys(){return fixtureKeys;}
+export async function fixturePositions(positions){const rows=new Map(JSON.parse(JSON.stringify([...replica.initial()])));for(const [id,position] of positions)rows.get('person:'+id).position=position;await replica.edit(rows);restore(replica.initial());}
 `,
       }));},
     }]});
@@ -230,6 +231,10 @@ export function fixtureEditKeys(){return fixtureKeys;}
       const waiting=values.live.filter(([_key,row]:[string,any])=>row.kind==='message' && row.expires===null && row.message.outgoing && row.message.delivery!=='Read')
         .map(([_key,row]:[string,any])=>JSON.stringify([row.conversation,row.message.id])).sort();
       expect(values.awaiting.map((pair:string[])=>JSON.stringify(pair)).sort()).toEqual(waiting);
+      const order=values.live.filter(([_key,row]:[string,any])=>row.kind==='person')
+        .sort(([,a]:any,[,b]:any)=>a.position-b.position || a.person.id.localeCompare(b.person.id))
+        .map(([,row]:any)=>row.person.id);
+      expect(values.peopleOrder).toEqual(order);
       return values;
     };
     const exercised=new Set<string>();
@@ -246,8 +251,20 @@ export function fixtureEditKeys(){return fixtureKeys;}
     await act('react',['maya','m9','❤️']);expect(app.fixtureEditKeys()).toEqual(['message:maya:m9']);
     await act('react',['maya','m9','❤️']);
     await act('createLocalContact',['New','Contact','','+14155550999','new@example.test','Notes']);
+    expect(app.fixtureEditKeys().sort()).toEqual(['person:address:%2B14155550999','person:address:new%40example.test']);
     await act('createLocalContact',['Maya','Renamed','','+14155550101','','Updated']);
+    expect(app.fixtureEditKeys()).toEqual(['person:maya']);
+    const positions=(values:any)=>new Map(values.live.filter(([,row]:any)=>row.kind==='person').map(([key,row]:any)=>[key,row.position]));
+    const priorPositions=positions(await inspect());
     await act('sendMessage',['address:'+encodeURIComponent('fresh@example.test'),'New contact','',0,2000]);
+    expect(app.fixtureEditKeys().filter((key:string)=>key.startsWith('person:'))).toEqual(['person:address:fresh%40example.test']);
+    const afterPositions=positions(await inspect());
+    for(const [key,position] of priorPositions)expect(afterPositions.get(key)).toBe(position);
+    const priorOrder=(await inspect()).peopleOrder;
+    await act('createLocalContact',['Name','Only','','','','']);
+    expect(app.fixtureEditKeys()).toHaveLength(1);
+    expect((await inspect()).peopleOrder.slice(0,-1)).toEqual(priorOrder);
+    await act('createLocalContact',['','','','','','']);expect(app.fixtureEditKeys()).toEqual([]);
     await act('sendMessage',['group:dad|maya','New group','',0,3000]);
     await act('sendMessage',['maya','Receipt and reply','m9',100,4000]);
     for(const now of [102,103,104,115,116]){
@@ -275,6 +292,24 @@ export function fixtureEditKeys(){return fixtureKeys;}
     await expect(call('saveDraft',['maya','Refused draft',''])).rejects.toThrow('footprint commit refused');
     expect(canonical((await inspect()).live)).toEqual(before);
     await act('saveDraft',['maya','Retry draft','']);
+    // Imported positions can be tied/fractional or at finite Number extremes.
+    // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
+    await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);
+    const imported=positions(await inspect());
+    await act('saveDraft',['maya','Preserve imported ordering','']);
+    expect(positions(await inspect())).toEqual(imported);
+    await app.fixturePositions([['maya',-Number.MAX_VALUE]]);
+    const beforeRebase=await inspect();
+    failCommit=true;
+    const rebasedId='address:rebase%40example.test';
+    await expect(call('sendMessage',[rebasedId,'Refused rebase','',200,7000])).rejects.toThrow('footprint commit refused');
+    expect(canonical((await inspect()).live)).toEqual(canonical(beforeRebase.live));
+    await act('sendMessage',[rebasedId,'Retry rebase','',200,7000]);
+    expect((await inspect()).peopleOrder).toEqual([rebasedId,...beforeRebase.peopleOrder]);
+    await app.fixturePositions([['dad',Number.MAX_VALUE]]);
+    const beforeAppend=(await inspect()).peopleOrder;
+    await act('createLocalContact',['Extreme','Append','','+14155550888','extreme@example.test','']);
+    expect((await inspect()).peopleOrder).toEqual([...beforeAppend,'address:%2B14155550888','address:extreme%40example.test']);
     const saved=await inspect();
     const pure=['conversation','conversationDraft','inbox','recipients','syncState','syncMessages'];
     expect([...exercised].sort()).toEqual(saved.sources.filter((s:string)=>!pure.includes(s)).sort());

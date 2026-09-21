@@ -623,6 +623,40 @@ fn replica_fixture_with_delivery(
     entries: Vec<(String, u64, bool)>,
     delivery: &str,
 ) -> Directory {
+    record_fixture(label, |queued| {
+        let template = queued
+            .iter()
+            .flat_map(|entry| entry["args"]["payloads"].as_array().unwrap())
+            .find(|payload| payload["kind"] == "message" && payload["conversation"] == "maya")
+            .unwrap()
+            .clone();
+        let payloads: Vec<_> = entries
+            .iter()
+            .map(|(id, order, outgoing)| {
+                let mut row = template.clone();
+                row["message"]["id"] = id.as_str().into();
+                row["message"]["body"] = format!("Body {id}").into();
+                row["message"]["order"] = (*order).into();
+                row["message"]["outgoing"] = (*outgoing).into();
+                row["message"]["sender"] = if *outgoing { "me" } else { "maya" }.into();
+                row["message"]["delivery"] = if *outgoing { delivery } else { "" }.into();
+                row["message"]["replyRoot"] = if *outgoing { "m9" } else { id.as_str() }.into();
+                row["expires"] = Json::Null;
+                row
+            })
+            .collect();
+        // snapshot encodes the message ID in the key; the replica then encodes
+        // the whole key in its record ID. These fixture IDs contain only ASCII
+        // letters, digits, hyphens and colons.
+        let keys: Vec<_> = entries
+            .iter()
+            .map(|(id, _, _)| format!("message:maya:{}", id.replace(':', "%3A")))
+            .collect();
+        keys.into_iter().zip(payloads).collect()
+    })
+}
+
+fn record_fixture(label: &str, records: impl FnOnce(&[Json]) -> Vec<(String, Json)>) -> Directory {
     let root = Directory(
         std::env::temp_dir().join(format!("messages-window-{label}-{}", std::process::id())),
     );
@@ -650,34 +684,7 @@ fn replica_fixture_with_delivery(
     // app's durable outbox and admit this batch just as an offline edit does.
     let queued = core.call(&serde_json::json!({"op":"queued"})).unwrap();
     let queued = queued["ok"].as_array().unwrap();
-    let template = queued
-        .iter()
-        .flat_map(|entry| entry["args"]["payloads"].as_array().unwrap())
-        .find(|payload| payload["kind"] == "message" && payload["conversation"] == "maya")
-        .unwrap()
-        .clone();
-    let payloads: Vec<_> = entries
-        .iter()
-        .map(|(id, order, outgoing)| {
-            let mut row = template.clone();
-            row["message"]["id"] = id.as_str().into();
-            row["message"]["body"] = format!("Body {id}").into();
-            row["message"]["order"] = (*order).into();
-            row["message"]["outgoing"] = (*outgoing).into();
-            row["message"]["sender"] = if *outgoing { "me" } else { "maya" }.into();
-            row["message"]["delivery"] = if *outgoing { delivery } else { "" }.into();
-            row["message"]["replyRoot"] = if *outgoing { "m9" } else { id.as_str() }.into();
-            row["expires"] = Json::Null;
-            row
-        })
-        .collect();
-    // snapshot encodes the message ID in the key; the replica then encodes
-    // the whole key in its record ID. These fixture IDs contain only ASCII
-    // letters, digits, hyphens and colons.
-    let keys: Vec<_> = entries
-        .iter()
-        .map(|(id, _, _)| format!("message:maya:{}", id.replace(':', "%3A")))
-        .collect();
+    let (keys, payloads): (Vec<_>, Vec<_>) = records(queued).into_iter().unzip();
     let record_ids: Vec<_> = keys
         .iter()
         .map(|key| format!("dev:alice:{}", key.replace('%', "%25").replace(':', "%3A")))
@@ -1044,4 +1051,140 @@ fn receipt_index_tracks_delete_recovery_and_reopen_without_touching_read_history
         rows(&model.chat("maya", "", "", "")).last().unwrap()["delivery"],
         "Read"
     );
+}
+
+fn people_fixture(label: &str, count: usize) -> Directory {
+    people_fixture_at(label, count, 6.)
+}
+
+fn people_fixture_at(label: &str, count: usize, first_position: f64) -> Directory {
+    record_fixture(label, |queued| {
+        let template = queued
+            .iter()
+            .flat_map(|entry| entry["args"]["payloads"].as_array().unwrap())
+            .find(|row| row["kind"] == "person" && row["person"]["id"] == "maya")
+            .unwrap();
+        (0..count)
+            .map(|i| {
+                let id = format!("person-{i:05}");
+                let mut row = template.clone();
+                row["person"]["id"] = id.clone().into();
+                row["person"]["name"] = format!("Person {i}").into();
+                row["person"]["address"] = format!("person{i}@example.test").into();
+                row["position"] = (first_position + i as f64).into();
+                row["conversation"] = false.into();
+                (format!("person:{id}"), row)
+            })
+            .collect()
+    })
+}
+
+#[test]
+fn new_conversations_preserve_order_with_more_people_than_the_edit_cap() {
+    let root = people_fixture("people-order", 1000);
+    let mut model = open(&root);
+    let inbox = |model: &mut Model| model.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+    let order = |inbox: Json| {
+        inbox["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| text(row, "id").to_owned())
+            .collect::<Vec<_>>()
+    };
+    let original = order(inbox(&mut model));
+    let first = "address:first%40example.test";
+    let second = "address:second%40example.test";
+    model.send(first, "New conversation", "", 0.);
+    let mut expected = vec![first.to_owned()];
+    expected.extend(original.clone());
+    assert_eq!(order(inbox(&mut model)), expected);
+    assert!(model
+        .try_call(
+            "sendMessage",
+            vec![
+                Value::str("address:refused%40example.test"),
+                Value::str(&"🌲".repeat(20000)),
+                Value::str(""),
+                Value::Number(1.),
+                Value::Number(1000.)
+            ]
+        )
+        .is_err());
+    assert_eq!(order(inbox(&mut model)), expected);
+    model.send(second, "After refused prepend", "", 2.);
+    expected.insert(0, second.to_owned());
+    assert_eq!(order(inbox(&mut model)), expected);
+    model.call(
+        "createLocalContact",
+        vec![
+            Value::str("First"),
+            Value::str("Renamed"),
+            Value::str(""),
+            Value::str(""),
+            Value::str("first@example.test"),
+            Value::str("Saved"),
+        ],
+    );
+    assert_eq!(order(inbox(&mut model)), expected);
+    drop(model);
+    let mut model = open(&root);
+    let restored = inbox(&mut model);
+    assert_eq!(order(restored.clone()), expected);
+    assert_eq!(
+        restored["people"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| text(row, "id") == first)
+            .unwrap()["name"],
+        "First Renamed"
+    );
+    assert_eq!(
+        rows(&model.chat(first, "", "", "")).last().unwrap()["body"],
+        "New conversation"
+    );
+    assert_eq!(
+        rows(&model.chat(second, "", "", "")).last().unwrap()["body"],
+        "After refused prepend"
+    );
+}
+
+#[test]
+fn oversized_position_rebase_refuses_whole_and_allows_a_later_edit() {
+    let root = people_fixture_at("people-extreme", 520, -f64::MAX);
+    let mut model = open(&root);
+    let inbox = |model: &mut Model| model.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+    let original = inbox(&mut model);
+    let error = model
+        .try_call(
+            "sendMessage",
+            vec![
+                Value::str("address:refused-rebase%40example.test"),
+                Value::str("Refuse atomically"),
+                Value::str(""),
+                Value::Number(0.),
+                Value::Number(0.),
+            ],
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("512"));
+    assert_eq!(inbox(&mut model)["people"], original["people"]);
+    model.call(
+        "saveDraft",
+        vec![
+            Value::str("maya"),
+            Value::str("After refused rebase"),
+            Value::str(""),
+        ],
+    );
+    let saved = inbox(&mut model);
+    drop(model);
+    let mut model = open(&root);
+    assert_eq!(inbox(&mut model)["people"], saved["people"]);
+    let draft = model.call(
+        "conversationDraft",
+        vec![Value::str("maya"), Value::Number(0.)],
+    );
+    assert_eq!(draft["draft"], "After refused rebase");
 }

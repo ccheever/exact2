@@ -14,6 +14,24 @@ const people: (Omit<Person,'draft'|'reply'|'muted'> & {address?:string})[] = [
   {id:'jules',address:'+14155550104',name:'Jules',initials:'J',color:'#cd8f99',preview:'That sounds perfect',time:'Monday',unread:false},
   {id:'sam',address:'+14155550105',name:'Sam',initials:'S',color:'#8196c0',preview:'Thanks again!',time:'Monday',unread:false},
 ];
+// Keep stored positions stable when a contact is prepended or appended. The
+// array remains the presentation order; these values belong to person records.
+const personPositions=new Map(people.map((person,index)=>[person.id,index]));
+let firstPersonPosition=0,lastPersonPosition=people.length-1,rebasedPeople=false;
+function insertPerson(person:typeof people[number],front:boolean):void {
+  const edge=front?firstPersonPosition:lastPersonPosition;
+  let position=edge+(front?-1:1);
+  if(!Number.isFinite(position)||(front?position>=edge:position<=edge)){
+    // Imported finite positions can exhaust Number's adjacent range. Rebase as
+    // one ordinary atomic edit; the existing record cap still applies.
+    people.forEach((p,i)=>personPositions.set(p.id,i));
+    firstPersonPosition=0;lastPersonPosition=people.length-1;rebasedPeople=true;
+    position=front?-1:people.length;
+  }
+  personPositions.set(person.id,position);
+  if(front){firstPersonPosition=position;people.unshift(person);}
+  else{lastPersonPosition=position;people.push(person);}
+}
 const reactions = [
   {id:'heart',value:'❤️',label:'Love'}, {id:'like',value:'👍',label:'Like'},
   {id:'dislike',value:'👎',label:'Dislike'}, {id:'laugh',value:'haha',label:'Laugh'},
@@ -199,7 +217,7 @@ function ensureConversation(id:string) {
   if(threads.has(id)) return;
   const address=recipientById(id);
   if(address) {
-    if(!people.some(p=>p.id===id)) people.unshift(address);
+    if(!people.some(p=>p.id===id)) insertPerson(address,true);
     replaceThread(id,[]);
     return;
   }
@@ -207,7 +225,7 @@ function ensureConversation(id:string) {
   const members=selectedPeople(id.slice(6));
   if(members.length<2 || recipientTarget(members)!==id) return;
   groups.set(id,members.map(p=>p.id).sort());
-  people.unshift({id,name:members.map(p=>p.name.split(' ')[0]).join(', '),initials:members.slice(0,2).map(p=>p.initials[0]).join(''),color:'#829baa',preview:'',time:'Now',unread:false});
+  insertPerson({id,name:members.map(p=>p.name.split(' ')[0]).join(', '),initials:members.slice(0,2).map(p=>p.initials[0]).join(''),color:'#829baa',preview:'',time:'Now',unread:false},true);
   replaceThread(id,[]);
 }
 function responder(id:string) {
@@ -307,7 +325,7 @@ const sources: Sources = {
     if(!addresses.length && name) addresses.push({id:`contact:${namespace}${++revision}`,name,initials,color:'#92a8ce',preview:'',time:'Now',unread:false});
     for(const candidate of addresses) {
       let person=people.find(p=>p.id===candidate.id);
-      if(!person){person=candidate;people.push(person);}
+      if(!person){person=candidate;insertPerson(person,false);}
       if(name)person.name=name;
       person.initials=initials;
       localContacts.set(person.id,{first,last,company,phone,email,notes});
@@ -402,16 +420,16 @@ const sources: Sources = {
 // Persistence contains authored data, never bubble geometry or selection state.
 function snapshot():Records {
   const records:Records=new Map();
-  people.forEach((person,position)=>putPerson(records,person,position));
+  people.forEach(person=>putPerson(records,person));
   for(const [id,rows] of threads)for(const message of rows)putMessage(records,id,message,null);
   for(const [id,rows] of recoverable)for(const row of rows)putMessage(records,id,row.message,row.expires);
   // persist detaches changed values before awaiting storage; unchanged rows
   // already have an owned copy in the replica.
   return records;
 }
-function putPerson(records:Records,person:typeof people[number],position:number):void {
+function putPerson(records:Records,person:typeof people[number]):void {
   const id=person.id;
-  records.set(`person:${id}`,{kind:'person',person,position,conversation:threads.has(id),
+  records.set(`person:${id}`,{kind:'person',person,position:personPositions.get(id)!,conversation:threads.has(id),
     muted:muted.has(id),blocked:blocked.has(id),deleted:deleted.has(id),
     draft:drafts.get(id)||null,group:groups.get(id)||null,contact:localContacts.get(id)||null});
 }
@@ -422,10 +440,11 @@ function putMessage(records:Records,conversation:string,message:StoredMessage,ex
 // refuse before mutation, rather than silently omitting a newly authored edit.
 // Returned nulls delete only keys that disappeared from this footprint.
 function editRecords(source:string,args:readonly unknown[]):()=>Records {
+  rebasedPeople=false;
   const id=String(args[0]);
   const person=(records:Records,key:string)=>{
     const position=people.findIndex(p=>p.id===key);
-    if(position>=0)putPerson(records,people[position],position);
+    if(position>=0)putPerson(records,people[position]);
   };
   const live=(records:Records,key:string,ids:Iterable<string>)=>{
     const index=indexes.get(key);
@@ -440,14 +459,21 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
       capture=()=>{const rows:Records=new Map();person(rows,id);return rows;};break;
     case 'react':
       capture=()=>{const rows:Records=new Map();live(rows,id,[String(args[1])]);return rows;};break;
-    case 'createLocalContact':
-      capture=()=>{const rows:Records=new Map();people.forEach((p,i)=>putPerson(rows,p,i));return rows;};break;
+    case 'createLocalContact': {
+      const ids=[String(args[3]),String(args[4])].map(addressPerson).filter((p):p is typeof people[number]=>!!p).map(p=>p.id);
+      const previousLength=people.length;
+      capture=()=>{
+        const rows:Records=new Map();for(const key of ids)person(rows,key);
+        // Name-only contacts allocate their ID inside the handler. All new
+        // contacts append; include those rows without scanning older contacts.
+        for(let i=previousLength;i<people.length;i++)putPerson(rows,people[i]);
+        return rows;
+      };break;
+    }
     case 'sendMessage':
       capture=()=>{
         const rows:Records=new Map();
-        // A newly prepended person renumbers stored positions. Include contacts
-        // but never enumerate unrelated message histories.
-        people.forEach((p,i)=>putPerson(rows,p,i));
+        person(rows,id);
         const messages=threads.get(id),last=messages?.[messages.length-1];
         if(last)putMessage(rows,id,last,null);
         return rows;
@@ -495,6 +521,7 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
   const before=removes?capture():undefined;
   return ()=>{
     const after=capture();
+    if(rebasedPeople)people.forEach(p=>putPerson(after,p));
     if(before)for(const key of before.keys())if(!after.has(key))after.set(key,null);
     return after;
   };
@@ -514,9 +541,10 @@ function restore(records:Records):void {
       messages.push(row);
     }else throw new Error('Unknown Messages replica record');
   }
-  people.splice(0);threads.clear();indexes.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
+  people.splice(0);personPositions.clear();firstPersonPosition=0;lastPersonPosition=-1;rebasedPeople=false;threads.clear();indexes.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
   for(const row of persons.sort((a,b)=>a.position-b.position || a.person.id.localeCompare(b.person.id))){
-    const id=row.person.id;people.push(row.person);
+    const id=row.person.id;people.push(row.person);personPositions.set(id,row.position);
+    firstPersonPosition=Math.min(firstPersonPosition,row.position);lastPersonPosition=Math.max(lastPersonPosition,row.position);
     if(row.conversation)replaceThread(id,[]);
     if(row.muted)muted.add(id);if(row.blocked)blocked.add(id);if(row.deleted)deleted.add(id);
     if(row.draft)drafts.set(id,row.draft);if(row.group)groups.set(id,row.group);if(row.contact)localContacts.set(id,row.contact);
