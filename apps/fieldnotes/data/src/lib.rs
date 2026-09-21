@@ -47,6 +47,7 @@ pub fn mixed<J: DataSource>(javascript: J, rust: Placement) -> Data<J> {
         exact_data::Placed::new(Backup::default(), rust),
         &[
             "library",
+            "openNote",
             "saveNote",
             "readBackup",
             "restoreNotes",

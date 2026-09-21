@@ -38,6 +38,16 @@ clears its notes and local backup. HTTPS or localhost is required. There is no
 cross-device sync. The current limits are 1,000 notes, 160 characters per title,
 20,000 per body, and 4 MB of backup text.
 
+The library returns titles, pins and short previews; selecting a note loads its
+full body separately. Reads scan at most 32 bodies per SQLite reply, so a full
+notebook remains readable below the storage result limit. Search still scans
+all bodies and uses JavaScript's Unicode lowercase substring matching. Pages
+are independent reads, ordered by immutable ID; they are not one cross-window
+snapshot. Backups keep their single-snapshot behavior and separate size limit.
+While a selected note loads, the editor is read-only; drafts and edits made
+while saving stay protected. The loaded editing snapshot and unsaved draft survive
+a code reload; a reload that interrupts opening a note offers Retry. Preview truncation never splits a surrogate pair.
+
 `app.json` places the TypeScript module on a worker (LLP 1027.002:
 `"typescript": { "placement": "worker" }`); the Rust half stays on `main`. Both
 keep `fieldnotes.revision`, so the composer orders every call of either half

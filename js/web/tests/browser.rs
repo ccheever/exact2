@@ -598,7 +598,7 @@ try {
       if(result.tag!==0)throw new Error(source+': '+JSON.stringify(result));
       for(const [key,value] of result.writes||[]){if(value===null)snapshot.delete(key);else snapshot.set(key,value);}
       sessionStorage.setItem('fieldnotes-store',JSON.stringify([...snapshot]));
-      if(source!=='library'&&(result.writes?.length!==1||result.value.revision!==Number(snapshot.get('fieldnotes.revision'))))throw new Error('mutation revision must settle once');
+      if(source!=='library'&&source!=='openNote'&&(result.writes?.length!==1||result.value.revision!==Number(snapshot.get('fieldnotes.revision'))))throw new Error('mutation revision must settle once');
       return result.value;
     };
     const check=(condition,message)=>{if(!condition)throw new Error(message);};
@@ -655,7 +655,17 @@ try {
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
     check((await request('fs.readFile',{path:binary})).base64==='AP8=','file byte representation exact');
-    const updated={version:1,notes:library.notes.map(({id,title,body,pinned})=>({id,title,body,pinned}))};
+    // Concurrent library/detail callers share a realm. Browser realms hold
+    // each whole storage-backed turn through connection close.
+    for(const placement of ['main','worker']) {
+      realm.dispose();realm=await prepare({script,receipt},{...identity,placement});
+      const [list,opened]=await Promise.all([ask('library',['',0,0]),ask('openNote',[saved.id,1])]);
+      check(list.ready&&opened.ready&&opened.body.includes('Binary-safe backups'),'concurrent library/detail reads settle on '+placement);
+    }
+    const updated={version:1,notes:await Promise.all(library.notes.map(async ({id})=>{
+      const note=await ask('openNote',[id,1]);check(note.ready,'read full body for portable backup');
+      return {id,title:note.title,body:note.body,pinned:note.pinned};
+    }))};
     await request('fs.atomicWriteFile',{path,text:JSON.stringify(updated,null,2)});
     await ask('deleteNote',[saved.id]);check((await ask('library',['',0,0])).total===0,'TS deletes before reload restore');
     const pending=service.run(JSON.stringify({version:1,op:'sqlite',args:{path:db,commands:[command('query','SELECT 1')]}}));

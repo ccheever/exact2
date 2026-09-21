@@ -158,6 +158,45 @@ try {
   await send('Emulation.setCPUThrottlingRate', { rate: 1 });
   await evaluate('globalThis.__gaps.on=false');
   console.log(JSON.stringify({ frame_gaps: report }));
+  // The app permits this much stored text even though a backup is capped at
+  // 4 MiB. Seed via the real browser SQLite service, then reopen through UI.
+  await evaluate(`(async()=>{
+    const {createSqlite}=await import('/storage-sqlite.js');
+    const sql=createSqlite('com.exact.fieldnotes','sqlite.open app:/data/fieldnotes.db');
+    const db=await sql.open('app:/data/fieldnotes.db');
+    try {await db.execute('UPDATE notes SET body=?',['🌿'.repeat(9998)+'ÉΣKx']);}
+    finally {await db.close();sql.dispose();}
+  })()`);
+  await send('Page.reload', { ignoreCache: true }); await boot();
+  assert.match((await state()).count, /^1000 notes/);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-testid^="note-"][role="button"],button[data-testid^="note-"]').length`), 1000);
+  await tap('note-1000');
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-body"]').value`), '🌿'.repeat(9998)+'ÉΣKx');
+  await evaluate(`(()=>{const e=document.querySelector('[data-testid="note-body"]');e.value='Protected draft';e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await settle();
+  await tap('note-999'); await tap('new-note');
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-body"]').value`), 'Protected draft');
+  // Replace the logic generation while selection and an unsaved draft carry.
+  // Unlike Page.reload, this retains the selected note and its editing state.
+  assert.equal(await evaluate(`(async()=>{
+    const bytes=async path=>new Uint8Array(await (await fetch(path)).arrayBuffer());
+    const plan=await bytes('/app.plan'),meta=await (await fetch('/app.module.json')).json();
+    const script=new TextEncoder().encode(await (await fetch('/app.js')).text()+';/* carried notebook generation */');
+    const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
+    meta.web.bytes=script.length;meta.web.sha256=sha;meta.module.sha256=sha;
+    return exact.reloadGeneration(plan,[],()=>true,{script,receipt:new TextEncoder().encode(JSON.stringify(meta))});
+  })()`), true);
+  await settle();
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-body"]').value`), 'Protected draft');
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-body"]').readOnly`), false);
+  assert.equal(await evaluate(`document.querySelector('[data-testid="save-note"]').disabled`), false);
+  assert.equal(await evaluate(`document.querySelector('[data-testid="open-message"]')?.textContent ?? ''`), '');
+
+  await tap('discard');
+  await tap('find-notes'); await send('Input.insertText', { text: 'éσk' }); await settle();
+  assert.equal(await evaluate(`document.querySelectorAll('[data-testid^="note-"][role="button"],button[data-testid^="note-"]').length`), 1000);
+  console.log('PASS Fieldnotes 1000 maximum-size Unicode notes: library / selected body / protected draft / Unicode search');
+
   // A missing favicon is the page's only expected network error.
   const errors = logs.filter(m => m.method === 'Runtime.exceptionThrown' || (m.params?.entry?.level === 'error' && !/\/favicon\.ico$/.test(m.params.entry.url ?? '')));
   assert.equal(errors.length, 0, JSON.stringify(errors));

@@ -36,10 +36,44 @@ async function withDatabase<T>(storage: Storage, work: (db: Database) => Promise
   const db = await database(storage);
   try { return await work(db); } finally { await db.close(); }
 }
-async function notes(db: Database): Promise<Note[]> {
-  const result = await db.query('SELECT id, title, body, pinned FROM notes ORDER BY pinned DESC, id DESC');
-  return result.rows.map(row => ({id:String(row[0]),title:String(row[1]),body:String(row[2]),pinned:row[3] === 1n,
-    excerpt:String(row[2]).replace(/\s+/g,' ').slice(0,100) || 'An empty page.'}));
+function excerpt(body:string):string {
+  for(let end=100;;end*=2) {
+    const text=body.slice(0,end).replace(/\s+/g,' ');
+    // Do not split an astral character at the UTF-16 preview boundary.
+    if(text.length>=100||end>=body.length)return text.slice(0,100).replace(/[\uD800-\uDBFF]$/,'')||'An empty page.';
+  }
+}
+// Full bodies stay within one small storage reply and leave the library as previews.
+// Scan by immutable ID so another window pinning a note cannot duplicate it.
+async function notes(db: Database, query: string): Promise<{notes:Note[];total:number}> {
+  const needle=query.toLowerCase(), found:Note[]=[];
+  let cursor=9223372036854775807n, total=0;
+  for (;;) {
+    const result=await db.query('SELECT id, title, body, pinned FROM notes WHERE id <= ? ORDER BY id DESC LIMIT 32',[cursor]);
+    for(const row of result.rows) {
+      const title=String(row[1]),body=String(row[2]);total++;
+      if(!needle||(title+'\n'+body).toLowerCase().includes(needle)) {
+        found.push({id:String(row[0]),title,pinned:row[3]===1n,excerpt:excerpt(body)});
+      }
+    }
+    if(result.rows.length<32)break;
+    cursor=(result.rows[result.rows.length-1][0] as bigint)-1n;
+  }
+  // Stable sort keeps descending IDs within each pin group, without Number rounding.
+  found.sort((a,b)=>Number(b.pinned)-Number(a.pinned));
+  return {notes:found,total};
+}
+async function openNote(noteId:string,version:number,storage:Storage):Promise<Result<'openNote'>> {
+  const empty={version,title:'',body:'',pinned:false,message:'',ready:true};
+  if(!noteId)return empty;
+  try {
+    return await withDatabase(storage,async db=>{
+      const result=await db.query('SELECT title, body, pinned FROM notes WHERE id=?',[id(noteId)]);
+      if(!result.rows.length)throw new Error('This note was deleted. Choose another note or start a new one.');
+      const row=result.rows[0];
+      return {version,title:String(row[0]),body:String(row[1]),pinned:row[2]===1n,message:'',ready:true};
+    });
+  } catch(error) {return {...empty,message:message(error),ready:false};}
 }
 function id(value: string): bigint {
   if (!/^[1-9][0-9]*$/.test(value)) throw new Error('That note is not available.');
@@ -69,8 +103,8 @@ function parseBackup(text: string): BackupNote[] {
 }
 async function library(query: string, storage: Storage): Promise<Library> {
   try {
-    const all = await withDatabase(storage,notes), needle=query.toLowerCase();
-    return {notes:all.filter(n=>(n.title+'\n'+n.body).toLowerCase().includes(needle)),total:all.length,message:'',ready:true};
+    const result = await withDatabase(storage,db=>notes(db,query));
+    return {...result,message:'',ready:true};
   } catch (error) {
     const why=message(error);
     return {notes:[],total:0,message:why.includes('unsupported by this host')||why.includes('during bake') ? 'Opening your notebook…' : 'Could not open your notebook: '+why,ready:false};
@@ -135,6 +169,9 @@ async function service(source:string,args:unknown[],storage:Storage,store:Store)
 }
 const sources: Sources = {
   library: ([query], _store, storage) => serial(() => library(query, storage)),
+  // Native reads own their continuation; browser executors already hold a
+  // whole storage-backed turn through close. Do not await another app call.
+  openNote: ([noteId, version], _store, storage) => openNote(noteId, version, storage),
   saveNote: (args, store, storage) => serial(() => saveNote(...args, storage, store)),
   backupNotes: (args, store, storage) => serial(() => service('backupNotes', args, storage, store)),
   readBackup: (args, store, storage) => serial(() => service('readBackup', args, storage, store)),
