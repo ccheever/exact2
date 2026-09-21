@@ -10,7 +10,7 @@ import Foundation
 
 /// One batch from the library: the ops, and whether the presenter should keep
 /// the clock (timers) or the display link (motion) running.
-public struct Batch: Decodable {
+public struct Batch {
     public let ops: [BatchOp]
     public let timers: Bool
     public let motion: Bool
@@ -20,27 +20,22 @@ public struct Batch: Decodable {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
-    enum CodingKeys: String, CodingKey {
-        case ops, timers, motion, clock, error, pending
-        case timerDueMs = "timer_due_ms"
-    }
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        ops = try c.decodeIfPresent([BatchOp].self, forKey: .ops) ?? []
-        timers = try c.decodeIfPresent(Bool.self, forKey: .timers) ?? false
-        motion = try c.decodeIfPresent(Bool.self, forKey: .motion) ?? false
-        clock = try c.decodeIfPresent(Double.self, forKey: .clock)
-        error = try c.decodeIfPresent(String.self, forKey: .error)
-        timerDueMs = try c.decodeIfPresent(Double.self, forKey: .timerDueMs)
-        pending = try c.decodeIfPresent(Bool.self, forKey: .pending) ?? false
-    }
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
     }
     static func decode(_ data: Data) -> Batch {
-        (try? JSONDecoder().decode(Batch.self, from: data))
-            ?? Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
+        data.withUnsafeBytes { decode($0.bindMemory(to: UInt8.self)) }
+    }
+    static func decode(_ bytes: UnsafeBufferPointer<UInt8>) -> Batch {
+        var reader = BatchReader(bytes: bytes)
+        do {
+            let batch = try reader.batch()
+            try reader.end()
+            return batch
+        } catch {
+            return Batch(ops: [], timers: false, motion: false, clock: nil, error: "unreadable batch")
+        }
     }
 
 }
@@ -51,6 +46,11 @@ public struct Batch: Decodable {
 final class Runtime {
     let rt: ExactRuntime
     private(set) var destroyed = false
+    #if DEBUG
+    // Per-runtime observation for differential tests of actual session traffic.
+    // Release builds have neither the callback nor a copy of the wire bytes.
+    var observeBatch: ((Data, Batch) -> Void)?
+    #endif
 
     init() {
         rt = exact_create()
@@ -72,8 +72,14 @@ final class Runtime {
     func setWake(_ wake: ExactWakeFn?, ctx: UnsafeMutableRawPointer?) { exact_set_wake(rt, wake, ctx) }
 
     func read(_ len: UInt32) -> Batch {
-        let data = Data(bytes: exact_out(rt), count: Int(len))
-        return Batch.decode(data)
+        // The runtime owns these bytes until its next call. The reader copies
+        // strings into Swift values before returning; no batch borrows the buffer.
+        let bytes = UnsafeBufferPointer(start: exact_out(rt), count: Int(len))
+        let batch = Batch.decode(bytes)
+        #if DEBUG
+        observeBatch?(Data(bytes), batch)
+        #endif
+        return batch
     }
     /// A payload into the runtime's input buffer; its length. An empty
     /// payload clears the buffer without dereferencing anything.

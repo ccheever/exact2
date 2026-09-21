@@ -1,7 +1,7 @@
 import CExact
 import Foundation
 
-struct TransformDragReply: Decodable {
+struct TransformDragReply {
     let accepted: Bool
     let committed: Bool
     let runtime: UInt64?
@@ -12,21 +12,33 @@ struct TransformDragReply: Decodable {
     let batch: Batch
 
     init?(_ data: Data) {
-        guard let reply = try? JSONDecoder().decode(Self.self, from: data) else { return nil }
-        self = reply
-    }
-    enum CodingKeys: String, CodingKey {
-        case accepted, committed, runtime, geometrySequence, translateToken, scaleToken, value, batch
-    }
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        func key(_ name: CodingKeys) throws -> UInt64? { try c.decodeIfPresent(String.self, forKey: name).flatMap(UInt64.init) }
-        accepted = try c.decodeIfPresent(Bool.self, forKey: .accepted) ?? false
-        committed = try c.decodeIfPresent(Bool.self, forKey: .committed) ?? false
-        runtime = try key(.runtime); sequence = try key(.geometrySequence)
-        translate = try key(.translateToken); scale = try key(.scaleToken)
-        value = try c.decodeIfPresent([Double].self, forKey: .value).flatMap(TransformDragPosition.init)
-        batch = try c.decode(Batch.self, forKey: .batch)
+        var accepted = false, committed = false
+        var runtime: UInt64?, sequence: UInt64?, translate: UInt64?, scale: UInt64?
+        var value: TransformDragPosition?, batch: Batch?
+        do {
+            try data.withUnsafeBytes { bytes in
+                var reader = BatchReader(bytes: bytes.bindMemory(to: UInt8.self))
+                try reader.object { r, key in
+                    if key == "batch" { batch = try r.batch(); return }
+                    if try r.null() { return }
+                    switch key {
+                    case "accepted": accepted = try r.bool()
+                    case "committed": committed = try r.bool()
+                    case "runtime": runtime = UInt64(try r.string())
+                    case "geometrySequence": sequence = UInt64(try r.string())
+                    case "translateToken": translate = UInt64(try r.string())
+                    case "scaleToken": scale = UInt64(try r.string())
+                    case "value": value = TransformDragPosition(try r.array { try $0.number() })
+                    default: try r.skip()
+                    }
+                }
+                try reader.end()
+            }
+        } catch { return nil }
+        guard let batch else { return nil }
+        self.accepted = accepted; self.committed = committed
+        self.runtime = runtime; self.sequence = sequence; self.translate = translate; self.scale = scale
+        self.value = value; self.batch = batch
     }
 
 }

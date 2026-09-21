@@ -2,7 +2,7 @@
 import Foundation
 import CoreText
 
-struct InlineText: Decodable {
+struct InlineText {
     let id: UInt32
     let parent: UInt32
     let props: [String: String]
@@ -13,21 +13,16 @@ struct InlineText: Decodable {
     let paints: Bool
     var range: NSRange = NSRange(location: 0, length: 0)
 
-    enum CodingKeys: String, CodingKey { case id, parent, props, style, handlers, paint }
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        id = try c.decode(UInt32.self, forKey: .id)
-        parent = try c.decode(UInt32.self, forKey: .parent)
-        props = try c.decodeIfPresent([String: String].self, forKey: .props) ?? [:]
-        let style = try c.decodeIfPresent(InlineStyle.self, forKey: .style) ?? InlineStyle()
+    init(id: UInt32, parent: UInt32, props: [String: String], style: InlineStyle,
+         handlers: Set<String>, paints: Bool) {
+        self.id = id; self.parent = parent; self.props = props
         var value = style.run
         value.text = props["text"] ?? ""
         value.href = props["href"] ?? ""
         lightRun = value
-        darkColor = style.color?.dark
-        hasSchemeColor = style.color?.paired ?? false
-        handlers = try c.decodeIfPresent(Set<String>.self, forKey: .handlers) ?? []
-        paints = try c.decodeIfPresent(Bool.self, forKey: .paint) ?? false
+        darkColor = style.darkColor
+        hasSchemeColor = style.paired
+        self.handlers = handlers; self.paints = paints
     }
 
     var text: String { lightRun.text }
@@ -52,64 +47,11 @@ struct InlineText: Decodable {
     }
 }
 
-// Paragraphs read only text rows, directly into their resolved representation.
-// Decoding every style entry through a generic JSON value spends the saved apply
-// time in speculative type probes and temporary dictionaries. No wire change.
-private struct InlineStyle: Decodable {
+// Resolved while reading a paragraph; no dictionary of unused layout rows.
+struct InlineStyle {
     var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-    var color: InlineColor?
-    init() {}
-    enum CodingKeys: String, CodingKey {
-        case font_size, font_weight, font_family, font_style, line_height, letter_spacing, text_color, text_decoration_line
-    }
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let size = Float(try c.decodeIfPresent(Double.self, forKey: .font_size) ?? 16)
-        run.size = CGFloat(size)
-        run.weight = Int(try c.decodeIfPresent(Double.self, forKey: .font_weight) ?? 400)
-        run.family = Int(try c.decodeIfPresent(Double.self, forKey: .font_family) ?? 0)
-        run.italic = try c.decodeIfPresent(String.self, forKey: .font_style) == "italic"
-        if let height = try c.decodeIfPresent(InlineLineHeight.self, forKey: .line_height) {
-            run.lineHeight = height.pixels.map(CGFloat.init) ?? height.ratio.map { CGFloat($0 * size) }
-        }
-        run.letterSpacing = CGFloat(Float(try c.decodeIfPresent(Double.self, forKey: .letter_spacing) ?? 0))
-        run.decoration = try c.decodeIfPresent(String.self, forKey: .text_decoration_line) ?? ""
-        color = try c.decodeIfPresent(InlineColor.self, forKey: .text_color)
-        run.color = color?.light
-    }
-}
-
-private struct InlineLineHeight: Decodable {
-    var pixels: Float?
-    var ratio: Float?
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if let n = try? c.decode(Double.self) { ratio = Float(n) }
-        else {
-            let text = try c.decode(String.self)
-            if text.hasSuffix("px") { pixels = Float(text.dropLast(2)) }
-        }
-    }
-}
-
-private struct InlineColor: Decodable {
-    let light: [Double]
-    let dark: [Double]
-    let paired: Bool
-    init(from decoder: Decoder) throws {
-        var c = try decoder.unkeyedContainer()
-        paired = c.count == 2
-        if paired {
-            light = try c.decode([Double].self)
-            dark = try c.decode([Double].self)
-        } else {
-            light = try (0..<4).map { _ in try c.decode(Double.self) }
-            dark = light
-        }
-        guard c.isAtEnd, light.count == 4, dark.count == 4 else {
-            throw DecodingError.dataCorruptedError(in: c, debugDescription: "expected RGBA or light/dark RGBA")
-        }
-    }
+    var darkColor: [Double]?
+    var paired = false
 }
 
 extension Presenter {
