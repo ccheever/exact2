@@ -181,6 +181,63 @@ final class TextMetricsTests: XCTestCase {
         }
     }
 
+    func testRasterPreservesDescendersOutsideTightLineBox() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-ink-overflow")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        presenter.apply(Batch(ops: [
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "The Measured Page"],
+             "style": ["font_size": 52.0, "font_weight": 700, "line_height": 0.6]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 20.0, "y": 30.0, "w": 460.0, "h": 31.2],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let node = try XCTUnwrap(presenter.views[1])
+        let paragraph = try XCTUnwrap(node.paragraphLayout())
+        let line = try XCTUnwrap(paragraph.lines.first)
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+        let baseline = try XCTUnwrap(paragraph.baselines.first).rounded()
+        let bottom = baseline - ink.minY
+        XCTAssertGreaterThan(bottom, node.bounds.maxY, "fixture must paint below its CSS line box")
+        XCTAssertGreaterThan(node.textRasterFrame.maxY, bottom)
+        XCTAssertLessThan(node.textRasterFrame.minY, baseline - ink.maxY)
+        XCTAssertEqual(node.bounds.height, 31.2, accuracy: 0.001, "ink must not change layout")
+        let surface = try XCTUnwrap(node.textRaster)
+        let layer = try XCTUnwrap(node.textRasterOverflowLayer)
+        XCTAssertEqual(layer.frame, node.textRasterFrame)
+        XCTAssertTrue(layer.contents as? IOSurface === surface)
+        XCTAssertNil(node.layer?.contents)
+        XCTAssertFalse(try XCTUnwrap(node.layer).masksToBounds)
+        surface.lock(options: .readOnly, seed: nil)
+        let bytes = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
+        let firstBelow = Int(ceil((node.bounds.maxY - node.textRasterFrame.minY) * node.textRasterScale))
+        var descenderPixels = 0
+        for y in firstBelow..<surface.height {
+            for x in 0..<surface.width where bytes[y * surface.bytesPerRow + x * 4 + 3] != 0 {
+                descenderPixels += 1
+            }
+        }
+        surface.unlock(options: .readOnly, seed: nil)
+        XCTAssertGreaterThan(descenderPixels, 0, "bitmap must contain the formerly cropped descender")
+        let capture = try XCTUnwrap(node.bitmapImageRepForCachingDisplay(in: node.bounds))
+        Capture.capturing = true
+        node.cacheDisplay(in: node.bounds, to: capture)
+        Capture.capturing = false
+        XCTAssertNil(layer.superlayer, "direct capture retires the old overflow ink")
+        presenter.settlePump()
+        let restored = try XCTUnwrap(node.textRasterOverflowLayer)
+        XCTAssertNotNil(restored.contents, "capture must restore live text without another app event")
+        node.applyStyle(["font_size": 52.0, "line_height": 0.6, "overflow_x": "hidden", "overflow_y": "hidden"])
+        XCTAssertTrue(try XCTUnwrap(node.layer).masksToBounds, "authored clipping still applies")
+        node.dropTextRaster()
+        XCTAssertNil(restored.superlayer)
+        XCTAssertNil(node.textRasterOverflowLayer)
+    }
+
     func testSharedLineBreakerReleasesParagraphInputAfterEachCall() {
         let engine = TextEngine(resolve: { _ in nil })
         for index in 0..<2 {

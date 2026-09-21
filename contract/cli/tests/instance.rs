@@ -95,6 +95,26 @@ fn derived_row_state_in_action_props_uses_resolved_types_and_child_spans() {
         + 1;
     assert_eq!(error.id, "type-condition");
     assert_eq!(error.span.line as usize, line);
+    // A derive starts the type fixpoint as `?`, so a ternary over one used to be
+    // refused outright while the same expression written inline compiled. Naming the
+    // type in the message defers the round, the way a binary operand already did.
+    let ternary_over_derive = r#"component T
+  state count = 0
+  derive ready = count > 0
+  derive shown = ready ? "open" : "closed"
+  view
+    main
+      text shown testId="shown"
+"#;
+    contract::compile(ternary_over_derive).unwrap();
+    let not_a_bool = ternary_over_derive.replace("ready = count > 0", "ready = count");
+    let error = contract::compile(&not_a_bool).unwrap_err();
+    assert_eq!(error.id, "type-condition");
+    assert!(
+        error.message.contains("given `number`"),
+        "{}",
+        error.message
+    );
 }
 
 fn text_of(r: &Runner<Stations>, id: &str) -> String {

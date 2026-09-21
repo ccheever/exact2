@@ -77,3 +77,15 @@ extension HeightDragTests {
         XCTAssertEqual(samples.velocity, -1000)
     }
 }
+
+extension HeightDragTests {
+    func testCoalescedDragHasDirectionWithoutInstantaneousVelocity() {
+        XCTAssertTrue(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: -175.927875))
+        XCTAssertTrue(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 1, translationY: 176))
+        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 176, translationY: 1))
+        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: 0))
+        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 100, velocityY: 1, translationX: 0, translationY: 176))
+        XCTAssertFalse(HeightDragDirection.accepts(velocityX: .nan, velocityY: 0, translationX: 0, translationY: 176))
+        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: .infinity))
+    }
+}

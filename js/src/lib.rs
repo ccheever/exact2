@@ -258,7 +258,16 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         }
     }
     Ok(Request {
-        http: exact_runner::HttpScheduling::Ordered,
+        http: match j.get("max_response_bytes") {
+            None => exact_runner::HttpScheduling::Ordered,
+            Some(value) => exact_runner::HttpScheduling::Independent {
+                max_response_bytes: value
+                    .as_u64()
+                    .filter(|n| (1..=64 << 20).contains(n))
+                    .ok_or("invalid independent HTTP response ceiling")?
+                    as u32,
+            },
+        },
         continuation: None,
         storage: None,
         grants: None,

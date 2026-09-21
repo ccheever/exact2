@@ -23,16 +23,20 @@ extension NodeView {
         switch pan.state {
         case .began:
             heightHold?.cancel()
-            heightOrigin = translation
             heightHold = HeightDragHold(self, time: time)
+            // UIKit may deliver a coalesced drag entirely in its first sample.
+            // Catch the current presentation, then apply that sample too.
+            if let hold = heightHold, !hold.move(downward: translation, time: time) {
+                hold.cancel(); heightHold = nil
+            }
         case .changed:
             guard let hold = heightHold else { return }
-            if !hold.move(downward: translation - heightOrigin, time: time) {
+            if !hold.move(downward: translation, time: time) {
                 hold.cancel(); heightHold = nil
             }
         case .ended, .cancelled, .failed:
             let previous = heightHold; heightHold = nil
-            previous?.finish(downward: translation - heightOrigin, time: time, cancel: pan.state != .ended)
+            previous?.finish(downward: translation, time: time, cancel: pan.state != .ended)
         default: break
         }
     }

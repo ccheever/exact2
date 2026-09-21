@@ -64,10 +64,38 @@ final class MouseLayoutPan {
 }
 #elseif os(iOS)
 import UIKit
+
+// UIPanGestureRecognizer begins after its recognition threshold. Preserve the
+// original contact, as the web and AppKit pans do, instead of losing that first
+// distance when UIKit starts reporting translation (visible on slider thumbs).
+private final class ContactLayoutPan: UIPanGestureRecognizer {
+    private weak var startWindow: UIWindow?
+    private var startPoint: CGPoint?
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        if startPoint == nil, let touch = touches.first, let window = view?.window {
+            startWindow = window
+            startPoint = touch.location(in: window)
+        }
+        super.touchesBegan(touches, with: event)
+    }
+    func displacement(in viewport: UIView) -> CGPoint {
+        guard let startWindow, startWindow === viewport.window, let startPoint else {
+            return translation(in: viewport)
+        }
+        let start = viewport.convert(startPoint, from: startWindow)
+        let current = location(in: viewport)
+        return CGPoint(x: current.x - start.x, y: current.y - start.y)
+    }
+    override func reset() {
+        super.reset()
+        startWindow = nil; startPoint = nil
+    }
+}
+
 extension NodeView {
     func updateLayoutPan() {
         if handlers.contains("pan"), layoutPanRecognizer == nil {
-            let g = UIPanGestureRecognizer(target: self, action: #selector(layoutPanning(_:)))
+            let g = ContactLayoutPan(target: self, action: #selector(layoutPanning(_:)))
             g.maximumNumberOfTouches = 1; g.delegate = self
             addGestureRecognizer(g); layoutPanRecognizer = g
         } else if !handlers.contains("pan"), let g = layoutPanRecognizer {
@@ -78,7 +106,7 @@ extension NodeView {
         guard let presenter, presenter.views[id] === self, SwipeInput.allows(self) else {
             gesture.isEnabled = false; gesture.isEnabled = true; return
         }
-        let p = gesture.translation(in: presenter.viewport)
+        let p = (gesture as? ContactLayoutPan)?.displacement(in: presenter.viewport) ?? gesture.translation(in: presenter.viewport)
         if gesture.state == .began { layoutPanOrigin = .zero }
         if [.began, .changed, .ended].contains(gesture.state) {
             let dx = p.x - layoutPanOrigin.x, dy = p.y - layoutPanOrigin.y

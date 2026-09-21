@@ -422,6 +422,16 @@ this throughput improvement does not establish smooth giant-block rendering.
 
 ### 8.4 Bounded native HTTP admission and completion pumping
 
+TypeScript sources can make the same explicit promise through
+`fetch(url, {exactIndependentHttp: {maxResponseBytes: 524288}})` (2026-09-20,
+Shop merchant typeahead consumer). The native prelude and Rust seam validate an
+integer ceiling from 1 through 64 MiB before admission; omitted metadata remains
+ordered. This is a native scheduling hint, ignored by browser fetch, whose
+admission remains browser-owned. Only use it when both the HTTP operation and
+its settlement may reorder. The Shop consumer opts in suggestions, with bounded
+query-keyed answer caching and account guards, while submitted searches retain
+ordered capacity. It adds no worker, grant, timer, or larger queue.
+
 Native requests now stay ordered by default. A source can explicitly promise
 that an HTTP operation **and its settlement** may overlap/reorder, with a declared
 response ceiling. Storage and native continuations cannot opt in. Two independent
@@ -9284,3 +9294,30 @@ module cache. The three-path prototype remains private; MAIN production and
 the prior normal-clock diagnostic are unchanged. All compile/run operations
 are terminal with no guard actions;14 recorded PIDs/groups are freshly absent.
 Closure free space is76.81GB, above the user's25GB cleanup trigger.
+
+### 8.167 UIKit height-drag recognition with coalesced input, 2026-09-20
+
+Shop Exact's live delivery sheet exposed a UIKit input case on iOS-on-Mac: at
+`gestureRecognizerShouldBegin`, the real header pan had translation
+(0, -175.927875) and velocity (0, 0). The velocity-only admission rejected it.
+Height admission now uses translation direction when velocity is exactly zero,
+while rejecting non-finite input and retaining velocity precedence otherwise.
+The UIKit adapter also applies the first recognized translation after catching
+the current presentation; previously it subtracted that whole first sample
+from all later movement, losing coalesced drags. Hold ownership, cancellation,
+layout constraints and authored release/spring choice remain unchanged.
+This deliberately changes the UIKit first-sample behavior from the earlier
+header increment; AppKit/web recognition thresholds are unchanged.
+
+A signed Shop Exact iOS-on-Mac build now moves through 447 → 653 → 217 → 447
+point resting heights via CUA pointer drags, with screenshots matching the
+source's three vertical resting positions. Internal receipt navigation returns
+to the expanded sheet. This verifies positions and input acceptance, not
+physical-iPhone gestures, continuous frame pacing or source-equivalent motion.
+Content-to-sheet scroll-boundary handoff remains unimplemented. The app has a
+latest-scan placeholder pending Google Maps integration, not a completed map.
+The pure direction regression joins the existing Height tests; all 266 Apple
+Swift tests pass. That run first required repairing an existing CollectionMac
+test double to match `onList`'s eight-argument/Bool signature; no production
+collection behavior changed. Evidence is the Shop Exact task's
+`work/delivery-drag-*` files and app `.evidence/delivery-sheet-checkpoint.json`.

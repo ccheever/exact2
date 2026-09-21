@@ -137,6 +137,10 @@ quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point
 grid, independently of the reported fractional baseline; that remaining raster
 placement difference is separate from an authored line box's height.
+The macOS paragraph raster includes glyph ink outside that layout box. Overflow
+uses a positioned child layer, preserving descenders and italic overhang without
+changing layout; authored clipping still applies. Fitting ink stays on the
+view's own layer. Direct painting retires the overflow layer.
 `line-height: normal` is the font's ascent +
 descent + leading; a set line height centers the glyphs in the box; the
 first baseline is reported so Taffy's baseline alignment works; `line_clamp`

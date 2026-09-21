@@ -131,6 +131,7 @@ public final class Agent {
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
+            raster["encodedHTTPCache"] = RasterInput.httpCacheUsage
             nativeSections["raster"] = raster
             #if os(macOS)
             nativeSections["contentRegion"] = session.regions.diagnostics

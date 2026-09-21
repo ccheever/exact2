@@ -127,8 +127,18 @@
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = new Headers(init && init.headers).entries();
     var body = init && init.body != null ? String(init.body) : "";
+    // LLP 1041 §8.4: an explicit promise about both operation and settlement.
+    // Browsers ignore this native scheduling hint; their admission is unchanged.
+    var independent = init ? init.exactIndependentHttp : undefined;
+    var ceiling;
+    if (independent !== undefined) {
+      ceiling = independent && independent.maxResponseBytes;
+      if (!Number.isInteger(ceiling) || ceiling <= 0 || ceiling > 67108864)
+        return Promise.reject(new TypeError("exactIndependentHttp.maxResponseBytes must be an integer from 1 to 67108864"));
+    }
     var ticket = nextTicket++;
-    host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling }));
+    if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
   };

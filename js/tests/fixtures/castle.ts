@@ -111,6 +111,10 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "refused": return refused();
     case "refusedLater": return refusedLater();
     case "parallel": return parallel();
+    case "scheduled": return fetch("https://api.castle.xyz/search/" + args[0], {
+      method: "POST",
+      ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
+    }).then(r => r.text());
     default: throw new DataError("UnknownSource", source);
   }
 }

@@ -7,6 +7,29 @@ import CExact
 @testable import ExactKit
 
 final class RasterLoaderTests: XCTestCase {
+    func testHTTPImagesReuseFreshBytesRespectNoStoreAndRevalidate() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try png(root, "image.png", width: 24, height: 32, identity: 4)
+        let bytes = try Data(contentsOf: root.appendingPathComponent("image.png"))
+        let server = try CachingRasterHTTP(body: bytes)
+        defer { server.stop() }
+        let resolver = AssetResolver(root: root)
+        for path in ["fresh", "no-store", "revalidate"] {
+            // Each open creates a new URLSession and drops the prior input.
+            for _ in 0..<2 {
+                let input = try RasterInput.open("http://127.0.0.1:\(server.port)/\(path)", resolver: resolver)
+                XCTAssertEqual(try input.bytes(), bytes)
+                XCTAssertEqual(try input.metadata().naturalSize, CGSize(width: 24, height: 32))
+            }
+        }
+        XCTAssertEqual(server.requests.filter { $0.hasPrefix("GET /fresh ") }.count, 1)
+        XCTAssertEqual(server.requests.filter { $0.hasPrefix("GET /no-store ") }.count, 2)
+        let revalidated = server.requests.filter { $0.hasPrefix("GET /revalidate ") }
+        XCTAssertEqual(revalidated.count, 2)
+        XCTAssertTrue(revalidated.last?.lowercased().contains("if-none-match: \"raster-v1\"") == true)
+    }
     private func png(_ root: URL, _ name: String, width: Int, height: Int, identity: Int) throws {
         let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -300,5 +323,70 @@ private final class HangingRasterHTTP: @unchecked Sendable {
         lock.lock(); let sockets = clients; clients.removeAll(); lock.unlock()
         for socket in sockets { shutdown(socket, SHUT_RDWR); close(socket) }
     }
+}
+
+/// Real Foundation cache behavior across separate sessions, using only loopback.
+private final class CachingRasterHTTP: @unchecked Sendable {
+    private let listener: Int32
+    private let lock = NSLock()
+    private var seen: [String] = []
+    private let body: Data
+    let port: UInt16
+    var requests: [String] { lock.lock(); defer { lock.unlock() }; return seen }
+    init(body: Data) throws {
+        self.body = body
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        listener = fd
+        guard fd >= 0 else { throw NSError(domain: "socket", code: 1) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size); address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        guard bound == 0, listen(fd, 8) == 0 else { close(fd); throw NSError(domain: "listen", code: 1) }
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+        }
+        port = UInt16(bigEndian: address.sin_port)
+        DispatchQueue.global().async { [self] in
+            while true {
+                let client = accept(listener, nil, nil)
+                if client < 0 { break }
+                respond(client); close(client)
+            }
+        }
+    }
+    private func respond(_ client: Int32) {
+        var timeout = timeval(tv_sec: 2, tv_usec: 0), noPipe: Int32 = 1
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
+        var buffer = [UInt8](repeating: 0, count: 4096), request = Data()
+        while request.count < 8192 {
+            let count = recv(client, &buffer, buffer.count, 0)
+            if count <= 0 { return }
+            request.append(contentsOf: buffer.prefix(count))
+            if request.range(of: Data("\r\n\r\n".utf8)) != nil { break }
+        }
+        let text = String(decoding: request, as: UTF8.self)
+        lock.lock(); seen.append(text); lock.unlock()
+        let validate = text.hasPrefix("GET /revalidate ")
+        let notModified = validate && text.lowercased().contains("if-none-match: \"raster-v1\"")
+        let policy = text.hasPrefix("GET /no-store ") ? "no-store" : validate ? "max-age=0, must-revalidate" : "public, max-age=3600"
+        let date = DateFormatter(); date.locale = Locale(identifier: "en_US_POSIX")
+        date.timeZone = TimeZone(secondsFromGMT: 0); date.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+        let payload = notModified ? Data() : body
+        let header = "HTTP/1.1 \(notModified ? "304 Not Modified" : "200 OK")\r\nDate: \(date.string(from: Date()))\r\nCache-Control: \(policy)\r\nETag: \"raster-v1\"\r\nContent-Type: image/png\r\nContent-Length: \(payload.count)\r\nConnection: close\r\n\r\n"
+        let response = Data(header.utf8) + payload
+        response.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let sent = send(client, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
+                if sent <= 0 { break }; offset += sent
+            }
+        }
+    }
+    func stop() { shutdown(listener, SHUT_RDWR); close(listener) }
 }
 #endif

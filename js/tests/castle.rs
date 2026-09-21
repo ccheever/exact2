@@ -119,6 +119,69 @@ fn later(a: Answer) -> exact_runner::Request {
 const LOGIN_OK: &str = r#"{"data":{"loginV2":{"token":"t0k","username":"ada"}}}"#;
 
 #[test]
+fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = scheduled(\"query\", 524288, true) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let older = [
+        Value::str("older"),
+        Value::Number(524288.0),
+        Value::Bool(true),
+    ];
+    let newer = [
+        Value::str("newer"),
+        Value::Number(262144.0),
+        Value::Bool(true),
+    ];
+    for (args, ceiling) in [(&older, 524288), (&newer, 262144)] {
+        let request = later(m.answer(&mut s, "scheduled", args).unwrap());
+        assert_eq!(request.method, "POST");
+        assert_eq!(
+            request.http,
+            exact_runner::HttpScheduling::Independent {
+                max_response_bytes: ceiling,
+            }
+        );
+    }
+    // The submitted search retains the ordered lane while suggestions overlap.
+    let ordered = [
+        Value::str("submitted"),
+        Value::Number(0.0),
+        Value::Bool(false),
+    ];
+    let request = later(m.answer(&mut s, "scheduled", &ordered).unwrap());
+    assert_eq!(request.http, exact_runner::HttpScheduling::Ordered);
+    for args in [&ordered[..], &newer[..], &older[..]] {
+        let expected = args[0].as_str().unwrap();
+        assert_eq!(
+            now(m
+                .parse(&mut s, "scheduled", args, response(200, expected))
+                .unwrap()),
+            Value::str(expected)
+        );
+    }
+    for bad in [
+        Value::Number(0.0),
+        Value::Number(-1.0),
+        Value::Number(1.5),
+        Value::Number(67108865.0),
+    ] {
+        let error = m
+            .answer(
+                &mut s,
+                "scheduled",
+                &[Value::str("invalid"), bad, Value::Bool(true)],
+            )
+            .unwrap_err();
+        assert!(
+            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            "{error:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
+#[test]
 fn parallel_fetches_keep_every_request_and_binary_response() {
     let mut m = module();
     let mut s = store();

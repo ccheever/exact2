@@ -119,7 +119,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
-    var heightOrigin = 0.0
     var transformRecognizer: UIPanGestureRecognizer?
     var transformHold: TransformDragHold?
     var transformOrigin = CGPoint.zero
@@ -154,8 +153,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
         }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
-            let velocity = pan.velocity(in: window)
-            return SwipeInput.allows(self) && abs(velocity.y) > abs(velocity.x)
+            let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
+            return SwipeInput.allows(self) && HeightDragDirection.accepts(
+                velocityX: Double(velocity.x), velocityY: Double(velocity.y),
+                translationX: Double(translation.x), translationY: Double(translation.y))
                 && presenter?.heightBindings[id]?.target != nil
         }
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {

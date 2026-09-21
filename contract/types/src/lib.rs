@@ -685,8 +685,16 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             }
         }
         Expr::Ternary(c, a, b, span) => {
-            if infer(c, scope, shapes)? != Ty::Bool {
-                return err("type-condition", "a condition must be a bool", c.span());
+            // Naming the type defers a condition still `?` (a derive the fixpoint has
+            // not settled) the way `Binary` above does: the message carries `?`, the
+            // round skips it, and the strict pass reports what never types.
+            let tc = infer(c, scope, shapes)?;
+            if tc != Ty::Bool {
+                return err(
+                    "type-condition",
+                    format!("a condition must be a bool, given `{tc}`"),
+                    c.span(),
+                );
             }
             let ta = infer(a, scope, shapes)?;
             let tb = infer(b, scope, shapes)?;

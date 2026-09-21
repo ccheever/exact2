@@ -196,6 +196,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
+    var textRasterFrame: CGRect = .zero
+    var textRasterOverflowLayer: CALayer?
     var textRasterKey: TextRasterKey?
     var textRasterReady = false
     var textRasterPending = false
@@ -1130,6 +1132,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
+        // Selection, capture, and decorated text return to direct painting.
+        if textRasterOverflowLayer != nil {
+            dropTextRaster()
+            // cacheDisplay does not invalidate the live backing layer. Restore
+            // its pixels on the pump after the offscreen capture has finished.
+            if Capture.capturing { presenter?.requestTextPublication() }
+        }
         repaintThrough()
         if Capture.capturing, kind == "canvas", let rep = canvases?.readback(view: self) {
             // A canvas nested under a canvas painted through its surface: its
