@@ -46,16 +46,42 @@ function excerpt(body:string):string {
     if(text.length>=100||end>=body.length)return text.slice(0,100).replace(/[\uD800-\uDBFF]$/,'')||'An empty page.';
   }
 }
+// The declared 1,000-note limit keeps these short rows below the storage cap.
+// SQLite TEXT substr stops at NUL; compare byte lengths so a short normalized
+// prefix falls back to the full row for NULs as well as long whitespace runs.
+async function previews(db: Database): Promise<Note[]> {
+  const result=await db.query('SELECT id, title, substr(body,1,200), pinned, length(CAST(body AS BLOB)) > length(CAST(substr(body,1,200) AS BLOB)) FROM notes ORDER BY id DESC');
+  const found=new Map<string,Note>(), missing:bigint[]=[];
+  for(const row of result.rows) {
+    const id=String(row[0]),prefix=String(row[2]);
+    found.set(id,{id,title:String(row[1]),pinned:row[3]===1n,excerpt:excerpt(prefix)});
+    if(row[4]===1n&&prefix.replace(/\s+/g,' ').length<100)missing.push(row[0] as bigint);
+  }
+  for(let start=0;start<missing.length;start+=32) {
+    const ids=missing.slice(start,start+32);
+    const full=await db.query(`SELECT id, title, body, pinned FROM notes WHERE id IN (${ids.map(()=>'?').join(',')})`,ids);
+    const seen=new Set<string>();
+    for(const row of full.rows) {
+      const id=String(row[0]);seen.add(id);
+      // Use one version of all fields if another window edited this row.
+      found.set(id,{id,title:String(row[1]),pinned:row[3]===1n,excerpt:excerpt(String(row[2]))});
+    }
+    for(const id of ids)if(!seen.has(String(id)))found.delete(String(id));
+  }
+  // Map replacement preserves the original descending immutable-ID order.
+  return [...found.values()].sort((a,b)=>Number(b.pinned)-Number(a.pinned));
+}
 // Full bodies stay within one small storage reply and leave the library as previews.
 // Scan by immutable ID so another window pinning a note cannot duplicate it.
 async function notes(db: Database, query: string): Promise<{notes:Note[];total:number}> {
+  if(!query) {const found=await previews(db);return {notes:found,total:found.length};}
   const needle=query.toLowerCase(), found:Note[]=[];
   let cursor=9223372036854775807n, total=0;
   for (;;) {
     const result=await db.query('SELECT id, title, body, pinned FROM notes WHERE id <= ? ORDER BY id DESC LIMIT 32',[cursor]);
     for(const row of result.rows) {
       const title=String(row[1]),body=String(row[2]);total++;
-      if(!needle||(title+'\n'+body).toLowerCase().includes(needle)) {
+      if((title+'\n'+body).toLowerCase().includes(needle)) {
         found.push({id:String(row[0]),title,pinned:row[3]===1n,excerpt:excerpt(body)});
       }
     }

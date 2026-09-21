@@ -212,6 +212,24 @@ try {
   assert.equal(await databaseStamp(false), 1, 'library, selection, search and module reload keep the database read-only');
   console.log('PASS Fieldnotes 1000 maximum-size Unicode notes: library / selected body / protected draft / Unicode search');
 
+  // All rows need the full-body fallback: TEXT substr stops at the NUL,
+  // and the following whitespace must collapse before the visible suffix.
+  await evaluate(`(async()=>{
+    const {createSqlite}=await import('/storage-sqlite.js');
+    const sql=createSqlite('com.exact.fieldnotes','sqlite.open app:/data/fieldnotes.db');
+    const db=await sql.open('app:/data/fieldnotes.db');
+    try {await db.execute('UPDATE notes SET body=?',[String.fromCharCode(0)+'\u2003'.repeat(19998)+'x']);}
+    finally {await db.close();sql.dispose();}
+  })()`);
+  await databaseStamp(true);
+  await send('Page.reload', { ignoreCache: true }); await boot();
+  assert.match((await state()).count, /^1000 notes/);
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-1000"]').textContent.includes(String.fromCharCode(0)+' x')`), true);
+  await tap('note-1000');
+  assert.equal(await evaluate(`document.querySelector('[data-testid="note-body"]').value`), String.fromCharCode(0)+'\u2003'.repeat(19998)+'x');
+  assert.equal(await databaseStamp(false), 1, 'fallback previews and selected body remain read-only');
+  console.log('PASS all 1000 maximum-size previews require bounded full-body fallback');
+
   // A missing favicon is the page's only expected network error.
   const errors = logs.filter(m => m.method === 'Runtime.exceptionThrown' || (m.params?.entry?.level === 'error' && !/\/favicon\.ico$/.test(m.params.entry.url ?? '')));
   assert.equal(errors.length, 0, JSON.stringify(errors));

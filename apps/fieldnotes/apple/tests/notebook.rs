@@ -1053,6 +1053,21 @@ fn library_reads_all_supported_notes_as_previews_and_opens_one_full_body() {
     let fresh = app.call("openNote", vec![Value::str(""), Value::Number(3.)]);
     assert_eq!(fresh["ready"], true);
     assert_eq!(fresh["body"], "");
+    // Every preview can require a fallback without overflowing one reply.
+    let body = format!("\0{}x", "\u{2003}".repeat(19998));
+    for n in 1..=1000 {
+        if n != 999 {
+            app.save(&n.to_string(), "Fallback", &body, n % 7 == 0);
+        }
+    }
+    let previews = app.library("");
+    assert_eq!(previews["total"], 999.0);
+    assert!(previews["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|note| note["excerpt"] == "\0 x"));
+    assert_eq!(previews["notes"], app.library("fallback")["notes"]);
 }
 
 #[test]
@@ -1237,10 +1252,29 @@ fn previews_preserve_unicode_whitespace_truncation_and_large_ids() {
         ("", "An empty page.".to_owned()),
         ("   \t\n", " ".to_owned()),
         ("\u{2003}a\u{a0}\t🌿\n", " a 🌿 ".to_owned()),
+        ("\0visible", "\0visible".to_owned()),
+        ("before\0after", "before\0after".to_owned()),
+        ("\u{feff}hello", " hello".to_owned()),
+        (
+            "\u{fffd}valid replacement",
+            "\u{fffd}valid replacement".to_owned(),
+        ),
     ];
     for (body, expected) in bodies {
         app.save("", "Excerpt", body, false);
         assert_eq!(app.library("")["notes"][0]["excerpt"], expected);
+        assert_eq!(app.library("")["notes"], app.library("excerpt")["notes"]);
+    }
+    for body in [
+        format!("{}visible", " ".repeat(300)),
+        format!("{}\0visible", "x".repeat(99)),
+        format!("{}\0visible", "x".repeat(100)),
+        format!("{}🌿", "x".repeat(99)),
+        format!("{}🌿", "x".repeat(199)),
+        format!("{}終わり", "\u{2003}".repeat(300)),
+    ] {
+        app.save("", "Excerpt", &body, false);
+        assert_eq!(app.library("")["notes"], app.library("excerpt")["notes"]);
     }
     let body = format!("{}{}🌿", "\u{2003}".repeat(10000), "x".repeat(98));
     let backup = json!({"version":1,"notes":[

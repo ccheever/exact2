@@ -39,11 +39,15 @@ cross-device sync. The current limits are 1,000 notes, 160 characters per title,
 20,000 per body, and 4 MB of backup text.
 
 The library returns titles, pins and short previews; selecting a note loads its
-full body separately. Reads scan at most 32 bodies per SQLite reply, so a full
-notebook remains readable below the storage result limit. Search still scans
-all bodies and uses JavaScript's Unicode lowercase substring matching. Pages
-are independent reads, ordered by immutable ID; they are not one cross-window
-snapshot. Backups keep their single-snapshot behavior and separate size limit.
+full body separately. An unfiltered list fetches short text prefixes. If whitespace
+or an embedded NUL leaves a prefix too short for its preview, it fetches the needed
+full rows in batches of 32. Exact search still scans all bodies in batches of 32
+and uses JavaScript's Unicode lowercase substring matching. These replies keep a
+full notebook below the storage result limit. Batches are independent reads,
+not one cross-window snapshot; fallback rows use their current title, body and pin,
+and rows deleted before fallback are omitted. Backups keep their single-snapshot
+behavior and separate size limit. When every preview needs fallback, the extra
+prefix query adds overhead; the gain is for lists whose previews fit the prefix.
 While a selected note loads, the editor is read-only; drafts and edits made
 while saving stay protected. The loaded editing snapshot and unsaved draft survive
 a code reload; a reload that interrupts opening a note offers Retry. Preview truncation never splits a surrogate pair.
