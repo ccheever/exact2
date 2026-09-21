@@ -809,3 +809,101 @@ fn cursors_traverse_and_resolve_deleted_anchors_inside_large_order_ties() {
         anchor
     );
 }
+
+#[test]
+fn idle_reply_ticks_preserve_receipts_replies_and_refused_save_retry() {
+    let root = replica_fixture(
+        "reply-retry",
+        (0..513)
+            .map(|i| (format!("receipt-{i:03}"), 200 + i, true))
+            .collect(),
+    );
+    let mut model = open(&root);
+    let tick = |now| {
+        vec![
+            Value::Number(now),
+            Value::str("maya"),
+            Value::Number(now * 1000.),
+        ]
+    };
+    // Idle before sending, then while the reply is waiting to start.
+    model.call("advanceReplies", tick(100.));
+    model.send("maya", "Keep the receipt and reply", "m9", 100.);
+    let delivered = model.chat("maya", "", "", "");
+    let sent_id = text(rows(&delivered).last().unwrap(), "id").to_owned();
+    assert_eq!(rows(&delivered).last().unwrap()["delivery"], "Delivered");
+    for now in [100., 101., 102.999] {
+        model.call("advanceReplies", tick(now));
+        assert_eq!(
+            model.chat("maya", "", "", "")["messages"],
+            delivered["messages"]
+        );
+    }
+    // The first receipt crosses Snapback's real 512-record edit limit. Its
+    // refused save must restore the old clock and keep the pending reply.
+    assert!(model.try_call("advanceReplies", tick(103.)).is_err());
+    assert_eq!(
+        model.chat("maya", "", "", "")["messages"],
+        delivered["messages"]
+    );
+    let remove = (0..20)
+        .map(|i| format!("receipt-{i:03}"))
+        .collect::<Vec<_>>()
+        .join("|");
+    model.delete("maya", &remove);
+    model.call("advanceReplies", tick(103.));
+    let read = model.chat("maya", "", "", "");
+    assert_eq!(rows(&read).last().unwrap()["delivery"], "Read");
+    assert!(!text(&read, "typingName").is_empty());
+    for now in [103., 104., 114.999] {
+        model.call("advanceReplies", tick(now));
+        assert_eq!(model.chat("maya", "", "", "")["messages"], read["messages"]);
+    }
+    model.call("advanceReplies", tick(115.));
+    let received = model.chat("maya", "", "", "");
+    let reply = rows(&received).last().unwrap();
+    assert_eq!(reply["outgoing"], false);
+    assert_eq!(reply["replyRoot"], "m9");
+    assert!(text(reply, "id").starts_with("received-"));
+    assert_eq!(text(&received, "typingName"), "");
+    for now in [115., 116., 130.] {
+        model.call("advanceReplies", tick(now));
+        assert_eq!(
+            model.chat("maya", "", "", "")["messages"],
+            received["messages"]
+        );
+    }
+    drop(model);
+    let reopened = open(&root).chat("maya", "", "", "");
+    assert_eq!(reopened["messages"], received["messages"]);
+    assert_eq!(
+        rows(&reopened)
+            .iter()
+            .find(|m| text(m, "id") == sent_id)
+            .unwrap()["delivery"],
+        "Read"
+    );
+}
+
+#[test]
+fn recovery_expiry_without_revision_change_is_still_durable() {
+    let root = replica_fixture("expiry", vec![("expiring".into(), 200, false)]);
+    let mut model = open(&root);
+    model.delete("maya", "expiring");
+    let deleted = |now| vec![Value::str(""), Value::Number(0.), Value::Number(now)];
+    assert_eq!(
+        model.call("recentlyDeleted", deleted(0.))["count"].as_f64(),
+        Some(1.)
+    );
+    assert_eq!(
+        model.call("recentlyDeleted", deleted(31. * 86400000.))["count"].as_f64(),
+        Some(0.)
+    );
+    drop(model);
+    // Inspect with the earlier clock so a missed durable removal cannot be
+    // hidden by expiring the same row again during this read.
+    assert_eq!(
+        open(&root).call("recentlyDeleted", deleted(0.))["count"].as_f64(),
+        Some(0.)
+    );
+}

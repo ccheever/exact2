@@ -27,6 +27,11 @@ remain O(total records): `snapshot()` clones the model, `persist` diffs it, and
 startup/sync `restore` loads it all. The 512-record edit cap still limits bulk
 delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
 
+The 300 ms reply timer skips snapshot/diff work when no receipt or generated reply
+changes the model revision. It still updates the local clock; real changes keep the
+existing persistence and rollback path. This check applies only to reply ticks:
+reading recently deleted messages can expire durable rows without a revision change.
+
 An idle sync no longer rereads or compares the history. Reset/adoption, applied
 changes, snapshot catch-up and outbox settlement mark reconciliation as owed;
 failed reads or model publication leave that flag set for the next tick. Status

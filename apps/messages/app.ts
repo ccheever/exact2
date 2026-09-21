@@ -471,8 +471,12 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // refresh must not detach and diff the entire durable history again.
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
-    const previousPending=new Map(pending),previousTicks=ticks;
+    const previousPending=new Map(pending),previousTicks=ticks,previousRevision=revision;
     const value=await sources[source](args,store,storage,native);
+    // Reply ticks change durable records only when a receipt or reply advances
+    // revision. Keep their clock update, but avoid copying an unchanged history.
+    // Other sources can expire recovery rows without changing revision.
+    if(source==='advanceReplies' && revision===previousRevision)return value;
     try{await client.persist(snapshot());}catch(error){
       restore(client.initial());pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);ticks=previousTicks;
       // A failed save must not leave an invalid model that every later read
