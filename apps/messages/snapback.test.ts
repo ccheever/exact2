@@ -384,6 +384,11 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect((await inspect()).peopleOrder.slice(0,-1)).toEqual(priorOrder);
     await act('createLocalContact',['','','','','','']);expect(app.fixtureEditKeys()).toEqual([]);
     await act('sendMessage',['group:dad|maya','New group','',0,3000]);
+    const beforeGroupBlock=await inspect();
+    expect(beforeGroupBlock.pending.some(([id]:[string,unknown])=>id==='group:dad|maya')).toBe(true);
+    const afterGroupBlock=await act('blockConversation',['group:dad|maya',true]);
+    expect(canonical(afterGroupBlock.live)).toEqual(canonical(beforeGroupBlock.live));
+    expect(afterGroupBlock.pending).toEqual(beforeGroupBlock.pending);
     await act('sendMessage',['maya','Receipt and reply','m9',100,4000]);
     for(const now of [102,103,104,115,116]){
       await act('advanceReplies',[now,'maya',now*1000]);
@@ -443,6 +448,18 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
       expect(canonical(restored.live)).toEqual(canonical(scheduled.live));
       expect(restored.pending).toEqual(scheduled.pending);
       expect(restored.ticks).toBe(scheduled.ticks);
+    }
+    // Single removals must restore first, middle and last insertion positions.
+    // Other pending schedules and the clock must survive either refusal.
+    for(const id of new Set([scheduleIds[0],scheduleIds[Math.floor(scheduleIds.length/2)],scheduleIds.at(-1)])){
+      for(const [source,args] of [['blockConversation',[id,true]],['deleteConversation',[id,0]]] as [string,unknown[]][]){
+        failCommit=true;
+        await expect(call(source,args)).rejects.toThrow('footprint commit refused');
+        const restored=await inspect();
+        expect(canonical(restored.live)).toEqual(canonical(scheduled.live));
+        expect(restored.pending).toEqual(scheduled.pending);
+        expect(restored.ticks).toBe(scheduled.ticks);
+      }
     }
     // Refused edits must retain the precise reply order and clock, including
     // sources that replace or delete scheduled activity before persistence.
@@ -701,5 +718,15 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect(canonical(refusedCap.live)).toEqual(canonical(beforeCap.live));
     expect(refusedCap.pending).toEqual(beforeCap.pending);expect(refusedCap.ticks).toBe(beforeCap.ticks);
     expect((await act('saveDraft',['maya','After refused reply batch',''])).pending).toEqual(beforeCap.pending);
+    // A single conversation may itself exceed the atomic edit cap. Its one
+    // scheduled reply must survive refusal along with the full transcript.
+    const oversized='address:single-removal-cap%40example.test';
+    for(let i=0;i<514;i++)await call('sendMessage',[oversized,`Large transcript ${i}`,'',100,100000]);
+    const beforeLargeDelete=await inspect();
+    await expect(call('deleteConversation',[oversized,0])).rejects.toThrow('at most 512 records');
+    const refusedLargeDelete=await inspect();
+    expect(canonical(refusedLargeDelete.live)).toEqual(canonical(beforeLargeDelete.live));
+    expect(refusedLargeDelete.pending).toEqual(beforeLargeDelete.pending);
+    expect(refusedLargeDelete.ticks).toBe(beforeLargeDelete.ticks);
   }finally{globalThis.fetch=originalFetch;sql.close();await rm(dir,{recursive:true,force:true});}
 },30000);

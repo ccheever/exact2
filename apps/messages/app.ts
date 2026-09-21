@@ -529,7 +529,8 @@ function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records
   // conservative full copy until their pending-state behavior is established.
   let keepsPending=['markRead','setConversationUnread','muteConversation','saveDraft','react','createLocalContact','recentlyDeleted','purgeConversations','deleteMessages','recoverConversations'].includes(source)
     || (source==='blockConversation' && !args[1])
-    || ((source==='blockConversation' || source==='deleteConversation') && !pending.has(args[0] as string));
+    || ((source==='blockConversation' || source==='deleteConversation') && (!pending.has(id) || !threads.has(id)))
+    || (source==='blockConversation' && groups.has(id));
   const person=(records:Records,key:string)=>{
     const value=personIndex.get(key);
     if(value)putPerson(records,value.person);
@@ -539,6 +540,21 @@ function editRecords(source:string,args:readonly unknown[]):{capture:()=>Records
     for(const messageId of ids){const row=index?.byId.get(messageId);if(row)putMessage(records,key,row,null);}
   };
   let capture:()=>Records,rollbackPending:(()=>void)|undefined,removes=false;
+  if(!keepsPending && (source==='blockConversation' || source==='deleteConversation')){
+    const activity=pending.get(id)!;let position=0;
+    // Retain one entry without copying other schedules. forEach avoids the
+    // per-entry iterator results; rebuild insertion order only on refusal.
+    let found=false;
+    pending.forEach((_activity,key)=>{if(!found){if(key===id)found=true;else position++;}});
+    rollbackPending=()=>{
+      pending.delete(id);
+      const survivors=[...pending];pending.clear();
+      for(let i=0;i<=survivors.length;i++){
+        if(i===position)pending.set(id,activity);
+        if(i<survivors.length)pending.set(survivors[i][0],survivors[i][1]);
+      }
+    };
+  }
   switch(source){
     case 'markRead':case 'setConversationUnread':case 'muteConversation':case 'blockConversation':case 'saveDraft':
       capture=()=>{const rows:Records=new Map();person(rows,id);return rows;};break;
@@ -716,8 +732,8 @@ export const answer: Answer = (source,args,store,storage,native) => {
     if(source==='advanceReplies' && idleReplyTick(Number(args[0])))return changed();
     const {capture:records,keepsPending,rollbackPending}=editRecords(source,args);
     // Unblocking and removing an absent schedule leave the map untouched. A
-    // block/delete removal still copies the map; reply ticks capture removals
-    // during their existing scan and reconstruct order only on refusal.
+    // block/delete removal records one entry and its position; reply ticks
+    // capture removals during their existing scan. Both rebuild only on refusal.
     // A send only sets its own entry. Map.set preserves an existing entry's
     // position, so rollback needs one value rather than a copy of every reply.
     const sentId=source==='sendMessage'?String(args[0]):undefined;
