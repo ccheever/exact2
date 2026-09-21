@@ -1083,7 +1083,12 @@ fn people_fixture_at(label: &str, count: usize, first_position: f64) -> Director
 fn new_conversations_preserve_order_with_more_people_than_the_edit_cap() {
     let root = people_fixture("people-order", 1000);
     let mut model = open(&root);
-    let inbox = |model: &mut Model| model.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+    let inbox = |model: &mut Model| {
+        model.call(
+            "inbox",
+            vec![Value::str(""), Value::Number(0.), Value::str("")],
+        )
+    };
     let order = |inbox: Json| {
         inbox["people"]
             .as_array()
@@ -1154,7 +1159,12 @@ fn new_conversations_preserve_order_with_more_people_than_the_edit_cap() {
 fn oversized_position_rebase_refuses_whole_and_allows_a_later_edit() {
     let root = people_fixture_at("people-extreme", 520, -f64::MAX);
     let mut model = open(&root);
-    let inbox = |model: &mut Model| model.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+    let inbox = |model: &mut Model| {
+        model.call(
+            "inbox",
+            vec![Value::str(""), Value::Number(0.), Value::str("")],
+        )
+    };
     let original = inbox(&mut model);
     let error = model
         .try_call(
@@ -1267,5 +1277,137 @@ fn recovery_edits_skip_unrelated_archive_and_oversized_expiry_refuses_whole() {
             vec![Value::str("maya"), Value::Number(0.)]
         )["draft"],
         "After refused expiry"
+    );
+}
+
+#[test]
+fn contact_pages_keep_selection_drafts_and_reset_only_when_the_query_changes() {
+    let mut model = Model::new();
+    for cursor in ["not json", "[]", r#"["maya",0,-1]"#] {
+        for (name, mut args) in [
+            ("inbox", vec![Value::str(""), Value::Number(0.)]),
+            (
+                "recipients",
+                vec![
+                    Value::str(""),
+                    Value::str(""),
+                    Value::str("Body"),
+                    Value::Number(0.),
+                ],
+            ),
+        ] {
+            args.push(Value::str(cursor));
+            assert!(
+                matches!(model.try_call(name, args), Err(DataError::BadArguments(message)) if message.contains("Invalid contact cursor"))
+            );
+        }
+    }
+
+    for i in 0..450 {
+        model.send(
+            &format!("address:contact-{i:03}%40example.test"),
+            "Contact page",
+            "",
+            1_000_000.,
+        );
+    }
+    let mut runner = Runner::boot(
+        model.plan,
+        model.module,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let state = |runner: &Runner<Module>| -> Json {
+        serde_json::from_str(&exact_runner::agent::state(runner)).unwrap()
+    };
+    let first = state(&runner)["resources"]["inbox"].clone();
+    assert_eq!(first["people"].as_array().unwrap().len(), K);
+    assert_eq!(first["earlier"], "");
+    runner
+        .act("pageInbox", vec![Value::str(text(&first, "later"))])
+        .unwrap();
+    let second = state(&runner)["resources"]["inbox"].clone();
+    runner.act("search", vec![Value::str("")]).unwrap();
+    assert_eq!(
+        state(&runner)["resources"]["inbox"]["people"],
+        second["people"]
+    );
+    assert_eq!(second["people"].as_array().unwrap().len(), K);
+    assert_ne!(first["people"][0]["id"], second["people"][0]["id"]);
+    runner
+        .act("pageInbox", vec![Value::str(text(&second, "later"))])
+        .unwrap();
+    let last = state(&runner)["resources"]["inbox"].clone();
+    assert_eq!(last["people"].as_array().unwrap().len(), 56);
+    assert_eq!(last["later"], "");
+    runner
+        .act("pageInbox", vec![Value::str(text(&last, "earlier"))])
+        .unwrap();
+    assert_eq!(
+        state(&runner)["resources"]["inbox"]["people"],
+        second["people"]
+    );
+    runner
+        .act("search", vec![Value::str("contact-00")])
+        .unwrap();
+    assert_eq!(runner.slot("inboxCursor"), Some(&Value::str("")));
+    assert_eq!(
+        state(&runner)["resources"]["inbox"]["people"]
+            .as_array()
+            .unwrap()
+            .len(),
+        10
+    );
+    runner.act("newMessage", vec![]).unwrap();
+    runner.act("browseContacts", vec![]).unwrap();
+    runner
+        .act("writeNew", vec![Value::str("Keep this draft")])
+        .unwrap();
+    let contacts = state(&runner)["resources"]["contacts"].clone();
+    runner
+        .act("pageRecipients", vec![Value::str(text(&contacts, "later"))])
+        .unwrap();
+    let cursor = runner.slot("recipientCursor").unwrap().clone();
+    runner.act("searchRecipient", vec![Value::str("")]).unwrap();
+    assert_eq!(runner.slot("recipientCursor"), Some(&cursor));
+    for key in ["ArrowLeft", "Escape"] {
+        runner.act("recipientKey", vec![Value::str(key)]).unwrap();
+        assert_eq!(runner.slot("recipientCursor"), Some(&cursor));
+    }
+    let selected = state(&runner)["resources"]["contacts"]["people"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    runner
+        .act("chooseRecipient", vec![Value::str(&selected)])
+        .unwrap();
+    assert_eq!(runner.slot("recipientCursor"), Some(&Value::str("")));
+    assert_eq!(
+        runner.slot("newDraft"),
+        Some(&Value::str("Keep this draft"))
+    );
+    let contacts = state(&runner)["resources"]["contacts"].clone();
+    assert_eq!(contacts["selected"][0]["id"], selected);
+    runner.act("browseContacts", vec![]).unwrap();
+    runner
+        .act("pageRecipients", vec![Value::str(text(&contacts, "later"))])
+        .unwrap();
+    assert_eq!(
+        state(&runner)["resources"]["contacts"]["selected"],
+        contacts["selected"]
+    );
+    runner
+        .act("searchRecipient", vec![Value::str("contact-44")])
+        .unwrap();
+    assert_eq!(runner.slot("recipientCursor"), Some(&Value::str("")));
+    assert_eq!(
+        runner.slot("newDraft"),
+        Some(&Value::str("Keep this draft"))
+    );
+    assert_eq!(
+        state(&runner)["resources"]["contacts"]["selected"],
+        contacts["selected"]
     );
 }

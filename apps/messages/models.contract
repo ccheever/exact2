@@ -11,6 +11,8 @@ shape Person
   muted: bool
 shape Inbox
   people: list<Person>
+  earlier: string
+  later: string
 shape DeletedConversation
   id: string
   name: string
@@ -31,6 +33,8 @@ shape Recipient
 shape Recipients
   selected: list<Recipient>
   people: list<Person>
+  earlier: string
+  later: string
   target: string
   canSend: bool
   last: string

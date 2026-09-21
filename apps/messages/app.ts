@@ -32,6 +32,46 @@ function insertPerson(person:typeof people[number],front:boolean):void {
   if(front){firstPersonPosition=position;people.unshift(person);}
   else{lastPersonPosition=position;people.push(person);}
 }
+// Contact windows follow presentation order. Cursors retain an identity and its
+// durable position, so an existing anchor survives prepends and position rebases.
+function contactWindow(rows:typeof people,cursor:string) {
+  if(!cursor && rows.length<=windowSize)return {people:rows,earlier:'',later:''};
+  let start=0;
+  if(cursor){
+    let anchor:unknown;
+    try{anchor=JSON.parse(cursor);}catch{throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});}
+    if(!Array.isArray(anchor)||anchor.length!==3||typeof anchor[0]!=='string'||!anchor[0]||typeof anchor[1]!=='number'||!Number.isFinite(anchor[1])||!Number.isSafeInteger(anchor[2])||anchor[2]<0)throw Object.assign(new Error('Invalid contact cursor'),{kind:'BadArguments'});
+    const [id,position,occurrence]=anchor as [string,number,number];
+    const current=occurrence===0?personIndex.get(id)?.person:people.filter(person=>person.id===id)[occurrence];
+    const exact=current?rows.indexOf(current):occurrence===0?rows.findIndex(person=>person.id===id):-1;
+    const at=current?people.indexOf(current):-1;
+    if(exact>=0)start=exact;
+    else if(at>=0){
+      // A selected, deleted or nonmatching anchor still exists in presentation
+      // order. Continue at the first matching contact at or after it.
+      const remaining=new Set(people.slice(at));
+      start=rows.findIndex(person=>remaining.has(person));
+    }else{
+      // A sync can remove the anchor entirely. Its old durable position names
+      // the next surviving row, rather than an offset shifted by new contacts.
+      start=rows.findIndex(person=>{
+        // An offered address precedes persisted matches but has no position yet.
+        const next=personIndex.get(person.id)?.position;
+        return next!==undefined && (next>position || next===position && person.id.localeCompare(id)>=0);
+      });
+    }
+    if(start<0)start=Math.max(0,rows.length-windowSize);
+  }
+  const cursorFor=(person:typeof people[number]|undefined)=>{
+    if(!person)return '';
+    const indexed=personIndex.get(person.id);
+    // Imported duplicate IDs already preserve first-person/last-position
+    // behavior. A tie-breaker prevents a later duplicate paging back to the first.
+    const occurrence=indexed && indexed.person!==person?people.slice(0,people.indexOf(person)).filter(row=>row.id===person.id).length:0;
+    return JSON.stringify([person.id,indexed?.position ?? firstPersonPosition,occurrence]);
+  };
+  return {people:rows.slice(start,start+windowSize),earlier:start>0?cursorFor(rows[Math.max(0,start-windowSize)]):'',later:cursorFor(rows[start+windowSize])};
+}
 const reactions = [
   {id:'heart',value:'❤️',label:'Love'}, {id:'like',value:'👍',label:'Like'},
   {id:'dislike',value:'👎',label:'Dislike'}, {id:'laugh',value:'haha',label:'Laugh'},
@@ -300,9 +340,10 @@ function conversation(id:string,replying:string,selection:string,cursor:string):
 const sources: Sources = {
   syncMessages: () => changed(),
   syncState: () => replica?.status() || 'Conversation preview',
-  inbox: ([query,_revision])=>{
+  inbox: ([query,_revision,cursor])=>{
     const folded=query.toLowerCase();
-    return {people:people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(folded)).map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))};
+    const page=contactWindow(people.filter(p=>threads.has(p.id) && !deleted.has(p.id) && p.name.toLowerCase().includes(folded)),cursor);
+    return {...page,people:page.people.map(({address:_address,...p})=>({...p,muted:muted.has(p.id),...(drafts.get(p.id)||{draft:'',reply:''})}))};
   },
   recentlyDeleted: ([selection,_revision,now])=>{
     expireDeleted(now);
@@ -316,14 +357,15 @@ const sources: Sources = {
     const chosen=selection?rows.filter(p=>p.chosen):rows;
     return {people:rows,targets:chosen.map(p=>p.id).join('|'),count:chosen.reduce((n,p)=>n+p.count,0)};
   },
-  recipients: ([ids,query,body,_revision])=>{
+  recipients: ([ids,query,body,_revision,cursor])=>{
     const selected=selectedPeople(ids),selectedIds=new Set(selected.map(p=>p.id)),text=query.trim(),folded=text.toLowerCase();
     const pending=text?(people.find(p=>p.address && p.name.toLowerCase()===folded) || addressPerson(text)):undefined;
     const resolved=pending?[...selectedIds,...(selectedIds.has(pending.id)?[]:[pending.id])].join('|'):'';
     const matches=people.filter(p=>p.address && !selectedIds.has(p.id) && p.name.toLowerCase().includes(folded));
     if(pending && !selectedIds.has(pending.id) && !matches.some(p=>p.id===pending.id)) matches.unshift(pending);
-    return {selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
-      people:matches.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
+    const page=contactWindow(matches,cursor);
+    return {...page,selected:selected.map(p=>({id:p.id,name:p.name,without:selected.filter(other=>other.id!==p.id).map(p=>p.id).join('|')})),
+      people:page.people.map(({address:_address,...p})=>({...p,draft:'',reply:'',muted:false})),resolved,
       last:selected[selected.length-1]?.id || '',withoutLast:selected.slice(0,-1).map(p=>p.id).join('|'),
       target:recipientTarget(resolved?selectedPeople(resolved):selected),canSend:(selected.length>0 || !!pending) && (!text || !!pending) && !!body.trim()};
   },

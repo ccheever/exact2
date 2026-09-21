@@ -202,7 +202,10 @@ fn refused_native_save_preserves_draft_and_allows_the_next_edit() {
             d.reopen();
         }
         assert_eq!(d.thread()["messages"].as_array().unwrap().len(), before);
-        let inbox = d.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+        let inbox = d.call(
+            "inbox",
+            vec![Value::str(""), Value::Number(0.), Value::str("")],
+        );
         let person = inbox["people"]
             .as_array()
             .unwrap()
@@ -265,7 +268,10 @@ fn offline_messages_drafts_and_reactions_survive_the_real_native_reopen() {
     assert_eq!(messages.last().unwrap()["body"], "Kept offline 🌲");
     assert_eq!(messages.last().unwrap()["reaction"], "❤️");
     assert_eq!(messages.last().unwrap()["replyRoot"], "m9");
-    let inbox = d.call("inbox", vec![Value::str(""), Value::Number(0.)]);
+    let inbox = d.call(
+        "inbox",
+        vec![Value::str(""), Value::Number(0.), Value::str("")],
+    );
     assert_eq!(
         inbox["people"]
             .as_array()

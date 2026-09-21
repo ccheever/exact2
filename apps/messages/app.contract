@@ -25,6 +25,8 @@ component Messages
   // A compose overlay keeps the conversation beneath it alive and editable.
   derive chatThread = (top(nav).name == "compose" ? top(back(nav)).params.thread : thread)
   state query = ""
+  state inboxCursor = ""
+  state inboxShift = 0
   state inboxMode = "messages"
   state deletedSelection = ""
   state recoveryTargets = ""
@@ -74,6 +76,8 @@ component Messages
   state contactPhoneShown = true
   state contactEmailShown = false
   state recipientQuery = ""
+  state recipientCursor = ""
+  state recipientShift = 0
   state recipient = ""
   state recipientSelection = ""
   state recipientRemainder = ""
@@ -90,10 +94,10 @@ component Messages
   derive emojiFacePath = "path('M 12 1 C 5.925 1 1 5.925 1 12 C 1 18.075 5.925 23 12 23 C 18.075 23 23 18.075 23 12 C 23 5.925 18.075 1 12 1 Z M 12 3 C 16.971 3 21 7.029 21 12 C 21 16.971 16.971 21 12 21 C 7.029 21 3 16.971 3 12 C 3 7.029 7.029 3 12 3 Z M 7 9 C 7 7 10 7 10 9 C 10 11 7 11 7 9 Z M 14 9 C 14 7 17 7 17 9 C 17 11 14 11 14 9 Z M 5 13 Q 12 17 19 13 C 18 23 6 23 5 13 Z M 7 16 C 9 20 15 20 17 16 Q 12 18 7 16 Z')"
   derive outgoingTailPath = "path('M 0 0 L 22 0 C 22 14.4 16.4 11.9 16.4 17.8 C 16.4 18.7 17.7 21.7 18.7 22.4 C 18.6 23.6 18.5 24 16.8 23.6 C 11.6 21.7 0.6 13.2 0 11 Z')"
   derive incomingTailPath = "path('M 22 0 L 0 0 C 0 14.4 5.6 11.9 5.6 17.8 C 5.6 18.7 4.3 21.7 3.3 22.4 C 3.4 23.6 3.5 24 5.2 23.6 C 10.4 21.7 21.4 13.2 22 11 Z')"
-  resource inbox = inbox(query, revision) as shape Inbox
+  resource inbox = inbox(query, revision, inboxCursor) as shape Inbox
   resource syncStatus = syncState(revision) as shape string
   resource deletedInbox = recentlyDeleted(deletedSelection, revision, now()) as shape DeletedInbox
-  resource contacts = recipients(recipient, recipientQuery, newDraft, revision) as shape Recipients
+  resource contacts = recipients(recipient, recipientQuery, newDraft, revision, recipientCursor) as shape Recipients
   resource savedComposer = conversationDraft(chatThread, revision) as shape ComposerDraft
   resource chat = conversation(chatThread, revision, replying, selection, cursor) as shape Conversation
 
@@ -104,7 +108,19 @@ component Messages
     windowShift = windowShift + 1
     timestampOffset = 0
     selectingText = ""
-  action search(value) writes query, swipedThread
+  action pageInbox(value: string) writes inboxCursor, inboxShift, swipedThread, inboxTop
+    inboxCursor = value
+    inboxShift = inboxShift + 1
+    swipedThread = ""
+    inboxTop = 0
+  action pageRecipients(value: string) writes recipientCursor, recipientShift
+    recipientCursor = value
+    recipientShift = recipientShift + 1
+  action search(value) writes query, swipedThread, inboxCursor, inboxShift, inboxTop
+    if value != query
+      inboxCursor = ""
+      inboxShift = inboxShift + 1
+      inboxTop = 0
     query = value
     swipedThread = ""
   action filterInbox(value: string) writes inboxMode, deletedSelection, swipedThread
@@ -339,7 +355,9 @@ component Messages
     draftThread = chatThread
     attachments = false
     focus("composer")
-  action newMessage writes nav, recipientQuery, recipient, newDraft, showContacts, recipientSelection, swipedThread
+  action newMessage writes nav, recipientQuery, recipient, newDraft, showContacts, recipientSelection, swipedThread, recipientCursor, recipientShift
+    recipientCursor = ""
+    recipientShift = recipientShift + 1
     swipedThread = ""
     nav = push(nav, "/new")
     recipientSelection = ""
@@ -348,8 +366,10 @@ component Messages
     newDraft = ""
     showContacts = false
     focus("recipient-search")
-  action forwardSelected writes nav, selecting, selection, recipientQuery, recipient, newDraft, showContacts, recipientSelection
+  action forwardSelected writes nav, selecting, selection, recipientQuery, recipient, newDraft, showContacts, recipientSelection, recipientCursor, recipientShift
     if chat.selectionCount > 0
+      recipientCursor = ""
+      recipientShift = recipientShift + 1
       newDraft = chat.selectedText
       nav = push(nav, "/new")
       selecting = false
@@ -361,12 +381,17 @@ component Messages
       focus("recipient-search")
   action cancelNewMessage writes nav
     nav = back(nav)
-  action searchRecipient(value) writes recipientQuery, recipientSelection, recipient
+  action searchRecipient(value) writes recipientQuery, recipientSelection, recipient, recipientCursor, recipientShift
+    if value != recipientQuery
+      recipientCursor = ""
+      recipientShift = recipientShift + 1
     if recipientSelection != "" and value != ""
       recipient = recipientRemainder
     recipientQuery = value
     recipientSelection = ""
-  action chooseRecipient(id: string) writes recipient, recipientQuery, showContacts, recipientSelection
+  action chooseRecipient(id: string) writes recipient, recipientQuery, showContacts, recipientSelection, recipientCursor, recipientShift
+    recipientCursor = ""
+    recipientShift = recipientShift + 1
     recipientSelection = ""
     recipient = recipient + "|" + id
     recipientQuery = ""
@@ -377,8 +402,10 @@ component Messages
       recipientSelection = id
       recipientRemainder = remaining
     focus("recipient-search")
-  action recipientKey(k: string) writes recipient, recipientQuery, recipientSelection, recipientRemainder, showContacts
+  action recipientKey(k: string) writes recipient, recipientQuery, recipientSelection, recipientRemainder, showContacts, recipientCursor, recipientShift
     if k == "Backspace" and recipientQuery == ""
+      recipientCursor = ""
+      recipientShift = recipientShift + 1
       if recipientSelection == ""
         recipientSelection = contacts.last
         recipientRemainder = contacts.withoutLast
@@ -389,18 +416,24 @@ component Messages
     if k == "Escape"
       recipientSelection = ""
     if k == "Enter" and contacts.resolved != ""
+      recipientCursor = ""
+      recipientShift = recipientShift + 1
       recipient = contacts.resolved
       recipientQuery = ""
       recipientSelection = ""
       showContacts = false
       focus("new-composer")
-  action clearRecipientSelection writes recipientSelection, recipient, recipientQuery, showContacts
+  action clearRecipientSelection writes recipientSelection, recipient, recipientQuery, showContacts, recipientCursor, recipientShift
     recipientSelection = ""
     if contacts.resolved != ""
+      recipientCursor = ""
+      recipientShift = recipientShift + 1
       recipient = contacts.resolved
       recipientQuery = ""
       showContacts = false
-  action browseContacts writes showContacts, recipientSelection
+  action browseContacts writes showContacts, recipientSelection, recipientCursor, recipientShift
+    recipientCursor = ""
+    recipientShift = recipientShift + 1
     recipientSelection = ""
     showContacts = not showContacts
     focus("recipient-search")
@@ -463,10 +496,13 @@ component Messages
               column flex=1 min-height=0
                 row testId="inbox-title-bar" position="absolute" top=0 left=0 right=0 z-index=1 padding-left=20 padding-right=20 height=44 align-items="center" justify-content="space-between" backgroundMaterial="ultra-thin" opacity=inboxTitleOpacity
                   text "Messages" testId="inbox-title-compact" font-size=17 font-weight=600 flex=1 text-align="center"
-                scroll scroll=inboxListScrolled testId="conversation-list" flex=1 min-height=0
+                scroll scroll=inboxListScrolled scrollTop=(0 - inboxShift) testId="conversation-list" flex=1 min-height=0
                   column
                     column testId="inbox-title-area" padding-top=57 padding-bottom=8 padding-left=16 padding-right=16
                       text "Messages" testId="inbox-title-large" font-size=34 font-weight=700 line-height="41px" opacity=(1 - inboxTitleOpacity)
+                    when inbox.earlier != ""
+                      button press=pageInbox(inbox.earlier) testId="previous-conversations" padding=16
+                        text "Previous conversations" font-size=14 class=AccentText
                     each person in inbox.people key=person.id
                       scroll swipeContent=`conversation-${person.id}` swipeLeading=`read-thread-${person.id}` swipeTrailing=`delete-thread-${person.id} mute-${person.id}` scroll=inboxScrolled(person.id) testId=`thread-swipe-${person.id}` width="100%" height=86.6667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(swipedThread == person.id ? swipeOffset : 70)
                         row width="100%" height=86.6667
@@ -503,6 +539,9 @@ component Messages
                                   box position="absolute" left=11.5 top=-3 width=2 height=34 rotate=-45 background-color="#ffffff"
                             button destructive=true press=deleteThread(person.id) id=`delete-thread-${person.id}` testId=`delete-thread-${person.id}` aria-label=`Delete conversation with ${person.name}` width=50 height=50 border-radius=25 background-color="light-dark(#ff383c, #ff4245)" display="flex" align-items="center" justify-content="center" flex-shrink=0
                               box width=24 height=28 scale=0.75 clip-path=trashPath background-color="#ffffff"
+                    when inbox.later != ""
+                      button press=pageInbox(inbox.later) testId="more-conversations" padding=16
+                        text "More conversations" font-size=14 class=AccentText
                     when length(inbox.people) == 0
                       text "No Results" text-align="center" padding=40 font-size=20 font-weight=600 color="#8e8e93"
                     text syncStatus testId="sync-status" text-align="center" padding=16 font-size=12 color="#8e8e93"
@@ -858,6 +897,8 @@ component Messages
             contacts=contacts,
             recipientSelection=recipientSelection,
             recipientQuery=recipientQuery,
+            recipientShift=recipientShift,
+            pageRecipients=pageRecipients,
             newDraft=newDraft,
             showContacts=showContacts,
             personPath=personPath,

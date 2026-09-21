@@ -225,6 +225,80 @@ test('contact lookups preserve restored identity, duplicate selection and rebase
     expect(f.people[0].unread).toBe(false);
     f.sources.setConversationUnread(['maya',true]);
     expect(f.people[0].unread).toBe(true);
+    // Every matching contact remains reachable, in source order, while each
+    // answer contains at most 200 contact rows. Selection is outside that page.
+    for(let i=0;i<450;i++)f.sources.sendMessage([`address:page-${i}%40example.test`,'Page fixture','',0,0]);
+    const inbox=(cursor='',query='')=>f.sources.inbox([query,0,cursor]);
+    const recipients=(cursor='',selected='',query='')=>f.sources.recipients([selected,query,'Draft',0,cursor]);
+    const walk=(read:(cursor:string)=>any)=>{
+      const pages:any[]=[],seen=new Set<string>();let cursor='';
+      do{
+        expect(seen.has(cursor)).toBe(false);seen.add(cursor);
+        const page=read(cursor);expect(page.people.length).toBeLessThanOrEqual(200);
+        pages.push(page);cursor=page.later;
+      }while(cursor);
+      return pages;
+    };
+    const ids=(page:any)=>page.people.map((person:any)=>person.id);
+    const pages=walk(inbox),all=f.people.map((person:any)=>person.id);
+    expect(pages.map(ids).flat()).toEqual(all);expect(pages.map(p=>p.people.length)).toEqual([200,200,56]);
+    expect(ids(inbox(pages[2].earlier))).toEqual(ids(pages[1]));
+    expect(ids(inbox(pages[1].earlier))).toEqual(ids(pages[0]));
+    const selected='maya|sam',contactPages=walk(cursor=>recipients(cursor,selected));
+    expect(contactPages.map(ids).flat()).toEqual(f.people.filter((p:any)=>p.address && !selected.split('|').includes(p.id)).map((p:any)=>p.id));
+    for(const page of contactPages){expect(page.selected.map((p:any)=>p.id)).toEqual(['maya','sam']);expect(page.canSend).toBe(true);}
+    const anchor=pages[0].later,anchorId=pages[1].people[0].id,nextId=pages[1].people[1].id;
+    f.sources.sendMessage(['address:prepended%40example.test','New first','',0,0]);
+    expect(inbox(anchor).people[0].id).toBe(anchorId);
+    f.sources.deleteConversation([anchorId,0]);expect(inbox(anchor).people[0].id).toBe(nextId);
+    f.sources.recoverConversations([anchorId,0]);expect(inbox(anchor).people[0].id).toBe(anchorId);
+    expect(recipients(anchor,anchorId).people[0].id).toBe(nextId);
+    expect(walk(cursor=>inbox(cursor,'PAGE-1')).map(ids).flat()).toEqual(f.people.filter((p:any)=>p.name.toLowerCase().includes('page-1')).map((p:any)=>p.id));
+    // Replacement sync may remove the anchor. A rebase may change its stored
+    // position; surviving identity wins over the old numeric fallback.
+    const without=new Map<string,any>(JSON.parse(JSON.stringify([...f.snapshot()])));
+    without.delete('person:'+anchorId);
+    for(const [key,row] of without)if(row.kind==='message' && row.conversation===anchorId)without.delete(key);
+    f.restore(without);expect(inbox(anchor).people[0].id).toBe(nextId);
+    const rebasing=new Map<string,any>(JSON.parse(JSON.stringify([...f.snapshot()])));
+    rebasing.get('person:'+f.people[0].id).position=-Number.MAX_VALUE;
+    const survivingCursor=inbox().later,survivingId=JSON.parse(survivingCursor)[0];
+    f.restore(rebasing);f.sources.sendMessage(['address:rebased-page%40example.test','Rebase','',0,0]);
+    expect(inbox(survivingCursor).people[0].id).toBe(survivingId);
+    for(const invalid of ['x','[]','["x"]','["x","bad",0]','["",1,0]','["x",1e309,0]','["x",1,-1]','["x",1,0.5]']){
+      expect(()=>inbox(invalid)).toThrow('Invalid contact cursor');expect(()=>recipients(invalid)).toThrow('Invalid contact cursor');
+    }
+    expect(inbox('', 'no such person')).toEqual({people:[],earlier:'',later:''});
+    // An unrecognized address is offered before name matches. It is a real
+    // first-page choice, even though it has no persisted contact position yet.
+    for(let i=0;i<250;i++)f.sources.createLocalContact([`match@example.test ${i}`,'','','',`synthetic-${i}@example.test`,'']);
+    const syntheticPages=walk(cursor=>recipients(cursor,'','match@example.test'));
+    expect(syntheticPages.map(ids).flat().length).toBe(251);
+    expect(syntheticPages[0].people[0].id).toBe('address:match%40example.test');
+    expect(ids(recipients(syntheticPages[1].earlier,'','match@example.test'))).toEqual(ids(syntheticPages[0]));
+    // Sync can remove a persisted page anchor while the offered address is
+    // still only synthetic. Skip that unpositioned row during anchor recovery.
+    const syntheticRecords=new Map<string,any>(JSON.parse(JSON.stringify([...f.snapshot()])));
+    syntheticRecords.delete('person:'+syntheticPages[1].people[0].id);
+    f.restore(syntheticRecords);
+    const recoveredPage=recipients(syntheticPages[0].later,'','match@example.test');
+    expect(ids(recoveredPage)).toEqual(ids(syntheticPages[1]).slice(1));
+    expect(ids(recipients(recoveredPage.earlier,'','match@example.test'))).toEqual(ids(syntheticPages[0]));
+    for(const person of syntheticPages[1].people)syntheticRecords.delete('person:'+person.id);
+    f.restore(syntheticRecords);
+    const clampedPage=recipients(syntheticPages[0].later,'','match@example.test');
+    expect(ids(clampedPage)).toEqual(ids(syntheticPages[0]));
+    expect(clampedPage.earlier).toBe('');expect(clampedPage.later).toBe('');
+
+    f.restore(new Map(initial));
+    for(let i=0;i<450;i++)f.sources.sendMessage([`address:duplicate-page-${i}%40example.test`,'Duplicate page fixture','',0,0]);
+    const duplicates=new Map<string,any>(JSON.parse(JSON.stringify([...f.snapshot()])));
+    const first=duplicates.get('person:'+f.people[0].id);
+    duplicates.set('duplicate:page',{...first,person:{...first.person,name:'Later duplicate'},position:duplicates.get('person:'+f.people[200].id).position-.5});
+    f.restore(duplicates);
+    const duplicatePages=walk(inbox);
+    expect(duplicatePages.map(ids).flat()).toEqual(f.people.map((person:any)=>person.id));
+    expect(ids(inbox(duplicatePages[1].earlier))).toEqual(ids(duplicatePages[0]));
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
