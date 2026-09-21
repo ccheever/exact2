@@ -736,7 +736,7 @@ fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
             (
                 " writes absent",
                 "analyze-writes-unknown-state",
-                "`absent` in `writes` is not a state or a mutation",
+                "`absent` in `writes` is not a state or a mutation; available writes: `clicks`, `enabled`, `touched`",
             ),
         ] {
             app.write("lib/toggle.contract", &source.replace("WRITES", writes));
@@ -750,6 +750,63 @@ fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
         );
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
+}
+
+#[test]
+fn unknown_writes_report_all_names_and_choices_in_the_authored_component() {
+    let app = App::new("writes-choices");
+    let child = "component Row\n  props\n    label: string\n  state count = 0\n  state enabled = false\n  derive total = count + 1\n  action add(value: number) writes cuont, enabeld, cuont\n    count = count + value\n    enabled = true\n  view\n    button label press=add(1)\n";
+    for view in [
+        "      Row(label=\"a\")\n      Row(label=\"b\")\n",
+        "      text \"unused\"\n",
+    ] {
+        let root = app.write("app.contract", &format!("use Row from \"./lib/row.contract\"\nroutes nav\n  home \"/\"\ncomponent App\n  state parent = 0\n  view\n    column\n{view}"));
+        let path = app.write("lib/row.contract", child).canonicalize().unwrap();
+        let error = contract::compile_path(&root).unwrap_err();
+        assert_eq!(error.id, "analyze-writes-unknown-state");
+        assert_eq!(error.message, "`cuont`, `enabeld` in `writes` are not states or mutations; available writes: `count`, `enabled`");
+        let errors = diagnostics(
+            &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+            1,
+        );
+        same_error(&errors[0], &error);
+        assert_eq!(errors[0]["file"], path.to_str().unwrap());
+        assert_eq!(errors[0]["line"], 7);
+        assert_eq!(errors[0]["col"], 36);
+        assert_eq!(errors[0]["end_col"], 41);
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert_eq!(human.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
+        app.write(
+            "lib/row.contract",
+            &child.replace("cuont, enabeld, cuont", "count, enabled"),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}
+
+#[test]
+fn unknown_writes_choices_include_router_and_mutations_but_not_lifted_slots() {
+    let source = "shape Reply\n  ok: bool\nroutes nav\n  home \"/\"\ncomponent App\n  state count = 0\n  derive total = count + 1\n  resource data = load() as shape Reply\n  mutation result as shape Reply\n  action submit(value: number) writes cuont, reslut, nva, reslut\n    count = value\n    send result = save()\n    nav = push(nav, \"/\")\n  view\n    column\n      Child()\n      Child()\n      button \"Save\" press=submit(1)\ncomponent Child\n  state hidden = false\n  view\n    text \"child\"\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "analyze-writes-unknown-state");
+    assert_eq!(error.message, "`cuont`, `reslut`, `nva` in `writes` are not states or mutations; available writes: `count`, `nav`, `result`");
+    assert!(
+        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, result, nav"))
+            .is_ok()
+    );
+    let duplicate =
+        contract::compile(&source.replace("cuont, reslut, nva, reslut", "count, count, missing"))
+            .unwrap_err();
+    assert_eq!(duplicate.id, "analyze-writes-duplicate");
+    assert_eq!(duplicate.message, "`count` listed twice in `writes`");
+    let empty =
+        "component App\n  action noop writes missing\n  view\n    button \"Run\" press=noop\n";
+    let error = contract::compile(empty).unwrap_err();
+    assert_eq!(error.id, "analyze-writes-unknown-state");
+    assert_eq!(error.message, "`missing` in `writes` is not a state or a mutation; this component has no state or mutation slots");
+    assert!(contract::compile(&empty.replace(" writes missing", "")).is_ok());
 }
 
 #[test]

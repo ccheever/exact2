@@ -111,7 +111,12 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
         let scope = types.component_scope(scoped, ct);
         // Check authored actions once, not every lifted instance. Keep the
         // resolved slots: the root's router state is implicit in the source.
-        check_actions(&c.actions, scoped)?;
+        let router = file
+            .routes
+            .as_ref()
+            .filter(|_| ci == 0)
+            .map(|r| r.slot.as_str());
+        check_actions(c, scoped, router)?;
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
@@ -119,18 +124,16 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
     Ok(Analysis {})
 }
 
-fn check_actions(actions: &[Action], slots: &Component) -> Result<(), AnalyzeError> {
-    for a in actions {
+fn check_actions(
+    component: &Component,
+    slots: &Component,
+    router: Option<&str>,
+) -> Result<(), AnalyzeError> {
+    for a in &component.actions {
         let mut declared = BTreeSet::new();
         for (w, span) in &a.writes {
-            if !slots.states.iter().any(|s| &s.name == w)
-                && !slots.mutations.iter().any(|m| &m.name == w)
-            {
-                return err(
-                    "analyze-writes-unknown-state",
-                    format!("`{w}` in `writes` is not a state or a mutation"),
-                    *span,
-                );
+            if !writable(slots, w) {
+                return Err(unknown_writes(a, component, slots, router, *span));
             }
             if !declared.insert(w.clone()) {
                 return err(
@@ -165,6 +168,56 @@ fn check_actions(actions: &[Action], slots: &Component) -> Result<(), AnalyzeErr
         }
     }
     Ok(())
+}
+
+fn writable(slots: &Component, name: &str) -> bool {
+    slots.states.iter().any(|s| s.name == name) || slots.mutations.iter().any(|m| m.name == name)
+}
+
+// Only the refusal path constructs choices. The expanded root determines
+// membership, but its lifted child slots are not names the author can write.
+fn unknown_writes(
+    action: &Action,
+    component: &Component,
+    slots: &Component,
+    router: Option<&str>,
+    span: Span,
+) -> AnalyzeError {
+    let mut seen = BTreeSet::new();
+    let unknown = action
+        .writes
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .filter(|name| !writable(slots, name) && seen.insert(*name))
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>();
+    let predicate = if unknown.len() == 1 {
+        "is not a state or a mutation"
+    } else {
+        "are not states or mutations"
+    };
+    let choices = component
+        .states
+        .iter()
+        .map(|s| s.name.as_str())
+        .chain(component.mutations.iter().map(|m| m.name.as_str()))
+        .chain(router)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let hint = if choices.is_empty() {
+        "this component has no state or mutation slots".to_owned()
+    } else {
+        format!("available writes: {choices}")
+    };
+    AnalyzeError {
+        id: "analyze-writes-unknown-state",
+        message: format!("{} in `writes` {predicate}; {hint}", unknown.join(", ")),
+        span,
+        related: Vec::new(),
+    }
 }
 
 /// Every slot an action body writes or sends, through every branch of its

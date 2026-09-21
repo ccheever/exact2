@@ -356,6 +356,17 @@ resolved slots, including the root's implicit router state. A missing `writes`
 declaration reports every undeclared target in first-write order, including
 `send` and every branch, without repeating targets. The stable
 `analyze-write-not-declared` ID and first offending statement's span remain.
+Unknown `writes` entries likewise report every invalid name in declaration order,
+without repeating names, and list the component's available state/mutation slots
+in sorted order. Choices use authored declarations plus the root's implicit
+router slot; parent slots, props, resources, derives and lifted child names are
+excluded. The `analyze-writes-unknown-state` ID and first invalid token's span
+remain, as does an earlier duplicate-entry refusal. Valid declarations construct
+no choices. Four scripted CLI repairs use the reported names, choices and original
+source location, reducing two or three successive refusals to one; non-message
+diagnostic fields and all 18 app/fixture plans are unchanged. This measures the
+repair protocol, not general agent productivity or runtime performance.
+Evidence: `/tmp/exact-writes-choices-06971c8e`.
 
 **Lower** (`contract-lower`): shapes to `types`; declarations to `slots`,
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view
