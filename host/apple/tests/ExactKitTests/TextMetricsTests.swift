@@ -753,6 +753,34 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNil(tall.textRaster, "AppKit's strips paint it, backing only the visible part")
     }
 
+    func testTextTooSmallToRepayASurfaceDrawsInItsLayer() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-small")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        // A square just under the minimum at this window's scale.
+        let side = Double((TextRasterizer.minPixels.squareRoot() / window.backingScaleFactor).rounded(.down) - 1)
+        presenter.apply(batchFixture(ops: [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "cell"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "a paragraph"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": side, "h": side],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 150.0, "w": 400.0, "h": 60.0],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let small = try XCTUnwrap(presenter.views[2]), paragraph = try XCTUnwrap(presenter.views[3])
+        XCTAssertFalse(small.rastersText, "a surface costs more than drawing a few glyphs")
+        small.displayIfNeeded()
+        XCTAssertNil(small.textRaster)
+        XCTAssertTrue(paragraph.rastersText)
+    }
+
     func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-resize")

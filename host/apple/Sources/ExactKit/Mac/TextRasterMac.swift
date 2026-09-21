@@ -9,8 +9,8 @@
 // while the row is still a screen away. Scrolling mounted text is compositing.
 //
 // `NodeView.draw` still paints text for everything this declines: a
-// selection, a capture, a canvas, a decorated text box, a clamp, and a
-// paragraph taller than a screen.
+// selection, a capture, a canvas, a decorated text box, a clamp, a paragraph
+// taller than a screen, and one too small to repay a surface.
 #if os(macOS)
 import AppKit
 import CoreText
@@ -22,6 +22,12 @@ final class TextRasterizer {
     /// more than every other text pixel in the document together. AppKit's
     /// strips back only what is on screen.
     static let maxHeight: CGFloat = 1024
+    /// Pixels. A surface has a fixed cost — an IOSurface, and its registration
+    /// with the render server when a layer first shows it — that a few glyphs
+    /// never repay: a table of 32 narrow cells made one per cell as each row
+    /// mounted and scrolled at 31 fps, where AppKit drawing the cells into
+    /// their layers' own backing stores made 58. Smaller text draws.
+    static let minPixels: CGFloat = 16384
     // Keep italic overhang and ink outside tight line boxes, but never size
     // a surface to an unbreakable line's potentially unbounded advance.
     static let maxInkOverflow = TextRasterJob.maxInkOverflow
@@ -186,7 +192,8 @@ extension NodeView {
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
-        return true
+        let scale = window?.backingScaleFactor ?? 2
+        return bounds.width * bounds.height * scale * scale >= TextRasterizer.minPixels
     }
 
     /// Whether the pump still owes this paragraph pixels.
