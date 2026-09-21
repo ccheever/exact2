@@ -138,14 +138,21 @@ struct ChromeIndex {
 
     mutating func note(_ id: UInt32, props: [String: String]) {
         for key in Self.keys {
-            if props[key] != nil { byKey[key, default: []].insert(id) } else { byKey[key]?.remove(id) }
+            if props[key] != nil { byKey[key, default: []].insert(id) }
+            else if let index = byKey.index(forKey: key), byKey.values[index].contains(id) {
+                byKey.values[index].remove(id)
+            }
         }
         for (name, key, value) in Self.values {
-            if props[key] == value { byKey[name, default: []].insert(id) } else { byKey[name]?.remove(id) }
+            if props[key] == value { byKey[name, default: []].insert(id) }
+            else if let index = byKey.index(forKey: name), byKey.values[index].contains(id) {
+                byKey.values[index].remove(id)
+            }
         }
     }
     mutating func forget(_ id: UInt32) {
-        for key in byKey.keys { byKey[key]?.remove(id) }
+        // Only the member sets change; dictionary keys and indices stay fixed.
+        for index in byKey.indices where byKey.values[index].contains(id) { byKey.values[index].remove(id) }
     }
     func ids(_ key: String) -> Set<UInt32> { byKey[key] ?? [] }
     /// Whether anything that can hide a view or make it inert is mounted:
