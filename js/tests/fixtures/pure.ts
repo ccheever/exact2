@@ -79,4 +79,16 @@ function transfer(mode:string):unknown {
   }
   throw new Error(mode);
 }
-(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='transfer'?transfer(String(args[0])):exercise(source)};
+// Exercise the actual native envelope parser, including replies the ordinary
+// serializer cannot emit. Restore stringify before it visits capture paths.
+function wire(text:string,mode:string):unknown {
+  const stringify=JSON.stringify;
+  JSON.stringify=((value:unknown,replacer:never,space:never)=>{
+    JSON.stringify=stringify;
+    stringify(value,replacer,space);
+    return text;
+  }) as typeof JSON.stringify;
+  const value=mode.includes('capture')?'a\\\0é😀\u2028\u2029'.repeat(8192):'settled';
+  return mode.startsWith('async')?Promise.resolve(value):value;
+}
+(globalThis as any).exact={abi:1,appId:'test.pure',grants:'',answer:(source:string,args:unknown[]=[])=>source==='wire'?wire(String(args[0]),String(args[1])):source==='transfer'?transfer(String(args[0])):exercise(source)};

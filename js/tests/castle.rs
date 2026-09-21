@@ -523,3 +523,23 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
     stale.data_ready().unwrap();
     assert_eq!(text_of(&stale, "remembered").as_deref(), Some(""));
 }
+
+#[test]
+fn a_resumed_capture_over_budget_retires_the_call_and_keeps_later_answers_clean() {
+    let mut m = module();
+    let mut s = store();
+    let args = [Value::str("ada"), Value::str("pw")];
+    later(m.answer(&mut s, "login", &args).unwrap());
+    let body = serde_json::json!({"data":{"loginV2":{"token":"t0k","username":"a".repeat(65536)}}})
+        .to_string();
+    m.set_budget_ms(0.0);
+    let result = m.parse(&mut s, "login", &args, response(200, &body));
+    assert!(
+        matches!(result, Err(DataError::Unavailable(ref message)) if message.contains("over the 0 ms budget"))
+    );
+    assert_eq!(m.overruns(), 1);
+    assert_eq!(m.in_flight(), 0);
+    m.set_budget_ms(f64::INFINITY);
+    assert!(!session(&now(m.answer(&mut s, "logout", &[]).unwrap())).0);
+    assert!(!session(&now(m.answer(&mut s, "remember", &[]).unwrap())).0);
+}
