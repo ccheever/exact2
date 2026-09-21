@@ -1,6 +1,6 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -120,6 +120,36 @@ test('driver joins only the inspected plan, retains old compatible maps, and lab
     expect(await reader.refresh()).toBe(true); // Valid older entries remain useful.
     const noIdentity = inspected(undefined); reader.attach(noIdentity);
     expect(noIdentity.sourceMap.status).toBe('unavailable');
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('local map refresh observes same-size edits with restored timestamps and recovers after missing or malformed files', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-refresh-')), path = join(dir, 'app.plan');
+  const file = path + '.map.json', digest = 'a'.repeat(64), reader = sourceMapReader(path);
+  const node = inspected(digest);
+  try {
+    const first = JSON.stringify(mapAt(digest, 12)), changed = JSON.stringify(mapAt(digest, 24));
+    expect(first.length).toBe(changed.length);
+    writeFileSync(file, first);
+    const stat = statSync(file);
+    for (let i = 0; i < 3; i++) {
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(12);
+    }
+    writeFileSync(file, changed); utimesSync(file, stat.atime, stat.mtime);
+    expect(await reader.refresh()).toBe(true); reader.attach(node);
+    expect(node.sourceMap.line).toBe(24);
+    for (const missing of [false, true]) {
+      if (missing) rmSync(file); else writeFileSync(file, '{bad JSON');
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(24);
+      writeFileSync(file, changed);
+      expect(await reader.refresh()).toBe(true); reader.attach(node);
+      expect(node.sourceMap.line).toBe(24);
+    }
+    writeFileSync(file, first);
+    expect(await reader.refresh()).toBe(true); reader.attach(node);
+    expect(node.sourceMap.line).toBe(12);
   } finally { rmSync(dir, {recursive:true,force:true}); }
 });
 

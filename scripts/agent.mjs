@@ -122,6 +122,8 @@ export function sourceMapReader(locator) {
           if (statSync(path).size > limit) throw Error('source map exceeds size budget');
           bytes = readFileSync(path);
           if (bytes.length > limit) throw Error('source map exceeds size budget');
+          key = hash(bytes);
+          if (key === lastCard) return true;
         }
         const map = JSON.parse(bytes.toString('utf8'));
         if (!digest(map.digest) || !Array.isArray(map.nodes) || (expected && map.digest !== expected)) throw Error('invalid or mismatched source map');
