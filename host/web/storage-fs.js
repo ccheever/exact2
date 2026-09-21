@@ -150,7 +150,7 @@ export function createFileStore(appId) {
     }
     return opening;
   }
-  async function run(write, operation) {
+  async function run(write, operation, path, list = false) {
     const db = await open();
     if (closed) throw failure('storage was unloaded');
     return new Promise((resolve, reject) => {
@@ -163,17 +163,25 @@ export function createFileStore(appId) {
       transaction.oncomplete = () => resolve(result);
       transaction.onabort = () => reject(error || failure(transaction.error?.message || 'transaction aborted'));
       transaction.onerror = () => {}; // onabort reports once, including quota failures.
-      const request = store.getAll();
-      request.onsuccess = () => {
-        const records = new Map(request.result.map(value => [value.path, value]));
+      const request = path === undefined ? store.getAll() : store.get(path);
+      // '/' sorts immediately before '0': the exclusive upper bound includes
+      // every descendant name, even one containing U+FFFF, but no sibling path.
+      const keys = list ? store.getAllKeys(IDBKeyRange.bound(`${path}/`, `${path}0`, false, true)) : null;
+      let pending = keys ? 2 : 1;
+      const ready = () => {
+        if (--pending) return;
+        const values = path === undefined ? request.result : request.result ? [request.result] : [];
+        const records = new Map(values.map(value => [value.path, value]));
         const changes = {
           put(value) { records.set(value.path, value); store.put(value); },
           remove(path) { records.delete(path); store.delete(path); },
           touch(path) { const value = directory(records, path); this.put({ ...value, modifiedMs: now() }); },
         };
-        try { result = operation(records, changes); }
+        try { result = operation(records, changes, keys?.result); }
         catch (cause) { error = cause; transaction.abort(); }
       };
+      request.onsuccess = ready;
+      if (keys) keys.onsuccess = ready;
     });
   }
   async function write(path, data, append) {
@@ -199,18 +207,19 @@ export function createFileStore(appId) {
     directories: roots,
     async readFile(path) {
       path = normalizePath(path);
-      return run(false, records => file(records, path).contents.slice(0));
+      // IndexedDB already returns an independent structured clone for this read.
+      return run(false, records => file(records, path).contents, path);
     },
     writeFile(path, data) { return write(path, data, false); },
     atomicWriteFile(path, data) { return write(path, data, false); },
     appendFile(path, data) { return write(path, data, true); },
     async readdir(path) {
       path = normalizePath(path);
-      return run(false, records => {
+      return run(false, (records, _changes, keys) => {
         directory(records, path);
-        return [...records.keys()].filter(key => parentOf(key) === path)
+        return keys.filter(key => parentOf(key) === path)
           .map(key => key.slice(path.length + 1)).sort();
-      });
+      }, path, true);
     },
     async mkdir(path) {
       path = normalizePath(path);
@@ -244,7 +253,7 @@ export function createFileStore(appId) {
         const value = entry(records, path);
         return { size: value.kind === 'file' ? value.contents.byteLength : 0,
           isFile: value.kind === 'file', isDirectory: value.kind === 'directory', modifiedMs: value.modifiedMs };
-      });
+      }, path);
     },
     async rename(from, to) {
       from = normalizePath(from);
@@ -286,7 +295,7 @@ export function createFileStore(appId) {
     },
     async realpath(path) {
       path = normalizePath(path);
-      return run(false, records => { entry(records, path); return path; });
+      return run(false, records => { entry(records, path); return path; }, path);
     },
     close() {
       closed = true;

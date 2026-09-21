@@ -1039,9 +1039,12 @@ worker. Each file operation is transactional; SQLite holds a Web Lock on its
 file and shared ancestor locks until close, preventing another connection or a
 filesystem mutation from losing committed data. Same-tab filesystem mutations
 serialize; conflicts with other tabs or live databases return `Unavailable`.
-Database bytes are ordinary SQLite files in the same namespace. This initial
-implementation reads the app's file records per filesystem operation and writes
-a whole database snapshot after a SQLite mutation, suitable for modest stores.
+Database bytes are ordinary SQLite files in the same namespace. Single-file reads
+fetch only the requested IndexedDB record; directory listing reads its directory
+record and descendant keys in the same transaction, without file contents. Read
+buffers belong to the caller because IndexedDB clones each result. File mutations
+still scan the app's records, and SQLite mutations write a whole database snapshot.
+A stat still reads the target record, including its contents, but no unrelated file.
 Quota/persistence failures reject and invalidate a divergent SQLite connection.
 Browser retention/eviction policy still applies; HTTPS/localhost supplies Web Locks.
 
