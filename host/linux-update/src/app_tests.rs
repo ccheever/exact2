@@ -460,6 +460,21 @@ fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair
         serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
     assert_eq!(saved["failures"], 0, "its rendered frame blesses it");
     assert_eq!(saved["lastGood"], saved["selected"]);
+    // A successful frame's unchanged delivery facts must leave presentation idle.
+    // Repeated reads still check first pixel and must not request another paint.
+    assert!(!presenter.dirty());
+    let tree = presenter.host().agent(r#"{"op":"tree"}"#);
+    let record_after = std::fs::read(&record).unwrap();
+    for _ in 0..3 {
+        presenter.first_pixel();
+        assert!(!presenter.dirty());
+        assert_eq!(
+            exact_linux::agent::handle(&mut presenter, r#"{"op":"tree"}"#),
+            tree
+        );
+        assert!(!presenter.dirty());
+        assert_eq!(std::fs::read(&record).unwrap(), record_after);
+    }
     let _ = std::fs::remove_dir_all(dir);
 }
 

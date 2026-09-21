@@ -614,14 +614,16 @@ impl<D: DataSource> Presenter<D> {
         Ok(true)
     }
 
-    /// The store's facts into the runner (LLP 1030 D7): a `delivery`
-    /// resource is answered again, and the picture follows.
+    /// Commit changed store facts to the delivery resource (LLP 1030 D7).
     fn sync_delivery(&mut self) {
         let Some(u) = &self.updates else {
             return;
         };
         let mut delivery = self.host.runner().delivery().clone();
         u.status_into(&mut delivery);
+        if delivery == *self.host.runner().delivery() {
+            return;
+        }
         if let Some(e) = self.host.set_delivery(delivery) {
             eprintln!("exact: {e}");
         }
@@ -630,11 +632,9 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// Run the commands the last commits asked for (LLP 1005 §3): the
-    /// delivery pair are the store's (LLP 1030 D7); `setScheme` is which
-    /// appearance a `light-dark()` colour resolves to on this painter, which
-    /// has no system appearance of its own (LLP 1034 D2); anything else is
-    /// named.
+    /// Run the last commits' commands (LLP 1005 §3): delivery belongs to the
+    /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
+    /// appearance (LLP 1034 D2); anything else is named.
     pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
         for c in std::mem::take(&mut self.commands) {
             match c.name.as_str() {

@@ -363,6 +363,11 @@ focus, and pictures over, as LLP 1007 §6 says.
 
 ## 5. The agent API (`host/linux/src/agent.rs`) and the driver
 
+Delivery synchronization runs presenter commit work only when the store's facts
+change (LLP 1030 D7). Repeated first-pixel checks and idle agent reads leave a
+clean presenter clean; they do not request a repaint of the same picture.
+Successful activation still publishes the selected generation after its frame.
+
 `EXACT_AGENT=1` is `Agent.swift`'s protocol on stdio, line for line: the
 ready line, then JSON requests in and replies out. `tree`, `state`, `logs`,
 and `settle` go to the host (`exact_runner::agent`); `layout` is the
