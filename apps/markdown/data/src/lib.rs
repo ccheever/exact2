@@ -40,8 +40,9 @@ type Opened = Result<(PathBuf, Document), String>;
 /// The Markdown reader's data source.
 #[derive(Default)]
 pub struct Markdown {
-    /// The document being read now: what a refusal falls back to.
-    open: Option<(PathBuf, Document)>,
+    /// The document value being read now, shared with the runner. A refusal
+    /// reuses its blocks rather than retaining the parser's second text copy.
+    open: Option<(PathBuf, Value)>,
     /// Results the worker has finished, by the path that was asked for.
     done: Arc<Mutex<HashMap<String, (u64, Opened)>>>,
     /// Paths handed out as continuation tokens and not yet taken.
@@ -58,7 +59,7 @@ impl Markdown {
     }
 
     /// `shape Document`: the file, what is beside it, and any refusal.
-    fn value(&self, path: &Path, doc: &Document, message: &str) -> Value {
+    fn value(path: &Path, doc: &Document, message: &str) -> Value {
         Value::record(vec![
             Value::str(&path.to_string_lossy()),
             Value::str(&name_of(path)),
@@ -75,19 +76,21 @@ impl Markdown {
     fn opened(&mut self, asked: &str, result: Opened) -> Value {
         match result {
             Ok((path, doc)) => {
-                let value = self.value(&path, &doc, "");
-                self.open = Some((path, doc));
+                let value = Self::value(&path, &doc, "");
+                self.open = Some((path, value.clone()));
                 value
             }
             // The refusal, over the document still being read (never over
             // nothing: losing the page you were on is the worse failure).
-            Err(message) => match self.open.take() {
-                Some((path, doc)) => {
-                    let value = self.value(&path, &doc, &message);
-                    self.open = Some((path, doc));
-                    value
+            Err(message) => match &self.open {
+                Some((path, Value::Record(fields))) => {
+                    let mut fields = fields.as_ref().clone();
+                    fields[3] = Value::str(&message);
+                    fields[4] = Value::Bool(!message.is_empty());
+                    fields[7] = siblings(path);
+                    Value::record(fields)
                 }
-                None => self.value(Path::new(asked), &Document::default(), &message),
+                _ => Self::value(Path::new(asked), &Document::default(), &message),
             },
         }
     }
@@ -96,7 +99,7 @@ impl Markdown {
     /// surface that cannot reach a filesystem can still show.
     fn welcome(&mut self) -> Value {
         let doc = parse(WELCOME, &|target: &str| target.to_string());
-        let value = self.value(Path::new("Markdown"), &doc, "");
+        let value = Self::value(Path::new("Markdown"), &doc, "");
         self.open = None;
         value
     }
@@ -351,6 +354,66 @@ mod tests {
     use super::*;
 
     #[test]
+    fn refusals_share_the_open_value_and_switching_releases_it() {
+        use std::rc::Rc;
+        let directory =
+            std::env::temp_dir().join(format!("exact-markdown-retain-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("first.md");
+        std::fs::write(&path, "# First\n\nRead **this** [link](next.md).").unwrap();
+        let mut source = Markdown::new();
+        let opened = source.opened(path.to_str().unwrap(), read(path.to_str().unwrap()));
+        let Value::Record(fields) = &opened else {
+            panic!("expected document");
+        };
+        let Value::List(blocks) = &fields[6] else {
+            panic!("expected blocks");
+        };
+        let weak = Rc::downgrade(blocks);
+        let original = opened.to_bytes();
+        let next = directory.join("next.md");
+        std::fs::write(&next, "# Next\n\nAnother page.").unwrap();
+        for message in ["not UTF-8", "too large", "missing"] {
+            let refused = source.opened("/missing.md", Err(message.into()));
+            let Value::Record(refusal) = &refused else {
+                panic!("expected refusal over document");
+            };
+            let Value::List(retained) = &refusal[6] else {
+                panic!("expected retained blocks");
+            };
+            assert!(Rc::ptr_eq(blocks, retained));
+            assert_eq!(refusal[3].as_str(), Some(message));
+            assert_eq!(refusal[4].as_bool(), Some(true));
+            for i in [0, 1, 2, 5, 6] {
+                assert_eq!(refusal[i], fields[i]);
+            }
+            assert_eq!(refusal[7], siblings(&path), "refresh the folder on refusal");
+            assert_ne!(refusal[7], fields[7]);
+            assert_eq!(opened.to_bytes(), original, "never mutate a reader's value");
+        }
+        drop(opened);
+        assert!(
+            weak.upgrade().is_some(),
+            "the fallback owns the open blocks"
+        );
+        let latest = source.opened(next.to_str().unwrap(), read(next.to_str().unwrap()));
+        assert!(
+            weak.upgrade().is_none(),
+            "a successful switch releases old blocks"
+        );
+        let Value::Record(fields) = latest else {
+            panic!("expected new document");
+        };
+        assert_eq!(fields[2].as_str(), Some("Next"));
+        source.welcome();
+        let Value::Record(empty) = source.opened("/missing.md", Err("missing".into())) else {
+            panic!("expected refusal without a file");
+        };
+        assert_eq!(empty[5].as_number(), Some(0.0));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn a_running_scan_releases_the_lane_for_the_newest_file() {
         use std::sync::mpsc::sync_channel;
         let directory =
@@ -399,7 +462,10 @@ mod tests {
                 outcome,
             )
             .unwrap();
-        assert_eq!(source.open.as_ref().unwrap().1.title, "Latest");
+        let Value::Record(fields) = &source.open.as_ref().unwrap().1 else {
+            panic!("expected document");
+        };
+        assert_eq!(fields[2].as_str(), Some("Latest"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
