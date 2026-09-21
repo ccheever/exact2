@@ -201,6 +201,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textRasterOverflowLayer: CALayer?
     var textRasterKey: TextRasterKey?
     var textRasterReady = false
+    var textRasterFailed = false
     var textRasterPending = false
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?

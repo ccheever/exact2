@@ -34,6 +34,9 @@ final class TextRasterizer {
     /// Points. A taller paragraph is left to AppKit's strips: one bitmap of it
     /// would be tens of megabytes to show a screenful.
     static let maxHeight: CGFloat = 4096
+    // Keep italic overhang and ink outside tight line boxes, but never size
+    // a surface to an unbreakable line's potentially unbounded advance.
+    static let maxInkOverflow: CGFloat = 256
 
     /// Everything a worker needs, none of it shared with the main thread's
     /// layout: CoreText line objects belong to one thread at a time, so the
@@ -60,6 +63,7 @@ final class TextRasterizer {
     /// screen now: painted here rather than shown blank for a frame.
     @discardableResult
     func ensure(_ node: NodeView, urgent: Bool) -> Bool {
+        if node.textRasterFailed, node.textRasterKey != nil { return true }
         guard node.rastersText, let engine = node.text else {
             node.dropTextRaster()
             return true
@@ -84,6 +88,7 @@ final class TextRasterizer {
         }
         node.textRasterKey = key
         node.textRasterReady = false
+        node.textRasterFailed = false
         node.textRasterPending = false
         let reused = urgent && paragraph == nil ? engine.rasterLines(spec, ranges: ranges) : nil
         let source = paragraph?.shape?.attributed ?? reused?.0 ?? engine.attributed(spec)
@@ -136,13 +141,19 @@ final class TextRasterizer {
                                            width: ink.width, height: ink.height).insetBy(dx: -1 / job.scale, dy: -1 / job.scale))
             }
         }
+        frame = frame.intersection(box.insetBy(dx: -maxInkOverflow, dy: -maxInkOverflow))
         if frame != box {
             let left = floor(frame.minX * job.scale) / job.scale
             let top = floor(frame.minY * job.scale) / job.scale
             frame = CGRect(x: left, y: top, width: ceil(frame.maxX * job.scale) / job.scale - left,
                            height: ceil(frame.maxY * job.scale) / job.scale - top)
         }
-        let width = Int((frame.width * job.scale).rounded(.up)), height = Int((frame.height * job.scale).rounded(.up))
+        let pixelWidth = (frame.width * job.scale).rounded(.up)
+        let pixelHeight = (frame.height * job.scale).rounded(.up)
+        guard pixelWidth.isFinite, pixelHeight.isFinite,
+              pixelWidth > 0, pixelHeight > 0,
+              pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
+        let width = Int(pixelWidth), height = Int(pixelHeight)
         guard width > 0, height > 0,
               let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: 4,
                                                    .pixelFormat: UInt32(0x42475241)]) // 'BGRA'
@@ -174,6 +185,7 @@ extension NodeView {
     /// Whether this paragraph's text is a rasterized surface rather than
     /// something `draw` paints. Asked by AppKit through `wantsUpdateLayer`.
     var rastersText: Bool {
+        if textRasterFailed, textRasterKey != nil { return false }
         guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, window != nil,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
               number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
@@ -183,7 +195,10 @@ extension NodeView {
     }
 
     /// Whether the pump still owes this paragraph pixels.
-    var needsTextRaster: Bool { !textRasterReady || textRasterKey == nil || textRasterPending }
+    var needsTextRaster: Bool {
+        if textRasterFailed, textRasterKey != nil { return false }
+        return !textRasterReady || textRasterKey == nil || textRasterPending
+    }
 
     /// The box a raster was painted for is gone — the layer would stretch its
     /// surface to whatever the paragraph is now. Retire the key so the pump
@@ -202,7 +217,22 @@ extension NodeView {
     func showTextRaster(_ image: IOSurface?, for key: TextRasterKey, frame: CGRect? = nil, deferOffscreen: Bool = false) {
         // An urgent paint can overtake its worker. Keep the accepted surface
         // instead of committing identical pixels again when that worker ends.
-        guard textRasterKey == key, !textRasterReady, let image else { return }
+        guard textRasterKey == key, !textRasterReady else { return }
+        guard let image else {
+            dropTextRaster()
+            textRasterKey = key
+            textRasterFailed = true
+            needsDisplay = true
+            // A synchronous failure can occur inside updateLayer, whose dirty
+            // flag AppKit is about to clear. Ask again after that display pass,
+            // now through draw. A late successful worker can still replace it.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.textRasterFailed, self.textRasterKey == key else { return }
+                self.needsDisplay = true
+            }
+            return
+        }
+        textRasterFailed = false
         textRaster = image
         textRasterScale = key.scale
         textRasterFrame = frame ?? CGRect(origin: .zero, size: key.size)
@@ -247,6 +277,7 @@ extension NodeView {
         textRaster = nil
         textRasterKey = nil
         textRasterReady = false
+        textRasterFailed = false
         textRasterPending = false
     }
 }

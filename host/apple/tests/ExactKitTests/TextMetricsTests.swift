@@ -9,6 +9,88 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testUnbreakableLineRasterIsBoundedAndContainsVisibleInk() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "unbreakable-raster")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200),
+                              styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        node.applyStyle(["font_size": 16.0, "line_height": "24px"])
+        node.applyProps(set: ["text": String(repeating: "x", count: 65_536)], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 24)
+        node.prepareToMount()
+        presenter.root.addSubview(node)
+        let paragraph = try XCTUnwrap(node.paragraphLayout())
+        XCTAssertEqual(paragraph.lines.count, 1)
+        XCTAssertGreaterThan(paragraph.width, 100_000)
+        XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+        let surface = try XCTUnwrap(node.textRaster)
+        XCTAssertTrue(node.textRasterReady)
+        XCTAssertFalse(node.needsTextRaster)
+        XCTAssertLessThanOrEqual(node.textRasterFrame.width, node.bounds.width + 2 * TextRasterizer.maxInkOverflow)
+        XCTAssertLessThanOrEqual(node.textRasterFrame.height, node.bounds.height + 2 * TextRasterizer.maxInkOverflow)
+        surface.lock(options: .readOnly, seed: nil)
+        defer { surface.unlock(options: .readOnly, seed: nil) }
+        let bytes = surface.baseAddress.assumingMemoryBound(to: UInt8.self)
+        let left = Int(-node.textRasterFrame.minX * node.textRasterScale)
+        let right = left + Int(node.bounds.width * node.textRasterScale)
+        XCTAssertTrue((0..<surface.height).contains { y in
+            (left..<right).contains { x in bytes[y * surface.bytesPerRow + x * 4 + 3] != 0 }
+        }, "the visible part of the unbreakable line must contain pixels")
+    }
+
+    func testFailedRasterDrawsAndStopsRetryingUntilInvalidated() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "failed-raster")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 200),
+                              styleMask: [], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        let node = NodeView(id: 1, kind: "text", presenter: presenter)
+        node.applyStyle(["font_size": 16.0])
+        node.applyProps(set: ["text": "Fallback ink"], clear: [])
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 30)
+        node.prepareToMount()
+        presenter.root.addSubview(node)
+        XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+        // Simulate a failed replacement after this node already had pixels.
+        let key = try XCTUnwrap(node.textRasterKey)
+        node.textRasterReady = false
+        node.showTextRaster(nil, for: key)
+        XCTAssertNil(node.textRaster)
+        XCTAssertNil(node.layer?.contents)
+        XCTAssertFalse(node.wantsUpdateLayer, "AppKit must use draw after surface failure")
+        for _ in 0..<3 {
+            XCTAssertFalse(node.needsTextRaster)
+            XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+            XCTAssertEqual(node.textRasterKey, key)
+            XCTAssertNil(node.textRaster)
+        }
+        let bitmap = try XCTUnwrap(node.bitmapImageRepForCachingDisplay(in: node.bounds))
+        node.cacheDisplay(in: node.bounds, to: bitmap)
+        XCTAssertTrue((0..<bitmap.pixelsHigh).contains { y in
+            (0..<bitmap.pixelsWide).contains { x in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0 }
+        })
+        node.frame.size.width += 10
+        node.textRasterGeometryChanged() // the presenter's frame operation
+        XCTAssertTrue(node.rastersText, "a new geometry may try again")
+        XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+        XCTAssertNotNil(node.textRaster)
+        node.textRasterReady = false
+        node.showTextRaster(nil, for: try XCTUnwrap(node.textRasterKey))
+        node.applyProps(set: ["text": "Changed ink"], clear: [])
+        node.invalidateText() // the presenter's props operation
+        XCTAssertTrue(node.rastersText, "new content may try again")
+        XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
+        XCTAssertNotNil(node.textRaster)
+    }
+
     func testDenseInlineCountsDoNotCreateNativeViews() {
         for repetitions in [16, 256, 4096] {
             let presenter = Presenter()
