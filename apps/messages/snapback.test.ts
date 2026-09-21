@@ -184,6 +184,50 @@ test('0.2.30 device retains offline edits, acquires receipts, reopens, and rolls
   }
 },30000);
 
+test('contact lookups preserve restored identity, duplicate selection and rebase order', async()=>{
+  const dir=await mkdtemp(join(tmpdir(),'messages-contacts-'));
+  try {
+    const entry=new URL('./app.ts',import.meta.url).pathname;
+    const built=await Bun.build({entrypoints:[entry],target:'bun',outdir:dir,naming:'app.mjs',plugins:[{
+      name:'restored-contact-fixture',setup(build){build.onLoad({filter:/\/apps\/messages\/app\.ts$/},async args=>({
+        loader:'ts',contents:await readFile(args.path,'utf8')+'\nexport const contactFixture={restore,snapshot,sources,people,editRecords};\n',
+      }));},
+    }]});
+    expect(built.success).toBe(true);
+    const {contactFixture:f}=await import(join(dir,'app.mjs'));
+    const initial=JSON.parse(JSON.stringify([...f.snapshot()]));
+    const records=new Map<string,any>(initial);
+    const maya=records.get('person:maya');
+    records.set('person:maya',{...maya,person:{...maya.person,name:'First Maya'},position:-Number.MAX_VALUE});
+    records.set('duplicate:maya',{...maya,person:{...maya.person,name:'Last Maya'},position:100});
+    f.restore(records);
+    const chat=(id:string)=>f.sources.conversation([id,0,'','','']);
+    expect(chat('maya').name).toBe('First Maya');
+    const edit=f.editRecords('markRead',['maya']);
+    f.sources.markRead(['maya']);
+    expect(f.people.filter((p:any)=>p.id==='maya').map((p:any)=>p.unread)).toEqual([false,true]);
+    const changed=edit().get('person:maya');
+    expect(changed.person.name).toBe('First Maya');expect(changed.position).toBe(100);
+    // Numeric exhaustion rebases positions without changing which duplicate is
+    // selected or replacing the referenced person with a detached copy.
+    f.sources.sendMessage(['address:front%40example.test','New first contact','',0,0]);
+    expect(chat('address:front%40example.test').name).toBe('front@example.test');
+    expect(chat('maya').name).toBe('First Maya');
+    expect(f.snapshot().get('person:maya').position).toBe(6);
+    f.sources.createLocalContact(['Maya','Renamed','','+14155550101','','']);
+    expect(chat('maya').name).toBe('Maya Renamed');
+    expect(f.people.filter((p:any)=>p.id==='maya').map((p:any)=>p.name)).toEqual(['Maya Renamed','Last Maya']);
+    // Restoring a replacement model drops removed contacts and old references.
+    f.restore(new Map(initial));
+    expect(chat('maya').name).toBe('Maya Chen');
+    expect(chat('address:front%40example.test').name).toBe('Maya Chen');
+    f.sources.markRead(['maya']);
+    expect(f.people[0].unread).toBe(false);
+    f.sources.setConversationUnread(['maya',true]);
+    expect(f.people[0].unread).toBe(true);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
 
 // The test-only bundle exposes the existing full snapshot as an independent
 // oracle. Production bytecode has neither the export nor this extra traversal.

@@ -14,9 +14,9 @@ const people: (Omit<Person,'draft'|'reply'|'muted'> & {address?:string})[] = [
   {id:'jules',address:'+14155550104',name:'Jules',initials:'J',color:'#cd8f99',preview:'That sounds perfect',time:'Monday',unread:false},
   {id:'sam',address:'+14155550105',name:'Sam',initials:'S',color:'#8196c0',preview:'Thanks again!',time:'Monday',unread:false},
 ];
-// Keep stored positions stable when a contact is prepended or appended. The
-// array remains the presentation order; these values belong to person records.
-const personPositions=new Map(people.map((person,index)=>[person.id,index]));
+// The array owns presentation order; the index keeps live contact references
+// and stable stored positions when contacts are prepended or appended.
+const personIndex=new Map(people.map((person,position)=>[person.id,{person,position}]));
 let firstPersonPosition=0,lastPersonPosition=people.length-1,rebasedPeople=false;
 function insertPerson(person:typeof people[number],front:boolean):void {
   const edge=front?firstPersonPosition:lastPersonPosition;
@@ -24,11 +24,11 @@ function insertPerson(person:typeof people[number],front:boolean):void {
   if(!Number.isFinite(position)||(front?position>=edge:position<=edge)){
     // Imported finite positions can exhaust Number's adjacent range. Rebase as
     // one ordinary atomic edit; the existing record cap still applies.
-    people.forEach((p,i)=>personPositions.set(p.id,i));
+    people.forEach((p,i)=>personIndex.get(p.id)!.position=i);
     firstPersonPosition=0;lastPersonPosition=people.length-1;rebasedPeople=true;
     position=front?-1:people.length;
   }
-  personPositions.set(person.id,position);
+  personIndex.set(person.id,{person,position});
   if(front){firstPersonPosition=position;people.unshift(person);}
   else{lastPersonPosition=position;people.push(person);}
 }
@@ -145,7 +145,7 @@ function archiveMessages(id:string,rows:StoredMessage[],now:number) {
   if(rows.length)recoverable.set(id,[...(recoverable.get(id)||[]),...rows.map(message=>({message,expires:now+30*recoveryDay}))]);
 }
 function refreshPreview(id:string) {
-  const person=people.find(p=>p.id===id),rows=threads.get(id),last=rows?.[rows.length-1];
+  const person=personIndex.get(id)?.person,rows=threads.get(id),last=rows?.[rows.length-1];
   if(person){person.preview=last?.body || '';person.time=last?(last.day==='Today'?last.time:last.day):'';}
 }
 function replyTo(item:StoredMessage,id:string,root:string) {
@@ -197,7 +197,7 @@ function addressPerson(value:string):typeof people[number] | undefined {
   return people.find(p=>p.address===address) || {id:`address:${encodeURIComponent(address)}`,address,name,initials:'',color:'#829baa',preview:'',time:'Now',unread:false};
 }
 function recipientById(id:string) {
-  const existing=people.find(p=>p.id===id);
+  const existing=personIndex.get(id)?.person;
   if(existing) return existing.address?existing:undefined;
   if(!id.startsWith('address:')) return;
   try {
@@ -217,7 +217,7 @@ function ensureConversation(id:string) {
   if(threads.has(id)) return;
   const address=recipientById(id);
   if(address) {
-    if(!people.some(p=>p.id===id)) insertPerson(address,true);
+    if(!personIndex.has(id)) insertPerson(address,true);
     replaceThread(id,[]);
     return;
   }
@@ -232,7 +232,7 @@ function responder(id:string) {
   return recipientById(groups.get(id)?.[0] || id);
 }
 function conversation(id:string,replying:string,selection:string,cursor:string):Result<'conversation'> {
-  const person=people.find(p=>p.id===id) || people[0];
+  const person=personIndex.get(id)?.person || people[0];
   const rows=threads.get(person.id) || [];
   const index=indexes.get(person.id)||emptyIndex();
   const anchor=cursor===''?rows.length-1:cursorAnchor(rows,cursor);
@@ -301,9 +301,9 @@ const sources: Sources = {
   },
   conversationDraft: ([id,_revision])=>({thread:id,...(drafts.get(id)||{draft:'',reply:''})}),
   conversation: ([id,_revision,replying,selection,cursor])=>conversation(id,replying,selection,cursor),
-  markRead: ([id])=>{const p=people.find(p=>p.id===id);if(p)p.unread=false;revision++;return changed();},
+  markRead: ([id])=>{const p=personIndex.get(id)?.person;if(p)p.unread=false;revision++;return changed();},
   setConversationUnread: ([id,unread])=>{
-    const person=people.find(p=>p.id===id && !deleted.has(id));
+    const person=deleted.has(id)?undefined:personIndex.get(id)?.person;
     if(person && person.unread!==unread){person.unread=unread;revision++;}
     return changed();
   },
@@ -324,7 +324,7 @@ const sources: Sources = {
     const addresses=[phone,email].map(addressPerson).filter((p):p is typeof people[number]=>!!p);
     if(!addresses.length && name) addresses.push({id:`contact:${namespace}${++revision}`,name,initials,color:'#92a8ce',preview:'',time:'Now',unread:false});
     for(const candidate of addresses) {
-      let person=people.find(p=>p.id===candidate.id);
+      let person=personIndex.get(candidate.id)?.person;
       if(!person){person=candidate;insertPerson(person,false);}
       if(name)person.name=name;
       person.initials=initials;
@@ -364,7 +364,7 @@ const sources: Sources = {
       ensureConversation(id);
       deleted.delete(id);
     }
-    const rows=threads.get(id),person=people.find(p=>p.id===id);
+    const rows=threads.get(id),person=personIndex.get(id)?.person;
     if(rows && person && body.trim()) {
       const at=fixtureTime(nowMs);
       const item=message(`sent-${namespace}${++revision}`,body,true,at.time,'me','Today',at.second);
@@ -387,7 +387,7 @@ const sources: Sources = {
         revision++;
       }
       if(now<activity.end) continue;
-      const person=people.find(p=>p.id===id)!;
+      const person=personIndex.get(id)?.person!;
       const body=id==='weekend'?'Sounds good! 🌲':id==='maya'?'See you soon! ☕️':'Sounds good 😊';
       const sender=groups.has(id)?responder(id):undefined;
       const at=fixtureTime(nowMs);
@@ -429,7 +429,7 @@ function snapshot():Records {
 }
 function putPerson(records:Records,person:typeof people[number]):void {
   const id=person.id;
-  records.set(`person:${id}`,{kind:'person',person,position:personPositions.get(id)!,conversation:threads.has(id),
+  records.set(`person:${id}`,{kind:'person',person,position:personIndex.get(id)!.position,conversation:threads.has(id),
     muted:muted.has(id),blocked:blocked.has(id),deleted:deleted.has(id),
     draft:drafts.get(id)||null,group:groups.get(id)||null,contact:localContacts.get(id)||null});
 }
@@ -443,8 +443,8 @@ function editRecords(source:string,args:readonly unknown[]):()=>Records {
   rebasedPeople=false;
   const id=String(args[0]);
   const person=(records:Records,key:string)=>{
-    const position=people.findIndex(p=>p.id===key);
-    if(position>=0)putPerson(records,people[position]);
+    const value=personIndex.get(key);
+    if(value)putPerson(records,value.person);
   };
   const live=(records:Records,key:string,ids:Iterable<string>)=>{
     const index=indexes.get(key);
@@ -549,9 +549,11 @@ function restore(records:Records):void {
       messages.push(row);
     }else throw new Error('Unknown Messages replica record');
   }
-  people.splice(0);personPositions.clear();firstPersonPosition=0;lastPersonPosition=-1;rebasedPeople=false;threads.clear();indexes.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
+  people.splice(0);personIndex.clear();firstPersonPosition=0;lastPersonPosition=-1;rebasedPeople=false;threads.clear();indexes.clear();muted.clear();blocked.clear();deleted.clear();drafts.clear();groups.clear();localContacts.clear();recoverable.clear();
   for(const row of persons.sort((a,b)=>a.position-b.position || a.person.id.localeCompare(b.person.id))){
-    const id=row.person.id;people.push(row.person);personPositions.set(id,row.position);
+    // Preserve the old find/position-map behavior for imported duplicate IDs:
+    // lookups select the first person, while stored positions use the last row.
+    const id=row.person.id;people.push(row.person);personIndex.set(id,{person:personIndex.get(id)?.person || row.person,position:row.position});
     firstPersonPosition=Math.min(firstPersonPosition,row.position);lastPersonPosition=Math.max(lastPersonPosition,row.position);
     if(row.conversation)replaceThread(id,[]);
     if(row.muted)muted.add(id);if(row.blocked)blocked.add(id);if(row.deleted)deleted.add(id);
