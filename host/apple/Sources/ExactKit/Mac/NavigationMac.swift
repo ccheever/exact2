@@ -5,11 +5,23 @@ import AppKit
 final class NavigationHost {
     unowned let presenter: Presenter
     private var refused: [UInt32: String] = [:]
+    private var gates: [UInt32: [Bool]] = [:]
     init(presenter: Presenter) { self.presenter = presenter }
-    func reset() { refused.removeAll() }
+    func reset() { refused.removeAll(); gates.removeAll() }
 
-    func sync() {
-        refused = refused.filter { presenter.views[$0.key] != nil }
+    func sync(_ batch: Batch) {
+        var touched = Set<UInt32>()
+        var subtrees = Set<UInt32>()
+        for op in batch.ops {
+            if let raw = op["id"] as? Int {
+                let id = UInt32(raw)
+                if op["op"] as? String == "destroy" { gates.removeValue(forKey: id); refused.removeValue(forKey: id) }
+                else { touched.insert(id) }
+            }
+            if ["children", "roots"].contains(op["op"] as? String ?? "") {
+                subtrees.formUnion((op["ids"] as? [Int] ?? []).map(UInt32.init))
+            }
+        }
         for nav in presenter.carrying("navigationBack") {
             let routes = nav.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["navigationKey"] != nil }
             let key = nav.props["navigationKey"] ?? ""
@@ -24,13 +36,29 @@ final class NavigationHost {
             let selected = prefix.upperBound - 1
             let modal = routes[selected].props["navigationPresentation"] == "modal"
             for (index, route) in routes.enumerated() {
-                route.isHidden = index != selected && !(modal && index == selected - 1)
-                route.routeInert = index != selected
+                let hidden = index != selected && !(modal && index == selected - 1)
+                let inert = index != selected
+                if route.isHidden != hidden || route.routeInert != inert { subtrees.insert(route.id) }
+                route.isHidden = hidden
+                route.routeInert = inert
             }
         }
         // Reuse the presenter's ancestor inert gate for focus/input. AppKit's
         // accessibility subtree is suppressed as HTML inert suppresses it.
-        for node in presenter.views.values {
+        for id in touched {
+            guard let node = presenter.views[id] else { continue }
+            let gate = [node.isHidden, node.routeInert, node.props["inert"] == "true"]
+            if let old = gates[id], old != gate { subtrees.insert(id) }
+            gates[id] = gate
+        }
+        func descendants(_ view: NSView) {
+            if let node = view as? NodeView { touched.insert(node.id) }
+            for child in view.subviews { descendants(child) }
+        }
+        for id in subtrees { if let node = presenter.views[id] { descendants(node) } }
+        for id in touched {
+            guard let node = presenter.views[id] else { continue }
+            gates[id] = [node.isHidden, node.routeInert, node.props["inert"] == "true"]
             let inert = node.inert
             let hidden = inert || node.isHiddenOrHasHiddenAncestor
             // The AX getter can traverse the legacy unsupported-attribute path

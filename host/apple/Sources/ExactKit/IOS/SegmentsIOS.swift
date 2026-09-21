@@ -100,7 +100,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
-        let owners = presenter.views.values.filter {
+        let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
                 $0.props["accessibilityOrientation"] != "vertical"
         }

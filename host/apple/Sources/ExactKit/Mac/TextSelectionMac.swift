@@ -243,22 +243,7 @@ final class TextSelection {
         return offset == kCFNotFound ? length(node) : min(max(0, offset), length(node))
     }
 
-    private func link(_ node: NodeView, at point: NSPoint) -> String? {
-        let content = node.contentBox()
-        guard content.contains(point), let (p, spec, i) = line(node, at: point) else { return nil }
-        // Clicking blank space after a line must not open its last link.
-        let width = CGFloat(CTLineGetTypographicBounds(p.lines[i], nil, nil, nil))
-        let x = content.minX + p.origin(i, align: spec.align, width: content.width)
-        guard point.x >= x && point.x <= x + width else { return nil }
-        let offset = index(node, at: point)
-        var start = 0
-        for run in node.paragraphSpec().runs {
-            let end = start + (run.text as NSString).length
-            if offset >= start && offset < end { return run.href.isEmpty ? nil : run.href }
-            start = end
-        }
-        return nil
-    }
+    private func link(_ node: NodeView, at point: NSPoint) -> String? { node.inlineLink(at: point) }
 
     func draw(_ node: NodeView, paragraph: Paragraph, spec: Spec, dirty: NSRect) {
         guard let selection = range(node), selection.length > 0 else { return }

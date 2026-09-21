@@ -190,9 +190,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
-    weak var textParent: NodeView?
-    var textChildren: [NodeView] = []
+    var inlineText: [InlineText] = []
+    var inlinePressed: UInt32?
     var cachedTextSpec: Spec?
+    var textLayoutValid = false
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
     var textRaster: IOSurface?
     var textRasterScale: CGFloat = 2
@@ -381,14 +382,23 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let t = tracking { removeTrackingArea(t); tracking = nil }
-        if handlers.contains("hover") {
-            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        if handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") }) {
+            let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(t)
             tracking = t
         }
     }
-    override func mouseEntered(with event: NSEvent) { presenter?.hover(self, true) }
-    override func mouseExited(with event: NSEvent) { presenter?.hover(self, false) }
+    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    override func mouseMoved(with event: NSEvent) {
+        let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
+        presenter?.hoverInline(run?.id)
+        if run == nil, handlers.contains("hover") { presenter?.hover(self, true) }
+    }
+    override func mouseExited(with event: NSEvent) {
+        presenter?.hoverInline(nil)
+        if handlers.contains("hover") { presenter?.hover(self, false) }
+    }
+    override func accessibilityChildren() -> [Any]? { textAccessibilityChildren() ?? super.accessibilityChildren() }
     /// The editing commands of a text field's editor as key names (the
     /// characters themselves are its `change`): Enter is taken here, so it
     /// does not end the editing as AppKit would.
@@ -513,10 +523,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// The view is gone: no load in flight may report for it.
     func forget() {
-        textParent?.textChildren.removeAll { $0 === self }
-        textParent = nil
-        textChildren.removeAll()
+        presenter?.forgetParagraph(self)
         invalidateText()
+        cachedTextLayout = nil
         dropTextRaster()
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
@@ -810,7 +819,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
-        guard hasSchemeColor || textChildren.contains(where: { $0.hasSchemeColor }) else { return }
+        guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
         applyStyle(style)
@@ -974,6 +983,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         setAccessibilityEnabled(!disabled)
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
+        updateTextAccessibility()
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }
@@ -1253,6 +1263,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()
+        if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
+            inlinePressed = run.id
+            window?.makeFirstResponder(self)
+            presenter?.selection.begin(self, event: event)
+            return
+        }
         if isParagraph, !handlers.contains("press"), !hasPressableAncestor {
             window?.makeFirstResponder(self)
             presenter?.selection.begin(self, event: event)
@@ -1273,6 +1289,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        inlinePressed = nil
         if presenter?.mouseLayoutPan.drag(event) == true { return }
         if presenter?.mouseTransformDrag.drag(event) == true { return }
         if presenter?.mouseHeightDrag.drag(event) == true { return }
@@ -1304,6 +1321,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
                 next = view.superview
             }
+        }
+        if let run = inlinePressed {
+            inlinePressed = nil
+            if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
+            return
         }
         if isParagraph && !hasPressableAncestor { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }

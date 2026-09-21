@@ -511,7 +511,8 @@ final class TextEngine {
         residency.retireWidths(key)
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
-        let p = layout(shape, width: width, breaks: breaks)
+        let ranges = spec.lineClamp == 0 ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.0 : nil
+        let p = layout(shape, width: width, breaks: breaks, ranges: ranges)
         shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
         return p
@@ -535,7 +536,7 @@ final class TextEngine {
         return shape
     }
 
-    func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil) -> Paragraph {
+    func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil, ranges: [CFRange]? = nil) -> Paragraph {
         let spec = shape.spec, typesetter = shape.typesetter
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
@@ -574,7 +575,7 @@ final class TextEngine {
         // emergency breaks from ordinary opportunities (including CJK).
         var boundaries: [Int] = []
         var boundaryIndex = 0
-        if spec.overflowWrap == 0 && width.isFinite && breaks == nil {
+        if spec.overflowWrap == 0 && width.isFinite && breaks == nil && ranges == nil {
             if let cached = shape.lineBreakBoundaries { boundaries = cached }
             else {
                 boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -587,6 +588,8 @@ final class TextEngine {
             var count: Int
             if let breaks, lines.count < breaks.lines.count {
                 count = CTLineGetStringRange(breaks.lines[lines.count]).length
+            } else if let ranges, lines.count < ranges.count {
+                count = ranges[lines.count].length
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {

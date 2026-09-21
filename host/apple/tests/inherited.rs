@@ -426,3 +426,75 @@ fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
         );
     }
 }
+
+#[test]
+fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table() {
+    let plan = contract::compile(r##"component Inline
+  state changed = false
+  resource additions = additions(changed) as shape list<string>
+  action change writes changed
+    changed = not changed
+  view
+    column
+      button "Change" press=change testId="change"
+      text testId="paragraph"
+        text (changed ? "after 👩‍🚀" : "before é") testId="run" press=change font-weight=(changed ? 700 : 400) color=(changed ? "#ff0000" : "#000000")
+        text testId="nested"
+          text "link" href="https://example.invalid/" testId="link"
+        each value in additions key=value
+          text value testId="added"
+"##).unwrap();
+    struct InlineData;
+    impl DataSource for InlineData {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(if args == [Value::Bool(true)] {
+                vec![Value::Str("added".into())]
+            } else {
+                vec![]
+            }))
+        }
+    }
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        InlineData,
+        Box::new(MonospaceMeasurer::default()),
+        400.0,
+        800.0,
+    )
+    .unwrap();
+    let paragraph = view(&host, "paragraph");
+    let run = view(&host, "run");
+    let nested = view(&host, "nested");
+    let link = view(&host, "link");
+    assert!(count(&first, "paragraph") >= 1);
+    for id in [run, nested, link] {
+        for kind in ["create", "props", "style", "children", "frame", "destroy"] {
+            assert!(
+                !first.contains(&format!("\"op\":\"{kind}\",\"id\":{id},")),
+                "{first}"
+            );
+        }
+    }
+    assert!(first.contains(&format!(
+        "\"op\":\"paragraph\",\"id\":{paragraph},\"runs\":["
+    )));
+    assert!(first.contains("\"handlers\":[\"press\"]"));
+    assert!(first.contains("https://example.invalid/"));
+    let tree = host.agent("{\"op\":\"tree\"}");
+    assert!(
+        tree.contains("before é") && tree.contains("\"testId\":\"run\""),
+        "{tree}"
+    );
+    // The logical run dispatches into the same action without a native view.
+    let changed = host.dispatch(run, Event::Press);
+    assert_eq!(view(&host, "run"), run);
+    assert_eq!(count(&changed, "paragraph"), 1, "{changed}");
+    assert!(changed.contains("after 👩‍🚀") && changed.contains("\"font_weight\":700"));
+    assert!(changed.contains("\"testId\":\"added\""));
+    let added = view(&host, "added");
+    let removed = host.dispatch(run, Event::Press);
+    assert_eq!(count(&removed, "paragraph"), 1);
+    assert!(!removed.contains("\"testId\":\"added\""));
+    assert!(!removed.contains(&format!("\"op\":\"destroy\",\"id\":{added}}}")));
+    assert_eq!(count(&host.resize(420.0, 800.0), "paragraph"), 0);
+}

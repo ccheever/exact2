@@ -17,24 +17,8 @@ extension NodeView {
             lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))))
     }
 
-    var isParagraph: Bool { kind == "text" && textParent == nil && (superview as? NodeView)?.kind != "text" }
-
-    /// Inline nodes retain identity in the presenter map, but only their paragraph
-    /// is mounted in the native hierarchy. Their styles and text are run data.
-    func setTextChildren(_ children: [NodeView]) {
-        for child in textChildren where child.textParent === self { child.textParent = nil }
-        textChildren = children
-        for child in children {
-            child.removeFromSuperview()
-            child.textParent = self
-            #if os(macOS)
-            child.wantsLayer = false
-            #endif
-        }
-        invalidateText()
-    }
-
-    var paragraphOwner: NodeView { textParent?.paragraphOwner ?? self }
+    var isParagraph: Bool { kind == "text" }
+    var paragraphOwner: NodeView { self }
 
     func paragraphLayout() -> Paragraph? {
         #if os(macOS)
@@ -43,10 +27,11 @@ extension NodeView {
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
         let width = contentBox().width
-        if let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
+        if textLayoutValid, let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width, flow: flowShapes.map { $0.translated(CGPoint(x: -contentBox().minX, y: -contentBox().minY)) }) else { return nil }
         if paragraph.flowIncomplete { presenter?.session?.log("wrap-flow: text #\(id) is incomplete and uses ordinary layout") }
         cachedTextLayout = (width, paragraph)
+        textLayoutValid = true
         text?.accepted(paragraph)
         return paragraph
     }
@@ -71,7 +56,9 @@ extension NodeView {
 
     func invalidateText() {
         cachedTextSpec = nil
-        cachedTextLayout = nil
+        // Keep the previous accepted geometry alive through the next lookup.
+        // A paint-only revision can reuse its ranges without breaking again.
+        textLayoutValid = false
         #if os(macOS)
         // The old pixels stay up until the new ones replace them.
         textRasterKey = nil
@@ -94,18 +81,11 @@ extension NodeView {
         // its own to read. It inherits the paragraph's, which is the one
         // actually on screen. @ref LLP 1034 D2
         let night = drawsDark
-        func collect(_ node: NodeView) {
-            if let value = node.props["text"] {
-                var run = node.textRun(value)
-                run.color = node.channels("text_color", dark: night)
-                run.decoration = node.style["text_decoration_line"] as? String ?? ""
-                run.href = node.props["href"] ?? ""
-                runs.append(run)
-            } else {
-                for child in node.textChildren where child.kind == "text" { collect(child) }
-            }
+        if let value = props["text"] {
+            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
+        } else {
+            runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
         }
-        collect(self)
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
                         color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
                         overflowWrap: style["overflow_wrap"] as? String == "anywhere" ? 2 : style["overflow_wrap"] as? String == "break-word" ? 1 : 0, direction: style["direction"] as? String == "rtl" ? 1 : 0, whiteSpace: style["white_space"] as? String == "pre-wrap" ? 1 : 0, strut: textRun(""))

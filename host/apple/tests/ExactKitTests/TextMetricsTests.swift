@@ -9,6 +9,22 @@ import XCTest
 @testable import ExactKit
 
 final class TextMetricsTests: XCTestCase {
+    func testDenseInlineCountsDoNotCreateNativeViews() {
+        for repetitions in [16, 256, 4096] {
+            let presenter = Presenter()
+            let rows: [[String: Any]] = (0..<(repetitions * 8)).map { i in
+                ["id": i + 2, "parent": 1, "paint": true,
+                 "props": ["text": "run", "testId": "run-\(i)"], "style": ["font_weight": i % 2 == 0 ? 700 : 400]]
+            }
+            presenter.apply(Batch(ops: [["op": "create", "id": 1, "kind": "text"],
+                ["op": "paragraph", "id": 1, "runs": rows]], timers: false, motion: false, clock: nil, error: nil))
+            XCTAssertEqual(presenter.views.count, 1)
+            XCTAssertEqual(presenter.inlineOwners.count, repetitions * 8)
+            XCTAssertEqual(presenter.views[1]?.paragraphSpec().runs.count, repetitions * 8)
+        }
+    }
+
+
     func testUrgentLinesMatchFreshWorkerPixels() throws {
         for measured in [false, true] {
         _ = NSApplication.shared
@@ -38,13 +54,13 @@ final class TextMetricsTests: XCTestCase {
                 let node = NodeView(id: 1, kind: "text", presenter: presenter)
                 node.applyStyle(["font_size": 16.0, "line_height": "24px", "text_align": align,
                                  "text_color": [[30.0, 60.0, 90.0, 255.0], [220.0, 180.0, 150.0, 255.0]]])
-                let inline = NodeView(id: 2, kind: "text", presenter: presenter)
-                inline.applyStyle(["font_size": 19.0, "font_style": "italic", "font_weight": 700.0,
-                                   "text_color": [180.0, 70.0, 40.0, 255.0]])
-                inline.applyProps(set: ["text": text, "href": "https://example.invalid/"], clear: [])
-                let regular = NodeView(id: 3, kind: "text", presenter: presenter)
-                regular.applyProps(set: ["text": "Regular → "], clear: [])
-                node.setTextChildren(text.isEmpty ? [inline] : [regular, inline])
+                presenter.views[1] = node
+                let inline: [String: Any] = ["id": 2, "parent": 1, "paint": true,
+                    "style": ["font_size": 19.0, "font_style": "italic", "font_weight": 700.0,
+                              "text_color": [180.0, 70.0, 40.0, 255.0]],
+                    "props": ["text": text, "href": "https://example.invalid/"]]
+                let regular: [String: Any] = ["id": 3, "parent": 1, "paint": true, "props": ["text": "Regular → "]]
+                presenter.applyParagraph(1, text.isEmpty ? [inline] : [regular, inline])
                 node.frame = NSRect(x: 0, y: 800, width: width, height: 240)
                 node.prepareToMount()
                 presenter.root.addSubview(node)
@@ -542,10 +558,8 @@ final class TextMetricsTests: XCTestCase {
         _ = NSApplication.shared
         let presenter = Presenter()
         let parent = NodeView(id: 1, kind: "text", presenter: presenter)
-        let child = NodeView(id: 2, kind: "text", presenter: presenter)
-        parent.setTextChildren([child])
+        presenter.views[1] = parent
         let text = "fractional inline code wraps across several measured lines"
-        child.props["text"] = text
         let cases: [(Any, Float?, Float?)] = [
             (1.625, Float(16) * 1.625, Float(14.72) * 1.625),
             (1.3, Float(16) * 1.3, Float(14.72) * 1.3),
@@ -560,7 +574,9 @@ final class TextMetricsTests: XCTestCase {
                 ])
                 return try XCTUnwrap(JSONSerialization.jsonObject(with: wire) as? [String: Any])
             }
-            parent.style = try style(16); child.style = try style(14.72)
+            parent.style = try style(16)
+            presenter.applyParagraph(1, [["id": 2, "parent": 1, "paint": true,
+                "props": ["text": text], "style": try style(14.72)]])
             parent.invalidateText()
             let spec = parent.paragraphSpec()
             let engine = TextEngine(resolve: { _ in nil })

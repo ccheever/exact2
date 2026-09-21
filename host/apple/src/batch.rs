@@ -49,6 +49,39 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// One paragraph's complete inline identity/style table, replacing its old runs.
+    pub fn paragraph(&mut self, id: u32, runs: &str) {
+        self.ops.push(format!(
+            "{{\"op\":\"paragraph\",\"id\":{id},\"runs\":{runs}}}"
+        ));
+    }
+
+    /// Encode a textual descendant without allocating a native view operation.
+    pub(crate) fn inline_run(
+        out: &mut String,
+        id: u32,
+        parent: u32,
+        props: &std::collections::BTreeMap<String, String>,
+        style: &str,
+        handlers: &[&str],
+        paints: bool,
+    ) {
+        let _ = write!(
+            out,
+            "{{\"id\":{id},\"parent\":{parent},\"paint\":{paints},\"props\":"
+        );
+        string_map(
+            &props
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.clone()))
+                .collect::<Vec<_>>(),
+            out,
+        );
+        let _ = write!(out, ",\"style\":{style},\"handlers\":");
+        string_list(handlers, out);
+        out.push('}');
+    }
+
     /// @ref LLP 1043.000 §3 D4 — empty geometry clears a former flow.
     pub fn flow(&mut self, id: u32, shapes: &[exact_kernel::FlowShape]) {
         let mut s = format!("{{\"op\":\"flow\",\"id\":{id},\"shapes\":[");

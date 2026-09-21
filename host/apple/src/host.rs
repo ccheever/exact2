@@ -31,6 +31,8 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paragraph.rs"]
+mod paragraph;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -83,6 +85,8 @@ pub struct Host<D: DataSource> {
     runner: Runner<D>,
     mirror: BTreeMap<ViewId, Mirror>,
     keys: BTreeMap<NodeKey, ViewId>,
+    inline_runs: BTreeMap<ViewId, (ViewId, Vec<EventKind>)>,
+    dirty_paragraphs: BTreeSet<ViewId>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -314,6 +318,8 @@ impl<D: DataSource> Host<D> {
             runner,
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
+            inline_runs: BTreeMap::new(),
+            dirty_paragraphs: BTreeSet::new(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: Engine::new(),
@@ -352,6 +358,7 @@ impl<D: DataSource> Host<D> {
         for id in &order {
             host.emit_children(*id, &mut batch);
         }
+        host.emit_paragraphs(&mut batch);
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
         for s in host.runner.take_surface_updates() {
@@ -841,6 +848,7 @@ impl<D: DataSource> Host<D> {
                 for id in self.preorder() {
                     self.update(id, &mut batch);
                 }
+                self.emit_paragraphs(&mut batch);
                 self.layout(&mut batch).err()
             }
             Err(e) => Some(format!("insets: {e:?}")),
@@ -898,7 +906,9 @@ impl<D: DataSource> Host<D> {
             let r = &t.receipt;
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
-                    if !self.native_selected_id(id) {
+                    if let Some((owner, _)) = self.inline_runs.remove(&id) {
+                        self.dirty_paragraphs.insert(owner);
+                    } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
                         batch.destroy(id);
                     }
@@ -934,6 +944,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.emit_paragraphs(&mut batch);
         let roots = self.runner.roots();
         if roots != self.roots {
             self.roots = roots.clone();
@@ -1072,6 +1083,9 @@ impl<D: DataSource> Host<D> {
             let Some(node) = kernel.node(id) else {
                 continue;
             };
+            if node.is_inline_run() {
+                continue;
+            }
             let m = self.mirror.entry(id).or_default();
             // Silent list settling already updated kernel flow. Compare final
             // shapes with what the presenter saw, just like frames; destroyed
@@ -1150,6 +1164,9 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
+            if self.inline_runs.contains_key(&view) {
+                continue;
+            }
             if self.native_protected_id(view) && !self.native_current() {
                 continue;
             }
@@ -1174,94 +1191,6 @@ impl<D: DataSource> Host<D> {
             }
         }
         order
-    }
-
-    fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
-        self.track_height_transition(id);
-        if self.native_protected_id(id) {
-            if let Some(node) = self.runner.kernel().node(id) {
-                self.keys.insert(node.key, id);
-            }
-            return;
-        }
-        let node = self.runner.kernel().node(id).expect("live");
-        let key = node.key;
-        let kind = kind_for(&node);
-        let props = props_for(&node);
-        let env = self.runner.kernel().env();
-        let (style, _skipped) = style::style_json_for(&node, &env);
-        let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
-        if handlers.contains(&"heightrelease") {
-            self.track_height_handle(id);
-        }
-        if handlers.contains(&"transformgeometry") || handlers.contains(&"transformrelease") {
-            self.transform_drags.insert(
-                id,
-                key,
-                handlers.contains(&"transformgeometry"),
-                handlers.contains(&"transformrelease"),
-            );
-        }
-        let pairs: Vec<(&str, String)> =
-            props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-        batch.create(id, kind, &pairs, &style, &handlers);
-        self.mirror.insert(
-            id,
-            Mirror {
-                props,
-                style,
-                ..Mirror::default()
-            },
-        );
-        self.keys.insert(key, id);
-    }
-
-    fn update(&mut self, id: ViewId, batch: &mut Batch) {
-        self.track_height_transition(id);
-        if self.native_protected_id(id) {
-            return;
-        }
-        let node = self.runner.kernel().node(id).expect("live");
-        let props = props_for(&node);
-        let env = self.runner.kernel().env();
-        let (style, _skipped) = style::style_json_for(&node, &env);
-        let m = self.mirror.entry(id).or_default();
-        if props != m.props {
-            let set: Vec<(&str, String)> = props
-                .iter()
-                .filter(|(k, v)| m.props.get(*k) != Some(*v))
-                .map(|(k, v)| (k.as_str(), v.clone()))
-                .collect();
-            let clear: Vec<&str> = m
-                .props
-                .keys()
-                .filter(|k| !props.contains_key(*k))
-                .map(String::as_str)
-                .collect();
-            batch.props(id, &set, &clear);
-            m.props = props;
-        }
-        if style != m.style {
-            batch.style(id, &style);
-            m.style = style;
-        }
-    }
-
-    fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
-        if self.native_protected_id(id) {
-            return;
-        }
-        let mut children = self.runner.kernel().node(id).expect("live").children();
-        if self.native_mode() {
-            children.retain(|child| {
-                !self.native_protected_id(*child) || self.native_selected_id(*child)
-            });
-        }
-        let m = self.mirror.entry(id).or_default();
-        if children != m.children {
-            batch.children(id, &children);
-            m.children = children;
-        }
     }
 }
 

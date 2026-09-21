@@ -17,12 +17,12 @@ final class SwipeActionsHost {
     }
 
     func sync() {
-        let named = Dictionary(grouping: presenter.views.values.compactMap { node in
+        let named = Dictionary(grouping: presenter.carrying("id").compactMap { node in
             node.props["id"].map { ($0, node) }
         }, by: { $0.0 })
         var wanted = Set<UInt32>()
         var claimed = Set<UInt32>()
-        for owner in presenter.views.values.sorted(by: { $0.id < $1.id }) {
+        for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
             func resolve(_ name: String) -> NodeView? {
                 guard let matches = named[name], matches.count == 1 else { return nil }

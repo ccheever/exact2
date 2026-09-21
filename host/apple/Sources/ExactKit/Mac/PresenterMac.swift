@@ -122,46 +122,6 @@ final class PageScrollView: NSScrollView {
 
 /// Which live views carry the few props the chrome passes look for.
 ///
-/// Navigation, menus, segments, the toolbar, shortcuts and context panels
-/// each used to read every view on every batch to find their own — a
-/// navigation stack, a popover, a tab list — and a reader's rows are none of
-/// those. A scrolling list applies a batch many times a second, so the passes
-/// were a fifth of its long frames (LLP 1044 F4). They visit what this names.
-struct ChromeIndex {
-    static let keys = ["navigationBack", "inert", "popover", "popovertarget",
-                       "contextTarget", "toolbarPlacement", "accessibilityKeyShortcuts"]
-    /// Props a pass reads for one value. Every list row has a role and every
-    /// `main` or `header` a tag, so these are indexed by that value, never by
-    /// presence.
-    static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog")]
-    private var byKey: [String: Set<UInt32>] = [:]
-
-    mutating func note(_ id: UInt32, props: [String: String]) {
-        for key in Self.keys {
-            if props[key] != nil { byKey[key, default: []].insert(id) }
-            else if let index = byKey.index(forKey: key), byKey.values[index].contains(id) {
-                byKey.values[index].remove(id)
-            }
-        }
-        for (name, key, value) in Self.values {
-            if props[key] == value { byKey[name, default: []].insert(id) }
-            else if let index = byKey.index(forKey: name), byKey.values[index].contains(id) {
-                byKey.values[index].remove(id)
-            }
-        }
-    }
-    mutating func forget(_ id: UInt32) {
-        // Only the member sets change; dictionary keys and indices stay fixed.
-        for index in byKey.indices where byKey.values[index].contains(id) { byKey.values[index].remove(id) }
-    }
-    func ids(_ key: String) -> Set<UInt32> { byKey[key] ?? [] }
-    /// Whether anything that can hide a view or make it inert is mounted:
-    /// only the passes over these ever set either.
-    var hidesOrInerts: Bool {
-        ["navigationBack", "inert", "tag:dialog", "popover", "toolbarPlacement", "role:tablist"]
-            .contains { !(byKey[$0]?.isEmpty ?? true) }
-    }
-}
 
 final class Presenter {
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
@@ -174,6 +134,7 @@ final class Presenter {
     /// The viewport over it: the window's content view, scrolling like a browser's.
     let viewport = PageScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
@@ -539,6 +500,8 @@ final class Presenter {
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         views.removeAll()
+        inlineOwners.removeAll()
+        hoveredInline = nil
         chrome = ChromeIndex()
         scrollers.removeAll()
         pendingScrolls.removeAll()
@@ -699,9 +662,10 @@ final class Presenter {
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
+    var hoveredInline: UInt32?
 
     func press(_ id: UInt32) {
-        guard let node = views[id], !node.inert else { return }
+        guard let node = textHost(id), !node.inert else { return }
         onPress?(id)
         // An invoker's press also drops its menu (LLP 1021 D3).
         menus.pressed(id)
@@ -726,7 +690,7 @@ final class Presenter {
     }
     private var waiting: [(UInt32, () -> Void)] = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
-        guard views[id] != nil else { return }
+        guard textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
@@ -773,7 +737,7 @@ final class Presenter {
                 let q = waiting
                 waiting = []
                 geometry?()
-                for (id, f) in q where views[id] != nil { f() }
+                for (id, f) in q where textHost(id) != nil { f() }
                 batchApplied()
             }
         }
@@ -815,6 +779,8 @@ final class Presenter {
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
+            case "paragraph":
+                applyParagraph(id, op["runs"] as? [[String: Any]] ?? [])
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "flow":
@@ -824,8 +790,6 @@ final class Presenter {
             case "children":
                 guard let parent = views[id] else { continue }
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
-                if parent.kind == "text" { parent.setTextChildren(want); continue }
-                for child in want { child.textParent = nil }
                 let container = parent.container
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) { child.removeFromSuperview() }
@@ -904,7 +868,7 @@ final class Presenter {
             default: break
             }
         }
-        navigation.sync()
+        navigation.sync(batch)
         fitDocument()
         // The page's canvas colour is the first root's background — what
         // shows beyond a document shorter than the viewport, as a browser
@@ -1029,7 +993,7 @@ final class Presenter {
         while let node = paragraph, node.kind == "text" {
             if textChanged || children { node.invalidateText() }
             node.needsDisplay = true
-            paragraph = node.textParent ?? node.superview as? NodeView
+            paragraph = node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }
         if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }

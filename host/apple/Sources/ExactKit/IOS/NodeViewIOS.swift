@@ -86,12 +86,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     let id: UInt32
     let firstDraw: () -> Void
     let kind: String
-    weak var textParent: NodeView?
-    var textChildren: [NodeView] = []
+    var inlineText: [InlineText] = []
+    var inlinePressed: UInt32?
     var cachedTextSpec: Spec?
+    var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
-    var props: [String: String] = [:]
+    var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: [String: Any] = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = [] {
@@ -332,7 +333,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     /// A pointer over the node (an iPad's trackpad or mouse; a phone has
     /// none): `hover` in and out.
+    override var accessibilityElements: [Any]? {
+        get { textAccessibilityChildren() ?? super.accessibilityElements }
+        set { super.accessibilityElements = newValue }
+    }
     @objc func hovering(_ g: UIHoverGestureRecognizer) {
+        if g.state == .ended || g.state == .cancelled { presenter?.hoverInline(nil) }
+        else if let run = inlineTarget(at: g.location(in: self), handler: "hover") { presenter?.hoverInline(run.id); return }
+        else { presenter?.hoverInline(nil) }
         switch g.state {
         case .began: presenter?.hover(self, true)
         case .ended, .cancelled, .failed: presenter?.hover(self, false)
@@ -453,10 +461,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         DispatchQueue.main.async { previousHeight?.cancel() }
         let prior = swipeHold; swipeHold = nil
         DispatchQueue.main.async { prior?.cancel() }
-        textParent?.textChildren.removeAll { $0 === self }
-        textParent = nil
-        textChildren.removeAll()
+        presenter?.forgetParagraph(self)
         invalidateText()
+        cachedTextLayout = nil
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
         raster = nil
@@ -978,6 +985,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
+        updateTextAccessibility()
         if kind == "button" {
             isAccessibilityElement = true
             accessibilityTraits.insert(.button)
@@ -1189,13 +1197,23 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !disabled else { pressed = false; return }
+        if let touch = touches.first, let run = inlineTarget(at: local(touch.location(in: nil))),
+           run.props["href"] != nil || run.handlers.contains("press") {
+            inlinePressed = run.id; return
+        }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        inlinePressed = nil
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard !disabled else { pressed = false; return }
+        guard !disabled else { pressed = false; inlinePressed = nil; return }
+        if let run = inlinePressed {
+            inlinePressed = nil
+            if let touch = touches.first, inlineTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
+            return
+        }
         if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
@@ -1206,6 +1224,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id) }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        inlinePressed = nil
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
 

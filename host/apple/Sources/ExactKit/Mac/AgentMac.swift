@@ -215,7 +215,7 @@ extension Agent {
     func layout(_ req: [String: Any]) -> [String: Any] {
         var reply = layout()
         guard let id = req["id"] as? Int else { return reply }
-        guard let v = presenter.views[UInt32(id)] else { return ["error": "stale node #\(id)"] }
+        guard let v = presenter.textHost(UInt32(id)) else { return ["error": "stale node #\(id)"] }
         let includePlan = req["plan"] as? Bool == true
         guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(includePlan)}").data(using: .utf8),
               var node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
@@ -269,7 +269,7 @@ extension Agent {
         }
         node["visible"] = visible
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
-        if v !== host { native["inline"] = true }
+        if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
         if let f = host.field { native["editor"] = String(describing: Swift.type(of: f)); native["firstResponder"] = f.currentEditor() != nil }
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
@@ -297,7 +297,7 @@ extension Agent {
 
     func view(_ req: [String: Any]) -> NodeView? {
         guard let id = req["id"] as? Int else { return nil }
-        return presenter.views[UInt32(id)]?.paragraphOwner
+        return presenter.textHost(UInt32(id))
     }
 
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
@@ -361,6 +361,16 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+           let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
+            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
+            if req["hover"] as? Bool == true {
+                presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
+                return ["tapped": Int(id), "hover": true]
+            }
+            if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+        }
+
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,

@@ -73,13 +73,13 @@ final class MenuHost {
         guard let presenter else { return }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         var popovers: [String: NodeView] = [:]
-        for v in presenter.views.values where v.props["popover"] != nil || isDialog(v) {
+        for v in presenter.carrying("popover") + presenter.carrying("tag:dialog").filter({ $0.props["popover"] == nil }) {
             if ExactEnv.agentMode && !isConfirmation(v) { continue }
             v.isHidden = true
             if let name = v.props["id"] { popovers[name] = v }
         }
         var live = Set<UInt32>()
-        for v in presenter.views.values {
+        for v in presenter.carrying("popovertarget") + presenter.carrying("commandfor").filter({ $0.props["popovertarget"] == nil }) {
             guard let target = target(of: v), let pop = popovers[target],
                   // A row that only hides its popover (a menu item closing
                   // itself, the spec's way) is not an invoker.

@@ -68,42 +68,48 @@ final class TextGeometryTests: XCTestCase {
         }
     }
 
-    func testInlineTextDefersLayersAndCanBecomeAParagraphAgain() {
+    func testInlineTextIsDataAndCanBecomeAParagraphAgain() {
         let presenter = Presenter()
         let clipping: [[Any]] = [["M", [0.0, 0.0]], ["L", [100.0, 0.0]], ["L", [0.0, 30.0]], ["Z", [Double]()]]
         let style: [String: Any] = ["z_index": 3.0, "clip_path": clipping]
+        let run: [String: Any] = ["id": 3, "parent": 2, "paint": true, "style": style,
+                                  "props": ["text": "retained run", "testId": "run"], "handlers": ["press"]]
         func apply(_ ops: [[String: Any]]) {
             presenter.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         }
         apply([
             ["op": "create", "id": 1, "kind": "view"],
             ["op": "create", "id": 2, "kind": "text"],
-            ["op": "create", "id": 3, "kind": "text", "style": style, "props": ["text": "retained run"]],
-            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "paragraph", "id": 2, "runs": [run]],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
         ])
-        let inline = presenter.views[3]!
-        XCTAssertFalse(inline.wantsLayer)
-        XCTAssertNil(inline.layer)
+        XCTAssertNil(presenter.views[3])
+        XCTAssertEqual(presenter.inlineText(3)?.props["testId"], "run")
+        XCTAssertEqual(presenter.inlineText(3)?.handlers, ["press"])
         XCTAssertEqual(presenter.views[2]!.paragraphSpec().runs.first?.text, "retained run")
-        apply([["op": "style", "id": 3, "style": style]])
-        XCTAssertNil(inline.layer, "restyling an inline run must not allocate a layer")
+        apply([["op": "paragraph", "id": 2, "runs": [run]]])
+        XCTAssertNil(presenter.views[3], "restyling cannot allocate a run view")
         apply([
-            ["op": "children", "id": 2, "ids": []],
+            ["op": "paragraph", "id": 2, "runs": []],
+            ["op": "create", "id": 3, "kind": "text", "style": style, "props": ["text": "retained run"]],
             ["op": "children", "id": 1, "ids": [2, 3]],
         ])
-        XCTAssertTrue(presenter.views[3] === inline)
-        XCTAssertTrue(inline.wantsLayer)
-        XCTAssertEqual(inline.layer?.zPosition, 3)
-        XCTAssertNotNil(inline.layer?.mask)
-        XCTAssertTrue(inline.isParagraph)
+        let paragraph = presenter.views[3]!
+        XCTAssertNil(presenter.inlineText(3))
+        XCTAssertTrue(paragraph.wantsLayer)
+        XCTAssertEqual(paragraph.layer?.zPosition, 3)
+        XCTAssertNotNil(paragraph.layer?.mask)
+        XCTAssertTrue(paragraph.isParagraph)
         apply([
+            ["op": "destroy", "id": 3],
             ["op": "children", "id": 1, "ids": [2]],
-            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "paragraph", "id": 2, "runs": [run]],
         ])
-        XCTAssertNil(inline.layer)
+        XCTAssertNil(presenter.views[3])
         XCTAssertEqual(presenter.views[2]!.paragraphSpec().runs.first?.text, "retained run")
+        apply([["op": "destroy", "id": 2]])
+        XCTAssertNil(presenter.inlineText(3))
     }
 
     func testScrollPaintOnlyInvalidatesNewlyExposedText() {

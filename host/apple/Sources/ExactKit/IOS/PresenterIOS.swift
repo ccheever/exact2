@@ -14,6 +14,10 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    private(set) var chrome = ChromeIndex()
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
@@ -244,7 +248,10 @@ final class Presenter {
         session?.canvases.reset()
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
+        chrome = ChromeIndex()
         views.removeAll()
+        inlineOwners.removeAll()
+        hoveredInline = nil
         listGeometry.removeAll()
         listViews.removeAll()
         heightBindings.removeAll()
@@ -408,6 +415,7 @@ final class Presenter {
     /// The node the pointer is over, of those with a hover handler: it hears
     /// the leave when the pointer moves onto another (the agent's `hover`).
     weak var hovered: NodeView?
+    var hoveredInline: UInt32?
 
     func press(_ id: UInt32) { onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
@@ -419,7 +427,7 @@ final class Presenter {
     private(set) var applying = false
     private var waiting: [(UInt32?, () -> Void)] = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
-        guard views[id] != nil else { return }
+        guard textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
     func hover(_ view: NodeView, _ over: Bool) {
@@ -517,6 +525,8 @@ final class Presenter {
                 v.applyProps(set: op["props"] as? [String: String] ?? [:], clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
+            case "paragraph":
+                applyParagraph(id, op["runs"] as? [[String: Any]] ?? [])
             case "props":
                 views[id]?.applyProps(set: op["set"] as? [String: String] ?? [:], clear: op["clear"] as? [String] ?? [])
             case "flow":
@@ -526,8 +536,6 @@ final class Presenter {
             case "children":
                 guard let parent = views[id] else { continue }
                 let want = (op["ids"] as? [Int] ?? []).compactMap { views[UInt32($0)] }
-                if parent.kind == "text" { parent.setTextChildren(want); continue }
-                for child in want { child.textParent = nil }
                 let container = parent.container
                 for case let child as NodeView in container.subviews where !(want as [UIView]).contains(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
@@ -550,6 +558,7 @@ final class Presenter {
                 heightBindings.removeValue(forKey: id)
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
+                chrome.forget(id)
                 let gone = views.removeValue(forKey: id)
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case "roots":
@@ -810,7 +819,7 @@ final class Presenter {
         while let node = paragraph, node.kind == "text" {
             if textChanged || children { node.invalidateText() }
             node.setNeedsDisplay()
-            paragraph = node.textParent ?? node.superview as? NodeView
+            paragraph = node.superview as? NodeView
         }
         if children, start.overlay != nil { start.needsCapture = true }
         if let c = start.paragraphOwner.canvasAbove { c.needsCapture = true }
