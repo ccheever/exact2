@@ -220,6 +220,24 @@ then paint its intersection directly. Nested clips, fractional edges, transparen
 fills, rotations and tiled/uncertain geometry retain the mask path. Popping that
 mask or beginning another frame retires the proof; no additional mask is retained.
 
+The first shape clip under that proven rectangular damage mask now fills one
+fresh child mask and clears rows outside the damage rectangle. It avoids cloning
+the parent and allocating a second scratch mask for the intersection. Coverage
+is exactly 0/255, so no alpha multiplication is needed. Deeper clips, unproven
+unions, fractional damage edges and tiled viewports retain the existing path;
+additional shapes keep their original intersection order and rounding. No mask
+cache or new retained owner is added.
+
+A 3,024-case oracle compares the original intersections across shape sequences,
+parent coverage, damage, nesting, scales, transforms and tiling. It and the existing
+14 painter tests pass in debug and release; Textflow repaint tests and 24 app
+screenshots/layouts also match. A fixed 12-pair alternating release comparison
+measured six-scene process CPU at 1.123 → 1.068 seconds (4.9% less; 10 pairs improve),
+after smaller four-pair groups showed 6.0% and 2.1% reductions under varying load.
+Development-build process CPU was effectively flat (3.303 → 3.275 seconds).
+These include setup/warmup and establish no physical display-cadence result.
+Evidence: `/tmp/exact-nested-mask-ea01a719/`, including `extended/`.
+
 A 1,320-case independent full-mask oracle checks individual fill variants, nested
 clip push/pop, replacement clips and frame resets across scales and tiling limits.
 Debug and release pixel suites and the Textflow repaint tests pass. Four alternating

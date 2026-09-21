@@ -224,22 +224,54 @@ impl Raster {
     /// The current clip intersected with more shapes, as a mask of its own.
     fn mask_with(&self, shapes: &[Shape], ts: Transform) -> Option<Mask> {
         let dev = self.device(ts);
-        let mut m =
-            match self.clips.last() {
-                Some(c) => (**c).clone(),
-                None => {
-                    let mut m = self.new_clip_mask()?;
-                    let first = rounded_rect(shapes.first()?)?;
-                    m.fill_path(&first, FillRule::Winding, true, dev);
-                    return Some(shapes[1..].iter().filter_map(rounded_rect).fold(
-                        m,
-                        |mut m, p| {
+        let mut m = match self.clips.last() {
+            Some(c) => {
+                if let Some((depth, rect)) = self.rectangular_damage {
+                    if depth == self.clips.len() {
+                        let mut paths = shapes.iter().filter_map(rounded_rect);
+                        if let Some(first) = paths.next() {
+                            // A proven integer damage rectangle has only 0/255
+                            // coverage. Build the child once and clear outside it.
+                            let mut mask = self.new_clip_mask()?;
+                            mask.fill_path(&first, FillRule::Winding, true, dev);
+                            let width = self.width as usize;
+                            let (left, top, right, bottom) = (
+                                rect.left() as usize,
+                                rect.top() as usize,
+                                rect.right() as usize,
+                                rect.bottom() as usize,
+                            );
+                            let data = mask.data_mut();
+                            data[..top * width].fill(0);
+                            data[bottom * width..].fill(0);
+                            for row in data[top * width..bottom * width].chunks_exact_mut(width) {
+                                row[..left].fill(0);
+                                row[right..].fill(0);
+                            }
+                            for path in paths {
+                                mask.intersect_path(&path, FillRule::Winding, true, dev);
+                            }
+                            return Some(mask);
+                        }
+                    }
+                }
+                (**c).clone()
+            }
+            None => {
+                let mut m = self.new_clip_mask()?;
+                let first = rounded_rect(shapes.first()?)?;
+                m.fill_path(&first, FillRule::Winding, true, dev);
+                return Some(
+                    shapes[1..]
+                        .iter()
+                        .filter_map(rounded_rect)
+                        .fold(m, |mut m, p| {
                             m.intersect_path(&p, FillRule::Winding, true, dev);
                             m
-                        },
-                    ));
-                }
-            };
+                        }),
+                );
+            }
+        };
         for p in shapes.iter().filter_map(rounded_rect) {
             m.intersect_path(&p, FillRule::Winding, true, dev);
         }
@@ -847,4 +879,112 @@ fn css_clip_intersection_matches_full_mask_for_curves_transforms_and_tiling() {
         }
     }
     assert!(changed > 40, "parents must change real nonempty coverage");
+}
+
+#[test]
+fn nested_shape_masks_match_original_intersections() {
+    fn original(raster: &Raster, shapes: &[Shape], ts: Transform) -> Option<Mask> {
+        let dev = raster.device(ts);
+        let (mut mask, remaining) = if let Some(parent) = raster.clips.last() {
+            ((**parent).clone(), shapes)
+        } else {
+            let mut mask = Mask::new(raster.width, raster.height)?;
+            let first = rounded_rect(shapes.first()?)?;
+            mask.fill_path(&first, FillRule::Winding, true, dev);
+            (mask, &shapes[1..])
+        };
+        for path in remaining.iter().filter_map(rounded_rect) {
+            mask.intersect_path(&path, FillRule::Winding, true, dev);
+        }
+        Some(mask)
+    }
+    let invalid = Shape::rect((0.0, 0.0, -1.0, 8.0));
+    let first = Shape::new((8.25, 9.5, 47.75, 39.25), [3.25, 7.0, 1.5, 9.0]);
+    let second = Shape::new((-3.5, 17.25, 48.0, 55.75), [5.5; 4]);
+    let sets: &[&[Shape]] = &[
+        &[],
+        &[invalid],
+        &[invalid, first],
+        &[first],
+        &[first, second],
+        &[first, invalid, second],
+    ];
+    let mut fast_cases = 0;
+    for (width, height) in [(96, 80), (8192, 3), (3, 8192)] {
+        for scale in [0.75, 1.0, 2.0] {
+            for ts in [
+                Transform::identity(),
+                Transform::from_translate(-35.5, 19.25),
+                Transform::from_row(-1.0, 0.3, 0.6, 1.1, 50.0, 30.0),
+                Transform::from_rotate(37.0),
+                Transform::from_translate(9000.0, 0.0),
+                Transform::from_scale(0.0, 0.0),
+                Transform::from_scale(f32::INFINITY, 1.0),
+            ] {
+                for kind in 0..8 {
+                    let mut raster = Raster::new();
+                    raster.width = width;
+                    raster.height = height;
+                    raster.scale = scale;
+                    if kind != 0 && kind < 4 {
+                        let mut parent = Mask::new(width, height).unwrap();
+                        for (i, byte) in parent.data_mut().iter_mut().enumerate() {
+                            *byte = match kind {
+                                1 => 255,
+                                2 => (i.wrapping_mul(37) % 256) as u8,
+                                _ => {
+                                    if i % 7 == 0 {
+                                        255
+                                    } else {
+                                        0
+                                    }
+                                }
+                            };
+                        }
+                        raster.clips.push(Rc::new(parent));
+                    }
+                    if kind >= 4 {
+                        let (x, y, w, h) = match kind {
+                            4 => (0.0, 0.0, width as f32, height as f32),
+                            5 | 7 => (1.0, 1.0, width as f32 - 2.0, height as f32 - 2.0),
+                            _ => (
+                                -10.0,
+                                -5.0,
+                                (width / 2) as f32 + 10.0,
+                                (height / 2) as f32 + 5.0,
+                            ),
+                        };
+                        let previous = Pixmap::new(width, height).unwrap();
+                        assert!(raster
+                            .damage(&previous, &[(x / scale, y / scale, w / scale, h / scale)]));
+                        if kind == 7 {
+                            raster.push_clip(&second, ts);
+                        }
+                    }
+                    let parent_bytes = raster.clips.last().map(|p| p.data().to_vec());
+                    for shapes in sets {
+                        let expected = original(&raster, shapes, ts);
+                        let allocations = raster.clip_allocations.get();
+                        let actual = raster.mask_with(shapes, ts);
+                        fast_cases +=
+                            usize::from(raster.clip_allocations.get() > allocations && kind >= 4);
+                        assert_eq!(
+                            actual.as_ref().map(Mask::data),
+                            expected.as_ref().map(Mask::data),
+                            "{width}x{height} scale={scale} {ts:?} parent={kind} shapes={}",
+                            shapes.len()
+                        );
+                        assert_eq!(
+                            raster.clips.last().map(|p| p.data()),
+                            parent_bytes.as_deref()
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        fast_cases > 100,
+        "rectangular damage must exercise the shortcut"
+    );
 }
