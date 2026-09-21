@@ -974,4 +974,23 @@ mod upstream_layout_differential {
         assert!(measured > 10_000); // an empty or bypassed measurer cannot pass
         println!("Upstream differential: 512 seeded trees x 3 offers, 49152 node layouts equal to fresh; {measured} fresh measurements");
     }
+
+    #[test]
+    fn unpublished_layout_writes_are_bounded_by_live_nodes() {
+        use taffy::prelude::TaffyMaxContent;
+        let mut tree = LayoutTree::new();
+        let node = tree.new_leaf(taffy::Style::default(), 0, false);
+        for width in 1..=100 {
+            let mut style = taffy::Style::default();
+            style.size.width = taffy::Dimension::length(width as f32);
+            tree.set_style(node, style);
+            tree.taffy.compute_layout(node, Size::MAX_CONTENT).unwrap();
+        }
+        assert_eq!(tree.taffy.take_layout_changes(), vec![node]);
+        assert!(tree.taffy.take_layout_changes().is_empty());
+        tree.set_style(node, taffy::Style::default());
+        tree.taffy.compute_layout(node, Size::MAX_CONTENT).unwrap();
+        tree.remove(node);
+        assert!(tree.taffy.take_layout_changes().is_empty());
+    }
 }

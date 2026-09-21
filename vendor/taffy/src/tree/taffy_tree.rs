@@ -163,6 +163,7 @@ pub struct TaffyTree<NodeContext = ()> {
 
     // EXACT PATCH 9: sparse publication and opt-in replay at proven boundaries.
     changed_layouts: Vec<NodeId>,
+    changed_layout_indices: SecondaryMap<DefaultKey, usize>,
     layout_inputs: SecondaryMap<DefaultKey, Option<(LayoutInput, LayoutOutput)>>,
 
     /// Layout mode configuration
@@ -392,7 +393,11 @@ where
         let old = &mut self.taffy.nodes[node_id.into()].unrounded_layout;
         if *old != *layout {
             *old = *layout;
-            self.taffy.changed_layouts.push(node_id);
+            let key = node_id.into();
+            if !self.taffy.changed_layout_indices.contains_key(key) {
+                self.taffy.changed_layout_indices.insert(key, self.taffy.changed_layouts.len());
+                self.taffy.changed_layouts.push(node_id);
+            }
         }
     }
 
@@ -558,6 +563,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
             node_context_data: SecondaryMap::with_capacity(capacity),
             config: TaffyConfig::default(),
             changed_layouts: Vec::new(),
+            changed_layout_indices: SecondaryMap::new(),
             layout_inputs: SecondaryMap::new(),
         }
     }
@@ -617,6 +623,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         self.children.clear();
         self.parents.clear();
         self.changed_layouts.clear();
+        self.changed_layout_indices.clear();
         self.layout_inputs.clear();
     }
 
@@ -643,6 +650,12 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let _ = self.parents.remove(key);
         let _ = self.nodes.remove(key);
         self.layout_inputs.remove(key);
+        if let Some(index) = self.changed_layout_indices.remove(key) {
+            self.changed_layouts.swap_remove(index);
+            if let Some(&moved) = self.changed_layouts.get(index) {
+                self.changed_layout_indices.insert(moved.into(), index);
+            }
+        }
 
         Ok(node)
     }
@@ -906,8 +919,13 @@ impl<NodeContext> TaffyTree<NodeContext> {
     }
 
     /// EXACT PATCH 9: observe unrounded writes without a whole-tree traversal.
-    /// Entries can repeat and may name removed nodes; consumers resolve identities.
+    /// At most one entry per live node, including across nonpublishing passes.
     pub fn take_layout_changes(&mut self) -> Vec<NodeId> {
+        // Do not iterate the sparse map: its retained hash-table capacity can
+        // reflect a much larger preceding layout. Walk exactly the dirty nodes.
+        for &node in &self.changed_layouts {
+            self.changed_layout_indices.remove(node.into());
+        }
         core::mem::take(&mut self.changed_layouts)
     }
 

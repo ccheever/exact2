@@ -295,7 +295,10 @@ conformance corpus. Do not describe those absent fixtures as tested.
 
 `tree/taffy_tree.rs` records changed unrounded layouts at their existing write
 seam. `take_layout_changes` transfers those node identities to the kernel;
-repeated writes are allowed and removed identities are ignored. No layout
+the sparse journal deduplicates repeated writes and removes destroyed identities,
+so nonpublishing region trials retain at most one entry per live node. A dense
+journal plus sparse positions makes both draining and removal proportional to
+changed entries, without scanning a prior large hash-table capacity. No layout
 algorithm, cache key, root sizing rule or rounding behavior changes.
 
 A sparse opt-in map retains the exact final `LayoutInput` and `LayoutOutput`
