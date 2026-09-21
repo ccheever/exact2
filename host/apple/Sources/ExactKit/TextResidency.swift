@@ -132,7 +132,19 @@ struct TextPaint: Hashable {
 struct TextShapeKey: Hashable {
     let token: TextIdentityToken
     let paint: TextPaint
-    init(identity: TextIdentity, paint: TextPaint) { token = identity.token; self.paint = paint }
+    // LRU links and indexes hash this key many times per admission. Paint is
+    // immutable; walk its run array once, retaining exact equality on hits.
+    private let cachedHash: Int
+    init(identity: TextIdentity, paint: TextPaint) {
+        token = identity.token; self.paint = paint
+        var hash = Hasher()
+        hash.combine(token); hash.combine(paint)
+        cachedHash = hash.finalize()
+    }
+    func hash(into hasher: inout Hasher) { hasher.combine(cachedHash) }
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.cachedHash == rhs.cachedHash && lhs.token === rhs.token && lhs.paint == rhs.paint
+    }
 }
 
 struct TextParagraphKey: Hashable {
@@ -279,9 +291,9 @@ struct TextResidency {
     static let maxColdEntries = 4096
     static let maxLookupEntries = 8192
     static let maxIdentities = 4096
-    // A paragraph request crosses several cache operations. One entry and one
-    // identity per operation amortize dead metadata cleanup; hard caps below
-    // remain the bound even when references die just after a sweep.
+    // A measurement crosses several indexes. Sweep only when admitting a new
+    // source, not at each nested lookup, put, prepare and acceptance. The entry
+    // and identity caps independently bound metadata between these visits.
     private static let cleanupQuota = 1
     let softTargetBytes: Int
     private let catalog = TextCatalogIdentity()
@@ -323,11 +335,10 @@ struct TextResidency {
         self.softTargetBytes = max(0, softTargetBytes)
     }
     mutating func identity(_ spec: Spec) -> TextIdentity {
-        maintain()
         return identityAfterBorrowedMiss(spec)
     }
-    /// Completes the same identity admission after borrowedIdentity already ran
-    /// maintenance. Malformed UTF8 must be hashed again after replacement decoding.
+    /// Completes admission after a borrowed lookup. Malformed UTF8 must be
+    /// hashed again after replacement decoding.
     mutating func identityAfterBorrowedMiss(_ spec: Spec) -> TextIdentity {
         let geometry = spec.geometry, hash = TextMetricKey.hash(geometry)
         for token in identities[hash] ?? [] {
@@ -337,6 +348,7 @@ struct TextResidency {
                 return value
             }
         }
+        maintain()
         let value = TextIdentity(geometry, catalog: catalog)
         // Token comes from the actual identity; no pointer interning or serial reuse.
         let key = value.token
@@ -348,9 +360,8 @@ struct TextResidency {
         return value
     }
     /// Metric-cache lookup before String/Run/Spec construction. On a miss the
-    /// caller decodes normally and completes admission without a second sweep.
+    /// caller decodes normally and completes admission without repeating lookup.
     mutating func borrowedIdentity(_ request: ExactMeasureRequest) -> TextIdentity? {
-        maintain()
         let hash = TextMetricKey.hash(request)
         for token in identities[hash] ?? [] {
             maintenanceVisits &+= 1
@@ -379,10 +390,9 @@ struct TextResidency {
         if identities[e.hash]?.isEmpty == true { identities.removeValue(forKey: e.hash) }
     }
     private mutating func get(_ key: TextEntryKey) -> TextValue? {
-        maintain()
-        guard let value = entries[key]?.weak.value else { return nil }
+        guard let entry = entries[key], let value = entry.cold ?? entry.weak.value else { return nil }
         touch(key)
-        if entries[key]?.cold != nil { touchCold(key) }
+        if entry.cold != nil { touchCold(key) }
         return value
     }
     mutating func paragraph(_ key: TextParagraphKey) -> Paragraph? {
@@ -403,20 +413,18 @@ struct TextResidency {
     /// Exact same-source, same-width paint handoff; index membership is retired
     /// with the entry, so dead arrays of historical paints cannot accumulate.
     mutating func geometry(_ identity: TextIdentity, width: CGFloat) -> Paragraph? {
-        maintain()
         let key = TextGeometryKey(token: identity.token, widthBits: Double(width == 0 ? 0 : width).bitPattern)
         for entry in geometryIndex[key] ?? [] {
             maintenanceVisits &+= 1
-            if case .paragraph(let p) = entries[entry]?.weak.value {
+            if let value = entries[entry], case .paragraph(let p) = value.cold ?? value.weak.value {
                 touch(entry)
-                if entries[entry]?.cold != nil { touchCold(entry) }
+                if value.cold != nil { touchCold(entry) }
                 return p
             }
         }
         return nil
     }
     mutating func retireWidths(_ key: TextParagraphKey) {
-        maintain()
         // Only this source's cold variants; accepted widths stay weakly indexed.
         for old in coldLayouts[key.shape.token] ?? [] {
             maintenanceVisits &+= 1
@@ -437,7 +445,6 @@ struct TextResidency {
         }
     }
     mutating func accepted(_ paragraph: Paragraph) {
-        maintain()
         guard let key = paragraph.residencyKey else { return }
         removeCold(.paragraph(key)); removeCold(.shape(key.shape))
     }
@@ -450,7 +457,7 @@ struct TextResidency {
         put(.scalar(identity.token, kind), .scalar(TextScalar(identity, metrics)))
     }
     private mutating func put(_ key: TextEntryKey, _ value: TextValue) {
-        maintain(); removeEntry(key)
+        removeEntry(key)
         entries[key] = Entry(weak: WeakTextValue(value), cold: value, previous: last, colder: coldLast)
         if let last { entries[last]?.next = key } else { first = key }
         last = key
@@ -490,7 +497,7 @@ struct TextResidency {
         trim(incoming: 0, keeping: coldLast)
     }
     mutating func prepare(estimatedBytes: Int) {
-        maintain(); trim(incoming: estimatedBytes, keeping: nil)
+        trim(incoming: estimatedBytes, keeping: nil)
     }
     private mutating func trim(incoming: Int, keeping: TextEntryKey?) {
         let allowance = max(0, softTargetBytes - min(softTargetBytes, incoming))
@@ -583,13 +590,13 @@ struct TextResidency {
         }
     }
     private mutating func maintain() {
-        // Fixed work per operation. Hard caps above bound metadata even if
+        // Fixed work per new source. Hard caps above bound metadata even if
         // every observed weak value dies just after this incremental sweep.
         for _ in 0..<Self.cleanupQuota {
             if let key = sweepEntry ?? first, let e = entries[key] {
                 maintenanceVisits &+= 1
                 sweepEntry = e.next ?? first
-                if e.weak.value == nil { removeEntry(key) }
+                if e.cold == nil && e.weak.value == nil { removeEntry(key) }
             }
             if let key = sweepIdentity ?? firstIdentity, let e = identityEntries[key] {
                 maintenanceVisits &+= 1

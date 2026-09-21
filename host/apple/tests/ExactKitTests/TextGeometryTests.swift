@@ -1100,7 +1100,8 @@ extension TextGeometryTests {
 extension TextGeometryTests {
     func testShortRowMaintenanceDoesNotWalkUnrelatedColdHistory() {
         var visits: [UInt64] = []
-        for history in [10, 100, 1000] {
+        // Cross both entry caps, as a table traversal does.
+        for history in [10, 100, 1000, 10_000] {
             let engine = TextEngine(resolve: { _ in nil })
             var visible: [Paragraph] = []
             for row in 0..<history {
