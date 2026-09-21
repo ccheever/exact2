@@ -115,6 +115,14 @@ let revision = 0;
 let namespace='';
 const pending = new Map<string, {start:number,end:number,reply:string}>();
 let ticks = 0;
+// Conservative lower bound for the next receipt/reply on a forward clock.
+// Removing or replacing schedules may leave it early, never late. A real scan
+// tightens it again; rewinds always scan so previously crossed receipts re-arm.
+let nextPendingTime=Infinity;
+function idleReplyTick(now:number):boolean {
+  if(now>=ticks && now<nextPendingTime){ticks=now;return true;}
+  return false;
+}
 const changed = () => ({revision,pending:pending.size>0});
 const scrollRevisions = new Map(people.map((person,index)=>[person.id,index]));
 let scrollGeneration = people.length;
@@ -373,20 +381,28 @@ const sources: Sources = {
       insertMessage(id,item);person.preview=body;person.time=item.time;person.unread=false;
       drafts.delete(id);
       scrollRevisions.set(id,++scrollGeneration);
-      if(!blocked.has(id)) pending.set(id,{start:now+3,end:now+15,reply:reply?item.replyRoot:''});
+      if(!blocked.has(id)) {
+        pending.set(id,{start:now+3,end:now+15,reply:reply?item.replyRoot:''});
+        nextPendingTime=Math.min(nextPendingTime,now+3,now+15);
+      }
     }
     return changed();
   },
   advanceReplies: ([now,activeThread,nowMs])=>{
+    if(idleReplyTick(now))return changed();
     const previous=ticks;
     ticks=now;
+    nextPendingTime=Infinity;
     for(const [id,activity] of pending) {
       if(previous<activity.start && now>=activity.start) {
         const awaiting=indexes.get(id)?.awaitingRead;
         if(awaiting){for(const item of awaiting)item.delivery='Read';awaiting.clear();}
         revision++;
       }
-      if(now<activity.end) continue;
+      if(now<activity.end) {
+        nextPendingTime=Math.min(nextPendingTime,now<activity.start?activity.start:activity.end);
+        continue;
+      }
       const person=personIndex.get(id)?.person!;
       const body=id==='weekend'?'Sounds good! 🌲':id==='maya'?'See you soon! ☕️':'Sounds good 😊';
       const sender=groups.has(id)?responder(id):undefined;
@@ -600,6 +616,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // refresh must not detach and diff the entire durable history again.
     // recentlyDeleted is excluded: reading it expires persisted recovery rows.
     if(source==='conversation' || source==='conversationDraft' || source==='inbox' || source==='recipients' || source==='syncState')return sources[source](args,store,storage,native);
+    if(source==='advanceReplies' && idleReplyTick(Number(args[0])))return changed();
     const records=editRecords(source,args);
     // These sources leave reply scheduling untouched. Future sources retain the
     // conservative full copy until their pending-state behavior is established.
@@ -608,7 +625,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
     // position, so rollback needs one value rather than a copy of every reply.
     const sentId=source==='sendMessage'?String(args[0]):undefined;
     const previousActivity=sentId===undefined?undefined:pending.get(sentId);
-    const previousPending=keepsPending||sentId!==undefined?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision;
+    const previousPending=keepsPending||sentId!==undefined?undefined:new Map(pending),previousTicks=ticks,previousRevision=revision,previousPendingTime=nextPendingTime;
     const value=await sources[source](args,store,storage,native);
     // Reply ticks change durable records only when a receipt or reply advances
     // revision. Keep their clock update, but avoid copying an unchanged history.
@@ -618,6 +635,7 @@ export const answer: Answer = (source,args,store,storage,native) => {
       // Undo before restore prunes schedules for absent/deleted/blocked threads.
       if(sentId!==undefined){if(previousActivity)pending.set(sentId,previousActivity);else pending.delete(sentId);}
       restore(client.initial());if(previousPending){pending.clear();for(const [id,activity] of previousPending)if(!deleted.has(id)&&!blocked.has(id)&&threads.has(id))pending.set(id,activity);}ticks=previousTicks;
+      nextPendingTime=previousPendingTime;
       // A failed save must not leave an invalid model that every later read
       // tries to save again. Report the original error even if disk is full.
       try{await client.failed(error);}catch{/* The runner still receives the save failure. */}

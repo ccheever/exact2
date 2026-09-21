@@ -254,7 +254,7 @@ test('every durable source footprint matches the complete model and durable devi
     const built=await Bun.build({entrypoints:[entry],target:'bun',outdir:dir,naming:'app.mjs',plugins:[{
       name:'full-model-oracle',setup(build){build.onLoad({filter:/\/apps\/messages\/app\.ts$/},async args=>({
         loader:'ts',contents:await readFile(args.path,'utf8')+`
-export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),peopleOrder:people.map(p=>p.id),pending:[...pending],ticks,sources:Object.keys(sources)}));}
+export async function inspectFixture(){return JSON.parse(JSON.stringify({live:[...snapshot()],held:[...replica.initial()],durable:[...await replica.read()],awaiting:[...indexes].flatMap(([id,index])=>[...index.awaitingRead].map(row=>[id,row.id])),peopleOrder:people.map(p=>p.id),pending:[...pending],ticks,revision,sources:Object.keys(sources)}));}
 export function omitFixtureEdit(){const edit=replica.edit.bind(replica);replica.edit=async records=>{replica.edit=edit;return edit(new Map());};}
 export function undeclaredFixtureSource(){sources.undeclared=()=>{people[0].unread=!people[0].unread;return changed();};}
 let fixtureKeys=[];
@@ -395,6 +395,45 @@ export async function fixturePositions(positions){const rows=new Map(JSON.parse(
     expect((await inspect()).ticks).toBe(scheduled.ticks);
     await act('saveDraft',['maya','Retry draft','']);
     expect((await inspect()).pending).toEqual(scheduled.pending);
+    // Idle ticks retain the clock without advancing records. Equality at a
+    // deadline must run; rewinding below a crossed receipt re-arms that event.
+    await act('advanceReplies',[1000,'maya',1000000]);
+    const clockStart=await act('sendMessage',['maya','Clock boundary','',2000,2000000]);
+    const sentKey=clockStart.live.find(([,row]:any)=>row.kind==='message' && row.message.body==='Clock boundary')[0];
+    for(const now of [2000,2001,2002.999]) {
+      const idle=await act('advanceReplies',[now,'maya',now*1000]);
+      expect(idle.revision).toBe(clockStart.revision);expect(idle.ticks).toBe(now);
+      expect(canonical(idle.live)).toEqual(canonical(clockStart.live));
+    }
+    const receipt=await act('advanceReplies',[2003,'maya',2003000]);
+    expect(receipt.live.find(([key]:[string,unknown])=>key===sentKey)[1].message.delivery).toBe('Read');
+    expect(receipt.revision).toBe(clockStart.revision+1);
+    expect((await act('advanceReplies',[2003,'maya',2003000])).revision).toBe(receipt.revision);
+    await act('advanceReplies',[2002,'maya',2002000]);
+    expect((await act('advanceReplies',[2003,'maya',2003000])).revision).toBe(receipt.revision+1);
+    const beforeReply=await act('advanceReplies',[2014.999,'maya',2014999]);
+    failCommit=true;
+    await expect(call('advanceReplies',[2015,'maya',2015000])).rejects.toThrow('footprint commit refused');
+    const refusedReply=await inspect();
+    expect(canonical(refusedReply.live)).toEqual(canonical(beforeReply.live));
+    expect(refusedReply.pending).toEqual(beforeReply.pending);expect(refusedReply.ticks).toBe(beforeReply.ticks);
+    const retriedReply=await act('advanceReplies',[2015,'maya',2015000]);
+    expect(retriedReply.pending).toEqual([]);expect(retriedReply.live.length).toBe(beforeReply.live.length+1);
+    // Newly earlier schedules must wake the model; later replacement or removal
+    // may cause an extra scan but must not deliver the old scheduled reply.
+    await act('sendMessage',['maya','Later clock','',2100,2100000]);
+    await act('sendMessage',['dad','Earlier clock','',2050,2050000]);
+    const earlier=await act('advanceReplies',[2053,'maya',2053000]);
+    const delivery=(body:string)=>earlier.live.find(([,row]:any)=>row.kind==='message' && row.message.body===body)[1].message.delivery;
+    expect(delivery('Earlier clock')).toBe('Read');expect(delivery('Later clock')).toBe('Delivered');
+    await act('advanceReplies',[2065,'maya',2065000]);
+    await act('blockConversation',['maya',true]);
+    expect((await act('advanceReplies',[2103,'maya',2103000])).pending).toEqual([]);
+    await act('blockConversation',['maya',false]);
+    await act('sendMessage',['maya','Replace deadline','',2200,2200000]);
+    const replaced=await act('sendMessage',['maya','Later replacement','',2300,2300000]);
+    expect((await act('advanceReplies',[2215,'maya',2215000])).revision).toBe(replaced.revision);
+    expect((await act('advanceReplies',[2303,'maya',2303000])).revision).toBe(replaced.revision+1);
     // Imported positions can be tied/fractional or at finite Number extremes.
     // Ordinary edits retain them; insertion rebases only if +/-1 cannot progress.
     await app.fixturePositions([['maya',.5],['dad',.5],['alex',-.25]]);
