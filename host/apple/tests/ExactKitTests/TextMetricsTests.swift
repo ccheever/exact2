@@ -669,6 +669,35 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNotNil(offscreen.textRasterKey, "the existing pump must still admit deferred text")
     }
 
+    func testParagraphTallerThanAScreenDrawsOnlyItsVisibleStrips() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "text-tall")
+        let presenter = session.presenter
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = presenter.viewport
+        defer { window.close(); session.destroy() }
+        let cap = Double(TextRasterizer.maxHeight)
+        presenter.apply(batchFixture(ops: [
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "a paragraph a screen tall"]],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": "a paragraph taller than a screen"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2 * cap + 1],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": cap],
+            ["op": "frame", "id": 3, "x": 0.0, "y": cap, "w": 400.0, "h": cap + 1],
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let screen = try XCTUnwrap(presenter.views[2]), tall = try XCTUnwrap(presenter.views[3])
+        XCTAssertTrue(screen.rastersText)
+        XCTAssertFalse(tall.rastersText, "a whole bitmap would hold pixels that are never on screen")
+        tall.frame.origin.y = 0
+        presenter.scrolled()
+        tall.displayIfNeeded()
+        XCTAssertNil(tall.textRaster, "AppKit's strips paint it, backing only the visible part")
+    }
+
     func testOffscreenResizeRetiresTheRasterItsLayerWouldStretch() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-resize")

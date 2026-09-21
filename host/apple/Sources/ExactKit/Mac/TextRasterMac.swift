@@ -10,16 +10,18 @@
 //
 // `NodeView.draw` still paints text for everything this declines: a
 // selection, a capture, a canvas, a decorated text box, a clamp, and a
-// paragraph too tall to hold as one bitmap.
+// paragraph taller than a screen.
 #if os(macOS)
 import AppKit
 import CoreText
 import IOSurface
 
 final class TextRasterizer {
-    /// Points. A taller paragraph is left to AppKit's strips: one bitmap of it
-    /// would be tens of megabytes to show a screenful.
-    static let maxHeight: CGFloat = 4096
+    /// Points — about a screenful. A taller paragraph is never seen whole, and a
+    /// bitmap is all or nothing: a 245-line code block was one 33 MB surface,
+    /// more than every other text pixel in the document together. AppKit's
+    /// strips back only what is on screen.
+    static let maxHeight: CGFloat = 1024
     // Keep italic overhang and ink outside tight line boxes, but never size
     // a surface to an unbreakable line's potentially unbounded advance.
     static let maxInkOverflow = TextRasterJob.maxInkOverflow
