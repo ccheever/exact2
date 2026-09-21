@@ -288,6 +288,7 @@ impl<D: DataSource> Bridge<D> {
         focus: u32,
         interaction: u32,
         len: usize,
+        limit: usize,
     ) -> u32 {
         let payload = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
         let rows: Result<Vec<(u32, f64)>, ()> = payload
@@ -301,7 +302,7 @@ impl<D: DataSource> Bridge<D> {
             return self.emit(r#"{"ops":[],"error":"invalid list measurements"}"#.into());
         };
         let out = match self.host.as_mut() {
-            Some(host) => host.list_viewport(
+            Some(host) => host.list_viewport_within(
                 view,
                 exact_runner::ListViewport {
                     top,
@@ -312,10 +313,19 @@ impl<D: DataSource> Bridge<D> {
                     rows: &rows,
                     ..Default::default()
                 },
+                (limit != 0).then_some(limit),
             ),
             None => r#"{"ops":[],"error":"not booted"}"#.to_string(),
         };
         self.emit(out)
+    }
+
+    /// Whether a budgeted list report left creation or retirement for another frame.
+    pub fn list_pending(&self, view: u32) -> bool {
+        self.host
+            .as_ref()
+            .and_then(|host| host.runner().list_status(view))
+            .is_some_and(|status| status.pending)
     }
 
     /// Resolve an opaque list key, or return the absent-index sentinel.
@@ -775,8 +785,14 @@ macro_rules! host {
 
         /// Report a list scrollport and up to two pinned descendants.
         #[no_mangle]
-        pub extern "C" fn exact_list(view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().list_viewport(view, top, height, width, origin, focus, interaction, len as usize))
+        pub extern "C" fn exact_list(view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, len: u32, limit: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().list_viewport(view, top, height, width, origin, focus, interaction, len as usize, limit as usize))
+        }
+
+        /// Continue a budgeted window on the next animation frame.
+        #[no_mangle]
+        pub extern "C" fn exact_list_pending(view: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| u32::from(b.borrow().list_pending(view)))
         }
 
         /// Resolve an opaque list key without mounting its row.

@@ -311,7 +311,20 @@ impl<D: DataSource> Host<D> {
         view: ViewId,
         geometry: exact_runner::ListViewport<'_>,
     ) -> String {
-        match self.runner.list_viewport(view, geometry) {
+        self.list_viewport_within(view, geometry, None)
+    }
+
+    /// Report geometry with bounded overscan creation; visible rows remain owed.
+    pub fn list_viewport_within(
+        &mut self,
+        view: ViewId,
+        geometry: exact_runner::ListViewport<'_>,
+        create_limit: Option<usize>,
+    ) -> String {
+        match self
+            .runner
+            .list_viewport_within(view, geometry, create_limit)
+        {
             Ok(receipt) => self.batch_for(
                 &[Timed {
                     at_ms: self.runner.now_ms(),

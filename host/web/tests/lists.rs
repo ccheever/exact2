@@ -656,3 +656,44 @@ fn logical_text_joins_inline_runs_skips_hidden_text_and_uses_utf16_positions() {
         "🦊0\n\ntail\n\nA🦊1\n\ntail\n\nA🦊2\n\nta"
     );
 }
+
+#[test]
+fn web_abi_budgets_overscan_and_reports_pending_until_the_window_is_complete() {
+    use exact_web::abi::Bridge;
+    let plan = contract::compile(SOURCE).unwrap().encode();
+    let mut bridge = Bridge::new();
+    let len = bridge.boot(&plan, data(1000), 390.0, 240.0, "/");
+    let boot = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+    assert!(boot.contains("\"data-testid\":\"list\""));
+    let list = 1; // The fixture's root is its list.
+    assert!(!bridge.list_pending(list));
+    assert!(!bridge.list_pending(u32::MAX));
+    let mut reports = 0;
+    loop {
+        let len = bridge.list_viewport(list, 2400.0, 240.0, 390.0, 0.0, 0, 0, 0, 2);
+        let batch = String::from_utf8_lossy(bridge.output_bytes(len as usize));
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        let rows = batch.matches("\"role\":\"listitem\"").count();
+        if reports == 0 {
+            assert_eq!(rows, 12, "ten visible rows and two overscan rows");
+            assert!(bridge.list_pending(list));
+        } else {
+            assert!(
+                rows <= 2,
+                "subsequent reports spend only their overscan budget"
+            );
+        }
+        reports += 1;
+        if !bridge.list_pending(list) {
+            break;
+        }
+        assert!(
+            reports < 20,
+            "pending must drain even with unchanged geometry"
+        );
+    }
+    assert!(reports > 1);
+    // Zero remains the explicit unbudgeted ABI choice.
+    bridge.list_viewport(list, 12000.0, 240.0, 390.0, 0.0, 0, 0, 0, 0);
+    assert!(!bridge.list_pending(list));
+}
