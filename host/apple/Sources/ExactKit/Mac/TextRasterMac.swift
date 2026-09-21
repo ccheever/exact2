@@ -16,42 +16,14 @@ import AppKit
 import CoreText
 import IOSurface
 
-/// What one raster was made from. A paragraph whose key is unchanged keeps
-/// its image; a worker's answer for a key no longer wanted is dropped.
-struct TextRasterKey: Equatable {
-    let spec: Spec
-    let size: CGSize
-    let box: CGRect
-    let scale: CGFloat
-}
-
-private struct TextRasterImage {
-    let surface: IOSurface
-    let frame: CGRect
-}
-
 final class TextRasterizer {
     /// Points. A taller paragraph is left to AppKit's strips: one bitmap of it
     /// would be tens of megabytes to show a screenful.
     static let maxHeight: CGFloat = 4096
     // Keep italic overhang and ink outside tight line boxes, but never size
     // a surface to an unbreakable line's potentially unbounded advance.
-    static let maxInkOverflow: CGFloat = 256
+    static let maxInkOverflow = TextRasterJob.maxInkOverflow
 
-    /// Everything a worker needs, none of it shared with the main thread's
-    /// layout: CoreText line objects belong to one thread at a time, so the
-    /// worker typesets its own from the same source and the same breaks.
-    private struct Job {
-        let source: NSAttributedString
-        let ranges: [CFRange]
-        let baselines: [CGFloat]
-        let flush: CGFloat
-        let box: CGRect
-        let size: CGSize
-        let scale: CGFloat
-    }
-
-    private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
     // A slice limits admission rate, not outstanding work. Keep no backlog:
     // the next pump tries the still-nearby paragraphs again when a worker is
     // free, so navigation and resize cannot queue obsolete document pixels.
@@ -63,7 +35,7 @@ final class TextRasterizer {
                       box: node.contentBox(), scale: node.window?.backingScaleFactor ?? 2)
     }
 
-    private func prepare(_ node: NodeView, key: TextRasterKey) -> Job? {
+    private func prepare(_ node: NodeView, key: TextRasterKey) -> TextRasterJob? {
         guard let engine = node.text else { return nil }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
@@ -74,7 +46,7 @@ final class TextRasterizer {
         node.textRasterFailed = false
         node.textRasterPending = false
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
-        return Job(source: source.copy() as! NSAttributedString,
+        return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: ranges, baselines: baselines,
                    flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
                    box: key.box, size: key.size, scale: key.scale)
@@ -131,7 +103,7 @@ final class TextRasterizer {
     /// A live resize skips full rasters when at least half their pixels are hidden.
     @discardableResult
     func replaceVisible(_ nodes: [NodeView], wait: TimeInterval) -> Bool {
-        var jobs: [(NodeView, TextRasterKey, Job)] = []
+        var jobs: [(NodeView, TextRasterKey, TextRasterJob)] = []
         var deferred = false
         for node in nodes where node.needsTextRaster && node.canRasterText && (node.textRaster != nil || node.textRasterUsesStrips) {
             let key = key(node)
@@ -194,62 +166,9 @@ final class TextRasterizer {
     /// IOSurface. A surface is what the render server composites: a CGImage
     /// would be converted and copied for it on the main thread, at commit.
     /// Workers create their own lines from source and ranges.
-    private static func render(_ job: Job, firstPixels: Bool = false) -> TextRasterImage? {
+    private static func render(_ job: TextRasterJob, firstPixels: Bool = false) -> TextRasterImage? {
         assert(!Thread.isMainThread || firstPixels, "replacement rasterization belongs to workers")
-        let typesetter = CTTypesetterCreateWithAttributedString(job.source)
-        let lines = job.ranges.map { CTTypesetterCreateLine(typesetter, $0) }
-        let positions = zip(lines, job.baselines).map { line, baseline in
-            CGPoint(x: job.box.minX + CGFloat(CTLineGetPenOffsetForFlush(line, job.flush, Double(job.box.width))),
-                    y: job.box.minY + baseline.rounded())
-        }
-        // CSS line boxes size layout, not ink. Tight line heights and italic
-        // overhang can paint beyond any edge; include that ink in the bitmap.
-        let box = CGRect(origin: .zero, size: job.size)
-        var frame = box
-        for (line, position) in zip(lines, positions) {
-            let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
-            if !ink.isNull, !ink.isEmpty {
-                frame = frame.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
-                                           width: ink.width, height: ink.height).insetBy(dx: -1 / job.scale, dy: -1 / job.scale))
-            }
-        }
-        frame = frame.intersection(box.insetBy(dx: -maxInkOverflow, dy: -maxInkOverflow))
-        if frame != box {
-            let left = floor(frame.minX * job.scale) / job.scale
-            let top = floor(frame.minY * job.scale) / job.scale
-            frame = CGRect(x: left, y: top, width: ceil(frame.maxX * job.scale) / job.scale - left,
-                           height: ceil(frame.maxY * job.scale) / job.scale - top)
-        }
-        let pixelWidth = (frame.width * job.scale).rounded(.up)
-        let pixelHeight = (frame.height * job.scale).rounded(.up)
-        guard pixelWidth.isFinite, pixelHeight.isFinite,
-              pixelWidth > 0, pixelHeight > 0,
-              pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
-        let width = Int(pixelWidth), height = Int(pixelHeight)
-        guard width > 0, height > 0,
-              let surface = IOSurface(properties: [.width: width, .height: height, .bytesPerElement: 4,
-                                                   .pixelFormat: UInt32(0x42475241)]) // 'BGRA'
-        else { return nil }
-        surface.lock(options: [], seed: nil)
-        defer {
-            surface.unlock(options: [], seed: nil)
-            if let profile = space.copyPropertyList() { IOSurfaceSetValue(surface, kIOSurfaceColorSpace, profile) }
-        }
-        guard let ctx = CGContext(data: surface.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                  bytesPerRow: surface.bytesPerRow, space: space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
-        ctx.translateBy(x: 0, y: CGFloat(height))
-        ctx.scaleBy(x: job.scale, y: -job.scale)
-        ctx.translateBy(x: -frame.minX, y: -frame.minY)
-        ctx.setShouldSmoothFonts(true)
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        for (line, position) in zip(lines, positions) {
-            ctx.textPosition = position
-            CTLineDraw(line, ctx)
-        }
-        ctx.flush()
-        return TextRasterImage(surface: surface, frame: frame)
+        return job.render()
     }
 }
 
