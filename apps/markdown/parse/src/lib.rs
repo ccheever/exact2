@@ -135,10 +135,45 @@ pub fn plain(runs: &[Run]) -> String {
 /// what the app should do with it — the identity function for a document
 /// with no location, and a path resolver for one opened from disk.
 pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
+    parse_cancellable(source, link, &|| false).unwrap_or_default()
+}
+
+struct Context<'a> {
+    link: &'a dyn Fn(&str) -> String,
+    scan: inline::Scan<'a>,
+}
+
+impl Context<'_> {
+    fn runs(&self, text: &str) -> Vec<Run> {
+        inline::runs(text, self.link, &self.scan)
+    }
+}
+
+/// Parse with cooperative cancellation. A cancelled parse returns no partial
+/// document. The caller owns the generation; scanners check every 4 KiB and
+/// block builders check between lines. File I/O is the caller's responsibility.
+pub fn parse_cancellable(
+    source: &str,
+    link: &dyn Fn(&str) -> String,
+    cancel: &dyn Fn() -> bool,
+) -> Option<Document> {
+    let context = Context {
+        link,
+        scan: inline::Scan::new(cancel),
+    };
     let mut doc = Document::default();
-    let lines: Vec<&str> = source.lines().collect();
+    let mut lines = Vec::new();
+    for line in source.lines() {
+        if context.scan.cancelled() {
+            return None;
+        }
+        lines.push(line);
+    }
     let mut at = 0;
     while at < lines.len() {
+        if context.scan.cancelled() {
+            return None;
+        }
         let line = lines[at];
         let trimmed = line.trim_start();
         let indent = line.len() - trimmed.len();
@@ -148,7 +183,7 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
             continue;
         }
         if let Some(fence) = fence_of(trimmed) {
-            at = code_block(&lines, at, fence, indent, &mut doc);
+            at = code_block(&lines, at, fence, indent, &context.scan, &mut doc);
             continue;
         }
         if is_rule(trimmed) {
@@ -160,7 +195,7 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
             continue;
         }
         if let Some((level, text)) = heading_of(trimmed) {
-            let runs = inline::runs(text, link);
+            let runs = context.runs(text);
             if doc.title.is_empty() && level == 1 {
                 doc.title = plain(&runs);
             }
@@ -174,19 +209,19 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
             at += 1;
             continue;
         }
-        if let Some(rows) = table_at(&lines, at) {
-            at = table(&lines, at, rows, link, &mut doc);
+        if let Some(rows) = table_at(&lines, at, &context.scan) {
+            at = table(&lines, at, rows, &context, &mut doc);
             continue;
         }
         if trimmed.starts_with('>') {
-            at = quote(&lines, at, link, &mut doc);
+            at = quote(&lines, at, &context, &mut doc);
             continue;
         }
         if let Some((marker, rest)) = bullet_of(trimmed) {
-            at = item(&lines, at, indent, marker, rest, link, &mut doc);
+            at = item(&lines, at, indent, marker, rest, &context, &mut doc);
             continue;
         }
-        if let Some(image) = image_of(trimmed, link) {
+        if let Some(image) = image_of(trimmed, context.link) {
             doc.blocks.push(image);
             at += 1;
             continue;
@@ -200,9 +235,9 @@ pub fn parse(source: &str, link: &dyn Fn(&str) -> String) -> Document {
             at += 1;
             continue;
         }
-        at = paragraph(&lines, at, link, &mut doc);
+        at = paragraph(&lines, at, &context, &mut doc);
     }
-    doc
+    (!context.scan.cancelled()).then_some(doc)
 }
 
 /// The fence a line opens (its character and its length), or none.
@@ -221,12 +256,16 @@ fn code_block(
     at: usize,
     (marker, width): (char, usize),
     indent: usize,
+    scan: &inline::Scan<'_>,
     doc: &mut Document,
 ) -> usize {
     let info = lines[at].trim_start().trim_start_matches(marker).trim();
     let mut text = String::new();
     let mut i = at + 1;
     while i < lines.len() {
+        if scan.cancelled() {
+            return lines.len();
+        }
         let line = lines[i];
         let trimmed = line.trim_start();
         if trimmed.chars().take_while(|&c| c == marker).count() >= width
@@ -320,7 +359,7 @@ fn item(
     indent: usize,
     marker: String,
     first: &str,
-    link: &dyn Fn(&str) -> String,
+    context: &Context<'_>,
     doc: &mut Document,
 ) -> usize {
     let mut text = first.to_string();
@@ -328,6 +367,9 @@ fn item(
     // A wrapped item continues on a line indented past its marker that does
     // not itself start a block. Anything else ends it.
     while i < lines.len() {
+        if context.scan.cancelled() {
+            return lines.len();
+        }
         let line = lines[i];
         let trimmed = line.trim_start();
         let next_indent = line.len() - trimmed.len();
@@ -351,17 +393,20 @@ fn item(
         // that reads correctly.
         depth: (indent / 2) as u32,
         marker,
-        runs: inline::runs(&text, link),
+        runs: context.runs(&text),
         ..Block::default()
     });
     i
 }
 
-fn quote(lines: &[&str], at: usize, link: &dyn Fn(&str) -> String, doc: &mut Document) -> usize {
+fn quote(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Document) -> usize {
     let mut i = at;
     let mut text = String::new();
     let mut depth = 0;
     while i < lines.len() {
+        if context.scan.cancelled() {
+            return lines.len();
+        }
         let trimmed = lines[i].trim_start();
         if !trimmed.starts_with('>') {
             break;
@@ -377,7 +422,7 @@ fn quote(lines: &[&str], at: usize, link: &dyn Fn(&str) -> String, doc: &mut Doc
     doc.blocks.push(Block {
         kind: Kind::Quote,
         depth,
-        runs: inline::runs(text.trim(), link),
+        runs: context.runs(text.trim()),
         ..Block::default()
     });
     i
@@ -387,7 +432,7 @@ fn quote(lines: &[&str], at: usize, link: &dyn Fn(&str) -> String, doc: &mut Doc
 /// header row and a `| --- | --- |` rule under it; without the rule a line
 /// with pipes in it is a paragraph, which is what a shell command written in
 /// prose needs it to be.
-fn table_at(lines: &[&str], at: usize) -> Option<usize> {
+fn table_at(lines: &[&str], at: usize, scan: &inline::Scan<'_>) -> Option<usize> {
     if !lines[at].contains('|') {
         return None;
     }
@@ -403,6 +448,9 @@ fn table_at(lines: &[&str], at: usize) -> Option<usize> {
     }
     let mut rows = 2;
     while let Some(line) = lines.get(at + rows) {
+        if scan.cancelled() {
+            return None;
+        }
         if !line.contains('|') || line.trim().is_empty() {
             break;
         }
@@ -415,29 +463,35 @@ fn table(
     lines: &[&str],
     at: usize,
     rows: usize,
-    link: &dyn Fn(&str) -> String,
+    context: &Context<'_>,
     doc: &mut Document,
 ) -> usize {
     for (offset, line) in lines[at..at + rows].iter().enumerate() {
+        if context.scan.cancelled() {
+            return lines.len();
+        }
         if offset == 1 {
             continue; // the `| --- |` rule is grammar, not a row
         }
         doc.blocks.push(Block {
             kind: Kind::TableRow,
             header: offset == 0,
-            cells: cells_of(line, link),
+            cells: cells_of(line, context),
             ..Block::default()
         });
     }
     at + rows
 }
 
-fn cells_of(line: &str, link: &dyn Fn(&str) -> String) -> Vec<Vec<Run>> {
+fn cells_of(line: &str, context: &Context<'_>) -> Vec<Vec<Run>> {
     let trimmed = line.trim().trim_start_matches('|').trim_end_matches('|');
     let mut cells = Vec::new();
     let mut cell = String::new();
     let mut escaped = false;
-    for c in trimmed.chars() {
+    for (index, c) in trimmed.chars().enumerate() {
+        if index.is_multiple_of(4096) && context.scan.cancelled() {
+            return Vec::new();
+        }
         match c {
             '\\' if !escaped => escaped = true,
             '|' if !escaped => cells.push(std::mem::take(&mut cell)),
@@ -451,7 +505,7 @@ fn cells_of(line: &str, link: &dyn Fn(&str) -> String) -> Vec<Vec<Run>> {
         }
     }
     cells.push(cell);
-    cells.iter().map(|c| inline::runs(c.trim(), link)).collect()
+    cells.iter().map(|c| context.runs(c.trim())).collect()
 }
 
 /// `![alt](src)` alone on a line — the only place an image is a block.
@@ -475,15 +529,13 @@ fn image_of(line: &str, link: &dyn Fn(&str) -> String) -> Option<Block> {
     })
 }
 
-fn paragraph(
-    lines: &[&str],
-    at: usize,
-    link: &dyn Fn(&str) -> String,
-    doc: &mut Document,
-) -> usize {
+fn paragraph(lines: &[&str], at: usize, context: &Context<'_>, doc: &mut Document) -> usize {
     let mut text = String::new();
     let mut i = at;
     while i < lines.len() {
+        if context.scan.cancelled() {
+            return lines.len();
+        }
         let trimmed = lines[i].trim();
         if trimmed.is_empty()
             || (i > at
@@ -492,7 +544,7 @@ fn paragraph(
                     || is_rule(trimmed)
                     || bullet_of(trimmed).is_some()
                     || trimmed.starts_with('>')
-                    || table_at(lines, i).is_some()))
+                    || table_at(lines, i, &context.scan).is_some()))
         {
             break;
         }
@@ -504,7 +556,7 @@ fn paragraph(
     }
     doc.blocks.push(Block {
         kind: Kind::Paragraph,
-        runs: inline::runs(&text, link),
+        runs: context.runs(&text),
         ..Block::default()
     });
     i
