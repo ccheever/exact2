@@ -26,7 +26,19 @@ export async function browserCore(storage:Storage,path:string,backend:Backend):P
     let device=new WebDevice(saved==='[]'?JSON.stringify(backend):null,saved);
     const commit=async()=>{
       const changes=JSON.parse(device.drain()) as {s:string;k:string;v:string|null}[];
-      if(changes.length)await db.transaction(changes.map(({s,k,v})=>v===null
+      if(!changes.length)return;
+      // Idle apply repeats acquisition/watermark metadata. A bounded read can
+      // avoid exporting the whole browser database when every final value is
+      // already durable. Data-bearing or large commits keep the direct path.
+      if(changes.length<=32&&changes.every(change=>change.s==='m')
+        &&changes.reduce((size,change)=>size+change.k.length+(change.v?.length||0),0)<=8192){
+        const latest=[...new Map(changes.map(({k,v})=>[k,v])).entries()];
+        const changed=await db.query(`WITH proposed(k,v) AS (VALUES ${latest.map(()=>'(?,?)').join(',')})
+          SELECT 1 FROM proposed p LEFT JOIN snapback_device d ON d.s='m' AND d.k=p.k
+          WHERE p.v IS NOT d.v LIMIT 1`,latest.flat());
+        if(!changed.rows.length)return;
+      }
+      await db.transaction(changes.map(({s,k,v})=>v===null
         ?{sql:'DELETE FROM snapback_device WHERE s=? AND k=?',params:[s,k]}
         :{sql:'INSERT OR REPLACE INTO snapback_device VALUES (?,?,?)',params:[s,k,v]}));
     };

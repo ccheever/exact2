@@ -21,14 +21,20 @@ test('0.2.30 device retains offline edits, acquires receipts, reopens, and rolls
   let server=startServer();
   const originalFetch=globalThis.fetch;
   let online=false,loseReceipt=false,failCommit=false,failRead=false,failApply=false,failSchema=false,recordQueries=0;
+  let writes=0,failStorageRead=false,failMetadataCommit=false;
   const sql=new Database(join(dir,'device.sqlite'));
   const storage={sqlite:{open:async()=>({
     execute:async(text:string,params:unknown[]=[])=>sql.prepare(text).run(...params as never[]),
-    query:async(text:string,params:unknown[]=[])=>({rows:sql.prepare(text).values(...params as never[])}),
+    query:async(text:string,params:unknown[]=[])=>{
+      if(failStorageRead){failStorageRead=false;throw new Error('storage fixture refused read');}
+      return {rows:sql.prepare(text).values(...params as never[])};
+    },
     transaction:async(commands:{sql:string;params?:unknown[]}[])=>{
       if(failCommit && commands.some(command=>command.params?.[0]==='o')){
         failCommit=false;throw new Error('disk fixture refused commit');
       }
+      if(failMetadataCommit){failMetadataCommit=false;throw new Error('metadata fixture refused commit');}
+      writes++;
       sql.transaction(()=>{for(const command of commands)sql.prepare(command.sql).run(...(command.params||[]) as never[]);})();
     },close:async()=>{},
   })}} as unknown as Storage;
@@ -95,8 +101,19 @@ test('0.2.30 device retains offline edits, acquires receipts, reopens, and rolls
     expect((await response.json() as any).data.map((r:any)=>r.payload)).toEqual([{z:1,text:'receipt survives loss'}]);
     let ticks=9000;
     const sync=(publish:(rows:Map<string,unknown>)=>void=()=>{})=>client.sync(ticks+=3000,local,publish);
-    recordQueries=0;await sync();expect(recordQueries).toBe(0);
-    online=false;await sync();expect(recordQueries).toBe(0);
+    recordQueries=0;writes=0;await sync();expect(recordQueries).toBe(0);expect(writes).toBe(0);
+    online=false;await sync();expect(recordQueries).toBe(0);expect(writes).toBe(0);
+    const metadata=async(value:string)=>core.call({op:'set_meta',key:'fixture:value',value});
+    await metadata('old');writes=0;await metadata('old');expect(writes).toBe(0);
+    await metadata('new');expect(writes).toBe(1);
+    failStorageRead=true;await expect(metadata('lost read')).rejects.toThrow('storage fixture refused read');
+    expect(result(await core.call({op:'meta',key:'fixture:value'}))).toBe('new');
+    failMetadataCommit=true;await expect(metadata('lost write')).rejects.toThrow('metadata fixture refused commit');
+    expect(result(await core.call({op:'meta',key:'fixture:value'}))).toBe('new');
+    expect(sql.prepare("SELECT v FROM snapback_device WHERE s='m' AND k='client:fixture:value'").get()).toEqual({v:'new'});
+    await metadata('x'.repeat(8193));writes=0;await metadata('x'.repeat(8193));
+    expect(writes).toBe(1); // Large commits retain the existing bounded request path.
+    await metadata('new');
     const remote=async(key:string,text:string,id:string)=>{
       const response=await originalFetch(`${base}/m/putRecords`,{method:'POST',headers:{'content-type':'application/json','x-snapback-persona':'alice'},body:JSON.stringify({id,args:{recordIds:[`${viewer}:${encodeURIComponent(key)}`],keys:[key],payloads:[{text}]},newIds:[]})});
       const receipt=await response.json() as any;expect(receipt.state).toBe('sent');return receipt;

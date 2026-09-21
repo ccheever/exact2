@@ -31,6 +31,10 @@ An idle sync no longer rereads or compares the history. Reset/adoption, applied
 changes, snapshot catch-up and outbox settlement mark reconciliation as owed;
 failed reads or model publication leave that flag set for the next tick. Status
 and queued counts still update, and changed syncs still reread the full history.
+On the browser, small metadata-only device commits first compare their final values
+with SQLite. Unchanged metadata skips persistence; actual changes still commit the
+original batch. This avoids whole-database exports on idle sync. The comparison adds
+one read to actual small metadata writes; data-bearing and large commits bypass it.
 
 The development connection is explicit in `snapback-client.ts`: origin
 `http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own
