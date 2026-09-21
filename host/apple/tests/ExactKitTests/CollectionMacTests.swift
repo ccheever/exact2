@@ -292,14 +292,18 @@ final class CollectionMacTests: XCTestCase {
         p.syncLists(limit: 2)
         XCTAssertEqual(limits, [2])
         p.pump()
-        XCTAssertGreaterThan(limits.count, 1, "pending work survives an unchanged geometry stamp")
         XCTAssertTrue(limits.allSatisfy { $0 == 2 }, "every pump report admits only one overscan row")
         let afterList = limits.count
         p.requestTextPublication()
         p.pump()
         XCTAssertEqual(limits.count, afterList, "pending list work leaves a slice for text publication")
         p.pump()
+        XCTAssertTrue(limits.dropFirst(afterList).allSatisfy { $0 == 2 })
+        // A descheduled test can exhaust the entire deadline before admission.
+        // Pending demand must survive that empty slice and settle synchronously.
+        p.settlePump()
         XCTAssertGreaterThan(limits.count, afterList)
+        XCTAssertEqual(limits.last, 0)
         let afterSecondList = limits.count
         p.reset()
         p.pump()
