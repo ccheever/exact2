@@ -4,30 +4,33 @@
 
 use crate::{Block, Document, Run};
 use exact_plan::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 /// Sharing is scoped to one conversion: no global pool retains closed files.
-/// The values own their strings; these borrowed lookup keys die with the builder.
-struct Values<'a> {
-    strings: HashMap<&'a str, Value>,
+/// Owned lookup keys let a consuming conversion release parsed blocks as it goes.
+struct Values {
+    strings: HashSet<Rc<str>>,
     indices: HashMap<usize, Value>,
     empty_list: Value,
 }
 
-impl<'a> Values<'a> {
+impl Values {
     fn new() -> Self {
         Self {
-            strings: HashMap::new(),
+            strings: HashSet::new(),
             indices: HashMap::new(),
             empty_list: Value::list(Vec::new()),
         }
     }
 
-    fn string(&mut self, text: &'a str) -> Value {
-        self.strings
-            .entry(text)
-            .or_insert_with(|| Value::str(text))
-            .clone()
+    fn string(&mut self, text: &str) -> Value {
+        let text = self.strings.get(text).cloned().unwrap_or_else(|| {
+            let text: Rc<str> = Rc::from(text);
+            self.strings.insert(text.clone());
+            text
+        });
+        Value::Str(text)
     }
 
     fn index(&mut self, index: usize) -> Value {
@@ -37,7 +40,7 @@ impl<'a> Values<'a> {
             .clone()
     }
 
-    fn run(&mut self, index: usize, run: &'a Run) -> Value {
+    fn run(&mut self, index: usize, run: &Run) -> Value {
         Value::record(vec![
             self.index(index),
             self.string(&run.text),
@@ -48,7 +51,7 @@ impl<'a> Values<'a> {
         ])
     }
 
-    fn runs(&mut self, list: &'a [Run]) -> Value {
+    fn runs(&mut self, list: &[Run]) -> Value {
         if list.is_empty() {
             return self.empty_list.clone();
         }
@@ -60,7 +63,7 @@ impl<'a> Values<'a> {
         )
     }
 
-    fn cells(&mut self, list: &'a [Vec<Run>]) -> Value {
+    fn cells(&mut self, list: &[Vec<Run>]) -> Value {
         if list.is_empty() {
             return self.empty_list.clone();
         }
@@ -72,7 +75,7 @@ impl<'a> Values<'a> {
         )
     }
 
-    fn block(&mut self, index: usize, b: &'a Block) -> Value {
+    fn block(&mut self, index: usize, b: &Block) -> Value {
         Value::record(vec![
             self.index(index),
             self.string(b.kind.name()),
@@ -110,6 +113,19 @@ pub fn blocks(doc: &Document) -> Value {
             .iter()
             .enumerate()
             .map(|(i, b)| values.block(i, b))
+            .collect(),
+    )
+}
+
+/// Convert an owned document, releasing each parsed block after conversion so
+/// its allocations can serve later values instead of retaining both full forms.
+pub fn into_blocks(doc: Document) -> Value {
+    let mut values = Values::new();
+    Value::list(
+        doc.blocks
+            .into_iter()
+            .enumerate()
+            .map(|(i, b)| values.block(i, &b))
             .collect(),
     )
 }

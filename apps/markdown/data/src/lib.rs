@@ -59,7 +59,7 @@ impl Markdown {
     }
 
     /// `shape Document`: the file, what is beside it, and any refusal.
-    fn value(path: &Path, doc: &Document, message: &str) -> Value {
+    fn value(path: &Path, doc: Document, message: &str) -> Value {
         Value::record(vec![
             Value::str(&path.to_string_lossy()),
             Value::str(&name_of(path)),
@@ -67,7 +67,7 @@ impl Markdown {
             Value::str(message),
             Value::Bool(!message.is_empty()),
             Value::Number(doc.blocks.len() as f64),
-            markdown_parse::value::blocks(doc),
+            markdown_parse::value::into_blocks(doc),
             siblings(path),
         ])
     }
@@ -76,7 +76,7 @@ impl Markdown {
     fn opened(&mut self, asked: &str, result: Opened) -> Value {
         match result {
             Ok((path, doc)) => {
-                let value = Self::value(&path, &doc, "");
+                let value = Self::value(&path, doc, "");
                 self.open = Some((path, value.clone()));
                 value
             }
@@ -90,7 +90,7 @@ impl Markdown {
                     fields[7] = siblings(path);
                     Value::record(fields)
                 }
-                _ => Self::value(Path::new(asked), &Document::default(), &message),
+                _ => Self::value(Path::new(asked), Document::default(), &message),
             },
         }
     }
@@ -99,7 +99,7 @@ impl Markdown {
     /// surface that cannot reach a filesystem can still show.
     fn welcome(&mut self) -> Value {
         let doc = parse(WELCOME, &|target: &str| target.to_string());
-        let value = Self::value(Path::new("Markdown"), &doc, "");
+        let value = Self::value(Path::new("Markdown"), doc, "");
         self.open = None;
         value
     }

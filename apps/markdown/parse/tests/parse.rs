@@ -57,6 +57,8 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
         fields(&markdown_parse::value::block(usize::MAX, &doc.blocks[0]))[0].as_str(),
         Some(usize::MAX.to_string().as_str())
     );
+    let encoded = markdown_parse::value::blocks(&doc).to_bytes();
+    assert_eq!(markdown_parse::value::into_blocks(doc).to_bytes(), encoded);
 }
 
 #[test]
