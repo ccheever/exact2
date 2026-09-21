@@ -7,6 +7,7 @@
 **Date:** 2026-09-18
 **Revised:** 2026-09-21
 **Related:** LLP 1033 (the reader; `apps/markdown/README.md` is the lane's running record), LLP 1010 §6 (bounded list memory, measured rows), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls, the engine follows), LLP 1008 §3, §5 (CoreText, the AppKit presenter), LLP 1001 §6 (the `TextMeasurer` seam), LLP 1043 (what a CoreText re-break costs)
+**Plans:** [LLP 1044.000](1044.000-text-performance-claude.plan.md) (the synthesis, implementing from 2026-09-21) and [LLP 1044.001](1044.001-text-performance-astra.plan.md) (Astra's independent plan) answer this document; 1044.000 §2 audits it against `9dbaded0`.
 
 ## Summary
 
