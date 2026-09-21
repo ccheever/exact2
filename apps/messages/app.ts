@@ -144,7 +144,38 @@ function replaceThread(id:string,rows:StoredMessage[]) {
 function removeMessages(id:string,selected:Set<string>) {
   const removed:StoredMessage[]=[],kept:StoredMessage[]=[];
   for(const row of threads.get(id)||[])(selected.has(row.id)?removed:kept).push(row);
-  if(removed.length)replaceThread(id,kept);
+  if(removed.length){
+    // Rebuilding fewer survivors also keeps clearing a thread cheap.
+    if(removed.length>=kept.length){replaceThread(id,kept);return removed;}
+    threads.set(id,kept);
+    const index=indexes.get(id)!,roots=new Set<string>();
+    const outgoing=(rows:StoredMessage[])=>{
+      for(let i=rows.length-1;i>=0;i--)if(rows[i].outgoing)return rows[i];
+    };
+    for(const row of removed){
+      index.byId.delete(row.id);index.awaitingRead.delete(row);roots.add(row.replyRoot);
+      if(row.id!==row.replyRoot){
+        const count=index.replyCounts.get(row.replyRoot)!-1;
+        if(count)index.replyCounts.set(row.replyRoot,count);else index.replyCounts.delete(row.replyRoot);
+      }
+    }
+    // Rebuilding previously normalized receipt iteration to transcript order.
+    // Retain that ordering for the next durable receipt footprint.
+    if(index.awaitingRead.size){
+      index.awaitingRead.clear();
+      for(const row of kept)if(row.outgoing && row.delivery!=='Read')index.awaitingRead.add(row);
+    }
+    if(index.lastOutgoing && selected.has(index.lastOutgoing.id))index.lastOutgoing=outgoing(kept);
+    for(const root of roots){
+      const replies=index.replies.get(root)!.filter(row=>!selected.has(row.id));
+      if(replies.length)index.replies.set(root,replies);else index.replies.delete(root);
+      const previous=index.replyOutgoing.get(root);
+      if(previous && selected.has(previous.id)){
+        const last=outgoing(replies);
+        if(last)index.replyOutgoing.set(root,last);else index.replyOutgoing.delete(root);
+      }
+    }
+  }
   return removed;
 }
 const muted = new Set<string>();
