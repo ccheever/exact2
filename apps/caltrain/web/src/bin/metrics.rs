@@ -319,6 +319,7 @@ component App
                         origin: 0.0,
                         pins: [0, 0],
                         rows: &[],
+                        velocity: 0.0,
                     },
                 )
                 .unwrap();
@@ -352,6 +353,7 @@ component App
                             origin: 0.0,
                             pins: [0, 0],
                             rows: &[],
+                            velocity: 0.0,
                         },
                     )
                     .unwrap();
@@ -371,6 +373,7 @@ component App
                         origin: 0.0,
                         pins: [0, 0],
                         rows: &[],
+                        velocity: 0.0,
                     },
                 )
                 .unwrap();

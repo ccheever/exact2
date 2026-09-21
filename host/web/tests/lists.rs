@@ -94,6 +94,7 @@ fn scrolling_has_bounded_live_and_retained_nodes_without_data_calls() {
         r.list_viewport(
             list,
             exact_runner::ListViewport {
+                velocity: 0.0,
                 top: 2400.0,
                 height: 240.0,
                 width: 390.0,
@@ -115,6 +116,7 @@ fn scrolling_has_bounded_live_and_retained_nodes_without_data_calls() {
                 r.list_viewport(
                     list,
                     exact_runner::ListViewport {
+                        velocity: 0.0,
                         top: (row * 24) as f64,
                         height: 240.0,
                         width: 390.0,
@@ -135,6 +137,7 @@ fn scrolling_has_bounded_live_and_retained_nodes_without_data_calls() {
         r.list_viewport(
             list,
             exact_runner::ListViewport {
+                velocity: 0.0,
                 top: ((count - 10) * 24) as f64,
                 height: 240.0,
                 width: 390.0,
@@ -168,6 +171,7 @@ fn a_pinned_row_keeps_identity_and_state_then_releases_both() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 2400.0,
             height: 240.0,
             width: 390.0,
@@ -182,6 +186,7 @@ fn a_pinned_row_keeps_identity_and_state_then_releases_both() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 2400.0,
             height: 240.0,
             width: 390.0,
@@ -196,6 +201,7 @@ fn a_pinned_row_keeps_identity_and_state_then_releases_both() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 0.0,
             height: 240.0,
             width: 390.0,
@@ -223,6 +229,7 @@ fn reorder_and_deleted_anchor_preserve_the_reading_position() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 2407.0,
             height: 240.0,
             width: 390.0,
@@ -277,6 +284,7 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 0.0,
             height: 240.0,
             width: 390.0,
@@ -291,6 +299,7 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
         .list_viewport(
             list,
             exact_runner::ListViewport {
+                velocity: 0.0,
                 top: f64::NAN,
                 height: 240.0,
                 width: 390.0,
@@ -307,6 +316,7 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
     r.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 4812.0,
             height: 480.0,
             width: 390.0,
@@ -322,6 +332,7 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
         r.list_viewport(
             list,
             exact_runner::ListViewport {
+                velocity: 0.0,
                 top,
                 height,
                 width: 390.0,
@@ -361,6 +372,7 @@ fn web_batches_retire_rows_and_report_logical_accessibility_positions() {
     let batch = host.list_viewport(
         list,
         exact_runner::ListViewport {
+            velocity: 0.0,
             top: 2400.0,
             height: 240.0,
             width: 390.0,

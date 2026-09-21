@@ -900,6 +900,7 @@ final class Presenter {
                 pendingScrolls.remove(id)
                 listPending.remove(id)
                 listViews.removeValue(forKey: id)
+                listTravel.removeValue(forKey: id)
                 gone?.removeFromSuperview()
             case "roots":
                 root.subviews.forEach { $0.removeFromSuperview() }
