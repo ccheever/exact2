@@ -1121,3 +1121,15 @@ for(const abort of ['pointerup','pointercancel','horizontal'])test(`Arrange retu
   await evaluate('f.arrange.reset()');
   expect(held).toEqual({finished:0,begins:1,pin:5});expect(settled).toEqual({finished:1,pin:0});
 });
+
+test('destroy cancels owned animations without querying styles on retiring rows', async () => {
+  const result = await evaluate(`(() => {
+    const f = (${motionFixture})(), m = f.motion, node = f.node;
+    m.animate({id:2,property:'translate',values:[[0,0],[100,0]],delay:0,duration:1000});
+    const animation = node.getAnimations()[0];
+    node.getAnimations = () => { throw Error('destroy must not flush styles'); };
+    m.destroy(2); node.remove(); f.views.delete(2);
+    return animation.playState;
+  })()`);
+  expect(result).toBe('idle');
+});

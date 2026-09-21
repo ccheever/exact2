@@ -195,52 +195,22 @@ function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (
 // An unchanged binding never overrides a user's scroll position.
 const lists = new Map();
 let listSelection, listSelectionLoading;
-function loadListSelection() {
-  listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
-    .then(install => { listSelection = install({ root, lists,
-      index: (el, key) => wasm.exact_list_index(Number(el.dataset.view), writeIn(key)),
-      text: (el, a, b) => { const first = encoder.encode(a?.key ?? '').length, len = writeIn((a?.key ?? '') + (b?.key ?? '')); return readOut(wasm.exact_list_text(Number(el.dataset.view), first, len, a?.paragraph ?? 0, a?.offset ?? 0, b?.paragraph ?? 0, b?.offset ?? 0)); },
-    }); }).catch(console.error);
-}
-let listsQueued = false;
-function syncLists() {
-  if (listsQueued) return;
-  listsQueued = true;
-  queueMicrotask(() => {
-    listsQueued = false;
-    for (const [el, s] of lists) {
-      if (!el.isConnected || views.get(s.id) !== el) continue;
-      const content = el.firstElementChild;
-      const origin = content ? content.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop : 0;
-      const focus = el.contains(document.activeElement) ? Number(document.activeElement.closest('[data-view]')?.dataset.view ?? 0) : 0;
-      const rows = s.measured ? [...(content?.children ?? [])] : [];
-      for (const row of s.observed) if (!rows.includes(row)) s.observer.unobserve(row);
-      for (const row of rows) if (!s.observed.includes(row)) s.observer.observe(row);
-      s.observed = rows;
-      const measurements = rows.map(row => `${row.dataset.view},${row.getBoundingClientRect().height}`).join('\n');
-      const geometry = [el.scrollTop, el.clientHeight, content?.clientWidth ?? el.clientWidth, origin, focus, s.pointer];
-      const stamp = geometry.join(',') + ':' + measurements;
-      if (s.last === stamp) continue;
-      s.last = stamp;
-      send(wasm.exact_list(s.id, ...geometry, writeIn(measurements)));
-    }
-  });
-}
 function listView(el, id) {
   const measured = el.hasAttribute('data-estimateditemheight');
   if (!measured && !el.hasAttribute('data-itemheight')) return;
-  loadListSelection();
-  const observer = new ResizeObserver(syncLists);
-  const s = { id, observer, measured, observed: [], pointer: 0, last: null };
-  lists.set(el, s); observer.observe(el);
-  for (const name of ['scroll', 'focusin', 'focusout']) el.addEventListener(name, syncLists, { passive: true });
-  el.addEventListener('pointerdown', e => { s.pointer = Number(e.target.closest('[data-view]')?.dataset.view ?? 0); syncLists(); }, { passive: true });
+  lists.set(el, { id, measured });
+  listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
+    .then(install => { listSelection = install({ root, lists, views,
+      report: (id, geometry, measurements, limit) => {
+        send(wasm.exact_list(id, ...geometry, writeIn(measurements), limit));
+        return Boolean(wasm.exact_list_pending(id));
+      },
+      index: (el, key) => wasm.exact_list_index(Number(el.dataset.view), writeIn(key)),
+      text: (el, a, b) => { const first = encoder.encode(a?.key ?? '').length, len = writeIn((a?.key ?? '') + (b?.key ?? '')); return readOut(wasm.exact_list_text(Number(el.dataset.view), first, len, a?.paragraph ?? 0, a?.offset ?? 0, b?.paragraph ?? 0, b?.offset ?? 0)); },
+    }); listSelection.sync(); }).catch(console.error);
 }
-for (const name of ['pointerup', 'pointercancel']) document.addEventListener(name, () => {
-  // Keep the source through the click following pointerup.
-  requestAnimationFrame(() => { for (const s of lists.values()) s.pointer = 0; syncLists(); });
-}, { passive: true });
-function forgetList(el) { lists.get(el)?.observer.disconnect(); lists.delete(el); }
+function syncLists() { listSelection?.sync(); }
+function forgetList(el) { listSelection?.forget(el); lists.delete(el); }
 const pendingScrolls = new Map();
 const { followedScrolls, followScroll, settleFollow, rememberScroll } = scrollFollowers(positionContexts);
 root.addEventListener("pointerdown", event => {

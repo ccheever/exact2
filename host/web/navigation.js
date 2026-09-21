@@ -983,7 +983,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       drags.get(id)?.(); drags.delete(id);
       for(const [handle,b] of [...heightBindings]) if(handle===id||b.target===id) { drags.get(handle)?.(); heightBindings.delete(handle); }
       for(const b of [...transformBindings.values()])if(b.id===id||b.target===id||b.clip===id)detachTransform(b);
-      for(const property of properties) { cancelProperty(id,property); held.delete(key(id,property)); }
+      // Detaching cancels CSS transitions. Only our retained WAAPI animations
+      // need explicit cancellation; querying getAnimations here flushes styles
+      // once per retired list row while the DOM batch is still being applied.
+      for(const property of properties) { cancelProperty(id,property,null); held.delete(key(id,property)); }
       raised.delete(id);authored.delete(id);
     },
     reset() {

@@ -681,3 +681,101 @@ test('tree forwards its target and preserves host annotations and runner errors'
   expect(reply.nodes[0]).toEqual({id:7,type:'WebView',url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });
+
+function listFixture() {
+  const frames = [], observers = [], events = [], reports = [], listeners = new Map();
+  const document = { activeElement: null,
+    addEventListener: (name, fn) => listeners.set(name, fn),
+    createElement: () => ({}), head: { append() {} } };
+  const lists = new Map(), views = new Map();
+  const root = { addEventListener() {} };
+  const context = vm.createContext({ document, root, lists, views, globalThis: { exact: {} },
+    getSelection: () => ({ isCollapsed: true, anchorNode: null, focusNode: null, anchorOffset: 0, focusOffset: 0,
+      toString() { throw new Error('rendered selection text forces layout'); } }),
+    requestAnimationFrame: fn => { frames.push(fn); return frames.length; },
+    ResizeObserver: class {
+      constructor(callback) { this.callback = callback; this.watched = new Map(); observers.push(this); }
+      observe(el, options) { this.watched.set(el, options); }
+      unobserve(el) { this.watched.delete(el); }
+      disconnect() { this.watched.clear(); }
+    },
+  });
+  vm.runInContext(readFileSync(new URL('./list-selection.js', import.meta.url), 'utf8'), context);
+  let pending = false;
+  const controller = context.globalThis.exact.installListSelection({ root, lists, views,
+    report: (id, geometry, measurements, limit) => {
+      events.push('write'); reports.push({ id, geometry, measurements, limit }); return pending;
+    }, index() {}, text() {},
+  });
+  function add(id) {
+    const handlers = new Map(), row = { dataset: { view: String(id + 100) },
+      getBoundingClientRect() { throw new Error('row geometry must come from ResizeObserver'); } };
+    const content = { children: [row], get clientWidth() { events.push('read'); return el.width; },
+      getBoundingClientRect() { events.push('read'); return { top: 12 - el.scrollTop }; } };
+    const el = { isConnected: true, firstElementChild: content, scrollTop: 0, clientTop: 0, width: 390,
+      get clientHeight() { events.push('read'); return 240; },
+      getBoundingClientRect() { events.push('read'); return { top: 0 }; },
+      contains: target => target === row,
+      addEventListener: (name, fn) => handlers.set(name, fn),
+    };
+    row.closest = () => row;
+    lists.set(el, { id, measured: true }); views.set(id, el); controller.sync();
+    const observer = observers.at(-1);
+    const measure = (target = row, width = el.width, height = 31.5) => observer.callback([
+      { target, borderBoxSize: [{ inlineSize: width, blockSize: height }] },
+    ]);
+    return { el, row, content, handlers, observer, measure };
+  }
+  return { add, document, controller, lists, views, frames, reports, events, listeners,
+    pending(value) { pending = value; },
+    frame() { const queued = frames.splice(0); for (const fn of queued) fn(); },
+  };
+}
+
+test('list feedback reads all ports before writing, coalesces events and drains a budget across frames', () => {
+  const f = listFixture(), a = f.add(1), b = f.add(2);
+  f.controller.before(); f.controller.after();
+  a.measure(); b.measure();
+  for (let i = 0; i < 10; i++) a.handlers.get('scroll')();
+  f.pending(true);
+  expect(f.frames).toHaveLength(1);
+  f.frame();
+  expect(f.reports).toHaveLength(2);
+  expect(f.events.slice(f.events.indexOf('write'))).toEqual(['write', 'write']);
+  expect(f.reports[0]).toEqual({ id: 1, geometry: [0, 240, 390, 12, 0, 0], measurements: '101,31.5', limit: 2 });
+  expect(f.frames).toHaveLength(1);
+  f.pending(false); f.frame();
+  expect(f.reports).toHaveLength(4); // Pending bypasses the unchanged-geometry stamp.
+  expect(f.frames).toHaveLength(0);
+  a.handlers.get('scroll')(); f.frame();
+  expect(f.reports).toHaveLength(4);
+});
+
+test('list measurements discard retired elements and old widths while retaining focus and pointer pins', () => {
+  const f = listFixture(), a = f.add(1);
+  a.measure(); f.frame();
+  f.document.activeElement = a.row;
+  a.handlers.get('pointerdown')({ target: a.row });
+  a.handlers.get('focusin')(); f.frame();
+  expect(f.reports.at(-1).geometry.slice(4)).toEqual([101, 101]);
+  f.listeners.get('pointerup')();
+  expect(f.lists.get(a.el).pointer).toBe(101); // The following click still owns its source.
+  f.frame(); f.frame();
+  expect(f.reports.at(-1).geometry.slice(4)).toEqual([101, 0]);
+  a.el.width = 200; f.controller.sync(); f.frame();
+  expect(f.reports.at(-1).measurements).toBe('');
+  a.measure(); f.frame();
+  expect(f.reports.at(-1).measurements).toBe('101,31.5');
+  const replacement = { dataset: { view: '101' } };
+  a.content.children = [replacement]; f.controller.sync();
+  a.measure(a.row, 200, 99); f.frame();
+  expect(a.observer.watched.has(a.row)).toBe(false);
+  expect(f.reports.at(-1).measurements).toBe('');
+  a.measure(replacement, 200, 52); f.frame();
+  expect(f.reports.at(-1).measurements).toBe('101,52');
+  const count = f.reports.length;
+  f.controller.forget(a.el); f.lists.delete(a.el); f.views.delete(1);
+  a.measure(replacement, 200, 80); f.frame();
+  expect(a.observer.watched.size).toBe(0);
+  expect(f.reports).toHaveLength(count);
+});
