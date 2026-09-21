@@ -97,6 +97,22 @@ fn send(r: &mut Runner<Rows>, top: f64) -> Advanced {
     assert!(result.error.is_none(), "{:?}", result.error);
     result
 }
+fn measurements(r: &Runner<Rows>, height: f64) -> Vec<exact_runner::RowMeasurement> {
+    r.collections()[0]
+        .rows
+        .iter()
+        .map(|row| exact_runner::RowMeasurement {
+            view: row.view,
+            epoch: row.epoch,
+            height,
+        })
+        .collect()
+}
+fn measure(r: &mut Runner<Rows>, top: f64, height: f64) {
+    let mut feedback = facts(r, top);
+    feedback.measurements = measurements(r, height);
+    assert!(r.collection_feedback(feedback).unwrap().error.is_none());
+}
 fn hits(r: &Runner<Rows>) -> (f64, f64) {
     (
         r.slot("starts").unwrap().as_number().unwrap(),
@@ -119,6 +135,7 @@ fn bootstrap_then_edges_rearm_only_after_leaving_the_geometric_window() {
     send(&mut r, 1000.);
     let queries = r.data_ref().queries;
     send(&mut r, 1100.);
+    measure(&mut r, 1100., 32.); // Confirm the edge exit after mounting this window.
     assert_eq!(r.data_ref().queries, queries);
     assert_eq!(r.last_instance_work().rows_keyed, 0);
     send(&mut r, 0.);
@@ -143,6 +160,7 @@ fn bootstrap_then_edges_rearm_only_after_leaving_the_geometric_window() {
         "a changed last key inside the window stays disarmed"
     );
     send(&mut r, 1000.);
+    measure(&mut r, 1000., 32.);
     send(&mut r, 6112.);
     assert_eq!(hits(&r), (2., 2.));
 }
@@ -300,6 +318,13 @@ fn pinned_endpoints_do_not_qualify_and_zero_port_has_no_geometric_window() {
     assert!(r.collections()[0].rows.iter().any(|row| row.root == first));
     assert!(r.collections()[0].rows.iter().any(|row| row.root == last));
     assert_eq!(hits(&r), (1., 1.));
+    // Certify the middle window, retaining both offscreen pins. Pins must not
+    // make the endpoint part of the geometric window or prevent re-arming.
+    let mut f = facts(&r, 3200.);
+    f.focus_view = Some(first);
+    f.interaction_view = Some(last);
+    f.measurements = measurements(&r, 32.);
+    assert!(r.collection_feedback(f).unwrap().error.is_none());
     let mut f = facts(&r, 0.);
     f.port_height = 0.;
     f.focus_view = Some(first);
@@ -471,4 +496,86 @@ fn bidirectional_tiny_rows_do_not_rearm_on_endpoint_key_changes() {
     }
     assert_eq!(r.slot("start"), Some(&Value::Number(2.)));
     assert_eq!(hits(&r), (1., 1.), "an all-fitting window must become idle");
+}
+
+#[test]
+fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
+    let source = SOURCE
+        .replace("height=32", "height=1")
+        .replace("state start = 0", "state start = 200")
+        .replace(
+            "action onStart writes starts, refused",
+            "action onStart writes starts, refused, start",
+        )
+        .replace(
+            "refused = fail",
+            "refused = fail\n    if start > 0\n      start = start - 100",
+        )
+        .replace(
+            "action onEnd writes ends",
+            "action onEnd writes ends, start",
+        )
+        .replace(
+            "ends = ends + 1",
+            "ends = ends + 1\n    if start < 200\n      start = start + 100",
+        );
+    let mut r = boot(&source);
+    let mut top = 0.;
+    for turn in 0..120 {
+        let snapshot = r.collections().remove(0);
+        if let Some(correction) = snapshot.correction {
+            top = correction.scroll_top;
+        }
+        let mut feedback = facts(&r, top);
+        feedback.scroll_sequence = 1; // no reader scroll, only layout feedback
+        feedback.measurements = measurements(&r, 1.);
+        let result = r.collection_feedback(feedback).unwrap();
+        assert!(result.error.is_none(), "{:?}", result.error);
+        if turn > 40 {
+            assert!(
+                result.receipts.is_empty(),
+                "settled feedback must stay idle"
+            );
+        }
+    }
+    assert_eq!(
+        hits(&r),
+        (1., 1.),
+        "provisional replacement heights must not manufacture an edge exit"
+    );
+    assert_eq!(r.slot("start"), Some(&Value::Number(200.)));
+    assert_eq!(r.data_ref().queries, 3);
+    assert_eq!(r.collections()[0].total_extent, 200.);
+}
+
+#[test]
+fn hiding_the_scrollport_does_not_rearm_an_edge() {
+    let mut r = boot(SOURCE);
+    send(&mut r, 0.);
+    measure(&mut r, 0., 32.);
+    let mut feedback = facts(&r, 0.);
+    feedback.port_height = 0.;
+    assert!(r.collection_feedback(feedback).unwrap().error.is_none());
+    send(&mut r, 0.);
+    measure(&mut r, 0., 32.);
+    assert_eq!(hits(&r), (1., 0.));
+}
+
+#[test]
+fn an_empty_replacement_rearms_new_data_without_dispatching_an_empty_edge() {
+    let mut r = boot(SOURCE);
+    r.act("change", vec![Value::Number(0.), Value::Number(2.)])
+        .unwrap();
+    send(&mut r, 0.);
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 1.));
+    r.act("change", vec![Value::Number(0.), Value::Number(0.)])
+        .unwrap();
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 1.));
+    r.act("change", vec![Value::Number(10.), Value::Number(2.)])
+        .unwrap();
+    send(&mut r, 0.);
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (2., 2.));
 }

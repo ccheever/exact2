@@ -760,8 +760,12 @@ including the browser's integer scroll range for fractional CSS row extents.
 commits. Only nonempty virtualized collections qualify: the geometric window
 (scrollport plus one viewport of overscan) must contain the first/last supplied
 row; bootstrap rows and pins alone never qualify. Edges start armed, disarm on
-successful dispatch, and re-arm only when an evaluation finds the current edge
-row outside that geometric window. Changing endpoint keys does not re-arm them.
+successful dispatch, and re-arm when the current edge row is outside a nonempty
+geometric window whose entire overscan band has current measurements. The existing
+height index checks that band in O(log N), without measuring offscreen rows.
+Replacement estimates, width/content invalidation and a hidden scrollport cannot
+manufacture an exit. Changing endpoint keys does not re-arm them. An empty data
+set resets arming for later nonempty data but dispatches no edge itself.
 Each edge fires at most once per feedback call. When both qualify, start precedes
 end; end runs in the same call only after a pure no-op start (no state change or
 request started). Otherwise end remains armed, waits for the first action's async

@@ -69,7 +69,17 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
             port_width: 640.,
             port_height: 320.,
             row_width: 640.,
-            measurements: vec![],
+            // This fixture uses 32px rows. Confirm the mounted band so a
+            // corrected anchor away from an edge can rearm that edge.
+            measurements: c
+                .rows
+                .iter()
+                .map(|row| exact_runner::RowMeasurement {
+                    view: row.view,
+                    epoch: row.epoch,
+                    height: 32.,
+                })
+                .collect(),
             focus_view: None,
             interaction_view: None,
         })

@@ -306,8 +306,10 @@ impl Collection {
         }
         // O(1): old heights remain estimates; stale measurements cannot confirm them.
         self.invalidate_height_estimates()?;
+        if self.index.len() == 0 {
+            self.edge_armed = [true; 2];
+        }
         self.restore(anchor)?;
-        self.geometric_edges()?;
         self.realize_window(u, frames, true)?;
         advance(&mut self.revision)?;
         if let Some(m) = &mut self.key_memo {
@@ -373,8 +375,8 @@ impl Collection {
             })
             .and_then(|row| key_text(&row.row.key))
     }
-    /// Pins never qualify an edge. Also re-arm when a data/geometry change
-    /// removes the endpoint from the geometric window, even between reports.
+    /// Pins never qualify an edge. Re-arm only after the geometric window is
+    /// measured: replacement estimates cannot manufacture a temporary edge exit.
     fn geometric_edges(&mut self) -> Result<[bool; 2], InstanceError> {
         let mut reached = [false; 2];
         if let Some(g) = &self.geometry {
@@ -385,10 +387,12 @@ impl Collection {
                     .map_err(index_error)?;
                 reached = [0, self.index.len() - 1]
                     .map(|i| window.segments.iter().any(|range| range.contains(&i)));
+                if self.edge_armed != [true; 2] && self.index.range_measured(window.overscan) {
+                    for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
+                        *armed |= !reached;
+                    }
+                }
             }
-        }
-        for (armed, reached) in self.edge_armed.iter_mut().zip(reached) {
-            *armed |= !reached;
         }
         Ok(reached)
     }
