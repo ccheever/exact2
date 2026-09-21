@@ -14,7 +14,7 @@ final class RegionPreparedSource {
     // Like the typesetter, this storage is confined to the serial worker and
     // released with its last live preparation owner; there is no width history.
     lazy var lineBreakBoundaries: [Int] = {
-        let text = source.text as NSString
+        let text = attributed.string as NSString
         let length = source.utf16Count
         let tokenizer = CFStringTokenizerCreate(nil, text as CFString,
             CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
@@ -26,6 +26,34 @@ final class RegionPreparedSource {
         if boundaries.last != length { boundaries.append(length) }
         return boundaries
     }()
+    /// CoreText's word-break iterator can rescan the whole prefix on every
+    /// line of a giant paragraph. Cluster fitting plus the already indexed
+    /// Unicode opportunities avoids that quadratic search. Trailing whitespace
+    /// hangs at a break, just as in CTTypesetterSuggestLineBreak.
+    lazy var breakContentEnds: [Int] = {
+        let text = attributed.string as NSString
+        return lineBreakBoundaries.map { boundary in
+            var end = boundary
+            while end > 0, let scalar = UnicodeScalar(text.character(at: end - 1)),
+                  CharacterSet.whitespaces.contains(scalar) { end -= 1 }
+            return end
+        }
+    }()
+    func suggestBreak(at start: Int, width: Double, cursor: inout Int) -> Int {
+        let fitted = CTTypesetterSuggestClusterBreak(typesetter, start, width)
+        let ends = lineBreakBoundaries, content = breakContentEnds
+        while cursor < ends.count && ends[cursor] <= start { cursor += 1 }
+        let first = cursor
+        while cursor < ends.count && content[cursor] <= start + fitted { cursor += 1 }
+        if cursor > first { return ends[cursor - 1] - start }
+        if source.overflowWrap == 0, cursor < ends.count {
+            defer { cursor += 1 }
+            return ends[cursor] - start
+        }
+        if fitted > 0 { return fitted }
+        return (attributed.string as NSString).rangeOfComposedCharacterSequence(at: start).length
+    }
+
     init(_ source: RegionTextSource) {
         precondition(!Thread.isMainThread, "region preparation must be worker-owned")
         self.source = source
@@ -99,12 +127,14 @@ final class RegionWorkerLayout {
             if lineCount % 128 == 0 { try beforeMetadata() }
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
             var count: Int
-            count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
-            while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
-                boundaryIndex += 1
-            }
-            if boundaryIndex < boundaries.count {
-                count = boundaries[boundaryIndex] - start
+            if compact && width.isFinite && spec.overflowWrap == 0 {
+                count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
+            } else {
+                count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
+                while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
+                    boundaryIndex += 1
+                }
+                if boundaryIndex < boundaries.count { count = boundaries[boundaryIndex] - start }
             }
             if count <= 0 { count = length - start }
             var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
