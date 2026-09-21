@@ -591,7 +591,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::location(f, args, shapes)?;
                 Ty::from_roster(f.returns())
             } else {
-                return err("type-unknown-function", format!("`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"), *span);
+                return Err(checks::unknown_function(name, scope, shapes, *span));
             }
         }
         Expr::Unary(op, inner, span) => {

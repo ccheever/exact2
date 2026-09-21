@@ -57,6 +57,96 @@ impl Shapes {
     }
 }
 
+// Suggestions change only a refusal's text. Global functions have authored
+// names here; lifted child actions do not, so scoped actions only disambiguate.
+pub(super) fn unknown_function(
+    name: &str,
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> TypeError {
+    let mut message = format!(
+        "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
+    );
+    if let Some(candidate) = similar_function(name, scope, shapes) {
+        message.push_str(&format!("; did you mean `{candidate}`?"));
+    }
+    TypeError {
+        id: "type-unknown-function",
+        message,
+        span,
+    }
+}
+
+fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Option<&'a str> {
+    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
+        return None;
+    }
+    let global = |candidate: &str| {
+        candidate == "pending"
+            || (candidate == "path" && shapes.routes.is_some())
+            || shapes.fns.contains_key(candidate)
+            || super::Stdlib::from_name(candidate)
+                .is_some_and(|f| super::routes::require_table(f, shapes, Span::default()).is_ok())
+    };
+    let names = shapes
+        .fns
+        .keys()
+        .map(String::as_str)
+        .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
+        .chain(["pending", "path"]);
+    let mut found = None;
+    for candidate in names {
+        if candidate.contains("__")
+            || !one_spelling_edit(name.as_bytes(), candidate.as_bytes())
+            || !global(candidate)
+        {
+            continue;
+        }
+        if found.is_some_and(|previous| previous != candidate) {
+            return None;
+        }
+        found = Some(candidate);
+    }
+    let candidate = found?;
+    for frame in &scope.frames {
+        for (scoped, _, _) in &frame.names {
+            // Expansion can append instance suffixes. The stem is only a
+            // conservative ambiguity veto, never an offered correction.
+            let authored = scoped.split("__").next().unwrap();
+            if authored != candidate
+                && one_spelling_edit(name.as_bytes(), authored.as_bytes())
+                && matches!(
+                    scope.lookup(scoped),
+                    Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(_)))
+                )
+            {
+                return None;
+            }
+        }
+    }
+    Some(candidate)
+}
+
+// One ASCII insertion, deletion, substitution, or adjacent transposition.
+fn one_spelling_edit(a: &[u8], b: &[u8]) -> bool {
+    if !b.is_ascii() || b.len() > 64 || a.len().abs_diff(b.len()) > 1 || a == b {
+        return false;
+    }
+    let i = a.iter().zip(b).take_while(|(a, b)| a == b).count();
+    match a.len().cmp(&b.len()) {
+        std::cmp::Ordering::Less => a[i..] == b[i + 1..],
+        std::cmp::Ordering::Greater => a[i + 1..] == b[i..],
+        std::cmp::Ordering::Equal => {
+            a[i + 1..] == b[i + 1..]
+                || (i + 1 < a.len()
+                    && a[i] == b[i + 1]
+                    && a[i + 1] == b[i]
+                    && a[i + 2..] == b[i + 2..])
+        }
+    }
+}
+
 /// Reject shape cycles before lowering recursively materializes plan types.
 pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file

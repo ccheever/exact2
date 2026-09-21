@@ -272,6 +272,17 @@ argument. Injected values are not call props and are excluded from those choices
 a component with no props says so. Missing-required-prop and prop-type checks
 keep their existing precedence. Valid calls do not build these diagnostic lists.
 
+An unknown function call retains `type-unknown-function` and its original span.
+For ASCII misspellings of 3–64 bytes, it suggests a single insertion, deletion,
+substitution or adjacent transposition only when one available global name fits:
+a declared `fn`, an admitted roster call, or the compiler calls `pending` and
+`path`. Router-only calls, including intrinsic `path`, require `routes`. Scoped action names, including conservative stems of lifted instance
+names, veto ambiguous suggestions; action names themselves and names containing
+`__` are not offered. This avoids exposing generated names or treating the
+expanded root as the child's authored scope. Existing arity/type refusals and
+valid calls do no suggestion work. Suggested replacements still undergo normal
+compilation; no typo is accepted as an alias.
+
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared

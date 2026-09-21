@@ -651,3 +651,133 @@ fn missing_providers_report_every_absent_inject_on_the_use_path() {
     );
     assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
 }
+
+#[test]
+fn unknown_functions_suggest_only_one_available_global_spelling() {
+    let app = App::new("function-hints");
+    let root = app.write(
+        "app.contract",
+        "use Row from \"./row.contract\"\ncomponent App\n  view\n    Row()\n",
+    );
+    for (typo, correct, argument) in [
+        ("lenght", "length", "\"hello\""),
+        ("toStrng", "toString", "42"),
+        ("toStringg", "toString", "42"),
+        ("formatClokTime", "formatClockTime", "0"),
+        ("formatClocXTime", "formatClockTime", "0"),
+    ] {
+        let source = format!("component Row\n  view\n    text `é ${{{typo}({argument})}}`\n");
+        let path = app.write("row.contract", &source).canonicalize().unwrap();
+        let error = contract::compile_path(&root).unwrap_err();
+        assert_eq!(error.id, "type-unknown-function", "{error}");
+        assert!(
+            error
+                .message
+                .ends_with(&format!("; did you mean `{correct}`?")),
+            "{error}"
+        );
+        assert_eq!(error.file.as_deref(), Some(path.as_path()));
+        assert_eq!(error.span.line, 3);
+        assert_eq!(
+            error.span.col as usize,
+            source.lines().nth(2).unwrap().find(typo).unwrap() + 1
+        );
+        let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]);
+        same_error(&diagnostics(&output, 1)[0], &error);
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert_eq!(human.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&human.stderr).contains(&error.message));
+        app.write("row.contract", &source.replace(typo, correct));
+        let repaired = contract::compile_path(&root).unwrap().encode();
+        let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "repaired.plan"]);
+        assert!(diagnostics(&output, 0).is_empty());
+        assert_eq!(
+            std::fs::read(app.0.join("repaired.plan")).unwrap(),
+            repaired
+        );
+    }
+    let library = "fn price(n: number): number = n\n";
+    app.write("helpers.contract", library);
+    app.write(
+        "row.contract",
+        "use price from \"./helpers.contract\"\ncomponent Row\n  view\n    text `${prcie(1)}`\n",
+    );
+    let error = contract::compile_path(&root).unwrap_err();
+    assert!(
+        error.message.ends_with("; did you mean `price`?"),
+        "{error}"
+    );
+    app.write(
+        "row.contract",
+        "use price from \"./helpers.contract\"\ncomponent Row\n  view\n    text `${price(1)}`\n",
+    );
+    contract::compile_path(&root).unwrap();
+
+    for source in [
+        "fn paints(n: number): number = n\nfn points(n: number): number = n\ncomponent App\n  view\n    text `${pints(1)}`\n".to_owned(),
+        "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
+        "component App\n  props\n    points: action\n  view\n    text `${pints(1)}`\n".to_owned(),
+        "fn foo__1(n: number): number = n\ncomponent App\n  view\n    text `${foo__2(1)}`\n".to_owned(),
+        "component App\n  view\n    text `${puch(1)}`\n".to_owned(), // push requires routes
+        "component App\n  view\n    text `${zzz(1)}`\n".to_owned(),
+        "component App\n  view\n    text `${fl(1)}`\n".to_owned(),
+        format!("component App\n  view\n    text `${{{}(1)}}`\n", "x".repeat(65)),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "type-unknown-function", "{error}");
+        assert!(!error.message.contains("did you mean"), "{error}");
+    }
+    for (source, typo, correct) in [
+        ("routes nav\n  home \"/\"\ncomponent App\n  derive next = puch(nav, \"/\")\n  view\n    text \"ok\"\n", "puch", "push"),
+        ("shape Datum\n  value: string\ncomponent App\n  resource data = read() as shape Datum\n  view\n    text `${pendng(data)}`\n", "pendng", "pending"),
+    ] {
+        let error = contract::compile(source).unwrap_err();
+        assert_eq!(error.id, "type-unknown-function", "{error}");
+        assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
+        contract::compile(&source.replace(typo, correct)).unwrap();
+    }
+    let lifted_ambiguity = "fn paints(n: number): number = n\ncomponent App\n  view\n    Row()\ncomponent Row\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n";
+    let error = contract::compile(lifted_ambiguity).unwrap_err();
+    assert_eq!(error.id, "type-unknown-function");
+    assert!(!error.message.contains("did you mean"), "{error}");
+    // path() is an intrinsic outside the roster: it must participate in
+    // ambiguity with push(), and only becomes available with routes or a fn.
+    for source in [
+        "routes nav\n  home \"/\"\ncomponent App\n  view\n    text `${pash(\"home\")}`\n",
+        "component App\n  view\n    text `${pth(\"home\")}`\n",
+    ] {
+        let error = contract::compile(source).unwrap_err();
+        assert_eq!(error.id, "type-unknown-function");
+        assert!(!error.message.contains("did you mean"), "{error}");
+    }
+    for source in [
+        "routes nav\n  home \"/\"\ncomponent App\n  view\n    text pth(\"home\")\n",
+        "fn path(value: string): string = value\ncomponent App\n  view\n    text pth(\"home\")\n",
+    ] {
+        let error = contract::compile(source).unwrap_err();
+        assert!(error.message.ends_with("; did you mean `path`?"), "{error}");
+        contract::compile(&source.replace("pth(", "path(")).unwrap();
+    }
+    // A parameter shadows the similarly named action; it is not callable.
+    let source = "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  action invoke(points: number) writes count\n    count = pints(points)\n  view\n    button \"Run\" press=invoke(1)\n";
+    let error = contract::compile(source).unwrap_err();
+    assert!(
+        error.message.ends_with("; did you mean `paints`?"),
+        "{error}"
+    );
+    contract::compile(&source.replace("pints(points)", "paints(points)")).unwrap();
+    // Existing precise errors retain priority; a hint never admits a typo.
+    for (expression, id) in [
+        ("length()", "type-arity"),
+        ("floor(\"x\")", "type-argument"),
+        ("length(missing)", "type-unknown-name"),
+    ] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    text `${{{expression}}}`\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, id);
+        assert!(!error.message.contains("did you mean"));
+    }
+}
