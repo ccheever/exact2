@@ -88,6 +88,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
+    override class var layerClass: AnyClass { TextNodeLayer.self }
+    var textRasterKey: TextRasterKey?
+    var textRaster: CGImage?
+    var textRasterLayer: CALayer?
+    var textRasterFrame = CGRect.zero
+    var textRasterScale: CGFloat = 1
+    var textRasterReady = false
+    var textRasterFailed = false
     var cachedTextSpec: Spec?
     var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
@@ -474,6 +482,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.forgetParagraph(self)
         invalidateText()
         cachedTextLayout = nil
+        dropTextRaster()
         loadGeneration += 1
         presenter?.session?.rasters.cancel(id)
         raster = nil
@@ -496,6 +505,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
+            node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
         isOpaque = false
@@ -573,11 +583,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let post = Presenter.signposts.beginInterval("scrolled")
         let before = presenter?.scrollCreatedRows ?? 0
-        defer { Presenter.signposts.endInterval("scrolled", post, "rows=\((self.presenter?.scrollCreatedRows ?? before) - before)") }
+        let offscreen = presenter?.scrollOffscreenRows ?? 0
+        defer { Presenter.signposts.endInterval("scrolled", post, "rows=\((self.presenter?.scrollCreatedRows ?? before) - before) offscreen=\((self.presenter?.scrollOffscreenRows ?? offscreen) - offscreen)") }
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        presenter?.syncLists()
+        presenter?.scrollPump.scrolled(self)
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
         // frame paints so authored scroll-linked geometry cannot lag a frame.
@@ -1190,11 +1201,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             ctx.restoreGState()
         }
         if isParagraph {
-            // The same paragraph the kernel measured at this width, painted.
-            let post = Presenter.signposts.beginInterval("text-draw")
-            defer { Presenter.signposts.endInterval("text-draw", post) }
-            let spec = paragraphSpec()
-            if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect) }
+            if canRasterText {
+                presenter?.textRasters.ensure(self, urgent: presenter?.textIsVisible(self) == true)
+            } else if !textRasterFailed { dropTextRaster() }
+            if textRaster == nil && (Capture.capturing || presenter?.textIsVisible(self) == true) {
+                let post = Presenter.signposts.beginInterval("text-draw")
+                defer { Presenter.signposts.endInterval("text-draw", post) }
+                let spec = paragraphSpec()
+                if let paragraph = paragraphLayout() { TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: rect) }
+            }
         }
         if Capture.capturing, let picture = Capture.web[id] {
             // A capture that populated an arm snapshot draws that one WebKit

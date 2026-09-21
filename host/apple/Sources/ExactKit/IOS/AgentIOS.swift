@@ -465,6 +465,7 @@ extension Agent {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             Agent.scroll(from: hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
@@ -572,6 +573,7 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
+        presenter.settlePump()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
         let vp = presenter.viewport
         let scale = vp.window?.screen.scale ?? vp.traitCollection.displayScale

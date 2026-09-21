@@ -1,0 +1,213 @@
+// UIKit paragraph layers consume pixels from the same workers and paint routine
+// as AppKit. Native views, inline links and accessibility keep their identities.
+// @ref LLP 1044.000 §6 S5
+#if os(iOS)
+import UIKit
+import CoreText
+
+/// Avoid allocating a UIView-sized backing store for undecorated text. The
+/// positioned ink layer can also show a band of a paragraph taller than a bitmap.
+final class TextNodeLayer: CALayer {
+    override func display() {
+        guard let node = delegate as? NodeView, node.canRasterText, !node.hasTextBoxPaint else {
+            super.display(); return
+        }
+        contents = nil
+        node.presenter?.textRasters.ensure(node, urgent: node.presenter?.textIsVisible(node) == true)
+        if node.textRasterFailed { super.display() }
+        if node.presenter?.views[node.id] === node { node.firstDraw() }
+    }
+}
+
+final class TextRasterizer {
+    private final class Work {
+        weak var node: NodeView?
+        let key: TextRasterKey
+        let group = DispatchGroup()
+        var result: TextRasterImage?
+        init(_ node: NodeView, key: TextRasterKey) {
+            self.node = node; self.key = key
+            group.enter()
+        }
+    }
+    private var working: [Work] = []
+    private static let maxConcurrent = 2
+    private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+
+    private func key(_ node: NodeView) -> TextRasterKey {
+        let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
+        var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
+            box: node.contentBox(), scale: max(1, scale))
+        // Whole ordinary paragraphs, viewport bands for tall ones. Never allocate
+        // to an unbreakable line's advance; the shared painter clips its ink.
+        if node.bounds.height > 4096 || node.bounds.width * node.bounds.height * key.scale * key.scale * 4 > Self.maximumBytes {
+            let port = node.presenter?.textPreparationRect(node) ?? node.bounds
+            if let old = node.textRasterKey, let clip = old.clip, clip.contains(port), old.size == key.size,
+               old.box == key.box, old.spec == key.spec, old.scale == key.scale { return old }
+            let rowBytes = max(1, (node.bounds.width + 64) * key.scale * key.scale * 4)
+            let height = max(port.height, min(port.height * 2, Self.maximumBytes / rowBytes))
+            key.clip = CGRect(x: -32, y: max(-32, port.minY - (height - port.height) / 2),
+                width: node.bounds.width + 64, height: height)
+        }
+        return key
+    }
+
+    @discardableResult
+    func ensure(_ node: NodeView, urgent: Bool) -> Bool {
+        guard node.canRasterText else { return true }
+        let key = key(node)
+        let visible = node.presenter?.textScrollportRect(node) ?? .zero
+        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible)
+        if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
+        let firstPixels = urgent && missingPixels
+        guard firstPixels || working.count < Self.maxConcurrent else { return false }
+        guard let engine = node.text else { return true }
+        let measured = engine.measuredBreaks(key.spec, width: key.box.width)
+        let paragraph = measured == nil ? node.paragraphLayout() : nil
+        guard let (ranges, baselines) = measured
+            ?? paragraph.map({ ($0.lines.map { CTLineGetStringRange($0) }, $0.baselines) }) else { return true }
+        let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
+        let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: ranges, baselines: baselines,
+            flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
+            box: key.box, size: key.size, scale: key.scale, clip: key.clip)
+        node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
+        if firstPixels {
+            let post = Presenter.signposts.beginInterval("text-raster-urgent")
+            node.showTextRaster(job.render(), for: key)
+            Presenter.signposts.endInterval("text-raster-urgent", post)
+        } else {
+            let work = Work(node, key: key)
+            working.append(work)
+            work.group.notify(queue: .main) { [weak self] in self?.publish(work) }
+            RegionTextExecutor.queue.addOperation {
+                let post = Presenter.signposts.beginInterval("text-raster-worker")
+                work.result = job.render()
+                Presenter.signposts.endInterval("text-raster-worker", post)
+                work.group.leave()
+            }
+        }
+        return true
+    }
+    private func publish(_ work: Work) {
+        guard let index = working.firstIndex(where: { $0 === work }) else { return }
+        // Only a completed worker's mailbox is read, including by agent settlement.
+        guard work.group.wait(timeout: .now()) == .success else { return }
+        working.remove(at: index)
+        work.node?.showTextRaster(work.result, for: work.key)
+        work.node?.presenter?.requestTextPublication()
+    }
+
+    /// A synchronous agent screenshot must observe the requested appearance,
+    /// not a previous accepted raster. Rendering stays on the workers; their
+    /// mailboxes can be published here without draining the main queue reentrantly.
+    func settleVisible(_ nodes: [NodeView]) {
+        let deadline = CACurrentMediaTime() + 1
+        repeat {
+            for node in nodes where node.canRasterText { ensure(node, urgent: false) }
+            let batch = working
+            guard !batch.isEmpty else { return }
+            for work in batch {
+                let left = max(0, deadline - CACurrentMediaTime())
+                if work.group.wait(timeout: .now() + left) == .success { publish(work) }
+            }
+            if nodes.allSatisfy({ !$0.canRasterText || ($0.textRasterReady && $0.textRasterKey != nil) }) { return }
+        } while CACurrentMediaTime() < deadline
+    }
+
+}
+
+extension NodeView {
+    var hasTextBoxPaint: Bool {
+        let uniform = number("border_width")
+        return style["background_color"] != nil || ["top", "right", "bottom", "left"].contains {
+            number("border_width_" + $0, uniform) > 0
+        }
+    }
+    var canRasterText: Bool {
+        if textRasterFailed && textRasterKey != nil { return false }
+        return isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
+            && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 && canvasAbove == nil
+    }
+    func textRasterGeometryChanged() {
+        if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
+        textRasterKey = nil
+        presenter?.requestTextPublication()
+    }
+    func showTextRaster(_ result: TextRasterImage?, for key: TextRasterKey) {
+        guard presenter?.views[id] === self, textRasterKey == key, !textRasterReady else { return }
+        guard let result else {
+            dropTextRaster()
+            textRasterKey = key; textRasterFailed = true
+            // Retrying display through UIKit supplies the allocation fallback.
+            setNeedsDisplay()
+            return
+        }
+        textRaster = result.image; textRasterFrame = result.frame; textRasterScale = key.scale
+        textRasterReady = true; textRasterFailed = false
+        let ink = textRasterLayer ?? CALayer()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        if ink.superlayer == nil { layer.insertSublayer(ink, at: 0) }
+        ink.frame = result.frame
+        ink.contentsScale = key.scale
+        ink.contents = result.image
+        textRasterLayer = ink
+        CATransaction.commit()
+    }
+    func dropTextRaster() {
+        textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
+        textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false
+    }
+}
+
+extension Presenter {
+    /// Every clipping ancestor participates; an inner scroller can itself sit
+    /// outside an outer viewport. All geometry stays in the paragraph's space.
+    private func textBand(_ node: NodeView, reach: CGFloat) -> CGRect {
+        guard node.window != nil else { return .zero }
+        var result = node.bounds
+        var ancestor: UIView? = node
+        while let view = ancestor {
+            if view.isHidden || view.alpha == 0 { return .zero }
+            if view !== node && (view.clipsToBounds || view is UIWindow) {
+                result = result.intersection(node.convert(view.bounds, from: view).insetBy(dx: -reach, dy: -reach))
+            }
+            ancestor = view.superview
+        }
+        return result.isNull ? .zero : result
+    }
+    func textScrollportRect(_ node: NodeView) -> CGRect { textBand(node, reach: 0) }
+    func textIsVisible(_ node: NodeView) -> Bool { !textScrollportRect(node).isEmpty }
+    func textPreparationRect(_ node: NodeView) -> CGRect {
+        let visible = textScrollportRect(node)
+        return visible.isEmpty ? textBand(node, reach: viewport.bounds.height) : visible
+    }
+
+    /// Called after layout/scroll returns, never by the scroll callback. Lead
+    /// rows receive workers before display; only uncovered visible pixels are urgent.
+    @discardableResult
+    func refreshVisibleText(deadline: TimeInterval? = nil) -> Bool {
+        guard !applying else { return true }
+        let reach = viewport.bounds.height
+        let candidates = textViews.values.filter { !$0.bounds.isEmpty && !textBand($0, reach: reach).isEmpty }
+            .sorted { a, b in
+                let ar = a.convert(a.bounds, to: viewport), br = b.convert(b.bounds, to: viewport)
+                func distance(_ r: CGRect) -> CGFloat { max(0, viewport.bounds.minY - r.maxY, r.minY - viewport.bounds.maxY) }
+                return distance(ar) == distance(br) ? a.id < b.id : distance(ar) < distance(br)
+            }
+        var deferred = false, admitted = 0
+        for node in candidates where node.canRasterText {
+            let visible = textScrollportRect(node)
+            let urgent = !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible))
+            if urgent {
+                textRasters.ensure(node, urgent: true)
+                continue
+            }
+            guard !node.textRasterReady || node.textRasterKey == nil || node.textRasterKey?.clip != nil else { continue }
+            if admitted >= 6 || deadline.map({ CACurrentMediaTime() >= $0 }) == true { deferred = true; continue }
+            if !textRasters.ensure(node, urgent: false) { deferred = true }
+            admitted += 1
+        }
+        return deferred
+    }
+}
+#endif

@@ -10,6 +10,7 @@ import os
 final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var scrollCreatedRows = 0
+    var scrollOffscreenRows = 0
 
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
@@ -90,6 +91,7 @@ final class Presenter {
 
     init() {
         viewport.addSubview(root)
+        viewport.delegate = scrollPump
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
         if ExactEnv.agentMode {
@@ -261,7 +263,8 @@ final class Presenter {
         inlineOwners.removeAll()
         scrollers.removeAll(); pendingScrolls.removeAll(); materialNodes.removeAll(); contextNodes.removeAll()
         hoveredInline = nil
-        listGeometry.removeAll()
+        scrollPump.reset()
+        textViews.removeAll()
         listViews.removeAll()
         heightBindings.removeAll()
         transformBindings.removeAll()
@@ -374,54 +377,16 @@ final class Presenter {
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var interacting: UInt32 = 0
-    private var listGeometry: [UInt32: [Double]] = [:]
-    private var listViews: [UInt32: NodeView] = [:]
-    private var listSyncDepth = 0
-    private var listSyncQueued = false
-
-    /// Fill and measure the row window before paint. Unusual documents with
-    /// many zero-height rows continue next turn instead of recursing forever.
-    func syncLists() {
-        let post = Self.signposts.beginInterval("syncLists")
-        defer { Self.signposts.endInterval("syncLists", post) }
-        guard !applying else { return }
-        guard listSyncDepth < 8 else {
-            if !listSyncQueued {
-                listSyncQueued = true
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.listSyncQueued = false
-                    self.syncLists()
-                }
-            }
-            return
-        }
-        listSyncDepth += 1
-        defer { listSyncDepth -= 1 }
-        listGeometry = listGeometry.filter { views[$0.key] != nil }
-        for list in Array(listViews.values) {
-            // Shared collections use revisioned feedback, not the earlier
-            // item-height window protocol (which rejects their row tree).
-            guard !collections.owns(list.id) else { continue }
-            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
-            guard views[list.id] === list, let scroll = list.scroll,
-                  let content = list.container.subviews.first as? NodeView else { continue }
-            let focus = editing?.isDescendant(of: list) == true ? editing!.id : 0
-            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
-            let top = Double(scroll.contentOffset.y)
-            let height = Double(scroll.bounds.height)
-            let width = Double(content.frame.width)
-            let origin = Double(content.frame.minY)
-            let rows = content.container.subviews.compactMap { $0 as? NodeView }
-            let stamp = [top, height, width, origin, Double(focus), Double(interaction)]
-                + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
-            if listGeometry[list.id] == stamp { continue }
-            listGeometry[list.id] = stamp
-            let previous = Set(rows.map(\.id))
-            _ = onList?(list.id, top, height, width, origin, focus, interaction, 0)
-            scrollCreatedRows += content.container.subviews.compactMap { $0 as? NodeView }.filter { !previous.contains($0.id) }.count
-        }
+    var listViews: [UInt32: NodeView] = [:]
+    var textViews: [UInt32: NodeView] = [:]
+    lazy var scrollPump = ScrollPump(self)
+    let textRasters = TextRasterizer()
+    func listVelocity(_ id: UInt32) -> Double { scrollPump.velocity(id) }
+    func settlePump() {
+        scrollPump.settle()
+        textRasters.settleVisible(textViews.values.filter { textIsVisible($0) })
     }
+    func requestTextPublication() { scrollPump.requestText() }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
     var onMessage: ((UInt32, String) -> Void)?
@@ -488,7 +453,7 @@ final class Presenter {
                 let q = waiting
                 waiting = []
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
-                syncLists()
+                scrollPump.batchApplied()
                 flushPendingFocus()
             }
         }
@@ -541,6 +506,7 @@ final class Presenter {
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
+                if v.isParagraph { textViews[id] = v }
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
@@ -571,6 +537,8 @@ final class Presenter {
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
                 listViews.removeValue(forKey: id)
+                textViews.removeValue(forKey: id)
+                scrollPump.forget(id)
                 heightBindings.removeValue(forKey: id)
                 transformBindings.removeValue(forKey: id)
                 transformGeometry.retire(id)
@@ -634,6 +602,7 @@ final class Presenter {
             // under a transform); the presentation goes back on after.
             v.transform = .identity
             v.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
+            v.textRasterGeometryChanged()
             v.scroll?.frame = v.bounds
             v.field?.frame = v.contentBox()
             v.layoutTextArea()

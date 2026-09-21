@@ -38,11 +38,9 @@ extension NodeView {
 
     // @ref LLP 1043.000 §3 D4 — invalidate this view, including cached layer ink.
     func applyFlow(_ wire: [[String: Any]]) {
-        #if os(macOS)
         // Worker surfaces encode ordinary lines only. Clear their key before
         // changing eligibility, including when an exclusion is removed.
         dropTextRaster()
-        #endif
         flowShapes = wire.compactMap(TextFlowShape.init)
         cachedTextLayout = nil
         #if os(macOS)
@@ -62,10 +60,12 @@ extension NodeView {
         // Keep the previous accepted geometry alive through the next lookup.
         // A paint-only revision can reuse its ranges without breaking again.
         textLayoutValid = false
-        #if os(macOS)
         // The old pixels stay up until the new ones replace them.
         textRasterKey = nil
+        #if os(macOS)
         textRasterPending = false
+        #else
+        presenter?.requestTextPublication()
         #endif
     }
 
