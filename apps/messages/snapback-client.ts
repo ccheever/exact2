@@ -47,6 +47,7 @@ export class MessagesReplica {
   private queued=0;
   private online=false;
   private error='';
+  private reconciliationOwed=false;
   namespace='';
   private constructor(private core:Core) {}
   static async open(storage:Storage,core:Core|undefined):Promise<MessagesReplica> {
@@ -60,7 +61,24 @@ export class MessagesReplica {
     client.held=await client.read();
     return client;
   }
-  private async call<T>(request:Request):Promise<T>{return result<T>(await this.core.call(request));}
+  private async call<T>(request:Request):Promise<T>{
+    // Reset/adoption can commit before a later step fails. Keep this debt across
+    // ticks, and clear it only after the model has been read and published.
+    if(request.op==='observe_store'||request.op==='adopt'||request.op==='settle')this.reconciliationOwed=true;
+    try {
+      const value=result<T>(await this.core.call(request));
+      if(request.op==='apply'){
+        const page=request.page as Request;
+        // Applying even an empty page can retire or rebase a queued prediction.
+        if(this.queued||(value as {touched:string[]}).touched.length||page.snapshot||page.snapshot_catchup||Object.keys(page.acknowledged??{}).length)this.reconciliationOwed=true;
+      }
+      return value;
+    }catch(error){
+      // A refused apply can still durably record a store reset.
+      if(request.op==='apply')this.reconciliationOwed=true;
+      throw error;
+    }
+  }
   private async next():Promise<number>{const n=++this.counter;await this.call({op:'set_meta',key:'exact:counter',value:String(n)});return n;}
   private recordId(key:string):string{return `${viewer}:${encodeURIComponent(key)}`;}
   async read():Promise<Records> {
@@ -185,9 +203,11 @@ export class MessagesReplica {
       try {
       await local(async()=>{
         this.queued=(await this.call<Queued[]>({op:'queued'})).length;
+        if(!this.reconciliationOwed)return;
         const current=await this.read();
         const changed=canonical([...current].sort())!==canonical([...this.held].sort());
-        this.held=current;if(changed)settle(current);
+        if(changed)settle(current);
+        this.held=current;this.reconciliationOwed=false;
       });
       }finally{this.syncing=false;}
     }

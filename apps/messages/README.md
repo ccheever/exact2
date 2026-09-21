@@ -27,6 +27,11 @@ remain O(total records): `snapshot()` clones the model, `persist` diffs it, and
 startup/sync `restore` loads it all. The 512-record edit cap still limits bulk
 delete/recover (LLP 1027.004 D5; tracked in `QUEUE.md`).
 
+An idle sync no longer rereads or compares the history. Reset/adoption, applied
+changes, snapshot catch-up and outbox settlement mark reconciliation as owed;
+failed reads or model publication leave that flag set for the next tick. Status
+and queued counts still update, and changed syncs still reread the full history.
+
 The development connection is explicit in `snapback-client.ts`: origin
 `http://127.0.0.1:4400`, persona `alice`. Each origin/viewer partition has its own
 app-scoped database and stable device identity. Start the Messages backend locally
