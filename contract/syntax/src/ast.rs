@@ -45,6 +45,25 @@ pub struct File {
     pub components: Vec<Component>,
 }
 
+impl File {
+    /// Describe an unknown component and the merged declarations in source order.
+    /// Only refusal paths call this; valid uses allocate no diagnostic list.
+    pub fn unknown_component_message(&self, name: &str) -> String {
+        let names = self
+            .components
+            .iter()
+            .map(|component| format!("`{}`", component.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let choices = if names.is_empty() {
+            "no components are declared".to_owned()
+        } else {
+            format!("declared components: {names}")
+        };
+        format!("unknown component `{name}`; {choices}")
+    }
+}
+
 /// `routes <slot>` with rows in declaration order. @ref LLP 1038 D2.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoutesDecl {

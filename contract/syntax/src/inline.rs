@@ -207,7 +207,7 @@ fn inline_nodes(
                 let Some(c) = ctx.file.components.iter().find(|c| &c.name == name) else {
                     return err(
                         "syntax-unknown-component",
-                        format!("unknown component `{name}`"),
+                        ctx.file.unknown_component_message(name),
                         *span,
                     );
                 };

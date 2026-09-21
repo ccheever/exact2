@@ -438,6 +438,63 @@ fn missing_component_props_report_the_whole_call_interface() {
 }
 
 #[test]
+fn unknown_components_report_merged_declarations_at_the_original_use() {
+    let app = App::new("unknown-components");
+    let root = app.write("app.contract", "");
+    app.write("lib/badge.contract", "shape BadgeInfo\n  title: string\nfn badgeText(): string = \"badge\"\ncomponent Badge\n  view\n    text badgeText()\ncomponent Zulu\n  view\n    text \"zulu\"\n");
+    let source = "use Badge from \"./badge.contract\"\ncomponent Row\n  view\n    Badg()\n";
+    for (view, id) in [
+        ("Row()", "syntax-unknown-component"),
+        ("text \"Unused import\"", "type-unknown-component"),
+    ] {
+        app.write(
+            "app.contract",
+            &format!("use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    {view}\n"),
+        );
+        let path = app
+            .write("lib/row.contract", source)
+            .canonicalize()
+            .unwrap();
+        let expected = contract::compile_path(&root).unwrap_err();
+        let message =
+            "unknown component `Badg`; declared components: `App`, `Row`, `Badge`, `Zulu`";
+        assert_eq!(expected.id, id);
+        assert_eq!(expected.message, message);
+        let errors = diagnostics(
+            &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+            1,
+        );
+        assert_eq!(errors.len(), 1);
+        same_error(&errors[0], &expected);
+        assert_eq!(errors[0]["file"], path.to_str().unwrap());
+        assert_eq!(errors[0]["line"], 4);
+        assert_eq!(errors[0]["col"], 5);
+        assert_eq!(errors[0]["end_col"], 9);
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert_eq!(human.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&human.stderr).contains(message));
+        app.write("lib/row.contract", &source.replace("Badg()", "Badge()"));
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+    // A single declaration is still useful context; the root is named as a
+    // declaration, not promised as a non-recursive replacement at this use.
+    app.write("app.contract", "component App\n  view\n    Absent()\n");
+    let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+    assert_eq!(
+        errors[0]["message"],
+        "unknown component `Absent`; declared components: `App`"
+    );
+    // A missing import keeps the loader's earlier refusal, not this use error.
+    app.write(
+        "app.contract",
+        "use Absent from \"./lib/badge.contract\"\ncomponent App\n  view\n    Absent()\n",
+    );
+    let error = contract::compile_path(&root).unwrap_err();
+    assert_eq!(error.id, "contract-use-unknown");
+}
+
+#[test]
 fn unknown_component_props_report_all_names_and_declared_choices() {
     let app = App::new("unknown-props");
     let root = app.write("app.contract", "");

@@ -265,6 +265,12 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`.
 
+Unknown component uses list the merged component declarations in source order,
+including imported declarations. They retain the refusing pass's existing id
+and original use span; the list describes declarations, not a promise that every
+component can be used without recursion at that position. Valid uses do not
+construct the diagnostic list.
+
 An unknown component prop retains `type-unknown-prop` at the first offending
 argument. Its message lists all distinct unknown props in call order and the
 declared props in declaration order, so one repair can remove every invalid

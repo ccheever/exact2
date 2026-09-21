@@ -1021,7 +1021,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                 let Some(target) = file.components.iter().position(|c| &c.name == name) else {
                     return err(
                         "type-unknown-component",
-                        format!("unknown component `{name}`"),
+                        file.unknown_component_message(name),
                         *span,
                     );
                 };

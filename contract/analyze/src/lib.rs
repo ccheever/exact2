@@ -309,7 +309,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
-                        format!("unknown component `{name}`"),
+                        file.unknown_component_message(name),
                         *span,
                     );
                 }
