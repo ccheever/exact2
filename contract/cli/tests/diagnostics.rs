@@ -436,3 +436,73 @@ fn missing_component_props_report_the_whole_call_interface() {
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
 }
+
+#[test]
+fn imported_action_effects_use_authored_names_and_report_all_missing_slots() {
+    let app = App::new("action-effects");
+    let used = "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    column\n      Toggle()\n      Toggle()\n";
+    let unused =
+        "use Toggle from \"./lib/toggle.contract\"\ncomponent App\n  view\n    text \"unused\"\n";
+    let root = app.write("app.contract", used);
+    let source = "component Toggle\n  state enabled = false\n  state clicks = 0\n  state touched = false\n  action choose()WRITES\n    if enabled\n      clicks = clicks + 1\n    else\n      enabled = true\n    match some(clicks)\n      case some(value)\n        clicks = value + 1\n        touched = true\n      case none\n        touched = false\n  view\n    button press=choose\n      text \"Choose\"\n";
+    for root_source in [used, unused] {
+        app.write("app.contract", root_source);
+        for (writes, message, line, col, end_col) in [
+            ("", "`choose` has undeclared effects on `clicks`, `enabled`, `touched`; add these names to its `writes` declaration", 7, 7, 13),
+            (" writes clicks", "`choose` has undeclared effects on `enabled`, `touched`; add these names to its `writes` declaration", 9, 7, 14),
+            (" writes clicks, enabled", "`choose` writes `touched` but does not declare it: add `writes touched`", 13, 9, 16),
+        ] {
+            let path = app.write("lib/toggle.contract", &source.replace("WRITES", writes)).canonicalize().unwrap();
+            let expected = contract::compile_path(&root).unwrap_err();
+            assert_eq!(expected.id, "analyze-write-not-declared");
+            assert_eq!(expected.message, message);
+            let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]), 1);
+            same_error(&errors[0], &expected);
+            assert_eq!(errors[0]["file"], path.to_str().unwrap());
+            assert_eq!(errors[0]["line"], line);
+            assert_eq!(errors[0]["col"], col);
+            assert_eq!(errors[0]["end_col"], end_col);
+            assert!(!app.0.join("refused.plan").exists());
+            let human = app.run(&[root.to_str().unwrap()]);
+            assert_eq!(human.status.code(), Some(1));
+            assert!(String::from_utf8_lossy(&human.stderr).contains(message));
+        }
+        for (writes, id, message) in [
+            (
+                " writes enabled, enabled",
+                "analyze-writes-duplicate",
+                "`enabled` listed twice in `writes`",
+            ),
+            (
+                " writes absent",
+                "analyze-writes-unknown-state",
+                "`absent` in `writes` is not a state or a mutation",
+            ),
+        ] {
+            app.write("lib/toggle.contract", &source.replace("WRITES", writes));
+            let error = contract::compile_path(&root).unwrap_err();
+            assert_eq!(error.id, id);
+            assert_eq!(error.message, message);
+        }
+        app.write(
+            "lib/toggle.contract",
+            &source.replace("WRITES", " writes enabled, clicks, touched"),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}
+
+#[test]
+fn missing_effects_include_sends_and_do_not_repeat_targets() {
+    let source = "shape Reply\n  ok: bool\ncomponent App\n  state waiting = false\n  mutation result as shape Reply\n  action submitWRITES\n    send result = save()\n    waiting = true\n    if waiting\n      send result = save()\n  view\n    button press=submit\n      text \"Save\"\n";
+    for (writes, message) in [
+        ("", "`submit` has undeclared effects on `result`, `waiting`; add these names to its `writes` declaration"),
+        (" writes waiting", "`submit` sends `result` but does not declare it: add `writes result`"),
+        (" writes result", "`submit` writes `waiting` but does not declare it: add `writes waiting`"),
+    ] {
+        let error = contract::compile(&source.replace("WRITES", writes)).unwrap_err();
+        assert_eq!(error.id, "analyze-write-not-declared");
+        assert_eq!(error.message, message);
+    }
+    assert!(contract::compile(&source.replace("WRITES", " writes result, waiting")).is_ok());
+}

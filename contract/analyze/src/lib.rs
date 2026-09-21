@@ -6,17 +6,16 @@
 //! After types, a program can still be wrong in ways an implementer would
 //! otherwise discover at runtime: an action writing a slot it did not declare,
 //! a handler naming an action that does not exist or with the wrong number of
-//! curried arguments, a `task` ticking an unknown action, derives that depend
-//! on each other in a cycle, or a child component carrying state — which v1
-//! does not support (all state lives in the root; children are pure views over
-//! their props). Every rejection carries a stable id and a span.
+//! curried arguments, or a `task` ticking an unknown action. Child actions
+//! declare effects on their own state (LLP 1017 P4c). Every rejection carries
+//! a stable id and a span.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
 mod arity;
 
-use contract_syntax::{Component, Expr, File, Node, Span, Stmt};
+use contract_syntax::{Action, Component, Expr, File, Node, Span, Stmt};
 use contract_types::{Checked, Ref, Scope, Ty};
 use std::collections::BTreeSet;
 
@@ -110,7 +109,9 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
         let ct = &types.components[ci];
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
-        check_actions(scoped)?;
+        // Check authored actions once, not every lifted instance. Keep the
+        // resolved slots: the root's router state is implicit in the source.
+        check_actions(&c.actions, scoped)?;
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
@@ -118,11 +119,13 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
     Ok(Analysis {})
 }
 
-fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
-    for a in &c.actions {
+fn check_actions(actions: &[Action], slots: &Component) -> Result<(), AnalyzeError> {
+    for a in actions {
         let mut declared = BTreeSet::new();
         for (w, span) in &a.writes {
-            if !c.states.iter().any(|s| &s.name == w) && !c.mutations.iter().any(|m| &m.name == w) {
+            if !slots.states.iter().any(|s| &s.name == w)
+                && !slots.mutations.iter().any(|m| &m.name == w)
+            {
                 return err(
                     "analyze-writes-unknown-state",
                     format!("`{w}` in `writes` is not a state or a mutation"),
@@ -139,17 +142,26 @@ fn check_actions(c: &Component) -> Result<(), AnalyzeError> {
         }
         let mut targets = Vec::new();
         writes_of(&a.body, &mut targets);
-        for (target, span, how) in targets {
-            if !declared.contains(target) {
-                return err(
-                    "analyze-write-not-declared",
-                    format!(
-                        "`{}` {how} `{target}` but does not declare it: add `writes {target}`",
-                        a.name
-                    ),
-                    *span,
-                );
-            }
+        let mut missing = BTreeSet::new();
+        targets.retain(|(target, _, _)| !declared.contains(*target) && missing.insert(*target));
+        if let Some((target, span, how)) = targets.first() {
+            let message = if targets.len() == 1 {
+                format!(
+                    "`{}` {how} `{target}` but does not declare it: add `writes {target}`",
+                    a.name
+                )
+            } else {
+                let names = targets
+                    .iter()
+                    .map(|(target, _, _)| format!("`{target}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!(
+                    "`{}` has undeclared effects on {names}; add these names to its `writes` declaration",
+                    a.name
+                )
+            };
+            return err("analyze-write-not-declared", message, **span);
         }
     }
     Ok(())

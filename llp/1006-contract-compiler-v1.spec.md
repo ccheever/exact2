@@ -291,7 +291,13 @@ shape and arity (`change` and `key` supply a string as the last parameter,
 `hover` a bool, `press`/`focus`/`blur`/`submit` nothing — `HANDLERS` and
 `handler_payload` in `contract-analyze`), timer
 actions exist and take no parameters, component uses name real components
-with each argument once, children carry no state.
+with each argument once. Effect declarations are checked once on each authored
+component, including stateful children (LLP 1017 P4c), so errors name authored
+slots and actions rather than lifted instance names. Membership still uses the
+resolved slots, including the root's implicit router state. A missing `writes`
+declaration reports every undeclared target in first-write order, including
+`send` and every branch, without repeating targets. The stable
+`analyze-write-not-declared` ID and first offending statement's span remain.
 
 **Lower** (`contract-lower`): shapes to `types`; declarations to `slots`,
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view
