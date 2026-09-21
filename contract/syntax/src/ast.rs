@@ -300,6 +300,21 @@ pub struct Component {
     pub span: Span,
 }
 
+impl Component {
+    /// Describe every required prop absent from a use, in declaration order.
+    /// Called only after a missing argument is found; valid uses allocate nothing.
+    pub fn missing_props_message(&self, args: &[Attr]) -> String {
+        let missing = self
+            .props
+            .iter()
+            .filter(|prop| !args.iter().any(|arg| arg.name == prop.name))
+            .map(|prop| format!("`{}`", prop.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("`{}` needs {missing}", self.name)
+    }
+}
+
 /// `name = expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {

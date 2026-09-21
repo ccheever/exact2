@@ -1031,7 +1031,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                     let Some(arg) = args.iter().find(|a| a.name == p.name) else {
                         return err(
                             "type-missing-prop",
-                            format!("`{name}` needs `{}`", p.name),
+                            target_c.missing_props_message(args),
                             *span,
                         );
                     };

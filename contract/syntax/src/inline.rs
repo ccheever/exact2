@@ -214,11 +214,7 @@ fn inline_nodes(
                 let mut child_subst: BTreeMap<String, Expr> = BTreeMap::new();
                 for p in &c.props {
                     let Some(a) = args.iter().find(|a| a.name == p.name) else {
-                        return err(
-                            "syntax-missing-prop",
-                            format!("`{name}` needs `{}`", p.name),
-                            *span,
-                        );
+                        return err("syntax-missing-prop", c.missing_props_message(args), *span);
                     };
                     // The argument is an expression in the parent's scope: substitute the parent's own substitutions first.
                     child_subst.insert(p.name.clone(), subst_expr(&a.value, subst));

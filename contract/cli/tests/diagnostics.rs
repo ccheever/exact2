@@ -384,3 +384,55 @@ fn unknown_record_fields_name_declared_choices_at_the_original_import() {
         "`Person` has no field `nmae`; this shape declares no fields"
     );
 }
+
+#[test]
+fn missing_component_props_report_the_whole_call_interface() {
+    let app = App::new("missing-props");
+    let used_root = "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    provide theme = \"Light\"\n      Row()\n";
+    let unused_root =
+        "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    text \"No instance\"\n";
+    let root = app.write("app.contract", used_root);
+    app.write("lib/card.contract", "component Card\n  props\n    title: string\n    count: number\n    selected: bool\n    choose: action\n  inject\n    theme: string\n  view\n    button press=choose\n      text `${theme} ${title} ${count} ${selected}`\n");
+    let row = "use Card from \"./card.contract\"\ncomponent Row\n  state clicks = 0\n  action choose() writes clicks\n    clicks = clicks + 1\n  view\n    Card(ARGS)\n";
+    for (root_source, id) in [
+        (used_root, "syntax-missing-prop"),
+        (unused_root, "type-missing-prop"),
+    ] {
+        app.write("app.contract", root_source);
+        for (args, missing) in [
+            ("", "`title`, `count`, `selected`, `choose`"),
+            ("title=\"Item\"", "`count`, `selected`, `choose`"),
+            ("choose=choose, title=\"Item\"", "`count`, `selected`"),
+            ("title=\"Item\", selected=true, choose=choose", "`count`"),
+        ] {
+            let path = app
+                .write("lib/row.contract", &row.replace("ARGS", args))
+                .canonicalize()
+                .unwrap();
+            let expected = contract::compile_path(&root).unwrap_err();
+            assert_eq!(expected.id, id);
+            assert_eq!(expected.message, format!("`Card` needs {missing}"));
+            let errors = diagnostics(
+                &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+                1,
+            );
+            same_error(&errors[0], &expected);
+            assert_eq!(errors[0]["file"], path.to_str().unwrap());
+            assert_eq!(errors[0]["line"], 7);
+            assert_eq!(errors[0]["col"], 5);
+            assert_eq!(errors[0]["end_col"], 9);
+            assert!(!app.0.join("refused.plan").exists());
+            let human = app.run(&[root.to_str().unwrap()]);
+            assert_eq!(human.status.code(), Some(1));
+            assert!(String::from_utf8_lossy(&human.stderr).contains(&expected.message));
+        }
+        app.write(
+            "lib/row.contract",
+            &row.replace(
+                "ARGS",
+                "title=\"Item\", count=clicks, selected=true, choose=choose",
+            ),
+        );
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}
