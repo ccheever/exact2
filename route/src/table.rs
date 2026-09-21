@@ -202,20 +202,57 @@ impl Table {
     /// Unknown names, notfound, wrong arity, and empty/dot-only parameters
     /// report `route-unknown`; every parameter must survive canonicalization.
     pub fn path(&self, name: &str, params: &[&str]) -> Result<String, PathError> {
-        let unknown = || PathError {
-            code: "route-unknown".into(),
-            message: format!(
-                "unknown route or wrong parameter count: {name} ({})",
-                params.len()
-            ),
-        };
         let route = self
             .routes
             .iter()
             .find(|r| r.name == name && !r.notfound)
-            .ok_or_else(unknown)?;
-        if names_in(&route.pattern).len() != params.len() {
-            return Err(unknown());
+            .ok_or_else(|| {
+                let choices = self
+                    .routes
+                    .iter()
+                    .filter(|r| !r.notfound)
+                    .map(|r| format!("`{}`", r.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let hint = if choices.is_empty() {
+                    "no routes can be used with path".to_owned()
+                } else {
+                    format!("available routes: {choices}")
+                };
+                PathError {
+                    code: "route-unknown".into(),
+                    message: format!("unknown path route `{name}`; {hint}"),
+                }
+            })?;
+        {
+            let expected = names_in(&route.pattern);
+            if expected.len() != params.len() {
+                let noun = if expected.len() == 1 {
+                    "parameter"
+                } else {
+                    "parameters"
+                };
+                let names = if expected.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " ({})",
+                        expected
+                            .iter()
+                            .map(|n| format!("`{n}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                return Err(PathError {
+                    code: "route-unknown".into(),
+                    message: format!(
+                        "`{name}` expects {} path {noun}{names}, received {}",
+                        expected.len(),
+                        params.len()
+                    ),
+                });
+            }
         }
         let mut values = params.iter();
         Ok(route

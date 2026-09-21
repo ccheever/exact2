@@ -88,10 +88,24 @@ encoding each parameter with `encodeURIComponent`; numeric arguments pass
 through `toString` first. The table checks the name and exact argument count;
 parameters accept strings or numbers. There is no per-route generated function
 or typed parameter record. A location argument to `open`, `push`, `replace`
-or `go` is a literal checked against the table (including a declared
-`notfound`), a `path()` call, or another non-template expression checked by the
-runner. A direct template is `route-template`, with message "use `path()`".
+or `go` is a literal checked against the table (a `notfound` fallback does not
+validate an unmatched literal), a `path()` call, or another non-template
+expression checked by the runner. A direct template is `route-template`, with message "use `path()`".
 `select` takes a tab name, so its string is not a location check.
+
+`Table::path` now distinguishes unknown path-route names from wrong parameter
+counts in its refusal text. Unknown names list non-fallback routes in declaration
+order; count errors report the expected count and parameter names in pattern
+order, including inherited parameters. The compiler forwards that guidance and
+separately explains a missing `routes` declaration or nonliteral first argument.
+The `route-unknown` ID and existing call span remain; empty/dot-only segment and
+argument-type refusals keep their prior text/priority. No choices are built for
+valid calls. Five CLI repair fixtures use the reported names or parameter order
+and original source locations, with identical repaired plans and unchanged
+non-message diagnostic fields; all 18 app/fixture plans also match. The shared
+route corpus and compiler integration tests pass. This is repair guidance, not a
+runtime performance or general agent-productivity claim.
+Evidence: `/tmp/exact-route-guidance-213a2765`.
 
 **Decided (chunk (c), 2026-09-14):** compatible scoped action/action-prop
 references keep precedence over the roster. A Router-valued first argument

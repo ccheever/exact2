@@ -153,10 +153,14 @@ pub fn expand_path(
         span,
     };
     let Some(table) = &shapes.routes else {
-        return Err(unknown());
+        return err("route-unknown", "declare `routes` to use `path()`", span);
     };
     let Some(Expr::Str(name, _)) = args.first() else {
-        return Err(unknown());
+        return err(
+            "route-unknown",
+            "`path()` needs a string-literal route name as its first argument",
+            span,
+        );
     };
     // Table::path is the arity/name authority, including refusal of notfound.
     table

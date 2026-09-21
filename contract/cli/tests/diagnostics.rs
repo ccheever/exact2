@@ -1171,3 +1171,102 @@ fn action_hints_respect_call_intrinsics_and_function_precedence() {
         }
     }
 }
+
+#[test]
+fn path_guidance_uses_the_route_table_and_original_imported_call_location() {
+    let app = App::new("path-guidance");
+    let root = app.write("app.contract", "use Row from \"./lib/row.contract\"\nroutes nav\n  home \"/\"\n    post \"/post/:id\"\n    archive \"/archive/:year/:id\"\n  notfound\ncomponent App\n  view\n    column\n      Row(id=\"a\")\n      Row(id=\"b\")\n");
+    for (expr, message, fixed) in [
+        (
+            "path(\"psot\", id)",
+            "unknown path route `psot`; available routes: `home`, `post`, `archive`",
+            "path(\"post\", id)",
+        ),
+        (
+            "path(\"notfound\")",
+            "unknown path route `notfound`; available routes: `home`, `post`, `archive`",
+            "path(\"home\")",
+        ),
+        (
+            "path(\"post\")",
+            "`post` expects 1 path parameter (`id`), received 0",
+            "path(\"post\", id)",
+        ),
+        (
+            "path(\"post\", 2026, id)",
+            "`post` expects 1 path parameter (`id`), received 2",
+            "path(\"post\", id)",
+        ),
+        (
+            "path(\"archive\", id)",
+            "`archive` expects 2 path parameters (`year`, `id`), received 1",
+            "path(\"archive\", 2026, id)",
+        ),
+        (
+            "path(\"home\", id)",
+            "`home` expects 0 path parameters, received 1",
+            "path(\"home\")",
+        ),
+    ] {
+        let source =
+            format!("component Row\n  props\n    id: string\n  view\n    text `é ${{{expr}}}`\n");
+        let path = app
+            .write("lib/row.contract", &source)
+            .canonicalize()
+            .unwrap();
+        let error = contract::compile_path(&root).unwrap_err();
+        assert_eq!(error.id, "route-unknown");
+        assert_eq!(error.message, message);
+        let errors = diagnostics(
+            &app.run(&[root.to_str().unwrap(), "--json", "-o", "refused.plan"]),
+            1,
+        );
+        same_error(&errors[0], &error);
+        assert_eq!(errors[0]["file"], path.to_str().unwrap());
+        assert_eq!(errors[0]["line"], 5);
+        let col = source.lines().last().unwrap().find("path").unwrap() + 1;
+        assert_eq!(errors[0]["col"], col);
+        assert_eq!(errors[0]["end_col"], col + 4);
+        assert!(!app.0.join("refused.plan").exists());
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert!(String::from_utf8_lossy(&human.stderr).contains(message));
+        app.write("lib/row.contract", &source.replace(expr, fixed));
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}
+
+#[test]
+fn path_guidance_keeps_missing_table_literal_name_and_segment_errors_distinct() {
+    let base = "routes nav\n  home \"/\"\n    post \"/post/:id\"\ncomponent App\n  state routeName = \"home\"\n  view\n    text EXPR\n";
+    for expr in ["path()", "path(routeName)", "path(1)"] {
+        let error = contract::compile(&base.replace("EXPR", expr)).unwrap_err();
+        assert_eq!(error.id, "route-unknown");
+        assert_eq!(
+            error.message,
+            "`path()` needs a string-literal route name as its first argument"
+        );
+    }
+    let missing =
+        contract::compile("component App\n  view\n    text path(\"home\")\n").unwrap_err();
+    assert_eq!(missing.id, "route-unknown");
+    assert_eq!(missing.message, "declare `routes` to use `path()`");
+    for value in ["", ".", ".."] {
+        let expr = format!("path(\"post\", \"{value}\")");
+        let error = contract::compile(&base.replace("EXPR", &expr)).unwrap_err();
+        assert_eq!(error.id, "route-unknown");
+        assert_eq!(
+            error.message,
+            "a path parameter cannot be empty, `.` or `..`"
+        );
+    }
+    let bad_type = contract::compile(&base.replace("EXPR", "path(\"post\", true)")).unwrap_err();
+    assert_eq!(bad_type.id, "type-argument");
+    assert_eq!(
+        bad_type.message,
+        "`path()` expects a string or number, given `bool`"
+    );
+    assert!(contract::compile(
+        "fn path(name: string): string = name\ncomponent App\n  view\n    text path(\"home\")\n"
+    )
+    .is_ok());
+}

@@ -582,3 +582,74 @@ fn corpus_paths_survive_push_without_losing_parameters() {
         }
     }
 }
+
+#[test]
+fn path_errors_identify_names_and_ordered_parameters_without_changing_validation() {
+    let mut table = corpus().tables["plain"].clone();
+    let fallback = corpus().tables["interview"]
+        .routes
+        .iter()
+        .find(|r| r.notfound)
+        .unwrap()
+        .clone();
+    table.routes.push(fallback.clone());
+    let choices = "available routes: `landing`, `item`, `edit`, `archive`, `unicode`, `done`";
+    for name in ["missing", "notfound"] {
+        let error = table.path(name, &[]).unwrap_err();
+        assert_eq!(error.code, "route-unknown");
+        assert_eq!(
+            error.message,
+            format!("unknown path route `{name}`; {choices}")
+        );
+    }
+    for (name, args, message) in [
+        (
+            "landing",
+            vec!["extra"],
+            "`landing` expects 0 path parameters, received 1",
+        ),
+        (
+            "item",
+            vec![],
+            "`item` expects 1 path parameter (`item`), received 0",
+        ),
+        (
+            "edit",
+            vec![],
+            "`edit` expects 1 path parameter (`item`), received 0",
+        ),
+        (
+            "item",
+            vec!["a", "b"],
+            "`item` expects 1 path parameter (`item`), received 2",
+        ),
+        (
+            "archive",
+            vec!["2026"],
+            "`archive` expects 2 path parameters (`year`, `item`), received 1",
+        ),
+    ] {
+        let error = table.path(name, &args).unwrap_err();
+        assert_eq!(error.code, "route-unknown");
+        assert_eq!(error.message, message);
+    }
+    for value in ["", ".", ".."] {
+        let error = table.path("item", &[value]).unwrap_err();
+        assert_eq!(error.code, "route-unknown");
+        assert_eq!(
+            error.message,
+            "a path parameter cannot be empty, `.` or `..`"
+        );
+    }
+    assert_eq!(
+        table.path("archive", &["2026", "é/a?b"]).unwrap(),
+        "/archive/2026/%C3%A9%2Fa%3Fb"
+    );
+    for routes in [vec![], vec![fallback]] {
+        let error = Table { routes }.path("missing", &[]).unwrap_err();
+        assert_eq!(
+            error.message,
+            "unknown path route `missing`; no routes can be used with path"
+        );
+    }
+}
