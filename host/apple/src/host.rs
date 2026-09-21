@@ -697,6 +697,21 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// Publish newly prepared native paragraph metrics through ordinary layout.
+    pub fn text_ready(&mut self, key: exact_kernel::NodeKey, revision: u64) -> String {
+        let mut batch = Batch::new();
+        let error = if self
+            .runner
+            .kernel_mut()
+            .invalidate_text_metrics(key, revision)
+        {
+            self.layout(&mut batch).err()
+        } else {
+            None
+        };
+        self.finish(batch, error)
+    }
+
     /// The viewport changed: lay out again; the batch carries the frames
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {

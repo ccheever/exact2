@@ -45,6 +45,7 @@ impl Hash for TextDomain {
 pub struct ParagraphStamp {
     pub(crate) domain: TextDomain,
     pub(crate) owner: NodeKey,
+    pub(crate) view: crate::ViewId,
     pub(crate) metrics: u64,
     pub(crate) paint_source: u64,
 }
@@ -53,6 +54,11 @@ impl ParagraphStamp {
     /// The independently measured paragraph allocation.
     pub fn owner(&self) -> NodeKey {
         self.owner
+    }
+
+    /// Producer identity for the host paragraph presenter.
+    pub fn view(&self) -> crate::ViewId {
+        self.view
     }
 
     /// Current metric revision. This scalar alone is not an identity.

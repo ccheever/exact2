@@ -537,6 +537,10 @@ mod storage {
         };
         let mut probe = RequestProbe {
             expected: CRequest {
+                view: 0,
+                node_index: 0,
+                node_generation: 0,
+                revision: 0,
                 runs: expected_runs.as_ptr(),
                 count,
                 strut: expected_runs[1],

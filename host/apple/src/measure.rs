@@ -51,6 +51,14 @@ pub struct CRun {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct CRequest {
+    /// Identified paragraph allocation/source; zero view means synchronous only.
+    pub view: u32,
+    /// Generation-checked kernel slot.
+    pub node_index: u32,
+    /// Allocation generation.
+    pub node_generation: u32,
+    /// Source/metric revision within this measurer lifetime.
+    pub revision: u64,
     /// The runs.
     pub runs: *const CRun,
     /// How many.
@@ -203,7 +211,11 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
 }
 
 impl CallbackMeasurer {
-    fn foreign_measure(&mut self, request: &TextMeasureRequest<'_>) -> CMetrics {
+    fn foreign_measure(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+        stamp: Option<&ParagraphStamp>,
+    ) -> CMetrics {
         let single;
         let owned;
         let runs: &[CRun] = if let [run] = request.runs {
@@ -219,6 +231,10 @@ impl CallbackMeasurer {
         };
         let shapes = crate::textflow::Shapes::new(request.exclusions);
         let c = CRequest {
+            view: stamp.map_or(0, ParagraphStamp::view),
+            node_index: stamp.map_or(0, |s| s.owner().index),
+            node_generation: stamp.map_or(0, |s| s.owner().generation),
+            revision: stamp.map_or(0, ParagraphStamp::metric_revision),
             runs: runs.as_ptr(),
             count: runs.len(),
             strut: c_run("", request.paragraph.strut),
@@ -261,7 +277,7 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 
 impl TextMeasurer for CallbackMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
-        sanitize(self.foreign_measure(request))
+        sanitize(self.foreign_measure(request, None))
     }
 
     fn measure_identified(
@@ -276,12 +292,13 @@ impl TextMeasurer for CallbackMeasurer {
         if let Some(metrics) = self.memo.get(stamp, request.width, request.height) {
             return metrics;
         }
-        let raw = self.foreign_measure(request);
+        let raw = self.foreign_measure(request, Some(stamp));
         let valid = raw.width.is_finite()
             && raw.width >= 0.0
             && raw.height.is_finite()
             && raw.height >= 0.0
-            && raw.baseline.is_finite();
+            && raw.baseline.is_finite()
+            && raw.baseline != -2.0; // pending worker metrics are never memoized here
         let metrics = sanitize(raw);
         // A negative finite baseline is the existing C "unknown" sentinel.
         // Invalid raw output keeps its existing sanitized return behavior, but

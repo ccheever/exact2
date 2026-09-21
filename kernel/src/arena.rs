@@ -329,6 +329,7 @@ impl NodeArena {
         Some(ParagraphStamp {
             domain: self.text_domain.clone(),
             owner: self.key(slot),
+            view: self.local_id(slot),
             metrics: r.metrics,
             paint_source: r.paint_source,
         })

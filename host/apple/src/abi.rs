@@ -145,43 +145,6 @@ impl<D: DataSource> Bridge<D> {
         self.input.len()
     }
 
-    /// Copy one current immutable region request; stale IDs return an error object.
-    pub fn region_request(&mut self, id: u64, known_source: u64) -> u32 {
-        let answer = self
-            .host
-            .as_ref()
-            .ok_or_else(|| "not booted".into())
-            .and_then(|h| h.region_request_json_known(id, known_source));
-        let text = answer.unwrap_or_else(|why| format!("{{\"error\":\"{}\"}}", escape(&why)));
-        self.output = text.into_bytes();
-        self.output.len() as u32
-    }
-    /// Deliver one native retained artifact; even stale/not-booted takes ownership.
-    pub fn region_complete(
-        &mut self,
-        id: u64,
-        metrics: crate::measure::CMetrics,
-        owner: Rc<dyn std::any::Any>,
-    ) -> u32 {
-        let text = self
-            .host
-            .as_mut()
-            .map(|h| {
-                h.complete_region_text(
-                    id,
-                    exact_kernel::TextMetrics {
-                        width: metrics.width,
-                        height: metrics.height,
-                        first_baseline: (metrics.baseline >= 0. || !metrics.baseline.is_finite())
-                            .then_some(metrics.baseline),
-                    },
-                    owner,
-                )
-            })
-            .unwrap_or_else(not_booted);
-        self.emit(text)
-    }
-
     /// The output buffer's address.
     pub fn output(&self) -> *const u8 {
         self.output.as_ptr()
@@ -1352,6 +1315,13 @@ macro_rules! host {
         pub extern "C" fn exact_region_request(rt: u32, id: u64, known_source: u64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.region_request(id, known_source), |n| n)
         }
+        /// Invalidate metrics for a completed native paragraph revision.
+        #[no_mangle]
+        pub extern "C" fn exact_text_ready(rt: u32, index: u32, generation: u32, revision: u64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false,
+                |b, _| b.text_ready(index, generation, revision), |n| n)
+        }
+
         /// Takes one native retain on every path, including destroyed/busy runtimes.
         #[no_mangle]
         pub extern "C" fn exact_region_complete(rt: u32, id: u64, metrics: $crate::measure::CMetrics,

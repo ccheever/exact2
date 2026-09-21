@@ -119,6 +119,8 @@ ExactFlowResult exact_textflow_flow(uint64_t handle, const ExactFlowShape *shape
 void exact_textflow_free(uint64_t handle);
 
 typedef struct ExactMeasureRequest {
+    uint32_t view, node_index, node_generation;
+    uint64_t revision;
     const ExactTextRun *runs;
     size_t count;
     ExactTextRun strut;    /* paragraph minimum line box, empty text */
@@ -141,6 +143,7 @@ typedef struct ExactMetrics {
 
 /* Region completion takes one retained native artifact on every return path. */
 typedef void (*ExactRegionReleaseFn)(void *owner);
+uint32_t exact_text_ready(ExactRuntime rt, uint32_t index, uint32_t generation, uint64_t revision);
 uint32_t exact_region_request(ExactRuntime rt, uint64_t request, uint64_t known_source);
 uint32_t exact_region_complete(ExactRuntime rt, uint64_t request, ExactMetrics metrics, void *owner, ExactRegionReleaseFn release);
 

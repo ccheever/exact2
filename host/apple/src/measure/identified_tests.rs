@@ -272,6 +272,11 @@ fn namespace_and_reused_node_generation_cannot_alias() {
 fn malformed_raw_results_are_returned_sanitized_but_never_memoized() {
     let invalid = [
         CMetrics {
+            width: 73.0,
+            height: 17.0,
+            baseline: -2.0,
+        },
+        CMetrics {
             width: f32::NAN,
             height: 17.0,
             baseline: 12.0,

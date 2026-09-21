@@ -205,6 +205,9 @@ final class Runtime {
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { read(exact_delivery_sync(rt)) }
     /// The returned JSON is copied before the runtime output buffer is reused.
+    func textReady(index: UInt32, generation: UInt32, revision: UInt64) -> Batch {
+        read(exact_text_ready(rt, index, generation, revision))
+    }
     func regionRequest(_ id: UInt64, knownSource: UInt64) -> [String: Any]? {
         let length = exact_region_request(rt, id, knownSource)
         let data = Data(bytes: exact_out(rt), count: Int(length))

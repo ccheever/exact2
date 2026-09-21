@@ -651,6 +651,24 @@ impl Kernel {
         Ok(())
     }
 
+    /// A native worker replaced pending paragraph metrics. Stale allocation or
+    /// source completions cannot invalidate a successor paragraph.
+    pub fn invalidate_text_metrics(&mut self, key: NodeKey, revision: u64) -> bool {
+        let Some(node) = self.node_by_key(key) else {
+            return false;
+        };
+        if !node
+            .paragraph_stamp()
+            .is_some_and(|s| s.metric_revision() == revision)
+        {
+            return false;
+        }
+        if let Some(node) = self.arena.taffy(key.index) {
+            self.layout.mark_dirty(node);
+        }
+        true
+    }
+
     /// The page's environment: what `env(safe-area-inset-*)` lengths
     /// resolve to (LLP 1001 §2).
     pub fn env(&self) -> Env {
@@ -1080,6 +1098,30 @@ mod locality_tests {
             );
         }
     }
+    #[test]
+    fn native_metric_completion_remeasures_only_current_paragraph_revision() {
+        let (mut k, calls) = fixture(100, vec![]);
+        let stamp = k.node(3).unwrap().paragraph_stamp().unwrap();
+        let offer = Offer::definite(900.0, 700.0);
+        assert!(k.invalidate_text_metrics(stamp.owner(), stamp.metric_revision()));
+        k.compute_layout(1, offer).unwrap();
+        assert!(calls.get() > 0);
+        equal_fresh(&k, offer);
+        k.apply(0, 2, &[text(3, "a different source")]).unwrap();
+        k.compute_layout(1, offer).unwrap();
+        calls.set(0);
+        assert!(!k.invalidate_text_metrics(stamp.owner(), stamp.metric_revision()));
+        assert!(!k.invalidate_text_metrics(
+            NodeKey {
+                index: stamp.owner().index,
+                generation: stamp.owner().generation + 1
+            },
+            stamp.metric_revision()
+        ));
+        k.compute_layout(1, offer).unwrap();
+        assert_eq!(calls.get(), 0);
+    }
+
     #[test]
     fn contained_text_edits_visit_only_the_dirty_path_and_publish_internal_overflow() {
         for n in [100, 2000] {
