@@ -267,6 +267,18 @@ binary batches instead of names, as §9 of LLP 1001 said it should.
 
 ## 5. The presenter (`host/apple/macos`)
 
+On macOS, region preparation scans a batch once for region operations. With
+neither a registered nor an incoming region, it skips retention bookkeeping;
+active regions keep the same pre-apply invalidation and ordered registration,
+refusal and retirement behavior (LLP 1041 §8.76). Eight alternating comparisons
+over captured reader batches measured this routine at 81.38 → 17.88 ms per
+240 batches without a region, and 83.66 → 69.98 ms with a registered region.
+The latter isolates preparation without worker or surface work. Six hidden-reader
+pairs had a median paired landing improvement of 7.8%, but substantial machine-load
+swings and a losing pair prevent a repeatable frame-rate claim. All 1,536 measured
+landings across the real and dense-inline fixtures retained viewport coverage.
+Evidence: `/tmp/exact-region-idle-eeb6b7dc/`; no physical 120 Hz result.
+
 A SwiftPM package (`Package.swift`, tools 5.9; a `CExact` system-library
 target over `exact.h`; `EXACT_LIB_DIR`/`EXACT_LIB` name the archive), AppKit
 only. `NodeView` is one flipped, layer-backed `NSView` per node with
