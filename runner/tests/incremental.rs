@@ -326,8 +326,9 @@ fn clip(s: &str) -> &str {
 }
 
 /// What the apps may not exercise: row-owned state, `now()` read by a
-/// binding under a timer, nested lists reading the outer item, and
-/// `when`/`match` inside rows.
+/// binding under a timer, nested lists reading the outer item,
+/// `when`/`match` inside rows, and both windowed lists, one scrolled by a
+/// binding.
 const DECK: &str = r#"
 shape Tag
   id: string
@@ -344,6 +345,7 @@ component Deck
   state revision = 0
   state shown = true
   state stamp = 0
+  state scrollTo = 0
   resource items = items(revision) as shape list<Item>
   derive title = `${query} ${length(items)} ${stamp}`
   task clock mount
@@ -358,6 +360,8 @@ component Deck
     revision = revision + 1
   action toggle writes shown
     shown = not shown
+  action jump writes scrollTo
+    scrollTo = scrollTo + 40
   view
     column
       input value=query change=typeQuery testId="q"
@@ -367,6 +371,16 @@ component Deck
         text "revise"
       button press=toggle
         text "toggle"
+      button press=jump
+        text "jump"
+      list estimated-item-height=24 height=200 scrollTop=scrollTo
+        each it in items key=it.id
+          column width="100%"
+            text `${it.label} ${picked}`
+      list virtualized=true height=200
+        each it in items key=it.id
+          column width="100%"
+            text `${it.n} ${picked}`
       when shown
         column
           each it in items key=it.id

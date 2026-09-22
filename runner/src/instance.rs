@@ -496,7 +496,9 @@ fn update_all(
                 }
             }
             Child::Region(r) => {
-                if u.stale(&deps.regions[r.region.0 as usize]) {
+                if u.stale(&deps.regions[r.region.0 as usize])
+                    || r.window.as_ref().is_some_and(|w| w.scroll_requested())
+                {
                     roots |= r.update(u, frames, false)?;
                 } else {
                     u.work.regions_skipped += 1;
@@ -740,21 +742,26 @@ impl RegionInst {
         let deps = &u.sites.deps;
         let index = self.region.0 as usize;
         let row = plan.region(self.region);
+        let subject_stale = fresh || u.stale(&deps.subjects[index]);
         if let Some(mut window) = self.window.take() {
-            let result = match u.eval(row.subject, frames) {
-                Ok(Value::List(items)) => {
-                    window.replace(u, &mut self.active, self.region, items, frames)
+            let result = if subject_stale || u.stale_outside(&deps.keys[index], 1) {
+                match u.eval(row.subject, frames) {
+                    Ok(Value::List(items)) => {
+                        window.replace(u, &mut self.active, self.region, items, frames)
+                    }
+                    Ok(_) => Err(InstanceError::SubjectKind {
+                        region: self.region,
+                    }),
+                    Err(trap) => Err(trap.into()),
                 }
-                Ok(_) => Err(InstanceError::SubjectKind {
-                    region: self.region,
-                }),
-                Err(trap) => Err(trap.into()),
+            } else {
+                // The same items and keys: only mounted rows may be stale.
+                window.refresh(u, &mut self.active, self.region, frames)
             };
             self.window = Some(window);
             // The window's content view is its one root.
             return result.map(|_| false);
         }
-        let subject_stale = fresh || u.stale(&deps.subjects[index]);
         match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = if !subject_stale {

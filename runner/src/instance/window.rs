@@ -360,6 +360,37 @@ impl ListWindow {
         self.render(u, active, region, frames, true, None, false)
     }
 
+    /// A `scroll-top` binding changed since the list last updated.
+    pub(super) fn scroll_requested(&self) -> bool {
+        self.requested_top.is_some()
+    }
+
+    /// Bring the mounted rows up to date over unchanged items, taking a
+    /// requested scroll position as [`ListWindow::replace`] does.
+    pub(super) fn refresh(
+        &mut self,
+        u: &mut Update<'_>,
+        active: &mut Active,
+        region: RegionsId,
+        frames: &[Frame],
+    ) -> Result<(), InstanceError> {
+        if let Some(top) = self.requested_top.take() {
+            let extent = self.heights.offset(self.items.len());
+            let old_top = self.top;
+            self.top = (top - self.origin)
+                .max(0.0)
+                .clamp(0.0, (extent - self.port).max(0.0));
+            if self.top != old_top {
+                u.ops.push(Op::SetProp {
+                    id: self.owner,
+                    prop: PropId::ScrollTop,
+                    value: PropValue::Float(self.top + self.origin),
+                });
+            }
+        }
+        self.render(u, active, region, frames, true, None, false)
+    }
+
     // Row creation and retirement have independent admission policies.
     #[allow(clippy::too_many_arguments)]
     fn render(
