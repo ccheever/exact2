@@ -8,6 +8,28 @@
     "app"
   ],
   "properties": {
+    "game": {
+      "type": "object",
+      "description": "Generate the game's GPU, web and Apple shells from the logic package and Game type.",
+      "required": ["crate", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "audio": { "type": "boolean" },
+        "assets": { "type": "boolean" },
+        "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "data": {
+          "type": "object",
+          "description": "An optional linked Rust DataSource in the app's data/ crate, constructed with Default and wrapped by host storage.",
+          "required": ["crate", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-data$" },
+            "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+          }
+        },
+        "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+      }
+    },
     "$schema": {
       "type": "string"
     },

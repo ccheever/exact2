@@ -654,6 +654,8 @@ pub enum Expr {
     Member(Box<Expr>, String, Span),
     /// `name(args)`.
     Call(String, Vec<Expr>, Span),
+    /// An authored named surface argument.
+    NamedArg(String, Box<Expr>, Span),
     /// A unary operation.
     Unary(UnOp, Box<Expr>, Span),
     /// A binary operation.
@@ -697,6 +699,7 @@ impl Expr {
             | Expr::Ident(_, s)
             | Expr::Member(_, _, s)
             | Expr::Call(_, _, s)
+            | Expr::NamedArg(_, _, s)
             | Expr::Unary(_, _, s)
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)

@@ -1,0 +1,16 @@
+{
+  "ticks": {
+    "0": "0xf560b8cf6dd9601d",
+    "90": "0xc92812672686717e"
+  },
+  "saves": {
+    "continuation": "ac641a9d1353c0e6c73e9d8867bbc5192dc6d46e407b08b6fd17e758dacac3dc"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "game": "greybox",
+  "generated": "bun game/prove.mjs greybox --repin --hosts linux,web",
+  "at": "8db5e42e8f05122e7f4ca265ba0bd480c6ab7621"
+}

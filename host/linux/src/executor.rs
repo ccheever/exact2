@@ -29,7 +29,7 @@ impl Executor {
         };
         #[cfg(target_vendor = "apple")]
         let (host, note) = (ibex2::host::Host::new(), None);
-        let bindings = ibex2::grant::GrantSet::parse(grants)
+        let bindings = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
             .ok()
             .map(|g| host.endow(g));
         let core = core::Core::start(

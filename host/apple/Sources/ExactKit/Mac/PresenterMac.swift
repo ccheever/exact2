@@ -127,6 +127,7 @@ final class Presenter {
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
     /// what the main thread spent on a list window, a batch, a text slice.
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
+    var autofocusProcessed: Set<ObjectIdentifier> = []
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -655,6 +656,7 @@ final class Presenter {
         mouseHeightDrag.cancel()
         mouseTransformDrag.cancel()
         collections.reset()
+        autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
         toolbar.reset()
@@ -925,7 +927,13 @@ final class Presenter {
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
+    func message(_ id: UInt32, _ value: String) {
+        guard let view = views[id], view.handlers.contains("message") else { return }
+        send(id) { [weak self, weak view] in
+            guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
+            onMessage?(id, value)
+        }
+    }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
@@ -1026,7 +1034,7 @@ final class Presenter {
                     }
                 }
             case .surface:
-                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] as? [Any] ?? []) }
+                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
@@ -1097,6 +1105,7 @@ final class Presenter {
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls) {
             guard let node = views[id] else { continue }
@@ -1114,6 +1123,8 @@ final class Presenter {
         if structureChanged || batch.ops.contains(where: { $0.op == .props }) {
             keyViewLoopChanged(whileScrolling: listSyncDepth > 0)
         }
+        refreshVisibleText()
+        syncAccessibility()
     }
 
     /// Align an enclosing context panel's preview with its source, while
@@ -1247,6 +1258,7 @@ enum Capture {
         var hidden: [NSView] = []
         func hide(_ v: NSView) {
             for s in v.subviews {
+                if let n = s as? NodeView, n.placement != nil, !n.isHidden { n.isHidden = true; hidden.append(n); continue }
                 if let n = s as? NodeView, let o = n.overlay, o.alphaValue == 0, !o.isHidden { o.isHidden = true; hidden.append(o); continue }
                 hide(s)
             }

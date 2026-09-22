@@ -13,7 +13,7 @@ component Map
     column testId="root"
       button press=zoomIn aria-label="Zoom" testId="zoom"
         text "Zoom"
-      canvas surface=map(zoom, "caltrain") width="100%" height=240 testId="map"
+      canvas surface=map(zoom, "caltrain") message=setLabel width="100%" height=240 testId="map"
         column padding=12 testId="map-children"
           text `Zoom ${zoom}` testId="zoom-label"
       canvas testId="bare"

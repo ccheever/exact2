@@ -3,11 +3,13 @@ use super::Directories;
 use exact_runner::{FailureKind, Outcome};
 use ibex2::{
     grant::GrantSet,
-    host,
-    stdlib::{app_fs::AppDirectories, sqlite},
+    stdlib::{
+        app_fs::{self, AppDirectories},
+        fs::{self, FsOp, FsResult},
+        sqlite::{self, Location, Provider},
+    },
 };
 use serde_json::{json, Value};
-use std::sync::Arc;
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
@@ -27,7 +29,7 @@ fn bytes(v: &Value) -> Result<Vec<u8>, String> {
             n.as_u64()
                 .filter(|n| *n <= 255)
                 .map(|n| n as u8)
-                .ok_or("storage: invalid byte".into())
+                .ok_or_else(|| "storage: invalid byte".into())
         })
         .collect()
 }
@@ -98,7 +100,12 @@ fn commands(args: &Value) -> Result<Vec<(String, sqlite::Command)>, String> {
         })
         .collect()
 }
-fn execute(b: &host::Bindings, op: &str, args: &Value) -> Result<Value, String> {
+fn execute(
+    grants: &GrantSet,
+    directories: &AppDirectories,
+    op: &str,
+    args: &Value,
+) -> Result<Value, String> {
     let path = text(args, "path")?;
     if !path.starts_with("app:/") {
         return Err("portable storage needs an app:/ path".into());
@@ -108,7 +115,12 @@ fn execute(b: &host::Bindings, op: &str, args: &Value) -> Result<Value, String> 
         if op == "sqlite.transaction" && commands.iter().any(|(k, _)| k != "execute") {
             return Err("SQLite write transaction requires execute commands".into());
         }
-        let db = b.sqlite.open(path).map_err(error)?;
+        let path = app_fs::resolve_sqlite(grants, Some(directories), path).map_err(error)?;
+        let db = sqlite::Database::new(
+            ibex2_sqlite::SqliteProvider
+                .open(Location { path })
+                .map_err(error)?,
+        );
         let result = (|| {
             if op == "sqlite.transaction" {
                 let result = db
@@ -127,22 +139,56 @@ fn execute(b: &host::Bindings, op: &str, args: &Value) -> Result<Value, String> 
             Err(e) => Err(e),
         };
     }
-    match op {
-        "fs.readFile"=>b.fs.read_file(path).map(|bytes|json!({"base64":exact_runner::agent::base64(&bytes)})).map_err(error),
-        "fs.writeFile"=>b.fs.write_file(path,&bytes(args)?).map(|_|Value::Null).map_err(error),
-        "fs.atomicWriteFile"=>b.fs.atomic_write_file(path,&bytes(args)?).map(|_|Value::Null).map_err(error),
-        "fs.appendFile"=>b.fs.append_file(path,&bytes(args)?).map(|_|Value::Null).map_err(error),
-        "fs.mkdir"=>b.fs.mkdir(path).map(|_|Value::Null).map_err(error),
-        "fs.rm"=>b.fs.remove(path).map(|_|Value::Null).map_err(error),
-        "fs.stat"=>b.fs.stat(path).map(|s|json!({"size":s.size,"isFile":s.is_file,"isDirectory":s.is_directory,"modifiedMs":s.modified_ms})).map_err(error),
-        "fs.readdir"=>b.fs.read_dir(path).map(|v|json!(v)).map_err(error),
-        "fs.realpath"=>b.fs.realpath(path).map(Value::String).map_err(error),
-        "fs.rename"|"fs.copyFile"=>{
-            let to=text(args,"destination")?;if !to.starts_with("app:/"){return Err("portable storage needs an app:/ destination".into())}
-            if op=="fs.rename"{b.fs.rename(path,to)}else{b.fs.copy_file(path,to)}.map(|_|Value::Null).map_err(error)
+    let (operation, destination, data) = match op {
+        "fs.readFile" => (FsOp::ReadFile, None, None),
+        "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
+        "fs.atomicWriteFile" => (FsOp::AtomicWriteFile, None, Some(bytes(args)?)),
+        "fs.appendFile" => (FsOp::AppendFile, None, Some(bytes(args)?)),
+        "fs.mkdir" => (FsOp::Mkdir, None, None),
+        "fs.rm" => (FsOp::Remove, None, None),
+        "fs.stat" => (FsOp::Stat, None, None),
+        "fs.readdir" => (FsOp::ReadDir, None, None),
+        "fs.realpath" => (FsOp::Realpath, None, None),
+        "fs.rename" | "fs.copyFile" => {
+            let destination = text(args, "destination")?;
+            if !destination.starts_with("app:/") {
+                return Err("portable storage needs an app:/ destination".into());
+            }
+            (
+                if op == "fs.rename" {
+                    FsOp::Rename
+                } else {
+                    FsOp::CopyFile
+                },
+                Some(destination),
+                None,
+            )
         }
-        _=>Err(format!("unsupported storage operation {op}")),
-    }
+        _ => return Err(format!("unsupported storage operation {op}")),
+    };
+    let result = fs::run(
+        grants,
+        Some(directories),
+        operation,
+        path,
+        destination,
+        data.as_deref(),
+    )
+    .map_err(error)?;
+    Ok(match result {
+        FsResult::Done => Value::Null,
+        FsResult::Bytes(bytes) => {
+            json!({"base64":exact_runner::agent::base64(&bytes)})
+        }
+        FsResult::Text(text) => Value::String(text),
+        FsResult::Names(names) => json!(names),
+        FsResult::Stat(stat) => json!({
+            "size": stat.size,
+            "isFile": stat.is_file,
+            "isDirectory": stat.is_directory,
+            "modifiedMs": stat.modified_ms
+        }),
+    })
 }
 pub(super) fn run(paths: &Directories, grants: &str, payload: &[u8]) -> Outcome {
     let result = (|| {
@@ -154,16 +200,13 @@ pub(super) fn run(paths: &Directories, grants: &str, payload: &[u8]) -> Outcome 
             return Err("unsupported storage protocol".into());
         }
         let op = text(&request, "op")?;
-        let grants = GrantSet::parse(grants).map_err(error)?;
+        let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {
             std::fs::create_dir_all(path).map_err(error)?;
         }
         let directories =
             AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)?;
-        let host = host::Host::new()
-            .with_app_directories(directories)
-            .with_sqlite_provider(Arc::new(ibex2_sqlite::SqliteProvider));
-        execute(&host.endow(grants), op, &request["args"])
+        execute(&grants, &directories, op, &request["args"])
     })();
     match result {
         Ok(v) => {

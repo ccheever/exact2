@@ -1,0 +1,17 @@
+{
+  "ticks": {
+    "60": "0x75937d48d7228e0b",
+    "120": "0xe159fb2c42740548"
+  },
+  "saves": {
+    "continuation": "f96d70aea8f9fbb72257bb0ed99ca3da2b1f5319dfe00e8191c88f9f7fde855d"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "game": "skinned-fixture",
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux,web",
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "D6 imports Fox into metres once, replacing model/socket reciprocal scales; tick-60 joint bases now express metres"
+}

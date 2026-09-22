@@ -69,6 +69,7 @@ fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     p
 }
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -934,4 +935,46 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
             }
         }
     }
+}
+
+#[test]
+fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
+    let source = include_str!("../../../contract/corpus/accessibility.contract");
+    let mut p = compiled(source, 1.0, PainterChoice::Cpu);
+    let id = |p: &Presenter<NoData>, name: &str| view(p, name);
+    let first = id(&p, "first");
+    assert_eq!(p.focus(), Some(first));
+    let reply = exact_linux::agent::handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{first},"key":"Space"}}"#),
+    );
+    assert!(!reply.contains("error"), "{reply}");
+    assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":1"#));
+    p.key(Some('\n'), false, 0.0);
+    assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":2"#));
+    p.tap(id(&p, "other")).unwrap();
+    let other = id(&p, "other");
+    assert_eq!(p.focus(), Some(other));
+    p.clock(1000.0);
+    p.clock(2000.0);
+    assert_eq!(p.focus(), Some(other));
+    let tree: serde_json::Value =
+        serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"tree"}"#)).unwrap();
+    let row = tree["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == other)
+        .unwrap();
+    assert_eq!(row["focused"], true);
+    assert_eq!(row["accessibleName"], "Other");
+    let state: serde_json::Value =
+        serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(state["focus"]["logical"], other);
+    p.reload(&contract::compile(source).unwrap().encode(), NoData)
+        .unwrap();
+    assert_eq!(p.focus(), Some(id(&p, "first")));
+    assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":3"#));
+    p.key(Some('\n'), false, 2000.0);
+    assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":4"#));
 }

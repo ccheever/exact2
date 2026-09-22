@@ -49,7 +49,7 @@ tableScroll.hasVerticalScroller = true
 /// with its own clock under the agent.
 let a = exact.makeSession(label: "a")
 let b = exact.makeSession(label: "b")
-if ExactEnv.agentMode { a.clock = 0; b.clock = 0 }
+if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
 let viewA = ExactView(session: a)
 let viewB = ExactView(session: b)
 let sessions: [(String, ExactSession)] = [("a", a), ("b", b)]

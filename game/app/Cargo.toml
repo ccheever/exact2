@@ -1,0 +1,16 @@
+[package]
+name = "exact-game-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+contract = { path = "../../contract/cli" }
+
+[dev-dependencies]
+exact-runner = { path = "../../runner" }
+serde_json = "1"
+exact-gpu = { path = "../../gpu" }
+exact-plan = { path = "../../plan" }
+exact-kernel = { path = "../../kernel" }

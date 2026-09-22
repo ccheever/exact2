@@ -111,24 +111,26 @@ public final class ExactView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         session.rasters.setPaused(window == nil)
+        session.canvases.lifecycle.refresh()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
         else { session.presenter.toolbar.sync() }
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor); self.shortcutMonitor = nil }
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self, event.window === self.window else { return event }
-                // Tab reads the key-view loop; a scroll can leave its rebuild pending.
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+                guard let self, event.window === self.window, self.ownsShortcutFocus() else { return event }
                 if event.keyCode == 48 { self.session.presenter.flushKeyViewLoop() }
-                guard self.ownsShortcutFocus() else { return event }
-                return self.session.presenter.shortcuts.perform(event) ? nil : event
+                let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
+                if event.modifierFlags.intersection([.command,.control]).isEmpty,
+                   self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}
+                return event.type == .keyDown && self.session.presenter.shortcuts.perform(event) ? nil : event
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
         // view wants no frames; a mounted one asks again.
         session.frames.run(window != nil && (session.frames.motion || session.canvases.wantsFrames))
-        if window != nil { fit() }
+        if window != nil { fit(); session.presenter.syncAccessibility() }
     }
 
     /// The insets the kernel gets: under `viewport-fit=cover` the view's own

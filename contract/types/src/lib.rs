@@ -328,6 +328,15 @@ pub(crate) fn record_source(
     result: Ty,
     span: Span,
 ) -> Result<(), TypeError> {
+    // The runner fills each reader's own shape for the sources it answers, so
+    // their uses are not one signature; the plan's source table still names
+    // them (LLP 1030 D7), with the first reader's row.
+    if exact_plan::runner_owned_source(source) {
+        ct.sources
+            .entry(source.to_string())
+            .or_insert((params, result));
+        return Ok(());
+    }
     let Some((have_params, have_result)) = ct.sources.get(source) else {
         ct.sources.insert(source.to_string(), (params, result));
         return Ok(());
@@ -457,6 +466,13 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
+        Expr::NamedArg(_, _, span) => {
+            return err(
+                "type-named-argument",
+                "named arguments belong to a canvas surface binding",
+                *span,
+            )
+        }
         Expr::Ident(name, span) => match scope.lookup(name) {
             Some((_, t)) => t.clone(),
             None => {
@@ -524,7 +540,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if want.unify(&t).is_none() {
+                    if !checks::can_unify(want, &t) {
                         return err(
                             "type-argument",
                             format!(
@@ -557,7 +573,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
                     let t = infer(arg, scope, shapes)?;
-                    if t.unify(pt).is_none() {
+                    if !checks::can_unify(&t, pt) {
                         return err(
                             "type-argument",
                             format!("`{name}` expects `{pt}`, given `{t}`"),
@@ -657,7 +673,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if ta.unify(&tb).is_none() {
+                    if !checks::can_unify(&ta, &tb) {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -736,46 +752,6 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
     })
 }
 
-/// Every function name an expression calls, for the `fn` cycle check.
-fn calls_in(e: &Expr, out: &mut Vec<String>) {
-    match e {
-        Expr::Call(n, args, _) => {
-            out.push(n.clone());
-            for a in args {
-                calls_in(a, out);
-            }
-        }
-        Expr::Some(x, _) | Expr::Unary(_, x, _) | Expr::Member(x, _, _) => calls_in(x, out),
-        Expr::Binary(_, a, b, _) => {
-            calls_in(a, out);
-            calls_in(b, out);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            calls_in(a, out);
-            calls_in(b, out);
-            calls_in(c, out);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            calls_in(subject, out);
-            calls_in(some, out);
-            calls_in(none, out);
-        }
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    calls_in(x, out);
-                }
-            }
-        }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
-    }
-}
-
 /// Check shared shapes and functions, including a module without a root component.
 /// Navigation uses the same declaration rules as executable compilation.
 pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
@@ -837,7 +813,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
         shapes.fns.insert(f.name.clone(), (params, ret));
     }
     for f in &file.fns {
-        let (params, ret) = shapes.fns[&f.name].clone();
+        let (params, ret) = &shapes.fns[&f.name];
         let mut scope = Scope::default();
         scope.push(
             f.params
@@ -847,7 +823,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if ret.unify(&t).is_none() {
+        if !checks::can_unify(ret, &t) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),
@@ -855,62 +831,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             );
         }
     }
-    {
-        // Acyclic: depth-first over the calls each body makes to other fns.
-        let graph: BTreeMap<&str, Vec<String>> = file
-            .fns
-            .iter()
-            .map(|f| {
-                let mut out = Vec::new();
-                calls_in(&f.body, &mut out);
-                (f.name.as_str(), out)
-            })
-            .collect();
-        fn visit(
-            name: &str,
-            graph: &BTreeMap<&str, Vec<String>>,
-            states: &mut BTreeMap<String, u8>,
-            path: &mut Vec<String>,
-        ) -> Option<Vec<String>> {
-            match states.get(name) {
-                Some(2) => return None,
-                Some(1) => {
-                    path.push(name.to_string());
-                    return Some(path.clone());
-                }
-                _ => {}
-            }
-            states.insert(name.to_string(), 1);
-            path.push(name.to_string());
-            for callee in graph.get(name).into_iter().flatten() {
-                if graph.contains_key(callee.as_str()) {
-                    if let Some(cycle) = visit(callee, graph, states, path) {
-                        return Some(cycle);
-                    }
-                }
-            }
-            path.pop();
-            *states.get_mut(name).expect("visited function") = 2;
-            None
-        }
-        // Completed subgraphs are shared across roots and call sites. Without
-        // this memo, N helpers that each call the preceding helper twice take
-        // exponential work even when no helper is used by the app.
-        let mut states = BTreeMap::new();
-        for f in &file.fns {
-            if let Some(cycle) = visit(&f.name, &graph, &mut states, &mut Vec::new()) {
-                return err(
-                    "type-fn-recursive",
-                    format!(
-                        "`fn {}` calls itself ({}): a fn is expanded where it is called, so it cannot recurse — a traversal is the data crate's",
-                        f.name,
-                        cycle.join(" → ")
-                    ),
-                    f.span,
-                );
-            }
-        }
-    }
+    checks::check_function_cycles(file)?;
     Ok(shapes)
 }
 
@@ -1037,7 +958,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                         );
                     };
                     let t = infer(&arg.value, scope, &types.shapes)?;
-                    if t.unify(&target_t.props[i]).is_none() {
+                    if !checks::can_unify(&t, &target_t.props[i]) {
                         return err(
                             "type-prop",
                             format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),

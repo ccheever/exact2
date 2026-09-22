@@ -176,6 +176,13 @@ pub trait DataSource {
     }
 }
 
+/// A Contract app without application data has no sources to answer.
+impl DataSource for () {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+}
+
 /// Why a data source could not answer.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq)]

@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
+import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -67,7 +67,7 @@ export function prepareRustBundle(app, platform, target, env) {
 export function rustInputs(app, env = developmentBuildEnv(), {reloadOnly = false} = {}) {
   const packageName = rustPackage(app);
   if (!packageName) return [];
-  const metadata = JSON.parse(run(app, 'cargo', ['metadata', '--format-version', '1', '--offline'], env));
+  const metadata = JSON.parse(run(app, 'cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app)], env));
   const packages = new Map(metadata.packages.map(p => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map(p => [p.id, p]));
   const root = metadata.packages.find(p => p.name === packageName);
@@ -120,7 +120,7 @@ function compile(app, target, env, profile) {
     profile='dev';
     for (const [key,value] of Object.entries({OPT_LEVEL:'1',DEBUG:'0',INCREMENTAL:'true',PANIC:'abort'})) moduleEnv[`CARGO_PROFILE_DEV_${key}`] ??= value;
   }
-  const messages = run(app, 'cargo', ['build', '--locked', '--offline', '--lib', '-p', packageName, '--target', target, '--profile', profile, '--message-format=json'], moduleEnv)
+  const messages = run(app, 'cargo', ['build', ...cargoReproducibilityFlags(app), '--lib', '-p', packageName, '--target', target, '--profile', profile, '--message-format=json'], moduleEnv)
     .split('\n').filter(Boolean).map(line => JSON.parse(line));
   for (const m of messages) if (m.reason === 'compiler-message' && m.message.rendered) process.stderr.write(m.message.rendered);
   const artifact = messages.findLast(m => m.reason === 'compiler-artifact' && m.target.crate_types.includes('cdylib') && m.target.src_path && m.filenames.some(f => /\.(wasm|dylib|so|dll)$/.test(f)));
@@ -137,7 +137,7 @@ function rustGrants(compat) {
 }
 export function rustReceipt(app, compat, plan, module, target, executor) {
   const extension = executor === 'tiered' ? 'bin' : executor === 'wasm' ? 'wasm' : target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
-  return { version: 1, kind: 'rust', abi: 2, appId: app.id, grants: rustGrants(compat), target, executor,
+  return { version: 1, kind: 'rust', abi: 3, appId: app.id, grants: rustGrants(compat), target, executor,
     plan: rustCard('app.plan', plan), module: rustCard(`app.module.${extension}`, module) };
 }
 
@@ -153,7 +153,7 @@ export class RustBaker {
   }
   async request(args) {
     const target=resolve(this.app.target,'rust-tools'), env={...this.env,CARGO_TARGET_DIR:target};
-    run({...this.app,workspace:ROOT},'cargo',['build','--offline','-q','-p','exact-logic-bake'],env);
+    run({...this.app,workspace:ROOT},'cargo',['build',...cargoReproducibilityFlags(this.app,ROOT),'-q','-p','exact-logic-bake'],env);
     const bin=resolve(target,'debug/exact-logic-bake');
     const fingerprint=hash(readFileSync(bin));
     if (!this.child || fingerprint!==this.fingerprint) {
@@ -309,7 +309,7 @@ export function rustBundle(app, bundle, build, built) {
     {name:'rust/app.module.json',bytes:Buffer.from(JSON.stringify(receipt))},
     {name:'rust/'+receipt.module.file,bytes:variant.bytes},
   ].map(a => ({...a,sha256:hash(a.bytes)}));
-  const requires = {rustMode:mode,rustAbi:2,rustTarget:receipt.target,grantCeiling:build.compat.inputs.grantCeiling,rustGrants:rustGrants(build.compat)};
+  const requires = {rustMode:mode,rustAbi:3,rustTarget:receipt.target,grantCeiling:build.compat.inputs.grantCeiling,rustGrants:rustGrants(build.compat)};
   const artifacts = build.graph.artifacts.map(a => {
     if (a.name !== 'app.plan') return a;
     const {sources, ...rest} = a.requires;

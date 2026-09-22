@@ -1,0 +1,2182 @@
+{
+  "measured_at_utc": "2026-09-18T21:28:39.281703+00:00",
+  "base_commit": "e0ab190473c5c5a50ccd694039168fa7914aa928",
+  "working_tree": "uncommitted R6 plus concurrent U1; measured build identified by inputs/artifact digests below",
+  "build_receipt": {
+    "inputs": "08f8d543a7539bae9992859ace318dac4154fbea86abea14064e9cf05b31e9e7",
+    "artifact": "5a4dbb293306a3ef5d3bc4e06e82455af365846ecfc395c8c21aee2ba7caa918"
+  },
+  "hardware": {
+    "chip": "Apple M5 Max",
+    "memory_bytes": 137438953472,
+    "os": "macOS 26.6.2 (25G83)"
+  },
+  "command": "bun game/games/particles-fixture/measure.mjs particles-fixture",
+  "measurement": {
+    "gpu": {
+      "active": false,
+      "samples": [
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165663,
+            0.125706
+          ],
+          "total": 0.291369
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.29662,
+            0.209163
+          ],
+          "total": 0.505783
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16604,
+            0.125373
+          ],
+          "total": 0.29141300000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157705,
+            0.120873
+          ],
+          "total": 0.278578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167165,
+            0.125998
+          ],
+          "total": 0.293163
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167665,
+            0.12904
+          ],
+          "total": 0.296705
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164873,
+            0.121665
+          ],
+          "total": 0.28653799999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164331,
+            0.12479
+          ],
+          "total": 0.289121
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164957,
+            0.124832
+          ],
+          "total": 0.28978899999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.168538,
+            0.126665
+          ],
+          "total": 0.295203
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161748,
+            0.119456
+          ],
+          "total": 0.281204
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.334662,
+            0.274203
+          ],
+          "total": 0.608865
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.36991,
+            0.304995
+          ],
+          "total": 0.6749050000000001
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158664,
+            0.119249
+          ],
+          "total": 0.27791299999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160998,
+            0.119414
+          ],
+          "total": 0.280412
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159622,
+            0.119915
+          ],
+          "total": 0.27953700000000004
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160705,
+            0.119498
+          ],
+          "total": 0.280203
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.341495,
+            0.282203
+          ],
+          "total": 0.623698
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.153915,
+            0.062874
+          ],
+          "total": 0.216789
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156998,
+            0.117415
+          ],
+          "total": 0.274413
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160872,
+            0.11879
+          ],
+          "total": 0.27966199999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16504,
+            0.126456
+          ],
+          "total": 0.291496
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15958,
+            0.119915
+          ],
+          "total": 0.279495
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15933,
+            0.122414
+          ],
+          "total": 0.281744
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156207,
+            0.118289
+          ],
+          "total": 0.274496
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158748,
+            0.119998
+          ],
+          "total": 0.278746
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156748,
+            0.117707
+          ],
+          "total": 0.274455
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157872,
+            0.118624
+          ],
+          "total": 0.276496
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159247,
+            0.119791
+          ],
+          "total": 0.279038
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16733,
+            0.128415
+          ],
+          "total": 0.29574500000000004
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162747,
+            0.121248
+          ],
+          "total": 0.283995
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161414,
+            0.121998
+          ],
+          "total": 0.283412
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15483,
+            0.118915
+          ],
+          "total": 0.273745
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158664,
+            0.121039
+          ],
+          "total": 0.279703
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160414,
+            0.122082
+          ],
+          "total": 0.28249599999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16083,
+            0.12329
+          ],
+          "total": 0.28412
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155539,
+            0.116291
+          ],
+          "total": 0.27183
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162164,
+            0.121249
+          ],
+          "total": 0.283413
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156665,
+            0.118498
+          ],
+          "total": 0.275163
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.695657,
+            0.536159
+          ],
+          "total": 1.231816
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157955,
+            0.119207
+          ],
+          "total": 0.277162
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155165,
+            0.11904
+          ],
+          "total": 0.27420500000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158248,
+            0.119082
+          ],
+          "total": 0.27732999999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15804,
+            0.120873
+          ],
+          "total": 0.278913
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158582,
+            0.120331
+          ],
+          "total": 0.27891299999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162998,
+            0.12654
+          ],
+          "total": 0.289538
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162164,
+            0.119081
+          ],
+          "total": 0.281245
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157497,
+            0.118123
+          ],
+          "total": 0.27562
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.198413,
+            0.113457
+          ],
+          "total": 0.31187
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167581,
+            0.129539
+          ],
+          "total": 0.29712
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164581,
+            0.126623
+          ],
+          "total": 0.291204
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162456,
+            0.121998
+          ],
+          "total": 0.284454
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157873,
+            0.121998
+          ],
+          "total": 0.279871
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163873,
+            0.12604
+          ],
+          "total": 0.289913
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159872,
+            0.121665
+          ],
+          "total": 0.281537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160372,
+            0.122666
+          ],
+          "total": 0.283038
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.170122,
+            0.126748
+          ],
+          "total": 0.29686999999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16333,
+            0.124373
+          ],
+          "total": 0.287703
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162165,
+            0.122498
+          ],
+          "total": 0.284663
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.169998,
+            0.131539
+          ],
+          "total": 0.301537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155622,
+            0.118832
+          ],
+          "total": 0.274454
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.166622,
+            0.129499
+          ],
+          "total": 0.29612099999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162957,
+            0.12404
+          ],
+          "total": 0.286997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157997,
+            0.123248
+          ],
+          "total": 0.28124499999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.173873,
+            0.132289
+          ],
+          "total": 0.306162
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160372,
+            0.122249
+          ],
+          "total": 0.282621
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15929,
+            0.121123
+          ],
+          "total": 0.28041299999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156415,
+            0.082541
+          ],
+          "total": 0.238956
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160414,
+            0.12254
+          ],
+          "total": 0.282954
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161748,
+            0.124498
+          ],
+          "total": 0.286246
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163872,
+            0.124706
+          ],
+          "total": 0.288578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162498,
+            0.123915
+          ],
+          "total": 0.28641300000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.551533,
+            0.460076
+          ],
+          "total": 1.011609
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            1.085024,
+            0.245579
+          ],
+          "total": 1.330603
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158623,
+            0.120665
+          ],
+          "total": 0.279288
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164706,
+            0.124123
+          ],
+          "total": 0.288829
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158165,
+            0.118748
+          ],
+          "total": 0.276913
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164664,
+            0.125998
+          ],
+          "total": 0.290662
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157372,
+            0.11829
+          ],
+          "total": 0.275662
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167664,
+            0.126248
+          ],
+          "total": 0.293912
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16629,
+            0.123998
+          ],
+          "total": 0.290288
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157913,
+            0.119249
+          ],
+          "total": 0.277162
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.170664,
+            0.129165
+          ],
+          "total": 0.299829
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163122,
+            0.122206
+          ],
+          "total": 0.28532799999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164831,
+            0.120789
+          ],
+          "total": 0.28562
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.172039,
+            0.13379
+          ],
+          "total": 0.305829
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163873,
+            0.12429
+          ],
+          "total": 0.288163
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156748,
+            0.120123
+          ],
+          "total": 0.276871
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163205,
+            0.122248
+          ],
+          "total": 0.28545299999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158539,
+            0.118665
+          ],
+          "total": 0.277204
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164913,
+            0.124873
+          ],
+          "total": 0.289786
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16379,
+            0.125832
+          ],
+          "total": 0.289622
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160789,
+            0.120206
+          ],
+          "total": 0.280995
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.166414,
+            0.12754
+          ],
+          "total": 0.293954
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156039,
+            0.116581
+          ],
+          "total": 0.27262000000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161123,
+            0.11854
+          ],
+          "total": 0.279663
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155205,
+            0.116874
+          ],
+          "total": 0.272079
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162415,
+            0.120998
+          ],
+          "total": 0.283413
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164373,
+            0.125456
+          ],
+          "total": 0.289829
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159872,
+            0.119582
+          ],
+          "total": 0.279454
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162872,
+            0.119248
+          ],
+          "total": 0.28212
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158081,
+            0.120456
+          ],
+          "total": 0.278537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159497,
+            0.117581
+          ],
+          "total": 0.277078
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165788,
+            0.123707
+          ],
+          "total": 0.289495
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164248,
+            0.124748
+          ],
+          "total": 0.28899600000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157831,
+            0.121123
+          ],
+          "total": 0.278954
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15854,
+            0.119998
+          ],
+          "total": 0.27853799999999995
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15704,
+            0.120498
+          ],
+          "total": 0.277538
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.168663,
+            0.266288
+          ],
+          "total": 0.43495100000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157665,
+            0.117456
+          ],
+          "total": 0.275121
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161914,
+            0.121456
+          ],
+          "total": 0.28337
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162748,
+            0.125665
+          ],
+          "total": 0.28841300000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160747,
+            0.120374
+          ],
+          "total": 0.281121
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163163,
+            0.124415
+          ],
+          "total": 0.287578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157288,
+            0.118958
+          ],
+          "total": 0.276246
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159039,
+            0.118539
+          ],
+          "total": 0.277578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163498,
+            0.125706
+          ],
+          "total": 0.289204
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167913,
+            0.12704
+          ],
+          "total": 0.294953
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160664,
+            0.120873
+          ],
+          "total": 0.281537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163539,
+            0.12054
+          ],
+          "total": 0.28407899999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167664,
+            0.130789
+          ],
+          "total": 0.29845299999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157331,
+            0.119874
+          ],
+          "total": 0.277205
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163248,
+            0.124665
+          ],
+          "total": 0.287913
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15404,
+            0.11679
+          ],
+          "total": 0.27083
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157663,
+            0.116915
+          ],
+          "total": 0.274578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16608,
+            0.129039
+          ],
+          "total": 0.295119
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.154831,
+            0.11779
+          ],
+          "total": 0.272621
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158288,
+            0.12179
+          ],
+          "total": 0.280078
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163415,
+            0.123039
+          ],
+          "total": 0.286454
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165165,
+            0.126331
+          ],
+          "total": 0.291496
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156456,
+            0.119082
+          ],
+          "total": 0.275538
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.427993,
+            0.308954
+          ],
+          "total": 0.736947
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162747,
+            0.123998
+          ],
+          "total": 0.286745
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.154873,
+            0.117998
+          ],
+          "total": 0.27287100000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161372,
+            0.121873
+          ],
+          "total": 0.28324499999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156455,
+            0.118414
+          ],
+          "total": 0.27486900000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161039,
+            0.120456
+          ],
+          "total": 0.281495
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157707,
+            0.120873
+          ],
+          "total": 0.27858
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158914,
+            0.11904
+          ],
+          "total": 0.27795400000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.15779,
+            0.119165
+          ],
+          "total": 0.276955
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160207,
+            0.121748
+          ],
+          "total": 0.28195499999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156039,
+            0.118332
+          ],
+          "total": 0.27437100000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158873,
+            0.11979
+          ],
+          "total": 0.278663
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158415,
+            0.120081
+          ],
+          "total": 0.27849599999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.166997,
+            0.129915
+          ],
+          "total": 0.296912
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16633,
+            0.129206
+          ],
+          "total": 0.295536
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162081,
+            0.124082
+          ],
+          "total": 0.286163
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.16308,
+            0.122665
+          ],
+          "total": 0.285745
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159664,
+            0.121456
+          ],
+          "total": 0.28112
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158873,
+            0.120081
+          ],
+          "total": 0.278954
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.175247,
+            0.135789
+          ],
+          "total": 0.311036
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157998,
+            0.121539
+          ],
+          "total": 0.279537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155872,
+            0.118207
+          ],
+          "total": 0.274079
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160123,
+            0.123415
+          ],
+          "total": 0.28353799999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160581,
+            0.120581
+          ],
+          "total": 0.281162
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164998,
+            0.126789
+          ],
+          "total": 0.291787
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163455,
+            0.122541
+          ],
+          "total": 0.285996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163082,
+            0.125456
+          ],
+          "total": 0.288538
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161373,
+            0.123165
+          ],
+          "total": 0.28453799999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165205,
+            0.127248
+          ],
+          "total": 0.29245299999999996
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.171498,
+            0.134415
+          ],
+          "total": 0.305913
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160873,
+            0.123498
+          ],
+          "total": 0.284371
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.157956,
+            0.121998
+          ],
+          "total": 0.27995400000000004
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159497,
+            0.12204
+          ],
+          "total": 0.281537
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161456,
+            0.124039
+          ],
+          "total": 0.285495
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159123,
+            0.119539
+          ],
+          "total": 0.27866199999999997
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.155581,
+            0.119665
+          ],
+          "total": 0.275246
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158622,
+            0.119332
+          ],
+          "total": 0.27795400000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161955,
+            0.119123
+          ],
+          "total": 0.281078
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.163748,
+            0.124248
+          ],
+          "total": 0.28799600000000003
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159498,
+            0.122831
+          ],
+          "total": 0.282329
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159206,
+            0.12154
+          ],
+          "total": 0.280746
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162456,
+            0.123582
+          ],
+          "total": 0.286038
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165247,
+            0.126123
+          ],
+          "total": 0.29137
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.165665,
+            0.125665
+          ],
+          "total": 0.29133
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.159748,
+            0.11929
+          ],
+          "total": 0.279038
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.164247,
+            0.122331
+          ],
+          "total": 0.286578
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.158997,
+            0.120415
+          ],
+          "total": 0.279412
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.167955,
+            0.128039
+          ],
+          "total": 0.295994
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.162247,
+            0.121748
+          ],
+          "total": 0.283995
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.174581,
+            0.132206
+          ],
+          "total": 0.306787
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.156956,
+            0.118791
+          ],
+          "total": 0.275747
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.160289,
+            0.122831
+          ],
+          "total": 0.28312
+        },
+        {
+          "labels": [
+            "game forward",
+            "game ACES"
+          ],
+          "ms": [
+            0.161832,
+            0.120498
+          ],
+          "total": 0.28232999999999997
+        }
+      ],
+      "errors": [],
+      "supported": true,
+      "summary": {
+        "count": 184,
+        "p50": 0.28312,
+        "p95": 0.31187
+      }
+    },
+    "world": {
+      "name": "world",
+      "tick": 575,
+      "hz": 60,
+      "seed": 0,
+      "hash": "0xeab155a84d1aabf6",
+      "entities": 21,
+      "paused": false,
+      "loading": [],
+      "assets": [],
+      "restarted": 0,
+      "restored": false,
+      "args": [],
+      "resources": {
+        "Environment": {
+          "background": [
+            [
+              0.015,
+              0.025,
+              0.05
+            ]
+          ],
+          "zenith": [
+            0.12,
+            0.22,
+            0.4
+          ],
+          "horizon": [
+            0.45,
+            0.6,
+            0.65
+          ],
+          "ground": [
+            0.04,
+            0.035,
+            0.025
+          ],
+          "ambient": 0.5,
+          "sun_disc": 0.00465,
+          "exposure": 1,
+          "fog": [],
+          "bloom": []
+        }
+      },
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {},
+        "held": [],
+        "forwarded": []
+      },
+      "published": {},
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "armed": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 16.66601005720804,
+          "p95": 16.667642476732,
+          "p99": 16.66803471381172,
+          "max": 16.668137411415955,
+          "count": 183,
+          "mean": 16.665971546645793
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0.10000014305114746,
+          "p99": 0.19999980926513672,
+          "max": 0.20000004768371582,
+          "count": 184,
+          "mean": 0.033695652433063675
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0.10000014305114746,
+          "p99": 0.10000014305114746,
+          "max": 0.20000004768371582,
+          "count": 184,
+          "mean": 0.022282613360363503
+        },
+        "encodeMs": {
+          "p50": 2.799999952316284,
+          "p95": 3.5,
+          "p99": 3.700000047683716,
+          "max": 4.200000047683716,
+          "count": 184,
+          "mean": 2.868478264497674
+        },
+        "ticksPerFrame": {
+          "p50": 1,
+          "p95": 1,
+          "p99": 2,
+          "max": 2,
+          "count": 184,
+          "mean": 1
+        },
+        "draws": 2,
+        "instances": 20000,
+        "triangles": 40001
+      },
+      "ready": true,
+      "readyReasons": [],
+      "gpu": {
+        "beforeReady": {
+          "textureUploads": 0,
+          "meshUploads": 0,
+          "pipelineCreations": 13,
+          "modelSkinBufferReallocations": 0
+        },
+        "afterReady": {
+          "textureUploads": 0,
+          "meshUploads": 0,
+          "pipelineCreations": 0,
+          "modelSkinBufferReallocations": 0
+        },
+        "bufferScope": "model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots"
+      }
+    },
+    "canvas": [
+      1280,
+      720
+    ],
+    "devicePixelRatio": 1
+  }
+}

@@ -881,3 +881,254 @@ fn an_empty_link_caption_keeps_its_toolbar_target() {
     assert_eq!(state.formats, "link");
     assert_eq!(state.link, "https://example.com/a)b");
 }
+
+#[test]
+fn pieces_keep_unicode_sources_and_replacements_across_many_blocks() {
+    let unit = "**é** [🦀](https://e.dev)\n\n> *שלום*\n\n[^a]: note\n\nend[^a].\n\n";
+    let count = 128;
+    let source = unit.repeat(count);
+    let out = pieces(&source);
+    let text: String = out.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(
+        text,
+        "é 🦀\n\n▎ שלום\n\n[1] note\n\nend[1].\n\n"
+            .repeat(count)
+            .trim_end_matches('\n')
+    );
+    let expected = [
+        ("é", 2, 3),
+        (" ", 5, 6),
+        ("🦀", 7, 9),
+        ("שלום", 30, 34),
+        ("note", 43, 47),
+        ("end", 49, 52),
+        (".", 56, 57),
+    ];
+    let stride = unit.encode_utf16().count() as u32;
+    let actual: Vec<_> = out
+        .iter()
+        .filter_map(|p| p.source.map(|r| (p.text.as_str(), r.start, r.end)))
+        .collect();
+    let expected: Vec<_> = (0..count as u32)
+        .flat_map(|n| {
+            expected.map(|(text, start, end)| (text, n * stride + start, n * stride + end))
+        })
+        .collect();
+    assert_eq!(actual, expected);
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "é")
+        .all(|p| p.weight == 700));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "🦀")
+        .all(|p| p.role == Role::Link && p.href == "https://e.dev"));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "שלום")
+        .all(|p| p.role == Role::Quote && p.italic));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "[1]" || p.text == "[1] ")
+        .all(|p| p.role == Role::Marker && p.scale == 0.75 && p.source.is_none()));
+}
+
+#[test]
+fn repeated_mixed_emphasis_preserves_partial_runs_and_nested_styles() {
+    let unit = "***é** tail* **a *b* c** ~~x **y** z~~ _end_ ";
+    let source = unit.repeat(256);
+    let units: Vec<_> = source.encode_utf16().collect();
+    let styled = style(&source, None);
+    let expected = [
+        ("é", BOLD | ITALIC),
+        (" tail", ITALIC),
+        ("a ", BOLD),
+        ("b", BOLD | ITALIC),
+        (" c", BOLD),
+        ("x ", STRIKE),
+        ("y", STRIKE | BOLD),
+        (" z", STRIKE),
+        ("end", ITALIC),
+    ];
+    assert_eq!(styled.spans.len(), expected.len() * 256);
+    for (span, (text, flags)) in styled.spans.iter().zip(expected.iter().cycle()) {
+        assert_eq!(span.style, *flags);
+        assert_eq!(
+            String::from_utf16(&units[span.range.start as usize..span.range.end as usize]).unwrap(),
+            *text
+        );
+    }
+    assert_eq!(plain(&source), "é tail a b c x y z end ".repeat(256));
+}
+
+#[test]
+fn autolink_search_boundaries_preserve_nested_starts_and_labels() {
+    let cases: &[(&str, &[&str])] = &[
+        ("<<ok:tail>", &["ok:tail"]),
+        ("<<me@example.com>", &["mailto:<me@example.com"]),
+        ("<@<no>> <@@> <@a@b> <a@b@> <a@b>", &["mailto:a@b"]),
+        ("<bad <ok:tail>", &["ok:tail"]),
+        ("[<bad](outer) <ok:tail>", &["outer", "ok:tail"]),
+        (
+            "<bad [<me@example.com>](outer) <ok:tail>",
+            &["mailto:me@example.com", "ok:tail"],
+        ),
+        ("<bad [<@<no>>](outer) <ok:tail>", &["outer", "ok:tail"]),
+        ("> <bad\n> <me@example.com>", &["mailto:me@example.com"]),
+        (
+            "<é:foo> <a:foo> <aa:> <a.:foo> <é@x>",
+            &["a.:foo", "mailto:é@x"],
+        ),
+        ("<bad`<inner`<ok:tail>", &["ok:tail"]),
+    ];
+    for (source, expected) in cases {
+        let links: Vec<_> = style(source, None)
+            .spans
+            .into_iter()
+            .filter(|span| span.style & LINK != 0)
+            .map(|span| span.href)
+            .collect();
+        assert_eq!(links, *expected, "{source}");
+    }
+    let prefix = "😀".to_owned() + &"<".repeat(2048);
+    let source = format!("{prefix}<aa:tail>");
+    let styled = style(&source, None);
+    assert_eq!(styled.spans.len(), 1);
+    assert_eq!(styled.spans[0].href, "aa:tail");
+    assert_eq!(styled.spans[0].range, Range::new(2051, 2058));
+    assert_eq!(plain(&source), format!("{prefix}aa:tail"));
+}
+
+#[test]
+fn code_search_preserves_escapes_skipped_openers_and_label_boundaries() {
+    type ExpectedSpan<'a> = (&'a str, u8, &'a str);
+    let cases: &[(&str, &[ExpectedSpan<'_>])] = &[
+        ("\\``x`", &[("x", CODE, "")]),
+        ("``x\\``", &[("x\\", CODE, "")]),
+        (
+            "a `x` \\``b` ``c`d``",
+            &[("x", CODE, ""), ("b", CODE, ""), ("c`d", CODE, "")],
+        ),
+        (
+            "> \\``é`\n> <aa:`x> rest `😀`",
+            &[("é", CODE, ""), ("aa:`x", LINK, "aa:`x"), ("😀", CODE, "")],
+        ),
+        (
+            "<aa:`x> rest `y`",
+            &[("aa:`x", LINK, "aa:`x"), ("y", CODE, "")],
+        ),
+        (
+            "[x](target`x) rest `y`",
+            &[("x", LINK, "target`x"), ("y", CODE, "")],
+        ),
+        ("<aa:`x> rest `", &[("aa:`x", LINK, "aa:`x")]),
+        (
+            "[`a`](/`target) `b`",
+            &[("a", CODE | LINK, "/`target"), ("b", CODE, "")],
+        ),
+        (
+            "<aa:`a> ``b` c``",
+            &[("aa:`a", LINK, "aa:`a"), ("b` c", CODE, "")],
+        ),
+        ("\\\\``x`", &[]),
+        ("[`a](u) b`", &[("a](u) b", CODE, "")]),
+        ("[`a`](u) `b`", &[("a", CODE | LINK, "u"), ("b", CODE, "")]),
+    ];
+    for (source, expected) in cases {
+        let actual: Vec<_> = style(source, None)
+            .spans
+            .into_iter()
+            .map(|span| (utf16(source, span.range), span.style, span.href))
+            .collect();
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|(text, flags, href)| ((*text).to_owned(), *flags, (*href).to_owned()))
+            .collect();
+        assert_eq!(actual, expected, "{source}");
+    }
+    let bounded = "[<aa:`x> rest `y](u) z`";
+    assert!(style(bounded, None)
+        .spans
+        .iter()
+        .all(|span| span.style & CODE == 0));
+}
+
+#[test]
+fn indexed_unmatched_code_runs_preserve_later_partial_runs_and_links() {
+    let mut source = String::from("start ");
+    for len in 4..68 {
+        source.push_str(&"`".repeat(len));
+        source.push_str("x ");
+    }
+    source.push_str("\\``é` [label](u) <aa:`x> ``b`c``");
+    assert_eq!(
+        spans(&source, None),
+        [
+            ("é".into(), CODE),
+            ("label".into(), LINK),
+            ("aa:`x".into(), LINK),
+            ("b`c".into(), CODE),
+        ]
+    );
+}
+
+#[test]
+fn footnotes_ignore_literal_and_split_openers_before_numbering_definitions() {
+    let source = "[^orphan]: No references.\n\n`[^code]` and \\[^escaped] and ![^image](u).\n\n> [\n> ^split]\n\n- First[^b]\n\n[^b]: Definition refers[^a].\n\nLater [link[^a]](u) and[^b].\n\n[^a]: A.";
+    let styled = style(source, None);
+    let notes: Vec<_> = styled
+        .footnotes
+        .iter()
+        .map(|f| {
+            (
+                f.label.as_str(),
+                f.ordinal,
+                f.references.len(),
+                f.definition.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        [("b", 1, 2, true), ("a", 2, 2, true), ("orphan", 3, 0, true)]
+    );
+    for note in &styled.footnotes {
+        for &reference in &note.references {
+            assert_eq!(utf16(source, reference), format!("[^{}]", note.label));
+        }
+    }
+    assert_eq!(
+        style(source, Some(Range::new(0, source.len() as u32))).footnotes,
+        styled.footnotes
+    );
+}
+
+#[test]
+fn footnotes_in_later_content_ranges_keep_utf16_positions_and_reference_order() {
+    let source =
+        "> [\n> ^split]\n> 😀 later[^é]\n\n[^unused]: plain\n[^é]: cites[^tail]\n[^tail]: end";
+    let styled = style(source, None);
+    let notes: Vec<_> = styled
+        .footnotes
+        .iter()
+        .map(|f| {
+            (
+                f.label.as_str(),
+                f.ordinal,
+                f.references.len(),
+                f.definition.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            ("é", 1, 1, true),
+            ("tail", 2, 1, true),
+            ("unused", 3, 0, true)
+        ]
+    );
+    let reference = styled.footnotes[0].references[0];
+    assert_eq!(utf16(source, reference), "[^é]");
+    assert_eq!(style(source, Some(reference)).footnotes, styled.footnotes);
+}

@@ -14,6 +14,39 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
     MODULE.with(|m| m.borrow_mut().as_mut().map(f))
 }
 
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = ["globalThis", "exact", "gpu"], js_name = deviceLost)]
+    fn device_lost();
+}
+
+pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    let current = MODULE.with(|m| {
+        m.try_borrow().ok().is_some_and(|m| {
+            m.as_ref()
+                .is_some_and(|m| std::sync::Arc::ptr_eq(lost, &m.device_lost))
+        })
+    });
+    if current {
+        device_lost();
+    }
+}
+
+/// Drain requested asset paths as JSON.
+pub fn assets(id: u32) -> String {
+    with(|m| m.take_assets(id).json()).unwrap_or_else(|| crate::AssetChanges::default().json())
+}
+
+/// Deliver named bytes, including a missing file, without requiring a device.
+pub fn asset(id: u32, name: &str, bytes: Option<&[u8]>) -> bool {
+    with(|m| m.asset(id, name, bytes.ok_or(crate::AssetError::Missing))).unwrap_or(false)
+}
+
+/// Deliver a terminal host transport failure by name.
+pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
+    with(|m| m.asset(id, name, Err(crate::AssetError::Failed(reason.into())))).unwrap_or(false)
+}
+
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
@@ -23,9 +56,10 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
     });
     match crate::load_gpu(instance, None).await {
         Ok(gpu) => {
-            let mut module = Module::new(registry);
-            module.set_gpu(gpu);
-            MODULE.with(|m| *m.borrow_mut() = Some(module));
+            MODULE.with(|m| {
+                let mut m = m.borrow_mut();
+                m.get_or_insert_with(|| Module::new(registry)).set_gpu(gpu);
+            });
             Ok(())
         }
         Err(e) => {
@@ -33,6 +67,63 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
             Err(JsValue::from_str(&e))
         }
     }
+}
+
+/// Replacement canvases use the existing IDs and surface objects. No module load.
+pub async fn recover(
+    ids: &[u32],
+    canvases: Vec<web_sys::HtmlCanvasElement>,
+) -> Result<String, JsValue> {
+    let mut module = MODULE
+        .with(|m| m.borrow_mut().take())
+        .ok_or_else(|| JsValue::from_str("GPU module not loaded"))?;
+    let result: Result<String, String> = async {
+        if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
+            return Err("recovery canvas table mismatch".into());
+        }
+        let outcome = module.recover().await?;
+        if !outcome.contains("\"status\":\"recovered\"") {
+            return Ok(outcome);
+        }
+        // Stage the whole replacement table. Configurations remain on instances,
+        // even when adapter creation, attachment, or a second loss fails.
+        let gpu = module.gpu.as_ref().ok_or("no device")?;
+        let mut targets = Vec::new();
+        for (id, canvas) in ids.iter().zip(canvases) {
+            let config = module.instances[id]
+                .config
+                .as_ref()
+                .ok_or("missing presentation configuration")?;
+            let target = gpu
+                .instance
+                .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
+                .map_err(|e| e.to_string())?;
+            target.configure(&gpu.device, config);
+            targets.push((*id, target));
+        }
+        for (id, target) in targets {
+            let inst = module.instances.get_mut(&id).unwrap();
+            let config = inst.config.as_ref().unwrap();
+            inst.surface.device_ready();
+            inst.surface
+                .prepare_assets(&gpu.device, &gpu.queue, config.format);
+            inst.presentation = Some(target);
+        }
+        if module
+            .device_lost
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("replacement device was lost during recovery".into());
+        }
+        Ok(module.recovery_report())
+    }
+    .await;
+    if let Err(error) = &result {
+        module.lose_device();
+        module.error = format!("device recovery: {error}");
+    }
+    MODULE.with(|m| *m.borrow_mut() = Some(module));
+    result.map_err(|e| JsValue::from_str(&e))
 }
 
 /// Create a canvas's surface on a `<canvas>` element. The id, or 0.
@@ -124,13 +215,12 @@ pub fn shader_names() -> String {
 
 /// Bind inputs (a JSON array). `true` on success.
 pub fn bind(id: u32, values: &str) -> bool {
-    match json::parse_values(values) {
-        Ok(v) => with(|m| m.bind(id, &v)).unwrap_or(false),
-        Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e);
-            false
-        }
-    }
+    bind_at(id, values, None)
+}
+
+/// Bind inputs at an optional host commit clock.
+pub fn bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
+    with(|m| m.bind_json(id, values, at_ms)).unwrap_or(false)
 }
 
 /// Render one frame: 1 = wants another, 0 = done, 2 = failed.
@@ -141,18 +231,119 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         scale,
         now_ms,
         children_generation: 0,
+        seekable: false,
+        period_ms: 0.0,
         shader_generation: 0,
     };
-    match with(|m| m.render(id, &frame)).flatten() {
+    with(|m| match m.render(id, &frame) {
         Some(true) => 1,
         Some(false) => 0,
+        None if m.gpu().is_none() => 3,
         None => 2,
+    })
+    .unwrap_or(2)
+}
+
+/// Whether the host should supply per-child kernel frames.
+pub fn children_mode(id: u32) -> u32 {
+    with(|m| m.children_mode(id).code()).unwrap_or(0)
+}
+/// Host-composited child: no pixel texture on the browser.
+pub fn child(id: u32, index: u32, name: &str, frame: [f32; 4]) -> bool {
+    with(|m| m.child(id, index as usize, name, frame, [0, 0], &[])).unwrap_or(false)
+}
+/// Retire departed direct children.
+pub fn children_count(id: u32, count: u32) -> bool {
+    with(|m| m.children_count(id, count as usize)).unwrap_or(false)
+}
+/// Same encoding as native: 0 kernel frame, 1 ten floats, 2 hidden (out untouched).
+pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
+    if out.len() < 10 {
+        return 0;
     }
+    match with(|m| m.placement(id, index as usize)).flatten() {
+        Some(p) if p.hidden => 2,
+        Some(p) => {
+            out[..9].copy_from_slice(&p.homography);
+            out[9] = p.depth;
+            1
+        }
+        None => 0,
+    }
+}
+
+/// Whether a canvas wants raw input.
+pub fn wants_input(id: u32) -> bool {
+    with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Deliver a JSON device event. True on success.
+pub fn input(id: u32, event: &str) -> bool {
+    with(|m| m.input_json(id, event)).unwrap_or(false)
+}
+
+/// Capture state; None is distinct from a zero-byte carry.
+pub fn carry(id: u32) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
+    with(|m| m.carry(id))
+        .unwrap_or_else(|| Err(crate::SurfaceError("GPU module is not loaded".into())))
+        .map_err(|error| wasm_bindgen::JsValue::from_str(&error.0))
+}
+
+/// Restore state. False leaves the surface unchanged; error explains why.
+pub fn restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+    let Ok(mode) = crate::Restore::from_code(mode) else {
+        return false;
+    };
+    with(|m| m.restore(id, bytes, mode)).unwrap_or(false)
+}
+
+/// Take the latest changed public record, if any.
+pub fn published(id: u32) -> Option<String> {
+    with(|m| m.take_published(id)).flatten()
+}
+
+/// Drain posted messages as a JSON array.
+pub fn messages(id: u32) -> Option<String> {
+    let messages = with(|m| m.take_messages(id)).unwrap_or_default();
+    (!messages.is_empty()).then(|| json::strings(&messages))
+}
+
+/// Ask the surface; an empty string means no answer.
+pub fn agent(id: u32, request: &str) -> String {
+    with(|m| m.agent(id, request)).flatten().unwrap_or_default()
+}
+
+/// Deliver a host lifecycle notification without advancing the surface.
+pub fn lifecycle(id: u32, code: u32) {
+    with(|m| m.lifecycle(id, code));
+}
+
+/// Set the host's clock ownership.
+pub fn seekable(on: bool) {
+    with(|m| m.set_seekable(on));
+}
+
+/// The display's frame period in milliseconds (0 = unknown), for every frame after.
+pub fn period(period_ms: f64) {
+    with(|m| m.set_period(period_ms));
 }
 
 /// Whether a canvas has unrendered inputs.
 pub fn dirty(id: u32) -> bool {
     with(|m| m.dirty(id)).unwrap_or(false)
+}
+
+/// Drop all surfaces and release the module's device.
+pub fn unload() {
+    MODULE.with(|m| {
+        if let Some(mut module) = m.borrow_mut().take() {
+            module.instances.clear();
+            if let Some(gpu) = module.gpu.take() {
+                gpu.device.destroy();
+            }
+        }
+    });
+    crate::shaders::clear_shaders();
 }
 
 /// Drop a canvas's surface.
@@ -177,6 +368,15 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub async fn gpu_load() -> Result<(), ::wasm_bindgen::JsValue> {
             $crate::web::load(&$registry).await
+        }
+
+        /// Recover device/context bindings while keeping every surface ID.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub async fn gpu_recover(
+            ids: &[u32],
+            canvases: Vec<::web_sys::HtmlCanvasElement>,
+        ) -> Result<String, ::wasm_bindgen::JsValue> {
+            $crate::web::recover(ids, canvases).await
         }
 
         /// Create a canvas's surface on a `<canvas>`. The id, or 0.
@@ -220,10 +420,126 @@ macro_rules! module {
             $crate::web::bind(id, values)
         }
 
+        /// Bind inputs at an optional host commit clock.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_bind_at(id: u32, values: &str, at_ms: Option<f64>) -> bool {
+            $crate::web::bind_at(id, values, at_ms)
+        }
+
         /// Render one frame: 1 = wants another, 0 = done, 2 = failed.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 {
             $crate::web::render(id, width, height, scale, now_ms)
+        }
+
+        /// Supply child frames when requested; the browser composites their elements.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_children_mode(id: u32) -> u32 {
+            $crate::web::children_mode(id)
+        }
+        /// Supply one direct child frame for browser composition.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_child_view(
+            id: u32,
+            index: u32,
+            name: &str,
+            x: f32,
+            y: f32,
+            w: f32,
+            h: f32,
+        ) -> bool {
+            $crate::web::child(id, index, name, [x, y, w, h])
+        }
+        /// Retire direct child frames past the new count.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_children_count(id: u32, count: u32) -> bool {
+            $crate::web::children_count(id, count)
+        }
+        /// 0 kernel frame, 1 homography/depth, 2 hidden with out untouched.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
+            $crate::web::placement(id, index, out)
+        }
+
+        /// Whether a canvas wants raw input.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_wants_input(id: u32) -> bool {
+            $crate::web::wants_input(id)
+        }
+
+        /// Deliver one JSON event; true on success.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_input(id: u32, event_json: &str) -> bool {
+            $crate::web::input(id, event_json)
+        }
+
+        /// Drain requested asset paths as JSON.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_assets(id: u32) -> String {
+            $crate::web::assets(id)
+        }
+        /// Deliver one requested asset, or null/undefined for a missing file.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_asset(id: u32, name: &str, bytes: Option<Vec<u8>>) -> bool {
+            $crate::web::asset(id, name, bytes.as_deref())
+        }
+        /// Deliver a terminal host transport failure.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_asset_failed(id: u32, name: &str, reason: &str) -> bool {
+            $crate::web::asset_failed(id, name, reason)
+        }
+
+        /// Capture state, or undefined when this surface carries nothing.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_carry(id: u32) -> Result<Option<Vec<u8>>, wasm_bindgen::JsValue> {
+            $crate::web::carry(id)
+        }
+
+        /// Restore state, reporting a refusal through gpu_error.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_restore(id: u32, bytes: &[u8], mode: u32) -> bool {
+            $crate::web::restore(id, bytes, mode)
+        }
+
+        /// Release every surface and the device before replacing this module.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_unload() {
+            $crate::web::unload();
+        }
+
+        /// Take the changed public record, if any.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_published(id: u32) -> Option<String> {
+            $crate::web::published(id)
+        }
+
+        /// Drain messages as a JSON array.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_messages(id: u32) -> Option<String> {
+            $crate::web::messages(id)
+        }
+
+        /// Ask the surface; empty when it has no answer.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_agent(id: u32, request_json: &str) -> String {
+            $crate::web::agent(id, request_json)
+        }
+
+        /// Host lifecycle code; unknown codes are ignored.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_lifecycle(id: u32, code: u32) {
+            $crate::web::lifecycle(id, code);
+        }
+        /// Set the host clock ownership.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_seekable(on: bool) {
+            $crate::web::seekable(on)
+        }
+
+        /// The display's frame period in milliseconds, 0 while unknown.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_period(period_ms: f64) {
+            $crate::web::period(period_ms)
         }
 
         /// Whether a canvas has unrendered inputs.

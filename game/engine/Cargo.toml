@@ -1,0 +1,13 @@
+[package]
+name = "exact-game"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+glam = { version = "0.33", default-features = false, features = ["std", "scalar-math", "libm"] }
+libm = "0.2"
+ryu = { version = "1.0.23", features = ["small"] }
+exact-game-derive = { path = "../derive" }
+exact-plan = { path = "../../plan" }
+exact-motion = { path = "../../motion" }

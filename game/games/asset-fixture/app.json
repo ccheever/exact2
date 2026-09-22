@@ -1,0 +1,6 @@
+{
+  "name": "Asset fixture",
+  "game": {
+    "assets": true
+  }
+}

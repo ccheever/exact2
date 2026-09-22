@@ -683,6 +683,7 @@ impl<'a> Replay<'a> {
                     let parent = r.transform;
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
+                            projective: None,
                             id: n.id,
                             rect: bbox(parent, g.outer.rect),
                             clip,

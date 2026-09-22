@@ -147,3 +147,11 @@ Written on 2026-08-28 alongside the first kernel landing (LLP 1001); ratified by
 Charlie the same day after the motion rebuild (LLP 1002/1003) and moved to
 `llp/foundation/`. Where this map and a spec disagree, the spec wins and this
 document is stale.
+
+## Optional game engine
+
+The independent [`game/`](../game/README.md) workspace supplies Rust gameplay,
+rendering, physics, audio, and Beacons/Lanterns examples. Apps explicitly link
+its adapter into their on-demand GPU artifact; core workspace apps have no
+engine dependency. See [LLP 1046.003](1046.003-game-engine-as-built.explainer.md)
+for the implementation and September 21 integration provenance.

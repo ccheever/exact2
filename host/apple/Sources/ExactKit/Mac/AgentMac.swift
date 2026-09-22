@@ -127,6 +127,7 @@ extension Agent {
     /// presentation transform (translate/scale/rotate on the layer) applied,
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     func box(_ v: NSView) -> NSRect {
+        if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
         // where it is seen, through the placement, not the kernel's.
@@ -305,9 +306,8 @@ extension Agent {
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
     /// the path a click takes, with the run loop turning between the steps
     /// of a timed move so AppKit tracks them as it would a hand's. Every
-    /// other operation answers while the button is down. AppKit has no
-    /// cancel for a mouse: `cancel` is reported unsupported and the contact
-    /// stays down, never faked as a release.
+    /// other operation answers while the button is down. Mouse cancellation
+    /// releases the platform contact and clears the driver ownership.
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
         let clip = presenter.viewport.contentView
@@ -354,13 +354,16 @@ extension Agent {
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
-            return ["phase": "cancel", "at": at(p), "delivery": "unsupported", "reason": "AppKit has no cancel for a mouse; the contact is still down — send up"]
+            send(.leftMouseUp, p)
+            contact = nil
+            return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
         }
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
@@ -396,6 +399,11 @@ extension Agent {
         let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["hover"] as? Bool == true {
+            if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
+               let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.mouseMoved(with: event)
+                return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
+            }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
             // leaves), as a tracking area would report for a real move.
@@ -475,6 +483,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
@@ -484,12 +493,28 @@ extension Agent {
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
         if let chord = req["key"] as? String {
             let parts = chord.split(separator: "+").map(String.init)
-            let key = parts.last ?? chord
+            let rawKey = parts.last ?? chord
+            let device = KeyCodes.device(rawKey)
+            let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
                 switch modifier { case "Meta": modifiers.insert(.command); case "Shift": modifiers.insert(.shift)
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
+            }
+            // NSWindow delivery bypasses the local event monitor. Share its
+            // pressed-control route before making any responder change.
+            let phase = req["phase"] as? String
+            if modifiers.intersection([.command,.control]).isEmpty, let code=device?.code,
+               session.canvases.pressedControlKey(code,down:phase != "up") {
+                if phase == nil {_ = session.canvases.pressedControlKey(code,down:false)}
+                if phase == "down", let token=req["releaseKey"] as? String {
+                    keyReleases[token] = { [weak session] in
+                        _ = session?.canvases.pressedControlKey(code,down:false)
+                        return ["phase":"up","delivery":"recognized"]
+                    }
+                }
+                return ["typed":Int(v.id),"key":key,"delivery":"recognized"]
             }
             // A key down at the target through the window — the field
             // editor's commands, or a focused node's keyDown — by the web's
@@ -505,10 +530,13 @@ extension Agent {
             } else if let f = v.field {
                 let editing = f.currentEditor().map { win.firstResponder === $0 } ?? false
                 if !editing { win.makeFirstResponder(f) }
+            } else if v.isSurfaceControl && v.ownsSurfaceControl {
+                _ = v.focusSurfacePointer()
             } else if v.acceptsFirstResponder {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
             } else { return ["error": "view \(v.id) takes no key"] }
             let (chars, code): (String, UInt16) = {
+                if let device, let code = KeyCodes.mac.first(where: { $0.value == device.code })?.key { return (device.key == "Enter" ? "\r" : device.key, UInt16(code)) }
                 switch key {
                 case "c": return (key, 8)
                 case "o": return (key, 31)
@@ -537,8 +565,14 @@ extension Agent {
             if modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            win.sendEvent(down)
-            win.sendEvent(up)
+            if phase != "up" { win.sendEvent(down) }
+            if phase != "down" { win.sendEvent(up) }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak v] in
+                    v?.keyUp(with: up)
+                    return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
+                }
+            }
             return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
         }
         if let f = v.textArea {

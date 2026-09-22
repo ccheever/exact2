@@ -1,0 +1,389 @@
+{
+  "date": "2026-09-18",
+  "base": "6ad5e562",
+  "note": "Uncommitted shared tree; I1 edits preserved. No full root-build success is claimed.",
+  "checks": {
+    "tests-final": {
+      "log": "/tmp/d4-tests-final.log",
+      "sha256": "a3ea4793d5f557c95b235c69468d13c3c98305e9ea7ab3d8beabd9f23e0715fc",
+      "rust_tests": {
+        "passed": 519,
+        "failed": 0,
+        "ignored": 11
+      },
+      "ending": [
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "",
+        "   Doc-tests sprites_fixture_web",
+        "",
+        "running 0 tests",
+        "",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        ""
+      ]
+    },
+    "clippy-final": {
+      "log": "/tmp/d4-clippy-final.log",
+      "sha256": "fff23c38dbf92307b1ffe7d7061a8d2fb797106c38486d5cdedf3164632f9759",
+      "ending": [
+        "   Compiling greybox-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/439038419b445eab74ca29b4-gpu)",
+        "   Compiling placement-fixture-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/e585197f93f57c6ab5344d82-gpu)",
+        "   Compiling bench-cubes-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/565d29c341e2cf9e9f788d19-gpu)",
+        "   Compiling skinned-fixture-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/dbbd1c519c2e08c19941931f-gpu)",
+        "   Compiling particles-fixture-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/412dfeab7576711c783349f0-gpu)",
+        "   Compiling asset-fixture-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/682178d6082d3f8fc5b77435-gpu)",
+        "   Compiling beacons-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/game/.shells/d3679e06b82168ec6c85c47d-gpu)",
+        "    Finished `dev` profile [optimized + debuginfo] target(s) in 27.85s"
+      ]
+    },
+    "root-gpu-tests-final": {
+      "log": "/tmp/d4-root-gpu-tests-final.log",
+      "sha256": "e1165145a53148a178998d3da9499456f9816a6818a3691c11b2db2774907a82",
+      "rust_tests": {
+        "passed": 37,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ending": [
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "",
+        "   Doc-tests exact_gpu",
+        "",
+        "running 0 tests",
+        "",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        ""
+      ]
+    },
+    "root-clippy": {
+      "log": "/tmp/d4-root-clippy.log",
+      "sha256": "e5eae845c339b311ed1b944da18895eb979609311114884a1c96b800f476fcbe",
+      "ending": [
+        "    Checking exact-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/gpu)",
+        "    Checking caltrain-gpu v0.1.0 (/Users/ccheever/projects/exact2-wt-game/apps/caltrain/gpu)",
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.08s"
+      ]
+    },
+    "bun-final": {
+      "log": "/tmp/d4-bun-final.log",
+      "sha256": "568f18ea1779023b8fc2b00e7b0c7088667f44f46aa34f4f51fafd711462d1ae",
+      "ending": [
+        "      at paranoidRuns (/Users/ccheever/projects/exact2-wt-game/game/proof.mjs:159:25)",
+        "      at async <anonymous> (/Users/ccheever/projects/exact2-wt-game/game/proof.test.mjs:270:26)",
+        "",
+        "",
+        " 100 pass",
+        " 0 fail",
+        " 9680 expect() calls",
+        "Ran 100 tests across 10 files. [5.13s]"
+      ]
+    },
+    "apple-kit": {
+      "log": "/tmp/d4-apple-kit.log",
+      "sha256": "e1f0db78db754527a89ab98da71d2cd13d7c3eb6062dc38d91aeb937784b6591",
+      "ending": [
+        "[65\u2009/\u200984]",
+        "[67\u2009/\u200984]",
+        "[80\u2009/\u200984] ExactKit",
+        "[82\u2009/\u200986] ExactKit",
+        "[88\u2009/\u200990] ExactKit",
+        "[89\u2009/\u200991] ExactKit",
+        "[91\u2009/\u200991] ExactKit",
+        "Build complete! (6.14 sec)"
+      ]
+    },
+    "boot": {
+      "log": "/tmp/d4-boot.log",
+      "sha256": "c0be9cde7a8f21e940910e261cdf12c3a0dc7dbd8de8be308f82167fe23ad007",
+      "ending": [
+        "boot \u2014 modules reachable before first pixel: 2 (host/web/glue.js, host/web/navigation.js); wasm references: 1",
+        "  reachable JavaScript: 88734 B; page: 3298 B (diagnostic sizes, no byte budget)",
+        "  host/web/glue.js: 78663 B; sha256 a8df77dfe52c4e0f59d7e64599550ea2f2822618195327ab2ca98cb998fc5f2f",
+        "  host/web/navigation.js: 10071 B; sha256 7bb52bc95ab383cf540e584ad7e0e4a8c9209909522e59c54dd832439595dd69",
+        "Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work."
+      ]
+    },
+    "caps": {
+      "log": "/tmp/d4-caps.log",
+      "sha256": "54d13ee8c20afafab7e56c89864c287fa6f1c1540bb9bd0c9f8022f8cb6184cf",
+      "ending": [
+        "  rules/RULES.md: 697 words",
+        "  blocking checks: 5 (build, test, lint, caps, boot)",
+        "  product-latency row: filled",
+        "  working set: 15 of 15",
+        "  foundation: 7 of 10",
+        "  source files: 646 scanned, 1 skipped as generated, 268 skipped as vendored",
+        "",
+        "All budgets within cap. 6 categories inspected."
+      ]
+    },
+    "float-tests": {
+      "log": "/tmp/d4-float-tests.log",
+      "sha256": "2e46745d34824e96064659e8ba0ee375df7b92971040ce9e01f5ab21488f0f2c",
+      "rust_tests": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ending": [
+        "     Running unittests src/lib.rs (target/debug/deps/exact_game-2a51cc15d20c094c)",
+        "",
+        "running 2 tests",
+        "test data::text::tests::notation_boundaries_specials_and_rounded_agent_numbers ... ok",
+        "test data::text::tests::float_bits_round_trip_and_fixed_journal_matches ... ok",
+        "",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 71 filtered out; finished in 0.17s",
+        ""
+      ]
+    },
+    "fmt-game": {
+      "log": "/tmp/d4-fmt-game.log",
+      "status": "passed"
+    },
+    "fmt-root": {
+      "log": "/tmp/d4-fmt-root.log",
+      "status": "passed"
+    }
+  },
+  "proofs": {
+    "beacons": {
+      "linux": {
+        "log": "/tmp/d4-linux-beacons.log",
+        "sha256": "1994be5e97e4b4cf3cbb01297c04d65b053731bc068c8241b0b04670bfbaa326",
+        "results": [
+          "PROOF PASS beacons linux: 0 failures; 50.383 s",
+          "PARANOID beacons linux 0: 50.424 s (including build)",
+          "PROOF PASS beacons linux: 0 failures; 0.915 s",
+          "PARANOID beacons linux 1: 0.953 s (including build)",
+          "PROOF PASS beacons linux: 0 failures; 0.862 s",
+          "PARANOID beacons linux fresh-game: 0.897 s (including build)"
+        ],
+        "failed_assertions": []
+      },
+      "web": {
+        "log": "/tmp/d4-web-beacons.log",
+        "sha256": "3ee009ccba80f1ca7ccdb851da697fe87d5e8af1ba9ec14faedc93d12d5ca414",
+        "results": [
+          "PROOF PASS beacons web: 0 failures; 36.615 s"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "greybox": {
+      "linux": {
+        "log": "/tmp/d4-linux-greybox.log",
+        "sha256": "83c3ab9350b391c1fbe6a2c60285e8e9f4510fe476f606c9d0d52eeffc228be9",
+        "results": [
+          "PROOF PASS greybox linux: 0 failures; 27.576 s",
+          "PARANOID greybox linux 0: 27.614 s (including build)",
+          "PROOF PASS greybox linux: 0 failures; 45.962 s",
+          "PARANOID greybox linux 1: 46.019 s (including build)",
+          "PROOF PASS greybox linux: 0 failures; 1.044 s",
+          "PARANOID greybox linux fresh-game: 1.099 s (including build)"
+        ],
+        "failed_assertions": []
+      },
+      "web": {
+        "log": "/tmp/d4-web-greybox.log",
+        "sha256": "88785628f8c93523006c07db3d491737c603dd79b9ea93773684393e22b0ed51",
+        "results": [
+          "PROOF PASS greybox web: 0 failures; 13.757 s"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "asset-fixture": {
+      "linux": {
+        "log": "/tmp/d4-linux-asset-fixture.log",
+        "sha256": "a0db7a79f280dc53d26a2a833d84624186d1b0824c392ce678d031d1c48bd382",
+        "results": [
+          "PROOF PASS asset-fixture linux: 0 failures; 31.511 s",
+          "PARANOID asset-fixture linux 0: 31.567 s (including build)",
+          "PROOF PASS asset-fixture linux: 0 failures; 1.864 s",
+          "PARANOID asset-fixture linux 1: 1.946 s (including build)",
+          "PROOF PASS asset-fixture linux: 0 failures; 1.747 s",
+          "PARANOID asset-fixture linux fresh-game: 1.801 s (including build)"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "skinned-fixture": {
+      "linux": {
+        "log": "/tmp/d4-linux-skinned-fixture.log",
+        "sha256": "be158ce0e18c3cd2261fceadd8b9dcf58d707828fa0a5e4da15abab4b43d0ae8",
+        "results": [
+          "PROOF PASS skinned-fixture linux: 0 failures; 33.562 s",
+          "PARANOID skinned-fixture linux 0: 33.620 s (including build)",
+          "PROOF PASS skinned-fixture linux: 0 failures; 38.542 s",
+          "PARANOID skinned-fixture linux 1: 38.600 s (including build)",
+          "PROOF PASS skinned-fixture linux: 0 failures; 0.541 s",
+          "PARANOID skinned-fixture linux fresh-game: 0.577 s (including build)"
+        ],
+        "failed_assertions": []
+      },
+      "web": {
+        "log": "/tmp/d4-web-skinned-fixture.log",
+        "sha256": "ea47eaa8e21ae6967c77dfd06613f62de04de85fdc3e615488ebc4d8b8363192",
+        "results": [
+          "PROOF PASS skinned-fixture web: 0 failures; 16.993 s"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "particles-fixture": {
+      "linux": {
+        "log": "/tmp/d4-linux-particles-fixture.log",
+        "sha256": "ee4db0a74739bed74a6047eaed3e37666497ce971516e1a7a807142fcd284b25",
+        "results": [
+          "PROOF PASS particles-fixture linux: 0 failures; 30.915 s",
+          "PARANOID particles-fixture linux 0: 30.969 s (including build)",
+          "PROOF PASS particles-fixture linux: 0 failures; 51.232 s",
+          "PARANOID particles-fixture linux 1: 51.331 s (including build)",
+          "PROOF PASS particles-fixture linux: 0 failures; 35.797 s",
+          "PARANOID particles-fixture linux fresh-game: 35.863 s (including build)"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "sprites-fixture": {
+      "linux": {
+        "log": "/tmp/d4-linux-sprites-fixture.log",
+        "sha256": "7829494d098eb2991f6b5a18b8e312cbce25041cf8be211177fdcbb81bc8d1a0",
+        "results": [
+          "PROOF PASS sprites-fixture linux: 0 failures; 26.711 s",
+          "PARANOID sprites-fixture linux 0: 26.747 s (including build)",
+          "PROOF PASS sprites-fixture linux: 0 failures; 0.417 s",
+          "PARANOID sprites-fixture linux 1: 0.453 s (including build)",
+          "PROOF PASS sprites-fixture linux: 0 failures; 0.385 s",
+          "PARANOID sprites-fixture linux fresh-game: 0.414 s (including build)"
+        ],
+        "failed_assertions": []
+      }
+    },
+    "placement-fixture": {
+      "linux": {
+        "log": "/tmp/d4-linux-placement-fixture.log",
+        "sha256": "797f792f662805ca54e28dd050c600dc4bf3c969d657c2ac07c1e3f3e7738a56",
+        "results": [
+          "PROOF PASS placement-fixture linux: 0 failures; 25.815 s",
+          "PARANOID placement-fixture linux 0: 25.846 s (including build)",
+          "PROOF PASS placement-fixture linux: 0 failures; 0.396 s",
+          "PARANOID placement-fixture linux 1: 0.427 s (including build)",
+          "PROOF PASS placement-fixture linux: 0 failures; 0.348 s",
+          "PARANOID placement-fixture linux fresh-game: 0.374 s (including build)"
+        ],
+        "failed_assertions": []
+      }
+    }
+  },
+  "root_build": {
+    "status": "blocked",
+    "reason": "Weatherlight native JS bake stalled in Bun/Rolldown; serial retry timed out after 240 seconds. Recorded D4 process trees stopped.",
+    "logs": [
+      "/tmp/d4-root-build-2.log",
+      "/tmp/d4-root-build-final.log"
+    ]
+  },
+  "deletions": {
+    "basis": "Physical source lines removed from the named implementation, not a claim that moved/replaced code is a net deletion. README counts compare HEAD with the shared working tree, including the preserved I1 edits.",
+    "preserve_tie": 61,
+    "Camera_manual_impl": 0,
+    "baked_tangents_engine_and_baker": 48,
+    "physics_clone_removed_lines": 24,
+    "legacy_manifest_removed_lines": 15,
+    "duplicate_test_shims": 12,
+    "restore_path_reduction_before_shared_helper": 21,
+    "restore_shared_helper_added": 11,
+    "fourth_paranoid_run": "one executed variant removed; three harness lines replaced by explicit build-only cleanup; 32 source/doc-spelling test lines deleted",
+    "asset_host_test_source_harness_removed_lines": 13,
+    "gpu_surface_boolean_policy_removed_lines": 25,
+    "readmes": [
+      {
+        "path": "game/README.md",
+        "before": 1788,
+        "after": 351
+      },
+      {
+        "path": "game/audio/README.md",
+        "before": 269,
+        "after": 184
+      },
+      {
+        "path": "game/bake/README.md",
+        "before": 19,
+        "after": 23
+      },
+      {
+        "path": "game/bench/README.md",
+        "before": 883,
+        "after": 319
+      },
+      {
+        "path": "game/diaries/README.md",
+        "before": 29,
+        "after": 29
+      },
+      {
+        "path": "game/engine/README.md",
+        "before": 158,
+        "after": 116
+      },
+      {
+        "path": "game/games/asset-fixture/README.md",
+        "before": 8,
+        "after": 8
+      },
+      {
+        "path": "game/games/beacons/README.md",
+        "before": 36,
+        "after": 33
+      },
+      {
+        "path": "game/games/greybox/README.md",
+        "before": 58,
+        "after": 30
+      },
+      {
+        "path": "game/games/particles-fixture/README.md",
+        "before": 8,
+        "after": 8
+      },
+      {
+        "path": "game/games/placement-fixture/README.md",
+        "before": 8,
+        "after": 8
+      },
+      {
+        "path": "game/games/skinned-fixture/README.md",
+        "before": 8,
+        "after": 8
+      },
+      {
+        "path": "game/games/sprites-fixture/README.md",
+        "before": 8,
+        "after": 8
+      },
+      {
+        "path": "game/physics/README.md",
+        "before": 143,
+        "after": 74
+      },
+      {
+        "path": "game/render/README.md",
+        "before": 637,
+        "after": 336
+      },
+      {
+        "path": "game/twins/godot/beacons/README.md",
+        "before": 63,
+        "after": 51
+      },
+      {
+        "path": "game/twins/three/beacons/README.md",
+        "before": 52,
+        "after": 36
+      }
+    ],
+    "readme_net_deleted": 2553
+  }
+}

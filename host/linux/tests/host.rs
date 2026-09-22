@@ -182,7 +182,7 @@ fn a_press_goes_through_hit_testing_and_bubbles_to_the_handler() {
     let child = p.host().kernel().node(button).unwrap().children()[0];
     let reply = p.tap(child).unwrap();
     assert!(
-        reply.starts_with(&format!("{{\"tapped\":{child},\"at\":[")),
+        reply.starts_with(&format!("{{\"tapped\":{button},\"at\":[")),
         "{reply}"
     );
     assert!(has(&p, "stations-screen"), "the stations screen opened");
@@ -591,6 +591,7 @@ fn a_request_runs_on_the_executor_and_its_reply_commits() {
                 Outcome::Response(r) => String::from_utf8_lossy(&r.body).into_owned(),
                 Outcome::Failed { message, .. } => message.clone(),
                 Outcome::Storage(_) => panic!("HTTP request received a storage result"),
+                Outcome::Surface(_) => panic!("HTTP request received a surface result"),
             };
             let name = if text.contains("ada") {
                 "ada".to_string()
@@ -832,4 +833,83 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
         .host()
         .agent(r#"{"op":"logs"}"#)
         .contains("Linux does not support popover presentation"));
+}
+
+#[test]
+fn ordinary_node_state_is_not_routed_to_a_surface() {
+    let mut p = fixture("scroll");
+    let id = 1;
+    let plain = handle(&mut p, r#"{"op":"state"}"#);
+    let targeted = handle(&mut p, &format!(r#"{{"op":"state","id":{id}}}"#));
+    assert_eq!(targeted, plain);
+}
+
+#[test]
+fn autofocus_starts_again_in_a_reloaded_host_generation() {
+    pin_font();
+    let plan = contract::compile(
+        "component Test\n  view\n    button autofocus testId=\"play\"\n      text \"Play\"\n",
+    )
+    .unwrap()
+    .encode();
+    let (mut p, error) = Presenter::boot(&plan, NoData, (390., 844.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    assert_eq!(p.focus(), Some(view(&p, "play")));
+    p.reload(&plan, NoData).unwrap();
+    assert_eq!(p.focus(), Some(view(&p, "play")));
+}
+
+#[test]
+fn covered_id_tap_refuses_without_dispatching_the_cover() {
+    let source = r#"component Cover
+  state count = 0
+  action press writes count
+    count = count + 1
+  view
+    box width=100 height=100
+      button testId="under" position="absolute" left=0 top=0 width=100 height=100 press=press
+        text "Under"
+      button testId="cover" position="absolute" left=0 top=0 width=100 height=100 press=press
+        text "Cover"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    let id = view(&p, "under");
+    assert!(p.tap(id).unwrap_err().contains("covered or not hit"));
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
+    p.tap(view(&p, "cover")).unwrap();
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+}
+
+#[test]
+fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
+    for actionable in [false, true] {
+        let handler = if actionable { " press=child" } else { "" };
+        let source = format!(
+            r#"component Nested
+  state count = 0
+  action parent writes count
+    count = count + 1
+  action child writes count
+    count = count + 10
+  view
+    button testId="parent" width=100 height=100 press=parent
+      box testId="child" width=100 height=100{handler}
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, error) =
+            Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+        assert!(error.is_none());
+        let result = p.tap(view(&p, "parent"));
+        if actionable {
+            assert!(result.unwrap_err().contains("activates"));
+            assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
+        } else {
+            result.unwrap();
+            assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
+        }
+    }
 }

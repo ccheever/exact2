@@ -296,7 +296,10 @@ a region depth, `match` binding at a depth, inline-match local), `infer`, and
 `check`. The root is checked against its inlined view so a handler's real call
 site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
-`returns`.
+`returns`. Compatibility-only checks evaluate the unifier's success conditions
+without constructing a merged type. Type inference uses `Ty::unify` wherever
+it needs the merged value. Function body checking borrows the resolved signature;
+only the parameter types entering the body's owned scope are cloned.
 
 Unknown written types retain `type-unknown` and their original token span. The
 message lists known named types: primitives and bare `action`, then declared
@@ -442,6 +445,13 @@ all literal strings after component expansion emits one interned string, so a
 literal prefix passed to a component adds no runtime concatenation. Dynamic
 parts and non-string conversions retain their ordinary evaluation. Row order is source
 order, so compilation is byte-identical (`the_app_compiles_deterministically…`).
+Tag defaults and attribute style targets borrow static slices of kernel-generated
+identifiers; lookup constructs no temporary row vectors.
+Nodes without a class borrow their existing attributes; only class expansion
+builds a merged attribute list.
+Duplicate node bindings compact their existing buffers in place, preserving
+the first row position and the last value and source origin. Nodes with fewer
+than two bindings skip duplicate detection.
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`
 boots the runner once against the app's data source and writes every

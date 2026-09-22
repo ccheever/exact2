@@ -262,7 +262,7 @@ impl<D: DataSource> Presenter<D> {
             .then(|| target.binding.upgrade())
             .flatten()
     }
-    pub(super) fn retained_press(&mut self, hit: ViewId, now_ms: f64) -> Option<ViewId> {
+    pub(crate) fn retained_press(&mut self, hit: ViewId, now_ms: f64) -> Option<ViewId> {
         let key = self.host.kernel().node(hit)?.key;
         let target = self.retained_route(key, EventKind::Press).ok().flatten()?;
         self.retained_press_target(&target, now_ms)

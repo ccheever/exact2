@@ -180,10 +180,20 @@ X/Twitter, Instagram, TikTok), so the source stays portable Markdown.
 
 Reading and editing call the same `style`, which makes the *styling* agree;
 editing behaviour (D1) and rendering parity are proven by the slices' runs,
-not by construction. `style` is whole-source and linear in it; an opening
+not by construction. `style` is whole-source; an opening
 fence changes everything below it, so a host restyles from the edited block
 to the end of the source, not the edited paragraph alone. Incremental reuse
-is a later optimization with a measured trigger.
+is a later optimization with a measured trigger. Delimiter pairing keeps
+processed entries in an active prefix of its input buffer; retiring a match
+leaves unread delimiters in place, preserving partial runs and opener-search
+boundaries without repeatedly compacting the tail. Autolink searches reuse
+the next terminator and last `@` within each inline range; scheme validation
+stops at the first invalid prefix byte. Rejected starts therefore do not
+repeatedly search the same suffix. Code spans reuse closers found by the
+bracket pass; a failed search with later runs builds a temporary length index
+in the same lookup buffer. Ordinary matched spans and a final unclosed run
+need no such index. The footnote-numbering prepass parses only blocks
+whose content contains a `[^` opener; other blocks need just the styling pass.
 
 ### D3 — One kernel row: `markup`
 
@@ -229,7 +239,9 @@ relative destinations remain inert there.
 runs (headings as bigger bold runs, bullets, boxes, rules, quote bars and
 footnote marks as glyph runs, a short line between blocks) that the existing
 run painters draw, through `exact_markup_pieces` on Apple and a JSON prop on
-the web — one function for measure and paint. Block decoration that runs
+the web — one function for measure and paint. Flattening advances through
+sorted style, hidden and replacement ranges, collecting cut boundaries only
+from ranges intersecting each block. Block decoration that runs
 cannot express (code backgrounds, real quote bars, hanging indents) is owed
 to a later form that carries paragraph attributes. Measured in
 `apps/markdown-stress` ("One markup node" against "Render ALL blocks", same

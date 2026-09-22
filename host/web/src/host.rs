@@ -17,7 +17,7 @@ use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionVal
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
-    RunnerError, Timed, Work,
+    RunnerError, SurfaceOutcome, Timed, Work,
 };
 
 #[path = "height_drag.rs"]
@@ -34,6 +34,14 @@ mod transform_drag;
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
     match kind {
         5 => Outcome::Storage(body),
+        6 if body.len() <= exact_runner::MAX_HOST_WORK_BYTES => {
+            Outcome::Surface(SurfaceOutcome::Captured(body))
+        }
+        6 => Outcome::Failed {
+            kind: FailureKind::Refused,
+            message: "surface capture exceeds 16 MiB".into(),
+        },
+        7 => Outcome::Surface(SurfaceOutcome::Restored),
         0 => Outcome::Response(Response {
             status: status as u16,
             headers: headers
@@ -224,7 +232,7 @@ impl<D: DataSource> Host<D> {
         host.emit_reorder_drags(&mut batch);
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
@@ -406,6 +414,22 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Layout viewport changes re-answer the app in the same returned batch.
+    /// A surface changed its current public record, or was disposed.
+    pub fn surface_record(&mut self, name: &str, json: Option<&str>) -> String {
+        let (receipts, error) = match self.runner.set_surface_record(name, json) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(error) => (vec![], Some(format!("surface {name}: {error:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// @ref LLP 1039 D2
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
@@ -549,7 +573,7 @@ impl<D: DataSource> Host<D> {
         // A canvas's inputs (LLP 1009 D2): the runner's side-output, only
         // from commits that applied.
         for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
@@ -788,8 +812,8 @@ impl<D: DataSource> Host<D> {
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
     /// `kind` 0 is a response with `status`, `headers` as `name: value`
-    /// lines, and `body`; 1–4 are `Network`, `Refused`, `Unsupported`,
-    /// `Aborted` with `body` the executor's message. The batch is the commit
+    /// lines, and `body`; 1–4 are failures, 5 is storage, and 6/7 are a
+    /// captured/restored surface. The batch is the commit
     /// the reply made — or nothing, for a ticket no longer held.
     pub fn fulfill_at(
         &mut self,
@@ -1158,6 +1182,8 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
+            PropId::AccessibilityLive => "aria-live",
+            PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",

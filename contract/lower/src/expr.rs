@@ -26,6 +26,13 @@ pub(crate) fn compile(
         Expr::Bool(b, _) => {
             asm.bool(*b);
         }
+        Expr::NamedArg(_, _, span) => {
+            return err(
+                "lower-named-argument",
+                "named arguments belong to a canvas surface binding",
+                *span,
+            )
+        }
         Expr::None(_) => {
             asm.simple(Opcode::None);
         }
@@ -145,7 +152,7 @@ pub(crate) fn compile(
             asm.field(index as u16);
         }
         Expr::Call(name, args, span) => {
-            if name == "path" && !l.fns.contains_key(name) {
+            if name == "path" && !l.fns.contains_key(name.as_str()) {
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
@@ -171,7 +178,7 @@ pub(crate) fn compile(
                 };
                 return Ok(());
             }
-            if let Some(f) = l.fns.get(name).cloned() {
+            if let Some(f) = l.fns.get(name.as_str()).copied() {
                 // A `fn` (LLP 1017 P5), expanded here: each argument bound
                 // as a local, the body compiled in a scope of the parameters
                 // only, the locals dropped after — no new opcode, no table,
@@ -189,7 +196,7 @@ pub(crate) fn compile(
                     asm.bind_local();
                     *locals += 1;
                 }
-                let param_tys = l.types.shapes.fns[name].0.clone();
+                let param_tys = &l.types.shapes.fns[name].0;
                 let mut inner = Scope::default();
                 inner.push(
                     f.params

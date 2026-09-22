@@ -348,7 +348,7 @@ fn worker(
     grants: String,
 ) {
     let bindings = if lane == 1 && bindings.is_none() {
-        ibex2::grant::GrantSet::parse(&grants)
+        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&grants))
             .ok()
             .map(|g| ibex2::host::Host::new().endow(g))
     } else {
@@ -395,7 +395,10 @@ fn worker(
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let scoped = request.grants.as_deref().map(|scope| {
                 exact_data::storage::scope(&grants, Some(scope))
-                    .and_then(|s| ibex2::grant::GrantSet::parse(s).map_err(|e| e.to_string()))
+                    .and_then(|s| {
+                        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s))
+                            .map_err(|e| e.to_string())
+                    })
                     .map(|g| ibex2::host::Host::new().endow(g))
             });
             match scoped {
@@ -426,6 +429,8 @@ fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
                     .sum::<usize>(),
             ),
         Outcome::Storage(b) => b.capacity(),
+        Outcome::Surface(exact_runner::SurfaceOutcome::Captured(b)) => b.capacity(),
+        Outcome::Surface(exact_runner::SurfaceOutcome::Restored) => 0,
         Outcome::Failed { message, .. } => message.capacity(),
     };
     if retained > limit {

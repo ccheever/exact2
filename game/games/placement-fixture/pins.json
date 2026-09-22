@@ -1,0 +1,16 @@
+{
+  "ticks": {
+    "330": "0xe9455cc3cfcc9d31"
+  },
+  "saves": {
+    "continuation": "3991952069a63f1e3bed1f2ddd6a7d07b6e224fd1156312c1d87bd46b158b2e4"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "game": "placement-fixture",
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux,web",
+  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
+  "reason": "Named placed controls survive reorder; Pull is an input action, so saves omit the former pulls argument."
+}

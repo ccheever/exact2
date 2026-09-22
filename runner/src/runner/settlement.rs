@@ -12,7 +12,7 @@ enum RequestEffect {
     Answered,
     Later {
         args: Vec<Value>,
-        request: Request,
+        request: Box<Request>,
         forced: bool,
     },
 }
@@ -223,6 +223,7 @@ impl<D: DataSource> Runner<D> {
                             s.args == args
                                 && self.plan.str(row.source) != crate::delivery::SOURCE
                                 && self.plan.str(row.source) != crate::viewport::SOURCE
+                                && self.plan.str(row.source) != crate::surface_record::SOURCE
                                 && !forced
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
@@ -240,6 +241,7 @@ impl<D: DataSource> Runner<D> {
                         None if (boot || !self.data.ready())
                             && self.plan.str(row.source) != crate::delivery::SOURCE
                             && self.plan.str(row.source) != crate::viewport::SOURCE
+                            && self.plan.str(row.source) != crate::surface_record::SOURCE
                             && row.initial.len > 0
                             && (!self.data.ready()
                                 || (Value::from_bytes(self.plan.bytes(row.initial_args))
@@ -315,7 +317,7 @@ impl<D: DataSource> Runner<D> {
                                     };
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
-                                        request,
+                                        request: Box::new(request),
                                         forced,
                                     };
                                     pending_res[i] = true;
@@ -375,7 +377,7 @@ impl<D: DataSource> Runner<D> {
                 } = effect
                 {
                     let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, request, forced);
+                    self.enqueue(Target::Resource(i), source, args, *request, forced);
                 }
             }
             return Ok(());

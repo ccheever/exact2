@@ -39,7 +39,7 @@ impl Memo {
                     }
                     if let Some(surface) = node.surface {
                         for arg in plan.surface(surface).args.iter() {
-                            scan(plan, plan.arg(arg).expr, &mut inputs)?;
+                            scan(plan, plan.surface_arg(arg).expr, &mut inputs)?;
                         }
                     }
                     stack.extend(sites.children(Some(n), node.arm).iter().map(|(_, s)| *s));

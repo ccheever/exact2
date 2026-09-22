@@ -1,0 +1,1454 @@
+# G1 — ergonomics after Beacons
+
+Historical `/tmp` paths below identify scratch logs from those sittings, not
+retained evidence. Landed behavior is covered by the checked-in regression tests;
+retained measurements are in [the bench README](../bench/README.md).
+
+2026-09-17. Implemented in `lane/game`; subsequently landed before R11. Baseline: `9b52004`.
+No changes to `game/bench/`, `game/twins/`, or root crates. Concurrent Contract
+edits belonged to the other worker; this pass neither altered nor staged them.
+
+## What changed
+
+- `#[derive(Args)]` declares positional names, setup/live fields, decoding and
+  setup-change comparison without `syn`. All eight requested scalar types work;
+  `()` covers no arguments. Refusals name the field, expected kind and received
+  value. Beacons binds `world(seed, run, paused)`. Decode precedes mutation; timed
+  binds still seek under old arguments; saves retain bound values.
+- Seekable advances observe components before and after the last tick. They take
+  exactly two samples regardless of seek length; zero ticks retain the previous
+  answer. Ambient entities and resource bookkeeping are excluded. Springs and
+  explicit work still participate. Live advances take no samples. Clock replies
+  list up to eight changing entity/component names; non-spring deadlines back off
+  from 100 ms to 2 s. `busy` now borrows `&self`.
+- Mesh primitives carry real dimensions, which drive generated geometry, cached
+  draw groups, picking and layout. The 4,096-entry cache refuses excess dimensions
+  with the entity name. Transform pages retain their memcpy upload. `Collider::of`
+  matches every primitive; a plane becomes a static 1 cm slab with its top at y=0.
+- Saved `Follow` cameras run explicitly through `scene::follow`. Initial placement
+  and target teleports snap; ordinary following uses `math::ease`. Scalar and Vec3
+  easing use an exponential time constant and arrive within 0.1 mm. Beacons and
+  greybox use the shared functions.
+- `state world:*` returns component records for up to 512 entities, with subtree
+  narrowing. `type world KeyW for 1500` and its object form record down/clock/up.
+  Both proofs import `game/proof.mjs` for builds, sessions, assertions, transcripts,
+  reply artifacts, timings, exit status and child cleanup. Unchanged inputs skip
+  the build. Each proof checks complete save/restore across fresh browser sessions.
+- The README's complete game is the engine's runnable doc-test: capsule, plane,
+  Follow, a Spring-driven glow and a published count. All game API consumers and
+  current READMEs were updated, including the audio example.
+
+Deleted: `Arg`, `Game::ARGS`, `Game::check`, string argument accessors,
+`world.args()`, fallible setup, unit primitive variants, per-game camera stepping,
+manual movement/glow/ camera busy declarations, physics awake-body busy reporting,
+and duplicated proof lifecycle code. No compatibility shims remain.
+
+Integer wire values are f64. `u64` and `i64` therefore accept portable safe integers
+through 2^53−1, as documented, instead of silently rounding larger integer inputs.
+`Mesh::asset` retains the existing renderer placeholder; authored asset colliders
+still require authored geometry.
+
+## Size and readability
+
+Physical lines, including comments and blank lines:
+
+| file | before | after |
+|---|---:|---:|
+| Beacons `logic/src/lib.rs` | 198 | 169 |
+| Beacons `app.contract` | 38 | 38 |
+| Beacons `proof.mjs` | 175 | 129 |
+| Greybox `proof.mjs` | 212 | 144 |
+| Shared `game/proof.mjs` | 0 | 116 |
+
+Beacons reads better than before. Argument handling, primitive sizing, the camera
+and settling now say what the game means. It does **not yet read better overall
+than three.js's 57-line `simulation.js`**: Rust's entity queries, borrow-shaped
+access and long spawn tuples interrupt the gameplay more than that file's flat
+objects. The comparison is not equal scope: this Rust file includes scene setup
+that the twin also spreads into rendering code. Neither the reduced line count
+nor this pass establishes a new blind score. Gameplay's jump integration and
+beacon envelope remain ordinary handwritten functions.
+
+## Performance
+
+Release builds on the shared M5 Max, arm64 macOS. For a closer comparison, saved
+baseline/current executables were run in alternating order in this worktree;
+source edits were preserved and restored, and current examples rebuilt afterward.
+No clone, stash or commit was used. The paired churn figures below are medians of
+three runs per version; each churn rotation figure itself measures five 200-tick
+runs. The cubes figures are medians of four runs per version, 480 frames each at
+200,000 entities, 2560×1440, 4× MSAA. Current cubes measures the live clock so agent
+observation is excluded from gameplay timings.
+
+| measurement | before | after |
+|---|---:|---:|
+| churn, 100k rotation, ns/entity/tick | 3.08 | 2.67 |
+| churn, 500k rotation, ns/entity/tick | 3.31 | 2.89 |
+| churn, despawn/respawn 1k of 100k, ms | 0.391 | 0.364 |
+| churn, iterate 12 of 100k, µs | 1.229 | 1.126 |
+| cubes, 200k simulation, ms/tick | 0.5743 | 0.5667 |
+| cubes, 200k simulation, ns/entity/tick | 2.871 | 2.834 |
+| cubes, 200k feed, ms/tick | 1.3947 | 1.3762 |
+| cubes, encode, ms/frame | 0.1324 | 0.1254 |
+
+No regression beyond measured noise in these paired runs; no speedup claim. The
+200k sim medians ranged 0.5425–0.6587 ms before and 0.4876–0.5735 after; feed ranged
+1.3507–1.5322 before and 1.2973–1.4058 after. The initial unpaired measurements were
+less reassuring: sim 0.6138→0.7124 ms and feed 1.4266→1.7091 ms. A short 120-frame
+paired series also gave sim 0.5511→0.6282 and feed 1.3065→1.4234. Those observations
+are retained in the logs; their disagreement with the longer alternating series
+is why a single measurement on this shared machine is insufficient.
+
+For the historical sim table in `game/bench/README.md`, the Mac's 500k rotation row
+was 3.6 ns; today's paired result is 2.89 ns. The x86-64 Linux builder's historical
+5.8 ns row measures 5.78 ns now (100k: 5.74 ns). The Linux historical comparison is
+not a fresh paired baseline. Bench files themselves were not modified.
+
+One stillness observation, Transform-only entities, 100 warm samples on the Mac:
+
+| entities | median ms | p95 ms |
+|---|---:|---:|
+| 1,000 | 0.149750 | 0.169167 |
+| 10,000 | 0.698291 | 0.870125 |
+| 200,000 | 15.350417 | 16.890625 |
+
+These include per-component hashing and writing the reusable observation buffer.
+A nonzero agent seek pays twice, plus comparison; a live tick pays no hashing or
+observation allocation. Tests count serialized component writes to verify the
+two-sample/zero-live distinction, and the renderer's steady live allocation test
+passes. More component state costs more; these are not all-game upper bounds.
+
+The 2,000-box pile reports **observed stillness at tick 406**, exactly the old
+sleep tick, 2.967 s after the last pour. Physics active step p50/p95 was
+6.636/7.731→5.593/6.828 ms; asleep was 0.024/0.046→0.023/0.043 ms. Observation in
+this diagnostic runs outside the timed physics step. The physics busy call is gone.
+
+## Parity and verification
+
+All three executions agree, bit for bit: native arm64 macOS, native x86-64 Linux
+builder and Chrome wasm. Seed 7, run 0, unpaused; W is held for exactly 1,500 ms.
+
+| game / instant | macOS | Linux | Chrome wasm |
+|---|---|---|---|
+| greybox setup | `6b4d864d2da4c316` | `6b4d864d2da4c316` | `6b4d864d2da4c316` |
+| greybox W1500 | `e361b9c0055bede6` | `e361b9c0055bede6` | `e361b9c0055bede6` |
+| Beacons setup | `67e5994bda318b9a` | `67e5994bda318b9a` | `67e5994bda318b9a` |
+| Beacons W1500 | `f1bdfbe68b382647` | `f1bdfbe68b382647` | `f1bdfbe68b382647` |
+
+The same 500k churn world also hashes `120ad65324678b6f` on Mac and Linux. The new
+game pins and greybox component snapshots are checked in the source tests and
+proofs. Easing now actually arrives at the desired velocity: W1500 z moves from
+−5.733332 to −5.7333384, about 6 µm, inside the unchanged 1 mm gameplay assertion.
+
+Passed locally with `EXACT_UPDATE_TRUST=development`:
+
+- Game workspace build, `cargo test --workspace --no-fail-fast`, clippy with
+  `--all-targets -- -D warnings`, and format check. The README example compiled
+  and ran. Beacons tests also passed after the final argument-order adjustment.
+- Both browser proofs: greybox 15.928 s; final Beacons 35.858 s including its bake.
+  Both continued whole saves byte-identically in fresh sessions and found no
+  recorded children remaining. A repeated unchanged Beacons proof printed
+  `BUILD cached` and passed in 11.116 s.
+- The pre-existing driver transcript fixture still matches, alongside the new
+  three-step type transcripts exercised in both real browser proofs.
+- `bun scripts/caps.mjs` passes after staging: 554 source files scanned, none over
+  1,500 lines. The staged diff has no whitespace errors. No commit was made.
+
+Raw local validation and measurement logs are in `game/target/g1/` (ignored),
+including every initial and paired timing, `parity-*-final.txt`, workspace check
+logs and proof logs. Each game's ignored `artifacts/` contains its transcript,
+`replies.json`, saves, screenshots and process cleanup audit. The Linux builder
+ran parity and churn only; no GPU verification is claimed there. Native game UI
+proofs and iOS were not part of this run. No unrelated root verification process
+was stopped, and no process was left running on the builder.
+
+
+# G1b — reviewed repairs and typed gameplay
+
+2026-09-17. Baseline `f44f5df` (including the carry/restore fixes), repairing
+`6996a8a`. This section supersedes G1's current-behavior claims above. One agent;
+no commit, clone or stash. Changes are confined to `game/` and the held-key form
+in `scripts/agent.mjs`; root crates, host sources, `scripts/app.mjs` and game
+manifests were not edited.
+
+## Fixes and regression evidence
+
+`engine/tests/g1b.rs` and `g1b_args.rs` hold the new engine regressions. The table
+names their test functions, or the existing suite extended for the repair.
+
+| Brief | Result | Regression test |
+|---|---|---|
+| A1 | `Unknown / Still / Changing`; new, rebuilt, restored, live-advanced and input/argument-invalidated worlds require observation. Observation history is absent from saves. | `new_live_restored_and_queued_worlds_require_an_observation`; `observation_is_not_saved_and_resources_are_observed` |
+| A2 | Non-ambient entities contribute existence; parented entities also contribute their global pose. | `global_poses_and_componentless_existence_are_observed` |
+| A3 | Resources count by default. `Resource::AMBIENT` is the single opt-out; Physics and Voices use it. | resource countdown above; `ambient_resources_are_never_serialized_by_observation`; audio player test settles with a voice still playing |
+| A4 | Capped union of component changes, moving spring/tween entity.component names, and busy reasons; unknown and pending-input reasons prevent unexplained false replies. | `springs_and_tweens_explain_rest_and_deadlines`; busy/back-off test below |
+| A5 | Only parsed settle requests advance back-off; rest, rebuild, restore, input and argument changes reset it. README describes last-two-tick sampling and skipped one-shots. | `clock_reads_do_not_back_off_and_input_bind_restore_restart_reset` |
+| A5b | Pending input prevents rest and bounds the next jump to its delivery tick. | `current_and_future_input_prevent_rest_and_bound_the_next_jump` |
+| B6 | `Game::validate` runs before construction, timed bind/seek/rebuild, and restore commit. Domain refusal leaves bytes unchanged. | `a4_3_pause_at_500_inside_one_seek_matches_two_seeks_restart_and_refusals_are_atomic` restores invalid-volume and seed-99 assertions; `decoded_float_state_is_exact_signed_zero_rebuilds_and_validation_is_atomic` |
+| B7 | Saved arguments use named fields; additions default, removals are ignored. Bound args win; `restoredFrom` preserves the saved record until restored state ends. | `saved_arguments_follow_names_default_new_fields_and_ignore_removed_fields` |
+| B8 | Float setup comparison uses bits; state serializes the decoded struct without display rounding. Malformed live attributes refuse with the field name. | both float tests in `g1b_args`; two compile-fail Args doctests |
+| C9 | Primitive dimensions occupy instance data; at most one unit geometry per primitive kind. True capsule hemispheres use cap signs. | `primitive_dimensions_are_instance_data_and_capsules_deform_exactly`; `animated_dimensions_never_grow_geometry_and_all_spheres_batch_together`; hidden/revealed dimension regression |
+| C10 | Plane collider is a translated thin box; pick/layout use the same slab, top Y=0. Dynamic bodies work. | `plane_is_a_dynamic_box_and_side_pick_matches_the_physics_slab` |
+| D11 | Follow places zero-offset cameras, handles top-down aiming, reads current parent poses, reinitializes names after target replacement; finite extreme ease endpoints remain finite. Both setups call follow explicitly. | `followers_handle_top_down_zero_offsets_current_parents_and_reincarnation`; existing Follow teleport/save test; both game proofs |
+| E12 | Held input resolves once and releases that carrier in finally. Partial failure steps survive; CLI requires `type world key KeyW for 1500`. | three held-key/parser tests in `proof.test.mjs`, including down/clock/up failures and ordinary text ending in `for 100` |
+| E13 | Receipt binds web manifest or existing app executable (also the actual standalone carrier binary). Timer clears before best-effort inventory; unconditional cleanup closes every session. | two receipt/cleanup tests in `proof.test.mjs`; all three real proofs report no surviving recorded children |
+| F14 | Typed `Sim::new(G::Args)`; host entry is `from_values`. Game tests and README construct typed args. | README doctest; both game suites; typed validation test |
+| F15 | Relative run/key_down/key_up/tap/hold/settle use the host clock rules and sixteen-jump bound. | `input_sugar_and_relative_sentences_match_absolute_host_input`; busy test exhausts bound; both game suites |
+| F16 | One `Target` trait lets get/get_mut accept Entity or name; position helpers are deleted. | `named_access_guarded_rows_and_release_singleton_refusal`; both game suites |
+| F17 | Consuming query iteration yields items; `.iter()` retains Entity; `.one()` refuses ambiguity in release with component name and count. | named-access test above, also run with `--release`; `a20_one_returns_a_leased_item_and_refuses_ambiguity`; existing lease compile-fail doctests |
+| F18 | README, grey box and Beacons logic/tests use the new API; explicit setup Follow replaces handwritten placement. | compiled README; game suites and proofs; counts and tick below |
+| F19 | Closed-form saved Tween has a seconds-based duration, continuous retarget and known deadline. Beacons uses it. | spring/tween test at 30/60/120 Hz with round-trip and retarget; Beacons glow test and browser proof |
+| F20 | `Stick::wasd().or_arrows()` and `input.stick_xz("move")` replace repeated mappings. | relative-input equivalence test; both games' movement tests |
+| F21 | Follow accepts Entity or name, caches name resolution, checks handle generation and re-resolves after death. | Follow regression covers both target forms and replacement; both games use spawn's handle |
+| F22 | Restore names an unregistered type and `world.register::<Projectile>() in setup`; README gives the fix. | `unregistered_saved_type_names_the_setup_fix` also proves registered restore succeeds |
+| F23 | Asset mesh refusal reaches the surface error with its asset name. | `asset_mesh_is_a_named_surface_refusal`; GPU `asset_refusal_reaches_the_surface_error_with_its_name` |
+
+For direct before/after evidence, a small regression executable linked against the
+preserved pre-change library failed all sixteen cases: fresh, live, restore,
+parent, exists, resource, reasons, read-backoff, queued, future, named-args,
+float-bits, canonical-args, zero-follow, current-follow and finite-ease. Linked
+against the replacement library, all sixteen pass. Logs and source are in
+`target/g1b/regressions*`. The new-API tests cannot compile against the old API;
+the table does not claim every new test executable was run unchanged on baseline.
+
+Deleted: optimistic saved stillness; positional saved argument values and rounded
+argument JSON; dimension-keyed geometry/cache limits and asset-as-cube fallback;
+plane trimesh construction; Beacons lit/glow/age arithmetic and duplicated camera
+pose; both games' position/key/time test helpers; unnamed singleton assertions;
+second lookup for held-key release; receipt existence markers; voice motion
+reporting that duplicated executor lifetime. No deprecated API or compatibility
+shim was retained. The Sim envelope is now version 3; version 2 saves refuse.
+
+## Mesh layout and choice
+
+The preferred instance design stays. GPU material slots are still **12 f32 / 48
+bytes**: RGBA 0–3, metallic 4, roughness 5, RGB emission 6–8, dimensions 9–11.
+Ordinary shapes use XYZ scale; capsules use diameter, half-stem, diameter. The
+reserved vertex UV carries cap sign/flag, so hemisphere scale remains uniform
+and cap centers move independently. Both forward and shadow vertices apply it;
+normals use inverse dimension scale.
+
+At 200k slots: materials remain 9.6 MB and two transform histories remain 16 MB.
+The Feed additionally retains 2.4 MB of CPU dimensions. There is no GPU slot-size
+increase, dimension cache, eviction policy or exhaustion threshold. Five thousand
+distinct sphere radii plus 4,100 animated revisions retain one mesh and one draw per geometry pass (shadow cascades draw again).
+Dimensions still cost material uploads and feed work when changed; “free” means
+no new geometry or draw groups, not zero CPU/GPU work. This capacity/batching
+result is clearly better than the static-only fallback; the measurements below
+do not establish a static-scene speedup.
+
+## Size and Beacons tick
+
+Physical lines including comments/blank lines, against `f44f5df`:
+
+| Beacons file | before | after |
+|---|---:|---:|
+| `logic/src/lib.rs` | 169 | 151 |
+| `logic/tests/sim.rs` | 105 | 129 |
+
+The test file grew: direct named component assertions and typed argument literals
+wrap across more lines than the deleted position helper. Gameplay has fewer
+state fields and no glow clock arithmetic. Its actual tick is:
+
+```rust
+fn tick(world: &mut World, input: &Input, _: &Self::Args) {
+    let dt = world.dt();
+    let desired = input.stick_xz("move") * 4.0;
+    let mut position = Vec3::ZERO;
+    if let Some((player, pose)) = world.query::<(&mut Player, &mut Transform)>().one() {
+        player.velocity.x = math::ease(player.velocity.x, desired.x, 0.074690334, dt);
+        player.velocity.z = math::ease(player.velocity.z, desired.z, 0.074690334, dt);
+        if input.pressed("jump") && pose.position.y <= 0.9 {
+            player.velocity.y = 4.852216; // sqrt(2 * 9.81 * 1.2)
+        }
+        pose.position.x += player.velocity.x * dt;
+        pose.position.z += player.velocity.z * dt;
+        if pose.position.y > 0.9 || player.velocity.y > 0.0 {
+            pose.position.y += player.velocity.y * dt - 0.5 * 9.81 * dt * dt;
+            player.velocity.y -= 9.81 * dt;
+            if pose.position.y <= 0.9 {
+                pose.position.y = 0.9;
+                player.velocity.y = 0.0;
+            }
+        }
+        pose.position.x = pose.position.x.clamp(-19.6, 19.6);
+        pose.position.z = pose.position.z.clamp(-19.6, 19.6);
+        position = pose.position;
+    }
+    let mut count = 0;
+    for (mut beacon, pose, mut material) in
+        world.query::<(&mut Beacon, &Transform, &mut Material)>()
+    {
+        let delta = position - pose.position;
+        if beacon.glow.target == 0.0
+            && input.pressed("act")
+            && delta.x * delta.x + delta.z * delta.z <= 1.5 * 1.5
+            && position.y <= 0.9001
+        {
+            beacon.glow.to(world.now(), 1.0, 0.5);
+            world.log("beacon lit");
+        }
+        count += u32::from(beacon.glow.target == 1.0);
+        material.emissive = [beacon.glow.value(world.now()) * 3.0; 3];
+    }
+    world.publish("beacons", count);
+    scene::follow(world);
+}
+```
+
+## Measurements
+
+Release, arm64 M5 Max, shared machine. Baseline binaries were preserved before
+editing; paired measurements alternate them with current binaries, without
+swapping source or cloning. Churn reports medians of three runs per version:
+
+| churn measurement | before | after |
+|---|---:|---:|
+| rotation 100k, ns/entity/tick | 2.86 | 2.31 |
+| rotation 500k, ns/entity/tick | 2.97 | 2.13 |
+| respawn 1k/100k, ms | 0.328 | 0.245 |
+| respawn 50k/100k, ms | 15.079 | 10.995 |
+| construct 12-row query, µs | 0.011 | 0.008 |
+| construct + iterate 12 rows, µs | 1.161 | 0.891 |
+| propagate 500k roots, µs | 0.005 | 0.003 |
+| propagate 500k / 50k parented, µs | 1864.100 | 2262.617 |
+| despawn 1k among 50k parented, ms | 0.151 | 0.152 |
+| reap 5k orphan descendants, ms | 1.593 | 1.978 |
+
+Parent propagation and orphan reaping are slower in this series; these numbers
+are not a claim that every path improved. The Linux builder's current rotation
+cost is 5.74 ns at 100k and 5.79 ns at 500k (no fresh Linux baseline).
+
+Final four alternating 480-frame cubes runs, 200k entities, 2560×1440, 4×MSAA,
+live clock; median of each run's p50:
+
+| measurement | before | after | range of run p50s, before → after |
+|---|---:|---:|---|
+| simulation, ms/tick | 0.7749 | 0.7917 | 0.7043–0.8100 → 0.6291–0.9377 |
+| feed, ms/tick | 1.6216 | 1.6541 | 1.5169–1.6818 → 1.3741–1.9064 |
+| CPU encode, ms/frame | 0.1564 | 0.1654 | 0.1503–0.1615 → 0.1245–0.2056 |
+
+Feed is +2.0%, CPU encode +5.8% in this final series, with overlapping ranges.
+The frame metric is CPU scene selection/encoding/submission, **not GPU completion
+latency**; the example waits for GPU completion outside its timing. Earlier six
+paired runs gave feed 1.1033→1.4725 ms and encode 0.0746→0.1087 ms. The last series
+followed an inline annotation on the shared query mask scan, but concurrent
+machine load also changed, so it cannot establish the annotation caused the
+improvement. All series are retained; no speedup or “no regression” claim.
+
+One stillness observation, Transform-only entities, 100 warm samples (ms):
+
+| entities | median before → after | p95 before → after |
+|---|---:|---:|
+| 1k | 0.116500 → 0.119000 | 0.144791 → 0.214875 |
+| 10k | 1.177417 → 1.015250 | 1.314750 → 1.226334 |
+| 200k | 24.507791 → 16.061625 | 29.115500 → 20.996709 |
+
+These runs were not interleaved, so they establish cost, not an isolated speedup.
+A seek observes twice plus comparison; live advancement observes zero times.
+The executor opt-out test panics if observation serializes its resource; it
+passes, as does the existing exactly-two-samples/zero-live test.
+
+## Proof and parity
+
+All following hashes agree across native arm64 macOS, native x86-64 Linux builder
+and Chrome wasm. The tests, snapshots and proof pins are updated.
+
+| game / instant | macOS = Linux = Chrome wasm |
+|---|---|
+| greybox setup | `0619b31ec44b9156` |
+| greybox W1500 | `a6449de82e10c54c` |
+| Beacons setup | `c9b9da5a6a813a7b` |
+| Beacons W1500 | `c483599688164cb8` |
+
+The churn hashes also agree on Mac/Linux: 100k `7436348051b0a582`, 500k
+`120ad65324678b6f`. Both browser proofs continue the entire Sim save byte-for-byte
+across fresh sessions. Final proofs: greybox web 21.271 s; Beacons web 12.595 s;
+greybox macOS 60.278 s. Each reports zero failures and zero recorded children left.
+
+The game workspace builds, tests, clippy with all targets and warnings denied,
+and fmt check pass locally with `EXACT_UPDATE_TRUST=development`. The full game
+suite reports 237 passed, zero failed, five ignored diagnostics; Linux reports
+the same, with unavailable GPU cases explicitly skipping. The README runs as a
+doctest. The singleton refusal also passes in release. Bun's five driver/proof
+regressions pass (20 assertions). Staged caps pass: 559 source files scanned,
+none over 1,500 lines; staged whitespace verification is clean. Logs are in
+`game/target/g1b/`.
+
+The Mac's newly installed Xcode has an unaccepted license; local commands used
+`DEVELOPER_DIR=/Library/Developer/CommandLineTools`. Native proof initially failed
+because this Swift toolchain defaults to a build system with a different product
+path. A temporary command wrapper supplied `--build-system native`; it was
+removed after the passing proof. No host source was edited. Fresh local binaries
+ran during this pass; no exec-policy timeout required killing a process. Linux
+was used for the explicitly requested cross-architecture verification and has
+no task left running. iOS was not requested or verified.
+
+## Review corrections and API details
+
+The reported behavioral defects were real. Rapier's `Executor` is actually a
+field inside the `Physics` resource, so that containing resource opts out.
+Consuming query rows need to carry leases: returning bare references from an
+owning iterator would let rows outlive its borrow protection. Thus item loops
+use `mut beacon`/`mut material`; `.iter()` retains plain references and Entity.
+The escaped-row regression proves column access stays locked until rows drop.
+Gameplay tests and the README no longer construct wire Values; low-level tests
+of malformed host arguments necessarily still exercise Values and from_values.
+
+# G1c — final quiescence round, stopped with a counterexample
+
+2026-09-17. Read the current `b0af526` tree (repairing `a0f4ca0`), the binding
+rules, this diary and the game README. One agent; no clone, stash or commit.
+LLP 1046.001 is the interface rationale, still a Draft outside the working set;
+this brief and the binding rules determine the changes. No LLP hand-off is needed.
+
+**Quiescence is not closed.** After the requested repairs, the final audit ran:
+
+```rust
+let mut s = Sim::<Still>::new(Options::default()).unwrap();
+assert!(s.settle());
+s.world().publish("score", 1);
+assert!(!s.quiescent()); // FAILS: true, with an unchanged mutation epoch
+```
+
+`World::publish` changes the public record through its own `RefCell`, outside the
+storage epoch. The public record is also outside the observation. Per the explicit
+third-round stop rule, no further quiescence patch was made. The ignored regression
+`remaining_publication_mutation_requires_an_observation` in `engine/tests/g1c.rs`
+is the executable counterexample, not a passing claim. Run it with
+`cargo test -p exact-game --test g1c remaining_publication_mutation -- --ignored --nocapture`.
+`target/g1c/final-audit.txt` records its failure. This is the remaining decision for
+the author, rather than a fourth repair loop.
+
+## Requested repairs and tests
+
+All named Rust regressions below are in `engine/tests/g1c.rs` unless specified.
+The initial unmodified implementation failed all eleven original runtime cases,
+three new Args compile-fail doctests, and the two new Bun regressions. Logs are
+`target/g1c/before-{tests,doc,bun}.txt`. A twelfth passing runtime test separately
+checks structural epochs, message invalidation and cached/canonical hash agreement.
+
+| Brief | Change | Regression |
+|---|---|---|
+| A1 | One shared `Cell<u64>` at the storage boundary: mutable component/query/resource/RNG leases, structural edits, load and teleport advance it. Busy also invalidates. Sim detects external epoch changes and resets back-off. See the remaining publication escape above. | `leases_invalidate_observation_and_restart_backoff`; `storage_epoch_and_fused_hash_cover_structural_edits_and_messages` |
+| A2 | RNG participates in observation as `resource.Rng`, retaining its original save/hash position. | `rng_draws_are_observed_without_changing_hash_format` |
+| A3 | Paused plus empty queue remains quiescent and reports `["paused"]`; unpause requires observation. README states the rule. | `pause_explains_unobserved_rest_and_unpause_requires_a_sample` |
+| A4 | Parented markers read the propagated global pose even without their own Transform. | `parent_only_marker_observes_ambient_conveyor` |
+| A5 | Moving reasons stream and stop at eight; changing receives the existing quiescence result. The final component observation feeds the canonical world-hash prefix in the same serialization pass. Hash replies reuse that prefix at the same mutation epoch. Resources remain lazy so settling alone never snapshots an ambient physics/audio executor; observed resource values still have their own observation serialization. | `clock_streams_eight_reasons_and_serializes_each_row_only_twice`: 200 component rows, at most nine moving probes including the quiescence probe, 400 writes including the reply instead of 600. Existing `ambient_resources_are_never_serialized_by_observation` and two-sample/zero-live tests pass. Timing is below; no speedup claim. |
+| A6 | Helper follows the host sequence exactly: initial read plus at most fifteen follow-up advances, sixteen rounds total. | `helper_matches_hosts_initial_read_and_fifteen_followups`: the tick-1386 final-round deadline succeeds; work needing round seventeen refuses identically. |
+| B7 | Derived `Args::check_scalars` runs before domain validation on new/bind/restore paths. Validated canonical argument text is retained for save, removing the argument `expect`. | `typed_scalars_refuse_before_domain_validation` (NaN, both float widths, infinities, unsafe signed/unsigned 64-bit integers) |
+| B8 | Bound restore decodes/validates only current bindings; original argument text remains the restoredFrom record. Plain restore still validates the saved args. | `bound_restore_validates_only_the_arguments_it_uses` |
+| B9 | `live` outside a field refuses, including bare, list and name-value forms. | Three Args compile-fail doctests in `engine/src/args.rs`; existing malformed field attribute cases remain. |
+| B10 | Tick-to-host-microsecond conversion is checked and saturates to `i64::MAX`. | `extreme_tween_deadline_saturates_host_microseconds` |
+| B11 | Named Follow targets use `named()`'s current lowest-index result; changed identity reinitializes following. | `follow_names_track_lowest_live_index` |
+| C12 | Project the previous frame's up onto the new view plane; choose a fixed axis only when it degenerates. | `follow_roll_transports_continuously_through_vertical`: consecutive rotations stay below 0.05 radians; baseline jumped by π. |
+| C13 | Browser key-down returns a carrier-owned release closure capturing device identity; finally invokes it without resolving/refocusing a canvas. The same closure is retained if delivery/frame completion throws. | `proof.test.mjs`: `held key release survives removal of its canvas` runs the actual browser-key carrier function against a removed-canvas fixture; existing partial-failure transcripts also pass. |
+| C14 | Receipt hashes a sorted path/content manifest for the entire bundle and actual standalone product directory, covering dylibs, plan and assets. | `proof.test.mjs`: `native receipt changes with game dylibs and embedded plan/assets`; existing executable/carrier/deletion test remains. |
+
+## Clock cost
+
+Release arm64 M5 Max, 200,000 Transform-only entities. One operation includes a
+17 ms seek, its two observations, and the complete clock reply with world hash.
+Five warmups then 100 samples per run. The baseline test executable was preserved
+before editing; paired runs alternate that executable and the replacement.
+
+| series | median ms before → after | p95 ms before → after |
+|---|---:|---:|
+| first runs | 83.912583 → 86.142125 | 91.631708 → 95.698708 |
+| alternating pair 1 | 96.580583 → 111.107500 | 129.609667 → 132.196083 |
+| alternating pair 2 | 142.524542 → 119.748500 | 197.928833 → 150.332834 |
+| alternating pair 3 | 89.109750 → 158.901417 | 103.093500 → 185.074166 |
+
+Median of the three alternating run medians: **96.580583 → 119.748500 ms
+(+24.0%)**. The shared machine was also building/running the benchmark lane and
+proofs, and the spread is large. These results establish the observed cost and
+regression, not an isolated cause or a speedup. Reduced serialization/reason
+visits do not establish reduced wall time. Raw logs: `before-cost.txt`,
+`after-cost.txt`, `paired-cost.txt` in `target/g1c/`.
+
+## Hashes and proof
+
+All four hashes agree bit-for-bit across native arm64 macOS, native x86-64 Linux
+builder, and Chrome wasm; both game proof pins and greybox's state snapshot were
+updated. Seed 7, run 0, unpaused, W held for 1,500 ms:
+
+| instant | G1b | G1c: macOS = Linux = Chrome |
+|---|---|---|
+| greybox setup | `0619b31ec44b9156` | `9d8e9359b9f3e65f` |
+| greybox W1500 | `a6449de82e10c54c` | `2464f19d35fb4996` |
+| Beacons setup | `c9b9da5a6a813a7b` | `32b48c41f24f8fcf` |
+| Beacons W1500 | `c483599688164cb8` | `d17e623e56fb8dc9` |
+
+Only Follow's camera calculation changes these games' saved state: initial up
+projection/normalization and subsequent transported up change floating-point
+rotation/scale bits. RNG is still serialized exactly once in its original location;
+its added observation, epochs and hash prefix cache add no saved/hash fields.
+Cached and uncached save/load hashes agree. Gameplay position remains
+`[0, 0.9, -5.7333384]`. `parity-{mac,linux}.txt` and the proof transcripts carry
+the complete cross-platform cards.
+
+Proofs passed: greybox web **16.400 s**, Beacons web **21.239 s**, greybox macOS
+**63.787 s**, zero failures and no recorded children left in each. Both browser
+proofs continue whole Sim saves byte-identically in fresh sessions. The native
+proof retains its pre-existing screenshot-permission and browser-metrics skips.
+It used `DEVELOPER_DIR=/Library/Developer/CommandLineTools` and a temporary Swift
+wrapper adding `--build-system native` only to `swift build`; the wrapper was
+removed. An initial wrapper that also changed `swift package describe` failed
+and is recorded separately. No exec-policy timeout occurred; Linux was used for
+architecture parity, and no task was left running there.
+
+Workspace build, clippy (`--workspace --all-targets -- -D warnings`) and fmt pass.
+The second full `cargo test --workspace --no-fail-fast` run reports **262 passed,
+0 failed, 7 ignored**: five existing diagnostics, the new cost diagnostic, and the
+explicitly unresolved publication reproducer. Bun's seven driver/proof tests pass
+(25 assertions). The first workspace run exposed stale hash pins, the float-text
+test assertion, and concurrent benchmark/renderer failures; it is retained rather
+than presented as passing. The initial workspace build briefly failed launching
+the shared filesystem helper; the second build passed without a source change.
+
+This worktree was clean at start, but an independently running benchmark task
+added/edited `game/bench`, the workspace manifests, Environment, renderer files
+and the native host during the run. Those edits were preserved. They are included
+in the shared workspace verification, and are not G1c changes or work delegated
+by this agent. After `git add -A`, caps passed (577 source files, none over 1,500
+lines) and the staged whitespace check passed. No commit was made; HEAD remains
+`b0af526`.
+
+## Review corrections
+
+The listed behavioral defects reproduced. The extreme deadline error was in
+Sim's narrowing conversion to host microseconds, not Tween's already-saturating
+`u64` deadline. The vertical test exposed a 180° discontinuity, larger than the
+review's approximate 90°. The host bound is sixteen rounds, but only fifteen
+world follow-ups after the initial read. The requested cases are repaired; the
+publication counterexample prevents claiming quiescence complete, and the clock
+measurements prevent claiming a performance improvement.
+
+# G1d — closing the remaining quiescence edges
+
+2026-09-17, `lane/game`. One agent, no clones, stash or commit. The mutation
+sample rule is unchanged. The remaining changes and their tests are:
+
+| Change | Regression |
+|---|---|
+| Document the journal as telemetry, outside observation, hash and mutation epoch. | `g1d::logging_refusal_preserves_rest_and_hash`: a malformed agent read adds a journal line while preserving epoch, rest and hash. This behavior already passed before the documentation change. |
+| Document semantic Data's prohibition on interior mutability on Data, Component, Resource and in the README; manual implementations violating it have undefined quiescence/hash-cache behavior. No enforcement added. | Data's new compile-fail doctest shows that deriving a semantic `Cell<u32>` field is already refused. |
+| Apply the Ambient presence mask to erased moving, moving-reason and deadline scans; resources receive no entity mask. | Three `g1d::ambient_*` tests: a live ten-second Tween neither blocks rest, appears in changing, nor selects settleAt. All three failed before and pass after. |
+| Report both paused and queued input. | `g1d::paused_queued_input_explains_why_it_is_not_quiescent`: queue a future key before pausing; failed before, passes after. Input delivered while already paused intentionally updates held state directly. |
+| Await asynchronous step tags and retain the native carrier's release closure. Swift stores the original surface/module identity; release bypasses view resolution and focus, and cannot deliver to a replacement. | `proof.test.mjs`: asynchronous tags survive JSON serialization on success and clock failure; native canvas-removal carrier fixtures fail before and pass after. Browser canvas-removal coverage now includes both successful and failed clocks. These carrier fixtures exercise the actual JS key functions with device/host seams supplied by the fixture; the macOS proof also exercises the real Swift held-key path. |
+| Hash all web dist paths/content in sorted order. | `proof.test.mjs`: asset changes, additions, deletion/rename and creation-order independence. Failed before, passes after. The new standalone-game-dylib receipt test also verifies cache misses with unchanged source inputs; native whole-bundle/product hashing was already correct. |
+
+Validation, with `EXACT_UPDATE_TRUST=development`, all local:
+
+- Game workspace build; `cargo test --workspace --no-fail-fast`: **272 passed,
+  zero failed, six ignored diagnostics**, including 19 exact-game doctests.
+- Workspace clippy, all targets with warnings denied; fmt check.
+- `bun test game/proof.test.mjs`: **13 passed, 52 assertions**; existing driver
+  transcript fixture matches. Both held-key step receipts contain resolved tags.
+- Greybox web **13.872 s**, Beacons web **15.437 s**, greybox macOS **56.954 s**:
+  zero failures, no recorded children remaining. Existing hash pins unchanged;
+  browser proofs continue whole saves byte-for-byte. macOS retains its existing
+  screenshot-permission and browser-metrics skips.
+- Staged caps and boot pass; staged whitespace check passes. Swift used a temporary
+  wrapper adding `--build-system native` only to `swift build`; it was removed.
+  No native Cargo step wedged, so the Linux builder was not needed.
+
+Logs are in `game/target/g1d/`. An additional, non-required attempt to run the broad
+`scripts/caps.test.mjs` harness under `bun test` produced empty-output fixture
+failures and was stopped, including its recorded child; it is not a passing
+result. The direct required caps check passed. No unrelated process was stopped.
+
+
+**F2b — 2026-09-18.** Live ticks now run when their deadline is strictly before
+the next frame, using the last live delta capped at one step; the 250 ms catch-up
+clamp, pause and seekable boundaries remain. Live scheduling retains frame
+precision to avoid microsecond-rounding beats at matching rates; synthetic
+3,600-frame runs cover 60, 59.94 and 120 Hz, including the necessary occasional
+extra 60 Hz tick at 59.94 Hz. Alpha now clamps the fraction between the previous
+and current tick, and live saves accept one early tick. Feed, trace and camera
+history already use that fraction; audio transport reads completed ticks directly,
+without alpha. Live input follows host delivery time; the deterministic record is
+tick-stamped. The exact probe and feel table now report mean alpha on tick-running
+frames as `tick_phase`, without changing the latency metric. All 22 simulation
+tests, all-target clippy and 15 feel tests pass; the full engine/render retry still
+has three renderer assertions for the old timing in `trace.rs` and
+`surface_tests.rs`, left unchanged pending permission to extend the brief's file
+scope. Workspace fmt remains blocked by concurrent audio/GPU edits, including
+`restore_bound`, which was not touched. Beacons web and both Linux-headless game
+proofs pass with unchanged pins; Greybox web's build fails in the concurrent GPU
+wasm macro even after the prescribed one-minute retry. The feel preflight found
+the console active (11.6 s idle, requiring 30), so no attempt or latency/tick_phase
+result was taken. Logs are `game/target/f2b-*.log`; no commit was made.
+
+
+**F2c — 2026-09-18.** Supersedes F2b's held-frame alpha and live input bypass.
+Render time is `R = T + L - step`; alpha is `(T + L) / step - tick`.
+The Sim retains the lookahead used by the last advance, resets it for seekable
+advances, and excludes it from saves/hashes. Boundary/interpolation arithmetic is
+integer microseconds multiplied by HZ before rounding (1,000,000 units per tick),
+so rational frame periods retain sub-microsecond precision without equal-rate
+beats. The signed alpha numerator is guarded only for missing history/transitions;
+steady live frames stay within the available tick pair. Seekable interpolation
+returns to its original fraction. Input again obeys `stamp < deadline`: the live
+bypass had put an 18 ms input into tick 1 during catch-up instead of tick 2.
+
+The three renderer expectations, with one world unit per 60 Hz tick:
+
+- Seekable frames T = 17, 25, 34 ms have L = 0. R = 1/3, 25/3, 52/3 ms,
+  so x = 0.02, 0.5, 1.04. The old expectations are correct; [1, 1, 2] held poses.
+- Live 144 Hz frames have T = n * 1000/144 ms and L = 1000/144 ms.
+  R = (n + 1) * 1000/144 - 1000/60 ms; x = (n + 1) * 60/144 - 1 after
+  startup, a constant 5/12-unit delta. At the 1100 ms burst, L is capped to
+  one step, R = 1100 ms and x = 66, with history [65, 66].
+- Live frames at 17 and 34 ms cap L to one step, so R = T and x = 1.02, 2.04.
+  Completed ticks are 2 and 3; the second frame's history is [2, 3]. A same-tick
+  edit to x = 5 advances that history to [3, 5]; teleport still snaps both to 20.
+
+Regression coverage:
+
+- `alpha_guard_never_fires_on_600_steady_frames_at_both_world_rates`: inspect the
+  signed numerator before clamping across 600 frames, 60/59.94/120 Hz displays,
+  60/120 Hz worlds, four phases and three epochs; seekable clears lookahead.
+- `live_half_step_frames_draw_equal_deltas_at_every_phase`: 600 frames at 120 Hz
+  over a 60 Hz world, phases 0, .1, .25, .4 steps, deltas .5 within 1e-6.
+- `live_stall_returns_to_steady_deltas_after_one_recovery_frame`: 40 ms stall
+  followed by 60/120 Hz cadence; after the single L-reset frame, deltas are steady.
+- `live_three_tick_catchup_spreads_input_by_stamp`: down at 18 ms lands in tick 2,
+  up at 35 ms in tick 3 during a 40 ms catch-up; tick 1 receives neither.
+- `live_input_after_deadline_is_drawn_one_frame_before_zero_lookahead`: input at
+  step + .01 ms lands in tick 2 on both clocks; first partial x = .25 is drawn at
+  T = 1.75 steps live versus 2.25 steps without lookahead, one 120 Hz frame earlier.
+- Updated horizon-alpha, future-input, restore/pause/seekable tests pass; the
+  3,600-frame no-beats test and all three renderer regressions pass.
+
+Validation (required Cargo environment set throughout):
+
+| Check | Result |
+| --- | --- |
+| `cargo test -p exact-game -p exact-game-render --no-fail-fast` | 263 passed, 0 failed, 7 ignored diagnostics; includes all 26 simulation integration tests |
+| `cargo clippy -p exact-game -p exact-game-render --all-targets -- -D warnings` | pass |
+| `rustfmt --edition 2021 --config skip_children=true --check` on the four scoped Rust files | pass |
+| `bun test bench/feel.test.mjs` | 15 passed, 0 failed, 91 assertions |
+| Beacons web / Linux headless proofs | pass, 54.446 s / 160.890 s |
+| Asset-fixture web / Linux headless proofs | pass, 44.614 s / 146.506 s |
+| Scoped `git diff --check` | pass |
+
+All four proofs retained their pins and exited all recorded children. The asset
+hash stays `0x8f6d518f39634478`; Beacons' continuation remains byte-identical.
+`game/proof.mjs` is an imported helper, so the actual proof entry points were
+`bun game/games/{beacons,asset-fixture}/proof.mjs {web,linux}`.
+After rebuilding Beacons web, the single invocation of
+`bun game/bench/feel.mjs exact --hz 60 --no-build --attempts 1` stopped in preflight:
+console active, HID idle 19.4 s, requiring 30 s. No measurement attempt or retry;
+judder, latency and `tick_phase` are unavailable for this revision. `tick_phase`
+remains mean alpha on ticking frames; near 1 means just before the pose is needed.
+Logs: `game/target/f2c-*.log`. No staging, commit, clone or sub-agent; the concurrent
+builder's `restore_bound`, audio, surface and GPU changes were left intact.
+
+S3a-b made asset readiness a useful boundary: a model names its textures, the renderer finishes their uploads and winding variants before a declaration becomes Loaded, and a failed name stays inspectable without freezing unrelated pixels. Cosmetic pop-in is explicitly outside simulation reads; authored bounds keep picking stable. The fixture now saves at tick 30 and reopens with the same hash and forwarded key state, while its web probe inspects the pending restore below the agent settlement barrier. This turns the declaration list into a promise about both deterministic setup and when asset GPU work finishes.
+
+
+**F2d — 2026-09-18 (host connection pending).** The scheduler now uses a supplied display period for both `T + L` and `R = T + L - step`, so a stall and its first recovery frame have `ΔR = ΔT`; its integer µs×hz accumulator keeps only a bounded fractional residual, rejects raw backwards samples before mutation, and slews the origin by at most 0.25% until the grids meet, then holds. Aligned live input delivered after the preceding frame reaches the deadline tick; tick_phase is 1 at 60/60 and .5 at 120/60. Early saves and Live→Seekable catch the clock up to the completed tick's deadline without another tick; restore again enforces exact tick/time agreement, and unpause discards the pause gap. The full engine/render run passed 278 tests with 7 ignored; the final 31 simulation tests also pass, including the added visible-latency regression. All 34 web tests and the four requested application proofs pass with unchanged pins (temporary empty Beacons/Greybox art directories worked around the concurrent baker's missing-input dependency and were removed). Combined clippy is blocked by the concurrent range loop in render/src/models.rs; the engine-only all-target run also reports field_reassign_with_default in engine/tests/asset_validation.rs. Workspace fmt reports concurrent asset hunks, which were left alone; scoped test/trace formatting and caps pass (staged and unstaged using a temporary index). The pacer retains its fitted period through stalls and replaces it only when a new fit differs beyond 1% sampling noise. Frame/ABI and Apple host wiring still require permission to extend the brief's named-file scope; production hosts therefore still supply no period, and these proofs do not establish live F2d feel. The console preflight found HID idle 0.1 s, below 30 s, so no feel attempt or judder/latency/tick_phase measurement was taken. README clock arithmetic and limitations are under “The world dev loop”; logs are game/target/f2d-*.log. No commit, clone or sub-agent.
+
+
+**F2e — 2026-09-18.** Period changes now slew the shared scheduling/render horizon: with `R = T + L - step`, grid correction and `ΔL` share `0.0025 * elapsed`, so every drawn delta stays within 0.25% of the frame delta (plus integer rounding), including 0→60, 60→120, 60→144 and 120→60; the pose never reverses, and changes below 0.5% do not restart acquisition. Scheduling follows the slewed horizon so the retained two poses always cover R; a known period at the initial epoch seeds L before any preceding pose. The bound means 0→16.667 ms takes 6.667 s and 0→8.333 ms takes 3.333 s, rather than the brief's approximate 4/2 s. Duplicate stamps leave the negative-half-unit remainder untouched. Queued live device stamps clamp to the paced callback time while preserving order and catch-up spreading; Seekable future stamps still wait. The web publishes its sixteen-interval median (133 ms at 120 Hz, 267 ms at 60), feeds delta/k including skipped slots, reacquires after 32 consecutive skips and republishes rolling fits beyond 1%; gradual drift no longer repeatedly resets the fit on phase residual alone. Apple uses targetTimestamp minus timestamp, quantizes cadence classes with 1% hysteresis, and publishes a 120→80 ramp once; macOS includes the attached display's rate divisions. Final engine/render tests: 286 passed, 7 ignored, no failures (35 Sim integration tests, both renderer regressions included); web: 37 passed, 7,877 assertions; clippy all-targets passed. Workspace fmt reports concurrent audio files only; all four scoped Rust files and diff whitespace pass. Caps passed with the named files staged and unstaged in a temporary index. Beacons web/Linux (22.83/36.00 s), Greybox web (19.36 s), and asset-fixture web (10.42 s) proofs passed with unchanged pins and recorded children exited. Extracted Mac/iOS period methods passed jitter, ramp, midpoint hysteresis, invalid-sample and 60 Hz checks; Mac also passed 75/144/165 Hz and half-rate classes. The macOS ExactMac package built after temporary wrappers selected SDK 26 and Xcode's Swift with `--build-system native`; the first attempts exposed the build script's default-SDK override and the CLT SwiftPM framework mismatch. Early full Rust runs caught concurrent audio edits and a Seekable test timestamp rounded below tick 2; the final run is green. The single console check found HID idle 29.3 s, below the required 30 s, so no feel attempt was made: judder, latency and tick_phase are unavailable. Logs are `game/target/f2e-*`; no commit, clone or sub-agent.
+
+
+**D2 — 2026-09-18.** Deleted the 25-line Rust export parser plus its obsolete comments: Rust compiles the generated `game_logic::Type` reference, including macro exports, while the package-name check remains. Render now re-exports the engine's `Environment` and carries exposure/bloom there once, deleting the duplicate type/default/copy; removed the bounding-sphere radius, extra vertex pass and accessor because only one test used them (transparent sorting still uses the center); replaced scene errors' invented mesh/slot/4096 capacity with `RenderError::Scene(String)` beside `Capacity { arena, slot, limit }`. Deleted `SAVE_VERSION`, `migrate`, their branches and the `Updated` fixture: no game used them and post-decode migration could not repair a schema; format/game-identity refusals remain. The page-write test now uses three full pages plus a partial page instead of 500,000 entities, and animated dimensions use seven spheres/five radii instead of 5,000 spheres/4,100 revisions; both invariants pass. Deleted Beacons' 9,494-line historical proof transcript because its executable proof is the authority. Audio's duplicate start/unlock operations were already merged at the starting revision; no second deletion was invented. The five eager 16,384-f64 diagnostic rings now arm only through `state` with `perf: true` or `perf_reset: true`, retaining small counts/totals/maxima and draw counters; the state-arming and cadence tests pass. A temporary native probe retained 64 unbound WorldSurface instances and exercised 16,385 writes per ring: resident growth fell from 41,840 KiB (653 KiB/surface) to 528 KiB (8 KiB/surface), about 645 KiB recovered per surface, consistent with the 640 KiB ring payload plus allocator rounding; the probe was removed. Also changed transparent sorting to unstable sorting: its unique slot tie-breaker already defines the order, so stable-sort scratch buys nothing. The ten author edges, before → after: (1) deferred exclusive-borrow sound playback → shared `world.play("chime").at(entity).start()` was already in Greybox; Beacons intentionally has no audio; (2) hand-drained dependencies and panic-on-save → `sim.load_assets(|name| read(name))?` in a sibling engine file and `sim.save()?` with pending/failed names, including load/refusal tests; (3) coordinated scalar string keys → ordinary `Data` HUD records via `publish_record`, including nested records/options/numeric lists, saved publications and existing Contract shape validation, with scalar `publish` retained; (4) unexplained `round` → `Options::restart_generation`, explained in the template/README and using the existing setup-argument reconstruction path (Greybox has no restart control); (5) local proximity → current global parent-chain positions, with entity order and mutation-safe copied poses preserved and tested; (6) three temporary JSON structs/formatted picking request → `sim.layout("player").unwrap().screen` and `sim.pick(rect.center())`, with an explicit viewport and Greybox's wire snapshots retained; (7) optional mandatory players → `query.one().expect("one player")` in both games/template; (8) repeated five Character defaults → only `.ground(0.9).bounds_xz(..)`; (9) AudioSource storage literal → `.new("wind").gain(0.3)` was already present in Greybox; (10) Beacons screenshot-save author calls → `s.world("world").save(path)`, preserving screenshot-save as transport. Both games, the template and READMEs teach the new APIs; the three false design-of-record statements were already corrected in the current READMEs (audio forwarders wired, period supplied, finite voices ambient). Logic/test/Contract/proof physical lines: Greybox 192/249/27/192 → 191/228/27/192 (660 → 638); Beacons 130/66/38/99 → 129/70/38/99 (333 → 336, including four new typed-spatial assertion/viewport lines). Beacons GPU wasm 816,348 → 762,435 bytes (−53,913); this is the existing pre-pass artifact versus rebuilt web artifact and includes concurrent S3 changes, not an isolated D2 byte attribution. Web/Linux proofs pass for both games with unchanged pins: Greybox 22.849/19.673 s, Beacons 23.584/31.565 s, byte-identical continuations and all recorded children exited. Engine/games/audio: 271 passed, 3 ignored; Contract surface-shape boundary: 8 passed; renderer core/world: 18/5 passed (3 core ignored), library 48 passed/2 ignored with one concurrent asset-refusal fixture failure (`castle` is now an invalid model name). Requested workspace test, clippy all-targets and fmt were run but not green: concurrent generated-asset manifest/type/formatting changes blocked workspace checks, and the new save Result needs five mechanical calls changed in three out-of-scope physics example/test files (patch `/tmp/d2-physics-callers.patch`, approval requested and pending). Generator/proof tests reached the three-round stop: the bare-name command selected three test files and returned 24 pass/1 fail (empty spawned metadata output); explicit file paths ran the generated game's three native tests successfully, then its web build hit the concurrent model Mat4/iterator error, yielding 19 pass/1 fail. No fourth retry; logs are `/tmp/d2-*.log`. Production-library clippy passed for engine/render/audio/both games. Caps passed with only D2 files/hunks staged in a temporary index, then unstaged; scoped formatting/diff checks pass apart from other builders' hunks. No commit, clone, stash, sub-agent or permanent measurement apparatus.
+
+
+**F2f + AU3e — 2026-09-18, closing round.** Apple now shares one three-interval cadence quantizer across macOS/iOS and republishes each session's class before every callback's render (zero until acquired); regressions cover initial publication, rate boundaries, 120 ↔ 80 hysteresis, dropped intervals and alternating 60/120 Hz sessions. The web pacer reacquires materially short intervals at raw monotonic time while retaining the fit across an isolated sub-slot callback; every transition delta and the restored 0.02 ms jitter bound pass. The live clamp skips the restore/epoch sample, with a saved future-stamp regression. Player leaves non-preferred sources stopped while a preferred source waits for Apple's real Stop acknowledgement; the A/B/C priority regression fails without that suppression. Apple lifecycles preserve process-wide no-resume state for later sessions, distinguish automatic audio requests from gestures, refresh on ExactView window attachment/removal, and retry failed activation after 300 live frames; corrected window fixtures fail against the old lifecycle and pass the new one. Attached sources now refuse non-looping definitions by name: finite World::play voices already own deterministic start ticks, so no extra source activation state was added. Removed the redundant registration-budget check/claim (valid definitions are already bounded to 60 seconds); Player's aggregate, actual-rate reservation remains tested. README timing now says 133 ms at 120 Hz, unknown until display-link ticks after module creation, and about ten seconds for serialized unknown → 60 Hz horizon/grid acquisition. Game workspace retry: 402 passed, 8 ignored, no failures; root GPU: 19 passed; web: 41 passed; macOS Swift: 81 passed, and ExactMac builds with the temporary native-build wrapper and macOS 14 deployment target. Audio all-target clippy passes. Workspace clippy and fmt remain blocked after the allowed retry by concurrent asset/deletion edits (including engine/tests/assets.rs and the asset-gate formatting hunk in sim.rs); no out-of-scope fix was made. Beacons web (30.304 s) and Greybox web with EXACT_AUDIO_PROBE=1 (36.503 s) pass with unchanged pins and all recorded children exited. Asset-fixture web failed twice on its loading-carry expectation (null) and stale crate/0-srgb.tex path; its files were left to the asset owner. Caps passes with the named files staged in a temporary index and then unstaged. Owed items are recorded verbatim in both READMEs and summarized in QUEUE.md. Logs are /tmp/f2f-*.log; no commit, clone, stash or sub-agent.
+
+
+**S3a-c — 2026-09-18, landed before R11 and not ready to ship.** `game.assets: true` selects the concrete model-capable shell; primitive wasm has no model shader/decoder markers. The base gate retains names, dependency results and immutable declared simulation data; Loaded is content readiness, while device preparation can be invalidated and textures re-requested. Retirement drops delivery/answered names and allows respawn, bounded to 256 names; models allow at most 64 used textures, web concurrency is eight and host drains remain sixteen rounds. A deferred invalid save refuses once without poisoning the fresh world; pending carries never export old restore bytes, and committing a valid deferred restore retains its last texture through upload. Save and headless loading return named readiness errors. Carry overlays fresh audio registrations while Open retains saved Sounds, including runtime names. Surface bind/delivery are merged, and Apple clock replies retain errors, asset states and changing keys. Publication-only changes name `published.<key>`. Baking records output SHA-256 digests and refuses edited outputs before overwriting/pruning, including rename-then-replace; opaque/emissive mips use straight RGB and MASK/BLEND base colour uses alpha weighting with distinct output names. Mirrored entity-global asset transforms refuse by name because node winding batches are immutable; authored mirrored nodes remain supported. Material final bindings wait for all dependencies, rebatch scratch is retained and the normal cache follows live records. Failing-before regressions cover lifecycle, pruning, bounds, publication, cache and mip defects. Game workspace: 406 passed, 8 ignored, plus the additional replacement-device pixel test; GPU/Linux: 73 passed; both clippy checks and fmt, 41 web tests, caps on explicitly staged files followed by unstaging, and boot pass. The extra root workspace build was stopped after more than ten minutes blocked in Weatherlight build scripts, with only its recorded processes terminated. Asset-fixture Linux passes; web passes content recovery, restore, declaration refusal, clock/save naming and tick-60 hash `0x8f6d518f39634478`, but **post-device-loss pixels remain black** despite no WebGPU validation errors; the failing assertion is retained after three rounds. Native replacement-device pixels match. macOS full proof stopped after three SDK/Swift-toolchain failures; the standalone Swift consumable-texture regression passes and caches retain reusable fonts/images/models/shaders. Beacons and Greybox web proofs preserve their hash pins and byte-identical continuations. Helmet sample: model 885,206 bytes (gzip 437,936), five textures 22,369,762 bytes each. Beacons wasm 811,977 → 758,561 bytes (gzip 322,782 → 301,524), including concurrent D2 changes: model code is absent, but the roughly 490 KB target is not met. Three interleaved 200k-cube runs against the retained S3a-b binary overlap in all-moving, one-percent and still ranges; all-moving tick/feed/encode medians are 0.4342/1.0230/0.0723 → 0.4443/1.0524/0.0723 ms. Remaining web-pixel, size and macOS proof gaps are recorded in QUEUE; no commit, clone, stash, sub-agent or permanent measurement apparatus.
+
+
+**S3b — 2026-09-18, resumed after ENOSPC; landed before R11.** A game declares `game.assets: true`, `Game::ASSETS`, and `Mesh::asset` plus `Animation::play`, `Blend::across`, or an all-Data `Animator`; it writes typed parameters and owns its Transform, while animation owns compact saved local poses. Markers/root contributions, direct two-bone IK, one named socket per owner, local-TRS GPU interpolation before hierarchy composition, and matching shadow skinning are implemented. Cuts: first matching edge/one transition per tick, f32/bool parameters, a frozen outgoing pose during fades, one socket, no layered/additive graphs or scripts; imported bones never become entities. `animation.rs` is 1,145 lines including tests and `skinning.rs` 435. Web/macOS/headless-Linux proofs pass in 17.650/71.887/47.283 s on this arm64 Mac: all 24 tick-60 world matrices match the checked-in pin; tick-60/tick-120 hashes are `0xa9033d749a82ebd4`/`0xb05ce95a6c799acf`; save at 45 and fresh-process restore produce byte-identical 13,849-byte final saves (SHA-256 `cae346719d1a1e3fc6b8eb3d22eb9ddfb5295811dd09f50297bd09451c69c526`). The 120-tick paranoid Sim round-trip, edited-blend Carry/Open, Fox-leg IK (<1e-4 reachable error, straight unreachable, exact zero weight), socket and GPU interpolation/allocation tests pass; 60 fixed additions pin f32 bits `0x3f7ffffb`. The resume fixes the marker assertion to account for world's existing journal time/tick prefix. The retained release CPU diagnostic reruns at 0.182969 ms per tick for 100 Foxes (earlier 0.177966); rebuilt Metal palettes are p50/p95 0.046875/0.052750 ms (earlier 0.025208/0.049875), and 300 warm pose packs allocate zero Rust objects. Three interleaved 200k-cube pairs have overlapping ranges in every mode; all-moving median tick/feed/encode is 0.4509/1.1572/0.1060 → 0.4640/1.2014/0.1208 ms, with all modes in render/README.md. Active Fox wasm is 945,320 raw/368,310 gzip bytes, 44,991 gzip above the retained pre-skeleton model fixture, but those are different games: the isolated ≤60 KB engine-growth claim remains unverified because the reference rebuild hits the concurrent wasm-bindgen macro error. SDK 26 plus the temporary native-build Swift wrapper launches macOS; its screenshot shows a white Fox with stride/shadow, while web is textured, leaving native asset/host work to R1. Pose JSON works through `session.op`; the literal CLI suffix still needs the out-of-scope driver forwarding patch. Workspace retry: 418 passed, 5 failed, 10 ignored; remaining failures concern cosmetic-save readiness, transformless layout, detached audio, and a material-arrival fixture. All-target clippy passed before later sibling edits; workspace fmt still reports sibling hunks, while the new skeleton/fixture Rust files pass scoped formatting. The requested bare-name Bun command also selects Greybox audio tests (23 pass/2 fail); two explicit-file attempts reach 19 pass/1 fail, first on the concurrent audio helper and then on `gpu/src/web.rs`'s unqualified wasm-bindgen attribute, reaching the three-round stop. Existing-game web proofs and same-app size rebuilds are likewise blocked by that macro error after the allowed retry; their hash pins were not edited. Caps passes with only the new skeleton/fixture files staged in a temporary index and then unstaged; the shared index is untouched. READMEs hold the author API, bounds inflation and ownership rules, measurements and remaining limitations. Logs are `/tmp/s3b-resume-*`, screenshots and cross-host saves are in the fixture's ignored artifacts directory. No commit, clone, stash, sub-agent, or out-of-scope repair.
+
+
+**R1 — 2026-09-18, resumed after ENOSPC; landed before R11.** This round repairs the consolidation regressions: retiring A re-requests live dependencies and prepares retained textureless B before render; deferred restores keep their carriers until committed and report late refusal once on web, Apple and Linux; pruning requires prior ownership and migrates matching legacy manifests without deleting unknown bytes. Failed cosmetics no longer block saves, headless readiness follows current mesh roots, primitive bind retries keep refusing, Apple binds use the session clock, and web delivery streams enforce 64 MiB before copying with bounded, cancellable queues. Reachable meshes determine used textures. Record publication defines unit/optional-unit behavior and safe integer boundaries; typed and JSON layout share identity-pose behavior; a focused same-ID restore test preserves new action bindings. Perf arming preserves aggregates/cadence and the feel probe arms its percentiles. Spatial audio authoring holds a mutable Transform safely, despawn retains the last voice position, and finite AudioSource refusal is named and nonpanicking in release. Apple rate classes respect the display maximum and republish without callback allocations; jittered web 60 ↔ 120 transitions stay on the provisional lattice. No-resume recovery reaches every live lifecycle and retains the first gesture before audio is requested. Game workspace: 425 passed, 10 ignored; GPU/Linux: 76 passed; both all-target clippy and fmt checks pass. Web: 48 passed; the requested app/new/proof Bun suite: 33 passed, one skipped. Beacons, Greybox with EXACT_AUDIO_PROBE=1, and asset-fixture proofs pass on web and Linux with unchanged pins; the asset fixture includes a real deferred-refusal check. The macOS Swift package product builds and 85 XCTest cases pass using Xcode's runner after compilation through the temporary native-build wrapper; the Command Line Tools runner could not launch XCTest. Caps passes with explicit R1 paths staged and unstaged in a temporary index, leaving the shared index unchanged; boot and diff checks pass. Module-level replacement-device pixels remain identical; **host recovery is owed**, including a native replacement-device ABI preserving surface tables and recreated web canvas surfaces/contexts. READMEs and QUEUE retain the review file:line evidence for host recovery, Apple's delivered texture bytes, primitive size isolation, real-device interruption/multi-display sweeps and WebAudio resume-failure propagation. Synthetic Swift fixtures call interruption directly on main and do not post background AVAudioSession notifications. R1 leaves the concurrent skeleton implementation and fixture intact and adds no permanent apparatus, commit, clone, stash or sub-agent.
+
+
+**D3 — 2026-09-18, landed before R11.** `bun game/bench/size.mjs` now builds Beacons, measures shipped bytes/gzip-9 and aggregates `twiggy top -n 20000 -f json` by crate and engine/render module from the same per-game target; the benchmark README records every cumulative cut. A fresh baseline was 829,372 / 329,049 bytes, the storage/formatting/vector/shader/array cuts reached 737,768 / 315,604, and the measured final tree with exact float spelling and concurrent skeleton changes is 764,322 / 325,721; the <550,000-byte target is **not met**, and the last delta is not isolated D3 growth. Aligned erased pages and registration-specific component/singleton factories reduce pre-opt storage attribution from 126,466 to 34,240 bytes; typed strides, leases, masks, generations, hashes and save/carry behavior stay covered. Asset delivery maps use sorted vectors; saved ordered maps remain ordered. Shader packaging removes comments/indentation and 3,552 `.rodata` bytes while preserving line numbers; columns change. JSON/perf/trace/audio share small-table Ryu with exact decimal tie handling, checked against 100,000 f32/f64 samples; publication journals intentionally use Data fields instead of Debug (`Number(0.0)` → `{"Number":[0.0]}`), changing diagnostic strings in saves but not world hashes. Core float formatting still links through dynamic clamp panics, including protected animation code; allocation, remaining Data walks and formatting are the next size work, not a coarser model split. Three interleaved 200k-cube pairs overlap in every phase/mode; all-moving tick/feed/encode medians are 0.4273/0.9675/0.0653 → 0.4214/0.9537/0.0664 ms. Workspace tests: 446 passed, 10 ignored; all-target clippy, workspace fmt and boot pass. Final Beacons/Greybox/asset-fixture/skinned-fixture web proofs pass in 226.611/21.601/13.644/15.976 s with byte-identical continuations. The first three retain starting pins; the skeleton builder changed the skinned pose JSON and tick-120 hash from `0xb05ce95a6c799acf` to `0xcae264dd3df5267b`, and D3 edited none of those pins/files. Caps passes with only D3 files/hunks explicitly staged in a temporary index and then unstaged. Disk checks ran before builds; space briefly fell below 10 GiB during tests/concurrent work, then recovered to 24 GiB after cleanup restricted to recorded D3 artifacts. Measurements are in `game/games/beacons/target/d3-size/`, logs in `/tmp/d3-*.log`, paired runs in `/tmp/d3-pairs.jsonl`. No commit, clone, stash, sub-agent or shared-index edit.
+
+**S3b-b — 2026-09-18, reviewed fixes, landed before R11.** All controllers share saved `Playback::root_motion()`/`crossed()`, with an explicitly named motion root, loop-aware weighted/faded displacement and translation removed from the pose; the fixture authors +Z Walk/Run root tracks on the originally in-place CC0 Fox, applies motion through Transform, and logs its own footsteps. Named blend parameters follow `Animator::set`; named state/blend access removes positional state edits. States support once/speed/pause, one-shots finish before transitioning, fades finish before another edge, and incoming markers require fade weight >0.5; exact blend knots silence inactive clips. Removed/unresolved sockets invalidate SocketPose, followers restore their captured authored Transform, and errors log once. First successful histories are current/current; failed samples retain pose history and contribute no stale motion/events. Standalone IK runs, pose reads return all unique joints in node order, and the literal CLI pose suffix is forwarded. GPU normals use the blended map's inverse transpose, including nonuniform scale/shear. The cubic sampler already matched Khronos C.5; asymmetric three-key bake/sample and signed quaternion tests preserve the correct neighbour tangents, duration factors and authored signs. Layout/pick is explicitly a static inflated bind AABB; the unsupported same-app skinning size comparison/claim was removed. Failing-before regressions reproduce the reviewed defects, the CLI omission, scaled normal error, reversed one-shot start and stale error output. Injected bind history changes 11,205 pixels in the Fox's 23,842-pixel rectangle; the fixed first frame changes zero against the current/current oracle (0.1% tolerance). Workspace tests: 449 passed, 10 ignored; all-target clippy and fmt pass. Final proofs: skinned web/Linux 22.276/33.022 s, Beacons/Greybox-with-audio/asset-fixture web 15.953/19.991/11.621 s, all pass and all recorded children exit; the latter three pins are unchanged. New tick-60/tick-120 pins are `0xb863e854ca85b74e`/`0x409341e24939d7c2`, reflecting authored locomotion, playback/socket data and first-history semantics. Every-tick paranoid restores compare bytes as well as hash/pose; web/Linux final saves are byte-identical, 15,084 bytes, SHA-256 `151188009e1141bc52f63a3b913cec4362d788eb5695a80ae3d71ed657f79b3f`. The optional wasm-opt process stalled; only its recorded PID was stopped, cleanup passed, and web proofs used the existing unoptimized-build fallback. Caps uses explicit files and the three-line Socket removal hunk in a temporary index, then unstages; the shared index is untouched. Disk was checked before every build and no existing artifacts were deleted. Logs: `/tmp/s3bb/`; no commit, clone, stash or sub-agent. Linux here is the headless host on this arm64 Mac; no new x86-64 or macOS proof is claimed, and the earlier native white-Fox gap remains outside this slice.
+
+
+**R2 — 2026-09-18, closing storage/skeleton round, landed before R11.** Erased pages now move and replace typed values through descriptor functions; padded owned values and ZST destructors exercise insert/replace/remove/load (both tests also passed before under normal execution, so no reproduced UB claim; Miri is absent from both installed nightlies). Wrong-kind loads name the registered kind and the required setup declaration. Exact float comparisons cover Display/Debug, boundaries, ties, subnormals, signed zero, NaN/infinities and four-place agent/Contract output: std Display is decimal, Debug alone has the [-4,16) exponent window, so no spelling or pin changed. The isolated typed-storage build is 765,274/325,962 → 766,003/326,394 raw/gzip bytes (+729/+432); the crate table now explicitly labels pre-wasm-opt attribution. Nine new native regressions reproduced animation/diagnostic failures before fixes: reverse standalone one-shots start at the end, reverse markers include exact arrival, zero-length/zero-speed once states finish after an unpaused sample, bad sockets preserve locomotion with independent once-only errors, IK succeeds before Animator commit, redelivered model allocations rebuild rig caches, duplicate names choose the first parent-first match, and pose-length mismatches refuse by model name. Presentation primes current/current on birth/restore/carry/teleport/model or batch arrival; the Fox regression failed restore by 11,200/23,842 pixels before the fix and passes all four pixel scenarios with zero changes after it. Both tick hashes are asserted and unchanged. R2 clippy passed and the skinned web proof passed in 36.219 s with byte-identical continuation. The first full workspace run passed 439 tests (10 ignored) before a concurrent writer introduced an unresolved Paranoid import during doctests; subsequent shared-tree builds met that writer's manifest/lockfile and AssetMap::clear transitions. HEAD also advanced externally from 284ea691 to 6d674d28. The third full workspace attempt passed 464 tests, 10 ignored, including doctests; scoped rustfmt and explicitly staged/unstaged caps pass. Final all-target clippy is blocked only by the concurrent Greybox paranoid test's redundant closure, after the earlier R2 clippy pass. Workspace-wide fmt is blocked by that writer's vendored Rapier workspace setup. Skinned Linux and Beacons/Greybox web proofs could not finish: process inventory (`ps -axo`) hung, and the web optimizer children stalled; only recorded R2 process trees received termination signals, under the three-round limit. The proof/build/host processes exited, but eight blocked ps children remain visible even after SIGKILL (PIDs in the cleanup-result JSON). Asset-fixture web was not launched into the same blockage and remains owed. Logs are `/tmp/exact-r2-*.log`; `/tmp/exact-r2-stopped-processes.json` records the owned cleanup. No commits, clones, stashes or sub-agents; unrelated edits were retained. Further work stays owed: Miri storage validation, durable optimizer attestation, and the previously recorded native white-Fox delivery gap; no new skeleton review round.
+
+PX1: a sibling game's every-tick reconstruction exposed Rapier's omitted deferred
+BVH optimization bit: a save could decode successfully yet continue differently.
+Lane/game now vendors that fix, names the incompatible bytes EXPHYS v2, refuses
+v1 atomically, and shares Off/Save/FreshGame modes between physics, consumer tests
+and web/Linux proofs. The reconstruction keeps this lane's exact clock validation
+and host scheduler intact. Restore equivalence takes precedence over keeping old
+hash pins; a green round-trip hash alone does not prove the next tick agrees.
+
+A3 (2026-09-18): renderer residency now compares each model/texture name with the engine's content digest, preserves prepared pipelines and palette capacity across world replacement, and no longer destroys the whole renderer when a host asset reference retires. The native Fox test proves zero restore/paranoid GPU work, exactly one changed-texture upload through Carry, and zero work on identical redelivery; model replacement and texture sampler/color-space changes have a separate device test. Web Fox tick-45 restore through first draw measured p50 0.60 → 0.50 ms and p95 1.00 → 0.90 ms (20 samples, one warmup, 1280×720, shared Mac; not a speedup claim). GPU work is split before/after first ready, with buffer counts explicitly limited to model/skin buffers. The ordinary and paranoid web restore assertions pass, but the changed-texture browser probe still requests a save while its temporary asset is pending, and the three-round repair limit stops that work pending an override; the following pop-in assertion is therefore unverified. The sibling `next/t6` ref was unavailable, so its counter naming remains unconfirmed. Retired device content now lasts until renderer destruction, an explicit memory-for-reuse trade; no simulation pin was edited.
+
+
+E5 (2026-09-18, landed before R11): Beacons' tick is 39 → 26 lines and logic/Contract 148+39 → 138+39; `w.character("player").step(wish, jump)`, global `w.position`, and stable `nearest_xz::<Beacon>` remove the query scope and lookup chain. Character's task numbers stay explicit. Restart uses the allowed `#[restart] bool` fallback and the existing setup bind path, with `state.world.restarted`; a canvas word would widen the plan/host transport beyond this slice. Default Cargo/app manifests are ignored bake outputs (existing overrides win); Beacons' launcher is removed, Greybox retains its audio manifest. The template is 120 Hz with grid/background and a centred, explicitly named/autofocused victory control; Beacons and Greybox stay at 60 Hz. Button focus-visible/hover defaults and dynamic autofocus remain QUEUE findings. Standalone Character changes Beacons' tick-907 hash `331c074e0f135059` → `7dde46ef4bc4bdb6` and Greybox setup/forward `7df5e5a89b4d0207`/`0f14b8b231091d12` → `7544ef30a82fdcdc`/`a655423c9a442bce`, without changing the pinned position. Both games pass web/Linux; Linux reads the runner's actual HUD and accessible names. Beacons' warm Linux proof is 0.506 s (0.53 s external wall), Greybox 0.499 s; `prove.mjs beacons --hosts web,linux --repeat 2 --compare-saves` reports web 5.447/5.879 s and Linux 1.389/0.503 s with every final hash and save identical (final save 5,505 bytes, SHA-256 `e388bd748ade00ee7d4a4c50fcaba89024842005d200bef9697a5faae4e75a15`). The Linux host ran on this arm64 Mac; no new x86-64 claim. The generator's Linux-first proof and web-only screenshot pass; workspace tests pass (470, ten ignored), all-target clippy/fmt pass, Bun tests pass (34, one optional skip). Web uses the supported no-wasm-opt fallback; ps stalled, so descendant auditing is explicitly unavailable while owned carrier exits are checked. Mechanical Args literals/pins in existing renderer tests were updated; A3's renderer implementation and fixture proofs were untouched. Caps passes with E5 paths explicitly staged in a temporary index and then unstaged; no commit, clone, stash or sub-agent was used.
+
+R3 (2026-09-18, landed before R11): removed the macOS disk gate; paranoid proofs now finish with Off and an Off web receipt, with three lifecycle regressions (including failed modes). Shared-model redelivery uses upgraded Weak/Arc identity, reaches both entities even in one tick, resets changed topology and primes history; reverse one-shots initialize from their own saved controller clocks, and pose inspection refuses either corrupt history array. All three new animation regressions failed before and pass after. The GPU replacement regression confirms HEAD already replaces geometry/material handles, inverse binds, hierarchy and both instances' batches by content digest. Storage now checks constructor IDs in a non-ZST ownership companion; a true ZST cannot carry an ID, and aggregate ZST/padded tests do not lock typed moves without Miri, which is not installed. Fox birth/restore/carry/model-arrival each assert and measure 0/23,842 changed pixels (channel tolerance 2; bind-history negative control 11,205). Beacons asserts HEAD's existing tick-907 pin 7dde46ef4bc4bdb6 before reset; all HEAD pins remain unchanged. Costs are corrected to headless Sim totals, approximately 0.010/0.34/0.37 ms per physics tick. Workspace tests pass (475 passed, 11 ignored), all-target clippy/fmt and 21 Bun tests pass. All four games pass ordinary/paranoid Linux proofs on this arm64 Mac. Beacons passes paranoid web and a following cached Off ordinary proof; one ordinary run reported a remaining descendant, the retry passed with ps stalled and descendant auditing explicitly unavailable, while carrier exits were awaited. Skinned web retains both 60/120 pins but its residency probe fails on an undefined value's length during KeyC; Save also reports a residency-counter mismatch. Those out-of-scope findings are in QUEUE. The required kinematic pending-flag pin is NOT closed: three fixture attempts did not reach a true pending flag at a non-initial boundary, so the attempted diagnostic is ignored and recorded as owed; no new kinematic pin is claimed. No commit, clone, stash, git add -A or sub-agent was used.
+
+
+**F3 — 2026-09-18, saved-trace re-score; landed before R11.** The feel analyzer separates raw callback intervals from drawn-clock intervals, adds physical-pixel displacement CV, exact repeats and a strictly greater than half-pixel change fraction, and puts event-delivery → first drawn-pose endpoints plus input phase beside latency. World-space metrics remain for continuity. The README pastes `reanalyze` output for the first full sitting, links every input trace, retains the old table, and preserves load/focus/20-trial/50-edge rules; reanalysis now excludes the unfocused attempt. The archive lacks camera projection for every engine and raw rAF arguments for Exact (its other timestamp is draw-boundary wall time), so those cells and Exact's refresh-normalized latency are `—`. World-space and millisecond-latency ordering survives; raw pacing and perceptual ranking remain unproven. The browser probes now capture explicit clocks, three.js and Godot retain drawn camera matrices and physical canvas sizes, and Exact's adapter can read an extended ring. The ring implementation moved to `render/src/trace.rs`, outside this brief's allowed files: its small row-extension patch is prepared at `/tmp/f3-trace-row.patch`, pending the requested scope approval, so Exact camera capture is not yet complete. All 21 feel tests pass (including clocks, projection, threshold boundaries, missing evidence and reanalysis validity); Godot's headless parser check passes, every saved September 18 trace was reanalyzed, and caps passes with explicit F3 paths staged and unstaged in a temporary index (the shared index untouched). No live sitting, game-rule change, clone, stash, commit or sub-agent was used.
+
+
+**R4 — 2026-09-18, final E5/A3 review fixes; landed before R11.** Generated manifests are tracked with removable headers, refresh directory/ID/type changes, preserve authored overrides, and materialize before Cargo discovery; the generator test no longer runs a disk probe. Character handles borrow the world mutably (held leases fail to compile); the predicate nearest query searches unlit candidates before comparing distance and breaks ties by entity index. The Rust world helper is explicitly `global_position`, while the agent's `position` remains local; only `#[restart]` edges increment `restarted`. Web/Linux victory autofocus is exercised through the actual focused flag and logical focus, including the web raw-input canvas yielding to its newly mounted child control. Documentation labels pre-E5 pins, records the 0.47–0.53 s external Linux range and the 120 Hz/25 ms integer-seek lattice. Retired models remain inactive through complete dependency delivery/preparation; a 64 MiB conservative retired-byte budget and same-name replacement compact geometry/material/skin arenas to the live set, retaining live texture views. Cosmetic residency reads stay on Sim, with a compile-fail test preventing observation through game World; delivery computes model digests once; named failure reasons determine readiness. The 20-model budget, changed-byte first-frame, repeated Fox replacement and delivery-hash-count regressions pass. Both browser fixture probes now preserve and restore the original save and exercise changed-texture, identical-redelivery and pop-in paths; scoped counters are named `modelSkinBufferReallocations`. Existing simulation pins remain unchanged. Workspace tests, final residency/doctest regressions, clippy, fmt and caps pass; the full Bun command passes 37 tests with one optional skip. All six games pass ordinary/paranoid Linux proofs; Beacons and both asset fixtures pass web, and Fox also passes all web paranoid modes. Web descendant auditing reports ps unavailable while awaiting every recorded carrier exit.
+
+**P1 — 2026-09-18, landed before R11.** `Emitter::sparks().rate(200.).lifetime(5.).seed(7).burst(50)` and one explicit `emitter::step(w)` keep particles outside entity storage: saved admission batches retain deterministic RNG/budget history, while retained render scratch derives motion. Ambient is the author's explicit choice to let decorative motion settle. Sprite, saved atlas animation and one Camera projection field share the same clock, assets and spatial reads; nearest sampling plus integer ortho scale reveals extra world area at noninteger ratios, with CSS viewport rounding shared by render/layout/pick and a 2× display-scale pixel regression. The texture-free path stays primitive; sprites require the asset module and refuse by name otherwise. Displayed pose interpolation now agrees between camera, shader and transparent sort centers; particle/sprite/model translucency uses depth, layer and slot order. The engine emitter is 344 lines and the shared quad path 500. Generated fixtures pass web/Linux at tick 300 (`7b8d9188b32e7d5c`, 20,000 sparks; `f598d0032d70cce5`, 200 leaves), with byte-identical saved continuation, seven web overlap pixel checks, and zero native pixel changes after Open/Carry. Budget admission accepts 65,536 of 80,000 and reports 14,464 refusals. Live web 1280×720 measurements are CPU encode p50/p95 3.600/4.200 ms and GPU 0.282579/0.459493 ms for 20×1,000 particles; walking 2D is 0.200/0.300 ms CPU and 0.304995/0.309746 ms GPU. The final shared-tree Beacons size is 858,785 raw/358,320 gzip bytes, +57,576/+20,496 from the before snapshot; concurrent edits prevent isolated P1 attribution. Sprite retirement/redelivery and both README examples pass their tests; the exact Bun generator/proof files pass 24 tests. Final all-target clippy/fmt and caps pass; explicit P1 paths were staged/unstaged in a temporary index without changing the shared index. Full-suite completion still requires updating the out-of-scope old assertion that all declared `.tex` files fail. Existing regression pins remain unchanged, but the asset web proof's final recheck flakes on readiness despite zero after-ready residency work. macOS stopped at the three-attempt limit: SDK linking then SwiftPM's missing BuildServerProtocol symbol prevented its screenshot. No scheduler/storage/data edits, disk probes, commits, clones, stashes or sub-agents were introduced; only asset-discovery/save-readiness seams were added in sim.rs. Measurements, author code verbatim, pins and reproduction commands are in the two READMEs.
+
+
+**R5 — 2026-09-18, closing review fixes; landed before R11.** Same-tick model redelivery rebuilds pose histories at the existing controller clock, preserving this tick's markers/root motion without another transition or journal entry. Two regressions cover Animation, Blend and Animator, shared-model entities, repeated redelivery and an active fade; both fail against the pre-R5 implementation and pass with the fix. The kinematic diagnostic was deleted after two attempts: 256 static/32 kinematic colliders moving vertically and 512 static/64 kinematic colliders moving horizontally after tick one each matched Off/Save/FreshGame saves through 32 ticks, but neither reached a non-initial pending optimization boundary; the pin remains owed in QUEUE. Paranoid lifecycle tests now use actual dist files and receipts, reject paranoid artifacts on ordinary runs, reuse successful trailing-Off output, and rebuild after a trailing Off dies before its receipt; removing mode hashing or accepting the failed build makes these tests fail. Headless steady residency reports SKIP, device runs assert readiness and zero work, and the asset proof establishes its first draw before steady ticks. Both fixtures pass Linux/web with unchanged pins, and KeyR/KeyC/KeyP all run; R4 made `delta` used, so it stays. Beacons/greybox pass all Linux paranoid modes and the trailing Off run with unchanged pins. README pins, cache behavior, current probes and the non-ZST companion/Miri limitation now agree. The size helper's disk gate is deleted (stubbed-command regression fails before, passes after); the skinning test skips an unavailable adapter (injected no-adapter path panics before and exits cleanly after; the real GPU test passes). Clippy, fmt, explicit-file caps and all 23 proof tests pass. P1 corrected the old texture-declaration refusal test during validation; the final workspace rerun passes 497 tests with ten ignored. The combined Bun suite's generated game passes gameplay/Linux and its web screenshot but fails the existing descendant audit, after three attempts including an initial empty discovery result. The unqualified Bun command also selected audio-proof tests whose digest-source regex and two native notification fixtures failed; the explicit two-file run finished 25 passed/one failed. The Bun gate failures are recorded, not green. No commit, clone, stash or sub-agent was used; caps staging used a temporary index and was undone.
+
+
+**U1 — placed Contract children, 2026-09-18.** `Placed::child(1).width(1.2)`
+puts an existing Contract child on an entity plane; the engine saves its intent,
+while the surface derives the displayed homography, larger-nearer depth and an
+explicit hidden outcome. The browser uses CSS and native captures use the ordered
+premultiplied quad pass, including the primitive module. The fixture's real Pull
+button drives a lamp and HUD, survives save/restore, and hides/refuses the fixed
+sign from behind on web. Its tick-330 web/Linux hash is `0x61007363bd681d3c`.
+Linux still has no placement consumer; its painter/surface extension awaits scope
+clarification. The macOS package loader failed before Swift compilation with a
+missing BuildServerProtocol symbol, so native tap/accessibility and forty-child
+capture measurements remain owed; the temporary wrappers were removed. Release
+projection measured 40.594 ns/child/frame; browser encode p50/p95 was 0.100/0.200 ms
+and GPU p50/p95 0.508701/0.784862 ms at 1280×720. Shared-tree wasm grew 29,880 raw
+and 12,396 gzip bytes, including concurrent R6 work. Native GPU pixels prove
+premultiplied overlap, equal-depth Contract order and wall occlusion. Browser tests
+also caught and fixed unchanged frame delivery during module replacement and
+preserved placement on a failed swap. Beacons remains untouched by this slice:
+its conditional nearest prompt needs stable child identity and ownership transfer,
+more than one Contract line plus one component. Displayed sockets still use the
+existing tick-resolved follower interpolation. Final game tests: 516 passed,
+11 ignored; all-target clippy, both fmt checks, root build, 51 browser tests and
+caps pass. All six prior fixtures pass web/Linux with their working-tree pins;
+U1 did not edit those pins. No commit or sub-agent.
+
+
+**R6 — 2026-09-18, landed before R11.** Camera now derives and always saves its projection, moving the enumerated pre-1.0 pins once; aspect-only feeds retain authored orthographic height. Quad pipelines/capacity prepare before interaction, compatible sprite runs coalesce (the strip is six draws), mixed-kind ties are total, and invalid components journal without blacking out neighbors. Particle invariant hoisting preserves the old evaluator's float bits and measures 2.80 ms median encode for 20 × 1,000 on this M5 Max; both timing receipts are retained outside build directories. Texture residency is shared, atlas frames do not rediscover dependencies, and retired assets are charged from GPU allocation sizes, including pending same-name replacements; slot reclamation keeps live hero handles/history, with GPU arena packing reserved for the remaining capacity excess. Restart counters survive Carry/paranoid reconstruction, authored Cargo package names survive directory renames, explicit focus precedes autofocus, host replacement clears autofocus history, and topology replacement cannot freeze an Animator fade. Greybox intentionally keeps the nearest-one interaction introduced earlier: one press lights one eligible beacon, a gameplay change documented in its README, not disguised as an equivalent query idiom. Process survivors fail and remain in the cleanup receipt; inventory parsing covers both day widths and zombies. Device skips are Linux-only in residency proofs, KeyP checks textures/pipelines too, and Apple fixtures pin 299/300-frame cooldown plus visibility refresh. Feel records only the host draw callback, refuses overflow, retains every legacy drawn row and projects the first beacon as a fixed landmark; the three cited trace batches and their reanalysis are retained. Sitting #2 remains provisional under shared load, with landmark CV distinct from world CV; no perceptual winner or new sitting is claimed. Final validation and the finding-to-regression map are in the game README.
+
+
+**H1 — 2026-09-18, landed before R11.** Device recovery now has one `gpu_recover` entry point: it replaces the adapter/device/queue while preserving surface identities, messages and input, reports preparation per instance, and rebinds browser contexts or Metal layers; headless Linux reports `no device`. Destroying the browser device produces identical pixels, exactly one retained-texture fetch, the original preparation counts and no readiness reasons. The white macOS Fox was a readback-format residency reset, not a missing texture path: preserving the presentation format yields 5,882 orange pixels, including RGB (178,125,50). Verified Apple texture payloads now live in private reloadable files. Linux placed children use full inverse homographies for pixels and hits, disappear from the tree when hidden, and had matching initial boxes in that run. Correction (R8b): the unretained forty-child timing did not establish CPU cost and is withdrawn. R7 fixed the moving-frame sample; R8b compares captured web/Linux tuples directly at 0.5 px. JSON equality and generated-shell cleanup were already present; the image-worker test now uses a barrier. Native recovery, browser tests, Apple tests, simulator build and caps pass. The shared-tree suite still exposes agent JSON-string assertions and a Linux autofocus expectation; macOS Beacons still misses victory-control focus. The generated-game suite passes all five tests after extending its bounded cold-build watchdog to three minutes, with its game and four recorded shell directories cleaned. Concurrent S4 pin changes are preserved, not attributed to H1. No commit or sub-agent.
+
+
+**S4 — 2026-09-18, landed before R11.** Attachments choose their own joint with `SocketFollow::new("fox", "head").offset(t)` and compose the same interpolated local TRS chain as skinning; tick-boundary gameplay uses `animation::socket`. The two-joint 90° GPU test matches the displayed midpoint within 1e-4, including new attachments and unrelated model arrival, and the Fox charm now asserts its exact composed position. `let motion = animation::step(w)` advances explicitly once, checks idempotence before querying, returns owned root motion/markers, and retries a failed first sample when its rig arrives; followers need no second simulation step. Core `Character` and physics `CapsuleController` have separate Target-based handles and displacement results; `tick_end`, explicit local/global positions, named audio targets, and State/Condition constructors remove the remaining author plumbing. Per-key manifest overrides retain generated defaults, and PNG art bakes the sprite texture with explicit nearest/clamp/sRGB defaults; its original bytes remain only as a test golden. Skinned tick-60/120 pins become `4d44c305a176e577`/`d147cd9b2a8c62f7` from the attachment save-schema change, Beacons tick-907 becomes `0b132d378ffd3b21` from end-boundary tween sampling, and Placement tick-330 becomes `626f1c12836bea76` from its end-boundary orbit; joint JSON and the other simulation pins are unchanged. Greybox's layout snapshot uses lossless position floats, and standalone Animation saves carry `sampled` instead of a negative-zero sentinel. All seven logic files total 714→698 lines; the README records each count and the skinned setup/tick and Greybox tick verbatim before/after. Validation: 521 workspace tests passed, 15 ignored, no failures; all-target clippy/fmt, 33 Bun tests, every game's four Linux paranoid runs and the three requested web proofs passed. Concurrent generated-game cleanup interrupted earlier workspace runs; the final exclusion pattern matched no package, so every member ran. The web descendant audit skipped stalled `ps`, while every recorded host exit was awaited. Caps used explicit S4 paths in an isolated index, then unstaged them; no commit or sub-agent.
+
+**R7 — 2026-09-18, landed before R11.** The U1/R6 review fixes now have focused regressions: shared-plane rejection and safe near/eye/far handling, reversible CSS placement ownership, HUD-first paint/hits, texture-less Caltrain cards, capture retirement and zero-size clearing, zero hidden boxes, and projected-pixel/accessibility-position checks. The 1.31 px Linux difference belonged to the renderer's current-pose headless sample; headless now uses the retained camera/plane pair and display alpha. Same-digest acceptance updates residency before budget compaction; callbacks carry per-draw generations, including same-paced callbacks and resize redraws; native/wasm sort tests pin all kinds/ordinals, retained-value tests lock copies and skips, and child pipelines prepare before ready. Earlier diary hashes predating Camera's derived representation are historical, as are the U1 timing/size observations: the roughly 40.6 ns value is an unretained local diagnostic, encode 0.100/0.200 ms is timer quantization, and the +29.9 KB observation includes R6. Exact unsupported GPU/size figures are withdrawn from the render README. The per-fix test map and final validation are in the game README; H1/S4 and the orchestrator's Apple build-layout fix are preserved. No commit, stash, clone, or sub-agent.
+
+
+**E7 — 2026-09-18, landed before R11.** Each of the seven games now owns one `pins.json`; all nine existing tick hashes retain their S4/H1 values, and named continuation saves are SHA-256 pinned. `bun game/prove.mjs <game> --repin` compares continuous, Save and FreshGame observations on Linux and web before writing that file; a missing configured Chrome records Linux-only evidence, while a real proof disagreement refuses. Rust uses an `include_str!` plus the small `World::assert_pin` Data parser instead of generated Rust. The template names all eight operations and the first-screen task card is runnable; refusals name pending assets/state, placed boxes/layout, moving components through `state world:* busy`, setup lines, save-version rules, rebuild receipts and `--paranoid`. Ordinary snapshots remain unchanged, and placement diagnostics first check the world outline so they do not manufacture missing-entity journal entries. The small `--report` names unused facilities after observed stalls/refusals. Native proof bakes hold the compile-time paranoid environment fixed and select the mode at launch. Validation: 530 game workspace tests passed, 15 ignored; clippy/fmt/caps passed; the combined Bun suite passed 40 tests; every game passed Linux `--paranoid` and web, and all six repin candidates per game agreed. In a disposable Beacons copy, changing only the ground-red constant from 0.16 to 0.17 changed the endpoint and save digest; the regeneration command changed only `pins.json` among authored files (evidence under Beacons `artifacts/e7-repin-demo/`). The copy, its recorded shells and its lock registration were removed; original pins remain unchanged. The missing-browser path also passed end to end. Optional `moveTo` stays out pending explicit binding/collision rules; the queue records that and the duplicate-app-identity shell collision encountered while preparing the copy. No commit or sub-agent.
+
+I1 (2026-09-18, unfinished): the fourth host is now actually driven on the iPhone 17 Pro simulator, iOS 26.5 (0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF). Passing simulator receipts including builds are Greybox 123.920 s, Particles 88.382 s, Sprites 106.574 s and Placement 48.289 s; the host-ios embedding smoke passed in 8.5 s. Carrying an explicit logical viewport through the iOS driver preserved the existing save and projection pins, and moving HUD key forwarding out of the textarea branch fixed Greybox's ordinary-button keyboard path. Beacons now agrees on both pins but still fails victory autofocus in shared Apple Accessibility.swift; Asset and Skinned crash when the shared GPU adapter chooses a four-storage-buffer limit for a seven-buffer model pipeline. The engine-side named control contact is implemented and its three regressions pass, including simultaneous keyboard/touch, cancellation and queued-input save/restore, but the Contract/host binding and template controls are not delivered: the necessary shared declaration/input files exceed the brief's scope and clarification is pending. Beacons' captured seekable perf rings have zero samples, not zero cost; a live-readable iOS adapter and the requested placement/HUD counters remain owed, and the simulator supplies no real-device GPU timing. No pin was edited, no commit made, and the concurrent D4 changes were preserved.
+
+
+**D4 — 2026-09-18, landed before R11.** Ryu owns shortest decimal ties; baked tangents, the enumerated physics clone, obsolete manifest ownership fallback, duplicate game-test shims and fourth paranoid execution are gone. Camera already derived at the starting revision, and `Animation.sampled` had already replaced signed-zero initialization. One restore helper commits both immediate and deferred success; a failed carry is a typed refusal through every host. Child composition is one enum, and asset transport tests call the extracted delivery function with supplied limits. Animation remains a module, with Pose/rig data factored below playback and a concrete model presentation executor owning inspection and Carry reconciliation; registration follows setup, and derived animation caches never enter saves or hashes. The normal primitive module excludes playback and sprite preparation, while the measured particle cost justifies retaining untextured emitters. The before/after size table, digests and remaining path toward the unmet size targets live in the bench README; no new Cargo feature, flag change, typed-move compromise or hash weakening is credited. Crate/Fox model digests change only for tangent removal, while all game tick/save pins stay unchanged. All seven Linux paranoid proofs and the three requested web proofs pass; game tests, clippy, GPU/Caltrain tests, browser tests, Apple ExactKit, fmt, boot and caps are recorded in the D4 receipt. Full root build remains blocked in Weatherlight's Bun/Rolldown bake after the bounded serial retry. The README pass deletes repeated fixture code, measurements and review narrative in favor of source links and retained receipts. No commit, clone, stash or sub-agent; caps uses an isolated index and explicit paths.
+
+
+**Proximity simplification — 2026-09-18, Codex, landed before R11.** One presence-bit
+iterator now serves storage snapshot/save, stillness, settle deadlines, destruction
+and proximity queries. It replaces six duplicated storage walks; the localized
+runtime changes remove twelve source lines. `near`, `near_xz` and `nearest_xz_where`
+share distance selection; nearest no longer decomposes transforms or scans unrelated
+entities. No public API, serialized format, spatial index, cache, dependency or core
+feature flag was added. Sparse/recycled membership, inclusive radii, stable ties,
+current parents, mutable rows and a save/load continuation are exercised by existing
+engine tests plus one regression in `tests/character.rs`.
+
+The existing `churn --proximity` diagnostic measures nearest queries from an entity
+handle, not name lookup. Three alternating baseline/current pairs on the shared
+arm64 Mac, each seven 1,000-query samples, gave medians of 0.676 → 0.417 µs (32
+entities, eight eligible components), 770.853 → 5.860 µs (100,000 entities, twelve
+components), and 570.813 → 353.743 µs (10,000 matching components). Early logs count
+the excluded origin among components in the small/dense cases; the printed count is
+corrected. Raw logs and preserved executables: `/tmp/exact-game-goal-proximity/`.
+These are query measurements under concurrent builds, not FPS or a whole-engine
+speed claim. The benchmark executable changes by +16 bytes; there is no binary-size
+reduction claim. General churn timings varied widely on the shared machine; both
+100k/500k world hashes remain identical across all six baseline/current executions.
+The full engine suite passes (284 tests, two existing ignored), as do the focused
+character tests (10), engine Clippy, staged caps and boot. Root build passes. Root
+tests exposed Weatherlight's missing `period_ms` fixture field; it now explicitly
+supplies zero (headless cadence unknown), and Weatherlight's GPU test passes.
+The rebuilt Linux Beacons proof failed before readiness, with no gameplay assertions
+and no surviving recorded child; the second bounded attempt passed every assertion
+in 386.890 s including its rebuild. Root Clippy, format and boot also pass. The
+repaired full root suite continues with an unrelated Apple Keychain fixture failure
+(“User interaction is not allowed”); the shared worktree has concurrent edits, so
+these results are not a clean integrated-commit claim.
+
+
+**Native bake simplification — 2026-09-18, Codex, landed before R11.** Native libraries
+now use Cargo's exact unit dep-info, preserving source and compile-time environment
+evidence without the explicit output flag that forced relinking. Aggregate `.d`
+files are refused because they omit environment rows. The receipt no longer needs
+the old compiler-input exception for an absent art directory.
+
+A real Beacons repeat exposed a second cause: Cargo reported its missing `art/`
+watch as stale on every build. Games without art now omit the generated GPU build
+script and baker dependency (five existing modules). Removing the last art prunes
+owned outputs and the empty ownership manifest; the next resolution drops the
+baker. The outer receipt still records absent art, so the dev watcher detects its
+creation. There is no new author option, script or runtime dependency.
+
+The native regression exercises real Cargo links, included-file edits, environment
+changes, unchanged product timestamps and first-art detection. The script suite
+passes 15 tests with one opt-in asset diagnostic skipped; the ten bake-output tests,
+baker Clippy and formatting pass. The real Beacons repeat preserves module bytes,
+SHA-256, mtime and binary-input identity. Its second whole bake still takes 64.363 s
+under concurrent builds: Linux's executable retains explicit dep-info and relinks;
+this is not a full warm-build budget claim. The web/Linux proofs after shell
+regeneration pass in 76.208/78.457 s with matching pins and all five save digests.
+The web proof awaited its recorded carriers;
+the additional descendant inventory was unavailable because `ps` stalled. Evidence:
+`/tmp/exact-game-goal-native-cache/`. Root tests remain affected by the unrelated
+Keychain fixture refusal recorded above; no clean integrated-commit claim.
+
+**Native executable cache — 2026-09-18, Codex, landed before R11.** The remaining
+executable override above is removed. Every selected unit now uses `cargo build`.
+For copied executable/rlib products, exact byte identity selects the unique hashed
+Cargo unit, whose dep-info must name itself and the selected source. Ambiguity is
+refused; no timestamp selection or aggregate dep-info fallback is used. Compiler
+inputs and environment still determine the receipt, independently of product hashes.
+
+The extended real-Cargo regression fails before the change on the unchanged
+executable timestamp and passes afterward; it covers a renamed executable,
+compile-time environment changes and included-file edits. Default script tests
+pass 16, with two opt-in tests skipped; the native opt-in test passes separately.
+Two real Beacons native bakes take 56.130 s then 0.940 s on this arm64 Mac. The
+second compiles nothing and retains both product hashes/mtimes and the complete
+183-unit binary-input digest. This is one unchanged warm bake, not an edit or
+cold-build timing claim. Web/Linux proofs pass in 21.312/24.864 s with unchanged
+pins and saves; web's extra descendant inventory is unavailable (`ps` stalled),
+while recorded carrier exits are awaited. Caps, boot and diff checks pass.
+Evidence: `/tmp/exact-game-goal-executable-cache/`. The full root suite finishes
+with the Keychain refusal and a stale Linux reload-focus assertion. The real
+browser sweep confirms fresh-generation autofocus, and the corrected Linux test
+also checks carried state and keyboard activation after reload; all ten paint
+tests pass. Its first extension undercounted the earlier tap and was corrected
+in the second fix round. Keychain remains refused; this shared worktree is not
+a clean integrated-commit claim.
+
+**R8b — 2026-09-18, landed before R11.** Recovery retains presentation configuration
+across failed adapter/attachment attempts, recreates native layer targets, and
+refuses a replacement lost during preparation. Apple filters device identity and
+queues one loss generation with backoff; web discards failed canvas clones and
+limits automatic retries. Recovery redelivery does not seek the Apple world.
+The unsupported forty-child CPU timing is withdrawn. Placement proof captures
+initial/moving tuples; `prove.mjs` compares web and Linux directly at 0.5 px.
+
+| Brief fixes | Regression / evidence |
+|---|---|
+| 1, 6 | `CanvasClockAudioTests.testRecoveryCoalescesFiltersDeviceAndRetriesOneLossGeneration`, `testFailedRecoveryLeavesCanvasEligibleForRetry`; native healthy-recovery no-op test |
+| 2 | `presented_device_loss_rebinds_live_layer_and_readback_keeps_its_format`: render, destroy, drop old target, recover, render/read back on the live layer |
+| 3, 4 | Web `failed recovery removes clones and backs off`; second-loss queue test; asset fixture destroys the actual device and fails one adapter request before retry |
+| 5 | Apple recovery test checks redelivery has no `now`; engine `busy_is_returned_only_when_requested_and_clock_without_now_does_not_seek` |
+| 7 | Presented-device test checks BGRA readback; `peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_window_honest` checks matching-format residency; Fox orange band is 4,000–30,000 pixels |
+| 8, 9 | Opaque 1×1 → 2×2 and four-colored projective corners; the corner test was run with a deliberately wrong inverse and failed |
+| 10 | `covered_id_tap_refuses_without_dispatching_the_cover`; tap uses projected local center and checks the hit ancestry before dispatch |
+| 11 | `forty-child capture does not mislabel painter timing as CPU cost`; numeric claim removed |
+| 12 | `direct placement comparison rejects two hosts passing a two-pixel oracle`; captured web/Linux tuples passed at 0.5 px |
+| 13 | `AssetResolverTests.testPrefixNamesMaterializeReloadAndCleanUpIndependently`: colliding hierarchical names use distinct flat SHA-256 paths, reload, then cleanup |
+| 14 | `loading_refusals_name_the_state_that_contains_pending_assets` follows untargeted state and observes the pending name |
+| 15, 16 | UI restore tap keeps its original error; hidden-child advice uses JSON visibility; CLI prints `behindCamera` and unavailable screen |
+| 17, 20 | Executed fake-carrier CLI proofs independently reproduce missing-web repin acceptance and dropped failure summaries before the fix; both pass afterward |
+| 18 | Restore format/host prefix tests; busy and clock-settle tests; report tests require relevant successful calls from the same session and print a clean-run result |
+| 19 | `stale-build repair command names the rejected web dist` |
+| 21 | `repin refuses manifest normalization before writing authored files` |
+
+Focused before/after logs and broader validation are in `/tmp/r8b-*.log`.
+The full shared-tree result is reported separately; this table is a test map,
+not a claim that every concurrent build/fixture passed.
+
+R8b validation limit: the third real asset-web retry still failed pixel equality
+and model-buffer preparation despite successful adapter retry/reattachment and
+texture redelivery (`/tmp/r8b-asset-web3.log`). That fix loop stopped and remains
+in QUEUE. The 0.5 px placement comparison, asset Linux/macOS proofs, seven native
+GPU tests, fourteen focused Apple tests, focused JS tooling tests, caps, formatting,
+and root GPU/Linux clippy passed. Shared-tree fixture/suite results are not implied
+by those focused passes; native launches also hit existing watchdogs.
+
+R8b additional receipts: skinned Linux passes, including byte-identical save
+continuation (`/tmp/r8b-skinned-linux.log`); placement macOS passes on its retry
+(`/tmp/r8b-placement-macos-retry.log`). Skinned web's retry passes the 4,017-orange
+pixel band, GPU residency and byte-identical continuation checks, but disagrees
+with the stored continuation pin (`/tmp/r8b-skinned-web-retry.log`); pin changes
+remain R8a's scope. The combined proof/new Bun run has 49 passes and one failure:
+the generated game's Linux build exceeded the existing no-output watchdog.
+The repeated host Bun run has 63 passes and two watchdog failures (native quad
+order and the Caltrain web stack); focused surface recovery tests pass. No
+watchdog was enlarged. Explicit-file caps and `git diff --check` pass again.
+
+The full R8b game workspace run completed with 536 passed, 11 ignored, zero
+failures (`/tmp/r8b-game-tests2.log`). Game all-target Clippy and formatting
+passed; the earlier root workspace build passed (`/tmp/r8b-root-build2.log`).
+A duplicate root build was stopped after waiting on a foreign build lock.
+The real default asset-fixture repin with a missing Chrome refused the missing
+requested web host and preserved `pins.json` (`/tmp/r8b-repin-missing-web.log`).
+
+Skinned macOS did not produce a passing R8b receipt in three attempts: app
+readiness timeout, stale Rust dep-info packaging refusal, then another builder's
+active app lock (`/tmp/r8b-skinned-macos{,-retry,-final}.log`). The lock and its
+owner were left untouched. This fixture is unverified by this run.
+
+The real explicit `--repin --hosts linux` completed successfully in all three
+modes, retained the existing tick/save pins, and wrote `hosts: ["linux"]` plus
+the explicit-host generation command (`/tmp/r8b-repin-linux.log` and
+`/tmp/r8b-asset-pins-linux.json`). The original pins file was restored after
+verification. Boot passed (`/tmp/r8b-boot.log`). No commit was made.
+
+I1b connects the existing engine Control event to ordinary Contract canvas buttons: one `action` row, no runner or Surface entry point, with Move/Jump/Light shared by Beacons and the template. The browser proof caught `data-action` naming and CSS replacement erasing `touch-action: none`; the final web round and Linux now demonstrate actual movement, jump, lighting, keyboard activation, and held-contact restore. Nonzero stamp and paranoid reconstruction regressions pass. The save comparison exposed host-specific physical contact IDs/centers; its held-control save now uses keyboard activation with a fixed ID and local origin, fixing Linux’s origin conversion while retaining the touch-to-jump observation. Apple autofocus is now per mounted node and the iOS adapter permits a live timing read; their simulator proof is pending the existing Apple dep-info packaging failure, so these are not yet simulator-playability or performance claims.
+
+
+## Recovery hash reuse — 2026-09-18
+
+Removed four runtime lines from `WorldSurface::device_lost`: retained CPU model
+content already has its delivery hash, and preparation already computes a missing
+hash when restore revives content after retirement. No authoring API, flag or
+artifact was added. The existing real-GPU restore test now performs both recovery
+cases; it failed before the deletion at the unnecessary rehash and passes after.
+
+Paired Beacons web builds shrink the optimized GPU module from 794,148 to 782,915
+bytes (11,233 bytes, 1.41%) and level-9 gzip from 339,351 to 335,367. Model serializers
+and the recovery BTreeMap collection/sort disappear from primitive attribution.
+These are this pair's measurements, not the older D4 baseline. D4's 650,000-byte
+target remains unmet. The initial size-helper attempt encountered a copied target
+cache whose dep-info named the old directory; normal workspace builds produced the
+valid pair. No compiler evidence check was weakened.
+
+Renderer tests: 128 passed, 7 ignored, zero failures, including retained/retired
+hash recovery and replacement-device pixel equality. All-target renderer Clippy,
+scoped formatting, caps, diff whitespace and boot pass. Caps used a copied index;
+the shared index was preserved. A host header comment was compacted by one line
+because concurrent host edits had taken it to 1,501 lines.
+
+Beacons web passes its real app proof with unchanged tick/save pins. Asset web
+preserves its tick/save pins and recovers content/readiness, but reproduces R8b's
+two already-recorded failures: recovered pixels and model-buffer preparation.
+The stopped three-round recovery fix loop was not reopened. Both web runs awaited
+recorded children; the extra descendant audit was unavailable because `ps` stalled.
+Root workspace tests remain live in the producer suite and have the already-recorded
+real Keychain fixture failure; no root-workspace green is claimed. No commit made.
+Evidence and exact artifact hashes: `/tmp/exact-game-goal-asset-boundary/`.
+
+
+## Shared imported bounds — 2026-09-18
+
+Conservative model bounds now live beside immutable delivered content. Layout,
+picking and animation reuse them; redelivery replaces them, and FreshGame derives
+them again from the decoded model. The public API, asset format and saves remain
+unchanged. This adds six floats per retained model entry and removes the geometry
+walk from primitive modules. The paired query timings and qualified shared-tree
+size observation are in `game/bench/README.md`.
+
+285 engine tests and 12 renderer asset/restore tests pass; 2 engine diagnostics
+remain ignored. Engine/render all-target Clippy, scoped formatting, caps and boot
+pass. Skinned-fixture Linux passes normal, paranoid and FreshGame; web passes.
+The actual tick-120 web/Linux saves are byte-identical: 14,928 bytes, SHA-256
+`0d50ebe6388c4db317aae21fb3a1f30269f9e67300c3a0ec50e82eec0b7e5a79`.
+Web's extra descendant audit was unavailable (`ps` stalled); recorded children
+were awaited. Root tests remain running with the earlier Keychain fixture failure.
+Evidence: `/tmp/exact-game-goal-model-bounds/`. Shared index preserved; no commit.
+
+**Restore ownership — 2026-09-18, Codex, landed before R11.** `World::load` moves asset
+bookkeeping after successful decoding/hierarchy validation instead of cloning it
+beforehand. The regression fails on the prior copy and passes on transfer, including
+four invalid-save forms that retain the live world and all asset ownership. No
+public API, asset format or save change. Three alternating release pairs with 256
+delivered models measure World restore 13.366 → 1.056 µs and complete Sim restore
+30.395 → 17.396 µs; the empty-world control is essentially unchanged. These are
+bookkeeping diagnostics, not frame-rate or full-scene loading claims. Source and
+lockfile attribution, smaller cases and logs are in `game/bench/README.md` and
+`/tmp/exact-game-goal-restore-ownership/`.
+
+All 287 engine tests (2 ignored), three renderer restore tests, engine/render
+all-target Clippy and formatting pass. Skinned web passes in 22.327 s; Linux's
+normal/Save/FreshGame modes pass in 58.887/0.503/0.781 s (normal includes rebuild),
+retaining joint, tick and continuation-save pins. Recorded child exits pass. The
+preceding compact texture-registry experiment is rejected: its observed 5.6 KB
+reduction cost about 31% on the 256-texture reverse-order batch. Original runtime
+storage is restored byte-for-byte; its workload and ownership regression remain.
+Primitive-module isolation, fresh authoring scores and the existing root Keychain
+refusal remain open; no whole-goal completion or clean integrated commit is claimed.
+
+**Compact diagnostics — 2026-09-18, Codex, landed before R11.** Dynamic movement/clock
+clamps and placement depth now reuse the existing compact float writer. Std float
+formatting disappears from the primitive module; comparison order, invalid-bound
+rejection and saved state stay intact. The shared-tree 776,497 → 752,263-byte
+observation includes concurrent edits; attribution and checks are in the bench
+README and `/tmp/exact-game-goal-clamp-diagnostics/`. Engine/renderer tests pass
+420 cases (9 ignored), as do Beacons web, Linux's three restore modes and Placement
+web. All six captured Beacons saves agree across hosts. Clippy, formatting, caps
+and boot pass. The 650 KB target and fresh ordinary-authoring scores remain open.
+
+**Primitive asset boundary — 2026-09-18, Codex, landed before R11.** Primitive surfaces
+now refuse unsupported assets directly, with a revision/identity cache, and leave
+delivery/retirement/device residency to the model-capable path. This removes 25,398
+raw bytes in an isolated production-source pair: Beacons is 725,274 bytes. The
+10,000-mesh unchanged poll measures 11.414 → 8.027 ns; full rescans remain around
+12 µs, with hashes identical. A replacement-world regression caught reused
+revision counters; the cache now uses WorldId. Renderer tests pass 133 cases
+(7 ignored); Clippy, formatting, caps and boot pass. Beacons final web/Linux and
+Skinned candidate web/Linux proofs retain their pins and cross-host save equality.
+Detailed scope and receipts: `game/bench/README.md`,
+`/tmp/exact-game-goal-primitive-assets/`. Common World asset storage and 5/5 ordinary
+authoring evidence remain open. No commit or shared-index mutation.
+
+**R9 (2026-09-18):** The missing crate was an ordering defect: failed adapter retries allow texture delivery before `device_ready`, which invalidated those bytes a second time. WorldSurface now invalidates once per loss; the real web fail-once destruction proof and the surface-lifecycle regression on Metal require identical pixels and preparation counts, and both pass after failing before the change. `restore_mode` now proves Carry inserts Animation/Blend/Animator and replaces conflicting kinds while Open stays byte-exact; its primitive pose regression compares the shared `game.assets: true` wording. The score link resolves to Sitting #2. The Apple fixture’s `childrenMode:` repair was already present, and an isolated Skinned macOS bake/proof plus both dep-info resolver tests pass without a packaging edit. The iOS GPU clock now respects platform timing: Beacons and Skinned produce all four timing rings, whose simulator CPU/presentation p50/p95 figures are recorded in `game/README.md`. The Fox crop uses a 1–8% orange fraction (macOS 1.300%, iOS 3.625%); both actual images passed; the 95%-white claim was unsupported and is replaced by R11’s executable negative case. Original pins remain unchanged. The requested game checks and host matrix pass (546 workspace tests, 11 ignored; all seven Linux paranoid proofs); the extra Apple sweep has 87 passes and a separately reproduced autofocus-reset assertion queued outside this slice.
+
+**JSON float destinations — 2026-09-18, Codex.** Large finite decimal values now
+round-trip through Data, and f32 parses directly without double rounding. Integer
+overflow stays strict; unknown numeric fields are checked for grammar and skipped.
+Reader gains two default codec methods; game-author code is unchanged. The isolated
+Beacons pair costs 2,641 raw bytes, reaching 727,915. Normal inlining is retained;
+forced inlining's extra 5,108 bytes is rejected, and variable decoding timings remain
+queued for a quiet comparison. Native/Wasm checks of 100,000 samples per width agree
+bit-for-bit. The initial correction passes 549 workspace tests; final Data and
+placement tests, engine Clippy, Data formatting, caps and boot pass. The shared-tree
+recheck fails four Beacons pointer-control assertions plus workspace formatting and
+a renderer-test Clippy lint amid concurrent edits; original Beacons pins still pass.
+The earlier green run does not certify this later integrated tree. Detailed numbers
+and scope: `game/bench/README.md`, `/tmp/exact-game-goal-json-floats/`.
+No commit, pin rewrite, sub-agent or shared-index mutation by this pass.
+
+**Shared primitive trigonometry — 2026-09-18, Codex.** Geometry uses the existing
+portable math backend and computes each longitude once across all rings. The
+retained production geometry diff is +7/−5 lines; ordinary author code is unchanged.
+Three paired runs show 17–28% faster four-primitive construction at 24/64/256 segments,
+using a 200-byte temporary circle for 24 segments. Native/Wasm geometry and shadow
+digests retain their previous values. Portable shadow power cost about 20% in its
+small CPU fit and is reverted. The final link map removes 6,766 bytes of duplicate
+trig code before optimization; the shared-tree module measures 736,397 bytes, with
+concurrent changes preventing full attribution. Beacons web and all three Linux
+modes pass. Six save files match across hosts; a physical-pointer capture preserves
+different carrier IDs/local coordinates with the same world hash. Details and
+verification scope: `game/bench/README.md`, `/tmp/exact-game-goal-render-math/`.
+No commit, pin rewrite, sub-agent or shared-index mutation by this pass.
+The build, lint, formatting, caps and boot checks pass; the full test process
+finished with 559 passes, 0 failures and 11 ignored, including documentation checks.
+The sweep also exposed empty generated adapter harnesses, addressed below.
+
+**Generated adapters without empty harnesses — 2026-09-18, Codex.** The shared
+bake disables Cargo tests on its 32 entry-point adapters and doctests on their
+24 libraries. Cargo's actual test build retains all 60 authored/core executables
+and produces no adapter test executable; the workspace build still builds all
+32 products. Generated Rust, dependency pins and other target metadata are
+unchanged; a second resolve preserves all 91 generated file timestamps. Four
+generator tests, caps and boot pass. Beacons web and Linux proofs pass with the
+same gameplay/save pins. No elapsed-time improvement is claimed from these
+shared-machine runs. Evidence: `/tmp/exact-game-goal-empty-harnesses/`.
+
+**Target labels only on failure — 2026-09-18, Codex.** Ordinary named and entity
+calls stop allocating diagnostic strings on success. `Target::entity` borrows
+its receiver; game calls and error messages stay unchanged. Per-call allocations
+fall 1→0 for character steps/controller lookup, 2→1 for positioned audio creation,
+and 4→2 for retained-pose socket queries. World hashes and proof pins agree.
+Engine/physics tests pass (328, 2 ignored), plus workspace build/lint/format and
+Beacons web/Linux and animated-model web proofs. Two size hints were rejected;
+the unannotated implementation remains. The observed Beacons trade is +935 raw
+bytes, −12 gzip bytes; no frame-rate claim. Details: `game/bench/README.md` and
+`/tmp/exact-game-goal-target-labels/`.
+
+**Borrowed socket lookup names — 2026-09-18, Codex.** The cache groups joints
+under their model and removes its redundant inner borrow guard. Warm joint
+lookups and retained-pose matrix queries allocate zero times, with no author API
+change. Three paired native runs measured matrix queries 11–20% faster; no frame-rate
+claim. Cached successes and refusals refresh when the model is replaced, even
+while its old allocation remains alive. Engine tests pass (296, 2 ignored), plus
+web/Linux animated-fixture proofs with four byte-identical saves. The measured
+animated module trade is +1,735 raw/+149 gzip bytes. Workspace all-target Clippy
+passed after the concurrent Beacons fifth-build deletion interrupted its first
+attempt. Details: `game/bench/README.md`, `/tmp/exact-game-goal-socket-cache/`.
+
+**App-owned starter — 2026-09-18, Codex; host verification unfinished.** The r5
+builder had to copy the template and author a nested workspace to obey its write
+scope. `new.mjs ./my-game` now generates that workspace from the engine's dependency
+and profile defaults; dev/prove accept the same path. A bare name retains the shared
+workspace. The full starter test uses its own directory instead of rewriting and
+restoring the shared lockfile. Proof inputs now include external app sources and
+assets, so edits cannot reuse a stale build receipt.
+
+An actual generator/Cargo audit took 0.724 s, left 110 shared files byte- and
+mtime-identical, retained all 293 registry package pins, and located all five app
+packages plus its target inside the destination. The path contains spaces and an
+apostrophe; `--assets` selected the model-capable shell. Four existing generator
+tests pass. The new game passed its three simulation tests and built its native
+GPU module; the cold full host check did not finish before its 180 s idle timeout.
+Three rounds are closed: a symlink-relative dependency bug was fixed, its test's
+canonical-path expectation was fixed, then the cold build timed out. No web proof
+or final source-edit rebuild is claimed.
+
+The external prove CLI test also timed out in the system temp directory. A separate
+audit process was sampled in `__getdirentries64`, with its directory handle on
+`/private/tmp`; moving verification's temporary files to a sparse directory outside
+the checkout let all 52 proof tests pass in 2.04 s. This establishes the filesystem
+stall, not the precise cause of the native-build timeout. Copied-index caps, boot
+and diff checks pass. The generated manifest still emits an unused Rapier patch
+warning. The ownership audit passed; cold host verification remains queued.
+Evidence: `/tmp/exact-game-goal-owned-starter/`.
+
+Concurrent cutover: after the successful sparse-temp ownership audit, another
+writer changed the generator/bake to put every game's generated workspace under
+its `.shells/`. Preserve that work. The measurements above describe this pass's
+earlier root-workspace candidate, not the later layout. The original delayed audit
+eventually resumed against the new source and refused its now-obsolete expectation
+of `Cargo.toml` at the app root. All sessions from this pass have terminated;
+verification of the new layout belongs to the integration follow-up.
+
+**Generated-workspace integration — 2026-09-18, Codex.** Preserved the concurrent
+`.shells/` cutover and fixed its cleanup to remove only obsolete adapter directories,
+keeping Cargo's local target cache. The identity-change regression, ownership and
+restricted-write checks pass (six starter checks). Deleted source files no longer
+break the proof suite's pin scan before staging; all 54 proof checks pass.
+
+Game resolution no longer asks Cargo to locate a workspace it already knows.
+Fifteen warm calls measured a median 28.97 → 0.531 ms with all 22 app/generated
+files unchanged; ordinary external-app resolution still passes its tests. This
+removes a subprocess, not an author-facing concept. Caps and boot pass. The new
+layout's cold integration attempts hit a concurrent missing Rust export (since
+restored), then a missing offline host dependency after three passing simulation
+tests. Full offline metadata now resolves. The third integration run passed the
+three simulation tests and compiled both native binaries, then failed in receipt
+creation with `no matching rustc unit dep-info for equivalent`. Its destination
+contains spaces; that is a lead to test, not an established cause. No app assertions
+or web proof ran. Three integration attempts are closed; investigate the receipt
+matcher with a small fixture before another whole-app attempt. All launched
+command sessions have terminated.
+Evidence: `/Users/ccheever/projects/.exact-game-verification/current-layout/` and
+`../resolve-probe/`.
+
+
+## R11: review fixes and app-owned starter
+
+2026-09-18–19. This pass is uncommitted, as requested. Earlier entries describe
+historical runs; their `/tmp` paths are scratch transcripts, not retained
+receipts. The tests and proof programs named below are the repeatable evidence.
+The concurrent engine agent's changes and signed diary entries are retained.
+
+| Brief item | Change and regression evidence |
+| --- | --- |
+| 1 | Healthy/no-device web recovery preserves pending delivery. `host/web/tests/surface-record.test.mjs`: both `preserves a pending asset flight` cases. |
+| 2 | Native continuation/release selects the owning canvas. ExactKit `testContactIdentityIncludesCanvasAndReleaseRequest`; Linux `surface_qualified_contacts_and_repeated_restore` and `another_canvas_release_or_unmount_keeps_the_active_contact`. |
+| 3 | Linux ownership carries the ABI surface generation and is removed when that generation dies. `replaced_canvas_drops_down_before_next_press`. |
+| 4 | First-canvas cutover rollback restores only detached listeners/observers, including a throw after DOM replacement. Web `first canvas failure` covers before-swap, after-swap and attach failures. |
+| 5 | Apple recovery snapshots entry identities; a newly recreated canvas gets its initial clock. `testCanvasRecreatedWhileRecoveryIsPendingGetsInitialClock`. |
+| 6 | Linux compares the resolved control/handler for passive descendants. `passive_control_descendant_taps_and_editor_keeps_focus`. |
+| 7 | Pointer presses retain an active editor on every host. Web `control pointer down preserves an active editor`, the Linux test above plus `raw_canvas_press_preserves_active_editor`, ExactKit `testControlPreservesTextEditor` and `testRawCanvasPointerPreservesTextEditor`. UIKit's real-touch and agent paths share the guarded focus helper. |
+| 8 | Pin scanning includes authored benchmark tests and quoted or bare digest strings; generated receipts retain narrow exemptions. `game/proof.test.mjs`: `pin scan includes authored benchmark tests and ordinary digest strings`. |
+| 9 | The README's game gate includes `bun test ./proof.test.mjs`; that suite executes the tracked-tree pin scan. |
+| 10 | Propagation prunes composed follower poses even with no followers; every query prunes before a stale-cache return. Engine `dead_followers_are_pruned_even_without_remaining_followers` and `stale_hits_prune_dead_followers_before_returning`. |
+| 11 | Shared diagnostics key by entity and diagnostic kind, replace changed text, reset for a fresh world and survive restore. Renderer `diagnostics_replace_changed_error_clear_on_fresh_world_and_survive_restore` and `distinct_diagnostic_identities_do_not_replace_each_other`. |
+| 12 | Restore replaces host maps and web restored owners retain their scoped DOM node. Web `a second restore replaces host ownership immediately` and `restored contact cancels on clear/remove`; Linux repeated-restore and restored-unmount tests; ExactKit `testSecondRestoreReplacesContactsIncludingEmptySave` and `testRestoredContactCancelsWhenItsControlUnmounts`. |
+| 13 | Linux restored lookup stays within its canvas; absent controls keep a node-less binding. `restored_lookup_stays_inside_surface_and_missing_control_stays_held`. |
+| 14 | Linux blur cancels restored keyboard contacts before clearing ownership. `blur_cancels_restored_keyboard_hold_without_focus`. |
+| 15 | A destroyed canvas cannot swallow the next Down. `replaced_canvas_drops_down_before_next_press`. |
+| 16 | All Apple executables use `ExactEnv.agentFreezes` for their session clocks and module seekability. The skinned proof's macOS platform session produces real display-link frame samples. |
+| 17 | Fox validation crops reported screen bounds, requires texture variation/non-white coverage and asserts 16:9. `game/proof.test.mjs` has a 95%-white negative and crop/aspect cases; actual macOS/iOS screenshots execute the same negative. |
+| 18 | The manual renderer regression is named a surface-lifecycle test, not device destruction. `surface_lifecycle_rebuilds_textured_draws_after_prepared_retry_loss` skips when no adapter is available. |
+| 19 | Removed the obsolete f32::MAX rejection item from QUEUE; the finite-float round-trip regression remains in the engine suite. |
+| 20 | Each rearmed texture delivery retires the old host answer. Engine `rearming_texture_delivery_invalidates_the_hosts_answered_name_each_time`; the Metal surface-lifecycle test prepares assets on a failed replacement before retrying; asset-fixture web also loses a replacement during its second recovery and checks pixels, readiness and once-per-epoch delivery. |
+| 21 | Live Apple canvases are not ticked by settle. Skinned macOS/iOS platform sessions collect nonzero frame intervals; historical iOS measurements remain explicitly standalone-iOS receipts. |
+| 22 | Carry removes conflicting controller storage without removing sampled Pose, and journals a refused insert. `carry_kind_replacement_preserves_sampled_pose_and_changes_hash`; README states the kind-change hash contract. |
+| 23 | Smoothstep uses the portable clamp (`engine/tests/motion.rs`); landed diary labels and the historical R9 count are consistent. This receipt supersedes historical scratch paths and incomplete starter status. |
+| 24 | Generation and shells are app-owned; generation never runs Cargo or rewrites a sibling/shared lock. `game/new.test.mjs` executes generation inside an empty directory with sandbox writes allowed only there, then builds and proves a fresh game through ordinary Linux/web paths. `scripts/app.test.mjs` exercises shell regeneration, source snapshot regeneration, and real rustc dep-info in paths containing spaces. Beacons' hand-written nested workspace/lock are removed; its ordinary proof passes web/Linux/macOS/iOS. |
+| 25 | The README explicitly limits held follower poses to a session cache, excluded from hash/save/paranoid. Deleting a controller intentionally removes Pose and resumes live bind composition; `deleting_controller_clears_pose_and_resumes_live_bind_composition` fixes that contract. Item 10 covers stale-hit pruning. |
+
+Runtime matrix: all seven games pass Linux `--paranoid` (continuous, Save and
+FreshGame); Beacons r5 passes all four hosts; asset-fixture web passes fail-once
+recovery plus loss during its second recovery; skinned-fixture passes macOS/iOS.
+The macOS live receipt recorded 63 frame intervals at p50/p95 8.333 ms. The iOS
+receipt recorded 65 at p50/p95 16.667 ms. These are CPU/presentation samples,
+not GPU-duration measurements. Linux proofs ran on this arm64 Mac, not an x86
+Linux machine. Some existing proof cleanup audits could not obtain `ps` output;
+all recorded carrier exits were awaited, and no descendant-audit claim is made
+for those runs.
+
+The cold starter runs from a path containing spaces: its three simulation tests,
+Linux gameplay proof, web gameplay proof and source-edit rebake all pass.
+Generation's restricted-write test passes. The combined Bun gate initially had
+one native helper startup timeout; that test passes independently and the web,
+Apple-build and proof suites pass together (148 tests). The starter's seven tests
+passed in the combined run. Resolver/deploy unit tests pass (17; two opt-in bake
+tests skipped). ExactKit passes 97 tests. The first game sweep exposed a stale
+Beacons renderer fixture; after the required retry it now selects the unnamed r5
+ground plane and explicitly owns its atmosphere, and its focused test passes.
+The final clean `cargo test --workspace --no-fail-fast` sweep passes: **565
+passed, 11 ignored, zero failed**, including the Metal retry and all doctests.
+A separate negative-baseline replay had overlapped the preceding sweep; that
+contaminated run is excluded from this receipt. Both replayed regressions fail
+with the previous behavior and pass with the fixes restored.
+
+Game all-target Clippy passes; root all-target Clippy and the final changed-Linux
+recheck pass. Root `cargo build --workspace`, both workspace formatting checks,
+boot and caps pass. Caps staged only the explicit R11 file paths and then
+unstaged them; the index is empty. The Linux surface/control suite passes all
+14 tests. The final proof suite plus resolver tests pass 71 tests, with two
+opt-in bake tests skipped. No commit, stash, clone or sub-agent was used.
+
+
+## E8 — the default proof and first pins (2026-09-19)
+
+E8 keeps the host-less proof on GPU-less Linux and reuses one Chrome process for repeated documents, closing it before the fresh-process continuation; the existing content/artifact receipt already caches packaging. Measured whole commands for Beacons were 0.512 s Linux and 4.327 s web; a generated template under `game/games/` measured 0.306 s Linux and 2.930 s web with warm artifacts, and that temporary fixture was removed; all seven games passed both hosts, and Beacons' existing checked-in pins and cross-host continuation bytes agreed without changing a golden. Empty pins now produce a nonzero UNVERIFIED result with the regeneration command (exercised on a real starter), while ordinary `prove` fills the first baseline only after continuous/Save/FreshGame agree on Linux and web; an external starter exercised this path without Git. Its absolute-path commands took 1.655 s Linux and 4.437 s web (Linux's proof itself was 0.246 s), so external Bun startup still misses the whole-command sub-second bar; running from its directory did not fix that. The app-owned shell fixture and temporary feel bake fixture pass. `nearest_mut` returns the existing guarded `RefMut` and passes selection/borrow/save regression coverage; the material sync stays the existing joined query without a lookup/unwrap. `Material::glow` uses the existing emissive/bloom path, `Fog::new` exposes exponential density and height falloff (not near/far), and bounded receiver-plane shadow bias already exists. The template retains 120 Hz, documents the ~17 ms 60 Hz tick-wait p95, and proves fresh-process byte-identical continuation. Named arguments/inline publication require syntax, analyzer, plan and runtime-binding changes because calls carry positional expressions; that cost and the missing native input-modality seam for focus-visible/hover defaults are in QUEUE.md. Game workspace validation passed 565 tests with 11 ignored, all-target clippy and fmt passed, and scoped caps passed with files unstaged afterward. The external-report Bun test still timed out after three fix attempts; the first cold template test also hit its inactivity deadline, prompting live compiler stderr forwarding, and the second exhausted its ten-minute budget after completing all six pin modes. The final retry passed all seven starter tests in 374.91 s, covering empty-pin refusal, web capture and source-edit rebake, with all-mode acceptance covered separately. App/feel tests passed 43 cases (two opt-in skips); the proof suite’s external-report timeout remains red. No commit, clone, sub-agent, stash, or machine/disk checks were added; concurrent hunks and the other agent's signed diary paragraphs were preserved.
+
+## R12 — one workspace owner, one lock authority; the fixes of the reviews of 727afe41
+
+R12 (astra, 2026-09-19 01:30–02:39, receipt kept at `~/Library/Caches/exact2-game/briefs/receipt-R12.md`) made each game's logic crate a member of its own app-owned `.shells` workspace and nothing else; the engine workspace excludes `games` and `bench`. A game's `Cargo.lock` is captured beside `app.json` at the first bake, copied into the generated shell on every bake and deploy, and resolved `--locked --offline` thereafter — a stale or corrupt shell cache cannot choose versions, and a deliberate dependency change is an explicit `bun game/app/shells.mjs <game> --update-lock`. Resolution creates no workspace and runs no Cargo (paired warm medians: in-tree 0.113 ms, external 0.122 ms); the external-report scenario passes in 278 ms under its original 5 s timeout. The reviews' control-ownership items landed on every host with a red-then-green test each: reparenting a held control cancels its original contact (Apple, Linux, web); restored duplicate action names keep contact identity instead of guessing a node; Apple blur cancels per contact before the engine's blur; Space/Enter reach a pointer-held control while an editor keeps focus; Apple up/cancel resolves the captured owner, then the addressed canvas, then only a unique global contact. Proof inputs are enumerated from the repository root and returned relative to the caller (`host/web/gpu-glue.js` is in the hash when the proof runs from `game/`); the GPU device-lifecycle test is `#[ignore]`d with its reason and passes opt-in on a real two-device host; the Fox crop reads the screenshot's real dimensions; generation compares a SHA-256 tree inventory outside the new game (names, modes, bytes, symlink targets, empty directories; corrected by R13 below). Validation: 535 engine tests, 31 per-game tests, 100 Apple tests, 186 Bun tests; seven Linux `--paranoid` proofs in every mode, seven headless web proofs, Beacons on macOS; a fresh clone with the captured locks proved Beacons on Linux in 64 s cold. The deploy dry run did not reach a classifier table: the root closure captures the sibling repo `snapback-sb4`, whose `vendor/llp` submodule holds a deliberately broken absolute fixture symlink — that refusal predates R12 (at 2ac2029f the same run refuses `vendor/ccheever-skills` as an uncaptured submodule) and is in QUEUE.md as the classifier's, not this lane's.
+
+
+## Archived guide receipts — moved 2026-09-19
+
+The following dated receipts are historical; their limitations and follower-cache policy describe those runs, not the current engine.
+
+## I1 simulator proof receipt — 2026-09-18, unfinished
+
+The iOS proof carrier now passes the explicit 1280×720 logical viewport through
+to the simulator. UIKit fits it into the phone window; screenshots are 3840×2160
+at simulator scale 3. Ordinary launches keep their native viewport. Greybox's HUD
+key forwarding now runs for ordinary controls as well as textareas. The simulator
+carrier reports `recognized` input delivery because UIKit cannot synthesize platform
+touches. This is asserted explicitly. Browser HTTP delivery gates, browser residency
+reload probes and physical Metal removal are unavailable on this host; shared
+readiness, rendering, save and pin assertions remain in the scripts.
+
+Simulator: **iPhone 17 Pro, iOS 26.5**,
+`0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`. Latest completed I1 receipts below
+include builds and build-lock contention, and are not runtime benchmarks. Linux
+time sums the three `--paranoid` subprocess wall times (Off, Save, FreshGame).
+Runs occurred while D4 was editing the shared tree, so this is not a verification
+of one frozen final revision. Logs are `/tmp/i1-<game>-<host>-retry.log` except
+Asset web (`/tmp/i1-asset-fixture-web-gate.log`) and the initial iOS Asset, Skinned,
+Particles and Placement runs (`/tmp/i1-<game>-ios.log`, Placement uses `placement`).
+
+| Game | Linux paranoid, seconds | Web, seconds | iOS, seconds | macOS, seconds |
+|---|---:|---:|---:|---:|
+| greybox | PASS, 61.193 | PASS, 24.479 | PASS, 123.920 | — |
+| beacons | PASS, 175.768 | PASS, 22.093 | FAIL: focus, 131.156 | FAIL: focus, 174.704 |
+| asset-fixture | PASS, 424.072 | PASS, 21.703 | FAIL: GPU limit, 54.138 | — |
+| skinned-fixture | FAIL: pins, 64.204 | FAIL, 23.594 | FAIL: GPU limit, 48.504 | — |
+| particles-fixture | PASS, 22.721 | PASS, 6.882 | PASS, 88.382 | — |
+| sprites-fixture | PASS, 71.871 | PASS, 8.889 | PASS, 106.574 | — |
+| placement-fixture | PASS, 25.153 | PASS, 7.733 | PASS, 48.289 | — |
+
+`bun game/prove.mjs greybox --hosts web,linux,ios --compare-saves` also passed:
+web 49.442 s, Linux 165.301 s, iOS 191.207 s, with byte-identical continuation
+saves. The summary is `games/greybox/artifacts/prove/summary.json`.
+`bun scripts/smoke.mjs host-ios` passed in 8.5 s (two embedded sessions, native
+navigation, bad-plan refusal and independent destruction). Apple builds used
+Xcode's developer directory with SDKROOT unset.
+
+Remaining failures are not skipped: Beacons' victory autofocus fails on both Apple
+hosts in shared `ExactKit/Accessibility.swift`; model pipelines need seven vertex
+storage buffers, but the shared GPU adapter fallback requests four on this simulator.
+Skinned's Linux/web observations now agree with each other but differ from its
+checked-in [Skinned pins](../games/skinned-fixture/pins.json).
+No I1 pin was changed.
+
+### Touch binding and measurements still owed
+
+`InputEvent::Control { name, id, phase, x, y, at_ms }` now feeds the existing named
+actions. A held contact composes with keyboard input; a stick uses a local origin
+and the existing 60-point radius. Up, cancel and blur release it. Three regressions
+cover keyboard/contact composition, local stick save/restore and queued-contact
+continuation in a fresh simulation. The engine change is 72 net production lines
+plus 116 test lines. This is only the engine half: no Contract block, host binding,
+Beacons touch controls or template default has been delivered. Connecting ordinary
+controls requires shared declaration/input-carrier files outside I1's enumerated
+scope; approval for that extension is pending. Existing Beacons instructions still
+describe keys.
+
+The Beacons iOS receipt (`games/beacons/artifacts/i1-ios/perf-ios.json`) reports
+33 draws, 14 instances and 2,523 triangles. All four timing rings have **zero
+samples**, so no frame-time claim follows. After-ready upload, pipeline and
+model/skin-buffer-reallocation counts are zero. Actual frame and placement/HUD
+measurements remain uncollected; Skinned cannot reach its capture because of the
+GPU-limit failure. Reading a live iOS run also requires a change to the executable
+adapter, beyond `ExactKit/IOS/**`. Simulator CPU/presentation measurements can
+compare this host on this Mac, but cannot provide real-device GPU timing, thermal
+behavior, battery cost or phone frame-rate guarantees.
+
+### Validation limits and all checked-in pins
+
+The initial game workspace run passed 530 tests with 15 ignored. All three new
+control tests passed. A later full run failed nine targets during concurrent edits;
+the third attempt stopped at two render-test E0308 errors. No fourth full attempt
+was made. All-target clippy passed; fmt still reports concurrent files outside the
+I1 edits. Root workspace build passed earlier; a later build waited on the shared
+Cargo lock and was cancelled. Harness tests passed (35 tests, 194 assertions),
+boot passed, and scoped caps passed with the staged I1 changes then unstaged.
+These are partial receipts, not a clean final-suite claim.
+
+| Game | Tick and continuation pins |
+|---|---|
+| greybox | [pins.json](../games/greybox/pins.json) |
+| beacons | [pins.json](../games/beacons/pins.json) |
+| asset-fixture | [pins.json](../games/asset-fixture/pins.json) |
+| skinned-fixture | [pins.json](../games/skinned-fixture/pins.json) |
+| particles-fixture | [pins.json](../games/particles-fixture/pins.json) |
+| sprites-fixture | [pins.json](../games/sprites-fixture/pins.json) |
+| placement-fixture | [pins.json](../games/placement-fixture/pins.json) |
+
+
+## I1b control carrier receipt — updated by R10a (2026-09-18)
+
+This receipt describes the current working tree on `17cfea2c`, including R10a
+and concurrent R10b edits. The earlier packaging block and temporary resolver
+patch were superseded by R9; they are not current limitations.
+
+Beacons and `game/new` expose accessible Move, Jump and Light buttons with
+`action="move"`, `action="jump"` and `action="light"`. A pointer down focuses its
+control unless a text editor is active, and owns its original action, contact ID and local origin until release.
+Renaming the action, including during keyboard autorepeat, does not retarget a held contact; clearing it or removing the
+node cancels that contact. Space/Enter uses the focused control. The move stick's
+60-point radius is independent of device pixel scale.
+
+Untargeted `state` exposes `world[0].input.controls`, `forwardedControls` and
+`controlContacts`. The last includes contact identity, action, origin, position
+and optional keyboard code, including queued edges. Fresh hosts use that record
+to release saved pointer and keyboard contacts without inventing another press.
+Restore rejects unknown saved action names before installing input or its queue.
+
+The renderer declares **8** storage bindings for the model path (5 scene + 3
+model); the device requests the adapter's supported capacity. Granted and
+required counts remain visible in `world[0].gpu`. Beacons' scene-only path
+requires 5. The iOS run granted 29 bindings.
+
+R10a regression checks cover immutable press bindings, focus, cancellation,
+restored ownership, capture loss, two pointers, CSS coordinates at DPR 3,
+disabled/hidden/inert controls, recovery no-ops and transactional web cutover.
+Shared Apple tests cover replacement loss during recovery and per-canvas
+one-time clock redelivery, including newly created surfaces. Linux tests cover
+passive and actionable descendants, placed siblings and the rotated inverse
+sampler. Agent tests execute the refusal advice as CLI operations; report tests
+reject diagnostics that preceded the failure, and placement comparisons require
+matching ticks (initial 0, moving 60).
+
+The R10a Beacons proof exercises pointer Jump, cancel → Move, focused Space,
+fresh-host pointer cancellation and release of restored Space. iOS delivery is
+labelled `recognized`: the agent hit-tests through UIKit and calls the shared
+control seam; UIKit does not synthesize a touch. The live simulator run collected
+65 frame samples and 66 renders, with 5 HUD children and no captures. Its frame
+interval p50/p95 was 16.6667/16.6667 ms; these are simulator CPU/presentation
+measurements, not GPU timings.
+
+The web asset proof passes real device destruction, fail-once recovery, identical
+pixels and unchanged preparation counts. A healthy recovery call also preserves
+the original canvas identities. R10a leaves deterministic simulation pins unchanged.
+
+R10a host receipts (ordinary mode, unchanged pins):
+
+| Proof | Linux | Web | macOS | iOS |
+|---|---|---|---|---|
+| Beacons controls and fresh restore | pass, 77.647 s | pass, 13.027 s | pass, 396.363 s | pass, 248.423 s |
+| Asset recovery | not rerun here | pass, 24.621 s | not rerun here | not rerun here |
+| Placement, pinned ticks 0 and 60 | pass, 438.120 s | pass, 11.098 s | not rerun here | not rerun here |
+
+The explicit Beacons web/Linux comparison passes with equal world hashes; the
+subsequent Linux autorepeat regression and full Beacons rerun pass with unchanged
+pins. Placement rectangles are identical across web/Linux at ticks 0 and 60.
+
+Final validation: game workspace **559 passed, 11 ignored, zero failures**, using
+`RUST_TEST_THREADS=2 CARGO_BUILD_JOBS=2` after stopping a stalled parallel rustdoc
+batch. The targeted `exact-gpu` / `contract-lower` run has 29 passes; ExactKit has
+91 on macOS, and the shared control/recovery suite has 3 on the specified iOS
+simulator. The combined web/Apple-build/proof Bun suite has 134 passes, including
+`--repin` and `--report` regressions. Game and Linux all-target Clippy, root/game
+fmt, root workspace build, boot and explicitly staged scoped caps pass. Caps
+files were unstaged afterward; no R10a commit was made.
+
+Some earlier proof descendant-process audits timed out; their explicit carrier
+shutdowns completed, but no successful descendant audit is claimed for those runs.
+
+
+## R9 recovery and simulator receipt (2026-09-18)
+
+Historical R9 measurements follow; the updated I1b/R10a receipt above records
+the current control, autofocus and recovery validation.
+
+A failed adapter retry can receive replacement texture bytes before device
+attachment. WorldSurface now invalidates device assets once per loss, retaining
+those arrivals through repeated failure reports and `device_ready`. The real
+WebGPU destruction/fail-once proof passes pixel equality and the original
+preparation counts (4 textures, 2 meshes, 21 pipelines, 1 model-buffer growth).
+The Metal surface-lifecycle regression calls the surface loss hooks directly,
+including a replacement that prepares assets and then fails. It requires identical
+pixels and preparation counts; it does not test native loss detection. Headless attachment still
+requests missing texture bytes.
+
+Development Carry adds freshly declared Animation, Blend and Animator components
+and replaces conflicting controller kinds while preserving the sampled Pose;
+Open remains byte-exact. A Carry that changes the controller kind changes the
+world hash; deterministic setup makes that change deterministic. The mutable
+post-restore hook includes the audio module adapter. Primitive pose reads on Sim
+and WorldSurface both say `pose inspection requires game.assets: true`, with a
+regression comparing them. The score diary links the retained Sitting #2 heading.
+
+The isolated Skinned macOS reproduction builds and passes. The existing hashed
+rustc dep-info resolver and its library/executable regression tests pass; no
+resolver edit was needed. The Apple clock fixture already uses `childrenMode:`; all 12 clock/recovery tests pass.
+GPU module clock selection now follows `ExactEnv.agentFreezes`, so platform-timed
+agent sessions sample live rings instead of suppressing stamps as seekable work.
+Both Skinned and Beacons iOS proofs pass with the same deterministic pins.
+
+**Historical standalone-iOS CPU/presentation figures, not real GPU timings.**
+These numbers do not cover macOS or the sample hosts.
+Simulator `0CF430AF-CBA5-4F12-88CA-D05DEF06AFFF`, 3840 × 2160 render pixels.
+Entries are p50 / p95 in milliseconds; the frame ring records presentation-clock
+intervals. Samples were taken after resetting each live window.
+
+| Game | Tick CPU | Feed CPU | Encode CPU | Frame interval | Samples: tick/feed/encode/frame |
+|---|---:|---:|---:|---:|---:|
+| Beacons | 0.0092 / 0.0110 | 0.0093 / 0.0103 | 0.8897 / 1.1074 | 16.6667 / 16.6667 | 63 / 63 / 62 / 61 |
+| Skinned | 0.0236 / 0.0335 | 0.2458 / 0.3132 | 1.1047 / 1.3852 | 16.6667 / 16.6667 | 69 / 69 / 66 / 65 |
+
+Beacons recorded 61 renders, 0 captures, 5 HUD children and 0 placed/hidden
+children; Skinned recorded 66 renders, 0 captures, 1 HUD child and 0 placed/hidden
+children. Both report zero after-ready residency work. Full samples are in each
+fixture's ignored `artifacts/perf-ios-live.json`; seekable rings remain unsampled.
+The current Fox proof crops the reported screen bounds, requires varied orange
+fur and more than 10% non-white pixels, and executes a 95%-white negative image.
+It asserts the proof viewport’s 16:9 aspect; other aspects are not claimed.
+
+Current validation and each review fix's regression are recorded in the
+[R11 receipt](#r11-review-fixes-and-app-owned-starter).
+All seven games pass Linux continuous, Save and FreshGame proofs with unchanged
+pins; Beacons passes all four hosts and Skinned passes macOS/iOS. ExactKit passes
+97 tests, including the formerly failing autofocus-reset case. Concurrent changes
+were retained; no commit was made.
+
+
+Socket followers hold the last composed pose during a skipped animation step in
+this session. That derived hold is neither hashed nor saved: restore (including
+paranoid Save/FreshGame) reconstructs from saved local Pose and current owner and
+offset. Deleting a controller removes Pose and resumes live bind-pose composition;
+`deleting_controller_clears_pose_and_resumes_live_bind_composition` tests that choice.
+Dead follower entries are pruned on propagation, even with no followers, and on
+queries including stale hits.
+
+
+## D5 — fourth whole review deletion pass (2026-09-19)
+
+D5 removes the unsaved follower hold, unconditional particle reservation, the surface audio adapter’s null Player, the Surface count callback and separate previous-composite callback, Feed’s filtering switch and unused renderer arguments; the guide’s 224-line receipt tail is archived above with its dates intact. Followers compose saved local joints with current owner/offset; the regression moves both across a skipped animation step, restores into a fresh world and publishes the same next-tick position. Particle pipelines and arenas prepare only with emitters, reserving the steady stream (including one interpolation tick) and growing at feeds for larger births. The primitive renderer used by Beacons measured **14,942,208 → 262,144 CPU bytes** and **5,242,880 → 0 GPU bytes** in the affected particle/order storage: CPU is actual Vec capacity × element size; GPU is the particle vertex buffer’s allocation size. These are reserved bytes, not RSS or total renderer memory; unchanged sprite/child and effect allocations are excluded. The release feed diagnostic now uses the same filtering path as games: 200k entities, all/1%/none moving p50 **0.4898/0.0094/0.0035 ms**, p95 **0.6267/0.0312/0.0052 ms**; 500k p50 **1.2627/0.0243/0.0055 ms**, p95 **1.4990/0.0552/0.0070 ms**, during concurrent builds, not a quiet comparative benchmark. Final validation: game workspace **545 passed, 11 ignored**, all-target clippy and both workspace formatting checks pass; root workspace build and **42** GPU/Caltrain tests pass; web host Bun tests **97 passed**. All seven games pass Linux continuous/Save/FreshGame across runs and retries; Skinned, Particles and Placement pass web, and Beacons passes macOS. Caltrain web functional checks pass, but its smoke exits nonzero solely for Chrome Keychain/encryption diagnostics. The initial workspace run found the removed null-player test reference; the second found a remaining stale-hold assertion; the third passes. Particle web initially found two after-ready buffer growths; steady-stream preparation fixes them and the rerun records zero after-ready residency work. Linux retries recovered readiness timeouts and Placement’s failed initial build/empty comparison baseline. Removed/replaced code-and-test lines by brief item 1–5: **119 / 24 / 17 / 40 / 37**, excluding other writers’ hunks and guide prose; item 6 moves **224** receipt lines, preserving dates. These are gross removals, not net reductions after replacements and regression additions. No pins or commits changed. D5 remains incomplete in two explicitly restricted engine sites: deleting World/scene’s now-empty propagation callback and installing component-owned audio detachment require the pending scope answers; `/tmp/d5-pending-engine.patch` contains those unapplied edits. Scoped caps passes with only explicit D5 paths staged and then unstaged.
+
+E9 — 2026-09-19 (Codex, one agent, uncommitted): added `nearest_xz_mut` with identity, named `require`/`require_mut` diagnostics, strip/sprite first-frame pairing, explicit `Motion::apply_local`, `Sim::with_assets` and `Sim::assert_pin`, and one-step `World::sounds`; games and the template use the corresponding idioms and named Contract calls. The guide now states depth-first translucent sorting and opaque emissive/bloom glow. Proof traversal and web artifact restoration share one implementation, placement owns its comparison entry point, residency helpers live beside the lifecycle, Beacons runs one ordinary session plus fresh-process continuation and exercises pointer Jump/Light on web/iOS, and receipts are host-keyed. First pins require Linux and web and reject explicit `--repin`; Chrome reuse releases keys/touch, clears origin storage while retaining HTTP cache, resets history and refreshes boot timing. The isolation regression first observed the previous stage’s IndexedDB secret/history and now passes; 91 proof/feel tests, six focused engine regressions, five Contract surface tests, all fixture logic targets (Beacons rerun), clippy, scoped formatting and scoped caps pass. All seven games pass host-less Linux, Linux Off/Save/FreshGame and web after serialized Beacons retries; Beacons also passes iOS/macOS, and placement’s direct host comparison passes. Warm Beacons whole commands measured 0.283 s Linux and 14.302 s web during concurrent validation; checked-in game pins did not move. Global game tests retain the other writer’s follower-removal failure (540 passed, one failed, 11 ignored); global formatting reports their Stack assertion. The starter suite’s third round timed out after its Linux proof passed; no fourth attempt or longer deadline was added. Broader root tests exposed Stack/Apple failures and were stopped with their owned process tree after prolonged unrelated TypeScript/producer checks; this is not a full root pass. Several proofs skipped descendant inventory when ps stalled, while recorded carrier shutdowns were awaited. `Placed::named_child` awaits approval for out-of-scope host/GPU identifier plumbing, and compile-time unknown argument-field checks are queued with the missing Rust-schema transport cost; runtime named-field refusals/defaults are verified. Concurrent hunks were preserved; no commit, clone, sub-agent, stash, or machine/disk check was added.
+
+
+R13 — 2026-09-19 (Codex/astra, one agent, uncommitted): surface calls now share `name=value` with component arguments; empty and short positional calls take Rust defaults, and game bakes refuse unknown names/excess arguments through the actual surface declaration. Plan v5 carries call mode and changes plan bytes; this lane changed no world/save pins. Beacons `world()` binds `seed=0, paused=false, restart=false`; the skinned fixture uses `world()` with `blend_bias=0`. Corrupt world saves run zero setups; valid restores run one, including FreshGame with registered physics. Capture refuses uninitialized submodules and tracked files under inferred output roots; nested source paths remain hashed. The template supplies the first-bake lock, stale shell-only locks refuse, offline cache prerequisites are explicit, and two new-game copies capture identical locks. DPR 2/3 crops, restored ambiguous-owner cancellation, retained Linux keyboard routing, all three host batch paths, and content-only generation inventories have regression coverage; raw transport key order is not a hash input. Validation: root build/boot and 234 requested root tests pass; game workspace 547 pass/12 explicit ignores; host-less games 32 pass/1 ignore; requested Bun suite 105 pass/2 skips; all seven Linux Off/Save/FreshGame and web proofs pass, as do skinned iOS at DPR 3 and Beacons macOS/iOS. The broad web suite remains 97 pass/one native-start timeout after three rounds; deploy retains its documented root-closure refusal. Formatter/symbol/diff tests pass (3 fmt, 5 symbols); `fmt --check` passes 14 of 43 Contract files and reports 29 formatting differences, listed verbatim with each finding’s red/green evidence in `~/Library/Caches/exact2-game/briefs/receipt-R13-astra-20260919.md`. As the last source change, after both files were unchanged for over ten minutes, controls moved to `host/linux/src/surface_controls.rs` and binding to `game/render/src/surface/args.rs`, leaving their parent files at 1,147/1,442 lines; the GPU retirement test is explicitly ignored and passed opt-in on a device. Post-split Linux/render tests, both workspace Clippy/format checks, scoped caps, Beacons Linux in all paranoid modes and skinned web pass; the index is clear.
+
+**E10 — Codex, 2026-09-19 (in progress).** Linux proofs select the incremental `gpu-dev` profile and bind that choice into their artifact receipt; web and Apple retain their existing production profiles. The original Beacons pins passed the first fast-profile run. `count`, snapshot observation recording, scene-owned `Follow`, and renderer-sampled `Glow(Tween)` now have regressions; a real GPU test first reproduced `[255,255,255]` at full glow and passes with the soft HDR shoulder. The starter keeps its grid, sky-colored fog and pads, uses a translucent HUD, checks the actual constant-acceleration closed form (Character is not exponential), and exercises a click-focused Pause with Space/Enter. Chrome focus-visible/hover and activation-key tests pass, as does Linux's activation-key test. Beacons' intended glow schema change was repinned after Linux/web continuous, Save and FreshGame agreed; no profile-induced hash change has been observed. Clippy, formatting and scoped caps passed; 84 selected Bun tests, the starter’s five Rust tests, renderer unit tests and Beacons macOS passed. The lit starter web capture is `/private/tmp/e10-starter/artifacts/web/game.png`; its proof assertions pass in baseline-collection mode (UNVERIFIED), using a temporary legacy `app` identity solely to bypass the pending manifest-reader extension. The two Cargo-backed Bun integrations are not green. Greybox’s repin was refused after a web navigation timeout and its pins remain old. Full validation and timings are incomplete: three subsequent Beacons native starts produced no ready message or stderr within 20 seconds, so that retry loop stopped; several concurrent restore-validation tests also failed, and the workspace run was stopped after its doctest compilers stalled. The overrange renderer expectation was updated for highlight headroom but its targeted rerun was stopped while waiting for the shared build lock. The final selected Bun rerun finished 83 pass/1 timeout (the empty-directory generator child), with two Cargo integrations excluded; the earlier run passed all 84 selected tests, and the separate repin-reason regression passed. Compact manifest generation preserves authored bytes and writes resolved defaults under `.shells`, but the requested top-level `name`/`id` form needs a small Contract manifest-reader extension outside the listed scope, for which approval is pending. No commit, stash, clone or sub-agent was used.
+
+
+R14 — 2026-09-19 (Codex, one agent, uncommitted): the renderer owns its 80-line fixture game and 29-line synthetic skin helper; engine workspace manifests and test sources no longer import consumer games. Restore fully decodes a typed scratch world before gameplay setup, with argument-dependent registration in `Game::register`; corrupt valid-magic saves run zero setups and preserve the receiver. Authors use `sounds`, pins identify their game, exported bake surfaces supply their own names, native children enter draw reservation, and dependency tests enter proof hashes. One policy applies Cargo reproducibility flags to generated game shells; ordinary no-lock apps reach their bake. Missing Caltrain web artifacts skip with the build command, and the checkout recipe installs Bun dependencies before Cargo. The two shared README excerpts now compile with doctest-only declarations. Fresh detached-checkout validation, before any game shell existed: both workspace builds passed; game tests passed 564 with 12 explicit ignores; workspace clippy/format, caps and boot passed after the recorded retries. The completed root test command failed the existing Apple Keychain refusal. The Bun suite passed 99 tests with two skips, and the final four R14 regressions passed under a private Bun 1.3.12; the external-output capture test uses an explicit subprocess-test deadline after reproducing its default five-second timeout. Final hostless results were 30 passed, two Greybox stale-pin/tree failures, one ignore. Earlier receipts show six games passing Linux Off/Save/FreshGame and web, plus Beacons on macOS; the final matrix encountered native readiness timeouts and then locked-graph refusals after sibling ibex required ureq 3.4.2 while captured game locks selected 3.4.0. Global Bun also changed to 1.4.2 during validation. Later Contract symbol edits pass their six tests and focused clippy; full root rechecks stalled in TypeScript workers and were stopped at the retry bound. No clean final cross-host matrix is claimed. Logs and both matrices are under `/tmp/exact-r14`; other writers’ changes are preserved and no commit was made.
+
+R15 (2026-09-19, Codex): ordinary workspaces with a Cargo.lock again use `--locked --offline`, while generated shells always require their captured lock. Pointer-completed HUD buttons release focus to the canvas; keyboard activation retains focus, with scoped outlines and no hover filter. Restore now installs a fully decoded world without setup, validates arguments, saved input and timestamp offsets before registration, and exposes only setup/restart fields to registration. The game and generated shells use `-C llvm-args=-fp-contract=off` (LLVM rejected the `-ffp-contract` spelling), and even Linux-only repinning requires release agreement; gpu-dev disables debug assertions and overflow checks. Tween and Glow now share the smoothstep sampler: at 60 Hz, frame tick 15 with alpha 0.5 samples 14.5/60 seconds, not the saved tick 15. The highlight shoulder moved from global tonemapping to Glow emissive output alone: authored emissive 3 becomes 2.666667 with Glow at 1, while a material without Glow remains 3; the renderer fixture now uses the engine's Glow. Beacons and Greybox manifests are compact, and both bake reader paths consume the resolved `.shells/app.json`. No pins were rewritten by R15. Focus cleanup also preserves a different button focused by the press handler, and Linux action controls release only pointer-owned focus. Validation: 101 engine unit tests and 40 simulation integration tests pass; both glow tests pass; the web browser regression, all three Linux focus regressions, and 102 Apple host tests pass. The Beacons macOS click-Pause/Resume-then-Space drive jumps to Y=1.3361717. Root build and the requested Contract/GPU tests, game and Linux clippy, format, caps and boot pass; all eight focused R15 Bun tests plus the external-source hash test pass on pinned Bun 1.3.12. Receipt hashing also includes proof/test-like filenames and authored test/example directories, retaining only explicit excluded roots. The full game workspace completed with 586 passes, 12 ignores and two old test-expectation failures; both pass in current-tree reruns. The broad suites and host matrix are not clean: native/page readiness deadlines recur, Greybox retains its stale Glow tree expectation, skinned tick 60 and sprites tick 300 differ, and Beacons/placement continuation saves differ amid concurrent fixture edits. Release-profile equivalence is not claimed because its host proof could not start. R15 stopped host retries without repinning; logs are in `/private/tmp/exact2-r15-tmp/`.
+
+
+D6 — 2026-09-19 (Codex, one agent, uncommitted): GPU builds emit content-stable `.shells/surfaces.json` with names, arguments and defaults; host build scripts consume it without linking gameplay. Manifests remain authored overrides and empty calls use Named. Attachments share retained owners and delivered identities, multipart draws share entity pose histories, bind groups follow backing-buffer/layout identity, and attachment overrides upload once per frame. Asset requests and retirements drain together; GPU tests share classified no-adapter handling; the residency probe and synthetic first-presented skin regression live beside the renderer. Placement uses a pull action, nearest entities work with `require`, Beacons walks by observation, sprites save Parallax, and Fox imports metres with shared real-bake test assets. Light selection is restore-independent; local emitter clouds and presentation exclusions are documented. The concurrent per-run prover exposed custom fixture servers serving old dist files; Asset and Skinned now honor `EXACT_WEB_DIST`. Sprites and Skinned passed Linux/web Off/Save/FreshGame plus release agreement and were repinned for Parallax state and metre normalization; Fox's joint golden was regenerated and agrees too. Root build, 240 requested root tests, all 590 game tests (12 ignored), both clippy/format checks, scoped caps and boot pass. Hostless games pass except Greybox's existing stale Glow tree expectation; Asset web and Particles/Greybox Linux paranoid plus web pass. Broad Bun proof/new tests report 90 pass, 3 failures and 1 error; web tests report 102 pass and one native-startup failure whose isolated retry passed. Caltrain smoke retains Keychain errors and three focus failures. Both Apple builds passed but their proofs missed readiness; Beacons/Placement repinning stopped after three attempts without changing their pins. E10 supplied edit → Beacons PASS 9.5 s (unchanged 0.65 s); D6's 28.85 s initial run rebuilt shared inputs, and its later unchanged/edit commands took 3.097/21.783 s but failed the changed continuation pin. GPU/host Cargo portions were 3.41/5.80 s: native receipts still watch the GPU digest. The under-three-second target and D6 Beacons dev-reload pair remain unmet; the other author's separate starter measured 16.074 s → 1.010–1.111 s. Three before-frame attempts failed Page.navigate; after-only 1280×720 rings (180 frames each) measured Skinned mean feed/encode 0.070/0.143 ms and Placement 0.082/0.106 ms, both with 16.666 ms frame intervals, so no speedup is claimed. Gross deleted/replaced nonblank code-and-test lines in brief §§1–6 are 12 / 17 / 57 / 480 / 62 / 53 (moves included; indentation-only edits, locks, pin/golden data, guides and other writers' hunks excluded). Detailed receipts, the declaration verbatim and the line audit are under `/private/tmp/exact2-d6-tmp/evidence/`. No commit, clone, sub-agent, stash, all-files staging or machine check was added.
+
+L0a — 2026-09-19 (Codex, one agent, uncommitted): a light now takes `Lit(Spring::new(0.))` and one `lit.to(now, 1.0)` instead of a tick loop copying intensity; presentation samples the saved spring and clamps negative overshoot. Positive tick-end intensity gates the nearest sixteen, with distance/entity order and documented boundary popping; the existing checkout had already removed incumbency. Regression-first checks caught off-light displacement and an unchanged awake body's false rest. Explicit ambient-resource and derived-publication declarations preserve save/hash rules through restore. The controller/fox example lives in `physics/tests/living.rs`: a 10 kg crate crosses the heightfield ledge awake at tick 366 and sleeps at tick 547 at `(4.3423862, -1.5000682, 0.061061338)` while sun, idle and countdown continue; Off/Save/FreshGame agree and ordinary time reaches night. Its current read of the Skinned game's Fox assets fails the consumer-dependency guard; the shared Khronos-bake replacement is prepared, but needs scope permission for a physics test-only Cargo dependency and its game lockfile entry. GPU readback of non-emissive geometry is `0.0 → 209.48 → 250.00` luminance, with identical restored pixels. The non-initial EXPHYS v2 pending-BVH boundary passes on arm64: both continuations consume the flag, restored bytes agree, and the omitted-flag negative control still diverges; x86-64 evidence remains owed with exact commands in the physics README. The legacy minimal-120 physics card alone was repinned to `0x5887eacf2e611c2f` for saved awake-work reasons after native arm64 and Chrome Off/Save/FreshGame agreed (there is no game-prover `--repin` entry point for that card); pile-600 stayed unchanged, and I changed no game pins. Workspace testing recorded 601 passes and twelve ignores; bake-output and app-doctest failures cleared on retry, while the own fixture dependency guard and the concurrent E10 white-highlight regression remain unresolved. All seven web proofs recorded PASS during the shared-tree run; Asset later failed its host-less pin check. Linux recorded PASS for all three Asset modes and Off for Beacons/Sprites; other modes miss readiness or, for Skinned FreshGame, lack final world state. The pinned host-less sweep has five passing games plus cubes; Asset's tick-60 pin reads `0x40e631cd3a00a319` instead of `0xb1365b0eb9a7c59d` again on isolated retry, and Greybox's stale Glow tree fails on its third attempt. Beacons macOS built but missed readiness on all three attempts, then stopped. Initial launchers used installed Bun 1.4.2; after noticing the pin, host retries, the complete host-less sweep and caps used an isolated 1.3.12. Clippy, game-workspace fmt and scoped caps pass. Transcripts and the prepared scope-extension patch are under `/private/tmp/exact2-l0a-tmp/`. No commit, clone, stash, sub-agent or all-files staging was used.
+
+L0b continuation (Codex, 2026-09-19): I used the asset fixture, leaving the grey box to L0a. One `Data`-derived `Island` is authored as `.level.json`, validated at bake and delivered through the asset barrier before setup; agent asset state exposes its value. Setup builds a coloured heightfield with matching collision and three rocks sharing one generated model. Saves retain level/generated-model names and content identities, never render vertices: reconstruct from the original level/seed before restore; keep other inputs in the level or saved setup arguments. Focused CPU/GPU tests pass for field validation, the barrier, restore refusal, shared uploads/draws, omitted megabyte geometry, colours and slope/ledge collision. Seed 7 → 8 → 7 changed delivered JSON while preserving the module digest. The collected web fixture has zero assertion failures: tick zero `0xbc85df8bf34cdaa8`, terrain 0.375/1.4375/2.25, slope contact 0.6399, five draws/eight instances, plus restore/residency/device-loss checks. Native agreement and repinning remain open: Linux launches timed out; both macOS builds signed but missed readiness. The workspace run recorded 607 passed, two failures and a missing-artifact app doctest error; the glow test was aligned with the concurrent authored-emission contract and passed, and the app doctest retry passed. The dependency guard still rejects the other author's physics living example importing a consumer game. Sprites/Particles/Skinned hostless retries pass after correcting their shared GPU helper import; clippy, fmt and scoped caps pass. Beacons measured 762,561 → 769,715 raw bytes (325,881 → 329,748 gzip); the fixture 992,705 → 1,683,377 raw (412,812 → 670,407 gzip). These shared-worktree deltas include concurrent changes; the no-growth artifact boundary remains in QUEUE.md, with no Cargo feature added. Evidence is `/private/tmp/exact2-l0b-tmp/receipt.json`; no commits were made.
+
+
+**E11 — Codex, 2026-09-19 (uncommitted).** Linux development `gpu-dev` now has independent GPU/host receipts: a logic edit selects only the GPU graph, the reusable host checks the GPU's completed receipt, and production retains exact product binding. Source inputs use the allowlist, clean Git blob identities and stat-cached dirty/product digests; repins require an agreeing source digest. After a warm-up, an external harness appended one comment to Beacons logic, ran its complete pinned Linux proof, repeated unchanged, appended a QUEUE comment, then removed only its own markers; it compared host receipt bytes on each run. Pinned Bun 1.3.12 measured 26.311 / 1.967 / 2.473 seconds, all PASS, at one-minute loads 49.3 / 56.5 / 56.5; only the edit rebuilt `beacons-logic` and `beacons-gpu` (Cargo 10.26 s), the host receipt stayed identical, and both cached runs rebuilt nothing. The earlier Bun 1.4.2 sample was 9.518 / 2.217 / 0.807 s at load 40.0 / 38.9 / 38.9, also all PASS; the edit <5 s and unchanged <1 s targets are not met by the pinned sample. Warm input hashing alone took 74–90 ms with zero content reads. Bounded Beacons walking now accounts for acceleration/braking and reuses the restored session for click/Resume/Space; Linux/web Off, Save, FreshGame and release agreed in `run-0jGVFZ`, retaining tick pins and intentionally retiming the continuation, with `inputs` recorded in `pins.json`. Pointer focus moves only to the enclosing canvas, preserves action/slider and assistive focus, and lets new autofocus win; web/Chrome and Linux regressions, Caltrain's functional web smoke, and all 104 Apple tests pass. GPU skip classification, assets-after-restore, finite positive light selection and tie/restore identities, authored Glow rest, and the immediate post-settle frame all have passing regressions. Root build, root/game clippy and formatting, scoped caps and boot pass; root GPU/Caltrain GPU tests total 45 passes and Linux totals 81. The game workspace recorded 607 passes, twelve ignores and two failures: the other writer fixed the old white-glow fixture and its retry passed; the physics consumer-dependency guard still fails. Five games pass hostless, with Greybox's stale Glow tree and Asset's stale endpoint pin remaining; Greybox/Sprites/Skinned/Particles/Placement pass Linux paranoid and web, while Asset's new level state still needs its owner's repin. Broad Bun runs used 1.4.2 and retained readiness/new-game/no-lock deadlines plus foreign physics README pin literals; the repin-provenance fixture was fixed and the final 1.3.12 selections pass 75 tests, including the real Chrome focus regression. The web suite retains one native-launch deadline after 103 passes; Caltrain's overall smoke is red only for Chrome Keychain errors. Beacons macOS built and passed with zero failures, and its cached Bun 1.3.12 run passed in 8.966 s, including click Pause → Resume → Space and all tick/save pins; its descendant audit timed out, while recorded carrier closure was awaited. Evidence is under `/private/tmp/exact2-e11-tmp/`; no commit, stash, clone, sub-agent, real-index mutation, or product machine/disk check was added.

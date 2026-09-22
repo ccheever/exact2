@@ -31,7 +31,12 @@ import { appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, b
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`); return r; };
+const run = (cmd, args, opts = {}) => {
+  const r = spawnSync(cmd, args, { cwd: root, ...opts,
+    stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
+  if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
+  return r;
+};
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
 // Every Apple toolchain invocation goes through here — cargo, swift build, and
 // the webarm swiftc alike: a mixed deployment target or an incompatible sysroot
@@ -418,7 +423,13 @@ function main(args) {
   try {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
-  const hasGpu = existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'));
+  const hasGpu = app.hasGpu;
+  let ph, prof;
+  const sha1 = device ? (() => {
+    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
+    prof = profile(ph.udid, app.id);
+    return identity(prof.team);
+  })() : ios ? '-' : macIdentity();
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
   // What the presenter dlopens is the same name whatever the app is: one
   // Swift binary serves every app, and two apps' modules would otherwise
@@ -450,7 +461,9 @@ function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development';
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, capture(buildReceipt) {
+  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, prepareGpu(product) {
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', product], {stdio:'ignore'});
+  }, capture(buildReceipt) {
     const composition = buildReceipt.compat.inputs?.store?.L === '0' ? 'embedded' : 'updating';
     paths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST });
     mkdirSync(paths.namespace, { recursive: true });
@@ -458,7 +471,7 @@ function main(args) {
     cleanup.push(capture);
     for (const file of [`lib${crate.replace(/-/g, '_')}.a`, ...(hasGpu ? [dylib] : [])]) captureAppleProduct(buildReceipt, resolve(cargoLibDir, file), resolve(capture, file));
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
-    copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]);
+    copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck'], ...(app.manifest.game ? [] : [['gpu/shaders', 'shaders']])]);
     if (buildReceipt.rust) copyStaticTreeIfPresent(buildReceipt.rust, resolve(capture, 'rust'));
     verifyBakeFiles(buildReceipt.compat, bakedPlan, listAssets(capture, true));
     placeAppleArtifact(capture, paths.capture);
@@ -553,8 +566,9 @@ function main(args) {
   // dlopens this file at the first iframe create commit.
   // `--sdk` and not a bare `xcrun`: xcrun exports SDKROOT for the tool it runs,
   // and the default is macosx — the same MacOSX-sysroot-for-an-iPhone-target the
-  // presenter's link step hits above.
-  const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
+  // presenter's link step hits above. The module cache stays in this app-owned
+  // Swift scratch while the completed dylib remains invocation-private.
+  const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
     webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
   } else {
@@ -600,7 +614,7 @@ function main(args) {
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
     // the keychain asks again — before the first frame.
-    const sha1 = macIdentity();
+
     // The bundle's plist — what a `.app` would carry when one is assembled —
     // is written beside the bare executable under its product's name, never
     // as `Info.plist`: codesign treats an `Info.plist` adjacent to a bare
@@ -674,12 +688,6 @@ function main(args) {
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
-  let ph, prof;
-  const sha1 = device ? (() => {
-    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
-    prof = profile(ph.udid, app.id);
-    return identity(prof.team);
-  })() : '-';
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');
@@ -705,7 +713,7 @@ function main(args) {
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
       entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null }));
-    for (const f of readdirSync(resolve(assembled, 'Frameworks'))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
+    for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName)) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
   publishProducts();
@@ -738,6 +746,7 @@ function main(args) {
  *  caps those at five); run it when the host's own behaviour changes. */
 function test(args) {
   const app = resolveApp(args.find((a) => !a.startsWith('--')));
+  app.prepare?.();
   const crate = app.crate('apple');
   const release = appleBuildLock(app);
   const paths = appleArtifacts(app, { composition: 'embedded' });

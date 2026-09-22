@@ -30,6 +30,7 @@ struct ClipKey {
 #[derive(Default)]
 pub struct Raster {
     target: Option<Pixmap>,
+    transparent: bool,
     scale: f32,
     width: u32,
     height: u32,
@@ -51,6 +52,13 @@ impl Raster {
     /// A backend with nothing painted.
     pub fn new() -> Raster {
         Raster::default()
+    }
+
+    pub(crate) fn transparent() -> Self {
+        Self {
+            transparent: true,
+            ..Self::default()
+        }
     }
 
     fn device(&self, ts: Transform) -> Transform {
@@ -383,7 +391,9 @@ impl Backend for Raster {
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.reset(width, height, scale);
         let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
-        pixmap.fill(Color::WHITE);
+        if !self.transparent {
+            pixmap.fill(Color::WHITE);
+        }
         self.target = Some(pixmap);
     }
 
@@ -623,6 +633,26 @@ impl Backend for Raster {
         };
         if let Some(t) = self.target.as_mut() {
             t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
+        }
+    }
+
+    fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
+        let clips: &[Shape] = &[];
+        let ts = Transform::identity();
+        let (nw, nh) = (image.width() as f32, image.height() as f32);
+        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
+            return;
+        }
+        let mask = self.mask_with(clips, ts);
+        let dev = self
+            .device(ts)
+            .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
+        let paint = PixmapPaint {
+            quality: FilterQuality::Bilinear,
+            ..PixmapPaint::default()
+        };
+        if let Some(t) = self.target.as_mut() {
+            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_ref());
         }
     }
 

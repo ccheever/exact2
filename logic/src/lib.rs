@@ -10,6 +10,9 @@ pub use exact_runner;
 use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
 use sha2::{Digest, Sha256};
 
+/// Version of the data-only Rust module protocol this host accepts.
+pub const ABI: u32 = abi::ABI;
+
 #[cfg(target_arch = "wasm32")]
 mod browser;
 mod configured;

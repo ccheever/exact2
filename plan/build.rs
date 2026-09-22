@@ -132,7 +132,7 @@ fn rust_type(c: &Codec) -> String {
 
 fn validate(schema: &Schema) {
     assert_eq!(
-        schema.format_version, 4,
+        schema.format_version, 5,
         "format: unsupported formatVersion"
     );
     let tables: BTreeSet<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();

@@ -138,7 +138,7 @@ pub(crate) struct Lowerer<'a> {
     pub styles: BTreeMap<String, Vec<Attr>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5).
-    pub fns: BTreeMap<String, FnDecl>,
+    pub fns: BTreeMap<&'a str, &'a FnDecl>,
     /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
     pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
     /// The item/binding scope at each expanded `each`, for row-slot initializers.
@@ -218,11 +218,7 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
-        fns: file
-            .fns
-            .iter()
-            .map(|f| (f.name.clone(), f.clone()))
-            .collect(),
+        fns: file.fns.iter().map(|f| (f.name.as_str(), f)).collect(),
         fn_depth: 0,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
@@ -560,7 +556,7 @@ impl<'a> Lowerer<'a> {
                             c.span,
                         );
                     };
-                    let Some(style) = self.styles.get(name).cloned() else {
+                    let Some(style) = self.styles.get(name) else {
                         return err(
                             "lower-unknown-class",
                             format!("`class={name}`: no `style {name}` in this file"),
@@ -570,12 +566,18 @@ impl<'a> Lowerer<'a> {
                     class_name = Some(name);
                     expanded.extend(
                         style
-                            .into_iter()
-                            .filter(|s| !attrs.iter().any(|a| a.name == s.name)),
+                            .iter()
+                            .filter(|s| !attrs.iter().any(|a| a.name == s.name))
+                            .cloned(),
                     );
                 }
                 let class_len = expanded.len();
-                expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                let expanded = if class_name.is_some() {
+                    expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                    expanded.as_slice()
+                } else {
+                    attrs.as_slice()
+                };
                 // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
                 if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
                     if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
@@ -596,8 +598,8 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                tags::validate_list(tag, &expanded, children, *span)?;
-                self.check_collection(tag, &expanded, children, *span)?;
+                tags::validate_list(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -649,7 +651,7 @@ impl<'a> Lowerer<'a> {
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
                 let mut surface: Option<exact_plan::SurfacesId> = None;
-                for (style, value) in &t.fixed_styles {
+                for (style, value) in t.fixed_styles {
                     // A fixed row is an enum's name or a number in points.
                     let v = match value.parse::<f64>() {
                         Ok(n) => Value::Number(n),
@@ -662,7 +664,7 @@ impl<'a> Lowerer<'a> {
                         expr: code,
                     });
                 }
-                for (prop, value) in &t.fixed_props {
+                for (prop, value) in t.fixed_props {
                     let code = self.b.constant(&Value::str(value));
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
@@ -697,7 +699,7 @@ impl<'a> Lowerer<'a> {
                     .sites
                     .as_ref()
                     .map(|_| vec![Origin::Tag; bindings.len()]);
-                let font = self.font_use(&expanded)?;
+                let font = self.font_use(expanded)?;
                 for (index, a) in expanded.iter().enumerate() {
                     self.attr(
                         tag,
@@ -720,27 +722,32 @@ impl<'a> Lowerer<'a> {
                 }
                 // Two bindings for one row — a style's and the node's own, a
                 // tag's fixed row and an attribute — the last one wins.
-                let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
-                let mut deduped: Vec<BindingsRow> = Vec::new();
-                let mut deduped_origins = origins.as_ref().map(|_| Vec::new());
-                for (index, b) in bindings.drain(..).enumerate() {
-                    match seen.get(&(b.kind as u8, b.id)) {
-                        Some(&i) => {
-                            deduped[i] = b;
-                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
-                                to[i] = from[index].clone();
+                if bindings.len() > 1 {
+                    let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
+                    let mut unique = 0;
+                    for index in 0..bindings.len() {
+                        let b = &bindings[index];
+                        let target = match seen.get(&(b.kind as u8, b.id)) {
+                            Some(&i) => i,
+                            None => {
+                                seen.insert((b.kind as u8, b.id), unique);
+                                unique += 1;
+                                unique - 1
                             }
-                        }
-                        None => {
-                            seen.insert((b.kind as u8, b.id), deduped.len());
-                            deduped.push(b);
-                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
-                                to.push(from[index].clone());
+                        };
+                        // Targets are in the consumed prefix: unread rows stay intact.
+                        if target != index {
+                            bindings.swap(target, index);
+                            if let Some(origins) = &mut origins {
+                                origins.swap(target, index);
                             }
                         }
                     }
+                    bindings.truncate(unique);
+                    if let Some(origins) = &mut origins {
+                        origins.truncate(unique);
+                    }
                 }
-                let bindings = deduped;
                 let handler_refs: Vec<(EventKind, exact_plan::ActionsId, &[Code])> = handlers
                     .iter()
                     .map(|(e, a, c)| (*e, *a, c.as_slice()))
@@ -788,7 +795,7 @@ impl<'a> Lowerer<'a> {
                         *span,
                         *instance,
                         &bindings,
-                        deduped_origins.as_deref().expect("site origins"),
+                        origins.as_deref().expect("site origins"),
                     ));
                 }
                 self.nodes(children, Some(id), arm, scope, locals, Some(tag))
@@ -1159,6 +1166,15 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         media::check(name, value, span)?;
         let want = tags::prop_ty(prop);
+        if prop == PropId::AccessibilityLive
+            && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
+        {
+            return err(
+                "lower-attr-value",
+                "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
+                span,
+            );
+        }
         if prop == PropId::ImageSource {
             if let Expr::Str(source, _) = value {
                 if let Some(role) = source.strip_prefix("symbol:") {
@@ -1250,12 +1266,22 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
-        if (tag != "iframe" && matches!(a.name.as_str(), "sandbox" | "load" | "message"))
+        if (tag != "iframe"
+            && matches!(a.name.as_str(), "sandbox" | "load" | "message")
+            && !(tag == "canvas" && a.name == "message"))
             || (tag != "iframe" && tag != "video" && a.name == "src")
         {
             return err(
                 "lower-attr-tag",
-                format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
+                format!(
+                    "`{}` belongs to {}, not `{tag}`",
+                    a.name,
+                    if a.name == "message" {
+                        "`iframe` or `canvas`"
+                    } else {
+                        "`iframe`"
+                    }
+                ),
                 a.span,
             );
         }
@@ -1291,7 +1317,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Styles(rows) => {
-                if rows.as_slice() == [StyleId::FontFamily] {
+                if rows == [StyleId::FontFamily] {
                     let Expr::Str(name, _) = &a.value else {
                         return err(
                             "lower-font-family-literal",
@@ -1314,9 +1340,9 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                self.check_style_value(a, &rows, scope, font)?;
+                self.check_style_value(a, rows, scope, font)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
-                for row in rows {
+                for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,
@@ -1364,7 +1390,11 @@ impl<'a> Lowerer<'a> {
                 };
                 let mut codes = Vec::new();
                 for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
+                    let (name, value) = match arg {
+                        Expr::NamedArg(name, value, _) => (name.as_str(), value.as_ref()),
+                        _ => ("", arg),
+                    };
+                    codes.push((name, self.expr_code(value, scope, locals)?));
                 }
                 *surface = Some(self.b.surface(name, &codes));
             }
@@ -1403,7 +1433,7 @@ impl<'a> Lowerer<'a> {
                                 "hover" => " plus whether the pointer is over",
                                 "key" => " plus the key's name",
                                 "change" => " plus the new value",
-                                "message" => " plus the guest's message",
+                                "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",
                                 "transformgeometry" => " plus four geometry numbers",

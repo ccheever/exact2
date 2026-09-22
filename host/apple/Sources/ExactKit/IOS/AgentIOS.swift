@@ -190,6 +190,7 @@ extension Agent {
     /// presentation transform applied (UIKit's conversion carries `transform`),
     /// as the web's `getBoundingClientRect` includes CSS transforms.
     func box(_ v: UIView) -> CGRect {
+        if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let vp = presenter.viewport
         let o = vp.contentOffset
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
@@ -324,7 +325,7 @@ extension Agent {
         // Who hides or inerts it is named: a reader must not guess which
         // ancestor did.
         let describe = { (view: UIView) -> String in (view as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: view)) }
-        var hiddenBy: String? = host.isHidden || host.alpha == 0 ? describe(host) : nil
+        var hiddenBy: String? = host.isHidden || (host.alpha == 0 && host.placement == nil) ? describe(host) : nil
         var inertBy: String? = host.isUserInteractionEnabled ? nil : describe(host)
         var clipped = b.isEmpty
         var chain: [[String: Any]] = []
@@ -340,7 +341,7 @@ extension Agent {
                 above = s.superview
                 continue
             }
-            if hiddenBy == nil, s.isHidden || s.alpha == 0 { hiddenBy = describe(s) }
+            if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
                 if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
@@ -392,6 +393,8 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
+        if let reply = canvasTap(req) { return reply }
         if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
@@ -489,7 +492,7 @@ extension Agent {
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress() }
         return ["tapped": Int(v.id), "at": at]
     }
 
@@ -525,6 +528,22 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
+            let phase = req["phase"] as? String
+            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            guard v.focusSurfacePointer() else { return ["error":"control cannot take focus"] }
+            for step in phase.map({ [$0] }) ?? ["down", "up"] {
+                guard v.controlKey(code, down: step == "down") else { return ["error":"control \(v.props["action"] ?? "") refused input"] }
+            }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak v] in
+                    guard let v else { return ["phase":"up", "delivery":"recognized"] }
+                    return v.controlKey(code, down: false) ? ["phase":"up", "delivery":"recognized"] : ["error":"control refused release"]
+                }
+            }
+            return ["typed":v.id, "key":key, "delivery":"recognized"]
+        }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
@@ -532,6 +551,27 @@ extension Agent {
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }
+        if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
+           v.forwardsCanvasKey(device.code) {
+            guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
+            let phase = req["phase"] as? String
+            guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
+            for step in phase.map({ [$0] }) ?? ["down", "up"] {
+                guard session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": step == "down", "repeat": false]) else { return ["error":"surface refused key"] }
+            }
+            if phase == "down", let token = req["releaseKey"] as? String {
+                keyReleases[token] = { [weak self, weak canvas] in
+                    if let self, let canvas { guard self.session.canvases.input(canvas, ["t": "key", "code": device.code, "key": device.key, "down": false, "repeat": false]) else { return ["error":"surface refused key release"] } }
+                    return ["phase": "up", "delivery": "recognized"]
+                }
+            }
+            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        }
+        if let key = req["key"] as? String, ["Space", " ", "Enter"].contains(key), v.handlers.contains("press") {
+            _ = v.becomeFirstResponder()
+            if req["phase"] as? String != "up" { presenter.press(v.id) }
+            return ["typed": v.id, "key": key, "delivery": "recognized"]
+        }
         if let f = v.textArea {
             f.becomeFirstResponder()
             if let key = req["key"] as? String {

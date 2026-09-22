@@ -219,6 +219,118 @@ fn activation_defers_io_to_the_owned_job_and_parse_returns_its_result() {
 }
 
 #[test]
+fn filesystem_lifecycle_preserves_results_and_two_path_authority() {
+    let paths = Paths::new();
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    host.activate().unwrap();
+
+    let request = |op, args| storage::request(op, args);
+    run(
+        &mut host,
+        request("fs.mkdir", json!({"path":"app:/data/files"})),
+    )
+    .unwrap();
+    run(
+        &mut host,
+        request(
+            "fs.writeFile",
+            json!({"path":"app:/data/files/source","text":"one"}),
+        ),
+    )
+    .unwrap();
+    run(
+        &mut host,
+        request(
+            "fs.appendFile",
+            json!({"path":"app:/data/files/source","bytes":[0,255]}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            &mut host,
+            request("fs.readFile", json!({"path":"app:/data/files/source"})),
+        )
+        .unwrap(),
+        json!({"base64":"b25lAP8="})
+    );
+    run(
+        &mut host,
+        request(
+            "fs.atomicWriteFile",
+            json!({"path":"app:/data/files/source","text":"final"}),
+        ),
+    )
+    .unwrap();
+    let stat = run(
+        &mut host,
+        request("fs.stat", json!({"path":"app:/data/files/source"})),
+    )
+    .unwrap();
+    assert_eq!(stat["size"], 5);
+    assert_eq!(stat["isFile"], true);
+    assert_eq!(stat["isDirectory"], false);
+    assert!(stat["modifiedMs"].is_number());
+
+    let mut denied_copy = request(
+        "fs.copyFile",
+        json!({"path":"app:/data/files/source","destination":"app:/data/files/denied"}),
+    );
+    denied_copy.grants = Some("fs.read app:/data".into());
+    assert!(run(&mut host, denied_copy).is_err());
+    assert!(!paths.0.join("data/files/denied").exists());
+
+    run(
+        &mut host,
+        request(
+            "fs.copyFile",
+            json!({"path":"app:/data/files/source","destination":"app:/data/files/copy"}),
+        ),
+    )
+    .unwrap();
+    run(
+        &mut host,
+        request(
+            "fs.rename",
+            json!({"path":"app:/data/files/copy","destination":"app:/data/files/moved"}),
+        ),
+    )
+    .unwrap();
+    assert_eq!(
+        run(
+            &mut host,
+            request("fs.readdir", json!({"path":"app:/data/files"})),
+        )
+        .unwrap(),
+        json!(["moved", "source"])
+    );
+    let real = run(
+        &mut host,
+        request("fs.realpath", json!({"path":"app:/data/files/moved"})),
+    )
+    .unwrap();
+    assert!(real.as_str().unwrap().ends_with("/data/files/moved"));
+    for path in ["app:/data/files/source", "app:/data/files/moved"] {
+        run(&mut host, request("fs.rm", json!({"path":path}))).unwrap();
+    }
+    assert_eq!(
+        run(
+            &mut host,
+            request("fs.readdir", json!({"path":"app:/data/files"})),
+        )
+        .unwrap(),
+        json!([])
+    );
+
+    let mut denied_sql =
+        storage::request("sqlite", json!({"path":"app:/data/test.db","commands":[]}));
+    denied_sql.grants = Some("fs.read app:/data\nfs.write app:/data".into());
+    assert!(run(&mut host, denied_sql).is_err());
+    assert!(!paths.0.join("data/test.db").exists());
+}
+
+#[test]
 fn extracted_jobs_are_aborted_when_their_source_is_retired() {
     let paths = Paths::new();
     let mut host = Storage::new(Fixture::new());

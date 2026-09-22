@@ -493,7 +493,7 @@ impl<D: DataSource> Presenter<D> {
             .collect()
     }
 
-    pub(super) fn queue_collections(&mut self) {
+    pub(crate) fn queue_collections(&mut self) {
         let retained = self.arrange_pin().map(|p| p.0);
         if self.collection.interaction.is_some_and(|id| {
             Some(id) != retained

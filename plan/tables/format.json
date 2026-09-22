@@ -1,5 +1,5 @@
 {
-  "formatVersion": 4,
+  "formatVersion": 5,
   "_header": "Extra header fields after the four fixed integers (magic, version, format digest, kernel schema, compiler identity), in declaration order. `string` is length-prefixed UTF-8. `app_id` is the app identity, reverse-DNS (LLP 1023 D5): bake writes it from DataSource::app_id(); empty is unnamed (a fixture or a stand-in) and unnamed matches anything at boot. LLP 1038 D2: router names the root slot filled before initializers.",
   "header": [
     {
@@ -323,15 +323,29 @@
       ]
     },
     {
-      "name": "surfaces",
+      "name": "surface_args",
       "fields": [
         {
           "name": "name",
           "codec": "str"
         },
         {
+          "name": "expr",
+          "codec": "code"
+        }
+      ]
+    },
+    {
+      "name": "surfaces",
+      "fields": [
+        { "name": "mode", "codec": "enum:SurfaceArgsMode" },
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
           "name": "args",
-          "codec": "range:args"
+          "codec": "range:surface_args"
         }
       ]
     },
@@ -430,6 +444,7 @@
   ],
   "_enums": "Wire ordinal is the 0-based index. An unknown ordinal is a typed decode rejection.",
   "enums": {
+    "SurfaceArgsMode": ["named", "positional"],
     "TypeKind": [
       "number",
       "bool",

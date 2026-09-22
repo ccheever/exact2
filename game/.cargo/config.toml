@@ -1,0 +1,3 @@
+# All game profiles use the same non-contracting floating-point operations.
+[build]
+rustflags = ["-C", "llvm-args=-fp-contract=off"]

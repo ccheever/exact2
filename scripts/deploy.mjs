@@ -49,12 +49,13 @@
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, rustBundle, rustPackage } from './rust.mjs';
-import { buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree } from './app.mjs';
+import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree } from './app.mjs';
+import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
@@ -245,10 +246,23 @@ function sourcePathspec(repo, app, exactRoot) {
   const workspace = canonicalPath(app.workspace ?? app.dir);
   const outputs = [resolve(repo, 'target'), resolve(repo, 'node_modules'),
     resolve(repo, '.agent-skill-sources'), resolve(repo, '.agent-skill-backups'), resolve(repo, '.llp/ship-runs'),
-    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'),
+    canonicalPath(app.target ?? resolve(workspace, 'target')), resolve(workspace, 'target'), resolve(workspace, 'node_modules'), resolve(workspace, '.shells'), resolve(app.dir, '.shells'),
     resolve(exactRoot, 'target'), resolve(exactRoot, 'node_modules'), resolve(exactRoot, 'host/web/dist'),
     resolve(exactRoot, 'host/web/dist.previous'), resolve(exactRoot, 'host/apple/.build'),
     resolve(exactRoot, 'host/apple/macos/.build'), resolve(exactRoot, '.claude/worktrees')];
+  // Each game owns generated products. A sibling app's cache is no more
+  // source than the selected app's cache; its captured Cargo.lock is source.
+  outputs.push(resolve(exactRoot, 'game/target'), resolve(exactRoot, 'game/.shells'), resolve(exactRoot, 'game/render/target'));
+  for (const group of ['games', 'bench']) {
+    const parent = resolve(exactRoot, 'game', group);
+    if (!existsSync(parent)) continue;
+    for (const entry of readdirSync(parent, {withFileTypes:true})) {
+      const dir = resolve(parent, entry.name);
+      if (!entry.isDirectory() || !existsSync(resolve(dir, 'app.contract'))) continue;
+      for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(dir, output));
+    }
+  }
+  if (app.manifest?.game) for (const output of ['target', '.shells', 'dist', 'dist.previous', 'artifacts']) outputs.push(resolve(app.dir, output));
   // Keep the lexical path as well as its canonical alias. In particular,
   // `target -> /shared/cache` is still the declared in-repo output root; if
   // we realpath it first, the symlink itself re-enters the source inventory.
@@ -279,23 +293,26 @@ function repoTop(cwd, what = 'source') {
  * inputs too. A package can inherit fields or read inputs from its workspace
  * root, so the immutable unit is its whole repository, not just its crate. */
 function cargoDependencyRoots(app, exactRoot) {
-  const workspace = canonicalPath(app.workspace ?? app.dir);
-  if (!existsSync(resolve(workspace, 'Cargo.toml'))) return [];
-  const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
-    cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-  });
-  if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the locked local source graph: ${result.stderr.trim()}`);
-  let metadata;
-  try { metadata = JSON.parse(result.stdout); }
-  catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
   const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
   const repos = new Set();
-  for (const pkg of metadata.packages ?? []) {
-    if (pkg.source !== null || typeof pkg.manifest_path !== 'string') continue;
-    const packageDir = canonicalPath(dirname(pkg.manifest_path));
-    const repo = repoTop(packageDir, 'local Cargo dependency');
-    if (owned.has(repo)) continue;
-    repos.add(repo);
+  // Materialization validates both workspaces. Capture both local dependency
+  // closures too, even when the app belongs to a separate enclosing workspace.
+  for (const workspace of new Set([canonicalPath(app.workspace ?? app.dir), canonicalPath(exactRoot)])) {
+    if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app, workspace)], {
+      cwd: workspace, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    });
+    if (result.status !== 0) refuse(`${workspace}: cargo cannot resolve the local source graph: ${result.stderr.trim()}`);
+    let metadata;
+    try { metadata = JSON.parse(result.stdout); }
+    catch (error) { refuse(`${workspace}: cargo metadata was not JSON: ${error.message}`); }
+    for (const pkg of metadata.packages ?? []) {
+      if (pkg.source !== null || typeof pkg.manifest_path !== 'string') continue;
+      const packageDir = canonicalPath(dirname(pkg.manifest_path));
+      const repo = repoTop(packageDir, 'local Cargo dependency');
+      if (owned.has(repo)) continue;
+      repos.add(repo);
+    }
   }
   return [...repos].sort().map((cwd) => ({ role: 'cargo', cwd }));
 }
@@ -318,7 +335,7 @@ function validateCapturedTree(source, sources, env, tree) {
   for (const entry of entries.filter((item) => item.type === 'commit')) {
     const nested = canonicalPath(resolve(source.repo, entry.name));
     if (!sources.some((candidate) => candidate.repo === nested)) {
-      refuse(`${source.repo}: ${entry.name} is a Git submodule whose repository is not in the captured Cargo source graph`);
+      refuse(`${source.repo}: ${entry.name} is an uncaptured Git submodule; run git submodule update --init ${entry.name}`);
     }
   }
   for (const entry of entries.filter((item) => item.type === 'blob')) {
@@ -361,6 +378,9 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
     const pathspec = sourcePathspec(source.repo, app, exactRoot);
     const excluded = pathspec.slice(1).filter((path) => path.startsWith(':(exclude,top,literal)'))
       .map((path) => path.slice(':(exclude,top,literal)'.length));
+    const tracked = gitText(source.repo, ['ls-files', '-z', '--cached'], 'could not inventory tracked output conflicts').split('\0');
+    const hidden = tracked.find(path => excluded.some(root => path === root || path.startsWith(`${root}/`)));
+    if (hidden) refuse(`${source.repo}: tracked source ${hidden} lies beneath an inferred output root; move the source or declare a different output root`);
     gitResult(source.repo, ['read-tree', source.commit], 'could not start the captured Git tree', { env });
     if (excluded.length) gitResult(source.repo, ['--literal-pathspecs', 'rm', '-r', '-f', '--cached', '--ignore-unmatch', '--', ...excluded],
       'could not remove generated outputs from the captured tree', { env });
@@ -410,20 +430,34 @@ function captureRepository(source, sources, captureRoot, stagedRoot, common, app
  * dirty source byte the bake can read. Ignored files are source too unless
  * they are under a precise generated-output root. */
 export function snapshotOf(app, opts, exactRoot = ROOT) {
+  app.prepare?.(true);
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
-    ...cargoDependencyRoots(app, exactRoot),
   ];
   const repos = new Map();
-  for (const { role, cwd } of sourceRoots) {
-    const repo = repoTop(cwd, `source for ${role}`);
-    const existing = repos.get(repo);
-    if (existing) { existing.roles.add(role); continue; }
-    const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
-    if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
-    repos.set(repo, { repo, roles: new Set([role]), commit });
-  }
+  const discover = (sourceRoots) => {
+    for (const { role, cwd } of sourceRoots) {
+      const repo = repoTop(cwd, `source for ${role}`);
+      const existing = repos.get(repo);
+      if (existing) { existing.roles.add(role); continue; }
+      const commit = gitText(repo, ['rev-parse', 'HEAD'], 'git has no HEAD commit to snapshot').trim();
+      if (!/^[0-9a-f]{40}$/.test(commit)) refuse(`${repo}: git has no HEAD commit to snapshot`);
+      repos.set(repo, { repo, roles: new Set([role]), commit });
+      // Source dependencies can themselves contain initialized submodules.
+      // Capture their bytes and provenance too; never fetch or silently omit them.
+      for (const row of gitText(repo, ['ls-files', '--stage', '-z'], 'could not inventory source submodules').split('\0')) {
+        const match = /^160000 [0-9a-f]+ 0\t([\s\S]+)$/.exec(row);
+        if (!match) continue;
+        const nested = canonicalPath(resolve(repo, match[1]));
+        if (!existsSync(nested) || !readdirSync(nested).length) refuse(`${repo}: uninitialized submodule ${match[1]}; run git submodule update --init ${match[1]}`);
+        if (repoTop(nested, 'initialized source submodule') !== nested) refuse(`${repo}: uninitialized source submodule ${match[1]}; run git submodule update --init ${match[1]}`);
+        sourceRoots.push({role:'submodule', cwd:nested});
+      }
+    }
+  };
+  discover(sourceRoots);
+  discover(cargoDependencyRoots(app, exactRoot));
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
   const common = commonParent(sourceList.map((source) => source.repo));
@@ -492,11 +526,11 @@ function sealedSourceEnv(sourceRoot, extra = {}) {
 /** Prove Cargo will consume only the captured tree. Cargo canonicalizes path
  * dependencies in its own graph, so this catches absolute paths and symlink
  * aliases that would otherwise lead a staged build back into a live checkout. */
-function assertMaterializedCargoClosure(workspaces, sourceRoot, target) {
+function assertMaterializedCargoClosure(workspaces, sourceRoot, target, app) {
   const capturedRoot = canonicalPath(sourceRoot);
   for (const workspace of [...new Set(workspaces)]) {
     if (!existsSync(resolve(workspace, 'Cargo.toml'))) continue;
-    const result = spawnSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
+    const result = spawnSync('cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app, workspace)], {
       cwd: workspace, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: target }), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     });
     if (result.status !== 0) refuse(`${workspace}: materialized Cargo graph does not resolve: ${result.stderr.trim()}`);
@@ -546,7 +580,13 @@ export function materializeSnapshot(snapshot, run, app) {
   // its runs). Otherwise keep absolute source paths out of the live target by
   // giving this materialized generation its own cache.
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
-  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target);
+  const manifest = readManifest(dir, app.name);
+  if (manifest.game) {
+    gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
+    if (!existsSync(resolve(dir, 'Cargo.lock'))) refuse(`${dir}: bake the game once and capture Cargo.lock before deployment`);
+
+  }
+  assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's

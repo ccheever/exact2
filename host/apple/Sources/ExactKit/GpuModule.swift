@@ -3,6 +3,11 @@
 // after the first painted frame. Shared by the AppKit and UIKit presenters;
 // what each does with a surface (its `Canvases`) is its own.
 import Foundation
+import CryptoKit
+import CExact
+#if os(macOS)
+import Metal
+#endif
 
 /// Why the module could not be loaded.
 struct GpuLoadError: Error { let message: String }
@@ -21,9 +26,41 @@ final class GpuModule {
         return r
     }
 
+    static var bakedCompatibility: [String: Any] {
+        let runtime = Runtime()
+        defer { runtime.destroy() }
+        let length = exact_baked_compat(runtime.rt)
+        let bytes = Data(bytes: exact_out(runtime.rt), count: Int(length))
+        return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
+    }
+    static func modulePath(defaultPath: String, compat: [String: Any], environment: [String: String]) -> String {
+        let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any]
+        return gpu?["trust"] as? String == "development" ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
+    }
+    static func verify(path: String, compat: [String: Any]) -> GpuLoadError? {
+        func refusal(_ reason: String) -> GpuLoadError { GpuLoadError(message:"GPU module \(path): \(reason)") }
+        guard let card = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any] else {
+            return refusal("missing baked identity")
+        }
+        guard let app = (compat["inputs"] as? [String: Any])?["app"] as? String, card["app"] as? String == app else {
+            return refusal("app identity mismatch")
+        }
+        guard let cohort = compat["id"] as? String, card["cohort"] as? String == cohort else {
+            return refusal("cohort identity mismatch")
+        }
+        do {
+            let bytes = try Data(contentsOf: URL(fileURLWithPath:path))
+            let digest = SHA256.hash(data:bytes).map { String(format:"%02x", $0) }.joined()
+            if card["sha256"] as? String != digest { return refusal("digest mismatch") }
+        } catch { return refusal(error.localizedDescription) }
+        return nil
+    }
+
     typealias LoadFn = @convention(c) () -> UInt32
     typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, UInt32, UInt32) -> UInt32
     typealias BindFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias BindAtFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, Double) -> UInt32
+    var bindAt: BindAtFn?
     typealias RenderFn = @convention(c) (UInt32, Float, Float, Float, Double) -> UInt32
     typealias DirtyFn = @convention(c) (UInt32) -> UInt32
     typealias DestroyFn = @convention(c) (UInt32) -> Void
@@ -32,13 +69,104 @@ final class GpuModule {
     typealias SyncFn = @convention(c) () -> UInt32
     typealias WantsFn = @convention(c) (UInt32) -> UInt32
     typealias ReadbackFn = @convention(c) (UInt32, Float, Float, Float, Double, UnsafeMutablePointer<UInt8>?, Int) -> UInt32
-    typealias ChildFn = @convention(c) (UInt32, UInt32, Float, Float, Float, Float, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
+    typealias ChildFn = @convention(c) (UInt32, UInt32, UnsafePointer<UInt8>?, Int, Float, Float, Float, Float, UInt32, UInt32, UnsafePointer<UInt8>?, Int) -> UInt32
     typealias CountFn = @convention(c) (UInt32, UInt32) -> UInt32
     typealias PlacementFn = @convention(c) (UInt32, UInt32, UnsafeMutablePointer<Float>?, Int) -> UInt32
     typealias ErrorFn = @convention(c) () -> UInt32
     typealias ErrorPtrFn = @convention(c) () -> UnsafePointer<UInt8>?
     typealias ClearShadersFn = @convention(c) () -> Void
     typealias ShaderFn = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> UInt32
+
+    typealias LifecycleFn = @convention(c) (UInt32, UInt32) -> Void
+    var lifecycle: LifecycleFn?
+    /// The display's frame period in milliseconds, for every frame after (0 = unknown).
+    var period: PeriodFn?
+
+    typealias SeekableFn = @convention(c) (Bool) -> Void
+    typealias PeriodFn = @convention(c) (Double) -> Void
+
+    let wantsInput: WantsFn?
+    let input: BindFn?
+    typealias RestoreFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UInt32) -> Bool
+    typealias AssetFn = @convention(c) (UInt32, UnsafePointer<UInt8>?, Int, UnsafePointer<UInt8>?, Int) -> Bool
+    var assets: WantsFn?
+    var asset: AssetFn?
+    var assetFailed: AssetFn?
+    var carry: WantsFn?
+    var restore: RestoreFn?
+    let published: WantsFn?
+    let messages: WantsFn?
+    let agent: BindFn?
+    private let outPtr: ErrorPtrFn?
+
+    var recover: LoadFn?
+    let canvases = NSHashTable<Canvases>.weakObjects()
+    private var recovering = false
+    private var deviceObserver: NSObjectProtocol?
+    typealias DeviceIDFn = @convention(c) () -> UInt64
+    typealias LostFn = @convention(c) () -> Bool
+    var deviceID: DeviceIDFn?
+    var deviceLost: LostFn?
+    private(set) var lossGeneration: UInt64 = 0
+    private var activeDeviceID: UInt64 = 0
+    private var failures = 0
+
+    func deliveryClock(_ entry: Canvases.Entry, now: Double) -> [String: Any] {
+        let redelivery = entry.recoveryRedelivery
+        entry.recoveryRedelivery = false
+        return redelivery ? ["op": "clock"] : ["op": "clock", "now": now]
+    }
+
+    func removedDevice(_ registryID: UInt64, generation: UInt64) {
+        guard registryID == activeDeviceID, generation == lossGeneration else { return }
+        recoverDevice()
+    }
+
+    func recoverDevice() {
+        guard !recovering, deviceLost?() == true else { return }
+        recovering = true
+        let generation = lossGeneration
+        let recoveryEntries = canvases.allObjects.flatMap { Array($0.entries.values) }
+        let delay = failures == 0 ? 0 : min(5.0, 0.1 * pow(2.0, Double(failures - 1)))
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self else { return }
+            defer { self.recovering = false }
+            guard generation == self.lossGeneration, self.deviceLost?() == true else { return }
+            let data = self.recover.flatMap { self.output($0()) }
+            let outcome = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            if outcome?["status"] as? String == "healthy" { return }
+            let ok = outcome?["status"] as? String == "recovered" && self.deviceLost?() == false
+            if ok {
+                self.lossGeneration += 1; self.failures = 0
+                self.activeDeviceID = self.deviceID?() ?? 0
+                self.observeDevice()
+            } else { self.failures += 1 }
+            let reason = ok ? nil : "device recovery: \(self.error()) \(outcome ?? [:])"
+            // Retaining the entries until here prevents address reuse during backoff.
+            let entries = Set(recoveryEntries.map(ObjectIdentifier.init))
+            for owner in self.canvases.allObjects { owner.recoveredDevice(ok, error: reason, recovering: entries) }
+            if !ok { DispatchQueue.main.async { [weak self] in self?.recoverDevice() } }
+        }
+    }
+
+    private func observeDevice() {
+        #if os(macOS)
+        if let deviceObserver { MTLRemoveDeviceObserver(deviceObserver) }
+        let generation = lossGeneration
+        let devices = MTLCopyAllDevicesWithObserver { [weak self] device, name in
+            if name == .wasRemoved || name == .removalRequested {
+                DispatchQueue.main.async { self?.removedDevice(device.registryID, generation: generation) }
+            }
+        }
+        deviceObserver = devices.observer
+        #endif
+    }
+
+    deinit {
+        #if os(macOS)
+        if let deviceObserver { MTLRemoveDeviceObserver(deviceObserver) }
+        #endif
+    }
 
     let create: CreateFn
     let bind: BindFn
@@ -53,12 +181,20 @@ final class GpuModule {
     /// The module's GPU work complete — before a texture it read is drawn
     /// into again.
     let sync: SyncFn?
-    let wantsChildren: WantsFn
+    let childrenMode: WantsFn
     /// A canvas's picture as pixels (LLP 1014, nested canvases).
     let readback: ReadbackFn
     /// Each child as its own texture, and where the surface put it (LLP 1014 D5).
-    let wantsChildrenEach: WantsFn
-    let child: ChildFn
+    func wantsChildren(_ id: UInt32) -> UInt32 { (1...2).contains(childrenMode(id)) ? 1 : 0 }
+    func wantsChildrenEach(_ id: UInt32) -> UInt32 { childrenMode(id) == 3 ? 1 : 0 }
+    private let childView: ChildFn
+    func child(_ id: UInt32, _ index: UInt32, _ name: String, _ x: Float, _ y: Float, _ w: Float, _ h: Float, _ width: UInt32, _ height: UInt32, _ pixels: UnsafePointer<UInt8>?, _ count: Int) -> UInt32 {
+        name.utf8CString.withUnsafeBufferPointer { bytes in
+            bytes.baseAddress!.withMemoryRebound(to: UInt8.self, capacity: bytes.count) {
+                childView(id, index, $0, bytes.count - 1, x, y, w, h, width, height, pixels, count)
+            }
+        }
+    }
     let childrenCount: CountFn
     let placement: PlacementFn
     /// A shader's text by name (LLP 1030 D8): validated, its interface
@@ -72,6 +208,7 @@ final class GpuModule {
     /// dlopen the module and create its device; nil (with a reason) when
     /// the library is missing, incomplete, or has no device.
     static func load(path: String) -> Result<GpuModule, GpuLoadError> {
+        if let error = verify(path:path, compat:bakedCompatibility) { return .failure(error) }
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             return .failure(GpuLoadError(message: "dlopen \(path): \(String(cString: dlerror()))"))
         }
@@ -81,21 +218,33 @@ final class GpuModule {
         }
         guard let load = sym("gpu_load", LoadFn.self), let create = sym("gpu_create", CreateFn.self), let bind = sym("gpu_bind", BindFn.self),
               let render = sym("gpu_render", RenderFn.self), let dirty = sym("gpu_dirty", DirtyFn.self), let destroy = sym("gpu_destroy", DestroyFn.self),
-              let texture = sym("gpu_texture", TextureFn.self), let wantsChildren = sym("gpu_wants_children", WantsFn.self),
+              let texture = sym("gpu_texture", TextureFn.self), let childrenMode = sym("gpu_children_mode", WantsFn.self),
               let readback = sym("gpu_readback", ReadbackFn.self),
-              let wantsChildrenEach = sym("gpu_wants_children_each", WantsFn.self), let child = sym("gpu_child", ChildFn.self),
+              let child = sym("gpu_child_view", ChildFn.self),
               let childrenCount = sym("gpu_children_count", CountFn.self), let placement = sym("gpu_placement", PlacementFn.self),
               let errorLen = sym("gpu_error", ErrorFn.self), let errorPtr = sym("gpu_error_ptr", ErrorPtrFn.self) else {
             return .failure(GpuLoadError(message: "\(path) is not an exact GPU module (missing exports)"))
         }
-        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), wantsChildren: wantsChildren, readback: readback, wantsChildrenEach: wantsChildrenEach, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr)
+        let module = GpuModule(create: create, bind: bind, render: render, dirty: dirty, destroy: destroy, texture: texture, textureMetal: sym("gpu_texture_metal", TextureMetalFn.self), sync: sym("gpu_sync", SyncFn.self), childrenMode: childrenMode, readback: readback, child: child, childrenCount: childrenCount, placement: placement, shader: sym("gpu_shader", ShaderFn.self), validateShader: sym("gpu_shader_validate", ShaderFn.self), clearShaders: sym("gpu_shaders_clear", ClearShadersFn.self), errorLen: errorLen, errorPtr: errorPtr, wantsInput: sym("gpu_wants_input", WantsFn.self), input: sym("gpu_input", BindFn.self), messages: sym("gpu_messages", WantsFn.self), published: sym("gpu_published", WantsFn.self), agent: sym("gpu_agent", BindFn.self), outPtr: sym("gpu_out_ptr", ErrorPtrFn.self))
         if load() != 0 { return .failure(GpuLoadError(message: "gpu_load: \(module.error())")) }
+        module.recover = sym("gpu_recover", LoadFn.self)
+        module.deviceID = sym("gpu_device_registry_id", DeviceIDFn.self)
+        module.deviceLost = sym("gpu_device_is_lost", LostFn.self)
+        module.activeDeviceID = module.deviceID?() ?? 0
+        module.observeDevice()
+        module.lifecycle = sym("gpu_lifecycle", LifecycleFn.self)
+        module.period = sym("gpu_period", PeriodFn.self)
+        module.bindAt = sym("gpu_bind_at", BindAtFn.self)
+        module.assets = sym("gpu_assets", WantsFn.self); module.asset = sym("gpu_asset", AssetFn.self); module.assetFailed = sym("gpu_asset_failed", AssetFn.self)
+        module.carry = sym("gpu_carry", WantsFn.self); module.restore = sym("gpu_restore", RestoreFn.self)
+        sym("gpu_seekable", SeekableFn.self)?(ExactEnv.agentFreezes)
         return .success(module)
     }
 
-    private init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, wantsChildren: @escaping WantsFn, readback: @escaping ReadbackFn, wantsChildrenEach: @escaping WantsFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn) {
-        self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.wantsChildren = wantsChildren; self.readback = readback
-        self.wantsChildrenEach = wantsChildrenEach; self.child = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
+    init(create: @escaping CreateFn, bind: @escaping BindFn, render: @escaping RenderFn, dirty: @escaping DirtyFn, destroy: @escaping DestroyFn, texture: @escaping TextureFn, textureMetal: TextureMetalFn?, sync: SyncFn?, childrenMode: @escaping WantsFn, readback: @escaping ReadbackFn, child: @escaping ChildFn, childrenCount: @escaping CountFn, placement: @escaping PlacementFn, shader: ShaderFn?, validateShader: ShaderFn?, clearShaders: ClearShadersFn?, errorLen: @escaping ErrorFn, errorPtr: @escaping ErrorPtrFn, wantsInput: WantsFn?, input: BindFn?, messages: WantsFn?, published: WantsFn?, agent: BindFn?, outPtr: ErrorPtrFn?) {
+        self.wantsInput = wantsInput; self.input = input; self.messages = messages; self.published = published; self.agent = agent; self.outPtr = outPtr
+        self.create = create; self.bind = bind; self.render = render; self.dirty = dirty; self.destroy = destroy; self.texture = texture; self.textureMetal = textureMetal; self.sync = sync; self.childrenMode = childrenMode; self.readback = readback
+        self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
     /// A loaded module validates candidate shaders without changing its registry.
@@ -130,9 +279,57 @@ final class GpuModule {
         return r == 0
     }
 
+    /// Copy before any other module call can reuse its output buffer.
+    func output(_ length: UInt32) -> Data? {
+        guard length > 0, let p = outPtr?() else { return nil }
+        return Data(bytes: p, count: Int(length))
+    }
+
     func error() -> String {
         let n = Int(errorLen())
         guard n > 0, let p = errorPtr() else { return "" }
         return String(decoding: UnsafeBufferPointer(start: p, count: n), as: UTF8.self)
+    }
+}
+
+/// Display-link cadence policy shared by AppKit and UIKit.
+struct DisplayPeriod {
+    private static let rates: [Double] = [10, 12, 15, 16, 20, 24, 30, 40, 48, 60, 80, 120]
+    private(set) var value = 0.0
+    private var candidate = 0.0
+    private var samples = 0
+    private var maximumHeld = 0.0
+    private var lower = 0.0, upper = Double.infinity
+    mutating func publish(_ ms: Double, maximum: Double, send: (Double) -> Void) {
+        // gpu_period belongs to the shared module, not this session. Even zero
+        // must replace another session's known cadence before this one's render.
+        defer { send(value) }
+        guard ms.isFinite, ms > 0, maximum.isFinite, maximum > 0 else { return }
+        if value > 0, maximum == maximumHeld, ms >= lower, ms <= upper {
+            candidate = 0; samples = 0
+            return
+        }
+        var next = 1000 / maximum
+        func consider(_ period: Double) { if abs(period - ms) < abs(next - ms) { next = period } }
+        for rate in Self.rates where rate <= maximum { consider(1000 / rate) }
+        for divisor in 1...12 { consider(1000 * Double(divisor) / maximum) }
+        // Cross the midpoint by 1% of the held class before considering a change.
+        guard next != value,
+              value == 0 || abs(ms - next) + value * 0.01 < abs(ms - value) else {
+            candidate = 0; samples = 0
+            return
+        }
+        if next == candidate { samples += 1 } else { candidate = next; samples = 1 }
+        // The first class needs the same persistence as subsequent classes.
+        if samples >= 3 {
+            value = next; candidate = 0; samples = 0
+            maximumHeld = maximum; lower = 0; upper = .infinity
+            func boundary(_ period: Double) {
+                if period < value { lower = max(lower, (period + value) / 2 - value * 0.005) }
+                if period > value { upper = min(upper, (period + value) / 2 + value * 0.005) }
+            }
+            for rate in Self.rates where rate <= maximum { boundary(1000 / rate) }
+            for divisor in 1...12 { boundary(1000 * Double(divisor) / maximum) }
+        }
     }
 }

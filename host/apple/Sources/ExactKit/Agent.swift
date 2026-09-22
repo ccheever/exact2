@@ -26,6 +26,8 @@ public final class Agent {
     /// `nil` between contacts. AppKit holds it as a real mouse button; UIKit
     /// cannot hold one and says so.
     var contact: CGPoint? = nil
+    weak var canvasContact: NodeView?
+    var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.
     nonisolated(unsafe) static var out = FileHandle.standardOutput
@@ -91,8 +93,13 @@ public final class Agent {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
         }
+        guard session.canvases.waitUntilReady() else {
+            Agent.reply(["error": "canvas creation is still in flight"])
+            return
+        }
+        if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         switch op {
-        case "tree": Agent.reply(session.webviews.tree(line))
+        case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.webviews.tree(line))))
         case "layout": Agent.reply(tagged(layout(req)))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
@@ -112,12 +119,19 @@ public final class Agent {
                 #else
                 r = ["error": "unsupported: resize input requires a macOS window or Linux presenter"]
                 #endif
-            } else { r = tap(req) }
+            } else { r = session.canvases.releaseContact(req) ?? tap(req) }
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
-        case "type": let r = type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
-        case "clock": let r = clock(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
+        case "clock": Agent.reply(tagged(clock(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        case "logs":
+            var forward = req
+            forward.removeValue(forKey: "session")
+            let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
+            let data = Data(session.agent(json).utf8)
+            let reply = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? ["error": "unreadable logs"]
+            Agent.reply(session.canvases.decorate(req, reply))
         case "state":
             // The runner's state, in its own order, then what this host
             // observes for the session (LLP 1035.002 D2): the focus, the
@@ -137,6 +151,9 @@ public final class Agent {
             nativeSections["contentRegion"] = session.regions.diagnostics
             nativeSections["readerParagraphs"] = session.text.readerParagraphs.values.map(\.diagnostics)
             #endif
+            let world = session.canvases.worlds(["op": "state"])
+            nativeSections = session.canvases.restoreReply(nativeSections)
+            if !world.isEmpty { nativeSections["world"] = world }
             if reply.hasSuffix("}"), !reply.hasPrefix("{\"error\""),
                let sections = try? JSONSerialization.data(withJSONObject: nativeSections) {
                 reply.removeLast()
@@ -159,6 +176,7 @@ public final class Agent {
     /// the world it left behind; a reply's own `clock` (where a `clock` call
     /// landed) is kept. An error is left alone.
     func tagged(_ r: [String: Any]) -> [String: Any] {
+        let r = session.canvases.restoreReply(r)
         guard r["error"] == nil,
               let d = session.agent("{\"op\":\"tags\"}").data(using: .utf8),
               let tags = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return r }
@@ -217,6 +235,14 @@ public final class Agent {
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0
+        var world = Canvases.WorldClock()
+        func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
+            var out = world.reply
+            out["clock"] = landed
+            if let settled { out["settled"] = settled }
+            if settled == false, let reason = world.pending ? "world" : reason { out["reason"] = reason }
+            return out
+        }
         while true {
             let batch = session.runtime.advance(now: to)
             session.apply(batch)
@@ -224,15 +250,18 @@ public final class Agent {
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
-            guard settle else { return ["clock": landed] }
+            guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
+            session.canvases.settle(now: landed)
+            world = session.canvases.clock(settle: settle)
+            guard settle else { return reply(landed) }
             if pendingCount() > 0 {
                 rounds += 1
-                if rounds >= 16 { return ["clock": landed, "settled": false] }
+                if rounds >= 16 { return reply(landed, false) }
                 waitForReplies()
                 continue
             }
-            let next = max(landed, self.settle() ?? landed)
-            if next <= landed {
+            let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
+            if next <= landed && !world.pending {
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.
@@ -245,13 +274,13 @@ public final class Agent {
                     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
                     let busy = nativeInFlight()
                     if !wasBusy && !busy { break }
-                    if Date() >= deadline { return ["clock": landed, "settled": false, "reason": "transition"] }
+                    if Date() >= deadline { return reply(landed, false, reason: "transition") }
                     wasBusy = busy
                 }
-                return ["clock": landed, "settled": true]
+                return reply(landed, true)
             }
             rounds += 1
-            if rounds >= 16 { return ["clock": landed, "settled": false] }
+            if rounds >= 16 { return reply(landed, false) }
             to = next
         }
     }

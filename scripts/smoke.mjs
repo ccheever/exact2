@@ -680,9 +680,9 @@ try {
   // (a canvas is on the page; headless Chrome has WebGPU).
   if (shot) console.log(JSON.stringify(await s.screenshot(shot)));
   if (host === 'web' && appHasCanvas) {
-    let g = s.gpuMs();
-    for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = s.gpuMs(); }
-    check(g != null, 'a canvas is on the page but the GPU module did not load (no beacon; WebGPU unavailable in this Chrome?)');
+    let g = await s.gpuMs();
+    for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await s.gpuMs(); }
+    check(g != null, 'a canvas is on the page but the GPU module did not load (WebGPU unavailable in this Chrome?)');
     if (g != null) console.log(`gpu: module loaded ${g} ms after injection (after a rendering opportunity)`);
   }
 
@@ -808,7 +808,7 @@ if (caltrainFixture) {
       // the CPU oracle's with the pinned font, and matches to the pixel on
       // any machine). Taken before the tap and the edit: a caret blinks on
       // the wall clock.
-      if (host === 'web') { let g = f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = f.gpuMs(); } }
+      if (host === 'web') { let g = await f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await f.gpuMs(); } }
       await sleep(150); // one frame of the surface after its first capture
       const shotPath = resolve(tmp, 'canvas.png');
       await f.screenshot(shotPath, true);
@@ -1094,6 +1094,44 @@ if (deckFixture) {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+}
+
+// Live regions, computed names, and once-per-session autofocus.
+if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only')) {
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-accessibility-'));
+  const plan = resolve(tmp, 'accessibility.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  check(c.status === 0, 'accessibility fixture compiles: ' + c.stderr);
+  if (c.status === 0) {
+    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    try {
+      let t = await f.tree();
+      check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
+      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text');
+      check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
+      check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
+      await f.tap('first');
+      t = await f.tree();
+      check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
+      await f.tap('other');
+      check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
+      await f.clock('+1000'); await f.clock('+1000');
+      t = await f.tree();
+      check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
+      check((await f.state()).focus.logical === byTestId(t, 'other')?.id, 'state agrees with tree focus');
+      if (host === 'macos') {
+        const source = resolve(tmp, 'reload.contract');
+        writeFileSync(source, readFileSync(resolve(ROOT, 'contract/corpus/accessibility.contract'), 'utf8').replace('text "Other"', 'text "Other reloaded"'));
+        const rebuilt = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
+        check(rebuilt.status === 0, 'reload fixture compiles: ' + rebuilt.stderr);
+        let tree;
+        for (let i = 0; i < 100; i++) { tree = await f.tree(); if (byTestId(tree, 'other')?.accessibleName === 'Other reloaded') break; await sleep(20); }
+        check(byTestId(tree, 'other')?.accessibleName === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
+        check(byTestId(await f.tree(), 'first')?.focused !== true, 'reload does not steal focus for First');
+      }
+    } finally { await f.close(); }
+  }
+  rmSync(tmp, {recursive:true, force:true});
 }
 
 // 13. The resolved app's own tests (LLP 1017 P7), when it declares them:

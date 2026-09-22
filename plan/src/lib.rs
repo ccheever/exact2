@@ -246,6 +246,37 @@ impl Plan {
                 });
             }
         }
+        for (i, surface) in self.surfaces.iter().enumerate() {
+            let expected = if surface.args.len != 0
+                && self
+                    .str(self.surface_arg(surface.args.iter().next().unwrap()).name)
+                    .is_empty()
+            {
+                SurfaceArgsMode::Positional
+            } else {
+                SurfaceArgsMode::Named
+            };
+            if surface.mode != expected {
+                return Err(PlanError::BadReference {
+                    table: "surfaces",
+                    row: i as u32,
+                    field: "mode",
+                });
+            }
+            let mut names = std::collections::BTreeSet::new();
+            let mut positional = false;
+            for id in surface.args.iter() {
+                let name = self.str(self.surface_arg(id).name);
+                positional |= name.is_empty();
+                if (!name.is_empty() && !names.insert(name)) || (positional && !names.is_empty()) {
+                    return Err(PlanError::BadReference {
+                        table: "surfaces",
+                        row: i as u32,
+                        field: "args",
+                    });
+                }
+            }
+        }
         for (i, r) in self.regions.iter().enumerate() {
             let want = match r.kind {
                 RegionKind::When | RegionKind::Match => 2,
@@ -388,3 +419,8 @@ impl std::fmt::Display for PlanError {
 }
 
 impl std::error::Error for PlanError {}
+
+/// Sources answered by the runner, with a result shape selected by each reader.
+pub fn runner_owned_source(name: &str) -> bool {
+    matches!(name, "exactDelivery" | "exactViewport" | "exactSurface")
+}

@@ -52,8 +52,10 @@ pub mod image;
 pub mod input;
 pub mod navigation;
 pub mod paint;
+mod placement;
 pub mod presenter;
 pub mod raster;
+mod surfaces;
 pub mod text;
 #[cfg(target_os = "linux")]
 pub mod vnc;

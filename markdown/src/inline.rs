@@ -5,6 +5,9 @@
 
 use crate::block::B;
 use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
+use std::collections::HashMap;
+
+const NO_CODE: usize = usize::MAX - 1;
 
 pub(crate) struct Mark {
     pub range: B,
@@ -30,6 +33,7 @@ pub(crate) struct Out {
     pub constructs: Vec<Construct>,
 }
 
+#[derive(Clone, Copy)]
 struct Delim {
     ch: char,
     start: usize,
@@ -39,18 +43,24 @@ struct Delim {
     close: bool,
 }
 
+#[derive(Default)]
+struct AutolinkEnd {
+    close: usize,
+    last_at: Option<usize>,
+}
+
 struct Scanner<'a> {
     source: &'a str,
     /// The content's characters at their byte positions, lines joined by `\n`.
     cs: Vec<(usize, char)>,
     end: usize,
-    /// For each `[`, the `]` that closes it, found in one pass; `usize::MAX`
-    /// for none. An unmatched bracket then costs nothing to reject.
+    /// Closing brackets and code runs share slots at their opening character.
+    /// `usize::MAX` is unvisited; `NO_CODE` records a failed code search.
     closes: Vec<usize>,
     out: &'a mut Out,
 }
 
-/// The closing bracket of every `[`, skipping escapes and code spans.
+/// Closing brackets and encountered code openers, skipping escapes and code spans.
 fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
     let mut closes = vec![usize::MAX; cs.len()];
     let mut stack: Vec<usize> = Vec::new();
@@ -60,20 +70,19 @@ fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
             '\\' => i += 1,
             '`' => {
                 let len = (i..cs.len()).take_while(|&j| cs[j].1 == '`').count();
-                let mut j = i + len;
-                while j < cs.len() {
-                    if cs[j].1 == '`' {
-                        let run = (j..cs.len()).take_while(|&k| cs[k].1 == '`').count();
-                        if run == len {
-                            i = j + run - 1;
-                            break;
-                        }
-                        j += run;
-                    } else {
-                        j += 1;
+                let close = if closes[i] != usize::MAX {
+                    closes[i]
+                } else {
+                    let (close, other_runs) = find_code(cs, i + len, len, cs.len());
+                    closes[i] = close;
+                    if close == NO_CODE && other_runs {
+                        index_code(cs, &mut closes);
                     }
-                }
-                if j >= cs.len() {
+                    close
+                };
+                if close < cs.len() {
+                    i = close + len - 1;
+                } else {
                     i += len - 1;
                 }
             }
@@ -88,6 +97,48 @@ fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
         i += 1;
     }
     closes
+}
+
+/// The first whole run of this length; backslashes inside code are literal.
+fn find_code(cs: &[(usize, char)], mut i: usize, len: usize, hi: usize) -> (usize, bool) {
+    let mut other_runs = false;
+    while i < hi {
+        if cs[i].1 == '`' {
+            let run = (i..hi).take_while(|&j| cs[j].1 == '`').count();
+            if run == len {
+                return (i, false);
+            }
+            other_runs = true;
+            i += run;
+        } else {
+            i += 1;
+        }
+    }
+    (NO_CODE, other_runs)
+}
+
+/// Only a failed search with later runs pays for an index. Reuse the buffer, and drop
+/// the temporary length map before styling. An escaped first tick leaves the
+/// rest of its run as an opener, but only whole runs can close another run.
+fn index_code(cs: &[(usize, char)], closes: &mut [usize]) {
+    let mut next = HashMap::new();
+    let mut i = cs.len();
+    while i > 0 {
+        if cs[i - 1].1 != '`' {
+            i -= 1;
+            continue;
+        }
+        let end = i;
+        while i > 0 && cs[i - 1].1 == '`' {
+            i -= 1;
+        }
+        let len = end - i;
+        closes[i] = next.get(&len).copied().unwrap_or(NO_CODE);
+        if len > 1 {
+            closes[i + 1] = next.get(&(len - 1)).copied().unwrap_or(NO_CODE);
+        }
+        next.insert(len, i);
+    }
 }
 
 /// Scans one block's content ranges as a single run of inline text.
@@ -156,6 +207,7 @@ impl Scanner<'_> {
 
     fn scan(&mut self, lo: usize, hi: usize) {
         let mut delims: Vec<Delim> = Vec::new();
+        let mut autolink_end = AutolinkEnd::default();
         let mut i = lo;
         while i < hi {
             let c = self.ch(i);
@@ -167,7 +219,7 @@ impl Scanner<'_> {
                     Some(i + 2)
                 }
                 '`' => self.code(i, hi),
-                '<' => self.autolink(i, hi),
+                '<' => self.autolink(i, hi, &mut autolink_end),
                 '!' if i + 1 < hi && self.ch(i + 1) == '[' => self.bracket(i + 1, hi, true),
                 '[' => self.bracket(i, hi, false),
                 'h' if i == lo || self.ch(i - 1).is_whitespace() || self.ch(i - 1) == '(' => {
@@ -189,38 +241,60 @@ impl Scanner<'_> {
 
     fn code(&mut self, i: usize, hi: usize) -> Option<usize> {
         let len = self.run(i, hi);
-        let mut j = i + len;
-        while j < hi {
-            if self.ch(j) == '`' {
-                let close = self.run(j, hi);
-                if close == len {
-                    let outer = self.pos(i)..self.pos(j + len);
-                    self.construct(CODE, outer, self.pos(i + len)..self.pos(j), None);
-                    return Some(j + len);
-                }
-                j += close;
-            } else {
-                j += 1;
+        if self.closes[i] == usize::MAX {
+            // URLs and link targets can skip an opener seen by the bracket
+            // pass, leaving its closer to open code here instead.
+            let (close, other_runs) = find_code(&self.cs, i + len, len, hi);
+            self.closes[i] = close;
+            if close == NO_CODE && other_runs {
+                index_code(&self.cs, &mut self.closes);
             }
+        }
+        let j = self.closes[i];
+        if j < hi && len <= hi - j {
+            let outer = self.pos(i)..self.pos(j + len);
+            self.construct(CODE, outer, self.pos(i + len)..self.pos(j), None);
+            return Some(j + len);
         }
         Some(i + len)
     }
 
-    fn autolink(&mut self, i: usize, hi: usize) -> Option<usize> {
-        let close = (i + 1..hi).find(|&j| self.ch(j) == '>' || self.ch(j).is_whitespace())?;
-        if self.ch(close) != '>' || close == i + 1 {
+    fn autolink(&mut self, i: usize, hi: usize, end: &mut AutolinkEnd) -> Option<usize> {
+        // Rejected starts before this boundary share the same terminator and
+        // last @. Keep this cursor local to each scan, including link labels.
+        if end.close <= i {
+            end.close = i + 1;
+            end.last_at = None;
+            while end.close < hi {
+                let c = self.ch(end.close);
+                if c == '>' || c.is_whitespace() {
+                    break;
+                }
+                if c == '@' {
+                    end.last_at = Some(end.close);
+                }
+                end.close += 1;
+            }
+        }
+        let close = end.close;
+        if close == hi || self.ch(close) != '>' || close == i + 1 {
             return None;
         }
         let target = &self.source[self.pos(i + 1)..self.pos(close)];
-        let scheme = target.split_once(':').is_some_and(|(s, rest)| {
-            s.len() >= 2
-                && !rest.is_empty()
-                && s.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
-        });
+        // An invalid scheme prefix ends the search before a later '<' can
+        // cause the same suffix to be searched again.
+        let scheme = target
+            .bytes()
+            .position(|c| !c.is_ascii_alphanumeric() && !b"+.-".contains(&c))
+            .is_some_and(|colon| {
+                target.as_bytes()[colon] == b':' && colon >= 2 && colon + 1 < target.len()
+            });
         let href = if scheme {
             target.to_string()
-        } else if target.contains('@') && !target.starts_with('@') && !target.ends_with('@') {
+        } else if end.last_at.is_some_and(|at| at > i)
+            && !target.starts_with('@')
+            && !target.ends_with('@')
+        {
             format!("mailto:{target}")
         } else {
             return None;
@@ -368,7 +442,7 @@ impl Scanner<'_> {
     /// CommonMark's `openers_bottom`: once a closer of this shape finds no
     /// opener, no later closer of the same shape searches below it.
     fn emphasis(&mut self, mut d: Vec<Delim>) {
-        let mut ci = 0;
+        let mut active = 0;
         let shape = |c: &Delim| {
             (match c.ch {
                 '*' => 0,
@@ -379,50 +453,51 @@ impl Scanner<'_> {
                 + c.total % 3
         };
         let mut bottoms = [0usize; 18];
-        while ci < d.len() {
-            if !d[ci].close || d[ci].len == 0 {
-                ci += 1;
-                continue;
+        // Processed delimiters occupy a compact prefix. The unread tail stays
+        // in place; a match retires intervening entries by shortening the prefix.
+        for read in 0..d.len() {
+            d[active] = d[read];
+            loop {
+                let ci = active;
+                if !d[ci].close || d[ci].len == 0 {
+                    break;
+                }
+                let bottom = bottoms[shape(&d[ci])];
+                let found = (bottom..ci).rev().find(|&oi| {
+                    let (o, c) = (&d[oi], &d[ci]);
+                    let thirds = (o.open && o.close || c.open && c.close)
+                        && (o.total + c.total) % 3 == 0
+                        && !(o.total % 3 == 0 && c.total % 3 == 0);
+                    o.ch == c.ch && o.open && o.len > 0 && !thirds
+                });
+                let Some(oi) = found else {
+                    bottoms[shape(&d[ci])] = ci;
+                    break;
+                };
+                let take = if d[oi].len >= 2 && d[ci].len >= 2 {
+                    2
+                } else {
+                    1
+                };
+                let kind = match (d[ci].ch, take) {
+                    ('~', _) => STRIKE,
+                    (_, 2) => BOLD,
+                    _ => ITALIC,
+                };
+                let open_end = d[oi].start + d[oi].len;
+                let close_start = d[ci].start;
+                let outer = self.pos(open_end - take)..self.pos(close_start + take);
+                self.construct(kind, outer, self.pos(open_end)..self.pos(close_start), None);
+                d[oi].len -= take;
+                d[ci].start += take;
+                d[ci].len -= take;
+                active = oi + usize::from(d[oi].len != 0);
+                d[active] = d[ci];
+                for b in &mut bottoms {
+                    *b = (*b).min(active);
+                }
             }
-            let bottom = bottoms[shape(&d[ci])];
-            let found = (bottom..ci).rev().find(|&oi| {
-                let (o, c) = (&d[oi], &d[ci]);
-                let thirds = (o.open && o.close || c.open && c.close)
-                    && (o.total + c.total) % 3 == 0
-                    && !(o.total % 3 == 0 && c.total % 3 == 0);
-                o.ch == c.ch && o.open && o.len > 0 && !thirds
-            });
-            let Some(oi) = found else {
-                bottoms[shape(&d[ci])] = ci;
-                ci += 1;
-                continue;
-            };
-            let take = if d[oi].len >= 2 && d[ci].len >= 2 {
-                2
-            } else {
-                1
-            };
-            let kind = match (d[ci].ch, take) {
-                ('~', _) => STRIKE,
-                (_, 2) => BOLD,
-                _ => ITALIC,
-            };
-            let open_end = d[oi].start + d[oi].len;
-            let close_start = d[ci].start;
-            let outer = self.pos(open_end - take)..self.pos(close_start + take);
-            self.construct(kind, outer, self.pos(open_end)..self.pos(close_start), None);
-            d[oi].len -= take;
-            d[ci].start += take;
-            d[ci].len -= take;
-            d.drain(oi + 1..ci);
-            ci = oi + 1;
-            if d[oi].len == 0 {
-                d.remove(oi);
-                ci -= 1;
-            }
-            for b in &mut bottoms {
-                *b = (*b).min(ci);
-            }
+            active += 1;
         }
     }
 }

@@ -1,0 +1,48 @@
+shape Hud
+  lit: number
+  near: string
+
+component Beacons
+  state playing = false
+  state again = false
+  state paused = false
+  resource hud = exactSurface("world") as shape Hud
+
+  action play writes playing
+    playing = true
+
+  action togglePause writes paused
+    paused = not paused
+
+  action restart writes again, paused
+    again = not again
+    paused = false
+
+  view
+    main width="100%" height="100%" background-color="#202731" color="#ffffff"
+      when playing
+        canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative"
+          text `Beacons ${hud.lit} / 3` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 background-color="#202731"
+          button press=togglePause aria-label=(paused ? "Resume" : "Pause") testId="pause" position="absolute" top=24 right=24 padding=12 border-radius=8 background-color="#202731"
+            text (paused ? "Resume" : "Pause") color="#ffffff"
+          when hud.near != ""
+            text "Press E or Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 background-color="#202731"
+          button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
+            text "Move" color="#ffffff" text-align="center" padding-top=36
+          row position="absolute" right=24 bottom=24 gap=12
+            button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
+              text "Jump" color="#ffffff"
+            button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
+              text "Light" color="#202731"
+          when hud.lit == 3
+            column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
+              text "All beacons lit" font-size=32
+              button press=restart autofocus aria-label="Play again" testId="again" padding=16 background-color="#e8ad61"
+                text "Play again" color="#202731"
+      else
+        column height="100%" align-items="center" justify-content="center" gap=24
+          text "BEACONS" font-size=56 font-weight=600 color="#f1ce8b"
+          text "A quiet field. Three lights to find." font-size=20 color="#ceddd8"
+          text "WASD / arrows to move · Space to jump · E to light" font-size=16 color="#ceddd8"
+          button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
+            text "Play" font-size=20 color="#202731"

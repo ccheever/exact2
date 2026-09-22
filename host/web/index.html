@@ -20,6 +20,8 @@
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
+  #exact-root button:enabled:hover:not(:focus-visible) { outline: 1px solid currentColor; outline-offset: 2px; }
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }

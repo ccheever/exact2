@@ -64,7 +64,7 @@ impl SubmittedFrame {
 }
 
 #[derive(Default)]
-pub(super) struct State {
+pub(crate) struct State {
     origin: Rc<()>,
     active: bool,
     rendering: bool,
@@ -128,7 +128,7 @@ impl State {
                 }),
         )
     }
-    pub(super) fn parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+    pub(crate) fn parent(&self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
         if !self.active {
             return kernel.node(id).and_then(|n| n.parent);
         }

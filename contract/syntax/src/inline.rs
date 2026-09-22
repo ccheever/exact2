@@ -594,7 +594,10 @@ fn derive_dependencies(
                 derive_dependencies(arg, indices, bound, out);
             }
         }
-        Expr::Member(object, _, _) | Expr::Some(object, _) | Expr::Unary(_, object, _) => {
+        Expr::Member(object, _, _)
+        | Expr::Some(object, _)
+        | Expr::Unary(_, object, _)
+        | Expr::NamedArg(_, object, _) => {
             derive_dependencies(object, indices, bound, out);
         }
         Expr::Binary(_, left, right, _) => {
@@ -682,6 +685,9 @@ fn subst_expr<T: SubstitutionValue>(e: &Expr, subst: &BTreeMap<String, T>) -> Ex
             }
         }
         Expr::Member(o, f, span) => Expr::Member(Box::new(subst_expr(o, subst)), f.clone(), *span),
+        Expr::NamedArg(n, value, span) => {
+            Expr::NamedArg(n.clone(), Box::new(subst_expr(value, subst)), *span)
+        }
         Expr::Some(x, span) => Expr::Some(Box::new(subst_expr(x, subst)), *span),
         Expr::Unary(op, x, span) => Expr::Unary(*op, Box::new(subst_expr(x, subst)), *span),
         Expr::Binary(op, a, b, span) => Expr::Binary(

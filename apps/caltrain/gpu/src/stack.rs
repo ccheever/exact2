@@ -307,7 +307,7 @@ impl StackSurface {
 }
 
 impl Surface for StackSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [board, focus, open, now] = inputs else {
             return Err(SurfaceError(format!(
                 "stack: expected 4 inputs, got {}",
@@ -346,11 +346,32 @@ impl Surface for StackSurface {
         Ok(())
     }
 
-    fn wants_children_each(&self) -> bool {
-        true
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        exact_gpu::ChildrenMode::Each
     }
 
-    fn child(&mut self, index: usize, texture: Option<&wgpu::TextureView>, frame: [f32; 4]) {
+    fn child(
+        &mut self,
+        index: usize,
+        _name: &str,
+        texture: Option<&wgpu::TextureView>,
+        frame: [f32; 4],
+    ) {
+        if texture.is_none() && frame == [0.; 4] {
+            if let Some(card) = self.cards.get_mut(index) {
+                *card = CardState::new();
+            }
+            while self
+                .cards
+                .last()
+                .is_some_and(|c| c.texture.is_none() && c.frame == [0.; 4])
+            {
+                self.cards.pop();
+            }
+            self.targets();
+            self.settled = false;
+            return;
+        }
         if self.cards.len() <= index {
             self.cards.resize_with(index + 1, CardState::new);
         }
@@ -374,14 +395,11 @@ impl Surface for StackSurface {
         self.settled = false;
     }
 
-    fn children_count(&mut self, count: usize) {
-        self.cards.truncate(count);
-        self.targets();
-        self.settled = false;
-    }
-
     fn placement(&self, index: usize) -> Option<Placement> {
-        self.cards.get(index).and_then(|c| c.placement)
+        self.cards
+            .get(index)
+            .filter(|c| c.texture.is_some())
+            .and_then(|c| c.placement)
     }
 
     fn render(
@@ -424,6 +442,8 @@ impl Surface for StackSurface {
                 homography[2] += 100_000.0;
             }
             card.placement = Some(Placement {
+                clip_depth: [[0., 0., 1.]; 2],
+                hidden: false,
                 homography,
                 depth: card.pose.z,
             });
@@ -561,6 +581,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn frame_only_web_cards_remain_in_the_kernel_column() {
+        let mut stack = StackSurface::new();
+        let mut card = CardState::new();
+        card.frame = [0., 20., 100., 50.];
+        card.placement = Some(Placement {
+            clip_depth: [[0., 0., 1.]; 2],
+            homography: [1.; 9],
+            depth: -1.,
+            hidden: false,
+        });
+        stack.cards.push(card);
+        assert!(stack.placement(0).is_none());
+    }
+
+    #[test]
     fn the_homography_agrees_with_the_matrix_at_rest() {
         // A card at rest maps its own points to its frame, through perspective.
         let mut card = CardState::new();
@@ -589,5 +624,28 @@ mod tests {
             (x1 - 110.0).abs() < 1e-3 && (y1 - 70.0).abs() < 1e-3,
             "{x1} {y1}"
         );
+    }
+}
+
+#[cfg(test)]
+mod removal_tests {
+    use super::*;
+    #[test]
+    fn removal_delivery_does_not_recreate_trailing_cards() {
+        let mut stack = StackSurface::default();
+        for i in 0..4 {
+            stack.child(i, "", None, [0., 0., 100., 50.]);
+        }
+        stack.child(1, "", None, [0.; 4]);
+        assert_eq!(
+            stack.cards.len(),
+            4,
+            "an interior removal preserves later children"
+        );
+        assert_eq!(stack.cards[2].frame, [0., 0., 100., 50.]);
+        for i in 1..4 {
+            stack.child(i, "", None, [0.; 4]);
+        }
+        assert_eq!(stack.cards.len(), 1);
     }
 }

@@ -6,6 +6,18 @@ import UIKit
 // empty field. Its editing command still belongs to the authored key handler.
 final class TextField: UITextField {
     weak var owner: NodeView?
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:true) ?? presses
+        if !remaining.isEmpty {super.pressesBegan(remaining,with:event)}
+    }
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:false) ?? presses
+        if !remaining.isEmpty {super.pressesEnded(remaining,with:event)}
+    }
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:false) ?? presses
+        if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
+    }
     override var textInputMode: UITextInputMode? {
         if owner?.props["emojiPicker"] == "true",
            let emoji = UITextInputMode.activeInputModes.first(where: { $0.primaryLanguage == "emoji" }) {
@@ -55,6 +67,18 @@ final class TextArea: UITextView {
         super.insertText(text)
     }
 
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:true) ?? presses
+        if !remaining.isEmpty {super.pressesBegan(remaining,with:event)}
+    }
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:false) ?? presses
+        if !remaining.isEmpty {super.pressesEnded(remaining,with:event)}
+    }
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let remaining=owner?.pressedControls(presses,down:false) ?? presses
+        if !remaining.isEmpty {super.pressesCancelled(remaining,with:event)}
+    }
     override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }

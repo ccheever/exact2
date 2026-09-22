@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -294,12 +294,44 @@ export function staticWatchChanges(watchRoot, trees, filename) {
   return changes;
 }
 
-/** Watch the stable app directory rather than only roots present at startup.
- * This observes first creation, whole-root deletion, and recreation. */
+/** Poll only static paths: recursive filesystem notifications can arrive late.
+ * Keep absent roots watched; directory changes discover new files. */
 export function watchStaticTrees(watchRoot, trees, onChange) {
-  return watch(watchRoot, { recursive: true }, (event, filename) => {
-    for (const change of staticWatchChanges(watchRoot, trees, filename)) onChange(change, event);
-  });
+  const watched = new Map();
+  const info = path => { try { return lstatSync(path, { bigint: true }); } catch { return null; } };
+  function discover(path, paths) {
+    paths.add(path);
+    const current = info(path);
+    if (!watched.has(path)) watched.set(path, current);
+    try {
+      if (current?.isDirectory()) {
+        for (const name of readdirSync(path)) discover(resolve(path, name), paths);
+      }
+    } catch { /* The validated copy reports refusals; never follow a root link. */ }
+  }
+  function scan() {
+    const paths = new Set();
+    for (const [root] of trees) discover(resolve(root), paths);
+    for (const path of watched.keys()) if (!paths.has(path)) watched.delete(path);
+  }
+  scan();
+  const timer = setInterval(() => {
+    const changes = [];
+    let directories = false;
+    for (const [path, previous] of watched) {
+      const now = info(path);
+      if (!['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => now?.[key] !== previous?.[key])) continue;
+      watched.set(path, now);
+      const directory = now?.isDirectory() || previous?.isDirectory();
+      directories ||= directory;
+      for (const change of staticWatchChanges(watchRoot, trees, path)) {
+        changes.push(directory ? { ...change, relative: '', name: change.targetRoot, tree: true } : change);
+      }
+    }
+    if (directories) scan();
+    for (const change of changes) onChange(change, 'change');
+  }, 100);
+  return { close() { clearInterval(timer); watched.clear(); } };
 }
 
 /** Apply one recursive-watch candidate. A missing leaf or directory removes
@@ -443,12 +475,12 @@ export function listPublicFiles(dist) {
 
 /** Digest cards for the complete public web build. The private completion
  * marker records these after every generated/optional artifact exists. */
-export function publicFileCards(dist) {
-  return listPublicFiles(dist).map((name) => {
-    const found = readStaticFile(dist, `/${name}`);
+export async function publicFileCards(dist) {
+  return Promise.all(listPublicFiles(dist).map(async (name) => {
+    const found = await readStaticFileAsync(dist, `/${name}`);
     if (!found) throw new Error(`public web file changed while inventorying: ${resolve(dist, name)}`);
     return { name, sha256: createHash('sha256').update(found.body).digest('hex'), bytes: found.body.length };
-  });
+  }));
 }
 
 /** The manifest input identity a completed build records. Binding the whole
@@ -468,22 +500,22 @@ function planAppId(bytes) {
 /** Whether the complete build at `dist` belongs to `app`. The completion
  * marker, public envelope, and named plan must all agree with the requested
  * manifest identity before dev starts that app's resident compiler. */
-export function builtAppMatches(dist, app) {
+export async function builtAppMatches(dist, app) {
   try {
     if (!app?.id || !app?.displayName) return false;
     const root = realpathSync(dist);
     const markerPath = resolve(root, '.exact-build.json');
     if (realpathSync(markerPath) !== markerPath || !statSync(markerPath).isFile()) return false;
     const marker = JSON.parse(readFileSync(markerPath, 'utf8'));
-    const files = publicFileCards(root);
+    const files = await publicFileCards(root);
     const names = new Set(files.map((file) => file.name));
     if (REQUIRED_BUILD_FILES.some((name) => !names.has(name))) return false;
     if (!Array.isArray(marker.files) || marker.files.length !== files.length
       || files.some((file, i) => marker.files[i]?.name !== file.name
         || marker.files[i]?.sha256 !== file.sha256 || marker.files[i]?.bytes !== file.bytes
         || Object.keys(marker.files[i]).sort().join(',') !== 'bytes,name,sha256')) return false;
-    const found = readStaticFile(dist, '/exact.json');
-    const plan = readStaticFile(dist, '/app.plan');
+    const found = await readStaticFileAsync(dist, '/exact.json');
+    const plan = await readStaticFileAsync(dist, '/app.plan');
     if (!found || !plan) return false;
     const envelope = JSON.parse(found.body.toString('utf8'));
     const digest = createHash('sha256').update(plan.body).digest('hex');

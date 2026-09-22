@@ -20,6 +20,33 @@ public final class AssetResolver {
         self.root = root; self.names = names; self.read = read
     }
 
+    /// Own verified payloads without retaining texture heap buffers. The private
+    /// files live exactly as long as this generation and can be read after loss.
+    init(root: URL, verified: [String: Data]) throws {
+        self.root = root; names = Array(verified.keys); read = nil
+        for (name, bytes) in verified {
+            guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else {
+                throw CocoaError(.fileReadInvalidFileName)
+            }
+            if name.hasSuffix(".tex") { _ = try materialize(name, bytes) }
+            else { cache[name] = bytes }
+        }
+    }
+
+    private func materialize(_ name: String, _ bytes: Data) throws -> URL {
+        if directory == nil {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exact-generation-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+            directory = dir
+        }
+        let filename = Data(name.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let url = directory!.appendingPathComponent(filename)
+        try bytes.write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o400], ofItemAtPath: url.path)
+        files[name] = url
+        return url
+    }
+
     init(root: URL) {
         self.root = root; names = nil; read = nil
     }
@@ -28,14 +55,22 @@ public final class AssetResolver {
 
     func bytes(_ name: String) -> Data? {
         lock.lock(); defer { lock.unlock() }
+        do { return try delivery(name) } catch { lastRefusal = lastRefusal ?? error.localizedDescription; return nil }
+    }
+
+    func delivery(_ name: String) throws -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { throw CocoaError(.fileReadInvalidFileName) }
         if let bytes = cache[name] { return bytes }
+        if let url = files[name] { return try Data(contentsOf: url) }
         if let read {
             guard names?.contains(name) == true else { return nil }
-            do { let bytes = try read(name); if let bytes { cache[name] = bytes }; return bytes }
+            do { let bytes = try read(name); if let bytes, !name.hasSuffix(".tex") { cache[name] = bytes }; return bytes }
             catch { lastRefusal = lastRefusal ?? error.localizedDescription; return nil }
         }
-        guard let url = embeddedURL(name) else { return nil }
-        return try? Data(contentsOf: url)
+        guard !isComplete, let url = embeddedURL(name) else { return nil }
+        do { return try Data(contentsOf: url) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile { return nil }
     }
 
     func url(_ name: String, maximumBytes: Int? = nil) -> URL? {
@@ -73,9 +108,16 @@ public final class AssetResolver {
         return sources
     }
 
+    /// The same cases and byte limit as gpu::asset_name.
+    static func validAssetName(_ name: String) -> Bool {
+        let bytes = Array(name.utf8)
+        return !bytes.isEmpty && bytes.count <= 128
+            && bytes.allSatisfy { $0 >= 32 && $0 < 127 && $0 != 92 }
+            && name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+
     private func embeddedURL(_ name: String) -> URL? {
-        guard !name.isEmpty, !name.hasPrefix("/"), !name.contains(":"), !name.contains("\\"),
-              name.split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else { return nil }
+        guard Self.validAssetName(name.hasPrefix("assets/") ? String(name.dropFirst(7)) : name) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let url = base.appendingPathComponent(name).standardizedFileURL.resolvingSymlinksInPath()
         return url.path.hasPrefix(base.path + "/") ? url : nil

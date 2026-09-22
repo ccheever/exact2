@@ -1,6 +1,6 @@
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // are workspace members and build into `target/`. Outside it (weird-castle:
-// its own repo, its own cargo workspace, depending on this repo's crates by
+// its own repo or a member of a surrounding workspace, depending on our crates by
 // path so the two iterate together), `EXACT_APP_DIR` names the directory and
 // everything else follows from it: the workspace cargo runs in, the target
 // directory the artifacts land in, `app.contract`, `assets/`, `gpu/`. Every
@@ -28,6 +28,13 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { installProblems } from './install-page.mjs';
+import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
+
+/** Existing locks are binding; the root workspace and generated game shells require theirs. */
+export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
+  (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
+
+export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -40,7 +47,7 @@ const WEB_HOST_GROUPS = {
   storage: ['storage-request.js', 'storage.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js'],
+  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
 };
 /** Public filename -> repo-relative source; omit groups to inventory every host file. */
 export function webHostFiles(...groups) {
@@ -54,15 +61,55 @@ export function webHostFiles(...groups) {
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
-  const name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
+  if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
   dir = realpathSync(dir);
-  const workspace = outside ? dir : ROOT;
-  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(workspace, 'target');
+  // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
+  let workspace = ROOT;
+  if (outside && manifest.game === undefined) {
+    // Ordinary external apps may belong to an enclosing Cargo workspace. Games
+    // always use their generated workspace below and need no Cargo process here.
+    const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
+    workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
+  }
+  if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
+    throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
+  }
+  if (manifest.game !== undefined) {
+    name = manifest.game.crate.slice(0, -'-logic'.length);
+    workspace = resolve(dir, '.shells');
+  }
+  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
+  let packages;
+  const prepare = (refresh = false, options) => {
+    if (manifest.game && (refresh || !packages)) {
+      const metadata = prepareGame(dir, manifest.game, resolve(ROOT, 'game'), options);
+      packages = metadata.packages;
+      return metadata;
+    }
+  };
+  const cargoPackage = kind => {
+    prepare();
+    if (!packages) {
+      const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags({manifest, workspace}), '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
+      packages = JSON.parse(result.stdout).packages;
+    }
+    return packages.find(pkg => pkg.name === `${name}-${kind}`);
+  };
   return {
     name, dir, workspace, target, crate: (kind) => `${name}-${kind}`,
+    cargoPackage, prepare,
+    get hasGpu() {
+      if (manifest.game !== undefined) return true;
+      const gpu = resolve(dir, 'gpu');
+      if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
+      const pkg = cargoPackage('gpu');
+      return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+    },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
     /** The app identity, reverse-DNS: the bundle id on every platform (`build.mjs:48–49` derived it from the crate name before the manifest). */
@@ -80,9 +127,10 @@ export function resolveApp(nameOrCrate) {
 export function readManifest(dir, name) {
   const path = resolve(dir, 'app.json');
   const fallback = { name: name[0].toUpperCase() + name.slice(1), app: { id: `com.exact.${name}`, name: name[0].toUpperCase() + name.slice(1) }, host: {}, deploy: {} };
-  if (!existsSync(path)) return fallback;
+  const game = gameDefaults(dir);
+  if (!existsSync(path) && !game) return fallback;
   let parsed;
-  try { parsed = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
+  try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   const problems = validate(parsed, schema(), '', schema());
   if (!problems.length) problems.push(...installProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
@@ -211,9 +259,9 @@ const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringi
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
 const under = (root, path) => path === root || path.startsWith(root + '/');
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
-function buildCommand(command, args, app, env) {
-  const result = spawnSync(command, args, { cwd: app.workspace, env, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
-  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr}\n${(result.stdout ?? '').slice(-4000)}`);
+function buildCommand(command, args, app, env, stderr = 'pipe') {
+  const result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   return result;
 }
 export function bakeTarget(platform) {
@@ -227,12 +275,15 @@ export function bakeTarget(platform) {
   return host;
 }
 function buildGraph(app, target, kind, env, gpu) {
-  const metadata = JSON.parse(buildCommand('cargo', ['metadata', '--locked', '--offline', '--format-version', '1', '--filter-platform', target], app, env).stdout);
+  const prepared = app.prepare?.(true, {target, env});
+  const metadata = prepared?.workspace_root === app.workspace ? prepared
+    : JSON.parse(buildCommand('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target], app, env).stdout);
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
   const surface = gpu && metadata.packages.find((p) => p.name === app.crate('gpu'));
   if (!root) throw new Error(`Cargo has no ${app.crate(kind)} target`);
+  if (gpu && !surface) throw new Error(`Cargo has no GPU surface ${app.crate('gpu')}`);
   const roles = new Map(), pending = [[root.id, target], ...(surface ? [[surface.id, target]] : [])];
   while (pending.length) {
     let [id, role] = pending.pop();
@@ -245,7 +296,7 @@ function buildGraph(app, target, kind, env, gpu) {
   }
   return { metadata, packages, root, surface, roles };
 }
-function compilerPaths(text, workspace) {
+export function compilerPaths(text, workspace) {
   const first = text.replace(/\\\r?\n/g, '').split('\n')[0];
   const at = first.indexOf(': ');
   if (at < 0) throw new Error('rustc dep-info has no dependency rule');
@@ -262,25 +313,69 @@ function compilerPaths(text, workspace) {
 }
 // rustc records relative inputs against Cargo's workspace root, even when
 // EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
-function unitDepInfo(message, workspace, named) {
-  if (named) return named;
+export function unitDepInfo(message, workspace, metadata) {
+  // Cargo reports copied roots in target_directory and units in build_directory.
+  // When the directories nest, the more specific root identifies the file.
+  const intermediate = file => metadata && under(metadata.target_directory, file)
+      && (!under(metadata.build_directory, file) || metadata.target_directory.length > metadata.build_directory.length)
+    ? resolve(metadata.build_directory, relative(metadata.target_directory, file)) : file;
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
-    const candidate = resolve(dirname(file), stem + '.d');
-    if (!existsSync(candidate)) continue;
-    if (compilerPaths(readFileSync(candidate, 'utf8'), workspace).includes(resolve(message.target.src_path))) return candidate;
+    // Selected libraries are copied out of deps; Cargo's sibling summary .d
+    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit.
+    for (const candidate of [resolve(dirname(intermediate(file)), 'deps', stem + '.d'), resolve(dirname(intermediate(file)), stem + '.d')]) {
+      if (!existsSync(candidate)) continue;
+      const dep = readFileSync(candidate, 'utf8');
+      const output = dep.slice(0, dep.indexOf(': '));
+      // rustc leaves the single output path raw, but escapes dependency paths.
+      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) return candidate;
+    }
+  }
+  // Cargo copies libraries and executables out of deps without reporting their
+  // hashed unit filenames. Match the copied bytes; refuse ambiguous evidence.
+  for (const file of message.filenames.filter(path => /\.(rlib|a)$/.test(path) || path === message.executable)) {
+    const directory = resolve(dirname(intermediate(file)), 'deps');
+    if (!existsSync(directory)) continue;
+    const executable = file === message.executable;
+    const extension = executable ? '' : file.slice(file.lastIndexOf('.'));
+    const stem = executable ? message.target.name.replaceAll('-', '_') : basename(file, extension);
+    const bytes = readFileSync(file), matches = [];
+    for (const name of readdirSync(directory)) {
+      if (!name.startsWith(stem + '-') || (!executable && !name.endsWith(extension))) continue;
+      const unit = executable ? name : name.slice(3, -extension.length);
+      if (!/^[a-f0-9]+$/.test(unit.slice(unit.lastIndexOf('-') + 1))) continue;
+      const product = resolve(directory, name);
+      if (statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
+      const candidate = resolve(directory, unit + '.d');
+      if (!existsSync(candidate)) continue;
+      const dep = readFileSync(candidate, 'utf8');
+      const output = dep.slice(0, dep.indexOf(': '));
+      // rustc leaves the single output path raw, but escapes dependency paths.
+      if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) matches.push(candidate);
+    }
+    if (matches.length === 1) return matches[0];
+    if (matches.length > 1) throw new Error(`ambiguous rustc unit dep-info for ${message.target.name}`);
   }
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
 }
 function completeBuild(app, platform, target, graph, messages, roots, env) {
   const scripts = messages.filter((m) => m.reason === 'build-script-executed' && graph.roles.has(m.package_id));
-  const roleOf = (path) => under(resolve(app.target, target), path) ? target : 'host';
+  const targetDirs = [app.target, graph.metadata.build_directory].map(dir => resolve(dir, target));
+  const roleOf = (path) => targetDirs.some(dir => under(dir, path)) ? target : 'host';
   const generated = scripts.map((m) => ({ path: resolve(m.out_dir), pkg: graph.packages.get(m.package_id), role: roleOf(m.out_dir) })).sort((a,b) => b.path.length-a.path.length);
   const rootOutput = generated.find((g) => g.pkg.id === graph.root.id && g.role === target)?.path;
   if (!rootOutput) throw new Error('Cargo did not report the selected target bake output');
   const compat = JSON.parse(readFileSync(resolve(rootOutput, 'compat.json'), 'utf8'));
   if (compat.target !== target || compat.inputs.platform !== platform || compat.inputs.app !== app.id) throw new Error('actual bake receipt names another target, platform or app');
   const bundleGraph = JSON.parse(readFileSync(resolve(rootOutput, 'artifacts.json'), 'utf8'));
+  // Recreate packaging outputs from Cargo's actual bake, even on a cache hit.
+  // A build script must never watch its own receipt: writing it dirties every next build.
+  const stem = `${platform}-${target}`;
+  for (const [file, suffix] of [['compat.json', '.json'], ['app.plan', '.plan'], ['artifacts.json', '.artifacts.json']]) {
+    writeFileSync(resolve(env.EXACT_BAKE_OUTPUT, stem + suffix), readFileSync(resolve(rootOutput, file)));
+  }
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
@@ -305,9 +400,11 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const add = (path, optional = false) => {
     path = resolve(path); if (replaced.has(path)) return;
     if (!existsSync(path)) { if (optional) { absent.set(nameOf(path), path); return; } throw new Error(`stale compiler dependency names missing input ${path}; rebuild that Cargo unit`); }
+    const name = nameOf(path);
+    if (inputs.get(name)?.path === path) return;
     const info = statSync(path);
-    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(nameOf(path), {path,names}); for (const name of names) add(resolve(path,name)); }
-    else if (info.isFile()) inputs.set(nameOf(path), {name:nameOf(path),path,sha256:buildHash(readFileSync(path))});
+    if (info.isDirectory()) { const names = readdirSync(path).sort(); directories.set(name, {path,names}); for (const entry of names) add(resolve(path,entry)); }
+    else if (info.isFile()) inputs.set(name, {name,path,sha256:buildHash(readFileSync(path))});
     else throw new Error(`unsupported compiler input ${path}`);
   };
   const normalizeEnv = ([key,value]) => [key, value == null ? null : ['OUT_DIR','CARGO_MANIFEST_DIR'].includes(key) ? nameOf(value) : buildHash(value)];
@@ -315,8 +412,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   for (const m of messages.filter((m) => m.reason === 'compiler-artifact' && !m.target.kind.includes('custom-build') && graph.roles.has(m.package_id))) {
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
-    const selected = roots.find((r) => r.package === m.package_id && m.target.name === r.name);
-    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,selected?.dep), 'utf8');
+    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,graph.metadata), 'utf8');
     for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
@@ -348,6 +444,9 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   }
   for (const pkg of packages) if(usedPackages.has(pkg.id))add(pkg.manifest_path);
   add(resolve(graph.metadata.workspace_root,'Cargo.toml'));add(resolve(graph.metadata.workspace_root,'Cargo.lock'));
+  // Shell selection observes art's presence. Track absence for the dev watcher
+  // without giving Cargo a missing path that forces every build dirty.
+  if (app.manifest.game) add(resolve(app.dir, 'art'), true);
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
@@ -402,6 +501,13 @@ export const cargoLibraryTarget = (pkg) => pkg.targets.find(t => t.kind.some(k =
 export const appleCargoClaims = (app, target, units) => [...new Set(units.map(unit =>
   resolve(app.target, '.apple-cargo-locks', target, `lib${unit.name.replace(/-/g, '_')}.lock`)))].sort();
 
+// Only explicitly developmental gpu-dev hosts may be reused across GPU edits.
+export const bindGpuProduct = (profile, trust) => profile !== 'gpu-dev' || trust !== 'development';
+export function bakeSelection(graph, part) {
+  if (part && !['gpu','host'].includes(part)) throw new Error(`unknown bake part: ${part}`);
+  return (part === 'gpu' ? [graph.surface] : part === 'host' ? [graph.root] : [graph.surface,graph.root]).filter(Boolean);
+}
+
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS. */
 export function buildBake(app, platform, target, options = {}) {
@@ -411,8 +517,15 @@ export function buildBake(app, platform, target, options = {}) {
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
-  const graph=buildGraph(app,target,kind,env,platform!=='linux'&&existsSync(resolve(app.dir,'gpu/Cargo.toml'))),messages=[],roots=[];
-  const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
+  const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
+  delete env.EXACT_GPU_PRODUCT;
+  if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
+    const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
+    env.EXACT_GPU_DEVELOPMENT = `lib${cargoLibraryTarget(graph.surface).name.replaceAll('-','_')}.${extension}`;
+  }
+  else delete env.EXACT_GPU_DEVELOPMENT;
+  if (options.part && (kind !== 'linux' || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST))) throw new Error('partial bakes require development gpu-dev Linux');
+  const selected = bakeSelection(graph, options.part).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);
     return {pkg, unit};
@@ -423,11 +536,23 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
-    const dep=resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}-${pkg.name}.d`);
-    const args=['rustc','--locked','--offline','-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json','--',`--emit=dep-info=${dep}`];
-    const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
-    const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name,dep});
-    for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);
+    // The GPU bake can create the first asset directory (for a typed level).
+    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
+    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const result=buildCommand('cargo',args,app,env,'inherit');
+    const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
+    if (pkg.id === graph.surface?.id && platform !== 'web') {
+      const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
+        .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
+      if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
+      options.prepareGpu?.(product);
+      if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = product;
+    }
+  }
+  if (options.part === 'gpu') {
+    // The proof completes the independent input/product receipt. There is no
+    // host bake output to classify when only the surface graph was selected.
+    return {products:messages.filter(m=>m.reason==='compiler-artifact' && m.package_id===graph.surface.id).flatMap(m=>m.filenames)};
   }
   const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
@@ -477,7 +602,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
   }
   const changed=candidate.binary.sha256!==cohort.binary || (candidate.pendingInputs?.length ?? 0)>0;
   const warnings=[];
-  if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>n!=='exactDelivery'&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
+  if(changed&&!candidate.graph.artifacts.some(a=>a.name==='rust/app.module.json')&&canonicalBuild(candidate.compat.inputs.dataCrate)!==canonicalBuild(have.dataCrate)&&Object.keys(candidate.graph.sources).some(n=>!runnerOwnedSource(n)&&cohort.sources[n])) warnings.push(`same name, same shape, new native code: cohort ${cohort.compat.id} will run the old code`);
   if(changed&&Object.keys(candidate.graph.surfaceCalls??{}).length) warnings.push(`same surface name and arity: cohort ${cohort.compat.id} retains its old GPU implementation`);
   return {binary:changed,bundle:missing.length===0&&have.store?.L!=='0',missing:have.store?.L==='0'?['store.L=0: this binary has no bundle carrier']:missing,warnings};
 }

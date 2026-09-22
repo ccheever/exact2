@@ -167,7 +167,8 @@ impl VisitSpans for Expr {
                 parts.visit_spans(visit);
                 visit(span);
             }
-            Self::Some(inner, span)
+            Self::NamedArg(_, inner, span)
+            | Self::Some(inner, span)
             | Self::Member(inner, _, span)
             | Self::Unary(_, inner, span) => {
                 inner.visit_spans(visit);
