@@ -1,0 +1,16 @@
+// The same through a child's derive, resolved and then substituted.
+component App
+  state x = "parent-x"
+  state o = some("inner-value")
+  view
+    main
+      Child(label=x, o=o)
+
+component Child
+  props
+    label: string
+    o: option<string>
+  derive shown = match o { case some(x) => label, case none => "none" }
+  view
+    column
+      text shown testId="viaderive"

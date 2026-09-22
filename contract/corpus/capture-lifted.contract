@@ -1,0 +1,17 @@
+// A root name spelled like a lifted child name stays distinct from it.
+component App
+  state count__1 = 100
+  view
+    main
+      text `${count__1}` testId="root"
+      Child(step=1)
+
+component Child
+  props
+    step: number
+  state count = 5
+  action bump writes count
+    count = count + step
+  view
+    button press=bump testId="bump"
+      text `${count}` testId="child"

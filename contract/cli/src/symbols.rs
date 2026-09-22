@@ -811,8 +811,7 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         );
         let mut found = None;
         for candidate in names {
-            if candidate.contains("__")
-                || shadowed.contains(&candidate)
+            if shadowed.contains(&candidate)
                 || (call
                     && (matches!(candidate, "pending" | "path")
                         || file.fns.iter().any(|f| f.name == candidate)))

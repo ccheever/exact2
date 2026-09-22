@@ -179,7 +179,7 @@ component Panel
         .as_object()
         .unwrap()
         .iter()
-        .filter(|(name, _)| name.starts_with("n__"))
+        .filter(|(name, _)| name.starts_with("n#"))
         .collect();
     assert_eq!(lifted.len(), 3);
     for (_, location) in lifted {
@@ -245,8 +245,8 @@ component Child
     let (plan, map) = app.compile();
     assert_eq!(map["slots"]["nav"]["line"], 1);
     assert_eq!(map["slots"]["count"]["line"], 4);
-    assert_eq!(map["slots"]["hot__1"]["line"], 9);
-    assert_eq!(map["slots"]["hot__1"]["component"], "Child");
+    assert_eq!(map["slots"]["hot#1"]["line"], 9);
+    assert_eq!(map["slots"]["hot#1"]["component"], "Child");
     assert_eq!(map["derives"]["next"]["file"], path.to_str().unwrap());
     assert_eq!(map["derives"]["next"]["line"], 5);
     assert_eq!(map["slots"].as_object().unwrap().len(), plan.slots.len());

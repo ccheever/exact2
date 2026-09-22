@@ -157,8 +157,8 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     assert_eq!(text_of(&r, "count-text-a"), "a 2 4");
     assert_eq!(text_of(&r, "count-text-b"), "b 0 0");
     // A singleton's state is a root slot by its lifted name; carried by name.
-    assert_eq!(r.slot("n__1"), Some(&Value::Number(2.0)));
-    assert!(r.carry().slots.iter().any(|(n, _)| n == "n__1"));
+    assert_eq!(r.slot("n#1"), Some(&Value::Number(2.0)));
+    assert!(r.carry().slots.iter().any(|(n, _)| n == "n#1"));
     // Rows: `label` initialized from the row item, then hover one while the
     // other is untouched.
     let mv = view_of(&r, "station-mv");
@@ -166,8 +166,8 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     assert_eq!(text_of(&r, "name-mv"), "Mountain View !");
     assert_eq!(text_of(&r, "name-pa"), "Palo Alto");
     // A row slot is the row's: not a root slot, not carried.
-    assert_eq!(r.slot("hot__3"), None);
-    assert!(!r.carry().slots.iter().any(|(n, _)| n == "hot__3"));
+    assert_eq!(r.slot("hot#3"), None);
+    assert!(!r.carry().slots.iter().any(|(n, _)| n == "hot#3"));
     // Reorder: the state followed the key.
     r.act("flip", vec![]).unwrap();
     assert_eq!(r.slot("order"), Some(&Value::str("desc")));
@@ -180,7 +180,7 @@ fn a_use_owns_its_state_and_a_row_owns_its_own_which_follows_its_key() {
     assert_eq!(text_of(&r, "name-pa"), "Palo Alto !");
     // A row action run with no row has nothing to write: a typed refusal,
     // and the kernel untouched.
-    assert!(r.act("setHot__3", vec![Value::Bool(true)]).is_err());
+    assert!(r.act("setHot#3", vec![Value::Bool(true)]).is_err());
     assert_eq!(text_of(&r, "name-mv"), "Mountain View");
 }
 

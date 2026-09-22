@@ -1,0 +1,21 @@
+// A child's inline `match` binder must not capture a parent name passed in
+// as a prop: `viaexpr` and `vianode` both show the parent's `x`.
+component App
+  state x = "parent-x"
+  state o = some("inner-value")
+  view
+    main
+      Child(label=x, o=o)
+
+component Child
+  props
+    label: string
+    o: option<string>
+  view
+    column
+      text match o { case some(x) => label, case none => "none" } testId="viaexpr"
+      match o
+        case some(x)
+          text label testId="vianode"
+        case none
+          text "none"

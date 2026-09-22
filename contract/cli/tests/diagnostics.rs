@@ -965,7 +965,6 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         "fn paints(n: number): number = n\nfn points(n: number): number = n\ncomponent App\n  view\n    text `${pints(1)}`\n".to_owned(),
         "fn paints(n: number): number = n\ncomponent App\n  state count = 0\n  action points(n: number) writes count\n    count = n\n  view\n    text `${pints(1)}`\n".to_owned(),
         "component App\n  props\n    points: action\n  view\n    text `${pints(1)}`\n".to_owned(),
-        "fn foo__1(n: number): number = n\ncomponent App\n  view\n    text `${foo__2(1)}`\n".to_owned(),
         "component App\n  view\n    text `${puch(1)}`\n".to_owned(), // push requires routes
         "component App\n  view\n    text `${zzz(1)}`\n".to_owned(),
         "component App\n  view\n    text `${fl(1)}`\n".to_owned(),
@@ -1082,8 +1081,9 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
         assert!(error.message.ends_with(&format!("; did you mean `{correct}`?")), "{error}");
         contract::compile(&source.replace(typo, correct)).unwrap();
     }
-    // Never offer another component's action, a shadowed action, a generated
-    // spelling, or an ambiguous correction. Global functions are not handlers.
+    // Never offer another component's action, a shadowed action, or an
+    // ambiguous correction; a generated spelling cannot be written. Global
+    // functions are not handlers.
     for source in [
         format!("component App\n  view\n    button \"Save\" press=svae\n    Row()\ncomponent Row\n{action}  view\n    text toString(count)\n"),
         format!("component App\n{action}  view\n    Row()\ncomponent Row\n  view\n    button \"Save\" press=svae\n"),
@@ -1091,7 +1091,6 @@ fn action_hints_use_authored_scopes_and_preserve_refusal_locations() {
         format!("component App\n{action}  resource items = items() as shape list<number>\n  view\n    each save in items key=toString(save)\n      button \"Save\" press=svae\n"),
         format!("component App\n{action}  state chosen = some(1)\n  view\n    match chosen\n      case some(save)\n        button \"Save\" press=svae\n      case none\n        text \"None\"\n"),
         "fn save(): number = 1\ncomponent App\n  view\n    button \"Save\" press=svae()\n".into(),
-        "component App\n  state count = 0\n  action save__1 writes count\n    count = 1\n  view\n    button \"Save\" press=save__2\n".into(),
     ] {
         let error = contract::compile(&source).unwrap_err();
         assert!(matches!(error.id.as_str(), "type-unknown-name" | "type-unknown-function"), "{error}");

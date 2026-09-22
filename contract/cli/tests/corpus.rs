@@ -761,3 +761,33 @@ component Label
         runner.act("change", vec![]).unwrap();
     }
 }
+
+#[test]
+fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
+    let boot = |name: &str| {
+        let plan = contract::compile(&corpus(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let plan = Plan::decode(&plan.encode()).unwrap();
+        Runner::boot(
+            plan,
+            Schedule,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let r = boot("capture-match.contract");
+    assert_eq!(text_of(&r, "viaexpr").as_deref(), Some("parent-x"));
+    assert_eq!(text_of(&r, "vianode").as_deref(), Some("parent-x"));
+    let r = boot("capture-derive.contract");
+    assert_eq!(text_of(&r, "viaderive").as_deref(), Some("parent-x"));
+    // A root `count__1` and the lifted state of `Child`'s `count` are two slots.
+    let mut r = boot("capture-lifted.contract");
+    assert_eq!(text_of(&r, "root").as_deref(), Some("100"));
+    assert_eq!(text_of(&r, "child").as_deref(), Some("5"));
+    let key = r.kernel().find_by_test_id("bump")[0];
+    let bump = r.kernel().node_by_key(key).unwrap().id;
+    r.dispatch(bump, Event::Press).unwrap();
+    assert_eq!(text_of(&r, "root").as_deref(), Some("100"));
+    assert_eq!(text_of(&r, "child").as_deref(), Some("6"));
+}

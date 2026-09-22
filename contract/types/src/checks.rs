@@ -255,10 +255,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         .chain(["pending", "path"]);
     let mut found = None;
     for candidate in names {
-        if candidate.contains("__")
-            || !one_spelling_edit(name.as_bytes(), candidate.as_bytes())
-            || !global(candidate)
-        {
+        if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {
             continue;
         }
         if found.is_some_and(|previous| previous != candidate) {
@@ -271,7 +268,7 @@ fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Opt
         for (scoped, _, _) in &frame.names {
             // Expansion can append instance suffixes. The stem is only a
             // conservative ambiguity veto, never an offered correction.
-            let authored = scoped.split("__").next().unwrap();
+            let authored = scoped.split('#').next().unwrap();
             if authored != candidate
                 && one_spelling_edit(name.as_bytes(), authored.as_bytes())
                 && matches!(

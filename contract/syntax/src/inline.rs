@@ -17,6 +17,9 @@ use crate::ast::{
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(test)]
+mod tests;
+
 fn err<T>(
     id: &'static str,
     message: impl Into<String>,
@@ -27,6 +30,12 @@ fn err<T>(
         message: message.into(),
         span,
     })
+}
+
+/// A name use `n` gives a child's declaration or view binder. `#` cannot
+/// appear in an authored identifier, so no author's name can collide with it.
+pub fn lifted(name: &str, n: u32) -> String {
+    format!("{name}#{n}")
 }
 
 /// The root's view with every component use inlined.
@@ -51,7 +60,7 @@ pub struct Expanded {
     /// `instance` and the two vectors below index it.
     pub instances: Vec<Instance>,
     /// For each of `root.states`, the instance whose component declared it
-    /// (0 for the root's own; a lifted `name__N` names its child's).
+    /// (0 for the root's own; a lifted `name#N` names its child's).
     pub state_instances: Vec<u32>,
     /// For each of `root.actions`, the same.
     pub action_instances: Vec<u32>,
@@ -279,10 +288,10 @@ fn inline_nodes(
                 };
                 let mut names: BTreeMap<String, String> = BTreeMap::new();
                 for st in &c.states {
-                    names.insert(st.name.clone(), format!("{}__{n}", st.name));
+                    names.insert(st.name.clone(), lifted(&st.name, n));
                 }
                 for a in &c.actions {
-                    names.insert(a.name.clone(), format!("{}__{n}", a.name));
+                    names.insert(a.name.clone(), lifted(&a.name, n));
                 }
                 for st in &c.states {
                     child_subst
@@ -640,11 +649,21 @@ enum Replacement<'a> {
 
 trait SubstitutionValue: Clone {
     fn replacement(&self) -> Replacement<'_>;
+    /// The replacement that renames a binder to `name`.
+    fn renamed(name: String, span: crate::Span) -> Self;
+    /// Whether `name` occurs free in the replacement.
+    fn mentions(&self, name: &str) -> bool;
 }
 
 impl SubstitutionValue for String {
     fn replacement(&self) -> Replacement<'_> {
         Replacement::Name(self)
+    }
+    fn renamed(name: String, _: crate::Span) -> Self {
+        name
+    }
+    fn mentions(&self, name: &str) -> bool {
+        self == name
     }
 }
 
@@ -655,11 +674,101 @@ impl SubstitutionValue for Expr {
             expr => Replacement::Expr(expr),
         }
     }
+    fn renamed(name: String, span: crate::Span) -> Self {
+        Expr::Ident(name, span)
+    }
+    fn mentions(&self, name: &str) -> bool {
+        free_in(self, name)
+    }
+}
+
+/// Whether `name` occurs free in `e`: as a name, or as a call's head (which
+/// substitution also replaces).
+pub(crate) fn free_in(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Ident(n, _) => n == name,
+        Expr::Call(n, args, _) => n == name || args.iter().any(|a| free_in(a, name)),
+        Expr::Member(o, _, _)
+        | Expr::NamedArg(_, o, _)
+        | Expr::Some(o, _)
+        | Expr::Unary(_, o, _) => free_in(o, name),
+        Expr::Binary(_, a, b, _) => free_in(a, name) || free_in(b, name),
+        Expr::Ternary(a, b, c, _) => free_in(a, name) || free_in(b, name) || free_in(c, name),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => free_in(subject, name) || free_in(none, name) || (var != name && free_in(some, name)),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .any(|p| matches!(p, TemplatePart::Expr(x) if free_in(x, name))),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+    }
+}
+
+fn free_in_stmts(stmts: &[Stmt], name: &str) -> bool {
+    stmts.iter().any(|st| match st {
+        Stmt::Assign { expr, .. } => free_in(expr, name),
+        Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+            args.iter().any(|a| free_in(a, name))
+        }
+        Stmt::Refresh { .. } => false,
+        Stmt::If {
+            cond,
+            then,
+            otherwise,
+            ..
+        } => free_in(cond, name) || free_in_stmts(then, name) || free_in_stmts(otherwise, name),
+        Stmt::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            free_in(subject, name)
+                || free_in_stmts(none, name)
+                || (some.0 != name && free_in_stmts(&some.1, name))
+        }
+    })
+}
+
+/// The substitution under a binder `var` whose scope is described by
+/// `free` (whether a name occurs free there): the binder shadows its own
+/// name, and is renamed apart — to a spelling no author can write — when a
+/// replacement for a name free in its scope mentions it, so a parent's
+/// expression passed in can never be captured by a child's binder.
+fn under_binder<'m, T: SubstitutionValue>(
+    var: &str,
+    free: impl Fn(&str) -> bool,
+    subst: &'m BTreeMap<String, T>,
+    span: crate::Span,
+) -> (String, std::borrow::Cow<'m, BTreeMap<String, T>>) {
+    use std::borrow::Cow;
+    let captures = subst
+        .iter()
+        .any(|(name, value)| name != var && value.mentions(var) && free(name));
+    if !captures {
+        if !subst.contains_key(var) {
+            return (var.to_owned(), Cow::Borrowed(subst));
+        }
+        let mut inner = subst.clone();
+        inner.remove(var);
+        return (var.to_owned(), Cow::Owned(inner));
+    }
+    let fresh = (1u32..)
+        .map(|k| format!("{var}@{k}"))
+        .find(|candidate| !free(candidate) && !subst.values().any(|v| v.mentions(candidate)))
+        .expect("an unused binder name");
+    let mut inner = subst.clone();
+    inner.insert(var.to_owned(), T::renamed(fresh.clone(), span));
+    (fresh, Cow::Owned(inner))
 }
 
 /// Substitute prop names by argument expressions. A curried handler
 /// `prop(args)` where the prop's argument is an action `f` or `f(a…)`
-/// becomes `f(a…, args)`.
+/// becomes `f(a…, args)`. Capture-avoiding: see [`under_binder`].
 fn subst_expr<T: SubstitutionValue>(e: &Expr, subst: &BTreeMap<String, T>) -> Expr {
     if subst.is_empty() {
         return e.clone();
@@ -709,11 +818,10 @@ fn subst_expr<T: SubstitutionValue>(e: &Expr, subst: &BTreeMap<String, T>) -> Ex
             none,
             span,
         } => {
-            let mut inner = subst.clone();
-            inner.remove(var);
+            let (var, inner) = under_binder(var, |name| free_in(some, name), subst, *span);
             Expr::Match {
                 subject: Box::new(subst_expr(subject, subst)),
-                var: var.clone(),
+                var,
                 some: Box::new(subst_expr(some, &inner)),
                 none: Box::new(subst_expr(none, subst)),
                 span: *span,
@@ -812,7 +920,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span,
             } => {
                 let mut inner = map.clone();
-                let fresh = format!("{var}__{n}");
+                let fresh = lifted(var, n);
                 inner.insert(var.clone(), fresh.clone());
                 Node::Each {
                     tag: *tag,
@@ -830,7 +938,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span,
             } => {
                 let mut inner = map.clone();
-                let fresh = format!("{}__{n}", some.0);
+                let fresh = lifted(&some.0, n);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
                     subject: subst_expr(subject, map),
@@ -896,11 +1004,11 @@ fn subst_stmts(
                 none,
                 span,
             } => {
-                let mut inner = subst.clone();
-                inner.remove(&some.0);
+                let (var, inner) =
+                    under_binder(&some.0, |name| free_in_stmts(&some.1, name), subst, *span);
                 Stmt::Match {
                     subject: subst_expr(subject, subst),
-                    some: (some.0.clone(), subst_stmts(&some.1, &inner, names)),
+                    some: (var, subst_stmts(&some.1, &inner, names)),
                     none: subst_stmts(none, subst, names),
                     span: *span,
                 }

@@ -19,7 +19,7 @@ pub struct Sites {
     pub slots: Vec<Declared>,
     /// The plan's derives (a child's never reach the plan).
     pub derives: Vec<Declared>,
-    /// The plan's actions, a child's lifted `name__N` included.
+    /// The plan's actions, a child's lifted `name#N` included.
     pub actions: Vec<Declared>,
 }
 
