@@ -423,7 +423,7 @@ fn refused_second_edge_retries_once_without_repeating_the_successful_start() {
 }
 
 #[test]
-fn refused_before_activation_stays_armed_with_unchanged_endpoints() {
+fn an_edge_before_activation_commits_and_activation_asks_its_arguments_once() {
     let source = SOURCE
         .replace("starts, refused", "starts, refused, revision")
         .replace(
@@ -443,18 +443,35 @@ fn refused_before_activation_stays_armed_with_unchanged_endpoints() {
     )
     .unwrap();
     let initial = r.collections()[0].count;
+    let queries = r.data_ref().queries;
+    // The compiled placeholder stands until activation (LLP 1038 D5, LLP
+    // 1027 D4): the edge's action commits and the source is not asked.
     let result = r.collection_feedback(facts(&r, 0.)).unwrap();
-    assert!(result.error.is_some());
-    assert_eq!(hits(&r), (0., 0.));
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(hits(&r), (1., 0.));
+    assert_eq!(r.data_ref().queries, queries);
     r.data().deferred = false;
     r.data_ready().unwrap();
+    assert_eq!(
+        r.data_ref().queries,
+        queries + 1,
+        "asked once, at activation"
+    );
+    assert_eq!(
+        r.resource_args("rows"),
+        Some(
+            &[
+                Value::Number(0.),
+                Value::Number(200.),
+                Value::Number(1.),
+                Value::Bool(false)
+            ][..]
+        ),
+        "with the arguments the edge's action left"
+    );
     assert_eq!(r.collections()[0].count, initial);
     send(&mut r, 0.);
-    assert_eq!(
-        hits(&r),
-        (1., 0.),
-        "activation must not lose the refused edge"
-    );
+    assert_eq!(hits(&r), (1., 0.), "the edge is neither lost nor run again");
 }
 
 #[test]
