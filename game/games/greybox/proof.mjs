@@ -28,7 +28,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     check(`world outline contains ${name}`, (outline?.entities ?? outline?.nodes ?? []).some(e => e.name === name));
   }
   const initial = await s.state();
-  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x8876f762b6cdb5cb', initial?.world?.[0]?.hash);
+  check('setup hash equals native golden', initial?.world?.[0]?.hash === '0x7df5e5a89b4d0207', initial?.world?.[0]?.hash);
   const down = await s.world('world').key_down('KeyW');
   check('W reaches the real browser input path', down?.delivery === (host === 'web' ? 'platform' : 'recognized'), down);
   await s.world('world').run(1500);
@@ -39,7 +39,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('W for 1500 ms equals the native pinned position', equal(position, [0, 0.9, -5.3666644]), position);
   const forward = await s.state();
   const hash = forward?.world?.[0]?.hash;
-  check('W for 1500 ms equals the current native hash', hash === '0x71f8eb47fa04a70c', hash);
+  check('W for 1500 ms equals the current native hash', hash === '0x0f14b8b231091d12', hash);
   check('1500 ms advances exactly 90 ticks', forward?.world?.[0]?.tick === 90, forward?.world?.[0]?.tick);
   const layout = await s.layout('world:player');
   const box = layout?.entity?.screen;
@@ -49,16 +49,18 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await s.world('world').key_up('KeyW');
   if (host === 'linux') {
     check('headless world reports device false', initial.world[0].device === false);
-    check('headless pick is explicitly unavailable', (await s.layout('world', [1,1])).unavailable === true);
+    check('headless CPU pick answers without a device', 'hit' in (await s.layout('world', [1,1])));
     check('headless occlusion is explicitly unavailable', layout.entity.visible.occluded.unavailable === true);
     check('headless canvas capture is explicitly unavailable', (await s.screenshot(resolve(out,'unavailable.png'),'world')).unavailable === true);
-    say('SKIP entity pick and entity tap on linux: canvas picks require a device; held contacts are unsupported');
+
   }
-  if (box && host !== 'linux') {
+  if (box) {
     const pick = await s.layout('world', [box.x + box.w / 2, box.y + box.h / 2]);
     check('pick at the player box reaches player', pick?.hit?.name === 'player', pick);
-    const tap = await s.tap('world:player');
-    check('entity tap uses platform input', tap?.delivery === 'platform', tap);
+    if (host !== 'linux') {
+      const tap = await s.tap('world:player');
+      check('entity tap uses platform input', tap?.delivery === 'platform', tap);
+    }
   }
   await s.world('world').hold('KeyW', 100);
   await s.world('world').tap('KeyE');

@@ -170,6 +170,16 @@ The first live canvas owns its surface name: other instances cannot publish or c
 Undelivered events are saved in order but excluded from the simulation hash.
 An empty queue adds no world save bytes.
 
+A canvas can request user-visible durable checkpoints with monotonic
+`surface-save=` and `surface-load=` integer tokens. The host stores the surface's
+opaque carry bytes under the manifest app identity and registered surface name,
+then reports `surface-save:saved`, `surface-load:loaded`, or the corresponding
+`:error` string through the existing `message=` handler. A successful load is
+atomic; a refused or incompatible save leaves the live surface unchanged. The
+first live publisher rule also defines the checkpoint slot: canvases registered
+under the same surface name in one app intentionally share one slot. Apps that
+need independent slots use distinct registered surface names.
+
 ## The agent's interface
 
 No ninth operation (LLP 1041.001). `tree`, `state`, `layout`, `logs` and `clock`
@@ -180,7 +190,9 @@ agent hears. Capture the complete simulation with `s.screenshot('run.world', 'wo
 `--world run.world` holds the bytes until Play creates the first carrying surface,
 then restores before its first render. Web, macOS, Linux and the iOS Simulator use the
 same forms. Linux loads the same module with no device: simulation reads, input,
-clock, publications and saves work; canvas pixels and picks report unavailable.
+clock, publications, saves and CPU point picks work; canvas pixels report unavailable.
+The native bake binds the GPU product digest to the app and cohort before loading.
+`EXACT_GPU_MODULE` (Linux) and `EXACT_GPU_DYLIB` (Apple) select a path only in a development-trust bake; the product must still match its baked digest.
 Its screenshots paint the Contract UI with flat canvas rectangles. Both carriers refuse input files and captures above 256 MiB before
 reading/encoding the carrier. A refused restore is reported once by the creating
 operation and remains in that canvas's `state.world.restoreError` and journal;

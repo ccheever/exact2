@@ -23,7 +23,7 @@ fn movement_seed_and_partitioning() {
         b.run(1.0);
     }
     assert_eq!(a.save(), b.save());
-    assert_eq!(a.world().hash(), 0xdf4c4b907c6e216a);
+    assert_eq!(a.world().hash(), 0x7379ac5210e92317);
     assert_eq!(a.position("player"), Some(Vec3::new(0.0, 0.9, -5.3666644)));
     println!(
         "1500ms position={:?}, hash={:016x}",

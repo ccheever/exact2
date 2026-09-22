@@ -296,7 +296,7 @@ pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_v
 /// A canvas's picture as pixels into `out` — `width`×`height` points at
 /// `scale`, RGBA rows top-down, `out` at least the pixel count × 4 (LLP
 /// 1014, nested canvases). 0 on success, 2 on success when the surface wants
-/// another frame, 1 on failure.
+/// another frame, 1 on failure, 3 when the device is unavailable.
 pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: &mut [u8]) -> u32 {
     let frame = Frame {
         width,
@@ -326,6 +326,7 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
             });
             1
         }
+        None if with(|m| m.instances.contains_key(&id) && m.gpu().is_none()).unwrap_or(false) => 3,
         None => 1,
     }
 }
@@ -575,7 +576,7 @@ macro_rules! module {
 
         /// A canvas's picture as pixels into `out`, `len` bytes (LLP 1014,
         /// nested canvases). 0 on success, 2 when the surface also wants
-        /// another frame, 1 on failure.
+        /// another frame, 1 on failure, 3 when the device is unavailable.
         ///
         /// # Safety
         /// `out` is `len` writable bytes.

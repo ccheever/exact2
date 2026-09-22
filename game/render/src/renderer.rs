@@ -14,8 +14,11 @@ use std::ops::Range;
 struct Mesh {
     indices: Range<u32>,
     base_vertex: i32,
+    vertex_offset: u64,
+    vertex_count: usize,
     center: Vec3,
     radius: f32,
+    texture: Option<wgpu::BindGroup>,
 }
 
 /// Persistent GPU arenas, tick history, draw lists and eagerly compiled pipelines.
@@ -33,6 +36,7 @@ pub struct Renderer {
     vertices: Buffer,
     indices: Buffer,
     meshes: Vec<Mesh>,
+    white_texture: wgpu::BindGroup,
     batches: Vec<Batch>,
     targets: Targets,
     counts: Stats,
@@ -83,6 +87,14 @@ impl Renderer {
             &slots,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
+        let white_texture = material_texture(
+            device,
+            queue,
+            &pipelines.texture_layout,
+            1,
+            1,
+            &[255, 255, 255, 255],
+        );
         Self {
             device: device.clone(),
             queue: queue.clone(),
@@ -96,6 +108,7 @@ impl Renderer {
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
+            white_texture,
             batches: Vec::new(),
             targets,
             shadows: None,
@@ -238,13 +251,41 @@ impl Renderer {
     /// Append a triangle mesh to the shared vertex/index arenas. Indices are local
     /// to this mesh; winding is counterclockwise. Panics on empty/invalid geometry.
     pub fn add_mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId {
+        self.add_mesh_inner(vertices, indices, None)
+    }
+
+    /// Append an asset mesh with one embedded sRGB base-colour texture.
+    pub(crate) fn add_textured_mesh(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        image: &crate::assets::Image,
+    ) -> MeshId {
+        let texture = material_texture(
+            &self.device,
+            &self.queue,
+            &self.pipelines.texture_layout,
+            image.width,
+            image.height,
+            &image.rgba,
+        );
+        self.add_mesh_inner(vertices, indices, Some(texture))
+    }
+
+    fn add_mesh_inner(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        texture: Option<wgpu::BindGroup>,
+    ) -> MeshId {
         assert!(!vertices.is_empty() && !indices.is_empty() && indices.len().is_multiple_of(3));
         assert!(indices.iter().all(|&i| (i as usize) < vertices.len()));
         let vertex_start = self.vertices.live;
         let index_start = self.indices.live;
         let vertex_end = vertex_start + size_of_val(vertices) as u64;
         let index_end = index_start + size_of_val(indices) as u64;
-        assert!(vertex_end / 32 <= i32::MAX as u64 && index_end / 4 <= u64::from(u32::MAX));
+        let stride = size_of::<Vertex>() as u64;
+        assert!(vertex_end / stride <= i32::MAX as u64 && index_end / 4 <= u64::from(u32::MAX));
         self.vertices.grow(&self.device, &self.queue, vertex_end);
         self.indices.grow(&self.device, &self.queue, index_end);
         self.vertices
@@ -266,11 +307,22 @@ impl Renderer {
         let id = MeshId(self.meshes.len());
         self.meshes.push(Mesh {
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
-            base_vertex: (vertex_start / 32) as i32,
+            base_vertex: (vertex_start / stride) as i32,
+            vertex_offset: vertex_start,
+            vertex_count: vertices.len(),
             center,
             radius,
+            texture,
         });
         id
+    }
+
+    /// Replace one retained mesh's vertex records without reallocating its range.
+    pub(crate) fn update_mesh(&mut self, mesh: MeshId, vertices: &[Vertex]) {
+        let mesh = &self.meshes[mesh.0];
+        assert_eq!(mesh.vertex_count, vertices.len());
+        self.vertices
+            .write(&self.queue, mesh.vertex_offset, bytes(vertices));
     }
 
     /// Local-space bounding sphere (AABB center and maximum vertex distance).
@@ -413,7 +465,7 @@ impl Renderer {
                 + 2 * usize::from(frame.environment.fog.is_some());
             pass.set_pipeline(&self.pipelines.forward[variant]);
             if let Some(shadows) = &self.shadows {
-                pass.set_bind_group(1, &shadows.sample, &[]);
+                pass.set_bind_group(2, &shadows.sample, &[]);
             }
             pass.set_bind_group(0, &self.scene_binds[self.current], &[]);
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
@@ -423,6 +475,11 @@ impl Renderer {
                     continue;
                 }
                 let mesh = &self.meshes[batch.mesh.0];
+                pass.set_bind_group(
+                    1,
+                    mesh.texture.as_ref().unwrap_or(&self.white_texture),
+                    &[],
+                );
                 pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, batch.slots.clone());
             }
             if frame::has_sky(frame) {
@@ -512,6 +569,73 @@ impl Renderer {
             &self.slots,
         );
     }
+}
+
+fn material_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> wgpu::BindGroup {
+    assert_eq!(rgba.len(), width as usize * height as usize * 4);
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("game base colour"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        rgba,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("game base colour"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        ..Default::default()
+    });
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("game base colour"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&texture.create_view(&Default::default())),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    })
 }
 
 fn record_end(first: u32, len: usize, stride: usize) -> u64 {

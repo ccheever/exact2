@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import XCTest
+import CryptoKit
 @testable import ExactKit
 
 final class SurfaceRecordTests: XCTestCase {
@@ -68,6 +69,20 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertNoThrow(try WorldCarrier.check(WorldCarrier.limit))
     }
 
+    func testSurfaceCheckpointStoreScopesOpaqueBytesByAppAndSurface() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let first = Data([0, 1, 2, 255])
+        let second = Data("another world".utf8)
+        try SurfaceCheckpointStore.write(first, app: "app.one", surface: "world/a", under: root)
+        try SurfaceCheckpointStore.write(second, app: "app.two", surface: "world/a", under: root)
+        XCTAssertEqual(try SurfaceCheckpointStore.read(app: "app.one", surface: "world/a", under: root), first)
+        XCTAssertEqual(try SurfaceCheckpointStore.read(app: "app.two", surface: "world/a", under: root), second)
+        XCTAssertNotEqual(
+            try SurfaceCheckpointStore.url(app: "app.one", surface: "world/a", under: root),
+            try SurfaceCheckpointStore.url(app: "app.one", surface: "world/b", under: root))
+    }
+
     func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {
         let session = try fixture()
         defer { session.destroy() }
@@ -82,5 +97,44 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertEqual(c.worldInput.bytes, Data([1]), "refusal keeps bytes for a later capable surface")
         entry.id = 0
     }
+    func testModuleIdentityAndDevelopmentOnlyPathOverride() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dylib")
+        let bytes = Data("a GPU product".utf8)
+        try bytes.write(to: path)
+        defer { try? FileManager.default.removeItem(at: path) }
+        let card: [String: Any] = ["app":"test.app", "cohort":"cohort", "trust":"production",
+            "sha256":SHA256.hash(data: bytes).map { String(format:"%02x", $0) }.joined()]
+        func compat(_ value: [String: Any]) -> [String: Any] {
+            ["id":"cohort", "inputs":["app":"test.app"], "embedded":["gpu":value]]
+        }
+        XCTAssertNil(GpuModule.verify(path:path.path, compat:compat(card)))
+        for key in ["sha256", "app", "cohort"] {
+            var wrong = card; wrong[key] = "other"
+            let refusal = try XCTUnwrap(GpuModule.verify(path:path.path, compat:compat(wrong)))
+            XCTAssertTrue(refusal.message.contains(key == "sha256" ? "digest" : key))
+            XCTAssertTrue(refusal.message.contains(path.lastPathComponent))
+        }
+        XCTAssertNotNil(GpuModule.verify(path:path.path, compat:[:]))
+        XCTAssertEqual(GpuModule.modulePath(defaultPath:"baked", compat:compat(card), environment:["EXACT_GPU_DYLIB":"override"]), "baked")
+        var dev = card; dev["trust"] = "development"
+        XCTAssertEqual(GpuModule.modulePath(defaultPath:"baked", compat:compat(dev), environment:["EXACT_GPU_DYLIB":"override"]), "override")
+    }
+    func testLostSurfaceLeavesFrameSchedulingUntilRecreated() throws {
+        let session = try fixture()
+        defer { session.destroy() }
+        let view = NodeView(id:100, kind:"canvas", presenter:session.presenter)
+        let entry = Canvases.Entry(view:view, name:"world", values:[])
+        entry.id = 1
+        entry.rendered(1)
+        XCTAssertTrue(entry.needsFrame(dirty:false))
+        entry.rendered(3)
+        XCTAssertFalse(entry.needsFrame(dirty:true, editing:true))
+        entry.rendered(1) // Stale frame results do not recreate a target.
+        XCTAssertFalse(entry.needsFrame(dirty:true))
+        XCTAssertEqual(entry.id, 1, "simulation identity survives")
+        entry.presentable = true // Successful target creation restores scheduling.
+        XCTAssertTrue(entry.needsFrame(dirty:true))
+    }
+
 }
 #endif

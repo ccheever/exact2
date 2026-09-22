@@ -20,7 +20,7 @@ pub(crate) fn bytes<T: Packed>(values: &[T]) -> &[u8] {
     const {
         assert!(size_of::<f32>() == 4);
         assert!(size_of::<u32>() == 4);
-        assert!(size_of::<Vertex>() == 32);
+        assert!(size_of::<Vertex>() == 40);
         assert!(align_of::<Vertex>() == 4);
     }
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), size_of_val(values)) }

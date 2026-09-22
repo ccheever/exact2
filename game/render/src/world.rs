@@ -1,6 +1,6 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Renderer, Vertex};
-use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{Animation, Asset, Entity, Material, Mesh, Parent, Transform, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 mod scene;
@@ -16,6 +16,15 @@ pub(crate) trait Writes {
     fn previous(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn materials(&mut self, first: u32, floats: &[f32]) -> Result<(), RenderError>;
     fn mesh(&mut self, vertices: &[Vertex], indices: &[u32]) -> MeshId;
+    fn textured_mesh(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        _image: &crate::assets::Image,
+    ) -> MeshId {
+        self.mesh(vertices, indices)
+    }
+    fn update_mesh(&mut self, _mesh: MeshId, _vertices: &[Vertex]) {}
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError>;
 }
 impl Writes for Renderer {
@@ -40,6 +49,17 @@ impl Writes for Renderer {
     }
     fn mesh(&mut self, v: &[Vertex], i: &[u32]) -> MeshId {
         self.add_mesh(v, i)
+    }
+    fn textured_mesh(
+        &mut self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        image: &crate::assets::Image,
+    ) -> MeshId {
+        self.add_textured_mesh(vertices, indices, image)
+    }
+    fn update_mesh(&mut self, mesh: MeshId, vertices: &[Vertex]) {
+        self.update_mesh(mesh, vertices);
     }
     fn batches(&mut self, batches: &[Batch], slots: &[u32]) -> Result<(), RenderError> {
         self.set_batches(batches, slots)
@@ -104,6 +124,11 @@ struct Group {
     mesh: MeshId,
     slots: Vec<u32>,
 }
+struct AssetInstance {
+    name: String,
+    mesh: MeshId,
+    group: usize,
+}
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
 struct Versions {
@@ -112,6 +137,7 @@ struct Versions {
     material: u64,
     mesh: u64,
     visible: u64,
+    animation: u64,
     live: u64,
     membership: u64,
 }
@@ -123,6 +149,7 @@ impl Versions {
             material: w.revision::<Material>(),
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
+            animation: w.revision::<Animation>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -154,6 +181,9 @@ pub struct Feed {
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
     scene: Scene,
+    assets: BTreeMap<String, crate::assets::Model>,
+    asset_instances: BTreeMap<Entity, AssetInstance>,
+    asset_vertices: Vec<Vertex>,
 }
 impl Default for Feed {
     fn default() -> Self {
@@ -177,10 +207,29 @@ impl Default for Feed {
             parents: Vec::new(),
             overrides: Vec::new(),
             scene: Scene::default(),
+            assets: BTreeMap::new(),
+            asset_instances: BTreeMap::new(),
+            asset_vertices: Vec::new(),
         }
     }
 }
 impl Feed {
+    /// Decode a game's declared assets before their first scene feed.
+    pub fn with_assets(assets: &[Asset]) -> Result<Self, RenderError> {
+        let mut feed = Self::default();
+        for asset in assets {
+            let model = crate::assets::Model::parse(asset.bytes).map_err(|e| {
+                RenderError::scene(format!("asset `{}`: {e}", asset.name))
+            })?;
+            if feed.assets.insert(asset.name.to_owned(), model).is_some() {
+                return Err(RenderError::scene(format!(
+                    "asset `{}` is declared twice",
+                    asset.name
+                )));
+            }
+        }
+        Ok(feed)
+    }
     /// Filter same-value assignments by hashing only pages with new write generations.
     /// Enabled by default. Disable for streams known to change every leased page.
     pub fn filter_same_values(&mut self, enabled: bool) {
@@ -197,6 +246,7 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.asset_instances.clear();
     }
 
     /// Feed one completed tick. With Sim::advance_with, call only when ticks_left < 2.
@@ -344,7 +394,6 @@ impl Feed {
             }
             for (e, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
                 mesh.validate().map_err(RenderError::scene)?;
-                let shape = Shape::of(mesh)?;
                 let slot = e.index() as usize;
                 if self.dimensions.len() <= slot {
                     self.dimensions.resize(slot + 1, [1.0; 3]);
@@ -353,15 +402,65 @@ impl Feed {
                 if w.get::<Visible>(e).is_some_and(|v| !v.0) {
                     continue;
                 }
-                let group = *self.shapes.entry(shape).or_insert_with(|| {
-                    let (v, i) = shape.geometry();
-                    let index = self.groups.len();
-                    self.groups.push(Group {
-                        mesh: r.mesh(&v, &i),
-                        slots: Vec::new(),
-                    });
-                    index
-                });
+                let group = match mesh {
+                    Mesh::Asset(name) => {
+                        if !self.asset_instances.contains_key(&e) {
+                            let model = self.assets.get(name).ok_or_else(|| {
+                                RenderError::scene(format!(
+                                    "Mesh.Asset({name}): no declared asset has that name"
+                                ))
+                            })?;
+                            let animation = w.get::<Animation>(e);
+                            let clip = animation
+                                .as_ref()
+                                .map(|a| a.clip.as_str())
+                                .or_else(|| model.clip_names().next())
+                                .ok_or_else(|| {
+                                    RenderError::scene(format!(
+                                        "Mesh.Asset({name}): asset has no animation"
+                                    ))
+                                })?;
+                            let seconds = animation.as_ref().map_or(0.0, |a| a.seconds);
+                            let looped = animation.as_ref().is_none_or(|a| a.looped);
+                            let sampled = model
+                                .sample(clip, seconds, looped)
+                                .map_err(RenderError::scene)?;
+                            self.asset_vertices.clear();
+                            self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
+                            let mesh_id = r.textured_mesh(
+                                &self.asset_vertices,
+                                &model.indices,
+                                &model.image,
+                            );
+                            let group = self.groups.len();
+                            self.groups.push(Group {
+                                mesh: mesh_id,
+                                slots: Vec::new(),
+                            });
+                            self.asset_instances.insert(
+                                e,
+                                AssetInstance {
+                                    name: name.clone(),
+                                    mesh: mesh_id,
+                                    group,
+                                },
+                            );
+                        }
+                        self.asset_instances[&e].group
+                    }
+                    primitive => {
+                        let shape = Shape::of(primitive)?;
+                        *self.shapes.entry(shape).or_insert_with(|| {
+                            let (v, i) = shape.geometry();
+                            let index = self.groups.len();
+                            self.groups.push(Group {
+                                mesh: r.mesh(&v, &i),
+                                slots: Vec::new(),
+                            });
+                            index
+                        })
+                    }
+                };
                 self.groups[group].slots.push(e.index());
             }
             self.batches.clear();
@@ -374,6 +473,29 @@ impl Feed {
                 self.slots.extend_from_slice(&group.slots);
                 self.batches
                     .push(Batch::new(group.mesh, start..self.slots.len() as u32));
+            }
+        }
+        if initial || next.animation != old.animation || self.tick != w.tick() {
+            for (e, (mesh, animation)) in w.query::<(&Mesh, Option<&Animation>)>().iter() {
+                let Mesh::Asset(name) = mesh else { continue };
+                let Some(instance) = self.asset_instances.get(&e) else { continue };
+                if instance.name != *name { continue; }
+                let model = &self.assets[name];
+                let clip = animation
+                    .as_ref()
+                    .map(|a| a.clip.as_str())
+                    .or_else(|| model.clip_names().next())
+                    .ok_or_else(|| RenderError::scene(format!("Mesh.Asset({name}): asset has no animation")))?;
+                let sampled = model
+                    .sample(
+                        clip,
+                        animation.as_ref().map_or(0.0, |a| a.seconds),
+                        animation.as_ref().is_none_or(|a| a.looped),
+                    )
+                    .map_err(RenderError::scene)?;
+                self.asset_vertices.clear();
+                self.asset_vertices.extend(sampled.into_iter().map(asset_vertex));
+                r.update_mesh(instance.mesh, &self.asset_vertices);
             }
         }
         if material {
@@ -457,6 +579,14 @@ impl Feed {
         self.tick = w.tick();
         self.versions = Some(next);
         Ok(())
+    }
+}
+fn asset_vertex((position, normal, texcoord): ([f32; 3], [f32; 3], [f32; 2])) -> Vertex {
+    Vertex {
+        position,
+        normal,
+        uv: [0.0; 2],
+        texcoord,
     }
 }
 fn page_len(first: u32, limit: u32) -> usize {

@@ -1,0 +1,105 @@
+shape Hud
+  count: number
+  total: number
+  remaining: number
+  phase: string
+
+component Lanterns
+  state started = false
+  state seed = 1041003
+  state paused = false
+  state round = 0
+  state jumpPress = 0
+  state lightPress = 0
+  state sound = true
+  state saveRequest = 0
+  state loadRequest = 0
+  state checkpointStatus = ""
+  resource hud = exactSurface("world") as shape Hud
+
+  action play writes started
+    started = true
+  action togglePause writes paused
+    paused = not paused
+  action toggleSound writes sound
+    sound = not sound
+  action jump writes jumpPress
+    jumpPress = jumpPress + 1
+  action light writes lightPress
+    lightPress = lightPress + 1
+  action restart writes round, paused
+    round = round + 1
+    paused = false
+  action saveGame writes saveRequest, checkpointStatus
+    saveRequest = saveRequest + 1
+    checkpointStatus = "Saving…"
+  action loadGame writes loadRequest, checkpointStatus
+    loadRequest = loadRequest + 1
+    checkpointStatus = "Loading…"
+  action checkpoint(value: string) writes checkpointStatus, started
+    if value == "surface-save:saved"
+      checkpointStatus = "Saved"
+    if value == "surface-load:loaded"
+      checkpointStatus = "Loaded"
+      started = true
+    if value == "surface-save:error"
+      checkpointStatus = "Save failed"
+    if value == "surface-load:error"
+      checkpointStatus = "No compatible save"
+
+  view
+    main width="100%" height="100%" background-color="#130f24" color="#fff4d6"
+      canvas surface=world(seed, started, paused, round, jumpPress, lightPress, sound) surface-save=saveRequest surface-load=loadRequest message=checkpoint testId="world" width="100%" height="100%" position="relative" overflow="hidden"
+        when started
+          row position="absolute" top=18 left=18 right=18 justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
+            text `LANTERNS ${hud.count} / ${hud.total}` aria-live="polite" testId="hud-lanterns" padding=13 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=20 font-weight=700
+            text `TIME ${hud.remaining}` aria-live="polite" testId="hud-time" padding=13 border-radius=10 background-color="#1b1730" color="#fff4d6" font-size=20 font-weight=600
+            row gap=8
+              button press=toggleSound testId="sound" padding=13 border-radius=10 background-color="#1b1730"
+                text (sound ? "Sound on" : "Sound off") color="#fff4d6" font-size=16
+              button press=saveGame testId="save" padding=13 border-radius=10 background-color="#1b1730"
+                text "Save" color="#fff4d6" font-size=16
+              button press=loadGame testId="load-save" padding=13 border-radius=10 background-color="#1b1730"
+                text "Load" color="#fff4d6" font-size=16
+              button press=togglePause testId="pause" padding=13 border-radius=10 background-color="#1b1730"
+                text (paused ? "Resume" : "Pause") color="#fff4d6" font-size=16
+            when checkpointStatus != ""
+              text checkpointStatus aria-live="polite" testId="save-status" padding=10 border-radius=9 background-color="#1b1730" color="#ffd27a" font-size=14
+          text "Move: WASD / arrows / left thumb" position="absolute" bottom=22 left=22 padding=12 border-radius=10 background-color="#1b1730" color="#d6cdec" font-size=15
+          text "Push the crate beside the high ledge. Jump onto it, then jump again." testId="sign-instruction" position="absolute" bottom=76 left=22 right=22 padding=12 border-radius=10 background-color="#1b1730" color="#ffd27a" font-size=14
+          row position="absolute" bottom=22 right=22 gap=14 align-items="flex-end"
+            button press=light testId="light" width=92 height=92 display="flex" border-radius=46 background-color="#ffb43b" justify-content="center" align-items="center"
+              text "LIGHT" width="100%" text-align="center" color="#241531" font-size=17 font-weight=700
+            button press=jump testId="jump" width=92 height=92 display="flex" border-radius=46 background-color="#a78cff" justify-content="center" align-items="center"
+              text "JUMP" width="100%" text-align="center" color="#171126" font-size=17 font-weight=700
+          when paused
+            column testId="paused" position="absolute" top="34%" left="30%" width="40%" padding=26 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+              text "Paused" font-size=34 font-weight=700 color="#ffd27a"
+              text "Your 180 seconds are frozen." font-size=17 color="#d6cdec"
+              button press=togglePause testId="resume" padding=16 border-radius=9 background-color="#ffd27a"
+                text "Resume" font-size=19 color="#241531"
+          when hud.phase == "won"
+            column testId="victory" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+              text "The island is glowing" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+              text "All twelve lanterns are lit." font-size=18 color="#fff4d6"
+              button press=restart testId="again" padding=16 border-radius=9 background-color="#ffd27a"
+                text "Play again" font-size=19 color="#241531"
+          when hud.phase == "lost"
+            column testId="lost" position="absolute" top="28%" left="24%" width="52%" padding=30 align-items="center" gap=18 border-radius=14 background-color="#1b1730"
+              text "Night fell" aria-live="polite" font-size=34 color="#ffd27a" font-weight=700
+              text `You lit ${hud.count} of 12 lanterns.` font-size=18 color="#fff4d6"
+              button press=restart testId="retry" padding=16 border-radius=9 background-color="#ffd27a"
+                text "Try again" font-size=19 color="#241531"
+        else
+          column testId="title" position="absolute" top=0 left=0 width="100%" height="100%" align-items="center" justify-content="center" gap=24 background-color="#130f24"
+            text "LANTERNS" font-size=64 font-weight=700 color="#ffd27a"
+            text "Light twelve lanterns before the last three minutes of dusk run out." font-size=20 color="#fff4d6"
+            text "Push the crate to reach the lantern on the stone ledge." font-size=17 color="#d6cdec"
+            text "WASD or arrows · Space to jump · E to light" font-size=15 color="#a99fc1"
+            row gap=12
+              button press=play autofocus testId="play" padding=18 border-radius=10 background-color="#ffd27a"
+                text "Play" font-size=22 font-weight=700 color="#241531"
+              button press=loadGame testId="title-load" padding=18 border-radius=10 background-color="#1b1730"
+                text "Load save" font-size=22 font-weight=700 color="#ffd27a"
+            when checkpointStatus != ""
+              text checkpointStatus aria-live="polite" testId="title-save-status" color="#ffd27a" font-size=15

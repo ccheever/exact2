@@ -464,22 +464,23 @@ impl World {
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
         QueryBorrow::new(self)
     }
-    /// Entities carrying C within an inclusive radius, in entity order.
+    /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances use authored Transform positions; missing origins yield no rows.
+    /// Poses are copied, so neither component storage stays borrowed.
     pub fn near<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
-    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
         self.near_in::<C>(origin, radius, false)
     }
     /// Like near, ignoring Y. Rows contain the entity handle and its pose;
-    /// the component C remains free to borrow mutably inside the loop.
+    /// both C and Transform remain free to borrow mutably inside the loop.
     pub fn near_xz<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
-    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
         self.near_in::<C>(origin, radius, true)
     }
     fn near_in<C: Component>(
@@ -487,14 +488,16 @@ impl World {
         origin: impl Target,
         radius: f32,
         planar: bool,
-    ) -> impl Iterator<Item = (Entity, Ref<'_, crate::Transform>)> {
+    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
         assert!(radius.is_finite() && radius >= 0.0);
-        let origin = self.get::<crate::Transform>(origin).map(|p| p.position);
+        let origin_entity = origin.entity(self);
+        let origin =
+            origin_entity.and_then(|e| self.get::<crate::Transform>(e).map(|p| p.position));
         self.entities().filter_map(move |entity| {
-            if !self.has::<C>(entity) {
+            if Some(entity) == origin_entity || !self.has::<C>(entity) {
                 return None;
             }
-            let pose = self.get::<crate::Transform>(entity)?;
+            let pose = *self.get::<crate::Transform>(entity)?;
             origin
                 .is_some_and(|origin| {
                     let mut delta = pose.position - origin;

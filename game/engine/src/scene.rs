@@ -1,6 +1,65 @@
 //! Dimensioned scene components and explicit scene functions.
 use crate::{Affine3A, Component, Entity, Quat, Vec3, World};
 
+/// One immutable asset carried by a game's optional surface module.
+#[derive(Clone, Copy, Debug)]
+pub struct Asset {
+    /// Stable name referenced by [`Mesh::asset`].
+    pub name: &'static str,
+    /// Complete binary glTF (`.glb`) bytes.
+    pub bytes: &'static [u8],
+}
+impl Asset {
+    /// Declare a binary glTF asset embedded with the game module.
+    pub const fn glb(name: &'static str, bytes: &'static [u8]) -> Self {
+        Self { name, bytes }
+    }
+}
+
+/// A saved skeletal clip cursor for an asset mesh.
+#[derive(Clone, Debug, PartialEq, Component)]
+pub struct Animation {
+    /// glTF animation name, matched exactly.
+    pub clip: String,
+    /// Cursor in seconds, wrapped by the renderer when `looped`.
+    pub seconds: f32,
+    /// Cursor multiplier; one is authored speed.
+    pub speed: f32,
+    /// Repeat after the clip duration.
+    pub looped: bool,
+}
+impl Default for Animation {
+    fn default() -> Self {
+        Self {
+            clip: "Survey".into(),
+            seconds: 0.0,
+            speed: 1.0,
+            looped: true,
+        }
+    }
+}
+impl Animation {
+    /// Start a named looping clip at its first sample.
+    pub fn looping(clip: impl Into<String>) -> Self {
+        Self {
+            clip: clip.into(),
+            ..Self::default()
+        }
+    }
+    /// Select a clip, preserving its cursor only when it is already selected.
+    pub fn play(&mut self, clip: &str) {
+        if self.clip != clip {
+            self.clip.clear();
+            self.clip.push_str(clip);
+            self.seconds = 0.0;
+        }
+    }
+    /// Advance by fixed simulation time.
+    pub fn advance(&mut self, dt: f32) {
+        self.seconds += dt * self.speed;
+    }
+}
+
 /// Local pose; identity is an unmodified object, with forward along negative Z.
 /// Upload layout: ten contiguous f32s (position xyz, rotation xyzw, scale xyz).
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
@@ -319,6 +378,7 @@ impl World {
             .register::<Parent>()
             .register::<Camera>()
             .register::<Mesh>()
+            .register::<Animation>()
             .register::<Material>()
             .register::<DirectionalLight>()
             .register::<PointLight>()

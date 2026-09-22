@@ -801,7 +801,7 @@ fn animated_dimensions_never_grow_geometry_and_all_spheres_batch_together() {
     assert_eq!(r.materials[9], 2.0 * (0.5 + 4099.0 * 0.001));
 }
 #[test]
-fn asset_mesh_is_a_named_surface_refusal() {
+fn undeclared_asset_mesh_is_a_named_surface_refusal() {
     let mut w = World::new(60, 0);
     w.spawn((Transform::default(), Mesh::asset("castle")));
     let error = Feed::default()
@@ -809,7 +809,7 @@ fn asset_mesh_is_a_named_surface_refusal() {
         .unwrap_err()
         .to_string();
     assert!(
-        error.contains("castle") && error.contains("asset meshes are not implemented"),
+        error.contains("castle") && error.contains("no declared asset has that name"),
         "{error}"
     );
 }

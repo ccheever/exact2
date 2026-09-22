@@ -151,6 +151,62 @@ function messages(entry) {
     exact.message(entry.host, text);
   }
 }
+
+// A canvas opts into durable checkpoints with two monotonic props. The host
+// stores opaque bytes; the surface alone defines and validates their format.
+function checkpointKey(entry) {
+  const app = exact.compat?.inputs?.app;
+  if (typeof app !== "string" || !app) throw new Error("missing app identity");
+  return `exact.surface.${encodeURIComponent(app)}.${encodeURIComponent(entry.name)}`;
+}
+function checkpointReply(entry, text, error) {
+  if (error) console.warn(`exact: ${text}:`, String(error));
+  if (live(entry.view) === entry) exact.message(entry.host, text);
+}
+function checkpointToken(entry, attribute) {
+  const token = Number(entry.host.getAttribute(attribute) ?? 0);
+  return Number.isSafeInteger(token) && token >= 0 ? token : 0;
+}
+function checkpoint(entry, kind) {
+  const attribute = kind === "save" ? "surface-save" : "surface-load";
+  const field = kind === "save" ? "saveToken" : "loadToken";
+  const token = checkpointToken(entry, attribute);
+  if (entry[field] === token) return;
+  entry[field] = token;
+  if (!token) return;
+  try {
+    if (!entry.id) throw new Error("surface is not ready");
+    const key = checkpointKey(entry);
+    if (kind === "save") {
+      const bytes = gpu.gpu_carry(entry.id);
+      if (bytes === undefined) throw new Error("surface carries no state");
+      worldSize(bytes);
+      let encoded = "";
+      for (let i = 0; i < bytes.length; i += 8192) encoded += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      localStorage.setItem(key, btoa(encoded));
+      checkpointReply(entry, "surface-save:saved");
+      return;
+    }
+    const encoded = localStorage.getItem(key);
+    if (encoded === null) throw new Error("no saved game");
+    const raw = atob(encoded);
+    const bytes = worldSize(Uint8Array.from(raw, c => c.charCodeAt(0)));
+    if (!gpu.gpu_restore(entry.id, bytes)) throw new Error(gpu.gpu_error() || "surface refused saved state");
+    messages(entry); schedule();
+    checkpointReply(entry, "surface-load:loaded");
+  } catch (error) {
+    checkpointReply(entry, `surface-${kind}:error`, error);
+  }
+}
+function watchCheckpoints(entry) {
+  entry.saveToken = 0;
+  entry.loadToken = 0;
+  entry.checkpointObserver = new MutationObserver(records => {
+    if (records.some(record => record.attributeName === "surface-save")) checkpoint(entry, "save");
+    if (records.some(record => record.attributeName === "surface-load")) checkpoint(entry, "load");
+  });
+  entry.checkpointObserver.observe(entry.host, { attributes: true, attributeFilter: ["surface-save", "surface-load"] });
+}
 function listen(entry) {
   const el = entry.host, listeners = [];
   const previous = { touchAction: entry.el.style.touchAction, tabindex: el.getAttribute("tabindex") };
@@ -206,7 +262,13 @@ function agent(view, request) {
   const entry = live(view);
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
-  const reply = gpu.gpu_agent(entry.id, JSON.stringify({ ...request, ...(exact.now ? { now: exact.now() } : {}), width: w, height: h, scale: s }));
+  const reply = gpu.gpu_agent(entry.id, JSON.stringify({
+    ...request,
+    ...(exact.now && request.ticks === undefined ? { now: exact.now() } : {}),
+    width: w,
+    height: h,
+    scale: s,
+  }));
   messages(entry);
   schedule();
   if (!reply) return null;
@@ -319,12 +381,15 @@ exact.gpu = {
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
     if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+      watchCheckpoints(entry);
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
       planCarries.delete(name);
       if (!publishers.has(name)) publishers.set(name, entry);
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
-      ensure(entry); return; }
+      ensure(entry);
+      checkpoint(entry, "save"); checkpoint(entry, "load");
+      return; }
     entry.values = values;
     if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
@@ -334,7 +399,7 @@ exact.gpu = {
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
     // is the first thing to navigate away from a canvas and back).
-    if (entry) { entry.observer?.disconnect(); entry.unlisten?.(); entry.id = 0; }
+    if (entry) { entry.observer?.disconnect(); entry.checkpointObserver?.disconnect(); entry.unlisten?.(); entry.id = 0; }
     surfaces.delete(view);
     if (entry && publishers.get(entry.name) === entry) { publishers.delete(entry.name); surfaceRecord(entry.name, null); }
   },

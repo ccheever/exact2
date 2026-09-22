@@ -736,7 +736,12 @@ export function worldView(session, name) {
     key_up: code => session.type(name, {key:code, phase:'up'}),
     async position(entity) { return (await this.get(entity, 'Transform'))?.position; },
     async get(entity, component) {
-      return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      try {
+        return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      } catch (error) {
+        if (error.reply?.error === `no entity named \`${entity}\``) return undefined;
+        throw error;
+      }
     },
     hold: (code, ms) => session.type(name, {key:code, for:ms}),
   };
@@ -781,7 +786,7 @@ export async function open({ host = 'web', plan, world, size, env, app, session,
     gpuMs: carrier.gpuMs,
     async op(req) {
       const r = await carrier.ask(req);
-      if (r.error) throw new Error(`${req.op}: ${r.error}`);
+      if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
       return r;
     },
     /** Every live node in preorder; an iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */

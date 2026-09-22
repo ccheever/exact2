@@ -1,5 +1,5 @@
-@group(1) @binding(0) var shadow_map: texture_depth_2d_array;
-@group(1) @binding(1) var shadow_sampler: sampler_comparison;
+@group(2) @binding(0) var shadow_map: texture_depth_2d_array;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
 // At steep slopes a single comparison depth cannot represent a bilinear
 // footprint without erasing nearby casters. Compare each texel to its own
 // receiver-plane depth, then interpolate the four visibility values.

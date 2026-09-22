@@ -1142,6 +1142,13 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if tag != "canvas" && matches!(a.name.as_str(), "surface-save" | "surface-load") {
+            return err(
+                "lower-attr-tag",
+                format!("`{}` belongs to `canvas`, not `{tag}`", a.name),
+                a.span,
+            );
+        }
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.

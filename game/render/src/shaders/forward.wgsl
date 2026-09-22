@@ -1,7 +1,9 @@
 override FOG: bool = false;
-@vertex fn vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) cap: vec2<f32>,
+@group(1) @binding(0) var base_texture: texture_2d<f32>;
+@group(1) @binding(1) var base_sampler: sampler;
+@vertex fn vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) cap: vec2<f32>, @location(3) uv: vec2<f32>,
     @builtin(instance_index) instance: u32) -> Varying {
-    return transform(position, normal, cap, instance);
+    return transform(position, normal, cap, uv, instance);
 }
 @fragment fn fs(input: Varying) -> @location(0) vec4<f32> { return shade(input, 1.0); }
 @fragment fn fs_shadow(input: Varying) -> @location(0) vec4<f32> {
@@ -32,7 +34,7 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32
 @diagnostic(off, derivative_uniformity)
 fn shade(input: Varying, visibility: f32) -> vec4<f32> {
     let i = input.slot * 12u;
-    var base = vec3(materials[i], materials[i+1u], materials[i+2u]);
+    var base = vec3(materials[i], materials[i+1u], materials[i+2u]) * textureSample(base_texture, base_sampler, input.uv).rgb;
     // Opaque materials reuse alpha as a negative grid-spacing flag: no wider uploads.
     let spacing = -materials[i+3u];
     if spacing > 0.0 {

@@ -321,6 +321,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         position: p.to_array(),
         normal: normal.to_array(),
         uv: [0.0; 2],
+        texcoord: [0.0; 2],
     });
     let rotation = Quat::from_rotation_y(0.3) * Quat::from_rotation_z(0.4);
     let scale = Vec3::new(1.2, 0.7, 2.5);
@@ -328,6 +329,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         position: (rotation * (Vec3::from_array(v.position) * scale)).to_array(),
         normal: (rotation * (normal / scale)).normalize().to_array(),
         uv: v.uv,
+        texcoord: v.texcoord,
     });
     let source = renderer.add_mesh(&vertices, &[0, 1, 2]);
     let reference = renderer.add_mesh(&baked, &[0, 1, 2]);
