@@ -225,9 +225,12 @@ impl Shapes {
         } else {
             format!("available fields: {names}")
         };
+        let guess = contract_syntax::suggestion(field, fields.iter().map(|(n, _)| n.as_str()))
+            .map(|name| format!("; did you mean `{name}`?"))
+            .unwrap_or_default();
         TypeError {
             id: "type-unknown-field",
-            message: format!("`{shape}` has no field `{field}`; {hint}"),
+            message: format!("`{shape}` has no field `{field}`; {hint}{guess}"),
             span,
         }
     }

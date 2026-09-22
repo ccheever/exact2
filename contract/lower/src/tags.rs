@@ -610,6 +610,34 @@ pub(crate) fn validate_list(
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
+    similar(name, |candidate| match attr(candidate) {
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
+        Some(_) => !style_only,
+        None => false,
+    })
+}
+
+/// The same for a tag, from the tag lookup.
+pub(crate) fn similar_tag(name: &str) -> Option<String> {
+    similar(name, |candidate| tag(candidate).is_some())
+}
+
+/// What Contract calls an HTML element it spells differently.
+pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "div" => "a flex container is `column` or `row`, and a plain box `view`",
+        "span" | "p" | "label" | "strong" | "em" | "b" | "i" | "h1" | "h2" | "h3" | "h4" | "h5"
+        | "h6" => "text is `text`",
+        "img" => "an image is `image`",
+        "a" => "a link is `link`",
+        "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
+        _ => return None,
+    })
+}
+
+/// One unambiguous single-edit spelling of `name` that `admitted` accepts,
+/// found by trying every edit against the lookup itself.
+fn similar(name: &str, admitted: impl Fn(&str) -> bool) -> Option<String> {
     if !name.is_ascii() || !(3..=64).contains(&name.len()) {
         return None;
     }
@@ -619,12 +647,7 @@ pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
         if candidate == name {
             return true;
         }
-        let admitted = match attr(candidate) {
-            Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
-            Some(_) => !style_only,
-            None => false,
-        };
-        if admitted {
+        if admitted(candidate) {
             if found.as_deref().is_some_and(|old| old != candidate) {
                 return false;
             }

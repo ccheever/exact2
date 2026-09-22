@@ -357,7 +357,7 @@ fn unknown_record_fields_name_declared_choices_at_the_original_import() {
     assert_eq!(expected.id, "type-unknown-field");
     assert_eq!(
         expected.message,
-        "`Person` has no field `nmae`; available fields: `id`, `name`, `unread`"
+        "`Person` has no field `nmae`; available fields: `id`, `name`, `unread`; did you mean `name`?"
     );
     let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
     same_error(&errors[0], &expected);

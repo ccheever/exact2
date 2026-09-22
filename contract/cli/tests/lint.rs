@@ -36,7 +36,7 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
         (
             "component A\n  view\n    column align-items=\"middle\"\n      text \"a\"\n",
             "lower-attr-value",
-            "align_items",
+            "`align-items`",
         ),
         (
             "component A\n  view\n    column background-color=\"red\"\n      text \"a\"\n",
@@ -223,5 +223,26 @@ fn conditional_pixel_lengths_compile_and_update() {
             runner.act("toggle", vec![]).unwrap();
         }
         assert!(!runner.is_poisoned());
+    }
+}
+
+#[test]
+fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
+    let app = |state: &str, node: &str| {
+        format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")
+    };
+    for (src, id, message) in [
+        (app("", "text drat"), "type-unknown-name", "unknown name `drat`; did you mean `draft`?"),
+        (app("", "text Draft"), "type-unknown-name", "unknown name `Draft`; did you mean `draft`?"),
+        (app("  state drab = \"\"\n", "text drat"), "type-unknown-name", "unknown name `drat`"),
+        (app("  state t = some(\"a\")\n", "buton"), "lower-unknown-tag", "unknown tag `buton`; did you mean `button`?"),
+        (app("", "div"), "lower-unknown-tag", "unknown tag `div`; a flex container is `column` or `row`, and a plain box `view`"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`"),
+        (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
+        (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
+        (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
+    ] {
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");
     }
 }

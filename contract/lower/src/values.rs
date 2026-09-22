@@ -1,0 +1,302 @@
+//! Attribute values checked against what they set, at compile time: a
+//! literal style value by the kernel's own row parser, a computed one and a
+//! prop by type (LLP 1017 P1a).
+
+use crate::{err, media, tags, FontUse, LowerError, Lowerer};
+use contract_syntax::{Attr, Expr, Span, UnOp};
+use contract_types::{Scope, Ty};
+use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
+
+/// A literal, as an author wrote it, for a message.
+fn literal_text(e: &Expr) -> String {
+    match e {
+        Expr::Number(n, _) => format!("{n}"),
+        Expr::Str(s, _) => format!("\"{s}\""),
+        Expr::Bool(b, _) => format!("{b}"),
+        _ => "…".into(),
+    }
+}
+
+pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
+    match e {
+        Expr::Number(n, _) => Some(*n),
+        Expr::Unary(UnOp::Neg, inner, _) => numeric_literal(inner).map(|n| -n),
+        _ => None,
+    }
+}
+
+fn whole_i64(n: f64) -> bool {
+    n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
+}
+
+/// The kernel's refusal of a style value, in an author's words.
+fn describe(e: &StyleValueError) -> String {
+    match e {
+        StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
+        StyleValueError::UnknownEnumValue { style } => format!(
+            "expected one of {}",
+            style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
+        ),
+        StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
+        StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
+        StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`".into(),
+        StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
+        StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
+        StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
+    }
+}
+
+impl Lowerer<'_> {
+    /// A literal style value is checked now by the kernel's own parser
+    /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
+    /// are refused at compile time, not at the first frame; a computed value
+    /// is checked by type — a number or a string (LLP 1017 P1a).
+    pub(crate) fn check_style_value(
+        &self,
+        a: &Attr,
+        rows: &[StyleId],
+        scope: &Scope,
+        font: Option<&FontUse>,
+    ) -> Result<(), LowerError> {
+        // Validate every authored literal result, including inactive branches.
+        // Only the whole expression is type-checked here: match arms bind their
+        // own local names, which the type pass resolves in the proper scope.
+        let mut pending: Vec<(&Expr, Span)> = Vec::new();
+        let mut current = (&a.value, a.span);
+        loop {
+            let (value, span) = current;
+            match value {
+                Expr::Ternary(_, yes, no, _) => {
+                    pending.push((no, no.span()));
+                    pending.push((yes, yes.span()));
+                }
+                Expr::Match { some, none, .. } => {
+                    pending.push((none, none.span()));
+                    pending.push((some, some.span()));
+                }
+                _ => {}
+            }
+            // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
+            if let Expr::Str(v, _) = value {
+                if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
+                    return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
+                }
+                if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
+                    return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
+                }
+            }
+            let literal = match value {
+                expr if numeric_literal(expr).is_some() => {
+                    Some(StyleValue::Number(numeric_literal(expr).unwrap()))
+                }
+                Expr::Str(s, _) => Some(
+                    // Enum keywords stay text, including `auto` (as in the runner).
+                    // Other codecs retain their existing dimension/keyword handling.
+                    if s == "auto"
+                        && !rows
+                            .iter()
+                            .all(|row| row.codec() == exact_kernel::StyleCodec::Enum)
+                    {
+                        StyleValue::Auto
+                    } else if let Some(pct) =
+                        s.strip_suffix('%').and_then(|p| p.parse::<f64>().ok())
+                    {
+                        StyleValue::Percent(pct)
+                    } else {
+                        StyleValue::Text(s.clone())
+                    },
+                ),
+                Expr::Bool(b, _) => {
+                    return err(
+                        "lower-attr-value",
+                        format!(
+                            "`{}={b}` — a style value is a number or a string, not a bool",
+                            a.name
+                        ),
+                        span,
+                    )
+                }
+                _ => None,
+            };
+            match literal {
+                Some(v) => {
+                    let mut probe = StyleProps::default();
+                    for row in rows {
+                        if let Err(e) = probe.set_dynamic(*row, &v) {
+                            // A number written as a pixel string: say the number.
+                            let pixels = match (&e, value) {
+                                (StyleValueError::WrongKind { .. }, Expr::Str(text, _)) => text
+                                    .trim()
+                                    .strip_suffix("px")
+                                    .and_then(|n| n.trim().parse::<f64>().ok())
+                                    .map(|n| {
+                                        format!("; write `{}={n}` (a number is pixels)", a.name)
+                                    }),
+                                _ => None,
+                            };
+                            return err(
+                                "lower-attr-value",
+                                format!(
+                                    "`{}={}` is not a valid `{}`: {}{}",
+                                    a.name,
+                                    literal_text(value),
+                                    a.name,
+                                    describe(&e),
+                                    pixels.unwrap_or_default()
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                None if std::ptr::eq(value, &a.value) => {
+                    if let Ok(t) = contract_types::infer(value, scope, &self.types.shapes) {
+                        if !matches!(t, Ty::Number | Ty::String | Ty::Unknown) {
+                            return err(
+                                "lower-attr-type",
+                                format!(
+                                    "`{}` takes a number or a string; this expression is `{t}`",
+                                    a.name
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+            if let Some(font) = font {
+                if rows.contains(&StyleId::FontStyle) {
+                    let requested = match value {
+                        Expr::Str(s, _) if s == "normal" => Some(false),
+                        Expr::Str(s, _) if s == "italic" => Some(true),
+                        _ => None,
+                    };
+                    if let Some(italic) = requested {
+                        if !font
+                            .font
+                            .faces
+                            .iter()
+                            .any(|(_, face_italic)| *face_italic == italic)
+                        {
+                            return err(
+                                "lower-font-face",
+                                format!(
+                                    "this family declares no real {} face; v1 never synthesizes one",
+                                    if italic { "italic" } else { "normal" }
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+                if rows.contains(&StyleId::FontWeight) {
+                    if let (Expr::Number(weight, _), Some(italic)) = (value, font.italic) {
+                        if *weight >= 600.0
+                            && !font.font.faces.iter().any(|(face_weight, face_italic)| {
+                                *face_italic == italic && *face_weight >= 600
+                            })
+                        {
+                            return err(
+                                "lower-font-face",
+                                format!(
+                                    "this family has no real {} face for font-weight={weight}; v1 never synthesizes one",
+                                    if italic { "italic bold" } else { "bold" }
+                                ),
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            let Some(next) = pending.pop() else { break };
+            current = next;
+        }
+        Ok(())
+    }
+
+    /// A prop attribute's value by the prop's type: text for most, a bool for
+    /// `disabled`, a whole number for `aria-level`.
+    pub(crate) fn check_prop_value(
+        &self,
+        name: &str,
+        value: &Expr,
+        span: Span,
+        prop: PropId,
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        media::check(name, value, span)?;
+        let want = tags::prop_ty(prop);
+        if prop == PropId::AccessibilityLive
+            && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
+        {
+            return err(
+                "lower-attr-value",
+                "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
+                span,
+            );
+        }
+        if prop == PropId::ImageSource {
+            if let Expr::Str(source, _) = value {
+                if let Some(role) = source.strip_prefix("symbol:") {
+                    if exact_kernel::generated::symbol(role).is_none() {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "symbol `{role}` is not a role; roles: {}",
+                                exact_kernel::generated::SYMBOL_ROLES.join(", ")
+                            ),
+                            span,
+                        );
+                    }
+                }
+            }
+        }
+        if want == tags::PropTy::Int {
+            if let Some(number) = numeric_literal(value) {
+                if !whole_i64(number) {
+                    return err(
+                        "lower-attr-value",
+                        format!(
+                            "`{name}` takes a whole number in the signed 64-bit range; given {number}"
+                        ),
+                        span,
+                    );
+                }
+            }
+        }
+        let ty = match value {
+            Expr::Number(_, _) => Some(Ty::Number),
+            Expr::Str(_, _) | Expr::Template(_, _) => Some(Ty::String),
+            Expr::Bool(_, _) => Some(Ty::Bool),
+            other => contract_types::infer(other, scope, &self.types.shapes).ok(),
+        };
+        let ok = matches!(
+            (want, &ty),
+            (_, None)
+                | (_, Some(Ty::Unknown))
+                | (tags::PropTy::Str, Some(Ty::String))
+                | (tags::PropTy::Bool, Some(Ty::Bool))
+                | (tags::PropTy::Int | tags::PropTy::Float, Some(Ty::Number))
+        );
+        if !ok {
+            return err(
+                "lower-attr-type",
+                format!(
+                    "`{}` takes {}; this expression is `{}`",
+                    name,
+                    match want {
+                        tags::PropTy::Str => "a string",
+                        tags::PropTy::Bool => "a bool",
+                        tags::PropTy::Int => "a whole number",
+                        tags::PropTy::Float => "a number",
+                    },
+                    ty.unwrap_or(Ty::Unknown)
+                ),
+                span,
+            );
+        }
+        Ok(())
+    }
+}

@@ -999,6 +999,7 @@ impl Parser {
                 let aspan = self.next().span;
                 self.next();
                 let value = self.expr()?;
+                self.unquoted_unit(&name, &value)?;
                 if attrs.iter().any(|a: &Attr| a.name == name) {
                     return Err(SyntaxError {
                         id: "syntax-duplicate-attr",
@@ -1037,6 +1038,25 @@ impl Parser {
             }
         }
         Ok(())
+    }
+
+    /// `width=10px` lexes as the number `10` and then a name `px` written
+    /// against it: say it is a string rather than let `px` be an unknown name.
+    fn unquoted_unit(&self, attr: &str, value: &Expr) -> R<()> {
+        let (Expr::Number(n, at), TokenKind::Ident(unit)) = (value, self.peek_kind()) else {
+            return Ok(());
+        };
+        let next = self.peek().span;
+        if next.line != at.line || next.col != at.end_col {
+            return Ok(());
+        }
+        Err(SyntaxError {
+            id: "syntax-unquoted-length",
+            message: format!(
+                "`{attr}={n}{unit}` needs quotes: a value with a unit is a string, `{attr}=\"{n}{unit}\"` (a bare number is pixels)"
+            ),
+            span: Span { end_col: next.end_col, ..*at },
+        })
     }
 
     fn named_args(&mut self) -> R<Vec<Attr>> {

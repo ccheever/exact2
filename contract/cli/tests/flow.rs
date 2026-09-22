@@ -15,25 +15,17 @@ fn source(attrs: &str) -> String {
 #[test]
 fn auto_values_follow_each_rows_codec_and_vocabulary() {
     // @ref LLP 1017.000 P1a — enum keywords use the kernel's vocabulary.
-    for (property, row, reason) in [
-        (
-            "display",
-            "display",
-            "one of \"block\", \"flex\", \"grid\", \"none\"",
-        ),
-        (
-            "overflow",
-            "overflow_x",
-            "one of \"visible\", \"hidden\", \"scroll\"",
-        ),
-        ("font-size", "font_size", "number"),
-        ("opacity", "opacity", "number"),
+    for (property, reason) in [
+        ("display", "one of \"block\", \"flex\", \"grid\", \"none\""),
+        ("overflow", "one of \"visible\", \"hidden\", \"scroll\""),
+        ("font-size", "number"),
+        ("opacity", "number"),
     ] {
         let error = contract::compile(&source(&format!("{property}=\"auto\""))).unwrap_err();
         assert_eq!(error.id, "lower-attr-value", "{property}: {error}");
         assert_eq!(
             error.message,
-            format!("`{property}=\"auto\"` is not a value for `{row}`: expected {reason}"),
+            format!("`{property}=\"auto\"` is not a valid `{property}`: expected {reason}"),
             "{property}"
         );
     }

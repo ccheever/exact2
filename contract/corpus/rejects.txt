@@ -82,6 +82,12 @@ component A
       case none
         text "b"
 ---
+== syntax-unquoted-length
+component A
+  view
+    column width=10px
+      text "a"
+---
 == syntax-missing-prop
 component A
   view

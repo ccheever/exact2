@@ -284,6 +284,20 @@ impl Scope {
         }));
     }
 
+    /// The one value name in scope `name` most plausibly misspells. Actions
+    /// are the driver's to suggest (it knows the handler's position), and a
+    /// generated name (`count#2`, `x@1`) is never offered.
+    pub fn suggest(&self, name: &str) -> Option<&str> {
+        let names = self
+            .frames
+            .iter()
+            .flat_map(|f| f.names.iter())
+            .filter_map(|(n, _, t)| {
+                (!matches!(t, Ty::Action(_)) && !n.contains(['#', '@'])).then_some(n.as_str())
+            });
+        contract_syntax::suggestion(name, names)
+    }
+
     /// Pop the innermost frame.
     pub fn pop(&mut self) {
         self.frames.pop();
@@ -498,9 +512,12 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             Some((_, t)) => t.clone(),
             None => {
                 let hint = if name.contains('-') {
-                    " (a name may contain hyphens, as in CSS, so subtraction between two names needs spaces: `a - b`)"
+                    " (a name may contain hyphens, as in CSS, so subtraction between two names needs spaces: `a - b`)".to_owned()
                 } else {
-                    ""
+                    scope
+                        .suggest(name)
+                        .map(|guess| format!("; did you mean `{guess}`?"))
+                        .unwrap_or_default()
                 };
                 return err(
                     "type-unknown-name",

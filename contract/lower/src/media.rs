@@ -1,5 +1,5 @@
 //! Media-specific validation; the schema still owns every prop declaration.
-use crate::{err, numeric_literal, LowerError};
+use crate::{err, values::numeric_literal, LowerError};
 use contract_syntax::{Expr, Span};
 
 pub(crate) fn check(name: &str, value: &Expr, span: Span) -> Result<(), LowerError> {

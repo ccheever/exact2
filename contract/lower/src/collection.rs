@@ -1,5 +1,5 @@
 //! Conservative initial flow shape for opt-in variable-height collections.
-use super::{err, numeric_literal, LowerError, Lowerer};
+use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
 
 impl Lowerer<'_> {
