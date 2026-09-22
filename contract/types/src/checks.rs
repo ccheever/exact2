@@ -4,6 +4,20 @@ use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types
 use contract_syntax::{one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Format the already-resolved signature only after an arity refusal.
+pub(super) fn call_arity<P: std::fmt::Display>(
+    name: &str,
+    given: usize,
+    params: impl IntoIterator<Item = P>,
+) -> String {
+    let params: Vec<_> = params.into_iter().map(|p| p.to_string()).collect();
+    format!(
+        "`{name}` takes {} argument(s), given {given}; expected `{name}({})`",
+        params.len(),
+        params.join(", ")
+    )
+}
+
 /// Describe unknown props and declared choices after the first unknown is found.
 pub(super) fn unknown_props(component: &Component, args: &[Attr], span: Span) -> TypeError {
     let mut seen = BTreeSet::new();

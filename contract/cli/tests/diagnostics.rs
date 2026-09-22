@@ -1270,3 +1270,117 @@ fn path_guidance_keeps_missing_table_literal_name_and_segment_errors_distinct() 
     )
     .is_ok());
 }
+
+#[test]
+fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites() {
+    let app = App::new("call-signatures");
+    let root = app.write(
+        "app.contract",
+        "use Row from \"./lib/row.contract\"\ncomponent App\n  view\n    Row()\n",
+    );
+    app.write(
+        "lib/fns.contract",
+        "fn mix(n: number, s: string, b: bool): string = b ? s : \"\"\nfn hello(): string = \"ok\"\nfn sizes(values: option<list<number>>): number = 0\nfn path(n: number): string = toString(n)\n",
+    );
+    let imports = "use mix from \"./fns.contract\"\nuse hello from \"./fns.contract\"\nuse sizes from \"./fns.contract\"\nuse path from \"./fns.contract\"\n";
+    for (expr, id, message, marker, fixed) in [
+        (
+            "mix()",
+            "type-arity",
+            "`mix` takes 3 argument(s), given 0; expected `mix(number, string, bool)`",
+            "mix",
+            "mix(1, \"ok\", true)",
+        ),
+        (
+            "mix(unknown)",
+            "type-arity",
+            "`mix` takes 3 argument(s), given 1; expected `mix(number, string, bool)`",
+            "mix",
+            "mix(1, \"ok\", true)",
+        ),
+        (
+            "mix(1, \"ok\", true, false)",
+            "type-arity",
+            "`mix` takes 3 argument(s), given 4; expected `mix(number, string, bool)`",
+            "mix",
+            "mix(1, \"ok\", true)",
+        ),
+        (
+            "hello(1)",
+            "type-arity",
+            "`hello` takes 0 argument(s), given 1; expected `hello()`",
+            "hello",
+            "hello()",
+        ),
+        (
+            "sizes()",
+            "type-arity",
+            "`sizes` takes 1 argument(s), given 0; expected `sizes(option<list<number>>)`",
+            "sizes",
+            "sizes(none)",
+        ),
+        (
+            "path()",
+            "type-arity",
+            "`path` takes 1 argument(s), given 0; expected `path(number)`",
+            "path",
+            "path(1)",
+        ),
+        (
+            "max(1)",
+            "type-arity",
+            "`max` takes 2 argument(s), given 1; expected `max(number, number)`",
+            "max",
+            "max(1, 2)",
+        ),
+        (
+            "length()",
+            "type-arity",
+            "`length` takes 1 argument(s), given 0; expected `length(any)`",
+            "length",
+            "length(\"abc\")",
+        ),
+        (
+            "mix(1, false, true)",
+            "type-argument",
+            "argument 2 of `mix` expects `string`, given `bool`",
+            "false",
+            "mix(1, \"ok\", true)",
+        ),
+        (
+            "mix(\"bad\", unknown, true)",
+            "type-argument",
+            "argument 1 of `mix` expects `number`, given `string`",
+            "\"bad\"",
+            "mix(1, \"ok\", true)",
+        ),
+        (
+            "max(1, \"bad\")",
+            "type-argument",
+            "argument 2 of `max` expects `number`, given `string`",
+            "\"bad\"",
+            "max(1, 2)",
+        ),
+    ] {
+        let source = format!("{imports}component Row\n  view\n    text `é ${{{expr}}}`\n");
+        let path = app
+            .write("lib/row.contract", &source)
+            .canonicalize()
+            .unwrap();
+        let error = contract::compile_path(&root).unwrap_err();
+        assert_eq!(error.id, id, "{expr}: {error}");
+        assert_eq!(error.message, message, "{expr}");
+        let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
+        assert_eq!(errors.len(), 1);
+        same_error(&errors[0], &error);
+        assert_eq!(errors[0]["file"], path.to_str().unwrap());
+        assert_eq!(errors[0]["line"], 7);
+        let col = source.lines().last().unwrap().find(marker).unwrap() + 1;
+        assert_eq!(errors[0]["col"], col, "{expr}");
+        assert_eq!(errors[0]["end_col"], col + marker.len(), "{expr}");
+        let human = app.run(&[root.to_str().unwrap()]);
+        assert!(String::from_utf8_lossy(&human.stderr).contains(message));
+        app.write("lib/row.contract", &source.replace(expr, fixed));
+        assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
+    }
+}

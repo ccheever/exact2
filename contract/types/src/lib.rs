@@ -516,20 +516,19 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 if args.len() != params.len() {
                     return err(
                         "type-arity",
-                        format!(
-                            "`{name}` takes {} argument(s), given {}",
-                            params.len(),
-                            args.len()
-                        ),
+                        checks::call_arity(name, args.len(), params),
                         *span,
                     );
                 }
-                for (arg, want) in args.iter().zip(params) {
+                for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
                     if want.unify(&t).is_none() {
                         return err(
                             "type-argument",
-                            format!("`{name}` expects `{want}`, given `{t}`"),
+                            format!(
+                                "argument {} of `{name}` expects `{want}`, given `{t}`",
+                                i + 1
+                            ),
                             arg.span(),
                         );
                     }
@@ -570,20 +569,19 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 if args.len() != f.arity() {
                     return err(
                         "type-arity",
-                        format!(
-                            "`{name}` takes {} argument(s), given {}",
-                            f.arity(),
-                            args.len()
-                        ),
+                        checks::call_arity(name, args.len(), f.params()),
                         *span,
                     );
                 }
-                for (arg, spec) in args.iter().zip(f.params()) {
+                for (i, (arg, spec)) in args.iter().zip(f.params()).enumerate() {
                     let t = infer(arg, scope, shapes)?;
                     if !t.matches_roster(spec) {
                         return err(
                             "type-argument",
-                            format!("`{name}` expects `{spec}`, given `{t}`"),
+                            format!(
+                                "argument {} of `{name}` expects `{spec}`, given `{t}`",
+                                i + 1
+                            ),
                             arg.span(),
                         );
                     }

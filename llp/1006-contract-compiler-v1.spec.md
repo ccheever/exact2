@@ -238,6 +238,11 @@ holds (`state stationId = none` … `stationId = some(id)`); an unfilled `?` is
 `type-cannot-infer`, never a guess. Derives are inferred to a fixpoint in any
 order; a cycle is `type-derive-cycle`. Every rejection carries a stable id and
 a line:column (`CompileError`).
+Authored-function and roster arity refusals include the ordered parameter types
+as a signature, including empty parameter lists and nested types. Their type
+mismatches name the one-based argument position. The existing signature tables
+remain the authority; formatting happens only on refusal. Error IDs and spans,
+arity-before-argument checking, and scoped-action/router precedence are unchanged.
 
 `image "symbol:<role>"` (LLP 1035.004, 2026-09-10) checks literal roles
 against the generated schema vocabulary. Empty, unknown and platform-name
