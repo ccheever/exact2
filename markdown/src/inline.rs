@@ -307,8 +307,17 @@ impl Scanner<'_> {
         let href = target
             .strip_prefix('<')
             .and_then(|t| t.strip_suffix('>'))
-            .unwrap_or(target)
-            .to_string();
+            .unwrap_or(target);
+        let mut decoded = String::with_capacity(href.len());
+        let mut chars = href.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '\\' && chars.peek().is_some_and(|c| c.is_ascii_punctuation()) {
+                decoded.push(chars.next().unwrap());
+            } else {
+                decoded.push(c);
+            }
+        }
+        let href = decoded;
         let start = if image { i - 1 } else { i };
         if !image {
             self.scan(i + 1, j);

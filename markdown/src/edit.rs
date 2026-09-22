@@ -228,7 +228,28 @@ fn inline(source: &str, sel: B, kind: u8, marker: &str) -> Draft {
     Draft { reps, selection }
 }
 
+fn destination(target: &str) -> String {
+    let mut out = String::with_capacity(target.len());
+    for c in target.chars() {
+        match c {
+            '\\' | '(' | ')' | '<' | '>' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c if c.is_whitespace() || c.is_control() => {
+                let mut bytes = [0; 4];
+                for b in c.encode_utf8(&mut bytes).bytes() {
+                    out.push_str(&format!("%{b:02X}"));
+                }
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 fn link(source: &str, sel: B, target: &str) -> Draft {
+    let target = destination(target);
     let analysis = analyze(source, None);
     if let Some(c) = analysis
         .constructs
@@ -242,12 +263,15 @@ fn link(source: &str, sel: B, target: &str) -> Draft {
                     (c.inner.end..c.outer.end, String::new()),
                 ]
             } else {
-                vec![(c.inner.end..c.outer.end, format!("]({target})"))]
+                vec![
+                    (c.outer.start..c.inner.start, "[".into()),
+                    (c.inner.end..c.outer.end, format!("]({target})")),
+                ]
             },
             selection: if target.is_empty() {
                 None
             } else {
-                Some(c.inner.clone())
+                Some(c.outer.start + 1..c.outer.start + 1 + c.inner.len())
             },
         };
     }

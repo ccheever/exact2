@@ -836,3 +836,35 @@ fn reading_many_blocks_matches_their_individual_styles() {
             .all(|r| r.end <= source.len() as u32));
     }
 }
+
+#[test]
+fn link_commands_escape_destination_syntax_on_insert_and_update() {
+    for target in [
+        "https://example.com/a)b",
+        "https://example.com/a(b)c",
+        "https://example.com/a\\b",
+    ] {
+        let first = edit("label", Range::new(0, 5), Command::Link(target.into()));
+        let source = first.apply("label");
+        assert_eq!(plain(&source), "label", "{source}");
+        assert_eq!(selection(&source, first.selection).link, target, "{source}");
+        let changed = edit(
+            "[label](old)",
+            Range::caret(3),
+            Command::Link(target.into()),
+        );
+        let source = changed.apply("[label](old)");
+        assert_eq!(plain(&source), "label", "{source}");
+        assert_eq!(
+            selection(&source, changed.selection).link,
+            target,
+            "{source}"
+        );
+    }
+    let changed = edit(
+        "<https://old>",
+        Range::caret(5),
+        Command::Link("https://new".into()),
+    );
+    assert_eq!(changed.apply("<https://old>"), "[https://old](https://new)");
+}

@@ -938,3 +938,40 @@ macro_rules! host {
         }
     };
 }
+
+#[cfg(test)]
+mod markdown_tests {
+    use super::*;
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            unreachable!()
+        }
+    }
+    #[test]
+    fn markdown_buffers_preserve_source_offsets_and_reject_bad_lengths() {
+        let mut b = Bridge::<NoData>::new();
+        let n = b.input_write("bold😀 word".as_bytes());
+        let len = b.markup_edit(3, 7, 4, 0, n);
+        assert_eq!(
+            std::str::from_utf8(b.output_bytes(len as usize)).unwrap(),
+            r#"{"replacements":[[3,3,"**"],[7,7,"**"]],"selection":[5,9]}"#
+        );
+        let len = b.markup_edit(0, 0, usize::MAX, 1, n);
+        assert!(std::str::from_utf8(b.output_bytes(len as usize))
+            .unwrap()
+            .contains("error"));
+        let n = b.input_write(b"**bold**");
+        let len = b.markup(1, 3, 3, n);
+        assert_eq!(
+            std::str::from_utf8(b.output_bytes(len as usize)).unwrap(),
+            r#"{"formats":"bold","mixed":false,"link":"","unavailable":""}"#
+        );
+        let len = b.markup(2, 0, 0, n);
+        assert_eq!(b.output_bytes(len as usize), b"bold");
+    }
+}

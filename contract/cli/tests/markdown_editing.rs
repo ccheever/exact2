@@ -89,7 +89,7 @@ fn select_rejects_a_wrong_payload_type_or_arity() {
             "type-handler-payload",
         ),
         (
-            SOURCE.replace("select=selected", "select=bold"),
+            SOURCE.replace("selected(s)", "selected(extra: string, s)"),
             "handler-arity",
         ),
     ] {

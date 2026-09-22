@@ -366,6 +366,59 @@ mod tests {
     }
 
     #[test]
+    fn editing_selection_and_plain_share_the_handle_lifetime() {
+        let source = "😀 word";
+        let (mut out, mut count) = (std::ptr::null(), 0usize);
+        let handle = edit(
+            source.as_ptr(),
+            source.len(),
+            3,
+            7,
+            b"bold".as_ptr(),
+            4,
+            std::ptr::null(),
+            0,
+            &mut out,
+            &mut count,
+        );
+        assert_ne!(handle, 0);
+        let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
+        assert_eq!(
+            json,
+            r#"{"replacements":[[3,3,"**"],[7,7,"**"]],"selection":[5,9]}"#
+        );
+        free(handle);
+        let source = "**bold**";
+        let handle = selection(source.as_ptr(), source.len(), 3, 3, &mut out, &mut count);
+        let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
+        assert_eq!(
+            json,
+            r#"{"formats":"bold","mixed":false,"link":"","unavailable":""}"#
+        );
+        free(handle);
+        let handle = plain(source.as_ptr(), source.len(), &mut out, &mut count);
+        assert_eq!(unsafe { std::slice::from_raw_parts(out, count) }, b"bold");
+        free(handle);
+        assert_eq!(
+            edit(
+                source.as_ptr(),
+                source.len(),
+                0,
+                0,
+                b"\xff".as_ptr(),
+                1,
+                std::ptr::null(),
+                0,
+                &mut out,
+                &mut count
+            ),
+            0
+        );
+        assert!(out.is_null());
+        assert_eq!(count, 0);
+    }
+
+    #[test]
     fn styling_crosses_the_seam_as_json() {
         let source = "# T\n\n**b** [l](u \"q\")";
         let (mut out, mut count) = (std::ptr::null(), 0usize);
