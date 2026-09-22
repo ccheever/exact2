@@ -4,6 +4,20 @@ use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types
 use contract_syntax::{one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Check compatibility without constructing a discarded merged type.
+pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {
+    match (a, b) {
+        (Ty::Unknown, _) | (_, Ty::Unknown) => true,
+        (Ty::Option(a), Ty::Option(b)) | (Ty::List(a), Ty::List(b)) => can_unify(a, b),
+        (Ty::Action(a), Ty::Action(b)) => {
+            a.is_empty()
+                || b.is_empty()
+                || (a.len() == b.len() && a.iter().zip(b).all(|(a, b)| can_unify(a, b)))
+        }
+        (a, b) => a == b,
+    }
+}
+
 /// Format the already-resolved signature only after an arity refusal.
 pub(super) fn call_arity<P: std::fmt::Display>(
     name: &str,
@@ -406,7 +420,7 @@ fn check_inject_nodes(
                         continue;
                     };
                     let want = &target_t.props[target_c.props.len() + j];
-                    if want.unify(got).is_none() {
+                    if !can_unify(want, got) {
                         return err(
                             "type-provide",
                             format!(
@@ -526,7 +540,7 @@ pub(super) fn check_stmts(
                     if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
                         let t = infer(expr, scope, shapes)?;
                         let mt = Ty::Option(Box::new(ct.mutations[mi].clone()));
-                        if mt.unify(&t).is_none() {
+                        if !can_unify(&mt, &t) {
                             return err(
                                 "type-assign",
                                 format!("`{target}` is `{mt}`, cannot assign `{t}`"),
@@ -765,4 +779,38 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{can_unify, Ty};
+
+    #[test]
+    fn compatibility_preserves_unknowns_nested_types_and_action_wildcards() {
+        let atoms = vec![
+            Ty::Number,
+            Ty::String,
+            Ty::Bool,
+            Ty::Unit,
+            Ty::Unknown,
+            Ty::Record("A".into()),
+            Ty::Record("B".into()),
+            Ty::Action(vec![]),
+        ];
+        let mut types = atoms.clone();
+        for t in &atoms {
+            types.push(Ty::Option(Box::new(t.clone())));
+            types.push(Ty::List(Box::new(t.clone())));
+            types.push(Ty::Action(vec![t.clone()]));
+            types.push(Ty::Option(Box::new(Ty::List(Box::new(t.clone())))));
+            for u in &atoms {
+                types.push(Ty::Action(vec![t.clone(), u.clone()]));
+            }
+        }
+        for a in &types {
+            for b in &types {
+                assert_eq!(can_unify(a, b), a.unify(b).is_some(), "{a:?} / {b:?}");
+            }
+        }
+    }
 }

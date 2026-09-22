@@ -539,7 +539,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if want.unify(&t).is_none() {
+                    if !checks::can_unify(want, &t) {
                         return err(
                             "type-argument",
                             format!(
@@ -572,7 +572,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
                     let t = infer(arg, scope, shapes)?;
-                    if t.unify(pt).is_none() {
+                    if !checks::can_unify(&t, pt) {
                         return err(
                             "type-argument",
                             format!("`{name}` expects `{pt}`, given `{t}`"),
@@ -672,7 +672,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if ta.unify(&tb).is_none() {
+                    if !checks::can_unify(&ta, &tb) {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -864,7 +864,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if ret.unify(&t).is_none() {
+        if !checks::can_unify(&ret, &t) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),
@@ -1054,7 +1054,7 @@ fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Resu
                         );
                     };
                     let t = infer(&arg.value, scope, &types.shapes)?;
-                    if t.unify(&target_t.props[i]).is_none() {
+                    if !checks::can_unify(&t, &target_t.props[i]) {
                         return err(
                             "type-prop",
                             format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),

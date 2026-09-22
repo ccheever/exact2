@@ -290,7 +290,9 @@ a region depth, `match` binding at a depth, inline-match local), `infer`, and
 `check`. The root is checked against its inlined view so a handler's real call
 site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
-`returns`.
+`returns`. Compatibility-only checks evaluate the unifier's success conditions
+without constructing a merged type. Type inference uses `Ty::unify` wherever
+it needs the merged value.
 
 Unknown written types retain `type-unknown` and their original token span. The
 message lists known named types: primitives and bare `action`, then declared
