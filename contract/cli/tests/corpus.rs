@@ -791,3 +791,51 @@ fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
     assert_eq!(text_of(&r, "root").as_deref(), Some("100"));
     assert_eq!(text_of(&r, "child").as_deref(), Some("6"));
 }
+
+#[test]
+fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
+    let app = |expr: &str| {
+        format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource items = stations() as shape list<Station>\n  view\n    text toString({expr}) testId=\"out\"\n")
+    };
+    for (expr, expects) in [
+        (
+            "length(5)",
+            "argument 1 of `length` expects `string | list`, given `number`",
+        ),
+        (
+            "isEmpty(true)",
+            "argument 1 of `isEmpty` expects `string | list`, given `bool`",
+        ),
+        (
+            "toString(items)",
+            "argument 1 of `toString` expects `number | string | bool`, given `list<Station>`",
+        ),
+    ] {
+        let error = contract::compile(&app(expr)).unwrap_err();
+        assert_eq!(
+            (error.id.as_str(), error.message.as_str()),
+            ("type-argument", expects)
+        );
+    }
+    let error = contract::compile(&app("length()")).unwrap_err();
+    assert!(
+        error.message.ends_with("expected `length(string | list)`"),
+        "{error}"
+    );
+    for (expr, shown) in [
+        ("length(\"héllo\")", "5"),
+        ("length(items)", "2"),
+        ("isEmpty(\"\")", "true"),
+        ("toString(true)", "true"),
+    ] {
+        let r = Runner::boot(
+            contract::compile(&app(expr)).unwrap(),
+            Schedule,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(text_of(&r, "out").as_deref(), Some(shown), "{expr}");
+    }
+}

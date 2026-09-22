@@ -1335,7 +1335,7 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
         (
             "length()",
             "type-arity",
-            "`length` takes 1 argument(s), given 0; expected `length(any)`",
+            "`length` takes 1 argument(s), given 0; expected `length(string | list)`",
             "length",
             "length(\"abc\")",
         ),

@@ -132,6 +132,26 @@ impl Ty {
     }
 }
 
+/// Whether a roster parameter admits `t`. The roster table spells three
+/// parameters `any`; each is held to the values its runner entry reads, so a
+/// call that would fail at runtime (`length(5)`) is refused here instead.
+fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
+    match (f, spec) {
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
+        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
+        _ => t.matches_roster(spec),
+    }
+}
+
+/// A roster parameter as a refusal spells it.
+fn roster_spelling(f: Stdlib, spec: &str) -> &str {
+    match (f, spec) {
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
+        (Stdlib::ToString, "any") => "number | string | bool",
+        _ => spec,
+    }
+}
+
 /// A typed rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypeError {
@@ -587,18 +607,23 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 if args.len() != f.arity() {
                     return err(
                         "type-arity",
-                        checks::call_arity(name, args.len(), f.params()),
+                        checks::call_arity(
+                            name,
+                            args.len(),
+                            f.params().iter().map(|spec| roster_spelling(f, spec)),
+                        ),
                         *span,
                     );
                 }
                 for (i, (arg, spec)) in args.iter().zip(f.params()).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if !t.matches_roster(spec) {
+                    if !roster_accepts(f, spec, &t) {
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{spec}`, given `{t}`",
-                                i + 1
+                                "argument {} of `{name}` expects `{}`, given `{t}`",
+                                i + 1,
+                                roster_spelling(f, spec)
                             ),
                             arg.span(),
                         );
