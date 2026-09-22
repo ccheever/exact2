@@ -722,27 +722,32 @@ impl<'a> Lowerer<'a> {
                 }
                 // Two bindings for one row — a style's and the node's own, a
                 // tag's fixed row and an attribute — the last one wins.
-                let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
-                let mut deduped: Vec<BindingsRow> = Vec::new();
-                let mut deduped_origins = origins.as_ref().map(|_| Vec::new());
-                for (index, b) in bindings.drain(..).enumerate() {
-                    match seen.get(&(b.kind as u8, b.id)) {
-                        Some(&i) => {
-                            deduped[i] = b;
-                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
-                                to[i] = from[index].clone();
+                if bindings.len() > 1 {
+                    let mut seen: BTreeMap<(u8, u16), usize> = BTreeMap::new();
+                    let mut unique = 0;
+                    for index in 0..bindings.len() {
+                        let b = &bindings[index];
+                        let target = match seen.get(&(b.kind as u8, b.id)) {
+                            Some(&i) => i,
+                            None => {
+                                seen.insert((b.kind as u8, b.id), unique);
+                                unique += 1;
+                                unique - 1
                             }
-                        }
-                        None => {
-                            seen.insert((b.kind as u8, b.id), deduped.len());
-                            deduped.push(b);
-                            if let (Some(from), Some(to)) = (&origins, &mut deduped_origins) {
-                                to.push(from[index].clone());
+                        };
+                        // Targets are in the consumed prefix: unread rows stay intact.
+                        if target != index {
+                            bindings.swap(target, index);
+                            if let Some(origins) = &mut origins {
+                                origins.swap(target, index);
                             }
                         }
                     }
+                    bindings.truncate(unique);
+                    if let Some(origins) = &mut origins {
+                        origins.truncate(unique);
+                    }
                 }
-                let bindings = deduped;
                 let handler_refs: Vec<(EventKind, exact_plan::ActionsId, &[Code])> = handlers
                     .iter()
                     .map(|(e, a, c)| (*e, *a, c.as_slice()))
@@ -790,7 +795,7 @@ impl<'a> Lowerer<'a> {
                         *span,
                         *instance,
                         &bindings,
-                        deduped_origins.as_deref().expect("site origins"),
+                        origins.as_deref().expect("site origins"),
                     ));
                 }
                 self.nodes(children, Some(id), arm, scope, locals, Some(tag))

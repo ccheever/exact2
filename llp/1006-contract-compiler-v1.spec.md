@@ -443,6 +443,9 @@ Tag defaults and attribute style targets borrow static slices of kernel-generate
 identifiers; lookup constructs no temporary row vectors.
 Nodes without a class borrow their existing attributes; only class expansion
 builds a merged attribute list.
+Duplicate node bindings compact their existing buffers in place, preserving
+the first row position and the last value and source origin. Nodes with fewer
+than two bindings skip duplicate detection.
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`
 boots the runner once against the app's data source and writes every
