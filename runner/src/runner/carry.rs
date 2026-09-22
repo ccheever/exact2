@@ -253,7 +253,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(reloaded.resource("answer"), Some(&Value::str("loading")));
-            assert_eq!(reloaded.data().queries, 1);
+            assert_eq!(reloaded.data().queries, 0);
             assert_eq!(reloaded.store().revision(), 0);
             assert_eq!(
                 reloaded

@@ -350,7 +350,9 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .zip(&self.resources)
                 .enumerate()
-                .filter(|(i, _)| !self.pending_res[*i])
+                // A request in flight or a placeholder shown until the
+                // source is ready is not an answer to carry.
+                .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i])
                 .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
                         (
