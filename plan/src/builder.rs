@@ -10,16 +10,45 @@ use crate::generated::*;
 use crate::value::Value;
 use crate::{Bytes, Code, Plan, PlanError, StrId};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 /// A plan under construction.
 #[derive(Debug, Default)]
 pub struct PlanBuilder {
     plan: Plan,
-    interned: HashMap<String, StrId>,
+    interned: HashMap<String, StrId, BuildHasherDefault<BodyHasher>>,
     /// Every code body appended so far, by content: an identical body is
     /// shared. Each reference is validated on its own (`check_code`), so a
     /// shared body is indistinguishable from a copy to every reader.
-    bodies: HashMap<Vec<u8>, Code>,
+    bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
+}
+
+/// A multiply-rotate hash for the pools' dedup tables: code bodies this
+/// builder assembled and the plan's own strings, so no key is adversarial
+/// and SipHash's cost buys nothing.
+#[derive(Default)]
+struct BodyHasher(u64);
+
+impl Hasher for BodyHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.mix(u64::from_le_bytes(chunk.try_into().unwrap()));
+        }
+        let mut tail = [0u8; 8];
+        tail[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
+        self.mix(u64::from_le_bytes(tail) ^ (bytes.len() as u64) << 56);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+impl BodyHasher {
+    fn mix(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x517c_c1b7_2722_0a95);
+    }
 }
 
 impl PlanBuilder {
@@ -31,8 +60,8 @@ impl PlanBuilder {
                 compiler_identity,
                 ..Plan::default()
             },
-            interned: HashMap::new(),
-            bodies: HashMap::new(),
+            interned: HashMap::default(),
+            bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -63,7 +92,7 @@ impl PlanBuilder {
         PlanBuilder {
             plan,
             interned,
-            bodies: HashMap::new(),
+            bodies: HashMap::default(),
         }
     }
 

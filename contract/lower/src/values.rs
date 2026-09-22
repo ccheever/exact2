@@ -4,7 +4,7 @@
 
 use crate::{err, media, tags, FontUse, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Span, UnOp};
-use contract_types::{Scope, Ty};
+use contract_types::Ty;
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 
 /// A literal, as an author wrote it, for a message.
@@ -56,7 +56,7 @@ impl Lowerer<'_> {
         &self,
         a: &Attr,
         rows: &[StyleId],
-        scope: &Scope,
+        ty: &Ty,
         font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
         // Validate every authored literal result, including inactive branches.
@@ -151,19 +151,17 @@ impl Lowerer<'_> {
                         }
                     }
                 }
-                None if std::ptr::eq(value, &a.value) => {
-                    if let Ok(t) = contract_types::infer(value, scope, &self.types.shapes) {
-                        if !matches!(t, Ty::Number | Ty::String | Ty::Unknown) {
-                            return err(
-                                "lower-attr-type",
-                                format!(
-                                    "`{}` takes a number or a string; this expression is `{t}`",
-                                    a.name
-                                ),
-                                span,
-                            );
-                        }
-                    }
+                None if std::ptr::eq(value, &a.value)
+                    && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
+                {
+                    return err(
+                        "lower-attr-type",
+                        format!(
+                            "`{}` takes a number or a string; this expression is `{ty}`",
+                            a.name
+                        ),
+                        span,
+                    );
                 }
                 _ => {}
             }
@@ -225,7 +223,7 @@ impl Lowerer<'_> {
         value: &Expr,
         span: Span,
         prop: PropId,
-        scope: &Scope,
+        ty: &Ty,
     ) -> Result<(), LowerError> {
         media::check(name, value, span)?;
         let want = tags::prop_ty(prop);
@@ -267,19 +265,12 @@ impl Lowerer<'_> {
                 }
             }
         }
-        let ty = match value {
-            Expr::Number(_, _) => Some(Ty::Number),
-            Expr::Str(_, _) | Expr::Template(_, _) => Some(Ty::String),
-            Expr::Bool(_, _) => Some(Ty::Bool),
-            other => contract_types::infer(other, scope, &self.types.shapes).ok(),
-        };
         let ok = matches!(
-            (want, &ty),
-            (_, None)
-                | (_, Some(Ty::Unknown))
-                | (tags::PropTy::Str, Some(Ty::String))
-                | (tags::PropTy::Bool, Some(Ty::Bool))
-                | (tags::PropTy::Int | tags::PropTy::Float, Some(Ty::Number))
+            (want, ty),
+            (_, Ty::Unknown)
+                | (tags::PropTy::Str, Ty::String)
+                | (tags::PropTy::Bool, Ty::Bool)
+                | (tags::PropTy::Int | tags::PropTy::Float, Ty::Number)
         );
         if !ok {
             return err(
@@ -293,7 +284,7 @@ impl Lowerer<'_> {
                         tags::PropTy::Int => "a whole number",
                         tags::PropTy::Float => "a number",
                     },
-                    ty.unwrap_or(Ty::Unknown)
+                    ty
                 ),
                 span,
             );

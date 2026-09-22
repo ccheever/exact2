@@ -1,30 +1,37 @@
-//! Expression codegen: one assembler, every construct.
+//! Expression codegen: one assembler, every construct. Each construct
+//! returns the type of the value it leaves, built from the checked types of
+//! the names it reads, so no expression is inferred again while lowering
+//! (a re-inference at every node made deep expressions quadratic).
 
 use crate::{err, LowerError, Lowerer};
 use contract_syntax::{BinOp, Expr, TemplatePart, UnOp};
-use contract_types::{infer, Ref, Scope, Ty};
+use contract_types::{Ref, Scope, Ty};
 use exact_plan::asm::Asm;
 use exact_plan::{Opcode, Stdlib};
 
-/// Emit `e` onto `asm` in `scope`. `locals` counts inline-`match` bindings in
-/// force, so nested ones index the VM's locals stack correctly.
+/// Emit `e` onto `asm` in `scope` and return its type. `locals` counts
+/// inline-`match` bindings in force, so nested ones index the VM's locals
+/// stack correctly.
 pub(crate) fn compile(
     l: &mut Lowerer<'_>,
     asm: &mut Asm,
     e: &Expr,
     scope: &Scope,
     locals: &mut u16,
-) -> Result<(), LowerError> {
-    match e {
+) -> Result<Ty, LowerError> {
+    Ok(match e {
         Expr::Number(n, _) => {
             asm.number(*n);
+            Ty::Number
         }
         Expr::Str(s, _) => {
             let id = l.b.str(s);
             asm.str(id);
+            Ty::String
         }
         Expr::Bool(b, _) => {
             asm.bool(*b);
+            Ty::Bool
         }
         Expr::NamedArg(_, _, span) => {
             return err(
@@ -35,10 +42,12 @@ pub(crate) fn compile(
         }
         Expr::None(_) => {
             asm.simple(Opcode::None);
+            Ty::Option(Box::new(Ty::Unknown))
         }
         Expr::Some(inner, _) => {
-            compile(l, asm, inner, scope, locals)?;
+            let t = compile(l, asm, inner, scope, locals)?;
             asm.simple(Opcode::Some);
+            Ty::Option(Box::new(t))
         }
         Expr::Template(parts, _) => {
             // Component expansion can make every interpolated string literal.
@@ -59,7 +68,7 @@ pub(crate) fn compile(
                     })
                     .collect();
                 asm.str(l.b.str(&text));
-                return Ok(());
+                return Ok(Ty::String);
             }
             let mut first = true;
             for p in parts {
@@ -69,8 +78,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        compile(l, asm, x, scope, locals)?;
-                        if infer(x, scope, &l.types.shapes).ok() != Some(Ty::String) {
+                        if compile(l, asm, x, scope, locals)? != Ty::String {
                             asm.call(Stdlib::ToString);
                         }
                     }
@@ -84,31 +92,40 @@ pub(crate) fn compile(
                 let id = l.b.str("");
                 asm.str(id);
             }
+            Ty::String
         }
         Expr::Ident(name, span) => match scope.lookup(name) {
-            Some((Ref::Slot(i), _)) => {
+            Some((Ref::Slot(i), t)) => {
                 asm.load_slot(l.slots[i as usize]);
+                t.clone()
             }
-            Some((Ref::Derive(i), _)) => {
+            Some((Ref::Derive(i), t)) => {
                 asm.load_derive(l.derives[i as usize]);
+                t.clone()
             }
-            Some((Ref::Resource(i), _)) => {
+            Some((Ref::Resource(i), t)) => {
                 asm.load_resource(l.resources[i as usize]);
+                t.clone()
             }
-            Some((Ref::Mutation(i), _)) => {
+            Some((Ref::Mutation(i), t)) => {
                 asm.load_slot(l.mutation_slots[i as usize]);
+                t.clone()
             }
-            Some((Ref::Param(i), _)) => {
+            Some((Ref::Param(i), t)) => {
                 asm.load_param(i as u16);
+                t.clone()
             }
-            Some((Ref::Item(d), _)) => {
+            Some((Ref::Item(d), t)) => {
                 asm.load_item(d as u16);
+                t.clone()
             }
-            Some((Ref::Bound(d), _)) => {
+            Some((Ref::Bound(d), t)) => {
                 asm.load_bound(d as u16);
+                t.clone()
             }
-            Some((Ref::Local(i), _)) => {
+            Some((Ref::Local(i), t)) => {
                 asm.load_local(i as u16);
+                t.clone()
             }
             Some((Ref::Prop(_), _)) => {
                 return err(
@@ -133,23 +150,20 @@ pub(crate) fn compile(
             }
         },
         Expr::Member(obj, field, span) => {
-            let t = infer(obj, scope, &l.types.shapes).map_err(|e| LowerError {
-                id: "lower-type",
-                message: e.message,
-                span: e.span,
-            })?;
+            let t = compile(l, asm, obj, scope, locals)?;
             let Ty::Record(shape) = t else {
                 return err("lower-not-a-record", format!("`{t}` has no fields"), *span);
             };
-            let Some((index, _)) = l.types.shapes.field(&shape, field) else {
+            let Some((index, ty)) = l.types.shapes.field(&shape, field) else {
                 return err(
                     "lower-unknown-field",
                     format!("`{shape}` has no field `{field}`"),
                     *span,
                 );
             };
-            compile(l, asm, obj, scope, locals)?;
+            let ty = ty.clone();
             asm.field(index as u16);
+            ty
         }
         Expr::Call(name, args, span) => {
             if name == "path" && !l.fns.contains_key(name.as_str()) {
@@ -176,7 +190,7 @@ pub(crate) fn compile(
                         )
                     }
                 };
-                return Ok(());
+                return Ok(Ty::Bool);
             }
             if let Some((f, shared)) = l.fns.get(name.as_str()).copied() {
                 // A `fn` (LLP 1017 P5), expanded here: each argument bound
@@ -219,7 +233,7 @@ pub(crate) fn compile(
                     *locals -= 1;
                     asm.drop_local();
                 }
-                return Ok(());
+                return Ok(l.types.shapes.fns[name].1.clone());
             }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
@@ -232,13 +246,20 @@ pub(crate) fn compile(
                 compile(l, asm, a, scope, locals)?;
             }
             asm.call(f);
+            Ty::from_roster(f.returns())
         }
         Expr::Unary(op, inner, _) => {
             compile(l, asm, inner, scope, locals)?;
-            asm.simple(match op {
-                UnOp::Neg => Opcode::Neg,
-                UnOp::Not => Opcode::Not,
-            });
+            match op {
+                UnOp::Neg => {
+                    asm.simple(Opcode::Neg);
+                    Ty::Number
+                }
+                UnOp::Not => {
+                    asm.simple(Opcode::Not);
+                    Ty::Bool
+                }
+            }
         }
         Expr::Binary(op, a, b, _) => {
             match op {
@@ -264,13 +285,13 @@ pub(crate) fn compile(
                     asm.load_local(*locals);
                     asm.drop_local();
                     asm.place(end);
+                    Ty::Bool
                 }
                 _ => {
-                    compile(l, asm, a, scope, locals)?;
-                    compile(l, asm, b, scope, locals)?;
-                    let ta = infer(a, scope, &l.types.shapes).ok();
+                    let ta = compile(l, asm, a, scope, locals)?;
+                    let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Some(Ty::String) => Opcode::Concat,
+                        BinOp::Add if ta == Ty::String => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -284,6 +305,18 @@ pub(crate) fn compile(
                         BinOp::Ge => Opcode::Ge,
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
+                    match op {
+                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
+                            if ta == Ty::Number && tb == Ty::Number =>
+                        {
+                            Ty::Number
+                        }
+                        BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                            Ty::Unknown
+                        }
+                        _ => Ty::Bool,
+                    }
                 }
             }
         }
@@ -292,11 +325,12 @@ pub(crate) fn compile(
             let otherwise = asm.label();
             let end = asm.label();
             asm.jump_if_false(otherwise);
-            compile(l, asm, a, scope, locals)?;
+            let ta = compile(l, asm, a, scope, locals)?;
             asm.jump(end);
             asm.place(otherwise);
-            compile(l, asm, b, scope, locals)?;
+            let tb = compile(l, asm, b, scope, locals)?;
             asm.place(end);
+            ta.unify(&tb).unwrap_or(Ty::Unknown)
         }
         Expr::Match {
             subject,
@@ -305,11 +339,10 @@ pub(crate) fn compile(
             none,
             ..
         } => {
-            let bound_ty = match infer(subject, scope, &l.types.shapes) {
-                Ok(Ty::Option(t)) => *t,
+            let bound_ty = match compile(l, asm, subject, scope, locals)? {
+                Ty::Option(t) => *t,
                 _ => Ty::Unknown,
             };
-            compile(l, asm, subject, scope, locals)?;
             let is_none = asm.label();
             let end = asm.label();
             asm.jump_if_none(is_none);
@@ -319,31 +352,31 @@ pub(crate) fn compile(
             *locals += 1;
             let mut inner = scope.clone();
             inner.push(vec![(var.clone(), Ref::Local(index as u32), bound_ty)]);
-            compile(l, asm, some, &inner, locals)?;
+            let ta = compile(l, asm, some, &inner, locals)?;
             *locals -= 1;
             asm.drop_local();
             asm.jump(end);
             asm.place(is_none);
             asm.simple(Opcode::Pop);
-            compile(l, asm, none, scope, locals)?;
+            let tb = compile(l, asm, none, scope, locals)?;
             asm.place(end);
+            ta.unify(&tb).unwrap_or(Ty::Unknown)
         }
         Expr::Let {
             name, value, body, ..
         } => {
             // Evaluated once, then read from the locals stack, as an inline
             // `match` binds its value.
-            let ty = infer(value, scope, &l.types.shapes).unwrap_or(Ty::Unknown);
-            compile(l, asm, value, scope, locals)?;
+            let ty = compile(l, asm, value, scope, locals)?;
             asm.bind_local();
             let index = *locals;
             *locals += 1;
             let mut inner = scope.clone();
             inner.push(vec![(name.clone(), Ref::Local(index as u32), ty)]);
-            compile(l, asm, body, &inner, locals)?;
+            let ty = compile(l, asm, body, &inner, locals)?;
             *locals -= 1;
             asm.drop_local();
+            ty
         }
-    }
-    Ok(())
+    })
 }

@@ -30,7 +30,7 @@ mod values;
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, UnOp};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::StyleId;
 use exact_plan::asm::Asm;
@@ -111,6 +111,8 @@ pub(crate) struct Lowerer<'a> {
     /// How many `fn` bodies are being expanded right now (a guard; the type
     /// pass already refuses a cycle).
     pub fn_depth: u32,
+    /// Tags' fixed row values already built (`Lowerer::fixed`).
+    fixed: BTreeMap<(bool, &'static str), Code>,
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +198,7 @@ fn lower_with_sites(
         each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
+        fixed: BTreeMap::new(),
     };
     l.declare_fonts(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
@@ -238,17 +241,17 @@ fn lower_with_sites(
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
     }
-    // Ids for every declaration before any body, so bodies may reference any of them.
+    // Ids for every declaration before any body, so bodies may reference any
+    // of them; each starts with the one placeholder body its own replaces.
+    let placeholder = l.b.constant(&Value::Unit);
     for (i, s) in root.states.iter().enumerate() {
         let ty = l.ty_id(&root_types.slots[i])?;
-        let placeholder = l.b.constant(&Value::Unit);
         let id = l.b.slot(&s.name, ty, placeholder);
         l.slots.push(id);
     }
     l.declare_routes(file);
     for (i, d) in root.derives.iter().enumerate() {
         let ty = l.ty_id(&root_types.derives[i])?;
-        let placeholder = l.b.constant(&Value::Unit);
         let id = l.b.derive(&d.name, ty, placeholder);
         l.derives.push(id);
     }
@@ -297,7 +300,6 @@ fn lower_with_sites(
                 },
             )
             .collect();
-        let placeholder = l.b.constant(&Value::Unit);
         let id = l.b.action(&a.name, &params_ref, &writes, placeholder);
         l.actions.push(id);
     }
@@ -460,16 +462,41 @@ impl<'a> Lowerer<'a> {
         })
     }
 
+    /// A tag's fixed row value as a constant body, built once per compile.
+    fn fixed(&mut self, style: bool, value: &'static str) -> Code {
+        if let Some(code) = self.fixed.get(&(style, value)) {
+            return *code;
+        }
+        // A fixed style is an enum's name or a number in points.
+        let v = match value.parse::<f64>() {
+            Ok(n) if style => Value::Number(n),
+            _ => Value::str(value),
+        };
+        let code = self.b.constant(&v);
+        self.fixed.insert((style, value), code);
+        code
+    }
+
     pub(crate) fn expr_code(
         &mut self,
         e: &Expr,
         scope: &Scope,
         locals: u16,
     ) -> Result<Code, LowerError> {
+        self.typed_code(e, scope, locals).map(|(code, _)| code)
+    }
+
+    /// A code body and the type of the value it leaves.
+    pub(crate) fn typed_code(
+        &mut self,
+        e: &Expr,
+        scope: &Scope,
+        locals: u16,
+    ) -> Result<(Code, Ty), LowerError> {
         let mut asm = Asm::new();
         let mut locals = locals;
-        expr::compile(self, &mut asm, e, scope, &mut locals)?;
-        Ok(self.b.code(asm))
+        let ty = expr::compile(self, &mut asm, e, scope, &mut locals)?;
+        Ok((self.b.code(asm), ty))
     }
 
     /// Lower sibling nodes under (`parent`, `arm`); `parent_tag` is the
@@ -634,24 +661,17 @@ impl<'a> Lowerer<'a> {
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
                 let mut surface: Option<exact_plan::SurfacesId> = None;
                 for (style, value) in t.fixed_styles {
-                    // A fixed row is an enum's name or a number in points.
-                    let v = match value.parse::<f64>() {
-                        Ok(n) => Value::Number(n),
-                        Err(_) => Value::str(value),
-                    };
-                    let code = self.b.constant(&v);
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: *style as u16,
-                        expr: code,
+                        expr: self.fixed(true, value),
                     });
                 }
                 for (prop, value) in t.fixed_props {
-                    let code = self.b.constant(&Value::str(value));
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: *prop as u16,
-                        expr: code,
+                        expr: self.fixed(false, value),
                     });
                 }
                 if let Some(first) = positional.first() {
@@ -662,8 +682,8 @@ impl<'a> Lowerer<'a> {
                             first.span(),
                         );
                     };
-                    self.check_prop_value(tag, first, first.span(), prop, scope)?;
-                    let code = self.expr_code(first, scope, locals)?;
+                    let (code, ty) = self.typed_code(first, scope, locals)?;
+                    self.check_prop_value(tag, first, first.span(), prop, &ty)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: prop as u16,
@@ -816,9 +836,9 @@ impl<'a> Lowerer<'a> {
                 body,
                 ..
             } => {
-                let subject = self.expr_code(list, scope, locals)?;
-                let item_ty = match contract_types::infer(list, scope, &self.types.shapes) {
-                    Ok(Ty::List(t)) => *t,
+                let (subject, list_ty) = self.typed_code(list, scope, locals)?;
+                let item_ty = match list_ty {
+                    Ty::List(t) => *t,
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
@@ -837,9 +857,9 @@ impl<'a> Lowerer<'a> {
                 none,
                 ..
             } => {
-                let code = self.expr_code(subject, scope, locals)?;
-                let bound_ty = match contract_types::infer(subject, scope, &self.types.shapes) {
-                    Ok(Ty::Option(t)) => *t,
+                let (code, subject_ty) = self.typed_code(subject, scope, locals)?;
+                let bound_ty = match subject_ty {
+                    Ty::Option(t) => *t,
                     _ => Ty::Unknown,
                 };
                 let unit = self.b.constant(&Value::Unit);
@@ -949,11 +969,10 @@ impl<'a> Lowerer<'a> {
                 none,
                 ..
             } => {
-                let bound_ty = match contract_types::infer(subject, scope, &self.types.shapes) {
-                    Ok(Ty::Option(t)) => *t,
+                let bound_ty = match expr::compile(self, asm, subject, scope, locals)? {
+                    Ty::Option(t) => *t,
                     _ => Ty::Unknown,
                 };
-                expr::compile(self, asm, subject, scope, locals)?;
                 let is_none = asm.label();
                 let end = asm.label();
                 asm.jump_if_none(is_none);
@@ -1044,13 +1063,8 @@ impl<'a> Lowerer<'a> {
         match target {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
-                self.check_style_value(
-                    a,
-                    &[StyleId::from_name("flex_grow").unwrap()],
-                    scope,
-                    font,
-                )?;
-                let grow = self.expr_code(&a.value, scope, locals)?;
+                let (grow, ty) = self.typed_code(&a.value, scope, locals)?;
+                self.check_style_value(a, &[StyleId::from_name("flex_grow").unwrap()], &ty, font)?;
                 let one = self.b.constant(&Value::Number(1.0));
                 let zero_basis = self.b.constant(&Value::str("0%"));
                 for (row, code) in [
@@ -1089,8 +1103,8 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                self.check_style_value(a, rows, scope, font)?;
-                let code = self.expr_code(&a.value, scope, locals)?;
+                let (code, ty) = self.typed_code(&a.value, scope, locals)?;
+                self.check_style_value(a, rows, &ty, font)?;
                 for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
@@ -1100,9 +1114,12 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::InvertedBoolProp(prop) => {
-                self.check_prop_value(&a.name, &a.value, a.span, prop, scope)?;
-                let inverted = Expr::Unary(UnOp::Not, Box::new(a.value.clone()), a.span);
-                let code = self.expr_code(&inverted, scope, locals)?;
+                // `not value`, compiled from the value itself.
+                let (mut asm, mut depth) = (Asm::new(), locals);
+                let ty = expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
+                asm.simple(exact_plan::Opcode::Not);
+                let code = self.b.code(asm);
+                self.check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,
@@ -1110,8 +1127,8 @@ impl<'a> Lowerer<'a> {
                 });
             }
             tags::AttrTarget::Prop(prop) => {
-                self.check_prop_value(&a.name, &a.value, a.span, prop, scope)?;
-                let code = self.expr_code(&a.value, scope, locals)?;
+                let (code, ty) = self.typed_code(&a.value, scope, locals)?;
+                self.check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,
