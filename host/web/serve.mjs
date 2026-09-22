@@ -10,6 +10,8 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
+import { gzip } from 'node:zlib';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
 import { developmentURLScheme } from '../../scripts/app.mjs';
 import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
@@ -28,6 +30,7 @@ const PUBLIC_FILES = new Set([
 ]);
 const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
+const compress = promisify(gzip);
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
 // one dot path a client fetches. Inside it every other dot name (the
@@ -588,9 +591,24 @@ export async function serveStatic(dist, req, res, listener) {
   const route = target.pathname;
   const { found, index } = await readWebRequest(dist, route, req.headers.accept);
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
-  res.writeHead(200, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
   let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;
   if (!found.immutable && !found.published && INSTALL_FILES.includes(found.route)) body = installNetworkPage(body, listener ?? {host:req.socket.localAddress,port:req.socket.localPort});
+  body = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const type = webContentType(found.route);
+  const compressible = /^(text\/|application\/(wasm|json|manifest\+json|vnd\.exact\..*\+json))/.test(type);
+  const headers = { 'content-type': type, 'cache-control': webCacheControl(found),
+    ...(index || compressible ? {vary:[...(index ? ['Accept'] : []), ...(compressible ? ['Accept-Encoding'] : [])].join(', ')} : {}) };
+  const encodings = String(req.headers['accept-encoding'] ?? '').toLowerCase().split(',').map(value => {
+    const [name, ...parameters] = value.trim().split(';');
+    const q = parameters.find(parameter => parameter.trim().startsWith('q='));
+    return {name:name.trim(), quality:q === undefined ? 1 : Number(q.trim().slice(2))};
+  });
+  const accepted = encodings.find(encoding => encoding.name === 'gzip') ?? encodings.find(encoding => encoding.name === '*');
+  if (compressible && body.length >= 256 && accepted?.quality > 0) {
+    const compressed = await compress(body);
+    if (compressed.length < body.length) { body = compressed; headers['content-encoding'] = 'gzip'; }
+  }
+  res.writeHead(200, {...headers, 'content-length':body.length});
   res.end(req.method === 'HEAD' ? undefined : body);
 }
 

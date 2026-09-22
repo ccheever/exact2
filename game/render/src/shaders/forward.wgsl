@@ -31,15 +31,16 @@ fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32
     let diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * base / PI;
     return (diffuse + distribution * visibility * fresnel) * nl;
 }
-@diagnostic(off, derivative_uniformity)
 fn shade(input: Varying, visibility: f32) -> vec4<f32> {
     let i = input.slot * 12u;
     var base = vec3(materials[i], materials[i+1u], materials[i+2u]) * textureSample(base_texture, base_sampler, input.uv).rgb;
     // Opaque materials reuse alpha as a negative grid-spacing flag: no wider uploads.
     let spacing = -materials[i+3u];
+    // Derivatives must run before material-dependent control flow (including on Safari).
+    let world_footprint = fwidth(input.world);
     if spacing > 0.0 {
         let cell = input.world / spacing;
-        let footprint = max(fwidth(cell), vec3(0.0001));
+        let footprint = max(world_footprint / spacing, vec3(0.0001));
         let distance = abs(fract(cell - 0.5) - 0.5);
         let lines = 1.0 - smoothstep(vec3(0.0), footprint * 1.25, distance);
         // Triplanar projection: omit each face's normal axis, so walls work too.

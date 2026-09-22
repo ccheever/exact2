@@ -1,0 +1,27 @@
+component Rolo
+  state paused = false
+  state round = 0
+
+  action pause writes paused
+    paused = !paused
+
+  action roll writes round, paused
+    round = round + 1
+    paused = false
+
+  view
+    main width="100%" height="100%" display="flex" flex-direction="column" align-items="center" background-color="#f6f2e9" color="#282c29" font-family="system-ui" overflow="hidden"
+      column width="100%" max-width=620 height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center"
+        text "A VERY GOOD LITTLE DOG" font-size=11 font-weight=600 letter-spacing=3 color="#7b8275" margin-top=12
+        text "rolo" font-size=76 font-weight=800 letter-spacing=-5 line-height=1.1 margin-top=10
+        text "a little scruffy. a lot of love." font-size=15 color="#7b8275" margin-top=10
+        canvas surface=world(paused, round) testId="world" width="100%" flex=1 min-height=160 max-height=480 margin-top=8
+        row gap=12 align-items="center" justify-content="center" margin-top=10 margin-bottom=18
+          button press=roll testId="roll" padding=14 padding-left=24 padding-right=24 border-radius=28 background-color="#dce5cd" color="#334031"
+            text "Roll over, Rolo" font-size=14 font-weight=600
+          button press=pause testId="pause" padding=14 padding-left=18 padding-right=18 border-radius=28 background-color="#ebe8df" color="#586052"
+            when paused
+              text "Play" font-size=14
+            else
+              text "Pause" font-size=14
+        text "POODLE · CHIHUAHUA · TERRIER" font-size=9 letter-spacing=2 color="#969a8c" margin-bottom=16

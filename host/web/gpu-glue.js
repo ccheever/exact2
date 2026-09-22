@@ -7,7 +7,8 @@ let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
 let terminalRestoreReported = false;
-const restoreJournal = [];
+const surfaceJournal = [];
+let initializationError = null;
 
 const exact = globalThis.exact;
 const publishers = new Map(); // name -> first live entry
@@ -20,7 +21,8 @@ const reload = { host: "web", capability: "transactional-game-replacement", phas
   loaded: null, requested: null, lastSuccessfulSwap: null, restoreOutcome: null, attempts: 0, failures: 0, stale: 0, buildRequests:0, buildFailures:0, successes:0,
   native: { ui: "restart-with-carry", game: "rebuild-relaunch", liveGameReplacement: false },
   firstFrameMeaning: "rendering opportunity after GPU submission; not GPU completion or scanout" };
-const diagnostics = () => structuredClone(reload);
+const diagnostics = () => ({ ...structuredClone(reload), initializationError,
+  surfaceErrors: [...surfaces.values()].filter(entry => entry.error).map(entry => ({canvas:entry.view, name:entry.name, error:entry.error})) });
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
@@ -35,18 +37,49 @@ function size(el) {
   return { w: Math.max(r.width, 1), h: Math.max(r.height, 1), s: devicePixelRatio || 1 };
 }
 
+function failSurface(entry, error) {
+  const message = String(error);
+  if (entry.error === message) return;
+  entry.error = message; entry.wants = false;
+  entry.unlisten?.(); entry.unlisten = null; entry.wantsInput = false;
+  surfaceJournal.push({canvas:entry.view, error:message});
+  entry.host.dataset.gpuError = message;
+  if (entry.host !== entry.el && !entry.status) {
+    const status = document.createElement('div');
+    status.setAttribute('role', 'status');
+    status.dataset.gpuStatus = 'error';
+    status.style.cssText = 'position:absolute;inset:0;display:grid;place-content:center;padding:16px;box-sizing:border-box;text-align:center;pointer-events:none;font:14px system-ui';
+    status.textContent = 'Graphics could not start in this browser.';
+    entry.host.append(status); entry.status = status;
+  }
+  entry.visibility ??= entry.el.style.visibility;
+  entry.el.style.visibility = 'hidden';
+}
+function clearSurfaceError(entry) {
+  if (entry.visibility !== undefined) entry.el.style.visibility = entry.visibility;
+  entry.status?.remove(); delete entry.status; delete entry.error;
+  delete entry.host.dataset.gpuError;
+}
+
 // exact.now() follows each batch `at` marker while surface commits are applied.
 // The surfaces' clock: the page's in agent mode (LLP 1012: the driver owns
 // time, and a picture is a function of it), else the frame's.
 const clockFor = (frameNow) => exact.clockNow?.() ?? exact.now?.() ?? frameNow;
 
 function render(entry, now) {
+  if (entry.error) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
-  const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
-  if (r === 2) console.error("exact gpu:", gpu.gpu_error());
-  if (r !== 2 && entry.firstFrameSubmittedMs === undefined) {
+  let r;
+  try {
+    r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
+    if (r === 2) throw new Error(gpu.gpu_error() || 'GPU device or presentation target unavailable');
+  } catch (error) {
+    failSurface(entry, `surface ${entry.name}: render: ${error}`);
+    console.error('exact gpu:', entry.error); return;
+  }
+  if (entry.firstFrameSubmittedMs === undefined) {
     entry.firstFrameSubmittedMs = performance.now();
     entry.inputMs = performance.getEntriesByName('exact-agent-input').at(-1)?.startTime ?? null;
     // A rendering opportunity after submission, not a GPU timestamp or scanout.
@@ -60,7 +93,7 @@ function frame(now) {
   raf = null;
   let more = false;
   for (const entry of surfaces.values()) {
-    if (!entry.id) continue;
+    if (!entry.id || entry.error) continue;
     if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, now);
     more ||= entry.wants;
   }
@@ -100,6 +133,7 @@ function create(entry, module, carry) {
   }
 }
 function attach(entry) {
+  clearSurfaceError(entry);
   if (entry.stagedPublication !== undefined) {
     if (publishers.get(entry.name) === entry) surfaceRecord(entry.name, entry.stagedPublication);
     delete entry.stagedPublication;
@@ -109,7 +143,7 @@ function attach(entry) {
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
   if (entry.restoreError) {
-    restoreJournal.push({ canvas: entry.view, error: entry.restoreError });
+    surfaceJournal.push({ canvas: entry.view, error: entry.restoreError });
     exact.devError?.(entry.restoreError); console.error(entry.restoreError);
   }
   messages(entry); schedule();
@@ -125,7 +159,8 @@ function restorePending(entry, module = gpu, carrier = exact) {
 }
 
 function ensure(entry) {
-  if (entry.id || !loaded) return;
+  if (entry.id) return;
+  if (!loaded) { if (initializationError) failSurface(entry, initializationError); return; }
   try {
     create(entry, gpu, entry.carry);
     if (!entry.restoreError) delete entry.carry;
@@ -133,6 +168,7 @@ function ensure(entry) {
   } catch (error) {
     if (entry.id) gpu.gpu_destroy(entry.id);
     entry.id = 0;
+    failSurface(entry, error);
     throw error;
   }
   attach(entry);
@@ -242,7 +278,7 @@ function listen(entry) {
   if (el.tabIndex < 0) el.tabIndex = 0;
   const on = (name, fn, options) => { el.addEventListener(name, fn, options); listeners.push([name, fn, options]); };
   const send = (event, value) => {
-    if (live(entry.view) !== entry) return;
+    if (live(entry.view) !== entry || entry.error) return;
     if (!gpu.gpu_input(entry.id, JSON.stringify({ ...value, at: clockFor(event.timeStamp) }))) console.error("exact gpu:", gpu.gpu_error());
     messages(entry);
     schedule();
@@ -298,6 +334,7 @@ function listen(entry) {
 }
 function agent(view, request) {
   const entry = live(view);
+  if (entry?.error) return {error:entry.error};
   if (!entry) return null;
   const { w, h, s } = size(entry.host);
   const reply = gpu.gpu_agent(entry.id, JSON.stringify({
@@ -385,11 +422,13 @@ exact.gpu = {
   },
   drainRecords,
   agent,
-  settled: () => ready,
+  settled: async () => { await ready; return loaded && [...surfaces.values()].every(entry => entry.id && !entry.error); },
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true,
   handle(request, ask, tagged) {
     const entry = live(request.id);
+    const error = surfaces.get(request.id)?.error;
+    if (error) return { error };
     if (!entry) return { error: `view ${request.id} has no world` };
     if (request.op === "clock" && request.owner !== undefined) return exact.control(request.owner).then(tagged);
     if (request.op === "clock" && !exact.now) return {error:"world time is live; request clock owner agent before stepping"};
@@ -438,7 +477,7 @@ exact.gpu = {
         world.push({ canvas, from, next, lines, dropped: Math.max(0, from - entry.logCursor) });
         entry.logCursor = next;
       }
-      for (const {canvas, error} of restoreJournal.splice(0)) world.push({canvas, lines:[error]});
+      for (const {canvas, error} of surfaceJournal.splice(0)) world.push({canvas, lines:[error]});
       if (world.length) reply.world = world;
     }
     return restoreReply(reply);
@@ -476,7 +515,7 @@ exact.gpu = {
       checkpoint(entry, "save"); checkpoint(entry, "load");
       return; }
     values = bindingValues(entry, values);
-    if (entry.id) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
+    if (entry.id && !entry.error) { if (!gpu.gpu_bind_at(entry.id, JSON.stringify(values), exact.now?.())) console.error("exact gpu:", gpu.gpu_error()); messages(entry); schedule(); }
   },
   destroy(view) {
     const entry = surfaces.get(view);
@@ -485,6 +524,7 @@ exact.gpu = {
     // a surface the module no longer has (found by the agent smoke, which
     // is the first thing to navigate away from a canvas and back).
     if (entry) { entry.observer?.disconnect(); entry.checkpointObserver?.disconnect(); entry.unlisten?.(); entry.id = 0; }
+    if (entry) clearSurfaceError(entry);
     surfaces.delete(view);
     if (entry && publishers.get(entry.name) === entry) { publishers.delete(entry.name); surfaceRecord(entry.name, null); }
   },
@@ -610,6 +650,7 @@ function validateStage(entry, module, at, releaseInput = true) {
 }
 function candidateEntry(old, values = old.values) {
   return { ...old, values, requestedValues:structuredClone(values), el: old.el.cloneNode(false), id:0, observer:null, checkpointObserver:null, unlisten:null,
+    error:undefined, status:undefined,
     restoreError:undefined, attemptedCarry:undefined, firstFrameMs:undefined, firstFrameSubmittedMs:undefined,
     restoredCarry:false, wants:true, logCursor:0 };
 }
@@ -773,11 +814,12 @@ async function swap(version, options) {
     const oldModule = gpu;
     for (const [old, entry] of staged) {
       old.observer?.disconnect(); old.checkpointObserver?.disconnect(); old.unlisten?.();
+      old.status?.remove();
       old.el.replaceWith(entry.el);
       if (publishers.get(old.name) === old) publishers.set(old.name, entry);
       surfaces.set(entry.view, entry);
     }
-    gpu = next; loaded = true; exact.gpu.version = version;
+    gpu = next; loaded = true; initializationError = null; exact.gpu.version = version;
     next.gpu_seekable(Boolean(exact.now));
     for (const [old] of staged) if (old.id) oldModule.gpu_destroy(old.id);
     oldModule?.gpu_unload();
@@ -806,7 +848,7 @@ try {
   exact.gpu.version = version;
   reload.loaded = exact.gpuArtifacts?.get(version) ?? { version, identity:"unavailable: static host did not provide artifact receipt" };
   loaded = true;
-} catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
+} catch (error) { initializationError = String(error); gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
 if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
 try {

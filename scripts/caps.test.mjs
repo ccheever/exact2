@@ -578,7 +578,7 @@ for (const [name, html, files, expectCode, expect] of [
       payload.push(response.ok && card.url.startsWith('/.exact/root/web/releases/') && sha256(bytes) === card.sha256 && bytes.length === card.bytes);
     }
     rounds++;
-    return expected && payload.every(Boolean) && envelopeResponse.headers.get('vary') === 'Accept';
+    return expected && payload.every(Boolean) && envelopeResponse.headers.get('vary') === 'Accept, Accept-Encoding';
   };
   try {
     whole &&= await readGraph();

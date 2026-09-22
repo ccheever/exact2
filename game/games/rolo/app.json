@@ -1,0 +1,15 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "Rolo", "short_name": "Rolo", "id": "com.exact.rolo",
+  "start_url": "/", "display": "standalone",
+  "theme_color": "#f6f2e9", "background_color": "#f6f2e9",
+  "app": { "id": "com.exact.rolo", "name": "Rolo" },
+  "host": {
+    "macos": { "minimumOS": "14.0", "window": { "width": 900, "height": 900 } },
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "web": {}
+  },
+  "game": { "crate": "rolo-logic", "type": "Rolo" },
+  "rust": false,
+  "deploy": { "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" } }
+}

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f2e9">
+  <meta name="description" content="Meet Rolo. A little scruffy. A lot of love.">
+  <title>Rolo · a very good little dog</title>
+  <link rel="preload" as="image" href="assets/rolo-poster.jpg">
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, sans-serif; background: #f6f2e9; color: #282c29; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { min-height: 100svh; padding: 28px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .eyebrow { margin: 0; font-size: 11px; font-weight: 600; letter-spacing: 3px; color: #7b8275; text-align: center; }
+    h1 { font-size: clamp(68px, 12vw, 88px); line-height: 1.05; font-weight: 800; letter-spacing: -5px; margin: 12px 0; }
+    .tagline { margin: 4px 0 0; color: #7b8275; font-size: 15px; }
+    .stage { position: relative; width: min(100%, 384px); aspect-ratio: 4 / 5; margin: 0; }
+    .stage video, .stage img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+    .stage img { pointer-events: none; }
+    .stage.has-frame img { visibility: hidden; }
+    .actions { display: flex; justify-content: center; align-items: center; gap: 12px; margin: 0 0 18px; }
+    button { appearance: none; border: 0; border-radius: 28px; padding: 14px 20px; min-height: 48px; background: #ebe8df; color: #586052; font: inherit; font-size: 14px; cursor: pointer; touch-action: manipulation; }
+    button:first-child { background: #dce5cd; color: #334031; font-weight: 600; padding-inline: 24px; }
+    button:hover { filter: brightness(.97); }
+    button:active { transform: scale(.97); }
+    button:focus-visible { outline: 2px solid #586052; outline-offset: 4px; }
+    .breeds { font-size: 9px; letter-spacing: 2px; color: #969a8c; margin: 0; text-align: center; }
+    .status { font-size: 13px; color: #7b8275; margin: 12px 0 0; max-width: 300px; text-align: center; }
+    .status:empty { display: none; }
+    @media (max-height: 720px) { main { padding-block: 18px; } .stage { width: min(100%, 300px); } h1 { font-size: 64px; margin-block: 8px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">A VERY GOOD LITTLE DOG</p>
+    <h1>rolo</h1>
+    <p class="tagline">a little scruffy. a lot of love.</p>
+    <figure class="stage" aria-label="Rolo, a scruffy black dog with big brown eyes, happily rolling onto his back.">
+      <video muted loop playsinline preload="auto" poster="assets/rolo-poster.jpg" aria-hidden="true">
+        <source src="assets/rolo-loop.mp4" type="video/mp4">
+      </video>
+      <img src="assets/rolo-poster.jpg" width="576" height="720" fetchpriority="high" alt="Rolo, a little black dog with floppy ears, big brown eyes and a pink tongue.">
+    </figure>
+    <div class="actions">
+      <button id="roll" type="button">Roll over, Rolo</button>
+      <button id="play" type="button">Play</button>
+    </div>
+    <p class="breeds">POODLE · CHIHUAHUA · TERRIER</p>
+    <p class="status" role="status"></p>
+  </main>
+  <script>
+    const video = document.querySelector('video');
+    const stage = document.querySelector('.stage');
+    const play = document.querySelector('#play');
+    const status = document.querySelector('.status');
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    const sync = () => { play.textContent = video.paused ? 'Play' : 'Pause'; };
+    video.muted = true;
+    video.defaultMuted = true;
+    async function start() {
+      try { await video.play(); status.textContent = ''; }
+      catch { status.textContent = video.error ? 'Rolo is taking a little break. Refresh to try again.' : 'Tap Play to wake Rolo up.'; }
+      sync();
+    }
+    const reveal = () => stage.classList.add('has-frame');
+    if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(reveal);
+    else video.addEventListener('loadeddata', reveal, { once: true });
+    video.addEventListener('play', sync);
+    video.addEventListener('pause', sync);
+    video.addEventListener('error', () => {
+      stage.classList.remove('has-frame');
+      status.textContent = 'Rolo is taking a little break. Refresh to try again.';
+      sync();
+    });
+    play.addEventListener('click', () => video.paused ? start() : video.pause());
+    document.querySelector('#roll').addEventListener('click', () => { video.currentTime = 0; start(); });
+    motion.addEventListener('change', event => { if (event.matches) video.pause(); });
+    if (!motion.matches) { video.autoplay = true; start(); }
+  </script>
+</body>
+</html>

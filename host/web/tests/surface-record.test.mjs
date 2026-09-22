@@ -45,12 +45,14 @@ export async function fixture(options = {}) {
     .replace('await import(`./gpu.js${query}`)', 'await candidate(0)')
     .replaceAll('await loadModule(version)', 'await candidate(version)');
   class Element {
-    constructor(kind = 'canvas') { this.kind = kind; this.listeners = {}; this.isConnected = true; this.style = {}; this.dataset = {}; this.tabIndex = 0; }
+    constructor(kind = 'canvas') { this.kind = kind; this.listeners = {}; this.isConnected = true; this.style = {visibility:''}; this.dataset = {}; this.tabIndex = 0; this.children = []; }
     matches() { return false; }
     querySelector() { return this.canvas; }
     getBoundingClientRect() { return {width:10,height:10}; }
     cloneNode() { return new Element(this.kind); }
     replaceWith(el) { order.push("replace"); this.isConnected = false; el.isConnected = true; if (this.parent) { this.parent.canvas = el; el.parent = this.parent; } }
+    append(el) { this.children.push(el); el.parent = this; }
+    remove() { if (this.parent) this.parent.children = this.parent.children.filter(el => el !== this); this.isConnected = false; }
     getAttribute() { return null; }
     removeAttribute() {}
     setAttribute() {}
@@ -120,9 +122,19 @@ test('swap stages all surfaces before destroying any old one', async () => {
   assert.ok(f.order.lastIndexOf('next bind') < f.order.indexOf('old destroy'), f.order.join(', '));
 });
 test('failed initial load can bootstrap a swap with pending surfaces', async () => {
-  const f = await fixture({loadFail:true}); f.create(1);
+  const f = await fixture({loadFail:true}); const host = f.create(1);
+  assert.equal(await f.exact.gpu.settled(), false);
+  assert.match(f.exact.gpu.diagnostics().initializationError, /initial load failed/);
+  assert.match(f.exact.gpu.handle({id:1,op:'state'},null,x=>x).error, /initial load failed/);
+  assert.match(f.exact.gpu.decorate({op:'logs'},{}).world[0].lines[0], /initial load failed/);
+  assert.equal(host.children[0].dataset.gpuStatus, 'error');
   await f.exact.gpu.swap(1);
   assert.ok(f.exact.gpu.agent(1, {op:'state'}));
+  assert.equal(await f.exact.gpu.settled(), true);
+  assert.equal(f.exact.gpu.diagnostics().initializationError, null);
+  assert.equal(host.dataset.gpuError, undefined);
+  assert.equal(host.children.length, 0);
+  assert.equal(host.canvas.style.visibility, '');
 });
 test('forwarded keyups survive focus changes; editable focus blurs; shortcuts stay local', async () => {
   const f = await fixture({input:true}), el = f.create(1), button = new f.Element('button'), input = new f.Element('input');
@@ -208,6 +220,27 @@ test('a hard bind refusal during lazy load does not prevent a different initial 
   assert.equal(f.exact.gpu.agent(1,{op:'state'}),null);
   assert.ok(f.exact.gpu.agent(2,{op:'state'}));
   assert.ok(f.diagnostics.some(line=>line.includes('surface-1: bind')));
+  assert.equal(await f.exact.gpu.settled(), false);
+  assert.match(f.exact.gpu.handle({id:1,op:'state'},null,x=>x).error, /surface-1: bind/);
+});
+
+for (const kind of ['throw', 'refuse']) test(`a render ${kind} is reported without stopping another canvas`, async () => {
+  const rendered = [];
+  const f = await fixture({gpu:{gpu_dirty:()=>true, gpu_render(id) {
+    rendered.push(id);
+    if (id === 1) { if (kind === 'throw') throw new Error('pipeline refused'); return 2; }
+    return 0;
+  }}});
+  f.create(1); f.create(2,'other');
+  f.paint();
+  assert.deepEqual(rendered, [1,2]);
+  assert.equal(await f.exact.gpu.settled(), false);
+  assert.match(f.exact.gpu.handle({id:1,op:'state'},null,x=>x).error, /render/);
+  assert.ok(f.exact.gpu.agent(2,{op:'state'}).world);
+  assert.match(f.exact.gpu.decorate({op:'logs'},{}).world.find(row=>row.canvas===1).lines[0], /render/);
+  assert.equal(f.exact.gpu.diagnostics().surfaceErrors.length, 1);
+  f.gpu.gpu_bind_at = () => { throw new Error('failed renderer received a bind'); };
+  assert.doesNotThrow(()=>f.exact.gpu.surface(1,'world',[true]));
 });
 
 test('a direct world operation also receives the refusal that created its canvas', async () => {

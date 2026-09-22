@@ -1,0 +1,8 @@
+[package]
+name = "rolo-logic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+exact-game.workspace = true

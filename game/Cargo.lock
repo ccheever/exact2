@@ -2216,6 +2216,51 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
 
 [[package]]
+name = "rolo-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-game-app",
+ "exact-runner",
+]
+
+[[package]]
+name = "rolo-gpu"
+version = "0.1.0"
+dependencies = [
+ "exact-game-render",
+ "rolo-logic",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "rolo-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-linux",
+ "exact-runner",
+]
+
+[[package]]
+name = "rolo-logic"
+version = "0.1.0"
+dependencies = [
+ "exact-game",
+]
+
+[[package]]
+name = "rolo-web"
+version = "0.1.0"
+dependencies = [
+ "exact-game-app",
+ "exact-runner",
+ "exact-web",
+]
+
+[[package]]
 name = "roxmltree"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

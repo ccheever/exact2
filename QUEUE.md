@@ -516,3 +516,5 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Grey Box macOS proof: a zero-delta native Wheel event can remain in one continuation save and break full-byte parity while world hashes agree; isolate physical input during agent sessions (D7b).
 
 - Game scene reload latency (LLP 1041.006, 2026-09-18; Codex): real content edit/restoration reached paint acknowledgement in 126/238 ms (candidate plan 74/181 ms), above the 100 ms target. Isolate load, measure a warm distribution and reduce plan/replacement cost; no p50 or scanout claim from these two samples.
+
+- Physical-iPhone Rolo confirmation (2026-09-19): phone Safari 26.6.1 reported PBR shader line 209 rejecting the function diagnostic attribute. Removed the attribute and moved grid derivatives before material-dependent control flow; rebuilt the live Tailscale app. Chrome and WebKit shader compilation, animation and controls pass. Await a fresh physical-phone load at `?engine=1&diagnose=1&v=2`; reports are in `/tmp/rolo-engine-fix/phone-reports.jsonl`.
