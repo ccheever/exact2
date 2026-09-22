@@ -208,6 +208,15 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
         ) {
             continue;
         }
+        // Content ranges join with newlines, so a reference's `[^` opener
+        // must occur within one range. Skip parsing blocks that cannot have one.
+        if !block
+            .content
+            .iter()
+            .any(|range| source[range.clone()].contains("[^"))
+        {
+            continue;
+        }
         let mut out = inline::Out::default();
         inline::scan(source, &block.content, &mut out);
         for (range, label) in out.footnotes {

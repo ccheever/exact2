@@ -957,3 +957,64 @@ fn indexed_unmatched_code_runs_preserve_later_partial_runs_and_links() {
         ]
     );
 }
+
+#[test]
+fn footnotes_ignore_literal_and_split_openers_before_numbering_definitions() {
+    let source = "[^orphan]: No references.\n\n`[^code]` and \\[^escaped] and ![^image](u).\n\n> [\n> ^split]\n\n- First[^b]\n\n[^b]: Definition refers[^a].\n\nLater [link[^a]](u) and[^b].\n\n[^a]: A.";
+    let styled = style(source, None);
+    let notes: Vec<_> = styled
+        .footnotes
+        .iter()
+        .map(|f| {
+            (
+                f.label.as_str(),
+                f.ordinal,
+                f.references.len(),
+                f.definition.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        [("b", 1, 2, true), ("a", 2, 2, true), ("orphan", 3, 0, true)]
+    );
+    for note in &styled.footnotes {
+        for &reference in &note.references {
+            assert_eq!(utf16(source, reference), format!("[^{}]", note.label));
+        }
+    }
+    assert_eq!(
+        style(source, Some(Range::new(0, source.len() as u32))).footnotes,
+        styled.footnotes
+    );
+}
+
+#[test]
+fn footnotes_in_later_content_ranges_keep_utf16_positions_and_reference_order() {
+    let source =
+        "> [\n> ^split]\n> 😀 later[^é]\n\n[^unused]: plain\n[^é]: cites[^tail]\n[^tail]: end";
+    let styled = style(source, None);
+    let notes: Vec<_> = styled
+        .footnotes
+        .iter()
+        .map(|f| {
+            (
+                f.label.as_str(),
+                f.ordinal,
+                f.references.len(),
+                f.definition.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        notes,
+        [
+            ("é", 1, 1, true),
+            ("tail", 2, 1, true),
+            ("unused", 3, 0, true)
+        ]
+    );
+    let reference = styled.footnotes[0].references[0];
+    assert_eq!(utf16(source, reference), "[^é]");
+    assert_eq!(style(source, Some(reference)).footnotes, styled.footnotes);
+}

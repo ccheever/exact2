@@ -125,7 +125,8 @@ stops at the first invalid prefix byte. Rejected starts therefore do not
 repeatedly search the same suffix. Code spans reuse closers found by the
 bracket pass; a failed search with later runs builds a temporary length index
 in the same lookup buffer. Ordinary matched spans and a final unclosed run
-need no such index.
+need no such index. The footnote-numbering prepass parses only blocks
+whose content contains a `[^` opener; other blocks need just the styling pass.
 
 ### D3 — One kernel row: `markup`
 
