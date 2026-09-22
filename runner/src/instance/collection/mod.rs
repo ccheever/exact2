@@ -338,13 +338,7 @@ impl Collection {
         }
         self.mounted
             .iter()
-            .find(|row| {
-                row.wrapper == view
-                    || row.row.roots.iter().any(|c| match c {
-                        Child::Node(n) => n.find::<false>(view, &mut Vec::new()).is_some(),
-                        Child::Region(r) => r.find::<false>(view, &mut Vec::new()).is_some(),
-                    })
-            })
+            .find(|row| row.wrapper == view || super::find::contains(&row.row.roots, view))
             .and_then(|row| key_text(&row.row.key))
     }
     /// Pins never qualify an edge. Re-arm only after the geometric window is

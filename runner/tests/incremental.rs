@@ -288,10 +288,13 @@ fn lockstep(app: &str, plan: &Plan, seed: u64, steps: usize) -> usize {
                     continue;
                 };
                 what = format!("{event:?} on view {view}");
-                (
-                    outcome(full.dispatch(*view, event.clone())),
-                    outcome(incremental.dispatch(*view, event)),
-                )
+                let result = incremental.dispatch(*view, event.clone());
+                // A view with listeners is always found where it lives.
+                assert!(
+                    !matches!(result, Err(RunnerError::UnknownView(_))),
+                    "{app} step {step}: {what} found no instance"
+                );
+                (outcome(full.dispatch(*view, event)), outcome(result))
             }
         };
         assert_eq!(a, b, "{app} step {step}: {what}");

@@ -19,6 +19,7 @@
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
 mod deps;
+mod find;
 mod heights;
 mod text;
 mod window;
@@ -146,16 +147,40 @@ pub enum InstanceStep {
     },
 }
 
-/// Allocates kernel view ids; never reuses one within a runner's life.
+/// Allocates kernel view ids — never reusing one within a runner's life —
+/// and remembers which plan node each instance view realizes.
 #[derive(Debug, Default)]
 pub struct Ids {
     next: ViewId,
+    /// Every instance node's view and site, destroyed ones included until
+    /// [`Ids::retain`] drops them.
+    sites: std::collections::HashMap<ViewId, NodesId>,
 }
 
 impl Ids {
     fn fresh(&mut self) -> ViewId {
         self.next += 1;
         self.next
+    }
+
+    /// The plan node `view` realized, if an instance node created it.
+    pub fn site(&self, view: ViewId) -> Option<NodesId> {
+        self.sites.get(&view).copied()
+    }
+
+    /// Every remembered instance view and its site.
+    pub fn sites(&self) -> impl Iterator<Item = (ViewId, NodesId)> + '_ {
+        self.sites.iter().map(|(v, n)| (*v, *n))
+    }
+
+    /// Forget views `live` says are gone.
+    pub fn retain(&mut self, live: impl Fn(ViewId) -> bool) {
+        self.sites.retain(|view, _| live(*view));
+    }
+
+    /// How many views are remembered.
+    pub fn remembered(&self) -> usize {
+        self.sites.len()
     }
 }
 
@@ -515,6 +540,7 @@ impl NodeInst {
         let node_type = NodeType::from_wire(row.node_type)
             .ok_or(InstanceError::UnknownNodeType(row.node_type))?;
         let view = u.ids.fresh();
+        u.ids.sites.insert(view, node);
         u.ops.push(Op::CreateView {
             id: view,
             node_type,
@@ -676,37 +702,6 @@ impl NodeInst {
         // Destroying the view destroys its subtree in the kernel; the instance
         // tree just drops.
         u.ops.push(Op::DestroyView { id: self.view });
-    }
-
-    /// Find the instance owning `view`, optionally collecting its lexical frames.
-    pub fn find<const FRAMES: bool>(
-        &self,
-        view: ViewId,
-        frames: &mut Vec<Frame>,
-    ) -> Option<NodesId> {
-        if self.view == view {
-            return Some(self.node);
-        }
-        if let Some(collection) = &self.collection {
-            if let Some(found) = collection.find::<FRAMES>(view, frames) {
-                return Some(found);
-            }
-        }
-        for c in &self.children {
-            match c {
-                Child::Node(n) => {
-                    if let Some(found) = n.find::<FRAMES>(view, frames) {
-                        return Some(found);
-                    }
-                }
-                Child::Region(r) => {
-                    if let Some(found) = r.find::<FRAMES>(view, frames) {
-                        return Some(found);
-                    }
-                }
-            }
-        }
-        None
     }
 }
 
@@ -1005,49 +1000,6 @@ impl RegionInst {
             }
         }
     }
-
-    fn find<const FRAMES: bool>(&self, view: ViewId, frames: &mut Vec<Frame>) -> Option<NodesId> {
-        match &self.active {
-            Active::Arm { roots, frame, .. } => {
-                if FRAMES {
-                    frames.push(frame.clone());
-                }
-                for c in roots {
-                    let found = match c {
-                        Child::Node(n) => n.find::<FRAMES>(view, frames),
-                        Child::Region(r) => r.find::<FRAMES>(view, frames),
-                    };
-                    if found.is_some() {
-                        return found;
-                    }
-                }
-                if FRAMES {
-                    frames.pop();
-                }
-                None
-            }
-            Active::Rows { rows } => {
-                for r in rows {
-                    if FRAMES {
-                        frames.push(r.frame.clone());
-                    }
-                    for c in &r.roots {
-                        let found = match c {
-                            Child::Node(n) => n.find::<FRAMES>(view, frames),
-                            Child::Region(rr) => rr.find::<FRAMES>(view, frames),
-                        };
-                        if found.is_some() {
-                            return found;
-                        }
-                    }
-                    if FRAMES {
-                        frames.pop();
-                    }
-                }
-                None
-            }
-        }
-    }
 }
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
@@ -1125,39 +1077,6 @@ impl Tree {
         Ok(())
     }
 
-    /// Listener declarations for every live view in one walk, without
-    /// reconstructing event argument frames for each created view.
-    pub fn handlers(&self, plan: &Plan) -> BTreeMap<ViewId, Vec<exact_plan::EventKind>> {
-        let mut out = BTreeMap::new();
-        let mut stack: Vec<_> = self.children.iter().collect();
-        while let Some(child) = stack.pop() {
-            match child {
-                Child::Node(node) => {
-                    let handlers = plan.node(node.node).handlers;
-                    if handlers.len > 0 {
-                        out.insert(
-                            node.view,
-                            handlers.iter().map(|h| plan.handler(h).event).collect(),
-                        );
-                    }
-                    if let Some(collection) = &node.collection {
-                        collection.add_children(&mut stack);
-                    }
-                    stack.extend(node.children.iter());
-                }
-                Child::Region(region) => match &region.active {
-                    Active::Arm { roots, .. } => stack.extend(roots.iter()),
-                    Active::Rows { rows } => {
-                        for row in rows {
-                            stack.extend(row.roots.iter());
-                        }
-                    }
-                },
-            }
-        }
-        out
-    }
-
     fn emit_roots(&mut self, u: &mut Update<'_>) {
         let roots = roots_of(&self.children);
         for r in &roots {
@@ -1171,35 +1090,6 @@ impl Tree {
     /// The current kernel roots.
     pub fn roots(&self) -> Vec<ViewId> {
         roots_of(&self.children)
-    }
-
-    /// The site owning `view` and the frames in force there.
-    pub fn find(&self, view: ViewId) -> Option<(NodesId, Vec<Frame>)> {
-        let mut frames = Vec::new();
-        self.find_node::<true>(view, &mut frames)
-            .map(|node| (node, frames))
-    }
-
-    /// Listener lookup needs the plan site, not the event's lexical scope.
-    pub fn node(&self, view: ViewId) -> Option<NodesId> {
-        self.find_node::<false>(view, &mut Vec::new())
-    }
-
-    fn find_node<const FRAMES: bool>(
-        &self,
-        view: ViewId,
-        frames: &mut Vec<Frame>,
-    ) -> Option<NodesId> {
-        for c in &self.children {
-            let found = match c {
-                Child::Node(n) => n.find::<FRAMES>(view, frames),
-                Child::Region(r) => r.find::<FRAMES>(view, frames),
-            };
-            if found.is_some() {
-                return found;
-            }
-        }
-        None
     }
 
     /// The site owning `view` and the instance path to it: the regions

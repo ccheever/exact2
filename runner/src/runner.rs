@@ -755,7 +755,11 @@ impl<D: DataSource> Runner<D> {
 
     /// The event kinds a view handles, for a host that attaches listeners.
     pub fn handlers_of(&self, view: ViewId) -> Vec<EventKind> {
-        let Some(node) = self.tree.as_ref().and_then(|t| t.node(view)) else {
+        let Some(node) = self
+            .ids
+            .site(view)
+            .filter(|_| self.kernel.node(view).is_some())
+        else {
             return Vec::new();
         };
         self.plan
@@ -766,11 +770,33 @@ impl<D: DataSource> Runner<D> {
             .collect()
     }
 
-    /// All live listener declarations in one tree walk (bulk host creation).
+    /// All live listener declarations (bulk host creation), from the views
+    /// the runner created — no tree walk.
     pub fn handlers(&self) -> std::collections::BTreeMap<ViewId, Vec<EventKind>> {
+        self.ids
+            .sites()
+            .filter(|(view, node)| {
+                self.plan.node(*node).handlers.len > 0 && self.kernel.node(*view).is_some()
+            })
+            .map(|(view, node)| {
+                let handlers = self.plan.node(node).handlers;
+                (
+                    view,
+                    handlers
+                        .iter()
+                        .map(|h| self.plan.handler(h).event)
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The site owning `view` and the frames in force there, found along
+    /// the kernel's parent chain.
+    fn find(&self, view: ViewId) -> Option<(NodesId, Vec<Frame>)> {
         self.tree
-            .as_ref()
-            .map_or_else(Default::default, |t| t.handlers(&self.plan))
+            .as_ref()?
+            .find(view, |v| self.kernel.node(v).and_then(|n| n.parent))
     }
 
     /// Whether the plan has timers (a host then drives `advance`).
@@ -863,6 +889,11 @@ impl<D: DataSource> Runner<D> {
         let change = self.router_change()?;
         self.batch += 1;
         let mut receipt = self.kernel.apply(0, self.batch, &ops)?;
+        // Forget destroyed views once they outnumber the live ones.
+        if self.ids.remembered() > 2 * self.kernel.live_count() + 256 {
+            let kernel = &self.kernel;
+            self.ids.retain(|view| kernel.node(view).is_some());
+        }
         let cleanup = self.reconcile_reorder()?;
         if !cleanup.is_empty() {
             self.batch += 1;

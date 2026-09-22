@@ -703,14 +703,7 @@ impl Tree {
                                 let contains = |pin| {
                                     pin != 0
                                         && (row.wrapper == Some(pin)
-                                            || row.roots.iter().any(|c| match c {
-                                                Child::Node(n) => {
-                                                    n.find::<false>(pin, &mut Vec::new()).is_some()
-                                                }
-                                                Child::Region(r) => {
-                                                    r.find::<false>(pin, &mut Vec::new()).is_some()
-                                                }
-                                            }))
+                                            || super::find::contains(&row.roots, pin))
                                 };
                                 if geometry.pins.iter().copied().any(contains) {
                                     window.pins.push(key_text(&row.key).unwrap());

@@ -376,7 +376,7 @@ impl<D: DataSource> Runner<D> {
             return Err(Unsupported);
         }
         let view = self.kernel.node_by_key(key).ok_or(Stale)?.id;
-        let (node, frames) = self.tree.as_ref().and_then(|t| t.find(view)).ok_or(Stale)?;
+        let (node, frames) = self.find(view).ok_or(Stale)?;
         if frames.len() > 32 {
             return Err(Limit);
         }
@@ -643,11 +643,7 @@ impl<D: DataSource> Runner<D> {
         let was_poisoned = self.poisoned;
         let mut changed = false;
         let result = (|| {
-            let (node, frames) = self
-                .tree
-                .as_ref()
-                .and_then(|t| t.find(view))
-                .ok_or(RunnerError::UnknownView(view))?;
+            let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
             let handler = self
                 .plan
                 .node(node)
@@ -711,11 +707,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(event) = event.invalid_payload() {
             return Err(RunnerError::InvalidEvent { event });
         }
-        let (node, frames) = self
-            .tree
-            .as_ref()
-            .and_then(|t| t.find(view))
-            .ok_or(RunnerError::UnknownView(view))?;
+        let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::Press => (EventKind::Press, None, "press"),

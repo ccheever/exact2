@@ -1,29 +1,23 @@
 //! Generic tree consumers visit only mounted authored rows, never private wrappers.
 use super::*;
 impl Collection {
-    pub(in crate::instance) fn find<const FRAMES: bool>(
-        &self,
-        view: ViewId,
-        frames: &mut Vec<Frame>,
-    ) -> Option<NodesId> {
+    pub(in crate::instance) fn add_children<'a>(&'a self, stack: &mut Vec<&'a Child>) {
         for row in &self.mounted {
-            if FRAMES {
-                frames.push(row.row.frame.clone());
-            }
-            for child in &row.row.roots {
-                let found = match child {
-                    Child::Node(n) => n.find::<FRAMES>(view, frames),
-                    Child::Region(r) => r.find::<FRAMES>(view, frames),
-                };
-                if found.is_some() {
-                    return found;
-                }
-            }
-            if FRAMES {
-                frames.pop();
-            }
+            stack.extend(row.row.roots.iter());
         }
-        None
+    }
+    /// Whether `view` belongs to a mounted row.
+    pub(in crate::instance) fn contains(&self, view: ViewId) -> bool {
+        self.mounted
+            .iter()
+            .any(|m| crate::instance::find::contains(&m.row.roots, view))
+    }
+    /// The mounted row a wrapper view holds.
+    pub(in crate::instance) fn row_by_wrapper(&self, wrapper: ViewId) -> Option<&Row> {
+        self.mounted
+            .iter()
+            .find(|m| m.wrapper == wrapper)
+            .map(|m| &m.row)
     }
     pub(in crate::instance) fn site(
         &self,
@@ -47,11 +41,6 @@ impl Collection {
             path.pop();
         }
         None
-    }
-    pub(in crate::instance) fn add_children<'a>(&'a self, stack: &mut Vec<&'a Child>) {
-        for row in &self.mounted {
-            stack.extend(row.row.roots.iter());
-        }
     }
 }
 impl Tree {

@@ -435,11 +435,12 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
     assert!(h.collection().spacers.len() <= 3);
     assert!(s.rows.iter().any(|r| r.root == first.root));
     assert!(s.rows.iter().any(|r| r.root == middle.root));
-    assert!(h.tree.find(first.view).is_none());
+    let parent = |v| h.kernel.node(v).and_then(|n| n.parent);
+    assert!(h.tree.find(first.view, parent).is_none());
     assert!(h.tree.site(first.view).is_none());
     let (_, path) = h.tree.site(first.root).unwrap();
     assert!(matches!(path[0], InstanceStep::Row { .. }));
-    let (_, frames) = h.tree.find(first.root).unwrap();
+    let (_, frames) = h.tree.find(first.root, parent).unwrap();
     let row = frames[0].row.clone().unwrap();
     row.borrow_mut().insert(4, Value::Number(7.0));
     let mut written = crate::instance::RowWrites::default();
@@ -449,7 +450,7 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
         h.kernel.node(first.root).unwrap().props.str(PropId::Text),
         Some("7")
     );
-    assert!(!h.tree.handlers(&h.plan).contains_key(&first.view));
+    assert!(h.ids.site(first.view).is_none(), "a wrapper is no site");
     for (view, _) in &h.collection().spacers {
         assert_eq!(
             h.kernel
