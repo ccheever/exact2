@@ -301,7 +301,7 @@ impl ListWindow {
                 .map(|(i, key)| {
                     self.positions
                         .get(&key_text(key).unwrap())
-                        .filter(|old| self.items[**old] == items[i])
+                        .filter(|old| crate::compare::equivalent(&self.items[**old], &items[i]))
                         .map_or(self.height, |old| self.heights.value(*old))
                 })
                 .collect(),

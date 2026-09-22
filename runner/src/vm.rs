@@ -361,7 +361,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             Opcode::Eq | Opcode::Ne => {
                 let b = pop!(pc);
                 let a = pop!(pc);
-                let eq = equal(&a, &b).ok_or(Trap::TypeMismatch { pc, op })?;
+                let eq = crate::compare::equal(&a, &b).ok_or(Trap::TypeMismatch { pc, op })?;
                 stack.push(Value::Bool(if op == Opcode::Eq { eq } else { !eq }));
             }
             Opcode::Not => match pop!(pc) {
@@ -517,32 +517,4 @@ fn jump(code: &[u8], target: u32) -> Option<Reader<'_>> {
     let mut r = Reader::new(code);
     r.bytes(target as usize).ok()?;
     Some(r)
-}
-
-/// Structural equality for closed values; `None` when the kinds differ
-/// (a compile-time rejection that a hostile plan may still attempt).
-pub fn equal(a: &Value, b: &Value) -> Option<bool> {
-    Some(match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a == b,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Str(a), Value::Str(b)) => a == b,
-        (Value::Unit, Value::Unit) => true,
-        (Value::Option(None), Value::Option(None)) => true,
-        (Value::Option(Some(_)), Value::Option(None))
-        | (Value::Option(None), Value::Option(Some(_))) => false,
-        (Value::Option(Some(a)), Value::Option(Some(b))) => equal(a, b)?,
-        (Value::List(a), Value::List(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .zip(b.iter())
-                    .try_fold(true, |acc, (x, y)| equal(x, y).map(|e| acc && e))?
-        }
-        (Value::Record(a), Value::Record(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .zip(b.iter())
-                    .try_fold(true, |acc, (x, y)| equal(x, y).map(|e| acc && e))?
-        }
-        _ => return None,
-    })
 }

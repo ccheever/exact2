@@ -260,7 +260,7 @@ impl Collection {
             let mut inner = frames.to_vec();
             inner.push(Frame::default());
             for (position, item) in items.iter().enumerate() {
-                let key = if reuse_items && memo::same(item, &self.items[position]) {
+                let key = if reuse_items && crate::compare::same(item, &self.items[position]) {
                     if !changed {
                         continue;
                     }

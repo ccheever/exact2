@@ -1,5 +1,6 @@
 //! Portable viewport feedback and runner-owned geometric edge events.
 use super::*;
+use crate::compare::{equivalent, equivalent_all};
 use crate::instance::collection::{CollectionFeedback, CollectionSnapshot};
 
 impl<D: DataSource> Runner<D> {
@@ -221,7 +222,7 @@ impl EdgeState {
                 .iter()
                 .copied()
                 .eq(r.pending.iter().map(|p| (p.target, p.ticket)))
-            || !same_values(&self.slots, &r.slots)
+            || !equivalent_all(&self.slots, &r.slots)
             || self
                 .resources
                 .iter()
@@ -229,7 +230,7 @@ impl EdgeState {
                 .any(|(a, b)| match (a, b) {
                     (None, None) => false,
                     (Some(a), Some(b)) => {
-                        !same_values(&a.args, &b.args) || !same_value(&a.value, &b.value)
+                        !equivalent_all(&a.args, &b.args) || !equivalent(&a.value, &b.value)
                     }
                     _ => true,
                 })
@@ -239,23 +240,7 @@ impl EdgeState {
                     || old
                         .iter()
                         .zip(now.iter())
-                        .any(|((ak, av), (bk, bv))| ak != bk || !same_value(av, bv))
+                        .any(|((ak, av), (bk, bv))| ak != bk || !equivalent(av, bv))
             })
-    }
-}
-fn same_values(a: &[Value], b: &[Value]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_value(a, b))
-}
-fn same_value(a: &Value, b: &Value) -> bool {
-    use std::rc::Rc;
-    match (a, b) {
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b))
-            if Rc::ptr_eq(a, b) =>
-        {
-            true
-        }
-        (Value::Str(a), Value::Str(b)) if Rc::ptr_eq(a, b) => true,
-        (Value::Option(Some(a)), Value::Option(Some(b))) if Rc::ptr_eq(a, b) => true,
-        _ => a == b,
     }
 }

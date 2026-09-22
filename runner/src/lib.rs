@@ -12,6 +12,7 @@
 //! - [`vm`] — the expression VM: a stack machine over [`Value`]s, one
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
+//! - [`compare`] — value identity, substitution and `==`, once.
 //! - [`bridge`] — values to kernel props and style rows, through the kernel's
 //!   own `set_dynamic`.
 //! - [`delivery`] — what this binary and its update store know about
@@ -31,6 +32,7 @@
 
 pub mod agent;
 pub mod bridge;
+pub mod compare;
 pub mod delivery;
 pub mod instance;
 pub mod request;

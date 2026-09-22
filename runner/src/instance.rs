@@ -426,7 +426,10 @@ impl NodeInst {
         for (i, b) in row.bindings.iter().enumerate() {
             let binding = plan.binding(b);
             let value = u.eval(binding.expr, frames)?;
-            if self.last[i].as_ref() == Some(&value) {
+            if self.last[i]
+                .as_ref()
+                .is_some_and(|last| crate::compare::equal(last, &value) == Some(true))
+            {
                 continue;
             }
             match binding.kind {
@@ -722,7 +725,9 @@ impl RegionInst {
                     match existing {
                         Some(mut r) => {
                             let unchanged = body_unchanged
-                                && dependencies::same_item(&r.frame.item, &frame.item);
+                                // Row bodies may distinguish signed zero (`1 / n > 0`):
+                                // compare by bits, not by the language's `==`.
+                                && crate::compare::equivalent_opt(&r.frame.item, &frame.item);
                             frame.row = Some(r.slots.clone());
                             r.frame = frame.clone();
                             let inner = with_frame(frames, frame);

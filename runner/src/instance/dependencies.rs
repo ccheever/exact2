@@ -2,9 +2,10 @@
 //! immutable globals, never a deep list walk. Row-local state and contextual
 //! expressions fall back to normal evaluation. No app annotation is required.
 use super::{Site, SiteIndex};
+use crate::compare::same;
 use crate::vm::Env;
 use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
-use std::{collections::BTreeSet, rc::Rc};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Input {
@@ -80,6 +81,8 @@ impl Memo {
         let (Some(old), Some(now)) = (&self.saved, self.values(env)) else {
             return false;
         };
+        // Immutable values are shared across updates. A different allocation is a
+        // conservative miss even if equal: checking it recursively would itself be O(N).
         old.len() == now.len() && old.iter().zip(&now).all(|(a, b)| same(a, b))
     }
     pub(super) fn remember(&mut self, env: &Env<'_>) {
@@ -87,19 +90,6 @@ impl Memo {
     }
 }
 
-// Immutable values are shared across updates. A different allocation is a
-// conservative miss even if equal: checking it recursively would itself be O(N).
-fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
-        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b),
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
-        (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
-        _ => false,
-    }
-}
 fn scan(plan: &Plan, code: Code, inputs: &mut BTreeSet<Input>) -> Option<()> {
     let mut reader = Reader::new(plan.code(code));
     while !reader.is_empty() {
@@ -200,27 +190,4 @@ fn scan(plan: &Plan, code: Code, inputs: &mut BTreeSet<Input>) -> Option<()> {
         }
     }
     Some(())
-}
-
-// Row bodies may distinguish signed zero (for example `1 / n > 0`). Value's
-// language equality deliberately does not. Cache equivalence must preserve bits.
-pub(super) fn same_item(a: &Option<Value>, b: &Option<Value>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => equivalent(a, b),
-        _ => false,
-    }
-}
-fn equivalent(a: &Value, b: &Value) -> bool {
-    if same(a, b) {
-        return true;
-    }
-    match (a, b) {
-        (Value::Str(a), Value::Str(b)) => a == b,
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
-            a.len() == b.len() && a.iter().zip(b.iter()).all(|(a, b)| equivalent(a, b))
-        }
-        (Value::Option(Some(a)), Value::Option(Some(b))) => equivalent(a, b),
-        _ => false,
-    }
 }

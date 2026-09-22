@@ -1,7 +1,8 @@
 //! Subject/key dependencies only. Row-body changes never trigger an all-N key pass.
 use super::super::{Env, Frame};
+use crate::compare::same;
 use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
-use std::{collections::BTreeSet, rc::Rc};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Input {
@@ -170,29 +171,18 @@ impl KeyMemo {
             && old.frames.iter().zip(&now.frames).all(|(a, b)| {
                 a.region == b.region
                     && a.has_row == b.has_row
-                    && same_optional(&a.item, &b.item)
-                    && same_optional(&a.bound, &b.bound)
+                    && same_opt(&a.item, &b.item)
+                    && same_opt(&a.bound, &b.bound)
             })
     }
     pub(super) fn remember(&mut self, env: &Env<'_>, frames: &[Frame]) {
         self.saved = self.values(env, frames);
     }
 }
-fn same_optional(a: &Option<Value>, b: &Option<Value>) -> bool {
+fn same_opt(a: &Option<Value>, b: &Option<Value>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => same(a, b),
         (None, None) => true,
-        _ => false,
-    }
-}
-pub(super) fn same(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
-        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b),
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
-        (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
         _ => false,
     }
 }
