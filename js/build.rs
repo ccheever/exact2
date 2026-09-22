@@ -7,13 +7,24 @@
 //! `hermesvmlean` archive, JSI, and the headers. iOS uses matching lean CMake
 //! builds under `target/hermes-ios` (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6).
 //! All linked engine archives are captured in OUT_DIR for the bake receipt.
-//! Without the target archives — a Linux checkout before
-//! `./scripts/build-hermes-linux.sh --vanilla --release --intl`, or a checkout without `../ibex` — this
-//! crate still builds, as a stub whose `Module::load` refuses by name, so
-//! `cargo build --workspace` is green everywhere and the executor is honest
-//! about where it can run. `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and
-//! `EXACT_ROLLDOWN` point at the three tools when they are somewhere else;
-//! Linux also honors `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`.
+//! On macOS, iOS and Linux a missing engine is a build error naming how to
+//! provision it; `EXACT_JS_ENGINE=stub` instead builds a stub whose
+//! `Module::load` refuses by name. Other targets are always the stub.
+//! `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and `EXACT_ROLLDOWN` point at the
+//! three tools when they are somewhere else; Linux also honors
+//! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`.
+//!
+//! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
+//! `6badada762121682b5481b6124e6c3a991ae6046` (ibex's
+//! `ios/Frameworks-vanilla/hermes-input-receipt.json`). SHA-256 of the
+//! provisioned inputs (2026-08-28):
+//!
+//! - macOS `libhermesvmlean_a.a` `494f925f1aa667ebbb622be3da156af9c75465971201d438bf82945b50d36aa6`
+//! - macOS `libjsi.a` `b6a497618b6363fb1ed5ed0667b8441769cd232cdfaaa5ba9ed874c9fbb0fdde`
+//! - macOS `libboost_context.a` `cb3ffcfa31e515ff03978425e8618992fd77362b92e0ed94487f3e2d531012cb`
+//! - `hermesc-macos-arm64` `fa070c2feddee6968c6a5aef1c92bfb84c075be1471c4733ad0361b680d73132`
+//! - iOS device `libhermesvmlean_a.a` `2e01ddf9646fdff235092752b53bee5f2f42b6f411c9999c5fd2c32407a39d75`
+//! - iOS simulator `libhermesvmlean_a.a` `e78352300b330407a4ae6a94559d97e9f020ca766909999bed31329827ba5234`
 
 use std::env;
 use std::io::Read;
@@ -23,6 +34,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(exact_js_engine)");
     for var in [
+        "EXACT_JS_ENGINE",
         "EXACT_HERMES_DIR",
         "EXACT_HERMES_IOS_DIR",
         "EXACT_HERMESC",
@@ -116,14 +128,16 @@ fn main() {
         println!("cargo:rerun-if-changed={}", static_dir.display());
     }
     let engine_archive = static_dir.join(format!("lib{engine_lib_name}.a"));
-    if !matches!(target_os.as_str(), "macos" | "ios" | "linux")
-        || !headers.is_dir()
-        || !engine_archive.is_file()
-    {
-        println!(
-            "cargo:warning=exact-js: no Hermes for {target_os} at {} — the executor is a stub that refuses to load (EXACT_HERMES_DIR supplies headers/macOS; EXACT_HERMES_IOS_DIR supplies iOS builds; Linux: ./scripts/build-hermes-linux.sh --vanilla --release --intl in ibex, or HERMES_LIB_DIR; see LLP 1027 D6)",
-            static_dir.display()
-        );
+    let hermes_target = matches!(target_os.as_str(), "macos" | "ios" | "linux");
+    if !hermes_target || !headers.is_dir() || !engine_archive.is_file() {
+        if hermes_target {
+            assert!(
+                env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub"),
+                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere); iOS, lean builds under target/hermes-ios (LLP 1027 D6; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
+                static_dir.display()
+            );
+            println!("cargo:warning=exact-js: EXACT_JS_ENGINE=stub; the executor refuses to load");
+        }
         return;
     }
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
