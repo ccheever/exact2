@@ -119,6 +119,44 @@ try {
     assert.equal(row.stamp.url, row.navigation.url);
     assert.equal(String(row.stamp.id), row.navigation.route);
   };
+  await run('Markdown reader only navigates supported parsed URL protocols', async () => {
+    await call('Page.navigate', {url:url + '/__test-mirror'});
+    await until(`document.getElementById('host') !== null`);
+    const unsafe = [
+      'javascript:globalThis.markupProbe++', 'JaVaScRiPt:globalThis.markupProbe++',
+      '\u0000\u001f javascript:globalThis.markupProbe++', 'java\tscript:globalThis.markupProbe++',
+      'java\nscript:globalThis.markupProbe++', 'java\rscript:globalThis.markupProbe++',
+      'data:text/html,<script>globalThis.markupProbe++</script>', 'vbscript:msgbox(1)',
+      'file:///tmp/exact-markdown-probe', 'custom:open', 'blob:https://example.test/id',
+      'about:blank', 'ftp://example.test/file', 'http://[invalid',
+    ];
+    const safe = ['https://example.test/x', 'HTTP://example.test/x', 'mailto:test@example.test',
+      'tel:+15551234567', '/relative/path', '../sibling', '//example.test/path', '?query=1', '#safe'];
+    await evaluate(`import('/navigation.js').then(({renderMarkup}) => {
+      globalThis.markupProbe = 0;
+      const links = ${JSON.stringify([...unsafe, ...safe])};
+      renderMarkup(document.getElementById('host'), JSON.stringify(links.map((href,i)=>['link '+i,1,0,8,href])));
+      for (const el of document.getElementById('host').children) el.style.display = 'block';
+    })`);
+    const rendered = await evaluate(`[...document.getElementById('host').children].map(el=>({tag:el.tagName,href:el.getAttribute('href'),text:el.textContent}))`);
+    assert.deepEqual(rendered.slice(0, unsafe.length).map(el=>[el.tag,el.href]), unsafe.map(()=>['SPAN',null]));
+    assert.deepEqual(rendered.slice(unsafe.length).map(el=>[el.tag,el.href]), safe.map(href=>['A',new URL(href,url+'/__test-mirror').href]));
+    const click = async index => {
+      const at = await evaluate(`(()=>{const el=document.getElementById('host').children[${index}];el.scrollIntoView({block:'center'});const r=el.getBoundingClientRect();return {x:r.x+20,y:r.y+r.height/2};})()`);
+      await call('Input.dispatchMouseEvent', {type:'mousePressed',button:'left',clickCount:1,...at});
+      await call('Input.dispatchMouseEvent', {type:'mouseReleased',button:'left',clickCount:1,...at});
+    };
+    for (let i=0;i<unsafe.length;i++) {
+      await click(i);
+      assert.equal(await evaluate('globalThis.markupProbe'), 0, unsafe[i]);
+      assert.equal(await evaluate('location.pathname+location.hash'), '/__test-mirror', unsafe[i]);
+    }
+    await click(unsafe.length+safe.length-1);
+    await until(`location.hash === '#safe'`);
+    assert.equal(await evaluate('globalThis.markupProbe'), 0);
+    const row = {name:'Markdown reader URL policy',rejected:unsafe.length,accepted:safe.length,probe:0,safeClick:true};
+    rows.push(row);console.log(JSON.stringify(row));
+  });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
     await fresh('/post/42');

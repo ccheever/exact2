@@ -1435,12 +1435,21 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
 // (`[text, scale, weight, flags, href]`; flags italic 1, mono 2, strike 4, link 8,
 // quiet 16), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
+function markupHref(href) {
+  try {
+    // Check the browser's parsed protocol, including its whitespace/control
+    // normalization. Keep source destinations intact; only navigation is gated.
+    const url = new URL(href, document.baseURI);
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null;
+  } catch { return null; }
+}
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
   el.replaceChildren();
   for (const [text, scale, weight, flags, href] of pieces) {
-    const span = document.createElement(flags & 8 && href ? "a" : "span");
+    const destination = flags & 8 && href ? markupHref(href) : null;
+    const span = document.createElement(destination ? "a" : "span");
     // Newlines are `<br>`s: the node's own white-space row still applies to the rest.
     text.split("\n").forEach((line, i) => { if (i) span.appendChild(document.createElement("br")); if (line) span.appendChild(document.createTextNode(line)); });
     if (scale !== 1) span.style.fontSize = `${scale}em`;
@@ -1449,7 +1458,7 @@ export function renderMarkup(el, json) {
     if (flags & 2) span.style.fontFamily = "ui-monospace, monospace";
     if (flags & 4) span.style.textDecoration = "line-through";
     if (flags & 16) span.style.opacity = "0.62";
-    if (flags & 8 && href) span.href = href;
+    if (destination) span.href = destination;
     el.appendChild(span);
   }
 }
