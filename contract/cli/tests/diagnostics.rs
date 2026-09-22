@@ -444,7 +444,9 @@ fn type_choices_follow_the_resolver_without_duplicate_or_unavailable_names() {
     let root = app.write("app.contract", "shape First\n  value: Ltaer\nshape Later\n  value: string\ncomponent App\n  view\n    text \"hello\"\n");
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "type-unknown");
-    assert!(error.message.ends_with("`First`, `Later`, `MarkdownSelection`"));
+    assert!(error
+        .message
+        .ends_with("`First`, `Later`, `MarkdownSelection`"));
 }
 
 #[test]
@@ -1133,10 +1135,20 @@ fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers
         contract::compile(&repaired.join("\n")).unwrap();
     }
     let source = "component App\n  view\n    First()\n    Second()\ncomponent First\n  state n = 0\n  action save writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Second\n  state n = 0\n  action sale writes n\n    n = 1\n  view\n    Leaf(submit=sace)\ncomponent Leaf\n  props\n    submit: action\n  view\n    button \"Go\" press=submit\n";
+    // Each child's call site is checked in its own scope, so each gets the
+    // correction its own actions support, first `First`'s, then `Second`'s.
     let error = contract::compile(source).unwrap_err();
     assert_eq!(error.id, "type-unknown-name");
-    assert!(!error.message.contains("did you mean"), "{error}");
+    assert_eq!(error.span.line, 10);
+    assert!(error.message.ends_with("; did you mean `save`?"), "{error}");
     assert!(error.related.is_empty());
+    let source = source.replacen("submit=sace", "submit=save", 1);
+    let error = contract::compile(&source).unwrap_err();
+    assert_eq!(error.span.line, 16);
+    assert!(error.message.ends_with("; did you mean `sale`?"), "{error}");
+    // Repaired, only the fixture's two-node root remains to refuse.
+    let error = contract::compile(&source.replace("submit=sace", "submit=sale")).unwrap_err();
+    assert_eq!(error.id, "lower-one-root");
 }
 
 #[test]

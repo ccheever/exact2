@@ -21,6 +21,7 @@ mod checks;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod routes;
 mod selection;
+mod uses;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
@@ -883,26 +884,14 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
         shapes,
         components: Vec::new(),
     };
-    // The root is checked against its inlined view, so a handler's real call
-    // site (behind a child's prop) types the action's parameters; children
-    // are checked standalone as views over their props.
-    // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
-    // child's own declarations, lifted in — what lowering will lower.
-    let expanded = if capture_sites {
-        contract_syntax::expand_mapped(file)
-    } else {
-        contract_syntax::expand(file)
+    // Uses first, where they are written: a misspelled prop is named at its
+    // call site, never reported as the prop it left missing.
+    for c in &file.components {
+        uses::check_prop_names(&c.view, file)?;
     }
-    .map_err(|e| TypeError {
-        id: e.id,
-        message: e.message,
-        span: e.span,
-    })?;
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
-    // must not open N requests, and only the root has a clock. Checked
-    // before the root, whose inlined view would otherwise trip on the
-    // child's unknown name first.
+    // must not open N requests, and only the root has a clock.
     for c in file.components.iter().skip(1) {
         if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
             let span = c
@@ -919,29 +908,55 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
             );
         }
     }
-    for (i, c) in file.components.iter().enumerate() {
-        let ct = if i == 0 {
-            check_component(&expanded.root, &types, Some(&expanded.owners))?
-        } else {
-            check_component(c, &types, None)?
-        };
+    // Children are views over their props, checked standalone before the
+    // root inlines them, so an error in a child is reported in its own
+    // terms. The root's entry stands in until the root itself is checked.
+    let root = &file.components[0];
+    types.components.push(ComponentTypes {
+        name: root.name.clone(),
+        props: root
+            .props
+            .iter()
+            .chain(&root.injects)
+            .map(|p| {
+                p.ty.as_ref()
+                    .and_then(|t| types.shapes.resolve(t).ok())
+                    .unwrap_or(Ty::Unknown)
+            })
+            .collect(),
+        ..ComponentTypes::default()
+    });
+    for c in file.components.iter().skip(1) {
+        let ct = check_component(c, &types, None)?;
         types.components.push(ct);
     }
-    // Component uses: arguments must match props.
-    for c in &file.components {
-        let ct = &types.components[file
-            .components
-            .iter()
-            .position(|x| x.name == c.name)
-            .unwrap()];
-        let scoped = if c.name == expanded.root.name {
-            &expanded.root
-        } else {
-            c
-        };
-        check_uses(&c.view, &types.component_scope(scoped, ct), &types, file)?;
+    // The root is checked against its inlined view, so a handler's real call
+    // site (behind a child's prop) types the action's parameters.
+    // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
+    // child's own declarations, lifted in — what lowering will lower.
+    let expanded = if capture_sites {
+        contract_syntax::expand_mapped(file)
+    } else {
+        contract_syntax::expand(file)
     }
-    let root = &file.components[0];
+    .map_err(|e| TypeError {
+        id: e.id,
+        message: e.message,
+        span: e.span,
+    })?;
+    // Call sites before the views they expand into: the children's, then
+    // the root's (the use of an unknown component is expansion's refusal).
+    for (c, ct) in file.components.iter().zip(&types.components).skip(1) {
+        uses::check_uses(&c.view, &types.component_scope(c, ct), &types, file)?;
+    }
+    uses::check_root_uses(root, &expanded.root, &types, file)?;
+    types.components[0] = check_component(&expanded.root, &types, Some(&expanded.owners))?;
+    uses::check_uses(
+        &root.view,
+        &types.component_scope(&expanded.root, &types.components[0]),
+        &types,
+        file,
+    )?;
     check_injects(
         &root.view,
         &types.component_scope(&expanded.root, &types.components[0]),
@@ -953,101 +968,6 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
         types,
         expanded,
     })
-}
-
-fn check_uses(nodes: &[Node], scope: &Scope, types: &Types, file: &File) -> Result<(), TypeError> {
-    for n in nodes {
-        match n {
-            Node::Use {
-                name,
-                args,
-                children,
-                span,
-            } => {
-                check_uses(children, scope, types, file)?;
-                let Some(target) = file.components.iter().position(|c| &c.name == name) else {
-                    return err(
-                        "type-unknown-component",
-                        file.unknown_component_message(name),
-                        *span,
-                    );
-                };
-                let target_c = &file.components[target];
-                let target_t = &types.components[target];
-                for (i, p) in target_c.props.iter().enumerate() {
-                    let Some(arg) = args.iter().find(|a| a.name == p.name) else {
-                        return err(
-                            "type-missing-prop",
-                            target_c.missing_props_message(args),
-                            *span,
-                        );
-                    };
-                    let t = infer(&arg.value, scope, &types.shapes)?;
-                    if !checks::can_unify(&t, &target_t.props[i]) {
-                        return err(
-                            "type-prop",
-                            format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),
-                            arg.span,
-                        );
-                    }
-                }
-                for a in args {
-                    if !target_c.props.iter().any(|p| p.name == a.name) {
-                        return Err(checks::unknown_props(target_c, args, a.span));
-                    }
-                }
-            }
-            Node::Element { children, .. } => check_uses(children, scope, types, file)?,
-            Node::Provide { expr, body, .. } => {
-                infer(expr, scope, &types.shapes)?;
-                check_uses(body, scope, types, file)?;
-            }
-            Node::Children { .. } => {}
-            Node::When {
-                then, otherwise, ..
-            } => {
-                check_uses(then, scope, types, file)?;
-                check_uses(otherwise, scope, types, file)?;
-            }
-            Node::Each {
-                var, list, body, ..
-            } => {
-                let lt = infer(list, scope, &types.shapes)?;
-                let Ty::List(item) = lt else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{lt}`"),
-                        list.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
-                check_uses(body, &inner, types, file)?;
-            }
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                let st = infer(subject, scope, &types.shapes)?;
-                let Ty::Option(item) = st else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{st}`"),
-                        subject.span(),
-                    );
-                };
-                let mut inner = scope.clone();
-                inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                check_uses(&some.1, &inner, types, file)?;
-                let mut none_scope = scope.clone();
-                none_scope.push_region(None);
-                check_uses(none, &none_scope, types, file)?;
-            }
-        }
-    }
-    Ok(())
 }
 
 fn check_component(

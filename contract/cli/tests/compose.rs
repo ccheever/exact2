@@ -94,3 +94,23 @@ fn a_provided_value_may_be_state_and_follows_it() {
         Color::parse_hex("#00ff00").unwrap().into()
     );
 }
+
+#[test]
+fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
+    let source = |args: &str| {
+        format!("shape Todo\n  title: string\ncomponent App\n  resource todo = todo() as shape Todo\n  state count = 0\n  action pick writes count\n    count = 1\n  view\n    Row({args})\ncomponent Row\n  props\n    todo: Todo\n    onPick: action\n  view\n    button press=onPick\n      text todo.title\n")
+    };
+    let error = contract::compile(&source("todo=todo, onPik=pick")).unwrap_err();
+    assert_eq!(
+        (error.id.as_str(), error.span.line, error.span.col),
+        ("type-unknown-prop", 9, 20)
+    );
+    assert!(
+        error.message.ends_with("; did you mean `onPick`?"),
+        "{error}"
+    );
+    let error = contract::compile(&source("todo=\"hello\", onPick=pick")).unwrap_err();
+    assert_eq!((error.id.as_str(), error.span.line), ("type-prop", 9));
+    assert_eq!(error.message, "`todo` expects `Todo`, given `string`");
+    contract::compile(&source("todo=todo, onPick=pick")).unwrap();
+}

@@ -708,6 +708,34 @@ impl Expr {
     }
 }
 
+/// The one candidate a misspelled `name` most plausibly meant: the same
+/// letters in another case, else one spelling edit away. `None` when no
+/// candidate fits or two different ones do — a refusal never guesses.
+pub fn suggestion<'a>(
+    name: &str,
+    candidates: impl IntoIterator<Item = &'a str> + Clone,
+) -> Option<&'a str> {
+    let unique = |fits: &dyn Fn(&str) -> bool| {
+        let mut found = None;
+        for candidate in candidates.clone() {
+            if candidate != name && fits(candidate) {
+                if found.is_some_and(|f| f != candidate) {
+                    return Err(());
+                }
+                found = Some(candidate);
+            }
+        }
+        Ok(found)
+    };
+    match unique(&|c| c.eq_ignore_ascii_case(name)) {
+        Ok(Some(found)) => Some(found),
+        Err(()) => None,
+        Ok(None) => unique(&|c| one_spelling_edit(name.as_bytes(), c.as_bytes()))
+            .ok()
+            .flatten(),
+    }
+}
+
 /// One ASCII insertion, deletion, substitution, or adjacent transposition.
 pub fn one_spelling_edit(a: &[u8], b: &[u8]) -> bool {
     if !a.is_ascii()

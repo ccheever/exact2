@@ -163,10 +163,28 @@ pub(super) fn unknown_props(component: &Component, args: &[Attr], span: Span) ->
             .join(", ");
         format!("available props: {names}")
     };
+    // One misspelling of one prop the call leaves out is named outright.
+    let hint = match unknown.as_slice() {
+        [_] => {
+            let given = args
+                .iter()
+                .find(|a| !component.props.iter().any(|p| p.name == a.name));
+            let missing = component
+                .props
+                .iter()
+                .filter(|p| !args.iter().any(|a| a.name == p.name))
+                .map(|p| p.name.as_str());
+            given
+                .and_then(|a| contract_syntax::suggestion(&a.name, missing))
+                .map(|name| format!("; did you mean `{name}`?"))
+                .unwrap_or_default()
+        }
+        _ => String::new(),
+    };
     TypeError {
         id: "type-unknown-prop",
         message: format!(
-            "`{}` has no {noun} {}; {choices}",
+            "`{}` has no {noun} {}; {choices}{hint}",
             component.name,
             unknown.join(", ")
         ),
