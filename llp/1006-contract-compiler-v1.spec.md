@@ -341,6 +341,11 @@ Component expansion copies the root declarations and constructs its expanded vie
 directly, avoiding a discarded copy of the original view. Each child use renames
 only its view; its declarations are already lifted separately. The same rename
 and substitution walks preserve capture avoidance, instance order, and source sites.
+Child derive dependencies are resolved once per use, then substituted separately
+for the view and each action's captured parameters. Resolution fills its existing
+result table without returning expression copies that discovery would discard.
+The per-use results are released before expanding nested children; there is no
+cross-use or cross-compilation cache.
 
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and

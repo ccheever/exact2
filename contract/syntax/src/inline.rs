@@ -331,8 +331,9 @@ fn inline_nodes(
                 // parent expressions for props. That distinction is what
                 // keeps a parent `a` passed through a prop from being mistaken
                 // for the child's derive `a`.
-                for (derive, expr) in resolved_derives(c)? {
-                    child_subst.insert(derive.name.clone(), subst_expr(&expr, &child_subst));
+                let derives = resolved_derives(c)?;
+                for (derive, expr) in &derives {
+                    child_subst.insert(derive.name.clone(), subst_expr(expr, &child_subst));
                 }
                 for st in &c.states {
                     ctx.extra_states.push((
@@ -359,8 +360,8 @@ fn inline_nodes(
                             Expr::Ident(names[&st.name].clone(), st.span),
                         );
                     }
-                    for (derive, expr) in resolved_derives(c)? {
-                        action_subst.insert(derive.name.clone(), subst_expr(&expr, &action_subst));
+                    for (derive, expr) in &derives {
+                        action_subst.insert(derive.name.clone(), subst_expr(expr, &action_subst));
                     }
                     // An action's declared parameters are still the
                     // innermost binders and shadow same-named captures.
@@ -388,6 +389,8 @@ fn inline_nodes(
                         instance,
                     ));
                 }
+                // Release per-use resolved expressions before expanding nested children.
+                drop(derives);
                 if !children.is_empty() && !c.slot {
                     return err(
                         "syntax-no-slot",
@@ -532,9 +535,9 @@ fn resolve_derive(
     indices: &BTreeMap<&str, usize>,
     resolved: &mut [Option<Expr>],
     visiting: &mut BTreeSet<usize>,
-) -> Result<Expr, SyntaxError> {
-    if let Some(expr) = &resolved[i] {
-        return Ok(expr.clone());
+) -> Result<(), SyntaxError> {
+    if resolved[i].is_some() {
+        return Ok(());
     }
     if !visiting.insert(i) {
         return err(
@@ -555,13 +558,16 @@ fn resolve_derive(
     );
     let mut substitutions = BTreeMap::new();
     for dependency in dependencies {
-        let expr = resolve_derive(dependency, c, indices, resolved, visiting)?;
-        substitutions.insert(c.derives[dependency].name.clone(), expr);
+        resolve_derive(dependency, c, indices, resolved, visiting)?;
+        substitutions.insert(
+            c.derives[dependency].name.clone(),
+            resolved[dependency].as_ref().unwrap().clone(),
+        );
     }
     let expr = subst_expr(&c.derives[i].expr, &substitutions);
     visiting.remove(&i);
-    resolved[i] = Some(expr.clone());
-    Ok(expr)
+    resolved[i] = Some(expr);
+    Ok(())
 }
 
 fn derive_dependencies(

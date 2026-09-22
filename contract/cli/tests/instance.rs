@@ -618,3 +618,51 @@ fn targeted_tree_uses_current_attachment_and_root_order() {
         serde_json::json!([leaf])
     );
 }
+
+#[test]
+fn child_derives_keep_each_actions_captures_and_parameter_shadowing() {
+    let src = r#"
+component App
+  state a = 100
+  view
+    column
+      Child(a=2)
+      Child(a=a)
+component Child
+  props
+    a: number
+  state n = 0
+  derive b = c * 2
+  derive c = a + n
+  action add(a: number) writes n
+    n = b + a
+  action step writes n
+    n = b
+  view
+    column
+      text `${b}` testId=`value-${a}`
+      button "Add" press=add(7) testId=`add-${a}`
+      button "Step" press=step testId=`step-${a}`
+"#;
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Stations,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "value-2"), "4");
+    assert_eq!(text_of(&r, "value-100"), "200");
+    let add = view_of(&r, "add-2");
+    r.dispatch(add, Event::Press).unwrap();
+    assert_eq!(text_of(&r, "value-2"), "26");
+    assert_eq!(text_of(&r, "value-100"), "200");
+    let step = view_of(&r, "step-2");
+    r.dispatch(step, Event::Press).unwrap();
+    assert_eq!(text_of(&r, "value-2"), "56");
+    let other = view_of(&r, "step-100");
+    r.dispatch(other, Event::Press).unwrap();
+    assert_eq!(text_of(&r, "value-100"), "600");
+    assert_eq!(text_of(&r, "value-2"), "56");
+}
