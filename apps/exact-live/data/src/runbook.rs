@@ -39,6 +39,7 @@ fn args(values: &[Value]) -> Result<Option<Vec<Value>>, DataError> {
             Value::Number(0.),
             Value::Number(0.),
             Value::Bool(true),
+            Value::Bool(false),
         ])),
         _ => Err(DataError::BadArguments(
             "runbook bytes must be 0, 1048576 or 4194304".into(),

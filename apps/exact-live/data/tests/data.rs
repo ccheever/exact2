@@ -293,6 +293,7 @@ fn native_full_one_and_four_mib_runbooks_use_real_continuations_without_splittin
                     Value::Number(0.),
                     Value::Number(0.),
                     Value::Bool(true),
+                    Value::Bool(false),
                 ],
             )
             .unwrap();
