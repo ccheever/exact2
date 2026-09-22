@@ -223,6 +223,8 @@ pub struct InstanceWork {
     pub rows_reused: usize,
     /// Outer keyed regions bypassed because their inputs were unchanged.
     pub regions_skipped: usize,
+    /// Binding expressions evaluated (created or revisited nodes).
+    pub bindings_evaluated: usize,
 }
 
 /// Per-commit evaluation context and deterministic work counters.
@@ -255,6 +257,9 @@ type SiteParent = (Option<NodesId>, Option<ArmsId>);
 pub struct SiteIndex {
     groups: Vec<(SiteParent, std::ops::Range<usize>)>,
     sites: Vec<(u32, Site)>,
+    /// Per binding: its code is a literal (`vm::is_literal`), so its value
+    /// is the one emitted at creation and an update never evaluates it.
+    constant: Vec<bool>,
 }
 
 impl SiteIndex {
@@ -288,7 +293,16 @@ impl SiteIndex {
             sites.push((order, site));
         }
         groups.shrink_to_fit();
-        Self { groups, sites }
+        let constant = plan
+            .bindings
+            .iter()
+            .map(|b| vm::is_literal(plan.code(b.expr)))
+            .collect();
+        Self {
+            groups,
+            sites,
+            constant,
+        }
     }
 
     fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
@@ -399,7 +413,7 @@ impl NodeInst {
             last_children: Vec::new(),
             collection: None,
         };
-        inst.emit_bindings(u, frames)?;
+        inst.emit_bindings(u, frames, true)?;
         inst.collection = collection::Collection::create(u, node, view, frames)?;
         if inst.collection.is_none() {
             inst.children = if node_type == NodeType::List
@@ -419,12 +433,21 @@ impl NodeInst {
         Ok(inst)
     }
 
-    fn emit_bindings(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
+    fn emit_bindings(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        fresh: bool,
+    ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
         let row = plan.node(self.node);
         let mut patch: Option<StyleProps> = None;
         for (i, b) in row.bindings.iter().enumerate() {
+            if !fresh && u.sites.constant[b.0 as usize] {
+                continue;
+            }
             let binding = plan.binding(b);
+            u.work.bindings_evaluated += 1;
             let value = u.eval(binding.expr, frames)?;
             if self.last[i]
                 .as_ref()
@@ -500,7 +523,7 @@ impl NodeInst {
         let old_top = self
             .bound_prop(u.env.plan, exact_kernel::PropId::ScrollTop)
             .cloned();
-        self.emit_bindings(u, frames)?;
+        self.emit_bindings(u, frames, false)?;
         self.prepare_list(u.env.plan, old_top)?;
 
         if let Some(collection) = &mut self.collection {
