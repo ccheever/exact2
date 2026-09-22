@@ -23,6 +23,34 @@ revealed across the active paragraph, and a thin Interview compose screen.
 The remaining media, footnote, highlighting and reader migration slices
 remain proposed work; this approval does not claim their completion.
 
+### Product direction refined — 2026-09-21
+
+[confirmed] Charlie requested true WYSIWYG as the default, an advanced mode
+for editing Markdown directly, and direct Markdown access through the API.
+This supersedes active-paragraph syntax reveal as the intended default UX;
+it does not claim that the replacement editor has been implemented.
+
+The normal editor keeps formatting rendered while the caret or selection is
+inside it. Formatting controls, typing, deletion, selection, paste, and undo
+operate as rich-text editing. Hiding markers on a source editor alone does not
+satisfy this behavior. An explicit **Edit Markdown** mode exposes the complete
+source; switching modes without editing must preserve it, including constructs
+the rich editor does not support. Unsupported constructs need a lossless
+representation, rather than being silently removed or normalized.
+
+The stored value and public read/write API remain Markdown strings. A host
+may use a rich document internally, but that representation does not become
+the application or API format. An API client can read the Markdown, change it,
+and write it back without driving the visual editor. Formatting-command API
+expansion is a separate choice, not implied by direct source access.
+
+[owed] The current CodeMirror/TextKit implementation is the earlier hybrid
+source editor. The WYSIWYG replacement needs implementation and verification
+of formatting boundaries, deletion across styles, lists, links, paste,
+composition, undo/redo, and lossless source-mode round trips on web and Apple.
+The decisions below describe the existing implementation where they still
+refer to automatic syntax reveal. This document remains Draft.
+
 ## 2. Starting point before these slices
 
 - Editable text is one controlled `value: String` on `TextInput`; the host owns
