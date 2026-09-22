@@ -17,6 +17,14 @@ final class TextArea: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // An embedded/agent window need not own NSApp.keyWindow, so the
+        // menu's responder lookup may miss its editor. Route the ordinary
+        // undo chord straight to this text view's native manager.
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        if markup != nil, isEditable, !hasMarkedText(), event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if modifiers == .command { if undoManager?.canUndo == true { undoManager?.undo() }; return true }
+            if modifiers == [.command, .shift] { if undoManager?.canRedo == true { undoManager?.redo() }; return true }
+        }
         if markup != nil, event.modifierFlags.intersection([.command, .shift, .control, .option]) == [.command, .shift],
            event.charactersIgnoringModifiers?.lowercased() == "c" {
             copyPlainText(nil); return true

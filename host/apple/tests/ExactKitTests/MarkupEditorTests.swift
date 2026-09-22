@@ -46,6 +46,29 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertNotNil(f.textLayoutManager)
     }
 
+    func testControlledValueAndRestylingKeepTheNativeUndoTransaction() {
+        let (node, f, window, presenter) = editor("hello", selection: NSRange(location: 0, length: 5))
+        let session = ExactApp.shared.makeSession(label: "markup-undo")
+        presenter.session = session
+        defer { window.close(); session.destroy() }
+        presenter.onChange = { _, value in
+            node.props["value"] = value
+            node.applyTextArea()
+            node.styleTextArea()
+        }
+        XCTAssertTrue(node.formatMarkup("bold"))
+        XCTAssertEqual(f.string, "**hello**")
+        XCTAssertTrue(f.undoManager?.canUndo == true)
+        let undo = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                    windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+        XCTAssertTrue(f.performKeyEquivalent(with: undo))
+        XCTAssertEqual(f.string, "hello")
+        let redo = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.command, .shift], timestamp: 0,
+                                    windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
+        XCTAssertTrue(f.performKeyEquivalent(with: redo))
+        XCTAssertEqual(f.string, "**hello**")
+    }
+
     func testListReturnAndExitAreEachOneNativeUndoGroup() {
         let (node, f, window, presenter) = editor("- item", selection: NSRange(location: 6, length: 0))
         defer { window.close(); _ = presenter }
