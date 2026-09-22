@@ -571,7 +571,12 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 let class_len = expanded.len();
-                expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                let expanded = if class_name.is_some() {
+                    expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                    expanded.as_slice()
+                } else {
+                    attrs.as_slice()
+                };
                 // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
                 if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
                     if matches!(&wrap.value, Expr::Str(v, _) if v == "both") {
@@ -592,8 +597,8 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
-                tags::validate_list(tag, &expanded, children, *span)?;
-                self.check_collection(tag, &expanded, children, *span)?;
+                tags::validate_list(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));
@@ -693,7 +698,7 @@ impl<'a> Lowerer<'a> {
                     .sites
                     .as_ref()
                     .map(|_| vec![Origin::Tag; bindings.len()]);
-                let font = self.font_use(&expanded)?;
+                let font = self.font_use(expanded)?;
                 for (index, a) in expanded.iter().enumerate() {
                     self.attr(
                         tag,

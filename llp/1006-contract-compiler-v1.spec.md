@@ -441,6 +441,8 @@ parts and non-string conversions retain their ordinary evaluation. Row order is 
 order, so compilation is byte-identical (`the_app_compiles_deterministically…`).
 Tag defaults and attribute style targets borrow static slices of kernel-generated
 identifiers; lookup constructs no temporary row vectors.
+Nodes without a class borrow their existing attributes; only class expansion
+builds a merged attribute list.
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`
 boots the runner once against the app's data source and writes every
