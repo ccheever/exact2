@@ -23,7 +23,7 @@ revealed across the active paragraph, and a thin Interview compose screen.
 The remaining media, footnote, highlighting and reader migration slices
 remain proposed work; this approval does not claim their completion.
 
-## 2. What exists
+## 2. Starting point before these slices
 
 - Editable text is one controlled `value: String` on `TextInput`; the host owns
   the native field (`UITextView`, `NSTextView`, `<textarea>`), sends the whole
@@ -69,8 +69,8 @@ each host:
 - **Copy.** A selection copies its literal source substring (Charlie,
   2026-09-21). A second copy command copies `plain()` of it — a modifier
   chord on macOS and the web, an edit-menu item on iOS — for pasting where
-  syntax would read as noise. The exact chord is chosen when slice 3 lands
-  the edit menu.
+  syntax would read as noise. The chord is ⌘⇧C on macOS and Mod-Shift-C on the web; iOS
+  exposes “Copy Plain Text” in its edit menu.
 - **Autocorrect, dictation, IME.** Replacements land in the source; the styler
   reruns after. A marked (composing) range is never restyled and the `value`
   write-back never happens while it exists.
@@ -189,29 +189,19 @@ and the row is kept only if the numbers say so.
 ### D5 — The editor is the platform's text view with the styler attached
 
 - **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
-  on **TextKit 2** (Charlie, 2026-09-21: "I worry about being on an older less
-  supported train"; r2 had chosen TextKit 1 for its glyph-generation delegate).
-  The initial prototype hides inactive markers by attributes alone — a
-  near-zero font and clear colour — and never touches `layoutManager`
-  (the irreversible switch back). This is a provisional rendering mechanism,
-  not proof of caret, accessibility, dictation or IME correctness. The next
-  slice establishes ordinary editing with dimmed active-paragraph syntax;
-  additional hiding is retained only where native input remains dependable.
-  Typing attributes are reset to the base after
-  every restyle, so text typed beside a hidden marker does not inherit its
-  look. The host restyles the whole storage in place from
-  `exact_markup_style` (attributes, never `attributedText`) after each change
-  and selection move; it skips restyling during composition. Caret rectangles,
-  hit testing and selection are TextKit's over the same characters; D1's
-  behaviours still require native interaction proofs. **Landed 2026-09-21 on iOS** as the
-  slice-3 prototype (`MarkupEditorIOS.swift`, `textarea markup="markdown"` in
-  `apps/markdown-stress`'s one-node mode): headings, emphasis, code, links,
-  quotes, hidden and revealed markers, on the simulator. Owed: bullets and
-  boxes drawn in place of list markers (an `NSTextList` indented but drew no
-  marker in `UITextView`; a layout-fragment delegate on its text layout
-  manager was not consulted; markers show dimmed meanwhile), `format` and
-  `select`, D1's caret and copy rules, the phone proofs of slice 3, macOS.
-  The shared Swift will live in `host/apple/swift`.
+  on **TextKit 2** (Charlie, 2026-09-21). The source-visible editing slice
+  replaces the iOS prototype's near-zero-font hiding: every character keeps
+  its normal advance, with inactive syntax dimmed. Shared styling lives in
+  `host/apple/Sources/ExactKit/MarkupEditor.swift`; the platform adapters apply
+  edits through native text insertion and undo. Neither adapter touches
+  `layoutManager`, which would switch back to TextKit 1.
+  Typing attributes reset to the base after restyling. The host restyles
+  attributes in place after text or selection changes and skips marked text
+  throughout composition. `format`, `select`, list Return, selection bookmarks
+  across a link field, and alternate plain copy are implemented on both hosts.
+  Native markers remain visible until caret movement, selection gestures and
+  accessibility have been judged on a phone. The current proof uses a fixed
+  editor height; intrinsic `field-sizing: content` parity remains owed.
 - **Web:** CodeMirror 6, approved by Charlie on 2026-09-21. The document is
   the Markdown source; the shared Rust styler supplies decorations and the
   edit function supplies replacements. CodeMirror owns DOM reconciliation,

@@ -65,6 +65,22 @@ The web dev loop is `bun host/web/dev.mjs --app markdown-stress`.
 The Linux executable uses the existing headless/DRM host; a headless screenshot
 does not exercise a desktop compositor or prove physical-display refresh rate.
 
+### Markdown editing
+
+**One markup node** includes a source-backed editor and a reader of that same
+source. Bold, Italic, Code, List, Quote and H2 operate on the editor's current
+selection. Link opens a URL field while preserving that selection; Apply Link
+returns focus to the editor. The line beneath the toolbar reports the shared
+selection state. Return continues a list and an empty item exits it.
+
+On macOS and the web, use the usual bold/italic and undo/redo shortcuts.
+Normal copy preserves Markdown; ⌘⇧C on macOS or Mod-Shift-C on the web copies
+plain text. iOS exposes Copy Plain Text in its edit menu. Native editors keep
+all syntax visible at normal width, dimming inactive markers. CodeMirror hides
+inactive syntax and reveals the active paragraph. These are fixed-height
+editor demonstrations; phone input ergonomics and intrinsic sizing still
+need separate proof.
+
 ### Explicit Linux cold-paragraph trial
 
 The same executable can select a complete cold paragraph before its first layout:
