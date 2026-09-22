@@ -625,3 +625,7 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - Contract lint fixture (2026-09-20): `conditional_style_literals_are_refused_at_the_offending_branch` expects conditional `top="0px"` to fail, but current lowering accepts that CSS length. Reconcile the fixture with current schema; full Contract tests are not green. Found while validating the independent shared-list estimate correction.
 
 - Shop Exact delivery sheet: content-to-sheet handoff needs continuous input/geometry measurement. Three iOS experiments (2026-09-20) matched short expansion/collapse but did not prove transfer, reversal or inertia; repeated source endpoint drags varied. They were preserved outside the repo and reverted to the staged baseline. Do not restart the same endpoint-fitting loop. Evidence: sibling shopify-exact/.evidence/content-handoff-experiments.json. Header coalesced-input admission remains repaired; Google Maps integration is separate.
+
+- macOS agent single-call `tap` can lose its queued mouse-up on Black/Xcode 27.
+  Separate `tap <target> down` / `tap up` and keyboard activation work; verify
+  `AgentMouseRelease` queue matching without weakening its foreign-event guard.
