@@ -4,7 +4,65 @@
 
 use super::*;
 
+/// Everything a refused commit leaves as it was (§6 atomicity): state, the
+/// store, the request book-keeping, and the flags a settlement pass sets on
+/// its way — a deferred resource's staleness, store provenance, and the
+/// refreshes an action asked for.
+pub(super) struct Checkpoint {
+    store: crate::store::StoreCheckpoint,
+    slots: Vec<Value>,
+    resources: Option<Vec<Option<ResourceState>>>,
+    stale: Vec<bool>,
+    store_readers: Vec<bool>,
+    refresh_next: Vec<usize>,
+    pending: Vec<PendingReq>,
+    commands: usize,
+}
+
 impl<D: DataSource> Runner<D> {
+    /// Before a commit. `resources`: the commit edits the settled caches
+    /// before settling (a reply does).
+    pub(super) fn checkpoint(&self, resources: bool) -> Checkpoint {
+        Checkpoint {
+            store: self.store.checkpoint(),
+            slots: self.slots.clone(),
+            resources: resources.then(|| self.resources.clone()),
+            stale: self.stale.clone(),
+            store_readers: self.store_readers.clone(),
+            refresh_next: self.refresh_next.clone(),
+            pending: self.pending.clone(),
+            commands: self.commands.len(),
+        }
+    }
+
+    /// After a commit: journal the store's writes if it stood; otherwise
+    /// put everything back — only the store, when this very commit poisoned
+    /// the runner (its tree matches nothing to go back to).
+    pub(super) fn conclude<T>(
+        &mut self,
+        c: Checkpoint,
+        result: &Result<T, RunnerError>,
+        was_poisoned: bool,
+    ) {
+        match result {
+            Ok(_) => self.log_store_writes(c.store.writes),
+            Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
+            Err(_) => {
+                self.store.restore(c.store);
+                self.slots = c.slots;
+                if let Some(resources) = c.resources {
+                    self.resources = resources;
+                }
+                self.stale = c.stale;
+                self.store_readers = c.store_readers;
+                self.refresh_next = c.refresh_next;
+                self.pending = c.pending;
+                self.sync_pending_flags();
+                self.commands.truncate(c.commands);
+            }
+        }
+    }
+
     /// Run an action by name with `args` — what a test or an agent does.
     pub fn act(&mut self, name: &str, args: Vec<Value>) -> Result<CommitReceipt, RunnerError> {
         let what = format!("act {name}");
@@ -145,13 +203,10 @@ impl<D: DataSource> Runner<D> {
         args: Vec<Value>,
         frames: &[Frame],
     ) -> Result<CommitReceipt, RunnerError> {
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(false);
         let result = self.run_action_inner(action, args, frames);
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => self.store.restore(kept),
-        }
+        self.conclude(checkpoint, &result, was_poisoned);
         result
     }
 
@@ -271,9 +326,7 @@ impl<D: DataSource> Runner<D> {
             let old = rows.borrow_mut().insert(slot, value);
             row_undo.push((rows, slot, old));
         }
-        let saved_slots = self.slots.clone();
-        let saved_commands = self.commands.len();
-        let saved_pending_mut = self.pending_mut.clone();
+        let first_command = self.commands.len();
         for (slot, value) in answered {
             self.slots[slot as usize] = value;
         }
@@ -299,17 +352,16 @@ impl<D: DataSource> Runner<D> {
             }
         }
         self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
+        // A refusal from here is put back by the checkpoint (run_action);
+        // row slots live in the tree, so they are undone here.
         if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.discard_later(&later);
-            self.slots = saved_slots;
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
                     Some(v) => rows.borrow_mut().insert(slot, v),
                     None => rows.borrow_mut().remove(&slot),
                 };
             }
-            self.commands.truncate(saved_commands);
-            self.pending_mut = saved_pending_mut;
             return Err(e);
         }
         for (rows, slot, _) in &row_undo {
@@ -324,7 +376,7 @@ impl<D: DataSource> Runner<D> {
                 self.forget(Target::Mutation(m));
             }
         }
-        let commands: Vec<String> = self.commands[saved_commands..]
+        let commands: Vec<String> = self.commands[first_command..]
             .iter()
             .map(|c| {
                 let mut s = format!("command {}(", c.name);
@@ -496,22 +548,13 @@ impl<D: DataSource> Runner<D> {
             self.log(format!("reply {ticket} dropped: no such request in flight"));
             return Ok(None);
         };
-        let saved_pending = self.pending.clone();
+        let was_poisoned = self.poisoned;
+        let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
         let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
-        let was_poisoned = self.poisoned;
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
         let result = self.fulfill_inner(p, outcome);
-        if result.is_err() && !self.poisoned {
-            self.pending = saved_pending;
-            self.sync_pending_flags();
-        }
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => self.store.restore(kept),
-        }
+        self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
     }
@@ -549,8 +592,6 @@ impl<D: DataSource> Runner<D> {
         if !value.conforms(&self.plan, ty) {
             return Err(RunnerError::Shape { resource: name });
         }
-        let saved_slots = self.slots.clone();
-        let saved_resources = self.resources.clone();
         match p.target {
             Target::Resource(i) => {
                 self.stale[i] = false;
@@ -566,11 +607,7 @@ impl<D: DataSource> Runner<D> {
                 self.slots[slot] = Value::some(value);
             }
         }
-        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
-            self.slots = saved_slots;
-            self.resources = saved_resources;
-            return Err(e);
-        }
+        self.router_change().and_then(|_| self.settle(false))?;
         self.update()
     }
 }

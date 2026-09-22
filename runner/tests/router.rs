@@ -624,3 +624,97 @@ fn carry_rebuilds_when_tab_names_or_order_change() {
         }
     }
 }
+
+/// Answers `later` with a request; everything else as [`Data`] does.
+struct Replies(Data);
+impl DataSource for Replies {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        self.0.query(source, args)
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(if source == "later" {
+            exact_runner::Answer::Later(exact_runner::Request::get("https://fixture.invalid/"))
+        } else {
+            exact_runner::Answer::Now(self.query(source, args)?)
+        })
+    }
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+        _: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(exact_runner::Answer::Now(Value::str("replied")))
+    }
+}
+
+#[test]
+fn a_refused_navigation_does_not_carry_its_refresh_into_the_next_commit() {
+    let mut b = fixture::builder(&table());
+    let string = b.primitive(exact_plan::TypeKind::String);
+    let (index, nav) = b
+        .plan()
+        .slots
+        .iter()
+        .enumerate()
+        .find(|(_, s)| b.plan().str(s.name) == "nav")
+        .map(|(i, s)| (exact_plan::SlotsId(i as u32), s.ty))
+        .unwrap();
+    let rows = b.resource("rows", "rows", &[], string, None);
+    let later = b.resource("later", "later", &[], string, Some(&Value::str("baked")));
+    b.set_resource_initial_args(later, &[]);
+    for (name, resource, set) in [
+        ("refreshLater", later, false),
+        ("refreshAndSet", rows, true),
+    ] {
+        let mut a = Asm::new();
+        a.refresh(resource);
+        if set {
+            a.load_param(0).store_slot(index);
+        }
+        a.op(exact_plan::Opcode::Unit, &[]);
+        let code = b.code(a);
+        let (params, writes) = if set {
+            (vec![("value", nav)], vec![index])
+        } else {
+            (vec![], vec![])
+        };
+        b.action(name, &params, &writes, code);
+    }
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        Replies(Data::default()),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("refreshLater", vec![]).unwrap();
+    let ticket = r.take_requests().remove(0).ticket;
+    let asked = r.data().0 .0.borrow().len();
+    // Shape-correct but not a router: `next` must exceed every visit id.
+    let Some(Value::Record(fields)) = r.slot("nav").cloned() else {
+        panic!("router record")
+    };
+    let mut forged = fields.as_ref().clone();
+    forged[2] = Value::Number(0.);
+    assert!(matches!(
+        r.act("refreshAndSet", vec![Value::record(forged)]),
+        Err(RunnerError::Router(_))
+    ));
+    r.fulfill(ticket, exact_runner::Outcome::Storage(Vec::new()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(r.resource("later"), Some(&Value::str("replied")));
+    assert_eq!(
+        r.data().0 .0.borrow().len(),
+        asked,
+        "the refused refresh never reaches the source"
+    );
+}

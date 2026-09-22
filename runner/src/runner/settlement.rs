@@ -54,24 +54,14 @@ impl<D: DataSource> Runner<D> {
         }
         let what = format!("{what} ({} asked again)", which.len());
         let was_poisoned = self.poisoned;
-        let kept = self.store.checkpoint();
-        let since = kept.writes;
-        let saved_slots = self.slots.clone();
-        let saved_resources = self.resources.clone();
+        let checkpoint = self.checkpoint(false);
         self.refresh_next.extend(which);
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
             self.settle(false).and_then(|_| self.update())
         };
-        match &result {
-            Ok(_) => self.log_store_writes(since),
-            Err(_) => {
-                self.store.restore(kept);
-                self.slots = saved_slots;
-                self.resources = saved_resources;
-            }
-        }
+        self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
     }
@@ -524,6 +514,7 @@ mod tests {
         ready: bool,
         bad_guard: bool,
         write_on_parse: bool,
+        read_store: bool,
     }
 
     impl Data {
@@ -535,6 +526,7 @@ mod tests {
                 ready: true,
                 bad_guard: false,
                 write_on_parse: false,
+                read_store: false,
             }
         }
     }
@@ -546,11 +538,14 @@ mod tests {
 
         fn answer(
             &mut self,
-            _: &mut Store,
+            store: &mut Store,
             source: &str,
             _: &[Value],
         ) -> Result<Answer, DataError> {
             self.queries += 1;
+            if self.read_store && source == "rows" {
+                store.get("token");
+            }
             Ok(if source == "guard" {
                 Answer::Now(if self.bad_guard {
                     Value::str("bad")
@@ -891,5 +886,40 @@ mod tests {
         checks();
         tick(&mut r);
         assert_eq!(checks(), 0);
+    }
+
+    #[test]
+    fn a_refused_pass_leaves_a_deferred_resource_stale_for_the_next_activation() {
+        let mut data = Data::new(records(3));
+        data.ready = false;
+        let mut r = boot(plan(TypeKind::Number, Some(&records(0)), true, true), data);
+        assert_eq!(r.resource("rows"), Some(&records(0)));
+        r.data().ready = true;
+        r.data().bad_guard = true;
+        assert!(matches!(r.data_ready(), Err(RunnerError::Shape { .. })));
+        assert_eq!(r.resource("rows"), Some(&records(0)), "rolled back");
+        r.data().bad_guard = false;
+        assert!(r.data_ready().unwrap().is_some(), "asked again");
+        assert_eq!(r.resource("rows"), Some(&records(3)));
+    }
+
+    #[test]
+    fn a_refused_pass_does_not_mark_a_resource_as_reading_the_store() {
+        let mut r = boot(
+            plan(TypeKind::Number, None, false, true),
+            Data::new(records(1)),
+        );
+        assert!(!r.resource_reads_store("rows"));
+        r.data().read_store = true;
+        r.data().bad_guard = true;
+        r.data().value = records(2);
+        assert!(matches!(
+            r.act("change", vec![Value::Number(1.)]),
+            Err(RunnerError::Shape { .. })
+        ));
+        assert!(
+            !r.resource_reads_store("rows"),
+            "the refused query's store read is not provenance"
+        );
     }
 }
