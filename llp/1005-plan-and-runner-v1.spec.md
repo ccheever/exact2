@@ -69,8 +69,10 @@ count before allocating from it (`MAX_COUNT`); then `validate` checks every
 operand in range, every enum operand in vocabulary, `Return` last, **every
 jump forward and on an instruction boundary** — so a body always terminates).
 `validate_semantics` then checks what codecs cannot: `when`/`match` regions
-have exactly two arms and `each` one, every arm is owned by its region, and
-no timer has a zero interval. A refusal names table, row, field, and — for
+have exactly two arms and `each` one, every arm is owned by its region,
+no timer has a zero interval, no site nests more than `MAX_SITE_DEPTH` (256)
+levels or sits on a parent cycle (`SiteTooDeep`), and no type contains itself
+(`TypeCycle`). A refusal names table, row, field, and — for
 code — the pc (`PlanError::BadCode`, `CodeError`). Trailing bytes are refused.
 Reservations from announced counts are capped (`bytes::RESERVE`) so a short
 payload cannot make the decoder reserve more than it will fill. The same
@@ -107,7 +109,8 @@ jumps by label; a compiler never writes a raw byte.
 
 Each `stdlib` entry has one body: `now`, `formatClockTime` (UTC `h:mm AM`),
 `formatCountdownMinutes`, `formatDistance` (miles, one decimal, `nearby` under
-0.1), `formatWalk` (80 m/min), `length`, `isEmpty`, `toString` (integers print
+0.1), `formatWalk` (80 m/min), `length` (text in UTF-16 code units, as the
+web's `String.length` and `maxlength` count), `isEmpty`, `toString` (integers print
 as JavaScript does), `floor`, `max`, `min`. Deterministic and locale-free by
 design. The compiler type-checks calls against the same table (LLP 1006 §3).
 
@@ -225,8 +228,8 @@ that answers later at boot.
 
 **The instance tree** realizes sites: a node → one kernel view with a
 last-emitted value per binding; `when`/`match` → the active arm and its roots;
-`each` → rows by key in item order. An update re-evaluates every site and
-emits only what changed: a prop or style op when a binding's value differs
+`each` → rows by key in item order. An update visits only the sites whose
+reads changed (§8, the dependency table) and emits only what changed: a prop or style op when a binding's value differs
 from the last emitted, `SetChildren` when a child list differs, create/destroy
 when a key appears or goes away. A keyed row keeps its views across reorders
 (`a_press_selects_a_station_re_requests_the_board_and_keeps_rows_by_key`).
@@ -240,8 +243,10 @@ Linux uses `Event::Navigate` directly. The handler chooses the router verb.
 An action taking no parameters ignores the location; otherwise it takes one string.
 A URL before boot is the launch fact, with no navigate dispatch.
 
-Listener and collection-pin lookup walk mounted instances without constructing
-lexical frames; event dispatch still reconstructs those frames for curried arguments.
+Listener lookup reads the view-to-site map the id allocator keeps (pruned
+against the kernel's live views). Event dispatch finds the instance along the
+kernel's parent chain, crossing only the arms and rows on that path, and
+reconstructs their frames for curried arguments.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
 | Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
@@ -291,8 +296,10 @@ instead of rescanning and sorting the whole plan for every row. Within a group,
 The index stores plan structure only, is rebuilt with each runner, and uses
 memory proportional to plan sites rather than mounted rows or history length.
 
-**Atomicity.** A failure during settlement rolls back the action's slot
-writes and commands and leaves the kernel untouched. A failure after the
+**Atomicity.** An action, a reply and a recommit each take one checkpoint —
+slots, the store, pending requests, commands, and the flags settlement sets
+on its way (a deferred resource's staleness, store provenance, requested
+refreshes) — and a refusal puts all of it back, leaving the kernel untouched. A failure after the
 instance tree has begun to change poisons the runner
 (`RunnerError::Poisoned`; `is_poisoned()`) and clears any queued commands:
 the host restarts it (LLP 1004 D5 — a reload is a restart). With values
@@ -338,8 +345,7 @@ value to retain refuses, as any boot without an available first value does.
 
 Still outside v1:
 
-A Deps table and dirty-set sweep (the runner re-evaluates every site; 0485
-§8.3's incremental sweep is a measured optimization for later); per-instance
+Per-instance
 derives or resources inside `each` rows (per-instance *state* landed
 2026-08-30, LLP 1017 P4c: `slots.owner` names an `each` region and the row
 holds the value on its `Frame` — `RowSlots` — read through the frames like
@@ -361,10 +367,39 @@ unique-id destroys in the same atomic batch, removing repeated sibling
 rebuilds; the same topology replacement falls from 164.49 to 9.36 ms.
 A replacement can temporarily keep old and new kernel nodes live in the
 commit; peak allocation is unmeasured.
-The full evaluation walk remains. No Deps table or scheduling semantics
-changed. Bulk listener discovery and bounded motion-slot removal reduce
+The full evaluation walk remained then (see the dependency table below).
+Bulk listener discovery and bounded motion-slot removal reduce
 web runner-plus-batch topology cost from 566.02 to 19.59 ms. These are
 in-process desktop measurements, not a browser or phone frame budget.
+
+### The dependency table (2026-09-22)
+
+Built after the 2026-09-22 review measured the full walk (a keystroke beside a
+`when`-wrapped 10,000-row list visited 50,004 nodes). At boot the runner scans
+every binding, surface argument, region subject and key, derive and resource
+argument once (`runner/src/instance/deps.rs`): a bitset over root slots,
+derives, resources, pending flags and the clock, plus a mask of the enclosing
+row and arm frames it reads by relative depth; each site carries the union
+over its subtree. An update diffs the environment against what the tree last
+showed (identity first, then bit-exact equivalence) and visits a child only
+when its subtree's reads meet that set, an enclosing row or arm whose value
+changed, or a row an action wrote (a row-slot write dirties only its own row
+and the rows enclosing it); a visited node evaluates only its stale bindings,
+and a parent rebuilds its child list only when a region's roots changed. An
+`each` keyed from the same subject object with unchanged key inputs is not
+re-keyed; a windowed list with unchanged items only refreshes its mounted rows.
+Settlement keeps a derive's value, and a resource its arguments, when every
+input has settled to the value it had when they were last computed — dynamic
+`Pending` retries and cycle refusals are unchanged. Equal results keep their
+previous objects, so identity survives downstream. `set_full_evaluation`
+makes everything stale: `runner/tests/incremental.rs` runs every app plan and a
+synthetic one both ways in lockstep through seeded random events, clock seeks
+and late replies, and requires identical receipts, kernel trees, carried
+state, effects and journals. Measured on the review's harness (release): that
+keystroke visits 3 nodes and allocates 39 times (was 50,004 and 402,531); a
+Messages composer keystroke visits 8 nodes and evaluates 5 bindings (was
+2,237 and 21,049), 0.006 ms at 50, 500 or 2,000 messages per list. A change
+read by every row still visits every row.
 
 ## 9. Checks that hold this
 

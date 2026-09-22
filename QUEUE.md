@@ -383,8 +383,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   `plain` tier — persisted slots, with Caltrain's "last station"; `me`; the iOS
   first-launch keychain wipe; the data-protection keychain on macOS (a bundle and a
   profile); the Linux file store when that host links ibex2.
-- **Plan / runner** (LLP 1005 §8): a deps table and dirty-set sweep; per-instance
-  derives or resources inside `each`; asynchronous data settlement.
+- **Plan / runner** (LLP 1005 §8): per-instance derives or resources inside `each`;
+  asynchronous data settlement.
 - **Contract** (LLP 1006 §8): inlining budget; `contract` blocks as assertions;
   `cursor`; per-instance state; LSP; `linear()`.
 - **Web host** (LLP 1007 §9): a text-measurement bridge (the kernel's layout does not
