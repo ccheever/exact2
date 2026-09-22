@@ -19,6 +19,9 @@ impl Weather {
     fn new() -> Self {
         let plan = Plan::decode(PLAN).unwrap();
         let mut module = Module::new(BYTECODE.to_vec(), APP, GRANTS);
+        // Functional fixtures carry no wall-clock budget; it is not a stable
+        // gate on a shared test machine.
+        module.set_budget_ms(f64::INFINITY);
         module.bind(&plan);
         assert!(!module.is_loaded(), "app logic waits until activation");
         module.activate().unwrap();

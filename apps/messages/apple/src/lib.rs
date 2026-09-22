@@ -25,6 +25,14 @@ mod tests {
     use exact_runner::{Answer, DataSource, Store};
     use serde_json::Value as Json;
 
+    /// The app's module without the production per-call deadline, which also
+    /// counts scheduling delays on a shared test machine.
+    fn module() -> Module {
+        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        module.set_budget_ms(f64::INFINITY);
+        module
+    }
+
     fn call(module: &mut Module, plan: &Plan, name: &str, args: Vec<Value>) -> Json {
         let mut store = Store::new(super::GRANTS, Vec::<(String, String)>::new());
         let Answer::Now(value) = module.answer(&mut store, name, &args).unwrap() else {
@@ -42,7 +50,7 @@ mod tests {
     fn router_links_back_forward_and_cold_launch_keep_each_threads_composer() {
         use exact_runner::{Event, Runner};
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         for (id, draft, reply) in [("maya", "Saved Maya", "m10"), ("dad", "Saved Dad", "")] {
@@ -115,7 +123,7 @@ mod tests {
     #[test]
     fn bubble_runs_use_precise_elapsed_time_and_recompute_after_deletion() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let id = "address:%2B14155550199";
@@ -230,7 +238,7 @@ mod tests {
     #[test]
     fn drafts_and_reply_targets_are_isolated_and_clear_when_sent() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let inbox = |m: &mut Module| {
@@ -293,7 +301,7 @@ mod tests {
     #[test]
     fn changing_my_tapback_preserves_other_people_in_both_transcripts() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let inspect = |module: &mut Module| {
@@ -352,7 +360,7 @@ mod tests {
     #[test]
     fn local_messages_replies_and_toggle_reactions_stay_in_their_conversation() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let thread = |m: &mut Module, id: &str| {
@@ -501,7 +509,7 @@ mod tests {
     fn deleting_a_reply_root_keeps_outgoing_and_pending_incoming_replies_visible() {
         let plan = Plan::decode(super::PLAN).unwrap();
         for delete_before_send in [true, false] {
-            let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+            let mut module = module();
             module.bind(&plan);
             module.activate().unwrap();
             let delete = |m: &mut Module| {
@@ -575,7 +583,7 @@ mod tests {
     #[test]
     fn offline_typing_and_replies_follow_explicit_time_and_stay_in_their_thread() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let thread = |m: &mut Module, id: &str, reply: &str| {
@@ -669,7 +677,7 @@ mod tests {
     #[test]
     fn recipient_sets_reuse_threads_and_create_groups_only_on_a_nonempty_send() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let recipients = |m: &mut Module, ids: &str, body: &str| {
@@ -798,7 +806,7 @@ mod tests {
     #[test]
     fn inbox_actions_preserve_muted_messages_and_cancel_deleted_thread_activity() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let inbox = |m: &mut Module| {
@@ -941,7 +949,7 @@ mod tests {
     #[test]
     fn saved_contacts_rename_existing_threads_without_creating_unsent_conversations() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let inbox = |m: &mut Module| {
@@ -1050,7 +1058,7 @@ mod tests {
     #[test]
     fn typed_addresses_join_the_intended_recipients_without_creating_unsent_threads() {
         let plan = Plan::decode(super::PLAN).unwrap();
-        let mut module = Module::new(super::BYTECODE.to_vec(), super::APP, super::GRANTS);
+        let mut module = module();
         module.bind(&plan);
         module.activate().unwrap();
         let recipients = |m: &mut Module, ids: &str, query: &str, body: &str| {

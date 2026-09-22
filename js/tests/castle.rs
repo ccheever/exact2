@@ -74,8 +74,17 @@ fn plan() -> Plan {
 }
 
 fn module() -> Module {
-    let mut m = Module::loaded(HBC.to_vec(), APP, GRANTS).expect("the fixture loads");
+    let mut m = unloaded();
+    m.load().expect("the fixture loads");
     m.bind(&plan());
+    m
+}
+
+fn unloaded() -> Module {
+    let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
+    // Functional fixtures carry no wall-clock budget; it is not a stable
+    // gate on a shared test machine. Budget tests set their own.
+    m.set_budget_ms(f64::INFINITY);
     m
 }
 
@@ -433,7 +442,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
     // the placeholder; nothing happens until the host says the engine is up.
     let mut r = Runner::boot(
         baked.clone(),
-        Module::new(HBC.to_vec(), APP, GRANTS),
+        unloaded(),
         Kernel::with_monospace(),
         Default::default(),
         "/",
@@ -491,7 +500,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
     let snapshot = r.store().snapshot();
     let mut next = Runner::boot_stored(
         baked.clone(),
-        Module::new(HBC.to_vec(), APP, GRANTS),
+        unloaded(),
         Kernel::with_monospace(),
         snapshot.clone(),
         Default::default(),
@@ -511,7 +520,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
         .collect();
     let mut stale = Runner::boot_stored(
         baked,
-        Module::new(HBC.to_vec(), APP, GRANTS),
+        unloaded(),
         Kernel::with_monospace(),
         cleared,
         Default::default(),

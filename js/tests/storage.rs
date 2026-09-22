@@ -49,6 +49,9 @@ impl Root {
     }
     fn module(&self) -> Module {
         let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
+        // Functional fixtures carry no wall-clock budget; it is not a stable
+        // gate on a shared test machine.
+        m.set_budget_ms(f64::INFINITY);
         m.configure_storage(
             self.0.join("data"),
             self.0.join("cache"),

@@ -85,6 +85,9 @@ fn plan() -> Plan {
 
 fn module() -> Module {
     let mut module = Module::loaded(HBC.to_vec(), APP, GRANTS).expect("input fixture loads");
+    // Functional fixtures carry no wall-clock budget; it is not a stable
+    // gate on a shared test machine. Budget tests set their own.
+    module.set_budget_ms(f64::INFINITY);
     module.bind(&plan());
     module
 }

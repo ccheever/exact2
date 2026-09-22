@@ -24,6 +24,9 @@ fn plan() -> Plan {
 
 fn module() -> Module {
     let mut m = Module::loaded(HBC.to_vec(), "com.exact.caltrain", "").expect("the twin loads");
+    // Functional fixtures carry no wall-clock budget; it is not a stable
+    // gate on a shared test machine. Budget tests set their own.
+    m.set_budget_ms(f64::INFINITY);
     m.bind(&plan());
     m
 }

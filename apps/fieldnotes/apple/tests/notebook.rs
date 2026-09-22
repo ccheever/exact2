@@ -73,6 +73,14 @@ include!(concat!(env!("OUT_DIR"), "/module.rs"));
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
 
+/// The app's module without the production per-call deadline, which is not a
+/// stable gate on a shared test machine; these fixtures test behavior.
+fn module() -> Module {
+    let mut module = Module::new(BYTECODE.to_vec(), APP, GRANTS);
+    module.set_budget_ms(f64::INFINITY);
+    module
+}
+
 // Exercise the actual replaceable-module codec on both calls and replies. A
 // portable storage request cannot smuggle an executor-local Rust closure here.
 struct AbiBackup(exact_logic_abi::Session<fieldnotes_data::Backup>);
@@ -139,7 +147,7 @@ struct Notebook<D = Module> {
 }
 impl Notebook<Module> {
     fn open(root: &Root) -> Self {
-        Self::with_data(root, Module::new(BYTECODE.to_vec(), APP, GRANTS))
+        Self::with_data(root, module())
     }
 }
 impl<D: DataSource> Notebook<D> {
@@ -267,10 +275,7 @@ fn backup_moves_between_typescript_and_rust_with_the_same_database_and_file() {
     // sees the unchanged database and can read a backup written by that source.
     let mut mixed = Notebook::with_data(
         &root,
-        Storage::new(fieldnotes_data::mixed(
-            Module::new(BYTECODE.to_vec(), APP, GRANTS),
-            exact_js::Placement::Main,
-        )),
+        Storage::new(fieldnotes_data::mixed(module(), exact_js::Placement::Main)),
     );
     assert_eq!(mixed.library("")["notes"][0]["id"], id);
     let backup = mixed.call("backupNotes", vec![]);
@@ -385,10 +390,8 @@ fn mixed_backup_and_repeated_delete_after_reload_refresh_the_visible_library() {
         .as_str()
         .unwrap()
         .to_owned();
-    let mut data = exact_data_host::Storage::new(fieldnotes_data::mixed(
-        Module::new(BYTECODE.to_vec(), APP, GRANTS),
-        exact_js::Placement::Main,
-    ));
+    let mut data =
+        exact_data_host::Storage::new(fieldnotes_data::mixed(module(), exact_js::Placement::Main));
     data.configure_storage(
         root.0.join("data"),
         root.0.join("cache"),
@@ -426,10 +429,8 @@ fn mixed_backup_and_repeated_delete_after_reload_refresh_the_visible_library() {
     assert_eq!(runner.store().get("fieldnotes.revision"), Some("2"));
     let carried = runner.carry();
     drop(runner);
-    let mut data = exact_data_host::Storage::new(fieldnotes_data::mixed(
-        Module::new(BYTECODE.to_vec(), APP, GRANTS),
-        exact_js::Placement::Main,
-    ));
+    let mut data =
+        exact_data_host::Storage::new(fieldnotes_data::mixed(module(), exact_js::Placement::Main));
     data.configure_storage(
         root.0.join("data"),
         root.0.join("cache"),
@@ -611,7 +612,7 @@ fn apple_module_replacement_configures_storage_before_activation_and_refreshes_l
     );
     let agent = std::env::var_os("EXACT_AGENT").is_some();
     let mut bridge = Bridge::new();
-    let new_module = || Module::new(BYTECODE.to_vec(), APP, GRANTS);
+    let new_module = module;
     let length = bridge.boot(PLAN, new_module(), Hooks::none(), 1100.0, 760.0);
     assert!(output(&bridge, length)["error"].is_null());
     assert!(!app_root.0.exists(), "cold boot must not open app storage");
@@ -802,10 +803,7 @@ fn rust_backup_keeps_one_snapshot_when_another_writer_changes_a_later_note() {
 fn drive(root: &Root, typescript: Placement, rust: Placement) -> Vec<Json> {
     let mut app = Notebook::with_data(
         root,
-        exact_data_host::Storage::new(fieldnotes_data::mixed(
-            Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(typescript),
-            rust,
-        )),
+        exact_data_host::Storage::new(fieldnotes_data::mixed(module().placed(typescript), rust)),
     );
     let mut out = Vec::new();
     let first = app.save(
@@ -854,7 +852,7 @@ fn worker_placement_orders_the_notebook_through_the_runner_and_releases_held_tur
         .unwrap()
         .to_owned();
     let mut data = exact_data_host::Storage::new(fieldnotes_data::mixed(
-        Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(Placement::Worker),
+        module().placed(Placement::Worker),
         Placement::Worker,
     ));
     data.configure_storage(
@@ -986,7 +984,7 @@ fn apple_bridge_runs_the_placed_notebook_through_its_executor_and_pump() {
     );
     let data = || {
         exact_data_host::Storage::new(fieldnotes_data::mixed(
-            Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(Placement::Worker),
+            module().placed(Placement::Worker),
             Placement::Worker,
         ))
     };
@@ -1089,7 +1087,7 @@ fn loaded_note_preserves_drafts_pending_saves_failures_and_reload() {
         seed.save("", "Second", "Other body", true);
         drop(seed);
         let data = || {
-            let mut module = Module::new(BYTECODE.to_vec(), APP, GRANTS).placed(placement);
+            let mut module = module().placed(placement);
             module
                 .configure_storage(
                     root.0.join("data"),
