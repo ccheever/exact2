@@ -4,9 +4,9 @@
 **Status:** Draft
 **Systems:** Text, Kernel (one prop), Contract (one attribute, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), a new `markdown/` crate, Interview (first consumer)
 **Author:** Charlie Cheever / Claude (Fable 5.1)
-**Implementer:** Claude, starting 2026-09-21
+**Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-09-21 r2, after Astra's review (`llp/reviews/1045-markdown-editor.astra.md`)
+**Revised:** 2026-09-21 r3, Charlie approved the source-editing / CodeMirror plan
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 
 ## 1. Ask
@@ -16,6 +16,12 @@ excellent; output that renders very cheaply so an app can scan through tons of
 it, not always in editable form; footnotes, code blocks, and embeds (tweets,
 Instagram, TikTok, YouTube); Bear as inspiration. Interview is the first
 consumer and may change to fit; it lives here as a standard-library candidate.
+
+Charlie approved the next implementation slice on 2026-09-21: dependable
+source editing first, TextKit 2 on Apple, CodeMirror 6 on the web, syntax
+revealed across the active paragraph, and a thin Interview compose screen.
+The remaining media, footnote, highlighting and reader migration slices
+remain proposed work; this approval does not claim their completion.
 
 ## 2. What exists
 
@@ -52,9 +58,11 @@ or a mapped tree — as long as untouched source survives byte for byte. The
 editing behaviours the string does not decide are fixed here, not left to
 each host:
 
-- **Caret and deletion.** Hidden markers are skipped by arrow, word and line
-  movement as if absent; a caret arriving next to a construct reveals it (its
-  markers become visible, dimmed text), after which movement and deletion are
+- **Caret and deletion.** The active paragraph's syntax is visible, dimmed
+  text; a selection reveals the paragraphs it touches. This is the initial
+  editing policy approved on 2026-09-21. Hidden markers outside those
+  paragraphs are skipped by arrow, word and line movement as if absent;
+  entering their paragraph reveals them, after which movement and deletion are
   character by character through the syntax. Backspace at the start of a
   hidden construct's text reveals rather than deletes. Deleting one of a pair
   leaves the other visible as literal text — never silently removes it.
@@ -84,8 +92,8 @@ DOM count in):
   paragraph styles (heading level, list depth and marker, quote depth, code
   block, footnote definition), **hidden ranges** (the markers), and replaced
   ranges (a footnote reference shown as a superscript ordinal, a task box, a
-  rule). `reveal` is the selection: a construct the selection touches keeps its
-  markers visible, as in Bear. `reveal = None` is the reader: everything hidden.
+  rule). `reveal` is the selection: every paragraph it touches keeps its
+  markers visible. `reveal = None` is the reader: everything hidden.
 - `edit(source, selection, command) -> Edit` — `bold`, `italic`, `code`,
   `strike`, `link`, `heading(n)`, `bullet`, `ordered`, `task`, `quote`,
   `codeblock`, `footnote`, `indent`, `outdent`, `toggleTask`, and the input
@@ -183,17 +191,19 @@ and the row is kept only if the numbers say so.
 - **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
   on **TextKit 2** (Charlie, 2026-09-21: "I worry about being on an older less
   supported train"; r2 had chosen TextKit 1 for its glyph-generation delegate).
-  TextKit 2 needs no glyph delegate: a marker the selection does not touch is
-  hidden by attributes alone — a near-zero font removes its advance, a clear
-  colour its ink — which survives autocorrect, dictation and IME, works
-  under either layout manager, and never touches `layoutManager` (the
-  irreversible switch back). Typing attributes are reset to the base after
+  The initial prototype hides inactive markers by attributes alone — a
+  near-zero font and clear colour — and never touches `layoutManager`
+  (the irreversible switch back). This is a provisional rendering mechanism,
+  not proof of caret, accessibility, dictation or IME correctness. The next
+  slice establishes ordinary editing with dimmed active-paragraph syntax;
+  additional hiding is retained only where native input remains dependable.
+  Typing attributes are reset to the base after
   every restyle, so text typed beside a hidden marker does not inherit its
   look. The host restyles the whole storage in place from
   `exact_markup_style` (attributes, never `attributedText`) after each change
-  and selection move, so selection and marked text survive; caret rectangles,
-  hit testing and selection are TextKit's over the same characters, and
-  D1's behaviours are verified over it. **Landed 2026-09-21 on iOS** as the
+  and selection move; it skips restyling during composition. Caret rectangles,
+  hit testing and selection are TextKit's over the same characters; D1's
+  behaviours still require native interaction proofs. **Landed 2026-09-21 on iOS** as the
   slice-3 prototype (`MarkupEditorIOS.swift`, `textarea markup="markdown"` in
   `apps/markdown-stress`'s one-node mode): headings, emphasis, code, links,
   quotes, hidden and revealed markers, on the simulator. Owed: bullets and
@@ -202,18 +212,18 @@ and the row is kept only if the numbers say so.
   manager was not consulted; markers show dimmed meanwhile), `format` and
   `select`, D1's caret and copy rules, the phone proofs of slice 3, macOS.
   The shared Swift will live in `host/apple/swift`.
-- **Web:** a `contenteditable` element whose text content is the source; spans
-  are rebuilt from the edited block to the end with the selection restored by
-  offset, never during composition; hidden markers are `display: none`. The
-  editor keeps a source string of its own beside the DOM (the DOM is not the
-  serialization: browsers insert `<br>` and wrappers), applies `beforeinput`
-  where cancelable and reconciles from `input` where not, and owns copy, cut,
-  paste (plain text) and drop. `glue.js`'s `.value` and `.select()` paths gain
-  a `markup` branch. "No editor dependency" is a constraint the slice-4
-  prototype evaluates in Safari, iOS Safari, Chrome and Firefox — composition,
-  replacement suggestions, paragraph joins, backward selections, paste, undo,
-  external value updates — and reports on; if the bar is not met within the
-  slice, that is Charlie's decision, not a quiet dependency.
+- **Web:** CodeMirror 6, approved by Charlie on 2026-09-21. The document is
+  the Markdown source; the shared Rust styler supplies decorations and the
+  edit function supplies replacements. CodeMirror owns DOM reconciliation,
+  selection, composition and history. Replacement decorations hide inactive
+  syntax, with explicit reveal-before-delete behavior rather than relying
+  on atomic-range deletion defaults. The active paragraph shows dimmed
+  syntax. The editor is a separately bundled host artifact, loaded after
+  first pixel when a Markdown editor is needed; reading does not load it.
+  `glue.js`'s value, focus, selection and agent paths delegate to the editor.
+  Safari, iOS Safari, Chrome and Firefox still require evaluation for
+  composition, replacement suggestions, paragraph joins, backward selections,
+  clipboard, undo and external value updates. A library is not that proof.
 - **Linux:** v2 (Charlie, 2026-09-21: "focus on web ios macos for now and
   worry about linux in v2"). It reads through `markup` when the row lands,
   since the painter already links Rust; editing stays the existing plain
@@ -227,15 +237,17 @@ and the row is kept only if the numbers say so.
 
 ### D6 — Commands and toolbar state
 
-`format(id, command)` joins `focus(id)` and `selectText(id)` as a capability
+`format(id, command, argument?)` joins `focus(id)` and `selectText(id)` as a capability
 command (the lowerer and VM already pass generic command names and arguments);
 the host runs `edit` against its live buffer and selection and applies the
-replacements as one undo group and one `change`. Commands with arguments —
-`link(url)`, `figure(src)`, `heading(n)` — are the same command with a string.
+replacements as one undo group and one `change`. Commands with arguments use
+the third string: `format(id, "link", url)`, `format(id, "heading", "2")`,
+or `format(id, "figure", src)`.
 A `select` event is new event vocabulary (the event table and handler list
-gain one entry) and carries a small record: the formats at the caret, `mixed`
-when a selection spans differing formats, the link target under the caret if
-any, and which commands are unavailable there (inside a fence, most are).
+gain one entry) and carries a `MarkdownSelection` record: `formats` (space-
+separated command names, headings spelled `heading1` through `heading6`), `mixed`
+when a selection spans differing formats, `link` (the target under the caret,
+or empty), and `unavailable` (space-separated commands; inside a fence, most are).
 That is what a toolbar, a link sheet and an agent assertion need; no range
 crosses the wire. The toolbar is authored Contract (`retainFocus`), riding
 the existing keyboard viewport on iOS. A link sheet that focuses its own
@@ -331,7 +343,7 @@ picker limited to images and video, no camera, no generic file input.
    on every host (D5). `markup` on `Text` behind the measurement contract of
    D3, on Apple and web first, over the current reader's documents, measured
    against nested runs (D4). The row is kept or dropped on that evidence.
-3. **iOS editing prototype on a phone.** TextKit 1 styling, hidden markers,
+3. **iOS editing prototype on a phone.** TextKit 2 styling, paragraph reveal,
    D1's behaviours — Japanese and Chinese composition, dictation, autocorrect
    across a boundary, emoji and combining characters, Arabic/Hebrew, VoiceOver,
    selection handles, undo/redo, Dynamic Type, caret reveal under the keyboard
@@ -342,7 +354,8 @@ picker limited to images and video, no camera, no generic file input.
    drafts through the existing `value` path. This is where the TypeScript
    route to `segments`/`excerpt` (a data-seam call into the crate, LLP
    1027.001's shape) and external updates are found, not in the last slice.
-5. macOS (shared Swift) and the web editor with its browser evaluation (D5).
+5. macOS (shared Swift) and the CodeMirror web editor with its browser
+   evaluation (D5); the web prototype runs alongside the native editing slice.
 6. Embeds verified per provider (D7), figures with captions, footnote base per
    segment, tables as a segment, code-block highlighting (D8), plain-text
    paste and drop, link editing.
@@ -357,8 +370,8 @@ Collaborative editing, a rich paste importer (HTML → Markdown), a camera or
 generic file input, image editing, highlighting beyond the fixed language
 set, table editing beyond
 source (v1 types pipes; v2 owes a grid editor or a cell-aware `format`), a Contract component
-library (`use` across apps stays as QUEUE has it), LLP 1024, and any editor
-dependency (CodeMirror, ProseMirror) on the web.
+library (`use` across apps stays as QUEUE has it), LLP 1024, and a separate rich
+document model. CodeMirror 6 is the admitted web editor dependency.
 
 ## 6. Open, for Charlie
 
@@ -367,7 +380,7 @@ dependency (CodeMirror, ProseMirror) on the web.
   code-block highlighting is in v1 (D8). LLP 1024 was already deferred on
   2026-09-05 and is not a new trade.
 - Decided 2026-09-21: copy defaults to source with a plain-text alternative
-  (D1); "no editor dependency" on the web is not absolute — slice 5's
-  evaluation reports and Charlie chooses; tables are source-only in v1 and v2
+  (D1); Charlie subsequently approved CodeMirror 6 for the web editing slice;
+  tables are source-only in v1 and v2
   owes a real answer (§5).
 - `llp/current/` is at 15; this document is not linked there until one leaves.
