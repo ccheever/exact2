@@ -375,7 +375,7 @@ function inertAncestor(el) {
 }
 
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
-const composing = new WeakSet(), heldValues = new WeakMap();
+const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
 function writeValue(el, value) {
   if (el.exactMarkup) { el.exactMarkup.setValue(value); return; }
   if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
@@ -393,6 +393,8 @@ function syncMarkup(el) {
   markupModule ??= moduleReady.then(() => loadAfterPaint('./markup-editor.js', 'installMarkupEditor'));
   markupModule.then(install => {
     const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
+    if (composing.has(el)) return; // Keep the native marked range until its final input has committed.
+    markupPending.delete(el);
     if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
     install(el, { live, replace(node) { views.set(id, node); attach(node, id, el.exactHandlers); },
       select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); },
@@ -522,6 +524,10 @@ function attach(el, id, handlers) {
   const on = (event, handle) => el.addEventListener(event, (e) => {
     if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load")) handle(e);
   });
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
+    on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); });
+  }
   if (el instanceof HTMLIFrameElement) {
     if (!iframeLoading.has(el)) iframeLoading.set(el, true);
     const dispatchLoad = handlers.includes("load");
@@ -560,7 +566,6 @@ function attach(el, id, handlers) {
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
       });
     } else if (kind === "change") {
-      on("compositionstart", () => composing.add(el)); on("compositionend", () => { composing.delete(el); if (heldValues.has(el)) writeValue(el, heldValues.get(el)); });
       on("input", (e) => {
         const value = el.value;
         if (el.getAttribute("emojiPicker") === "true") {
