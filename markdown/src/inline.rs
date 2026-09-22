@@ -5,6 +5,9 @@
 
 use crate::block::B;
 use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
+use std::collections::HashMap;
+
+const NO_CODE: usize = usize::MAX - 1;
 
 pub(crate) struct Mark {
     pub range: B,
@@ -50,13 +53,13 @@ struct Scanner<'a> {
     /// The content's characters at their byte positions, lines joined by `\n`.
     cs: Vec<(usize, char)>,
     end: usize,
-    /// For each `[`, the `]` that closes it, found in one pass; `usize::MAX`
-    /// for none. An unmatched bracket then costs nothing to reject.
+    /// Closing brackets and code runs share slots at their opening character.
+    /// `usize::MAX` is unvisited; `NO_CODE` records a failed code search.
     closes: Vec<usize>,
     out: &'a mut Out,
 }
 
-/// The closing bracket of every `[`, skipping escapes and code spans.
+/// Closing brackets and encountered code openers, skipping escapes and code spans.
 fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
     let mut closes = vec![usize::MAX; cs.len()];
     let mut stack: Vec<usize> = Vec::new();
@@ -66,20 +69,19 @@ fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
             '\\' => i += 1,
             '`' => {
                 let len = (i..cs.len()).take_while(|&j| cs[j].1 == '`').count();
-                let mut j = i + len;
-                while j < cs.len() {
-                    if cs[j].1 == '`' {
-                        let run = (j..cs.len()).take_while(|&k| cs[k].1 == '`').count();
-                        if run == len {
-                            i = j + run - 1;
-                            break;
-                        }
-                        j += run;
-                    } else {
-                        j += 1;
+                let close = if closes[i] != usize::MAX {
+                    closes[i]
+                } else {
+                    let (close, other_runs) = find_code(cs, i + len, len, cs.len());
+                    closes[i] = close;
+                    if close == NO_CODE && other_runs {
+                        index_code(cs, &mut closes);
                     }
-                }
-                if j >= cs.len() {
+                    close
+                };
+                if close < cs.len() {
+                    i = close + len - 1;
+                } else {
                     i += len - 1;
                 }
             }
@@ -94,6 +96,48 @@ fn match_brackets(cs: &[(usize, char)]) -> Vec<usize> {
         i += 1;
     }
     closes
+}
+
+/// The first whole run of this length; backslashes inside code are literal.
+fn find_code(cs: &[(usize, char)], mut i: usize, len: usize, hi: usize) -> (usize, bool) {
+    let mut other_runs = false;
+    while i < hi {
+        if cs[i].1 == '`' {
+            let run = (i..hi).take_while(|&j| cs[j].1 == '`').count();
+            if run == len {
+                return (i, false);
+            }
+            other_runs = true;
+            i += run;
+        } else {
+            i += 1;
+        }
+    }
+    (NO_CODE, other_runs)
+}
+
+/// Only a failed search with later runs pays for an index. Reuse the buffer, and drop
+/// the temporary length map before styling. An escaped first tick leaves the
+/// rest of its run as an opener, but only whole runs can close another run.
+fn index_code(cs: &[(usize, char)], closes: &mut [usize]) {
+    let mut next = HashMap::new();
+    let mut i = cs.len();
+    while i > 0 {
+        if cs[i - 1].1 != '`' {
+            i -= 1;
+            continue;
+        }
+        let end = i;
+        while i > 0 && cs[i - 1].1 == '`' {
+            i -= 1;
+        }
+        let len = end - i;
+        closes[i] = next.get(&len).copied().unwrap_or(NO_CODE);
+        if len > 1 {
+            closes[i + 1] = next.get(&(len - 1)).copied().unwrap_or(NO_CODE);
+        }
+        next.insert(len, i);
+    }
 }
 
 /// Scans one block's content ranges as a single run of inline text.
@@ -191,19 +235,20 @@ impl Scanner<'_> {
 
     fn code(&mut self, i: usize, hi: usize) -> Option<usize> {
         let len = self.run(i, hi);
-        let mut j = i + len;
-        while j < hi {
-            if self.ch(j) == '`' {
-                let close = self.run(j, hi);
-                if close == len {
-                    let outer = self.pos(i)..self.pos(j + len);
-                    self.construct(CODE, outer, self.pos(i + len)..self.pos(j), None);
-                    return Some(j + len);
-                }
-                j += close;
-            } else {
-                j += 1;
+        if self.closes[i] == usize::MAX {
+            // URLs and link targets can skip an opener seen by the bracket
+            // pass, leaving its closer to open code here instead.
+            let (close, other_runs) = find_code(&self.cs, i + len, len, hi);
+            self.closes[i] = close;
+            if close == NO_CODE && other_runs {
+                index_code(&self.cs, &mut self.closes);
             }
+        }
+        let j = self.closes[i];
+        if j < hi && len <= hi - j {
+            let outer = self.pos(i)..self.pos(j + len);
+            self.construct(CODE, outer, self.pos(i + len)..self.pos(j), None);
+            return Some(j + len);
         }
         Some(i + len)
     }
