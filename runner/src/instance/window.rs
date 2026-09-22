@@ -142,8 +142,7 @@ impl NodeInst {
         let mut region = RegionInst {
             region: *region,
             active: Active::Rows { rows: Vec::new() },
-            memo: None,
-            body_memo: None,
+            subject: None,
             window: Some(Box::new(ListWindow {
                 content,
                 owner: self.view,
@@ -169,7 +168,7 @@ impl NodeInst {
                 placed: Vec::new(),
             })),
         };
-        region.update(u, frames)?;
+        region.update(u, frames, true)?;
         Ok(vec![Child::Region(region)])
     }
 }
@@ -434,14 +433,14 @@ impl ListWindow {
             let top = self.heights.offset(*index);
             let mut row = if let Some((mut row, was, of)) = old.remove(index) {
                 if refresh {
-                    row.frame = Frame {
-                        item: Some(self.items[*index].clone()),
-                        region: Some(region.0),
-                        row: Some(row.slots.clone()),
-                        ..Frame::default()
-                    };
-                    let inner = with_frame(frames, row.frame.clone());
-                    update_all(u, &mut row.roots, &inner)?;
+                    let item = Some(self.items[*index].clone());
+                    // An equivalent item keeps its object for nested memos.
+                    let dirty = !crate::compare::equivalent_opt(&row.frame.item, &item);
+                    if dirty {
+                        row.frame.item = item;
+                    }
+                    let body = &u.sites.deps.bodies[region.0 as usize];
+                    update_row(u, &mut row, frames, dirty, body)?;
                 } else if was == top && of == count {
                     // Where it was, as many as there were: nothing to say.
                     rows.push(row);

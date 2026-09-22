@@ -124,14 +124,8 @@ impl Harness {
     fn from_parts(plan: Plan, slots: Vec<Value>) -> Self {
         let mut ids = Ids::default();
         let mut kernel = Kernel::with_monospace();
-        let mut u = Update {
-            env: env(&plan, &slots),
-            sites: &crate::instance::SiteIndex::new(&plan),
-            ids: &mut ids,
-            ops: vec![],
-            surfaces: vec![],
-            work: Default::default(),
-        };
+        let sites = crate::instance::SiteIndex::new(&plan);
+        let mut u = Update::new(env(&plan, &slots), &sites, &mut ids);
         let tree = Tree::create(&mut u).unwrap();
         kernel.apply(0, 1, &u.ops).unwrap();
         Self {
@@ -162,14 +156,8 @@ impl Harness {
         }
     }
     fn send(&mut self, feedback: CollectionFeedback) -> bool {
-        let mut u = Update {
-            env: env(&self.plan, &self.slots),
-            sites: &crate::instance::SiteIndex::new(&self.plan),
-            ids: &mut self.ids,
-            ops: vec![],
-            surfaces: vec![],
-            work: Default::default(),
-        };
+        let sites = crate::instance::SiteIndex::new(&self.plan);
+        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
         let changed = self.tree.update_collection(&mut u, feedback).unwrap().0;
         self.batch += 1;
         self.kernel.apply(0, self.batch, &u.ops).unwrap();
@@ -177,14 +165,12 @@ impl Harness {
         changed
     }
     fn update(&mut self) -> Result<(), InstanceError> {
-        let mut u = Update {
-            env: env(&self.plan, &self.slots),
-            sites: &crate::instance::SiteIndex::new(&self.plan),
-            ids: &mut self.ids,
-            ops: vec![],
-            surfaces: vec![],
-            work: Default::default(),
-        };
+        self.update_with(Default::default())
+    }
+    fn update_with(&mut self, rows: crate::instance::RowWrites) -> Result<(), InstanceError> {
+        let sites = crate::instance::SiteIndex::new(&self.plan);
+        let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
+        u.rows = rows;
         self.tree.update(&mut u)?;
         self.batch += 1;
         self.kernel.apply(0, self.batch, &u.ops).unwrap();
@@ -267,7 +253,7 @@ fn body_and_key_dependencies_are_independent_and_surviving_keys_reuse_views() {
     }
     h.update().unwrap();
     assert_eq!(h.tree.last_work.rows_keyed, 0);
-    assert!(h.tree.last_work.regions_skipped > 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0, "nothing changed");
     h.slots[2] = Value::Number(1.0);
     h.update().unwrap();
     assert_eq!(h.tree.last_work.rows_keyed, 1_000);
@@ -454,13 +440,11 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
     let (_, path) = h.tree.site(first.root).unwrap();
     assert!(matches!(path[0], InstanceStep::Row { .. }));
     let (_, frames) = h.tree.find(first.root).unwrap();
-    frames[0]
-        .row
-        .as_ref()
-        .unwrap()
-        .borrow_mut()
-        .insert(4, Value::Number(7.0));
-    h.update().unwrap();
+    let row = frames[0].row.clone().unwrap();
+    row.borrow_mut().insert(4, Value::Number(7.0));
+    let mut written = crate::instance::RowWrites::default();
+    written.record(&frames, &row, 4);
+    h.update_with(written).unwrap();
     assert_eq!(
         h.kernel.node(first.root).unwrap().props.str(PropId::Text),
         Some("7")
@@ -1058,7 +1042,7 @@ fn key_reuse_items(h: &Harness) -> Vec<Value> {
 }
 
 #[test]
-fn key_reuse_fresh_outer_list_retains_keys_without_key_vm_calls() {
+fn key_reuse_fresh_outer_list_of_the_same_records_is_no_change() {
     let mut h = key_reuse_harness(false);
     let keys = h.collection().keys.as_ptr();
     let index_key = h.collection().index.key(0).unwrap().as_ptr();
@@ -1066,12 +1050,10 @@ fn key_reuse_fresh_outer_list_retains_keys_without_key_vm_calls() {
     h.slots[0] = Value::list(key_reuse_items(&h));
     h.update().unwrap();
     assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0);
     assert_eq!(h.collection().keys.as_ptr(), keys);
     assert_eq!(h.collection().index.key(0).unwrap().as_ptr(), index_key);
-    assert!(
-        h.snapshot().revision > revision,
-        "ordinary refinement still runs"
-    );
+    assert_eq!(h.snapshot().revision, revision);
 }
 
 #[test]
@@ -1118,17 +1100,14 @@ fn key_reuse_one_changed_record_evaluates_once_and_updates_measured_body() {
 }
 
 #[test]
-fn key_reuse_equal_content_fresh_records_still_evaluate_every_key() {
+fn key_reuse_equal_content_fresh_records_are_no_change() {
     let mut h = key_reuse_harness(false);
     let keys = h.collection().keys.as_ptr();
     h.slots[0] = Value::list((0..128).map(|i| key_reuse_row(i as f64, "old")).collect());
     h.update().unwrap();
-    assert_eq!(h.tree.last_work.rows_keyed, 128);
-    assert_eq!(
-        h.collection().keys.as_ptr(),
-        keys,
-        "ordered uniqueness proof remains valid"
-    );
+    assert_eq!(h.tree.last_work.rows_keyed, 0);
+    assert_eq!(h.tree.last_work.nodes_visited, 0);
+    assert_eq!(h.collection().keys.as_ptr(), keys);
 }
 
 #[test]
@@ -1148,14 +1127,8 @@ fn key_reuse_clock_change_invalidates_all_identical_items() {
     h.slots[0] = Value::list(key_reuse_items(&h));
     let mut input = env(&h.plan, &h.slots);
     input.now_ms = 500.;
-    let mut u = Update {
-        env: input,
-        sites: &crate::instance::SiteIndex::new(&h.plan),
-        ids: &mut h.ids,
-        ops: vec![],
-        surfaces: vec![],
-        work: Default::default(),
-    };
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut u = Update::new(input, &sites, &mut h.ids);
     h.tree.update(&mut u).unwrap();
     assert_eq!(u.work.rows_keyed, 128);
     assert_eq!(h.collection().index.key(0), Some("n:500"));
@@ -1256,63 +1229,6 @@ fn key_reuse_repeated_answers_do_not_retain_historical_records() {
     }
 }
 
-#[test]
-fn key_reuse_environment_distinguishes_absent_item_and_bound_from_unit() {
-    let p = plan(4, false, false);
-    let slots = [
-        values(4),
-        Value::Number(0.),
-        Value::Number(0.),
-        Value::Number(16.),
-    ];
-    let input = env(&p, &slots);
-    for field in [0, 1] {
-        let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
-        let absent = Frame::default();
-        memo.remember(&input, std::slice::from_ref(&absent));
-        assert!(memo.unchanged(&input, std::slice::from_ref(&absent)));
-        let mut present = absent;
-        if field == 0 {
-            present.item = Some(Value::Unit);
-        } else {
-            present.bound = Some(Value::Unit);
-        }
-        assert!(!memo.unchanged(&input, &[present]));
-    }
-}
-
-#[test]
-fn key_reuse_environment_preserves_frame_scope_and_resolved_mutable_slot() {
-    let mut p = plan(4, false, false);
-    p.slots[2].owner = Some(RegionsId(0));
-    let slots = [
-        values(4),
-        Value::Number(0.),
-        Value::Number(0.),
-        Value::Number(16.),
-    ];
-    let input = env(&p, &slots);
-    let local = Rc::new(std::cell::RefCell::new(BTreeMap::from([(
-        2,
-        Value::Number(7.),
-    )])));
-    let frame = Frame {
-        region: Some(0),
-        row: Some(Rc::clone(&local)),
-        ..Frame::default()
-    };
-    let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
-    memo.remember(&input, std::slice::from_ref(&frame));
-    assert!(memo.unchanged(&input, std::slice::from_ref(&frame)));
-    local.borrow_mut().insert(2, Value::Number(8.));
-    assert!(!memo.unchanged(&input, std::slice::from_ref(&frame)));
-    local.borrow_mut().insert(2, Value::Number(7.));
-    let mut changed = frame.clone();
-    changed.region = Some(1);
-    assert!(!memo.unchanged(&input, &[changed]));
-    assert!(!memo.unchanged(&input, &[Frame::default(), frame]));
-}
-
 fn key_reuse_dependency_plan(which: u8) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let number = b.primitive(TypeKind::Number);
@@ -1351,9 +1267,10 @@ fn key_reuse_dependency_plan(which: u8) -> Plan {
 }
 
 #[test]
-fn key_reuse_certificate_tracks_derive_resource_and_pending_variants() {
+fn key_reads_track_derive_resource_and_pending_variants() {
     for kind in 0..4 {
         let p = key_reuse_dependency_plan(kind);
+        let sites = crate::instance::SiteIndex::new(&p);
         let slots = [Value::Number(0.)];
         let before = [Some(Value::Number(1.))];
         let after = [Some(Value::Number(2.))];
@@ -1364,9 +1281,9 @@ fn key_reuse_certificate_tracks_derive_resource_and_pending_variants() {
         input.resources = &before;
         input.pending_resources = &pending;
         input.pending_mutations = &pending;
-        let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
-        memo.remember(&input, &[]);
-        assert!(memo.unchanged(&input, &[]));
+        let seen = crate::instance::deps::Seen::of(&input);
+        let key = &sites.deps.keys[0];
+        assert!(!sites.deps.changed(&seen, &input).intersects(&key.bits));
         match kind {
             0 => input.derives = &after,
             1 => input.resources = &after,
@@ -1374,48 +1291,18 @@ fn key_reuse_certificate_tracks_derive_resource_and_pending_variants() {
             3 => input.pending_mutations = &changed_pending,
             _ => unreachable!(),
         }
-        assert!(!memo.unchanged(&input, &[]), "dependency {kind}");
+        assert!(
+            sites.deps.changed(&seen, &input).intersects(&key.bits),
+            "dependency {kind}"
+        );
     }
 }
 
 #[test]
-fn key_reuse_unsupported_router_call_and_action_param_decline_certificate() {
-    for kind in [4, 5] {
-        let p = key_reuse_dependency_plan(kind);
-        assert!(KeyMemo::new(&p, RegionsId(0)).is_none());
-    }
-}
-
-#[test]
-fn key_reuse_certificate_tracks_outer_values_and_unreferenced_scope_structure() {
-    let p = plan(4, false, false);
-    let slots = [
-        values(4),
-        Value::Number(0.),
-        Value::Number(0.),
-        Value::Number(16.),
-    ];
-    let input = env(&p, &slots);
-    let frame = Frame {
-        item: Some(Value::str("outer")),
-        bound: Some(Value::str("bound")),
-        ..Frame::default()
-    };
-    let mut memo = KeyMemo::new(&p, RegionsId(0)).unwrap();
-    memo.remember(&input, std::slice::from_ref(&frame));
-    assert!(memo.unchanged(&input, std::slice::from_ref(&frame)));
-    let mut changed = frame.clone();
-    changed.item = Some(Value::str("different"));
-    assert!(!memo.unchanged(&input, &[changed]));
-    let mut changed = frame.clone();
-    changed.bound = Some(Value::str("different"));
-    assert!(!memo.unchanged(&input, &[changed]));
-    let mut changed = frame.clone();
-    changed.region = Some(0);
-    assert!(!memo.unchanged(&input, &[changed]));
-    let mut changed = frame;
-    changed.row = Some(Rc::new(std::cell::RefCell::new(BTreeMap::new())));
-    assert!(!memo.unchanged(&input, &[changed]));
+fn a_router_read_is_pure_and_an_action_parameter_is_opaque() {
+    let sites = |kind| crate::instance::SiteIndex::new(&key_reuse_dependency_plan(kind));
+    assert!(sites(4).deps.keys[0].constant());
+    assert!(sites(5).deps.keys[0].opaque);
 }
 
 #[test]

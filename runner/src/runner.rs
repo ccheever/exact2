@@ -242,6 +242,11 @@ pub struct Runner<D: DataSource> {
     /// next boot: only for a source that may not be ready at boot.
     keeps_answers: bool,
     poisoned: bool,
+    /// Evaluate every site on every update (the incremental update's
+    /// reference; `set_full_evaluation`).
+    full: bool,
+    /// Row slots actions wrote, for the next update.
+    row_writes: crate::instance::RowWrites,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -503,6 +508,8 @@ impl<D: DataSource> Runner<D> {
             surface_records: Default::default(),
             router,
             poisoned: false,
+            full: false,
+            row_writes: Default::default(),
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
             flow_warned: Default::default(),
@@ -582,14 +589,7 @@ impl<D: DataSource> Runner<D> {
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces) = {
-            let mut u = Update {
-                env: runner.env(&[], &[]),
-                sites: &runner.sites,
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-                work: Default::default(),
-            };
+            let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             let tree = Tree::create(&mut u)?;
             (tree, u.ops, u.surfaces)
         };
@@ -1133,6 +1133,9 @@ impl<D: DataSource> Runner<D> {
             self.pending_mut = saved_pending_mut;
             return Err(e);
         }
+        for (rows, slot, _) in &row_undo {
+            self.row_writes.record(frames, rows, *slot);
+        }
         for m in &assigned {
             self.forget(Target::Mutation(*m));
         }
@@ -1181,6 +1184,13 @@ impl<D: DataSource> Runner<D> {
             .as_ref()
             .map(|tree| tree.last_work)
             .unwrap_or_default()
+    }
+
+    /// Evaluate every site on every update instead of only those whose
+    /// inputs changed: the reference an incremental update must equal
+    /// (the differential test runs both). A runtime switch, not a feature.
+    pub fn set_full_evaluation(&mut self, full: bool) {
+        self.full = full;
     }
 
     /// Whether an update failed after the tree began to change (see

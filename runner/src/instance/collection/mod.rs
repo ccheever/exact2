@@ -2,7 +2,6 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
-mod memo;
 mod reorder;
 mod reorder_api;
 #[cfg(test)]
@@ -14,7 +13,6 @@ pub use api::*;
 use exact_kernel::PropId;
 use exact_plan::EventKind;
 use index::{HeightIndex, MeasurementToken};
-use memo::KeyMemo;
 pub use reorder_api::*;
 pub(super) use traversal::invalidate_typography;
 
@@ -51,9 +49,6 @@ pub(crate) struct Collection {
     mounted: Vec<Mounted>,
     spacers: Vec<(ViewId, f64)>,
     children: Vec<ViewId>,
-    key_memo: Option<KeyMemo>,
-    key_environment: Option<KeyMemo>,
-    body_memo: Option<dependencies::Memo>,
     revision: u64,
     next_epoch: u64,
     zero_heights: std::collections::BTreeSet<String>,
@@ -188,10 +183,6 @@ impl Collection {
             mounted: Vec::new(),
             spacers: Vec::new(),
             children: Vec::new(),
-            key_memo: KeyMemo::new(plan, region),
-            key_environment: KeyMemo::key_only(plan, region),
-            // Enclosing scopes are compared by identity with the globals.
-            body_memo: dependencies::Memo::for_region(plan, u.sites, region, true),
             revision: 0,
             next_epoch: 0,
             zero_heights: Default::default(),
@@ -206,22 +197,22 @@ impl Collection {
             }),
             edge_armed: [true; 2],
         });
-        this.update_data(u, frames)?;
+        this.update_data(u, frames, true)?;
         Ok(Some(this))
     }
+    /// Bring the rows up to date when the subject, the keys' other inputs or
+    /// anything a mounted row reads changed; `fresh` on creation.
     pub(super) fn update_data(
         &mut self,
         u: &mut Update<'_>,
         frames: &[Frame],
+        fresh: bool,
     ) -> Result<(), InstanceError> {
-        let data_changed = !self
-            .key_memo
-            .as_ref()
-            .is_some_and(|m| m.unchanged(&u.env, frames));
-        let body_changed = !self
-            .body_memo
-            .as_ref()
-            .is_some_and(|m| m.unchanged(&u.env, frames));
+        let deps = &u.sites.deps;
+        let index = self.region.0 as usize;
+        let keys_stale = fresh || u.stale_outside(&deps.keys[index], 1);
+        let data_changed = keys_stale || u.stale(&deps.subjects[index]);
+        let body_changed = u.stale_outside(&deps.bodies[index], 1);
         if !data_changed && !body_changed {
             u.work.regions_skipped += 1;
             return Ok(());
@@ -235,13 +226,8 @@ impl Collection {
                     region: self.region,
                 });
             };
-            let compare_previous =
-                items.len() == self.items.len() && self.key_environment.is_some();
-            let reuse_items = compare_previous
-                && self
-                    .key_environment
-                    .as_ref()
-                    .is_some_and(|m| m.unchanged(&u.env, frames));
+            let compare_previous = !fresh && items.len() == self.items.len();
+            let reuse_items = compare_previous && !keys_stale;
             // No candidate N-vector or canonical strings until an actual key
             // mismatch. All equal results reuse the existing uniqueness proof.
             let mut changed = !compare_previous;
@@ -307,15 +293,6 @@ impl Collection {
         self.restore(anchor)?;
         self.realize_window(u, frames, true)?;
         advance(&mut self.revision)?;
-        if let Some(m) = &mut self.key_memo {
-            m.remember(&u.env, frames);
-        }
-        if let Some(m) = &mut self.key_environment {
-            m.remember(&u.env, frames);
-        }
-        if let Some(m) = &mut self.body_memo {
-            m.remember(&u.env, frames);
-        }
         Ok(())
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
@@ -426,11 +403,15 @@ impl Collection {
             let mut mounted = match old.remove(&text) {
                 Some(mut mounted) => {
                     mounted.position = position;
-                    mounted.row.frame.item = Some(self.items[position].clone());
+                    let item = Some(self.items[position].clone());
+                    // An equivalent item keeps its object for nested memos.
+                    let dirty = !crate::compare::equivalent_opt(&mounted.row.frame.item, &item);
+                    if dirty {
+                        mounted.row.frame.item = item;
+                    }
                     if update {
-                        let mut inner = frames.to_vec();
-                        inner.push(mounted.row.frame.clone());
-                        update_all(u, &mut mounted.row.roots, &inner)?;
+                        let body = &u.sites.deps.bodies[self.region.0 as usize];
+                        update_row(u, &mut mounted.row, frames, dirty, body)?;
                     } else {
                         u.work.rows_reused += 1;
                     }

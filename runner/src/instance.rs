@@ -5,22 +5,28 @@
 //!
 //! The plan's nodes and regions are *sites*. An instance is one realization
 //! of a site: a kernel view for a node, an active arm for `when`/`match`, one
-//! row per key for `each`. An update re-evaluates every site against the new
-//! environment and emits exactly the kernel ops that make the kernel equal to
-//! the result: a binding's op only when its value changed, `SetChildren` only
-//! when a child list changed, create/destroy only when a key appeared or went
-//! away. There is no tree diff: a keyed row keeps its views across reorders
-//! because its key, not its position, is its identity.
+//! row per key for `each`. An update visits only the sites whose reads
+//! ([`deps`]) include an input that changed since the last update, or an
+//! enclosing row or arm whose value changed, and there evaluates only the
+//! stale bindings; it emits exactly the kernel ops that make the kernel
+//! equal to the result: a binding's op only when its value changed,
+//! `SetChildren` only when a child list changed, create/destroy only when a
+//! key appeared or went away. [`Update::full`] evaluates everything, the
+//! reference an incremental update must equal. There is no tree diff: a
+//! keyed row keeps its views across reorders because its key, not its
+//! position, is its identity.
 
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
-mod dependencies;
+mod deps;
 mod heights;
 mod text;
 mod window;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
+pub use deps::RowWrites;
+use deps::{Bits, Deps, Reads, Seen};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, NodesId, Plan, RegionKind, RegionsId, Value};
 use std::cell::RefCell;
@@ -88,8 +94,9 @@ pub struct RegionInst {
     region: RegionsId,
     active: Active,
     window: Option<Box<window::ListWindow>>,
-    memo: Option<dependencies::Memo>,
-    body_memo: Option<dependencies::Memo>,
+    /// An `each` subject as last keyed: the same object again, with the key's
+    /// other inputs unchanged, is the same keys.
+    subject: Option<Value>,
 }
 
 #[derive(Debug)]
@@ -241,12 +248,79 @@ pub struct Update<'a> {
     pub surfaces: Vec<SurfaceUpdate>,
     /// Work performed during instance evaluation.
     pub work: InstanceWork,
+    /// Evaluate every site, whatever changed: the reference an incremental
+    /// update must equal. A runtime switch, never a build feature.
+    pub full: bool,
+    /// Rows an action wrote since the last update.
+    pub rows: RowWrites,
+    /// Inputs changed since the tree last updated; `None` outside
+    /// [`Tree::update`], where everything is stale.
+    changed: Option<Bits>,
+    /// Enclosing frames whose value changed in this update, by relative depth.
+    dirty_frames: u64,
+    /// Whether the scopes walked so far enclose every written row.
+    on_path: bool,
 }
 
 impl<'a> Update<'a> {
+    /// A context over `env` with no ops yet.
+    pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
+        Update {
+            env,
+            sites,
+            ids,
+            ops: Vec::new(),
+            surfaces: Vec::new(),
+            work: InstanceWork::default(),
+            full: false,
+            rows: RowWrites::default(),
+            changed: None,
+            dirty_frames: 0,
+            on_path: true,
+        }
+    }
+
     fn eval(&self, code: exact_plan::Code, frames: &[Frame]) -> Result<Value, Trap> {
         let env = Env { frames, ..self.env };
         Ok(vm::eval(self.env.plan.code(code), &env, &[])?.value)
+    }
+
+    /// Whether anything `reads` reads may differ from what the tree shows.
+    fn stale(&self, reads: &Reads) -> bool {
+        self.stale_outside(reads, 0)
+    }
+
+    /// [`Update::stale`] for reads made `shift` scopes further in (a key or
+    /// a row body seen from its region), counting only enclosing frames.
+    fn stale_outside(&self, reads: &Reads, shift: u32) -> bool {
+        let Some(changed) = &self.changed else {
+            return true;
+        };
+        self.full
+            || reads.opaque
+            || reads.bits.intersects(changed)
+            || reads.frames_outside(shift) & self.dirty_frames != 0
+            || (reads.row_slots
+                && self.on_path
+                && self
+                    .rows
+                    .writes
+                    .iter()
+                    .any(|(_, slot)| reads.bits.get(*slot as usize)))
+    }
+
+    /// Enter a row or arm scope whose frame value `dirty`-ly changed.
+    fn enter(&mut self, dirty: bool, row: Option<&RowSlots>) -> (u64, bool) {
+        let saved = (self.dirty_frames, self.on_path);
+        self.dirty_frames = deps::into_scope(self.dirty_frames, dirty);
+        if let Some(row) = row {
+            self.on_path &= self.rows.path.contains(&RowWrites::id(row));
+        }
+        saved
+    }
+
+    fn leave(&mut self, saved: (u64, bool)) {
+        (self.dirty_frames, self.on_path) = saved;
     }
 }
 
@@ -257,9 +331,8 @@ type SiteParent = (Option<NodesId>, Option<ArmsId>);
 pub struct SiteIndex {
     groups: Vec<(SiteParent, std::ops::Range<usize>)>,
     sites: Vec<(u32, Site)>,
-    /// Per binding: its code is a literal (`vm::is_literal`), so its value
-    /// is the one emitted at creation and an update never evaluates it.
-    constant: Vec<bool>,
+    /// What every binding and site reads.
+    deps: Deps,
 }
 
 impl SiteIndex {
@@ -293,16 +366,13 @@ impl SiteIndex {
             sites.push((order, site));
         }
         groups.shrink_to_fit();
-        let constant = plan
-            .bindings
-            .iter()
-            .map(|b| vm::is_literal(plan.code(b.expr)))
-            .collect();
-        Self {
+        let mut index = Self {
             groups,
             sites,
-            constant,
-        }
+            deps: Deps::default(),
+        };
+        index.deps = Deps::new(plan, &index);
+        index
     }
 
     fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
@@ -356,13 +426,17 @@ fn realize(
 
 fn roots_of(children: &[Child]) -> Vec<ViewId> {
     let mut out = Vec::new();
+    push_roots(children, &mut out);
+    out
+}
+
+fn push_roots(children: &[Child], out: &mut Vec<ViewId>) {
     for c in children {
         match c {
             Child::Node(n) => out.push(n.view),
-            Child::Region(r) => r.collect_roots(&mut out),
+            Child::Region(r) => r.collect_roots(out),
         }
     }
-    out
 }
 
 fn destroy_all(u: &mut Update<'_>, children: Vec<Child>) {
@@ -374,18 +448,53 @@ fn destroy_all(u: &mut Update<'_>, children: Vec<Child>) {
     }
 }
 
+/// Update the children whose reads may have changed; whether the roots
+/// they contribute to their parent's child list changed.
 fn update_all(
     u: &mut Update<'_>,
     children: &mut [Child],
     frames: &[Frame],
-) -> Result<(), InstanceError> {
+) -> Result<bool, InstanceError> {
+    let deps = &u.sites.deps;
+    let mut roots = false;
     for c in children.iter_mut() {
         match c {
-            Child::Node(n) => n.update(u, frames)?,
-            Child::Region(r) => r.update(u, frames)?,
+            Child::Node(n) => {
+                if u.stale(&deps.nodes[n.node.0 as usize]) {
+                    n.update(u, frames)?;
+                }
+            }
+            Child::Region(r) => {
+                if u.stale(&deps.regions[r.region.0 as usize]) {
+                    roots |= r.update(u, frames, false)?;
+                } else {
+                    u.work.regions_skipped += 1;
+                }
+            }
         }
     }
-    Ok(())
+    Ok(roots)
+}
+
+/// Visit a kept row when anything its body reads changed, the row's own
+/// item included (`dirty`); whether its roots changed.
+fn update_row(
+    u: &mut Update<'_>,
+    row: &mut Row,
+    frames: &[Frame],
+    dirty: bool,
+    body: &Reads,
+) -> Result<bool, InstanceError> {
+    let saved = u.enter(dirty, Some(&row.slots));
+    let result = if u.stale(body) {
+        let inner = with_frame(frames, row.frame.clone());
+        update_all(u, &mut row.roots, &inner)
+    } else {
+        u.work.rows_reused += 1;
+        Ok(false)
+    };
+    u.leave(saved);
+    result
 }
 
 impl NodeInst {
@@ -442,8 +551,9 @@ impl NodeInst {
         let plan = u.env.plan;
         let row = plan.node(self.node);
         let mut patch: Option<StyleProps> = None;
+        let deps = &u.sites.deps;
         for (i, b) in row.bindings.iter().enumerate() {
-            if !fresh && u.sites.constant[b.0 as usize] {
+            if !fresh && !u.stale(&deps.bindings[b.0 as usize]) {
                 continue;
             }
             let binding = plan.binding(b);
@@ -481,7 +591,14 @@ impl NodeInst {
         }
         // A canvas's surface inputs: evaluated with the bindings (so a trap
         // refuses the commit whole), published only with a successful apply.
-        if let Some(surface) = row.surface {
+        if let Some(surface) = row.surface.filter(|s| {
+            fresh
+                || plan
+                    .surface(*s)
+                    .args
+                    .iter()
+                    .any(|a| u.stale(&deps.surface_args[a.0 as usize]))
+        }) {
             let s = plan.surface(surface);
             let mut values = Vec::with_capacity(s.args.len as usize);
             for a in s.args.iter() {
@@ -542,9 +659,8 @@ impl NodeInst {
                 })
                 .unwrap_or(false);
             collection.follow_end(follow);
-            collection.update_data(u, frames)?;
-        } else {
-            update_all(u, &mut self.children, frames)?;
+            collection.update_data(u, frames, false)?;
+        } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }
         Ok(())
@@ -597,16 +713,7 @@ impl RegionInst {
         let mut inst = RegionInst {
             region,
             window: None,
-            memo: if u.env.plan.region(region).kind == RegionKind::Each {
-                dependencies::Memo::for_region(u.env.plan, u.sites, region, false)
-            } else {
-                None
-            },
-            body_memo: if u.env.plan.region(region).kind == RegionKind::Each {
-                dependencies::Memo::for_region(u.env.plan, u.sites, region, true)
-            } else {
-                None
-            },
+            subject: None,
             active: match u.env.plan.region(region).kind {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
                 _ => Active::Arm {
@@ -616,48 +723,51 @@ impl RegionInst {
                 },
             },
         };
-        inst.update(u, frames)?;
+        inst.update(u, frames, true)?;
         Ok(inst)
     }
 
-    fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
-        if self
-            .memo
-            .as_ref()
-            .is_some_and(|memo| memo.unchanged(&u.env, frames))
-        {
-            u.work.regions_skipped += 1;
-            return Ok(());
-        }
-        let body_unchanged = self
-            .body_memo
-            .as_ref()
-            .is_some_and(|memo| memo.unchanged(&u.env, frames));
+    /// Bring the region up to date; whether its roots changed. `fresh`: its
+    /// first realization, where nothing has been evaluated yet.
+    fn update(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        fresh: bool,
+    ) -> Result<bool, InstanceError> {
         let plan = u.env.plan;
+        let deps = &u.sites.deps;
+        let index = self.region.0 as usize;
         let row = plan.region(self.region);
-        let subject = u.eval(row.subject, frames)?;
         if let Some(mut window) = self.window.take() {
-            let result = match subject {
-                Value::List(items) => {
+            let result = match u.eval(row.subject, frames) {
+                Ok(Value::List(items)) => {
                     window.replace(u, &mut self.active, self.region, items, frames)
                 }
-                _ => Err(InstanceError::SubjectKind {
+                Ok(_) => Err(InstanceError::SubjectKind {
                     region: self.region,
                 }),
+                Err(trap) => Err(trap.into()),
             };
             self.window = Some(window);
-            return result;
+            // The window's content view is its one root.
+            return result.map(|_| false);
         }
-        let result = match (&row.kind, &mut self.active) {
+        let subject_stale = fresh || u.stale(&deps.subjects[index]);
+        match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
-                let want = match subject {
-                    Value::Bool(true) => Some(0),
-                    Value::Bool(false) if row.arms.len > 1 => Some(1),
-                    Value::Bool(false) => None,
-                    _ => {
-                        return Err(InstanceError::SubjectKind {
-                            region: self.region,
-                        })
+                let want = if !subject_stale {
+                    *arm
+                } else {
+                    match u.eval(row.subject, frames)? {
+                        Value::Bool(true) => Some(0),
+                        Value::Bool(false) if row.arms.len > 1 => Some(1),
+                        Value::Bool(false) => None,
+                        _ => {
+                            return Err(InstanceError::SubjectKind {
+                                region: self.region,
+                            })
+                        }
                     }
                 };
                 Self::switch(
@@ -672,35 +782,57 @@ impl RegionInst {
                 )
             }
             (RegionKind::Match, Active::Arm { arm, frame, roots }) => {
-                let (want, new_frame) = match subject {
-                    Value::Option(Some(v)) => (
-                        Some(0),
-                        Frame {
-                            item: None,
-                            bound: Some((*v).clone()),
-                            ..Default::default()
-                        },
-                    ),
-                    Value::Option(None) => (
-                        if row.arms.len > 1 { Some(1) } else { None },
-                        Frame::default(),
-                    ),
-                    _ => {
-                        return Err(InstanceError::SubjectKind {
-                            region: self.region,
-                        })
+                let (want, new_frame) = if !subject_stale {
+                    (*arm, frame.clone())
+                } else {
+                    match u.eval(row.subject, frames)? {
+                        Value::Option(Some(v)) => (
+                            Some(0),
+                            Frame {
+                                item: None,
+                                bound: Some((*v).clone()),
+                                ..Default::default()
+                            },
+                        ),
+                        Value::Option(None) => (
+                            if row.arms.len > 1 { Some(1) } else { None },
+                            Frame::default(),
+                        ),
+                        _ => {
+                            return Err(InstanceError::SubjectKind {
+                                region: self.region,
+                            })
+                        }
                     }
                 };
                 Self::switch(u, self.region, arm, frame, roots, want, new_frame, frames)
             }
             (RegionKind::Each, Active::Rows { rows }) => {
-                let items = match subject {
-                    Value::List(items) => items,
-                    _ => {
-                        return Err(InstanceError::SubjectKind {
-                            region: self.region,
-                        })
+                let body = &deps.bodies[index];
+                let keys_stale = fresh || u.stale_outside(&deps.keys[index], 1);
+                let subject = if subject_stale || keys_stale {
+                    Some(u.eval(row.subject, frames)?)
+                } else {
+                    None
+                };
+                // The same list object keyed by unchanged inputs is the same keys.
+                let rekey = match (&subject, &self.subject) {
+                    (None, _) => false,
+                    (Some(new), Some(old)) => keys_stale || !crate::compare::same(new, old),
+                    (Some(_), None) => true,
+                };
+                if !rekey {
+                    let mut roots = false;
+                    for r in rows.iter_mut() {
+                        roots |= update_row(u, r, frames, false, body)?;
                     }
+                    return Ok(roots);
+                }
+                let subject = subject.expect("rekeyed");
+                let Value::List(items) = &subject else {
+                    return Err(InstanceError::SubjectKind {
+                        region: self.region,
+                    });
                 };
                 let arm = row.arms.iter().next();
                 // Key every item; refuse duplicates.
@@ -741,32 +873,29 @@ impl RegionInst {
                         )
                     })
                     .collect();
+                let mut roots = keyed.len() != old.len();
                 let mut next = Vec::with_capacity(keyed.len());
-                for (key_text, key, mut frame) in keyed {
-                    let existing = by_key.get(&key_text).and_then(|i| old[*i].take());
+                for (position, (key_text, key, mut frame)) in keyed.into_iter().enumerate() {
+                    let found = by_key.get(&key_text).copied();
+                    let existing = found.and_then(|i| old[i].take());
                     frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
+                            roots |= found != Some(position);
                             // Row bodies may distinguish signed zero (`1 / n > 0`):
                             // compare by bits, not by the language's `==`. An
                             // equivalent item keeps its object for nested memos.
-                            let same_item =
-                                crate::compare::equivalent_opt(&r.frame.item, &frame.item);
-                            if same_item {
+                            let dirty = !crate::compare::equivalent_opt(&r.frame.item, &frame.item);
+                            if !dirty {
                                 frame.item = r.frame.item.take();
                             }
-                            let unchanged = body_unchanged && same_item;
                             frame.row = Some(r.slots.clone());
-                            r.frame = frame.clone();
-                            let inner = with_frame(frames, frame);
-                            if unchanged {
-                                u.work.rows_reused += 1;
-                            } else {
-                                update_all(u, &mut r.roots, &inner)?;
-                            }
+                            r.frame = frame;
+                            roots |= update_row(u, &mut r, frames, dirty, body)?;
                             next.push(r);
                         }
                         None => {
+                            roots = true;
                             // A new row: its slots start from their initializers,
                             // evaluated here so an initializer may read the item.
                             let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
@@ -798,21 +927,14 @@ impl RegionInst {
                     destroy_all(u, gone.roots);
                 }
                 *rows = next;
-                Ok(())
+                self.subject = Some(subject);
+                Ok(roots)
             }
-            _ => Ok(()),
-        };
-        if result.is_ok() {
-            if let Some(memo) = &mut self.memo {
-                memo.remember(&u.env, frames);
-            }
-            if let Some(memo) = &mut self.body_memo {
-                memo.remember(&u.env, frames);
-            }
+            _ => Ok(false),
         }
-        result
     }
 
+    /// Show arm `want`; whether the roots changed.
     #[allow(clippy::too_many_arguments)]
     fn switch(
         u: &mut Update<'_>,
@@ -823,14 +945,18 @@ impl RegionInst {
         want: Option<usize>,
         new_frame: Frame,
         frames: &[Frame],
-    ) -> Result<(), InstanceError> {
+    ) -> Result<bool, InstanceError> {
         let plan = u.env.plan;
         if *arm == want {
             // An equivalent binding keeps its object for nested memos.
-            if !crate::compare::equivalent_opt(&frame.bound, &new_frame.bound) {
+            let dirty = !crate::compare::equivalent_opt(&frame.bound, &new_frame.bound);
+            if dirty {
                 *frame = new_frame;
             }
-            return update_all(u, roots, &with_frame(frames, frame.clone()));
+            let saved = u.enter(dirty, None);
+            let result = update_all(u, roots, &with_frame(frames, frame.clone()));
+            u.leave(saved);
+            return result;
         }
         let inner = with_frame(frames, new_frame.clone());
         let old = std::mem::take(roots);
@@ -841,7 +967,7 @@ impl RegionInst {
             let arm_id = plan.region(region).arms.iter().nth(i);
             *roots = realize(u, None, arm_id, &inner)?;
         }
-        Ok(())
+        Ok(true)
     }
 
     fn collect_roots(&self, out: &mut Vec<ViewId>) {
@@ -850,10 +976,10 @@ impl RegionInst {
             return;
         }
         match &self.active {
-            Active::Arm { roots, .. } => out.extend(roots_of(roots)),
+            Active::Arm { roots, .. } => push_roots(roots, out),
             Active::Rows { rows } => {
                 for r in rows {
-                    out.extend(roots_of(&r.roots));
+                    push_roots(&r.roots, out);
                 }
             }
         }
@@ -937,6 +1063,8 @@ pub struct Tree {
     has_collections: bool,
     children: Vec<Child>,
     last_roots: Vec<ViewId>,
+    /// The inputs the kernel shows, as of the last create or update.
+    seen: Seen,
     /// Work performed by the last instance update.
     pub last_work: InstanceWork,
 }
@@ -958,19 +1086,25 @@ impl Tree {
             }),
             children,
             last_roots: Vec::new(),
+            seen: Seen::of(&u.env),
             last_work: u.work,
         };
         tree.emit_roots(u);
         Ok(tree)
     }
 
-    /// Re-evaluate everything.
+    /// Bring every site whose reads changed since the last update up to date
+    /// (every site, under [`Update::full`]).
     pub fn update(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
-        update_all(u, &mut self.children, &[])?;
+        u.changed = Some(u.sites.deps.changed(&self.seen, &u.env));
+        let roots = update_all(u, &mut self.children, &[]);
+        u.changed = None;
+        if roots? {
+            self.emit_roots(u);
+        }
         if self.has_collections && u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT))) {
             collection::invalidate_typography(&mut self.children, u, &[])?;
         }
-        self.emit_roots(u);
         // Views are never reused within a runner. Detach removed children in
         // the final child lists before destroying them, so a removed list does
         // not rebuild its parent's siblings once per row. Still one atomic
@@ -980,6 +1114,7 @@ impl Tree {
             .partition(|op| !matches!(op, Op::DestroyView { .. }));
         live.extend(gone);
         u.ops = live;
+        self.seen = Seen::of(&u.env);
         self.last_work = u.work;
         Ok(())
     }

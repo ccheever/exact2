@@ -236,14 +236,7 @@ impl<D: DataSource> Runner<D> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
-            let mut u = Update {
-                env: self.env(&[], &[]),
-                sites: &self.sites,
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-                work: Default::default(),
-            };
+            let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             tree.edit_reorder(id, &mut u, edit).map(|r| (r, u.ops))
         };
         self.tree = Some(tree);

@@ -154,41 +154,80 @@ pub fn intern(plan: &Plan) -> Vec<Rc<str>> {
     plan.strings.iter().map(|s| Rc::from(s.as_str())).collect()
 }
 
+/// One decoded instruction: its opcode and operands in declared order,
+/// integers widened, an `f64` operand in `number`.
+#[derive(Debug, Clone, Copy)]
+pub struct Instruction {
+    /// Its offset in the body.
+    pub pc: usize,
+    /// The opcode.
+    pub op: Opcode,
+    /// Integer operands in declared order.
+    pub args: [u64; 3],
+    /// The `f64` operand, if the opcode has one.
+    pub number: f64,
+}
+
+/// Decode the instruction at `r`: the one decoder the VM, the dependency
+/// table and the retained-binding grammar share.
+pub fn decode(r: &mut Reader<'_>) -> Result<Instruction, Trap> {
+    let pc = r.position();
+    let malformed = |_| Trap::Malformed { pc };
+    let op = Opcode::from_wire(r.u8().map_err(malformed)?).ok_or(Trap::Malformed { pc })?;
+    let mut args = [0; 3];
+    let mut number = 0.0;
+    for (i, operand) in op.operands().iter().enumerate() {
+        match operand {
+            Operand::U8 | Operand::Enum(_) => args[i] = r.u8().map_err(malformed)? as u64,
+            Operand::U16 => args[i] = r.u16().map_err(malformed)? as u64,
+            Operand::U32 | Operand::Str | Operand::Idx(_) => {
+                args[i] = r.u32().map_err(malformed)? as u64
+            }
+            Operand::F64 => number = r.f64().map_err(malformed)?,
+        }
+    }
+    Ok(Instruction {
+        pc,
+        op,
+        args,
+        number,
+    })
+}
+
+/// Every instruction of `code` in order, without following jumps; stops
+/// after the first malformed one.
+pub fn instructions(code: &[u8]) -> impl Iterator<Item = Result<Instruction, Trap>> + '_ {
+    let mut r = Reader::new(code);
+    let mut failed = false;
+    std::iter::from_fn(move || {
+        if failed || r.is_empty() {
+            return None;
+        }
+        let next = decode(&mut r);
+        failed = next.is_err();
+        Some(next)
+    })
+}
+
 /// Whether `code` is a literal — pushes of values and `Return`, nothing
 /// read — so a binding can be told from an expression without running it
 /// (LLP 1035.002 D5: a row bound by an expression is `dynamic`). Malformed
 /// code is not a literal.
 pub fn is_literal(code: &[u8]) -> bool {
-    let mut r = Reader::new(code);
-    while !r.is_empty() {
-        let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {
-            return false;
-        };
-        if !matches!(
-            op,
-            Opcode::Number
-                | Opcode::Bool
-                | Opcode::Str
-                | Opcode::None
-                | Opcode::Unit
-                | Opcode::Some
-                | Opcode::Return
-        ) {
-            return false;
-        }
-        for operand in op.operands() {
-            let skipped = match operand {
-                Operand::U8 | Operand::Enum(_) => r.u8().map(|_| ()),
-                Operand::U16 => r.u16().map(|_| ()),
-                Operand::U32 | Operand::Str | Operand::Idx(_) => r.u32().map(|_| ()),
-                Operand::F64 => r.f64().map(|_| ()),
-            };
-            if skipped.is_err() {
-                return false;
-            }
-        }
-    }
-    true
+    instructions(code).all(|i| {
+        i.is_ok_and(|i| {
+            matches!(
+                i.op,
+                Opcode::Number
+                    | Opcode::Bool
+                    | Opcode::Str
+                    | Opcode::None
+                    | Opcode::Unit
+                    | Opcode::Some
+                    | Opcode::Return
+            )
+        })
+    })
 }
 
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
@@ -215,23 +254,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
         }};
     }
     while !r.is_empty() {
-        let pc = r.position();
-        let op = Opcode::from_wire(r.u8().map_err(|_| malformed(pc))?).ok_or(malformed(pc))?;
-        // Operands, in declared order.
-        let mut args: [u64; 3] = [0, 0, 0];
-        let mut f64_arg = 0.0;
-        for (i, operand) in op.operands().iter().enumerate() {
-            match operand {
-                Operand::U8 | Operand::Enum(_) => {
-                    args[i] = r.u8().map_err(|_| malformed(pc))? as u64
-                }
-                Operand::U16 => args[i] = r.u16().map_err(|_| malformed(pc))? as u64,
-                Operand::U32 | Operand::Str | Operand::Idx(_) => {
-                    args[i] = r.u32().map_err(|_| malformed(pc))? as u64
-                }
-                Operand::F64 => f64_arg = r.f64().map_err(|_| malformed(pc))?,
-            }
-        }
+        let Instruction {
+            pc,
+            op,
+            args,
+            number: f64_arg,
+        } = decode(&mut r)?;
         match op {
             Opcode::Number => stack.push(Value::Number(f64_arg)),
             Opcode::Bool => stack.push(Value::Bool(args[0] != 0)),

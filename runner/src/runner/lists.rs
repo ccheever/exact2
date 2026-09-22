@@ -66,14 +66,7 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::Poisoned);
         }
         let mut ids = Ids::default();
-        let mut u = Update {
-            env: self.env(&[], &[]),
-            sites: &self.sites,
-            ids: &mut ids,
-            ops: Vec::new(),
-            surfaces: Vec::new(),
-            work: Default::default(),
-        };
+        let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
         Ok(self
             .tree
             .as_ref()
@@ -151,15 +144,11 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<CommitReceipt, RunnerError> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
+        let rows = std::mem::take(&mut self.row_writes);
         let result = {
-            let mut u = Update {
-                env: self.env(&[], &[]),
-                sites: &self.sites,
-                ids: &mut ids,
-                ops: Vec::new(),
-                surfaces: Vec::new(),
-                work: Default::default(),
-            };
+            let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.full = self.full;
+            u.rows = rows;
             update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces))
         };
         self.ids = ids;

@@ -20,3 +20,7 @@ exact-kernel = { path = "../kernel" }
 exact-plan = { path = "../plan" }
 exact-route = { path = "../route" }
 sha2 = "0.10"
+
+[dev-dependencies]
+# Compiles every app's Contract source for the incremental-equals-full test.
+contract = { path = "../contract/cli" }
