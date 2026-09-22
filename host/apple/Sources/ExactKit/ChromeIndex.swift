@@ -40,4 +40,3 @@ struct ChromeIndex {
             .contains { !(byKey[$0]?.isEmpty ?? true) }
     }
 }
-

@@ -33,9 +33,15 @@ struct TextRasterJob {
 
     static let maxInkOverflow: CGFloat = 256
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
-    func render() -> TextRasterImage? {
-        let typesetter = CTTypesetterCreateWithAttributedString(source)
-        let lines = ranges.map { CTTypesetterCreateLine(typesetter, $0) }
+    func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
+        let lines: [CTLine]
+        if let reused {
+            precondition(Thread.isMainThread, "cached lines stay on their owning thread")
+            lines = reused
+        } else {
+            let typesetter = CTTypesetterCreateWithAttributedString(source)
+            lines = ranges.map { CTTypesetterCreateLine(typesetter, $0) }
+        }
         let positions = zip(lines, baselines).map { line, baseline in
             CGPoint(x: box.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width))),
                     y: box.minY + baseline.rounded())

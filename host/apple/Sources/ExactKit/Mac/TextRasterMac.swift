@@ -75,7 +75,8 @@ final class TextRasterizer {
         guard firstPixels || active < Self.maxConcurrent else { return false }
         guard let job = prepare(node, key: key) else { node.dropTextRaster(); return true }
         if firstPixels {
-            let image = Self.render(job, firstPixels: true)
+            let lines = node.text?.rasterLines(key.spec, ranges: job.ranges).1
+            let image = Self.render(job, firstPixels: true, lines: lines)
             node.showTextRaster(image?.surface, for: key, frame: image?.frame)
             return true
         }
@@ -174,9 +175,9 @@ final class TextRasterizer {
     /// IOSurface. A surface is what the render server composites: a CGImage
     /// would be converted and copied for it on the main thread, at commit.
     /// Workers create their own lines from source and ranges.
-    private static func render(_ job: TextRasterJob, firstPixels: Bool = false) -> TextRasterImage? {
+    private static func render(_ job: TextRasterJob, firstPixels: Bool = false, lines: [CTLine]? = nil) -> TextRasterImage? {
         assert(!Thread.isMainThread || firstPixels, "replacement rasterization belongs to workers")
-        return job.render()
+        return job.render(lines: lines)
     }
 }
 

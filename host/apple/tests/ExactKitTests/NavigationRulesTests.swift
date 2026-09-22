@@ -16,7 +16,7 @@ final class NavigationRulesTests: XCTestCase {
         let p = Presenter()
         defer { p.reset() }
         func apply(_ ops: [[String: Any]]) {
-            p.apply(Batch(ops: ops, timers: false, motion: false, clock: nil, error: nil))
+            p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
         }
         apply([
             ["op": "create", "id": 1, "kind": "view"],

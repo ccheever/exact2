@@ -115,7 +115,7 @@ import XCTest
         defer { session.destroy() }
         let controller = session.regions
         func prepare(_ ops: [[String: Any]], error: String? = nil) {
-            controller.prepare(Batch(ops: ops, timers: false, motion: false, clock: nil, error: error))
+            controller.prepare(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: error))
         }
         func registration(_ incarnation: String) -> [String: Any] {
             ["op": "region", "incarnation": incarnation, "owner": UInt32(1),
