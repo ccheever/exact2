@@ -99,11 +99,13 @@ in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
 follow-ups other than code-block highlighting (heading anchors, file
 watching, the compact folder layout) wait behind it; no rich value type,
 collaboration or HTML paste import. **Refined (Charlie, 2026-09-21:
-"move forward with your plan"):** CodeMirror 6 is admitted as the web editor,
-loaded after first pixel when editing is needed; the dependency-free browser
-editor implementation comes off the doing-list. Native editing stays on
-TextKit 2; dependable source editing and active-paragraph reveal precede
-further marker hiding, with Interview as the first consumer.
+"move forward with your plan"):** Native editing stays on TextKit 2;
+dependable source editing precedes further marker hiding, with Interview as
+the first consumer. **Refined again (Charlie, 2026-09-22: "let's remove
+codemirror"):** the web editor is dependency-free `contentEditable`, and the
+editing rules are one crate for every host (`markdown/editor/`), shipped on
+the web as its own wasm fetched only when a Markdown textarea mounts: an app
+without an editor pays nothing for it. CodeMirror is not admitted.
 `fileinput` comes off in one form (LLP 1045 D10): an image/video picker for
 captioned figures — no camera, no generic file input. Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.

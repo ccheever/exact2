@@ -176,7 +176,7 @@ let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
 // A changed program stays terminal even when its compatibility metadata agrees.
 const programIdentity = () => {
-  const files = ['app.wasm', 'gpu_bg.wasm'].map((name) => {
+  const files = ['app.wasm', 'gpu_bg.wasm', 'markup-editor.wasm'].map((name) => {
     const encoded = filesystem({ op: 'get', root: dist, path: name });
     if (encoded === null && name === 'app.wasm') throw new Error('the app wasm is missing');
     return { name, sha256: encoded === null ? null : createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex') };

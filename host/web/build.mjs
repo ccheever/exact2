@@ -8,7 +8,6 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { rolldown } from 'rolldown';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
@@ -68,21 +67,13 @@ function copyHostFiles(group) {
   for (const [name, source] of Object.entries(webHostFiles(group))) copyFileSync(resolve(root, source), resolve(stage, name));
 }
 copyHostFiles('base');
-// Optional editor code is one immutable host artifact, never a runtime import
-// from node_modules. glue requests it only after paint for Markdown textareas.
-const editor = await rolldown({ input: resolve(root, 'host/web/markup-editor.js'), platform: 'browser' });
-try {
-  const bundled = await editor.write({ file: resolve(stage, 'markup-editor.js'), format: 'es', minify: true });
-  const licenses = new Map();
-  for (const chunk of bundled.output) for (const id of Object.keys(chunk.modules ?? {})) {
-    const at = id.lastIndexOf('/node_modules/'); if (at < 0) continue;
-    const parts = id.slice(at + 14).split('/'), name = parts.slice(0, parts[0].startsWith('@') ? 2 : 1).join('/');
-    const dir = id.slice(0, at + 14) + name;
-    for (const file of ['LICENSE', 'LICENSE.md', 'LICENSE.txt']) if (existsSync(resolve(dir, file))) { licenses.set(name, readFileSync(resolve(dir, file), 'utf8')); break; }
-  }
-  writeFileSync(resolve(stage, 'markup-editor.LICENSE.txt'), [...licenses].map(([name, license]) => `${name}\n${license}`).join('\n'));
-}
-finally { await editor.close(); }
+// The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
+// own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
+const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: buildEnv, stdio: 'inherit' });
+if (editor.status !== 0) process.exit(editor.status ?? 1);
+const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
+const editorWasm = resolve(stage, 'markup-editor.wasm');
+if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -202,4 +193,5 @@ try {
   throw error;
 }
 rmSync(previous, { recursive: true, force: true });
-console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; GPU: ${gpuNote}`);
+const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
+console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand`);

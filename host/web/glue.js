@@ -397,12 +397,7 @@ function syncMarkup(el) {
     markupPending.delete(el);
     if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
     install(el, { live, replace(node) { views.set(id, node); attach(node, id, el.exactHandlers); },
-      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); },
-      call(kind, source, a = 0, b = 0, command = '', argument = '') {
-        const prefix = kind === 'edit' ? command + argument : '', n = writeIn(prefix + source);
-        const len = kind === 'edit' ? wasm.exact_markup_edit(a, b, enc.encode(command).length, enc.encode(argument).length, n) : kind === 'plain' ? wasm.exact_markup_plain(n) : wasm['exact_markup_' + kind](a, b, n);
-        const output = readOut(len); return kind === 'plain' ? output : JSON.parse(output);
-      } });
+      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); } });
   }).catch(error => console.error('exact: Markdown editor:', error));
 }
 function applyProps(el, set, clear) {
@@ -854,7 +849,7 @@ function apply(batch) {
     if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
     if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
     el.focus();
-    if (selectText && (document.activeElement === el || el.exactMarkup?.view.hasFocus)) el.select();
+    if (selectText && document.activeElement === el) el.select();
   }
   positionContexts();
   return batch.timers;
@@ -1168,9 +1163,9 @@ function agent(request) {
         const st = ask(request);
         if (st.error) return st;
         const r2 = (x) => Math.round(x * 100) / 100;
-        const idOf = (e) => { for (const [i, v] of views) if (v === e || (v.exactMarkup && v.contains(e))) return i; return null; };
+        const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
-        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.closest('.exact-markdown-editor') ? idOf(active) : null;
+        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.exactMarkup ? idOf(active) : null;
         st.media = [...views].filter(([, el]) => el instanceof HTMLVideoElement).map(([id, el]) => ({ id, state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: "HTMLVideoElement" } }));
         st.focus = { logical: active ? idOf(active) : null, editor, responder: active ? active.localName : null, pending: null };
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));

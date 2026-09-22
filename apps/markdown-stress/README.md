@@ -76,8 +76,8 @@ selection state. Return continues a list and an empty item exits it.
 On macOS and the web, use the usual bold/italic and undo/redo shortcuts.
 Normal copy preserves Markdown; ⌘⇧C on macOS or Mod-Shift-C on the web copies
 plain text. iOS exposes Copy Plain Text in its edit menu. Native editors keep
-all syntax visible at normal width, dimming inactive markers. CodeMirror hides
-inactive syntax and reveals the active paragraph. These are fixed-height
+all syntax visible at normal width, dimming inactive markers. The web editor
+hides syntax (WYSIWYG), with its rules in `markdown/editor/`. These are fixed-height
 editor demonstrations; phone input ergonomics and intrinsic sizing still
 need separate proof.
 

@@ -1,0 +1,17 @@
+# The WYSIWYG Markdown editor's rules, shared by every host that edits.
+# @ref LLP 1045 D1/D5 — optional: its own wasm on the web, fetched only when
+# a Markdown textarea mounts, so an app without one never downloads it.
+[package]
+name = "exact-markdown-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hidden-marker Markdown editing over the source string: caret rules, input rules, undo and the drawn lines"
+publish = false
+
+[lib]
+name = "exact_markdown_editor"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+exact-markdown = { path = ".." }

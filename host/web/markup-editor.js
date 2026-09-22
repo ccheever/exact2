@@ -1,251 +1,378 @@
-// @ref LLP 1045 D1/D5/D6 — source text is the document; decorations never
-// serialize it. Rolldown bundles this optional host module, loaded after paint.
-import { Compartment, EditorSelection, EditorState, StateEffect, StateField, Transaction } from '@codemirror/state';
-import { Decoration, EditorView, keymap, placeholder, WidgetType } from '@codemirror/view';
-import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands';
+// @ref LLP 1045 D1/D5/D6 — a contentEditable whose text is the Markdown source:
+// syntax is hidden (display:none), never removed, so plain typing, composition
+// and spelling run natively and are read back. Every editing rule — caret
+// placement, deletion, pending formats, list Return, undo — is the shared
+// exact-markdown-editor crate, in markup-editor.wasm, fetched with this module
+// only when a Markdown textarea mounts.
+const NONE = 0xffffffff, HANDLED = 1, SOURCE = 2, PLACE = 4;
+// beforeinput kinds, as `mde_before_input` numbers them; 0 runs natively.
+const KINDS = { historyUndo: 1, historyRedo: 2, formatBold: 3, formatItalic: 4, formatStrikeThrough: 5, insertParagraph: 7, insertLineBreak: 7,
+  insertText: 8, insertReplacementText: 9, insertFromPaste: 10, insertFromDrop: 10, insertFromYank: 10, deleteContentBackward: 11, deleteContentForward: 12 };
+const kindOf = t => KINDS[t] ?? (t.startsWith('format') ? 6 : !t.startsWith('delete') ? 0 : /Backward|^deleteByCut$|^deleteContent$/.test(t) ? 13 : 14);
+const STYLES = [[1, 'md-b'], [2, 'md-i'], [4, 'md-c'], [8, 'md-s'], [16, 'md-a'], [64, 'md-m']];
+const CSS = `
+.exact-markdown-editor { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; outline: none; caret-color: currentColor; cursor: text; }
+.exact-markdown-editor.md-empty::before { content: attr(placeholder); position: absolute; pointer-events: none; color: light-dark(#3c3c4380, #ebebf580); }
+.md-hide, .md-collapsed { display: none; }
+.md-b { font-weight: 700; } .md-i { font-style: italic; } .md-s { text-decoration: line-through; }
+.md-c { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); border-radius: 4px; padding: 1px 3px; }
+.md-a { color: light-dark(#245aba, #83b3ff); text-decoration: underline; text-underline-offset: 2px; }
+.md-m { opacity: .45; }
+.md-h1 { font-size: 1.7em; font-weight: 750; line-height: 1.25; margin: .2em 0 .1em; }
+.md-h2 { font-size: 1.4em; font-weight: 700; line-height: 1.3; margin: .2em 0 .1em; }
+.md-h3 { font-size: 1.2em; font-weight: 700; } .md-h4, .md-h5, .md-h6 { font-weight: 700; }
+.md-code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .88em; background: light-dark(#0000000f, #ffffff14); padding: 0 12px; }
+.md-code-first { border-top-left-radius: 8px; border-top-right-radius: 8px; padding-top: 8px; }
+.md-code-last { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; padding-bottom: 8px; }
+.md-quote { --q: 1; color: light-dark(#6b6b70, #a1a1aa); padding-left: calc(var(--q) * 18px); background: repeating-linear-gradient(to right, light-dark(#d4d4d8, #52525b) 0 3px, transparent 3px 18px) no-repeat; background-size: calc(var(--q) * 18px) 100%; }
+.md-quote[data-quote="2"] { --q: 2; } .md-quote[data-quote="3"] { --q: 3; }
+.md-list { --d: 0; padding-left: calc(28px + var(--d) * 24px); }
+.md-list[data-depth="1"] { --d: 1; } .md-list[data-depth="2"] { --d: 2; } .md-list[data-depth="3"] { --d: 3; }
+.md-quote.md-list { padding-left: calc(var(--q) * 18px + 28px + var(--d) * 24px); }
+.md-bullet::before, .md-number::before, .md-task::before { position: absolute; left: calc(var(--d, 0) * 24px + var(--q, 0) * 18px); width: 22px; text-align: center; }
+.md-bullet::before { content: "•"; font-weight: 700; } .md-list[data-depth="1"].md-bullet::before { content: "◦"; }
+.md-number::before { content: attr(data-num); opacity: .6; text-align: right; font-variant-numeric: tabular-nums; }
+.md-task::before { content: ""; top: .3em; margin-left: 3px; width: 13px; height: 13px; border: 1.5px solid currentColor; border-radius: 4px; cursor: pointer; }
+.md-task[data-done="1"] { opacity: .6; }
+.md-task[data-done="1"]::before { content: "✓"; background: CanvasText; color: Canvas; border-color: CanvasText; font: 700 11px/13px system-ui, sans-serif; }
+.md-rule { min-height: 1.5em; } .md-rule::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px solid light-dark(#e4e4e7, #333338); }
+`;
 
-const refresh = StateEffect.define();
-const external = Transaction.addToHistory.of(false);
-const theme = EditorView.theme({
-  '&': { height: '100%', font: 'inherit', color: 'inherit', background: 'transparent' },
-  '&.cm-focused': { outline: 'none' },
-  '.cm-scroller': { overflow: 'auto', font: 'inherit', lineHeight: 'inherit' },
-  '.cm-content': { padding: '0', minHeight: '100%', caretColor: 'currentColor' },
-  '.cm-line': { padding: '0', overflowWrap: 'anywhere' },
-  '.cm-cursor': { borderLeftColor: 'currentColor' },
-  '.cm-placeholder': { color: 'light-dark(#3c3c4380, #ebebf580)' },
-  '.exact-md-marker': { opacity: '.38' },
-  '.exact-md-bold': { fontWeight: '700' },
-  '.exact-md-italic': { fontStyle: 'italic' },
-  '.exact-md-strike': { textDecoration: 'line-through' },
-  '.exact-md-link': { color: 'light-dark(#245aba, #83b3ff)', textDecoration: 'underline' },
-  '.exact-md-code': { fontFamily: 'ui-monospace, monospace', background: 'light-dark(#00000009, #ffffff12)', borderRadius: '3px' },
-  '.exact-md-code-line': { fontFamily: 'ui-monospace, monospace', background: 'light-dark(#00000009, #ffffff12)' },
-  '.exact-md-quote': { borderLeft: '3px solid light-dark(#d1d5db, #596170)', color: 'light-dark(#556074, #b4becc)' },
-  '.exact-md-footnote': { fontSize: '.75em', verticalAlign: 'super', lineHeight: '0' },
-  '.exact-md-rule': { display: 'inline-block', width: '100%', borderTop: '1px solid currentColor', opacity: '.25', verticalAlign: 'middle' },
-  '.exact-md-token-keyword': { color: 'light-dark(#9c36b5, #da9bff)' },
-  '.exact-md-token-string': { color: 'light-dark(#267038, #a4d792)' },
-  '.exact-md-token-comment': { color: 'light-dark(#687382, #8c98a8)', fontStyle: 'italic' },
-  '.exact-md-token-number': { color: 'light-dark(#b45716, #efb176)' },
-  '.exact-md-token-type': { color: 'light-dark(#086b83, #79d5e8)' },
-});
+let wasm;
+const utf16 = new TextDecoder('utf-16le');
+/** Write a string into the editor's input buffer; returns its length. */
+function put(s) {
+  const at = wasm.mde_input(s.length), m = new Uint16Array(wasm.memory.buffer, at, s.length);
+  for (let i = 0; i < s.length; i++) m[i] = s.charCodeAt(i);
+  return s.length;
+}
+const text = n => utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_text(), n));
 
-class Marker extends WidgetType {
-  constructor(kind, text) { super(); this.kind = kind; this.text = text; }
-  eq(other) { return other.kind === this.kind && other.text === this.text; }
-  toDOM() {
-    const el = document.createElement(this.kind === 4 ? 'sup' : 'span');
-    el.textContent = ['• ', '☐ ', '☑ ', '', this.text][this.kind] ?? this.text;
-    if (this.kind === 3) { el.className = 'exact-md-rule'; el.setAttribute('role', 'separator'); }
-    if (this.kind === 4) el.className = 'exact-md-footnote';
-    return el;
+/** A line's class, attributes and segments, from its `mde_view` record. */
+function describe(v, at, line) {
+  const [heading, quote, depth, flags, deco, da, db, count] = v.subarray(at + 2, at + 10);
+  const cls = ['md-line'], attrs = [], segs = [];
+  if (heading) cls.push('md-h' + heading);
+  if (flags & 1) cls.push('md-code');
+  if (flags & 4) cls.push('md-code-first');
+  if (flags & 8) cls.push('md-code-last');
+  if (flags & 2) cls.push('md-collapsed');
+  if (quote) { cls.push('md-quote'); attrs.push(['data-quote', String(Math.min(quote, 3))]); }
+  if (flags & 16) { cls.push('md-list'); attrs.push(['data-depth', String(Math.min(depth, 3))]); }
+  if (deco) cls.push(['', 'md-bullet', 'md-number', 'md-task', 'md-rule'][deco]);
+  if (deco === 2) attrs.push(['data-num', line.slice(da, db)]);
+  if (deco === 3) attrs.push(['data-done', String(da)]);
+  let empty = true;
+  for (let k = 0, o = at + 10; k < count; k++, o += 3) {
+    const style = v[o + 2], hidden = style & 128;
+    if (!hidden) empty = false;
+    segs.push([line.slice(v[o], v[o + 1]), hidden ? 'md-hide' : STYLES.filter(([bit]) => style & bit).map(([, c]) => c).join(' ')]);
   }
-  ignoreEvent() { return false; }
+  return { cls: cls.join(' '), attrs, segs, empty };
+}
+function build(d) {
+  const line = document.createElement('div');
+  line.className = d.cls;
+  for (const [k, value] of d.attrs) line.setAttribute(k, value);
+  for (const [t, c] of d.segs) {
+    if (!c) { line.append(t); continue; }
+    const span = document.createElement('span'); span.className = c; span.textContent = t; line.append(span);
+  }
+  if (d.empty) line.append(document.createElement('br'));
+  return line;
+}
+/** Whether a line's DOM already is `d` — as it is after most native keystrokes. */
+function matches(line, d) {
+  if (line.className !== d.cls || line.attributes.length !== 1 + d.attrs.length || d.attrs.some(([k, value]) => line.getAttribute(k) !== value)) return false;
+  const kids = line.childNodes;
+  if (kids.length !== d.segs.length + (d.empty ? 1 : 0)) return false;
+  for (let i = 0; i < d.segs.length; i++) {
+    const [t, c] = d.segs[i], k = kids[i];
+    if (c ? !(k.nodeName === 'SPAN' && k.className === c && k.attributes.length === 1 && k.childNodes.length === 1 && k.firstChild.nodeType === 3 && k.firstChild.data === t)
+      : !(k.nodeType === 3 && k.data === t)) return false;
+  }
+  return !d.empty || kids[kids.length - 1].nodeName === 'BR';
 }
 
-function decorations(state, call, enabled) {
-  if (!enabled()) return { drawn: Decoration.none, atomic: Decoration.none };
-  const source = state.doc.toString(), selection = state.selection.main;
-  const styled = call('style', source, selection.from, selection.to);
-  const all = [], atomic = [], replaced = [];
-  const valid = (a, b) => Number.isInteger(a) && Number.isInteger(b) && a >= 0 && b > a && b <= source.length;
-  // Only inline replacements: never remove a line break or overlap the
-  // selection. CodeMirror owns line layout, bidi, cursor mapping and IME.
-  const safe = (a, b) => valid(a, b) && !source.slice(a, b).includes('\n')
-    && !(selection.from <= b && a <= selection.to);
-  for (const [a, b, kind, text] of styled.r ?? []) if (safe(a, b)) {
-    const range = Decoration.replace({ widget: new Marker(kind, text), inclusive: false }).range(a, b);
-    all.push(range); atomic.push(range); replaced.push([a, b]);
-  }
-  for (const [a, b] of styled.h ?? []) if (safe(a, b) && !replaced.some(([x, y]) => a < y && x < b)) {
-    const range = Decoration.replace({ inclusive: false }).range(a, b);
-    all.push(range); atomic.push(range);
-  }
-  for (const [a, b, flags, href, token] of styled.s ?? []) if (valid(a, b)) {
-    const classes = [[1, 'bold'], [2, 'italic'], [4, 'code'], [8, 'strike'], [16, 'link'], [64, 'marker']]
-      .filter(([bit]) => flags & bit).map(([, name]) => `exact-md-${name}`);
-    if (token) classes.push(`exact-md-token-${token}`);
-    const attributes = href ? { title: href } : {};
-    all.push(Decoration.mark({ class: classes.join(' '), attributes }).range(a, b));
-  }
-  for (const [a, b, kind, level, depth, quote] of styled.p ?? []) {
-    if (a > source.length || b > source.length) continue;
-    const classes = [], style = [];
-    if (kind === 1) { style.push(`font-size:${[1, 1.8, 1.5, 1.25, 1.1, 1, 1][level]}em`, 'font-weight:700', 'line-height:1.3', 'padding-top:.25em', 'padding-bottom:.12em'); }
-    if (kind === 7 || kind === 6 || kind === 9) classes.push('exact-md-code-line');
-    if (quote) { classes.push('exact-md-quote'); style.push(`padding-left:${quote * 14}px`); }
-    if (kind >= 2 && kind <= 4) style.push(`padding-left:${depth * 20}px`);
-    for (let line = state.doc.lineAt(a); line.from <= b;) {
-      all.push(Decoration.line({ class: classes.join(' '), attributes: { style: style.join(';') } }).range(line.from));
-      if (line.to >= b || line.number === state.doc.lines) break;
-      line = state.doc.line(line.number + 1);
-    }
-  }
-  return { drawn: Decoration.set(all, true), atomic: Decoration.set(atomic, true) };
-}
-
-// Replacing the textarea happens only once the optional module is available;
-// until then it remains an ordinary, usable source editor with the same value.
+// Replacing the textarea happens only once this module and its wasm are
+// ready; until then it remains an ordinary, usable source editor.
 function installMarkupEditor(textarea, host) {
   const el = document.createElement('div');
   for (const attr of textarea.attributes) el.setAttribute(attr.name, attr.value);
   el.classList.add('exact-markdown-editor');
-  const initialFocus = document.activeElement === textarea;
-  let destroyed = false, composing = false, dragging = false, pendingValue, pendingSync = false, notifying = false;
-  let lastSelection = '', view;
-  let tabIndex = textarea.getAttribute('tabindex') ?? '0';
-  const inputDefaults = { spellcheck: String(textarea.spellcheck), autocorrect: 'on', autocapitalize: textarea.autocapitalize || 'sentences', writingsuggestions: 'true' };
-  const enabled = () => el.getAttribute('markup') === 'markdown';
-  const frozen = () => composing || dragging || view?.compositionStarted;
+  const h = wasm.mde_new(), defaults = new Set(), ours = ['contenteditable', 'role', 'aria-multiline', 'aria-readonly', 'aria-disabled', 'aria-placeholder'];
+  let source = '', lines = [], keys = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
+  let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
+  let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !el.closest('[inert]');
-  const config = new Compartment();
-  const styled = StateField.define({
-    create: state => decorations(state, host.call, enabled),
-    update(value, tr) {
-      if (frozen()) return tr.docChanged ? { drawn: value.drawn.map(tr.changes), atomic: value.atomic.map(tr.changes) } : value;
-      return tr.docChanged || tr.selection || tr.effects.some(e => e.is(refresh)) ? decorations(tr.state, host.call, enabled) : value;
-    },
-    provide: field => [EditorView.decorations.from(field, value => value.drawn), EditorView.atomicRanges.of(view => view.state.field(field).atomic)],
-  });
-  const emitSelection = () => {
-    if (destroyed || frozen() || !view || !host.live(el)) return;
-    const sel = view.state.selection.main;
-    const result = host.call('selection', view.state.doc.toString(), sel.from, sel.to);
-    const payload = [result.formats, result.mixed ? '1' : '0', result.unavailable, result.link].join('\n');
-    if (payload !== lastSelection) { lastSelection = payload; host.select(el, payload); }
-  };
-  const emit = update => {
-    if (destroyed || !host.live(el)) return;
-    // The CM transaction is complete before app write-back re-enters here.
-    if (update.docChanged && update.transactions.some(tr => tr.annotation(Transaction.userEvent))) {
-      notifying = true;
-      try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })); }
-      finally { notifying = false; }
+  const now = () => performance.now();
+  const sel = () => [wasm.mde_sel(h, 0), wasm.mde_sel(h, 1)];
+
+  function render() {
+    const n = wasm.mde_view(h), v = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), n).slice();
+    const next = [], found = [];
+    starts = [];
+    for (let i = 0, at = 1; i < v[0]; i++) {
+      const line = source.slice(v[at], v[at + 1]), end = at + 10 + v[at + 9] * 3;
+      next.push(v.subarray(at + 2, end).join(',') + '\u0000' + line);
+      found.push([at, line]); starts.push(v[at]); at = end;
     }
-    if (update.docChanged || update.selectionSet || update.focusChanged) queueMicrotask(emitSelection);
-    if ((pendingValue !== undefined || pendingSync) && !frozen()) queueMicrotask(flush);
-  };
+    let head = 0, tail = 0;
+    while (head < keys.length && head < next.length && keys[head] === next[head]) head++;
+    while (tail < keys.length - head && tail < next.length - head && keys[keys.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
+    const removed = lines.splice(head, keys.length - head - tail);
+    const fresh = found.slice(head, next.length - tail).map(([at, line]) => describe(v, at, line));
+    // A native keystroke usually leaves the DOM exactly as it would be drawn:
+    // keep those nodes, so the input method's autocorrect state survives.
+    const kept = removed.length === fresh.length && removed.every((line, i) => matches(line, fresh[i]));
+    const added = kept ? removed.splice(0) : fresh.map(build);
+    const before = lines[head] ?? null;
+    for (const line of removed) line.remove();
+    for (const line of added) if (!line.isConnected) el.insertBefore(line, before);
+    lines.splice(head, 0, ...added);
+    keys = next;
+    lines.forEach((line, i) => index.set(line, i));
+    el.classList.toggle('md-empty', source === '');
+  }
+  function read() { source = utf16.decode(new Uint16Array(wasm.memory.buffer, wasm.mde_source(h), wasm.mde_source_len(h))); }
+
+  /** The source offset of a DOM point inside the editor. */
+  function toSource(node, offset) {
+    if (node === el) return offset >= lines.length ? source.length : starts[offset] ?? 0;
+    const line = (node.nodeType === 3 ? node.parentElement : node)?.closest('.md-line');
+    if (!line || !index.has(line)) return sel()[0];
+    const r = document.createRange();
+    r.setStart(line, 0); r.setEnd(node, offset);
+    return starts[index.get(line)] + r.toString().length;
+  }
+  /** A DOM point for a source offset, on visible text left or right of hidden syntax. */
+  function toDom(p, right) {
+    let lo = 0, hi = starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (starts[mid] <= p) lo = mid; else hi = mid - 1; }
+    const line = lines[lo];
+    if (!line) return { node: el, offset: 0 };
+    const local = p - starts[lo], walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT), found = [];
+    for (let t = walker.nextNode(), acc = 0; t; acc += t.data.length, t = walker.nextNode()) {
+      if (!t.parentElement.classList.contains('md-hide') && acc <= local && local <= acc + t.data.length) found.push({ node: t, offset: local - acc, start: local === acc, end: local === acc + t.data.length });
+    }
+    if (found.length) return right ? found.find(c => !c.end) ?? found.at(-1) : found.find(c => !c.start) ?? found[0];
+    const br = line.querySelector(':scope > br');
+    return { node: line, offset: br ? [...line.childNodes].indexOf(br) : line.childNodes.length };
+  }
+  function domSelection() {
+    const s = document.getSelection();
+    if (!s?.rangeCount || !el.contains(s.anchorNode) || !el.contains(s.focusNode)) return null;
+    const a = toSource(s.anchorNode, s.anchorOffset), f = toSource(s.focusNode, s.focusOffset);
+    return [Math.min(a, f), Math.max(a, f)];
+  }
+  function place(reveal) {
+    if (document.activeElement !== el) return;
+    const [from, to] = sel(), a = toDom(from, wasm.mde_draws_after(h, from) === 1), b = from === to ? a : toDom(to, false);
+    placed = [from, to];
+    document.getSelection().setBaseAndExtent(a.node, a.offset, b.node, b.offset);
+    if (!reveal) return;
+    const s = document.getSelection(), focus = s.focusNode?.nodeType === 3 ? s.focusNode.parentElement : s.focusNode;
+    let r = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null;
+    if (!r?.height && focus) r = focus.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    if (r && r.bottom > box.bottom) el.scrollTop += r.bottom - box.bottom;
+    else if (r && r.top < box.top) el.scrollTop -= box.top - r.top;
+  }
+  function emit() {
+    if (destroyed || !host.live(el)) return;
+    const next = text(wasm.mde_facts(h));
+    if (next !== payload) { payload = next; host.select(el, payload); }
+  }
+  function notify() {
+    notifying = true;
+    try { el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })); }
+    finally { notifying = false; }
+    if (pendingValue !== undefined || pendingSync) queueMicrotask(flush);
+  }
+  /** Show what an editing call did: redraw, place the caret, tell the app. */
+  function after(bits) {
+    if (destroyed) return;
+    if (bits & SOURCE) { read(); render(); }
+    if (bits & PLACE) place(true);
+    if (bits & SOURCE) notify();
+    emit();
+  }
+  function run(command, argument = '') {
+    if (destroyed || !writable() || composing) return false;
+    const n = put(command + argument);
+    after(wasm.mde_command(h, command.length, n - command.length, now()));
+    return true;
+  }
+  function reconcile() {
+    if (destroyed || composing) return;
+    const s = domSelection(), n = put(lines.map(line => line.textContent).join('\n'));
+    after(wasm.mde_reconcile(h, n, s ? s[0] : NONE, s ? s[1] : NONE, now()));
+  }
+  function selectionChanged() {
+    if (destroyed || composing || !host.live(el)) return;
+    const s = domSelection();
+    if (!s) return;
+    const echo = placed; placed = null;
+    const answer = wasm.mde_select(h, s[0], s[1], echo ? echo[0] : NONE, echo ? echo[1] : NONE);
+    // Mid-drag the platform owns the selection; snap it when the drag ends.
+    if (answer === 2 && !pointer) place(false);
+    if (answer) emit();
+  }
   function setValue(value) {
     value = String(value);
     if (destroyed) return;
-    if (value === view.state.doc.toString()) { pendingValue = undefined; return; }
-    if (frozen() || notifying) { pendingValue = value; return; }
+    if (value === source) { pendingValue = undefined; return; }
+    if (composing || notifying) { pendingValue = value; return; }
     pendingValue = undefined;
-    const old = view.state.doc.toString();
-    let a = 0, z = 0;
-    while (a < old.length && a < value.length && old[a] === value[a]) a++;
-    while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
-    // Keep a surrogate pair in one replacement, even when only its low unit differs.
-    if (a && /[\uD800-\uDBFF]/.test(old[a - 1])) a--;
-    if (z && /[\uDC00-\uDFFF]/.test(old[old.length - z])) z--;
-    view.dispatch({ changes: { from: a, to: old.length - z, insert: value.slice(a, value.length - z) }, annotations: [external, isolateHistory.of('full')] });
+    const bits = wasm.mde_set_value(h, put(value));
+    if (bits & SOURCE) { read(); render(); place(false); emit(); }
   }
   function flush() {
-    if (destroyed || frozen()) return;
+    if (destroyed || composing) return;
     if (pendingValue !== undefined) setValue(pendingValue);
     if (pendingSync) { pendingSync = false; sync(); }
-    else view.dispatch({ effects: refresh.of(null), annotations: external });
-    emitSelection();
-  }
-  function format(command, argument = '') {
-    if (destroyed || !writable() || frozen() || !enabled()) return false;
-    const selection = view.state.selection.main;
-    const edit = host.call('edit', view.state.doc.toString(), selection.from, selection.to, command, String(argument));
-    if (edit.error) { console.warn('exact: format refused:', edit.error); return false; }
-    if (!edit.replacements?.length) return false;
-    view.dispatch({ changes: edit.replacements.map(([from, to, insert]) => ({ from, to, insert })),
-      selection: EditorSelection.single(...edit.selection), scrollIntoView: true,
-      annotations: [Transaction.userEvent.of(command === 'newline' ? 'input' : 'input.format'), isolateHistory.of('full')] });
-    view.focus();
-    return true;
   }
   const link = () => {
-    if (!writable() || frozen()) return false;
-    const selection = view.state.selection.main;
-    const state = host.call('selection', view.state.doc.toString(), selection.from, selection.to);
-    const url = window.prompt('Link URL', state.link || 'https://');
-    if (url !== null) format('link', url);
-    return true;
+    if (!writable()) return;
+    const current = text(wasm.mde_facts(h)).split('\n')[3];
+    const url = window.prompt('Link URL', current || 'https://');
+    if (url !== null) run('link', url);
   };
+  function copied() {
+    if (!wasm.mde_copy(h)) return null;
+    const o = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), 2);
+    return source.slice(o[0], o[1]);
+  }
   const copyPlain = () => {
-    const sel = view.state.selection.main;
-    const text = host.call('plain', view.state.sliceDoc(sel.from, sel.to));
-    navigator.clipboard?.writeText(text).catch(error => console.warn('exact: plain copy failed', error));
-    return true;
+    const markdown = copied();
+    if (markdown === null) return;
+    navigator.clipboard?.writeText(text(wasm.mde_plain(put(markdown)))).catch(error => console.warn('exact: plain copy failed', error));
   };
-  function configuration() {
+  function configure() {
     const disabled = el.hasAttribute('disabled'), readonly = el.hasAttribute('readonly');
-    if (el.hasAttribute('tabindex')) { tabIndex = el.getAttribute('tabindex'); el.removeAttribute('tabindex'); }
-    const attrs = { ...inputDefaults, role: 'textbox', 'aria-multiline': 'true', 'aria-readonly': String(readonly), 'aria-disabled': String(disabled), tabindex: disabled ? '-1' : tabIndex };
-    for (const attr of el.attributes) if (/^(aria-|autocapitalize$|autocorrect$|spellcheck$|inputmode$|enterkeyhint$|lang$|dir$)/.test(attr.name)) attrs[attr.name] = attr.value;
-    // Disabled/readonly are the committed control props, not authored ARIA hints.
-    attrs['aria-disabled'] = String(disabled); attrs['aria-readonly'] = String(readonly);
-    return [EditorState.readOnly.of(disabled || readonly), EditorView.editable.of(!disabled && !readonly),
-      EditorView.contentAttributes.of(attrs), placeholder(el.getAttribute('placeholder') ?? '')];
+    if (el.hasAttribute('tabindex') && !disabled) tabIndex = el.getAttribute('tabindex');
+    el.contentEditable = disabled || readonly ? 'false' : 'true';
+    if (disabled) el.removeAttribute('tabindex');
+    else if (tabIndex !== null || readonly) el.setAttribute('tabindex', tabIndex ?? '0');
+    el.setAttribute('role', 'textbox'); el.setAttribute('aria-multiline', 'true');
+    el.setAttribute('aria-readonly', String(readonly)); el.setAttribute('aria-disabled', String(disabled));
+    if (el.hasAttribute('placeholder')) el.setAttribute('aria-placeholder', el.getAttribute('placeholder')); else el.removeAttribute('aria-placeholder');
+    for (const [name, value] of [['spellcheck', String(textarea.spellcheck)], ['autocorrect', 'on'], ['autocapitalize', textarea.autocapitalize || 'sentences'], ['writingsuggestions', 'true']]) {
+      if (!el.hasAttribute(name)) { el.setAttribute(name, value); defaults.add(name); }
+    }
+    if (disabled && document.activeElement === el) el.blur();
   }
   function sync() {
     if (destroyed) return;
-    if (frozen() || notifying) { pendingSync = true; return; }
-    if (!enabled()) {
-      const native = document.createElement('textarea'), source = view.state.doc.toString(), sel = view.state.selection.main, focused = view.hasFocus;
-      for (const attr of el.attributes) native.setAttribute(attr.name, attr.value);
-      native.setAttribute('tabindex', tabIndex);
-      native.classList.remove('exact-markdown-editor'); native.value = source; native.exactSourceValue = source;
-      const offset = p => source.slice(0, p).replace(/\r\n?/g, '\n').length;
-      native.setSelectionRange(offset(sel.from), offset(sel.to), sel.anchor > sel.head ? 'backward' : 'forward');
-      host.replace(native); el.exactMarkup.destroy(); el.replaceWith(native);
-      if (focused && !native.disabled) native.focus();
+    if (composing || notifying) { pendingSync = true; return; }
+    if (el.getAttribute('markup') === 'markdown') { configure(); return; }
+    // Markdown off: the same source in a plain textarea, the explicit source mode.
+    const native = document.createElement('textarea'), [from, to] = sel(), focused = document.activeElement === el;
+    for (const attr of el.attributes) if (!ours.includes(attr.name) && !defaults.has(attr.name)) native.setAttribute(attr.name, attr.value);
+    if (tabIndex !== null) native.setAttribute('tabindex', tabIndex);
+    native.classList.remove('exact-markdown-editor', 'md-empty');
+    if (!native.classList.length) native.removeAttribute('class');
+    native.value = source; native.exactSourceValue = source;
+    native.setSelectionRange(from, to);
+    host.replace(native); destroy(); el.replaceWith(native);
+    if (focused && !native.disabled) native.focus();
+  }
+  function destroy() {
+    if (destroyed) return;
+    destroyed = true;
+    document.removeEventListener('selectionchange', selectionChanged);
+    window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release);
+    wasm.mde_drop(h);
+  }
+
+  el.addEventListener('beforeinput', e => {
+    if (destroyed || e.isComposing || e.inputType === 'insertCompositionText') return;
+    if (!writable()) { e.preventDefault(); return; }
+    const kind = kindOf(e.inputType);
+    if (!kind) return;
+    let a = NONE, b = NONE;
+    const target = (kind === 9 || kind >= 11) && e.getTargetRanges?.()[0];
+    if (target) { const x = toSource(target.startContainer, target.startOffset), y = toSource(target.endContainer, target.endOffset); a = Math.min(x, y); b = Math.max(x, y); }
+    const dt = e.dataTransfer, data = e.data ?? (dt && (dt.getData('text/markdown') || dt.getData('text/plain'))) ?? '';
+    const bits = wasm.mde_before_input(h, kind, put(data), a, b, now());
+    if (!(bits & HANDLED)) return; // plain typing: the platform's, read back on input
+    e.preventDefault();
+    after(bits);
+  });
+  // The app hears this editor's own input events only, carrying the source.
+  el.addEventListener('input', e => {
+    if (notifying) return;
+    e.stopImmediatePropagation();
+    if (!e.isComposing) reconcile();
+  });
+  el.addEventListener('compositionstart', () => { composing = true; });
+  el.addEventListener('compositionend', () => { composing = false; queueMicrotask(() => { reconcile(); flush(); }); });
+  el.addEventListener('keydown', e => {
+    if (e.isComposing || destroyed) return;
+    const mod = e.metaKey || e.ctrlKey, key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    let command = null;
+    if (mod && !e.altKey) {
+      if (key === 'z') command = e.shiftKey ? 'redo' : 'undo';
+      else if (key === 'y' && !e.shiftKey) command = 'redo';
+      else if (key === 'b' && !e.shiftKey) command = 'bold';
+      else if (key === 'i' && !e.shiftKey) command = 'italic';
+      else if (key === ']') command = 'indent';
+      else if (key === '[') command = 'outdent';
+      else if (key === 'k' && !e.shiftKey) { e.preventDefault(); link(); return; }
+      else if (key === 'c' && e.shiftKey) { e.preventDefault(); copyPlain(); return; }
+    } else if (key === 'Tab' && !e.altKey && / (bullet|ordered|task) /.test(` ${payload.split('\n')[0]} `)) command = e.shiftKey ? 'outdent' : 'indent';
+    if (!command || !writable()) return;
+    e.preventDefault();
+    run(command);
+  });
+  const clip = cut => e => {
+    const markdown = copied();
+    if (markdown === null) return;
+    e.preventDefault();
+    // Copy keeps the literal source (LLP 1045 D1); Mod-Shift-C copies plain text.
+    e.clipboardData.setData('text/plain', markdown);
+    e.clipboardData.setData('text/markdown', markdown);
+    if (cut && writable()) after(wasm.mde_cut(h, now()));
+  };
+  el.addEventListener('copy', clip(false));
+  el.addEventListener('cut', clip(true));
+  el.addEventListener('pointerdown', e => {
+    const line = e.target.closest?.('.md-task');
+    if (line && el.contains(line) && writable() && e.clientX - line.getBoundingClientRect().left <= parseFloat(getComputedStyle(line).paddingLeft)) {
+      e.preventDefault();
+      after(wasm.mde_toggle_task(h, starts[index.get(line)], now()));
       return;
     }
-    view.dispatch({ effects: [config.reconfigure(configuration()), refresh.of(null)], annotations: external });
-    if (el.hasAttribute('disabled') && view.hasFocus) view.contentDOM.blur();
-  }
-  const stop = event => { event.stopPropagation(); return false; };
-  const handlers = EditorView.domEventHandlers({
-    input: stop,
-    compositionstart(event) { composing = true; return stop(event); },
-    compositionend(event) { composing = false; setTimeout(flush, 0); return stop(event); },
-    pointerdown() { dragging = true; return false; },
-    focus() { el.dispatchEvent(new FocusEvent('focus')); queueMicrotask(emitSelection); return false; },
-    blur() { el.dispatchEvent(new FocusEvent('blur')); return false; },
+    pointer = true;
   });
-  const release = () => { if (dragging) { dragging = false; queueMicrotask(flush); } };
+  const release = () => { if (pointer) { pointer = false; queueMicrotask(selectionChanged); } };
   window.addEventListener('pointerup', release);
   window.addEventListener('pointercancel', release);
+  el.addEventListener('focus', () => queueMicrotask(emit));
+  document.addEventListener('selectionchange', selectionChanged);
+
   const raw = textarea.exactSourceValue;
-  const initialValue = raw?.replace(/\r\n?/g, '\n') === textarea.value ? raw : textarea.value;
-  const sourceOffset = offset => {
-    let at = 0;
-    for (let n = 0; n < offset && at < initialValue.length; n++, at++) if (initialValue[at] === '\r' && initialValue[at + 1] === '\n') at++;
-    return at;
-  };
-  const initialSelection = EditorSelection.single(sourceOffset(textarea.selectionDirection === 'backward' ? textarea.selectionEnd : textarea.selectionStart),
-    sourceOffset(textarea.selectionDirection === 'backward' ? textarea.selectionStart : textarea.selectionEnd));
-  view = new EditorView({ parent: el, state: EditorState.create({ doc: initialValue, selection: initialSelection,
-    extensions: [EditorState.lineSeparator.of('\n'), theme, EditorView.lineWrapping, history(), styled, config.of(configuration()), handlers,
-      EditorView.updateListener.of(emit), keymap.of([
-        { key: 'Mod-b', run: () => format('bold') }, { key: 'Mod-i', run: () => format('italic') },
-        { key: 'Mod-k', run: link }, { key: 'Mod-Shift-c', run: copyPlain },
-        { key: 'Mod-]', run: () => format('indent') }, { key: 'Mod-[', run: () => format('outdent') },
-        { key: 'Enter', run: () => format('newline') }, ...historyKeymap, ...defaultKeymap,
-      ])],
-  }) });
-  Object.defineProperty(el, 'value', { get: () => view.state.doc.toString(), set: setValue });
-  el.focus = () => { if (!el.hasAttribute('disabled')) view.focus(); };
-  el.select = () => { if (!el.hasAttribute('disabled')) view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }); };
-  el.exactMarkup = { sync, format, setValue, view, destroy() {
-    if (destroyed) return;
-    destroyed = true; window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release); view.destroy();
-  } };
-  // The outer node owns authored layout and identity; only CM's content takes focus.
-  el.removeAttribute('tabindex'); el.removeAttribute('role');
+  wasm.mde_load(h, put(raw?.replace(/\r\n?/g, '\n') === textarea.value ? raw : textarea.value));
+  read(); render();
+  wasm.mde_select(h, textarea.selectionStart, textarea.selectionEnd, NONE, NONE);
+  Object.defineProperty(el, 'value', { get: () => source, set: setValue });
+  el.focus = options => { if (el.hasAttribute('disabled')) return; HTMLElement.prototype.focus.call(el, options); place(false); };
+  el.select = () => { if (el.hasAttribute('disabled')) return; wasm.mde_select_all(h); place(false); emit(); };
+  el.exactMarkup = { sync, format(command, argument = '') { if (destroyed || !writable()) return false; el.focus(); return run(command, String(argument)); }, setValue, destroy };
+  configure();
+  const initialFocus = document.activeElement === textarea;
   textarea.replaceWith(el);
   host.replace(el);
-  if (initialFocus) view.focus();
-  queueMicrotask(emitSelection);
+  if (initialFocus) el.focus();
+  queueMicrotask(emit);
   return el;
 }
 
-globalThis.exact.installMarkupEditor = installMarkupEditor;
-export { installMarkupEditor };
+const style = document.createElement('style');
+style.textContent = CSS;
+document.head.append(style);
+// glue awaits this: the install function once the editor's wasm is ready.
+globalThis.exact.installMarkupEditor = fetch(new URL('./markup-editor.wasm', import.meta.url))
+  .then(r => { if (!r.ok) throw new Error(`markup-editor.wasm: ${r.status}`); return r.arrayBuffer(); })
+  .then(bytes => WebAssembly.instantiate(bytes, {}))
+  .then(({ instance }) => { wasm = instance.exports; return installMarkupEditor; });

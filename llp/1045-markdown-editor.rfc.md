@@ -2,11 +2,11 @@
 
 **Type:** RFC
 **Status:** Draft
-**Systems:** Text, Kernel (one prop), Contract (one attribute, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), a new `markdown/` crate, Interview (first consumer)
+**Systems:** Text, Kernel (one prop), Contract (one attribute, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), the `markdown/` and `markdown/editor/` crates, Interview (first consumer)
 **Author:** Charlie Cheever / Claude (Fable 5.1)
 **Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-09-21 r3, Charlie approved the source-editing / CodeMirror plan
+**Revised:** 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 
 ## 1. Ask
@@ -44,12 +44,39 @@ the application or API format. An API client can read the Markdown, change it,
 and write it back without driving the visual editor. Formatting-command API
 expansion is a separate choice, not implied by direct source access.
 
-[owed] The current CodeMirror/TextKit implementation is the earlier hybrid
-source editor. The WYSIWYG replacement needs implementation and verification
-of formatting boundaries, deletion across styles, lists, links, paste,
-composition, undo/redo, and lossless source-mode round trips on web and Apple.
+[owed] The TextKit implementation is still the earlier hybrid source editor;
+the web now runs the WYSIWYG rules (below). Apple needs them, and both need
+phone and Safari proof of formatting boundaries, deletion across styles,
+lists, links, paste, composition, undo/redo, and lossless source-mode round
+trips.
 The decisions below describe the existing implementation where they still
 refer to automatic syntax reveal. This document remains Draft.
+
+### Web editor and shared rules — 2026-09-22
+
+[confirmed] Charlie, 2026-09-22: remove CodeMirror; the web editor is the
+browser's own `contentEditable`, as the MD Lab prototype was (“let's remove
+codemirror”). The editing rules move out of each host into one crate,
+`exact-markdown-editor` (`markdown/editor/`), kept apart from the reader so
+that “apps that don't use a markdown editor [don't] have to pay the cost of
+that code weight… you are paying the minimum cost.”
+
+[implemented, web] The crate owns what the platform must not decide: which
+syntax is hidden and where a caret may sit beside it, where typed text lands
+at a style boundary, what Backspace removes, pending formats at a caret, list
+Return, commands, and undo. It draws nothing; a host draws its lines, one per
+source line, with hidden syntax kept out of layout (`display: none` on the
+web), so the drawn text is the source and plain typing, composition and
+spelling run natively and are read back. The web ships it as its own wasm
+beside `markup-editor.js`, fetched only when a Markdown textarea mounts: 153
+KiB (68 KiB gzip) against the CodeMirror bundle's 271 KiB of JavaScript (87
+KiB gzip), and the main wasm drops its editing exports for every app (36 KiB
+raw, 15 KiB gzip, measured on `markdown-stress`). The reader's styler stays in
+the main wasm, so an app that both reads and edits downloads the parser twice.
+Driven in headless Chrome: 28 scenarios (pending formats, boundaries, deletion,
+lists, links, composition, paste, undo, the link sheet's bookmark); Safari,
+iOS Safari and Android remain the go/no-go. [owed] Apple adopts the crate
+through its C ABI, replacing the hybrid editor.
 
 ## 2. Starting point before these slices
 
@@ -106,8 +133,8 @@ each host:
   group, and Return's list continuation is one group with the newline. On
   Apple, a genuinely different external value resets only that editor's undo
   history, because its old native ranges cannot be safely reused; an ordinary
-  controlled echo retains history. CodeMirror maps its history through external
-  replacements.
+  controlled echo retains history. The web editor resets on a genuinely
+  different external value too.
 - **Accessibility.** VoiceOver reads the styled text with hidden markers
   omitted and traits (heading, link, code) set; revealed markers read as text.
 - **Bidirectional text.** Markers are ASCII punctuation; hiding them removes
@@ -240,18 +267,17 @@ and the row is kept only if the numbers say so.
   Native markers remain visible until caret movement, selection gestures and
   accessibility have been judged on a phone. The current proof uses a fixed
   editor height; intrinsic `field-sizing: content` parity remains owed.
-- **Web:** CodeMirror 6, approved by Charlie on 2026-09-21. The document is
-  the Markdown source; the shared Rust styler supplies decorations and the
-  edit function supplies replacements. CodeMirror owns DOM reconciliation,
-  selection, composition and history. Replacement decorations hide inactive
-  syntax, with explicit reveal-before-delete behavior rather than relying
-  on atomic-range deletion defaults. The active paragraph shows dimmed
-  syntax. The editor is a separately bundled host artifact, loaded after
-  first pixel when a Markdown editor is needed; reading does not load it.
-  `glue.js`'s value, focus, selection and agent paths delegate to the editor.
-  Safari, iOS Safari, Chrome and Firefox still require evaluation for
-  composition, replacement suggestions, paragraph joins, backward selections,
-  clipboard, undo and external value updates. A library is not that proof.
+- **Web:** `contentEditable`, no library (Charlie, 2026-09-22). Each source
+  line is a block; hidden syntax is a `display: none` span, out of layout,
+  caret movement and the accessibility tree. `beforeinput` goes to
+  `exact-markdown-editor`, which prevents and applies structural edits
+  (Return, deletion, insertion at a style boundary, paste, pending formats)
+  and lets plain typing and composition through; the host reads the DOM back
+  and redraws only lines that changed, keeping lines the platform already
+  typed correctly so autocorrect state survives. The editor owns undo.
+  `markup-editor.js` and `markup-editor.wasm` load after first pixel when a
+  Markdown textarea mounts; reading loads neither. Removing `markup` swaps in
+  a plain textarea with the same source: the explicit source mode.
 - **Linux:** v2 (Charlie, 2026-09-21: "focus on web ios macos for now and
   worry about linux in v2"). It reads through `markup` when the row lands,
   since the painter already links Rust; editing stays the existing plain
@@ -393,7 +419,7 @@ picker limited to images and video, no camera, no generic file input.
    drafts through the existing `value` path. This is where the TypeScript
    route to `segments`/`excerpt` (a data-seam call into the crate, LLP
    1027.001's shape) and external updates are found, not in the last slice.
-5. macOS (shared Swift) and the CodeMirror web editor with its browser
+5. macOS (shared Swift) and the web editor with its browser
    evaluation (D5); the web prototype runs alongside the native editing slice.
 6. Embeds verified per provider (D7), figures with captions, footnote base per
    segment, tables as a segment, code-block highlighting (D8), plain-text
@@ -410,7 +436,7 @@ generic file input, image editing, highlighting beyond the fixed language
 set, table editing beyond
 source (v1 types pipes; v2 owes a grid editor or a cell-aware `format`), a Contract component
 library (`use` across apps stays as QUEUE has it), LLP 1024, and a separate rich
-document model. CodeMirror 6 is the admitted web editor dependency.
+document model. The web editor has no dependency (Charlie, 2026-09-22).
 
 ## 6. Open, for Charlie
 
@@ -419,7 +445,8 @@ document model. CodeMirror 6 is the admitted web editor dependency.
   code-block highlighting is in v1 (D8). LLP 1024 was already deferred on
   2026-09-05 and is not a new trade.
 - Decided 2026-09-21: copy defaults to source with a plain-text alternative
-  (D1); Charlie subsequently approved CodeMirror 6 for the web editing slice;
+  (D1); Charlie approved CodeMirror 6 for the web editing slice, then removed
+  it on 2026-09-22;
   tables are source-only in v1 and v2
   owes a real answer (§5).
 - `llp/current/` is at 15; this document is not linked there until one leaves.
