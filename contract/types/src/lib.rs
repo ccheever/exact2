@@ -909,11 +909,58 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
         shapes,
         components: Vec::new(),
     };
-    // Uses first, where they are written: a misspelled prop is named at its
-    // call site, never reported as the prop it left missing.
-    for c in &file.components {
-        uses::check_prop_names(&c.view, file)?;
+    let root = &file.components[0];
+    // The root's entry stands in until the root itself is checked.
+    types.components.push(ComponentTypes {
+        name: root.name.clone(),
+        props: root
+            .props
+            .iter()
+            .chain(&root.injects)
+            .map(|p| {
+                p.ty.as_ref()
+                    .and_then(|t| types.shapes.resolve(t).ok())
+                    .unwrap_or(Ty::Unknown)
+            })
+            .collect(),
+        ..ComponentTypes::default()
+    });
+    if let Err(e) = check_children(file, &mut types) {
+        return Err(prefer_call_sites(e, file, &types, None));
     }
+    // The root is checked against its inlined view, so a handler's real call
+    // site (behind a child's prop) types the action's parameters.
+    // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
+    // child's own declarations, lifted in — what lowering will lower.
+    let expanded = if capture_sites {
+        contract_syntax::expand_mapped(file)
+    } else {
+        contract_syntax::expand(file)
+    };
+    let expanded = match expanded {
+        Ok(expanded) => expanded,
+        Err(e) => {
+            let e = TypeError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            };
+            return Err(prefer_call_sites(e, file, &types, None));
+        }
+    };
+    if let Err(e) = check_root(file, &mut types, &expanded) {
+        return Err(prefer_call_sites(e, file, &types, Some(&expanded)));
+    }
+    Ok(Checked {
+        file,
+        types,
+        expanded,
+    })
+}
+
+/// Children are views over their props, checked standalone before the
+/// root inlines them, so an error in a child is reported in its own terms.
+fn check_children(file: &File, types: &mut Types) -> Result<(), TypeError> {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
     // must not open N requests, and only the root has a clock.
@@ -933,66 +980,53 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
             );
         }
     }
-    // Children are views over their props, checked standalone before the
-    // root inlines them, so an error in a child is reported in its own
-    // terms. The root's entry stands in until the root itself is checked.
-    let root = &file.components[0];
-    types.components.push(ComponentTypes {
-        name: root.name.clone(),
-        props: root
-            .props
-            .iter()
-            .chain(&root.injects)
-            .map(|p| {
-                p.ty.as_ref()
-                    .and_then(|t| types.shapes.resolve(t).ok())
-                    .unwrap_or(Ty::Unknown)
-            })
-            .collect(),
-        ..ComponentTypes::default()
-    });
     for c in file.components.iter().skip(1) {
-        let ct = check_component(c, &types, None)?;
+        let ct = check_component(c, types, None)?;
         types.components.push(ct);
     }
-    // The root is checked against its inlined view, so a handler's real call
-    // site (behind a child's prop) types the action's parameters.
-    // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
-    // child's own declarations, lifted in — what lowering will lower.
-    let expanded = if capture_sites {
-        contract_syntax::expand_mapped(file)
-    } else {
-        contract_syntax::expand(file)
-    }
-    .map_err(|e| TypeError {
-        id: e.id,
-        message: e.message,
-        span: e.span,
-    })?;
-    // Call sites before the views they expand into: the children's, then
-    // the root's (the use of an unknown component is expansion's refusal).
+    Ok(())
+}
+
+/// Call sites before the views they expand into: the children's uses, then
+/// the expanded root and its own uses and injects.
+fn check_root(
+    file: &File,
+    types: &mut Types,
+    expanded: &contract_syntax::Expanded,
+) -> Result<(), TypeError> {
     for (c, ct) in file.components.iter().zip(&types.components).skip(1) {
-        uses::check_uses(&c.view, &types.component_scope(c, ct), &types, file)?;
+        uses::check_uses(&c.view, &types.component_scope(c, ct), types, file)?;
     }
-    uses::check_root_uses(root, &expanded.root, &types, file)?;
-    types.components[0] = check_component(&expanded.root, &types, Some(&expanded.owners))?;
-    uses::check_uses(
-        &root.view,
-        &types.component_scope(&expanded.root, &types.components[0]),
-        &types,
-        file,
-    )?;
-    check_injects(
-        &root.view,
-        &types.component_scope(&expanded.root, &types.components[0]),
-        &types,
-        file,
-    )?;
-    Ok(Checked {
-        file,
-        types,
-        expanded,
-    })
+    types.components[0] = check_component(&expanded.root, types, Some(&expanded.owners))?;
+    let scope = types.component_scope(&expanded.root, &types.components[0]);
+    let root = &file.components[0];
+    uses::check_uses(&root.view, &scope, types, file)?;
+    check_injects(&root.view, &scope, types, file)
+}
+
+/// A refusal is first checked against the call sites that lead to it: a
+/// misspelled prop is named where it is written (never reported as the prop
+/// it left missing), then a mistyped data argument at the root's uses (never
+/// as what the substituted value broke inside the callee). Only a refusal
+/// pays for this.
+fn prefer_call_sites(
+    e: TypeError,
+    file: &File,
+    types: &Types,
+    expanded: Option<&contract_syntax::Expanded>,
+) -> TypeError {
+    for c in &file.components {
+        if let Err(named) = uses::check_prop_names(&c.view, file) {
+            return named;
+        }
+    }
+    if let Some(expanded) = expanded {
+        if let Err(typed) = uses::check_root_uses(&file.components[0], &expanded.root, types, file)
+        {
+            return typed;
+        }
+    }
+    e
 }
 
 fn check_component(
