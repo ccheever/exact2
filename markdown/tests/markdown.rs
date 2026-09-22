@@ -767,3 +767,54 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     assert_eq!(pieces(""), Vec::<Piece>::new());
     assert_eq!(pieces("plain")[0].text, "plain");
 }
+
+#[test]
+fn pieces_keep_unicode_sources_and_replacements_across_many_blocks() {
+    let unit = "**é** [🦀](https://e.dev)\n\n> *שלום*\n\n[^a]: note\n\nend[^a].\n\n";
+    let count = 128;
+    let source = unit.repeat(count);
+    let out = pieces(&source);
+    let text: String = out.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(
+        text,
+        "é 🦀\n\n▎ שלום\n\n[1] note\n\nend[1].\n\n"
+            .repeat(count)
+            .trim_end_matches('\n')
+    );
+    let expected = [
+        ("é", 2, 3),
+        (" ", 5, 6),
+        ("🦀", 7, 9),
+        ("שלום", 30, 34),
+        ("note", 43, 47),
+        ("end", 49, 52),
+        (".", 56, 57),
+    ];
+    let stride = unit.encode_utf16().count() as u32;
+    let actual: Vec<_> = out
+        .iter()
+        .filter_map(|p| p.source.map(|r| (p.text.as_str(), r.start, r.end)))
+        .collect();
+    let expected: Vec<_> = (0..count as u32)
+        .flat_map(|n| {
+            expected.map(|(text, start, end)| (text, n * stride + start, n * stride + end))
+        })
+        .collect();
+    assert_eq!(actual, expected);
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "é")
+        .all(|p| p.weight == 700));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "🦀")
+        .all(|p| p.role == Role::Link && p.href == "https://e.dev"));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "שלום")
+        .all(|p| p.role == Role::Quote && p.italic));
+    assert!(out
+        .iter()
+        .filter(|p| p.text == "[1]" || p.text == "[1] ")
+        .all(|p| p.role == Role::Marker && p.scale == 0.75 && p.source.is_none()));
+}

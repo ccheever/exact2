@@ -156,7 +156,9 @@ is `excerpt`, one plain node.
 runs (headings as bigger bold runs, bullets, boxes, rules, quote bars and
 footnote marks as glyph runs, a short line between blocks) that the existing
 run painters draw, through `exact_markup_pieces` on Apple and a JSON prop on
-the web — one function for measure and paint. Block decoration that runs
+the web — one function for measure and paint. Flattening advances through
+sorted style, hidden and replacement ranges, collecting cut boundaries only
+from ranges intersecting each block. Block decoration that runs
 cannot express (code backgrounds, real quote bars, hanging indents) is owed
 to a later form that carries paragraph attributes. Measured in
 `apps/markdown-stress` ("One markup node" against "Render ALL blocks", same

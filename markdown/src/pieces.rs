@@ -9,7 +9,7 @@
 //! pieces; a heading is a bigger, bolder run; spacing between blocks is a
 //! short line. Colours are roles the host resolves from its theme.
 
-use crate::block::BlockKind;
+use crate::block::{BlockKind, B};
 use crate::style::{analyze, Replacement};
 use crate::{BOLD, CODE, ITALIC, LINK, MARKER, STRIKE};
 
@@ -82,6 +82,18 @@ fn heading_scale(level: u8) -> f32 {
 /// The blank between two blocks: a short line, about half a line of body.
 const GAP: f32 = 0.5;
 
+fn advance_ranges<T>(ranges: &mut &[T], at: usize, bounds: fn(&T) -> &B) {
+    while ranges.first().is_some_and(|entry| bounds(entry).end <= at) {
+        *ranges = &ranges[1..];
+    }
+}
+
+fn block_ranges<'a, T>(pending: &mut &'a [T], block: &B, bounds: fn(&T) -> &B) -> &'a [T] {
+    advance_ranges(pending, block.start, bounds);
+    let remaining = *pending;
+    &remaining[..remaining.partition_point(|entry| bounds(entry).start < block.end)]
+}
+
 /// Flattens `source` into pieces for one paragraph engine.
 pub fn pieces(source: &str) -> Vec<Piece> {
     let analysis = analyze(source, None);
@@ -89,6 +101,9 @@ pub fn pieces(source: &str) -> Vec<Piece> {
     let mut out: Vec<Piece> = Vec::new();
     let mut previous: Option<BlockKind> = None;
     let blocks = &analysis.blocks;
+    let mut remaining_spans = analysis.spans.as_slice();
+    let mut remaining_hidden = analysis.hidden.as_slice();
+    let mut remaining_replaced = analysis.replaced.as_slice();
     for (n, block) in blocks.iter().enumerate() {
         let (kind, depth, quote) = (&block.kind, block.depth as usize, block.quote as usize);
         // Spacing: none inside a run of list items or code lines, a short line otherwise.
@@ -144,14 +159,17 @@ pub fn pieces(source: &str) -> Vec<Piece> {
         // The block's text, cut at every span, hidden range and replacement;
         // the markers are hidden or replaced, so the block's whole range serves.
         let range = block.range.clone();
+        let mut spans = block_ranges(&mut remaining_spans, &range, |s| &s.0);
+        let mut hidden = block_ranges(&mut remaining_hidden, &range, |r| r);
+        let mut replaced = block_ranges(&mut remaining_replaced, &range, |r| &r.0);
         let mut cuts: Vec<usize> = vec![range.start, range.end];
-        for (r, _, _) in &analysis.spans {
+        for (r, _, _) in spans {
             cuts.extend([r.start, r.end]);
         }
-        for r in &analysis.hidden {
+        for r in hidden {
             cuts.extend([r.start, r.end]);
         }
-        for (r, _) in &analysis.replaced {
+        for (r, _) in replaced {
             cuts.extend([r.start, r.end]);
         }
         cuts.retain(|&c| c >= range.start && c <= range.end);
@@ -159,27 +177,22 @@ pub fn pieces(source: &str) -> Vec<Piece> {
         cuts.dedup();
         for pair in cuts.windows(2) {
             let (start, end) = (pair[0], pair[1]);
-            if analysis
-                .hidden
-                .iter()
-                .any(|h| h.start <= start && end <= h.end)
+            // All range endpoints are cuts. The first unexpired range is
+            // therefore the first covering range, even if ranges overlap.
+            advance_ranges(&mut hidden, start, |r| r);
+            advance_ranges(&mut replaced, start, |r| &r.0);
+            advance_ranges(&mut spans, start, |s| &s.0);
+            if hidden
+                .first()
+                .is_some_and(|h| h.start <= start && end <= h.end)
             {
                 continue;
             }
-            if let Some((_, with)) = analysis
-                .replaced
-                .iter()
-                .find(|(r, _)| r.start <= start && end <= r.end)
+            if let Some((r, with)) = replaced
+                .first()
+                .filter(|(r, _)| r.start <= start && end <= r.end)
             {
-                if start
-                    == analysis
-                        .replaced
-                        .iter()
-                        .find(|(r, _)| r.start <= start && end <= r.end)
-                        .unwrap()
-                        .0
-                        .start
-                {
+                if start == r.start {
                     // A definition's label keeps its trailing space.
                     let spaced = source[start..end].ends_with(' ');
                     let (text, small) = match with {
@@ -215,10 +228,9 @@ pub fn pieces(source: &str) -> Vec<Piece> {
                 }
                 text = joined;
             }
-            let span = analysis
-                .spans
-                .iter()
-                .find(|(r, _, _)| r.start <= start && end <= r.end);
+            let span = spans
+                .first()
+                .filter(|(r, _, _)| r.start <= start && end <= r.end);
             let flags = span.map_or(0, |s| s.1);
             let href = span.map(|s| s.2.clone()).unwrap_or_default();
             out.push(Piece {
