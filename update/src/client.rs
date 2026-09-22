@@ -132,6 +132,21 @@ impl Client {
         compat: &str,
         plan: &[u8],
     ) -> Result<Client, String> {
+        let origin = std::env::var("EXACT_UPDATE_ORIGIN")
+            .ok()
+            .filter(|s| !s.is_empty());
+        Client::open_at(base, assets_root, compat, plan, origin.as_deref())
+    }
+
+    /// [`Client::open`] with the `EXACT_UPDATE_ORIGIN` override given, not
+    /// read from the environment. A development binary checks only this.
+    pub fn open_at(
+        base: &Path,
+        assets_root: &Path,
+        compat: &str,
+        plan: &[u8],
+        origin: Option<&str>,
+    ) -> Result<Client, String> {
         let baked = Baked::from_compat(compat, plan)?;
         if !baked.store_linked {
             return Err("this binary links no update store (L = 0)".into());
@@ -139,10 +154,7 @@ impl Client {
         let dir = store_dir(base, &baked.embedded.app_id);
         let mut store = Store::open(&dir, baked.embedded.clone())?;
         store.hold_staged(baked.activate == Activate::AppDecides);
-        let origin = std::env::var("EXACT_UPDATE_ORIGIN")
-            .ok()
-            .filter(|s| !s.is_empty());
-        let head_url = baked.head_url(origin.as_deref());
+        let head_url = baked.head_url(origin);
         Ok(Client {
             store,
             baked,
@@ -399,6 +411,8 @@ mod tests {
     }
 
     const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.t","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://o.example"}}"#;
+    /// Dev binaries check only a named origin; name the fixture's.
+    const ORIGIN: &str = "https://o.example";
 
     #[test]
     fn a_client_opens_under_the_app_id_and_names_its_head() {
@@ -406,7 +420,7 @@ mod tests {
         let assets = temp("open-assets");
         std::fs::create_dir_all(assets.join("assets")).unwrap();
         std::fs::write(assets.join("assets/mark.png"), b"a mark").unwrap();
-        let mut c = Client::open(&base, &assets, COMPAT, b"plan").unwrap();
+        let mut c = Client::open_at(&base, &assets, COMPAT, b"plan", Some(ORIGIN)).unwrap();
         assert_eq!(c.dir(), base.join("exact/com.exact.t/update"));
         assert_eq!(
             c.head_url(),
@@ -456,7 +470,7 @@ mod tests {
     #[test]
     fn a_download_cannot_overwrite_a_newer_check_or_concurrent_activation() {
         let base = temp("check-race");
-        let mut client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let mut client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         let fetch = |seq, plan: &[u8]| {
             client.begin_check().unwrap().fetch(&mut |url| {
                 Ok(if url.ends_with("exact.json") {
@@ -487,7 +501,8 @@ mod tests {
         );
         assert_eq!(client.status().running_seq, 2);
         assert!(!client.status().staged);
-        let mut reopened = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let mut reopened =
+            Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         assert_eq!(
             reopened.prepare_selected().unwrap().unwrap().plan.as_ref(),
             b"newer"
@@ -499,17 +514,17 @@ mod tests {
     fn a_stripped_binary_and_a_bad_file_open_no_store() {
         let base = temp("stripped");
         let stripped = COMPAT.replace("\"L\":\"A\"", "\"L\":\"0\"");
-        assert!(Client::open(&base, &base, &stripped, b"")
+        assert!(Client::open_at(&base, &base, &stripped, b"", Some(ORIGIN))
             .unwrap_err()
             .contains("L = 0"));
-        assert!(Client::open(&base, &base, "{}", b"").is_err());
+        assert!(Client::open_at(&base, &base, "{}", b"", Some(ORIGIN)).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
     fn entry_refused_keeps_first_pixel_from_blessing_it() {
         let base = temp("refused");
-        let mut c = Client::open(&base, &base, COMPAT, b"plan").unwrap();
+        let mut c = Client::open_at(&base, &base, COMPAT, b"plan", Some(ORIGIN)).unwrap();
         c.boot_started().unwrap();
         let (line, status) = c.entry_refused("deadbeef", "format 9 is newer than this binary");
         assert!(line.starts_with("exact update: entry deadbeef refused at boot: format 9"));

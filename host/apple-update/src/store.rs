@@ -574,6 +574,8 @@ mod tests {
     static TEST_STORE: Mutex<()> = Mutex::new(());
 
     const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"store":{"L":"A"},"trust":"development"},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
+    /// Dev binaries check only a named origin; name the fixture's.
+    const ORIGIN: &str = "https://updates.example";
 
     struct RedirectTransport {
         requests: AtomicUsize,
@@ -663,7 +665,8 @@ mod tests {
             ));
             let _ = std::fs::remove_dir_all(&base);
             let plan = caltrain::build().unwrap().encode();
-            let mut client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+            let mut client =
+                Client::open_at(&base, &base, COMPAT, b"embedded plan", Some(ORIGIN)).unwrap();
             assert!(matches!(
                 client.check(&mut |url| Ok(if url.ends_with("exact.json") {
                     head(1, &plan)
@@ -748,7 +751,7 @@ mod tests {
         let base =
             std::env::temp_dir().join(format!("exact-apple-refusal-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
-        let client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+        let client = Client::open_at(&base, &base, COMPAT, b"embedded plan", Some(ORIGIN)).unwrap();
         *lock(&CLIENT) = Some(client);
         *lock(&SNAPSHOT) = Snapshot {
             status: Some(stale_status()),
@@ -777,7 +780,7 @@ mod tests {
         let asset_bytes = b"verified asset";
         let header = String::from_utf8(head(1, plan_bytes)).unwrap().replace(
             "\"assets\":[]", &format!("\"assets\":[{{\"name\":\"assets/a\",\"url\":\"./assets/a\",\"sha256\":\"{}\",\"bytes\":{}}}]", exact_update::sha256_hex(asset_bytes), asset_bytes.len()));
-        let mut client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let mut client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         assert!(matches!(
             client.check(&mut |url| Ok(if url.ends_with("exact.json") {
                 header.as_bytes().to_vec()
@@ -790,7 +793,7 @@ mod tests {
         ));
         let selection = client.selection();
         drop(client);
-        let client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         refresh(&client);
         *lock(&CLIENT) = Some(client);
         {
@@ -818,7 +821,7 @@ mod tests {
         asset(selected.token, 7);
         assert_eq!(*lock(&OUTPUT), vec![0]);
         // A new process must re-prove the plan, before counting or blessing it.
-        let client = Client::open(&base, &base, COMPAT, b"embedded").unwrap();
+        let client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
         *lock(&CLIENT) = Some(client);
         {
             let mut g = lock(&GENERATIONS);

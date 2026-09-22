@@ -302,6 +302,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     const COMPAT: &str = r#"{"id":"abc","inputs":{"app":"com.exact.host-cache","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"activate":"next-launch","channel":"prod","origin":"https://updates.example"}}"#;
+    /// Dev binaries check only a named origin; name the fixture's.
+    const ORIGIN: &str = "https://updates.example";
 
     struct RedirectTransport {
         requests: AtomicUsize,
@@ -377,7 +379,8 @@ mod tests {
             ));
             let _ = std::fs::remove_dir_all(&base);
             let plan = caltrain::build().unwrap().encode();
-            let mut client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+            let mut client =
+                Client::open_at(&base, &base, COMPAT, b"embedded plan", Some(ORIGIN)).unwrap();
             assert!(matches!(
                 client.check(&mut |url| Ok(if url.ends_with("exact.json") {
                     head(1, &plan)
@@ -473,7 +476,7 @@ mod tests {
         let base =
             std::env::temp_dir().join(format!("exact-linux-refusal-cache-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
-        let client = Client::open(&base, &base, COMPAT, b"embedded plan").unwrap();
+        let client = Client::open_at(&base, &base, COMPAT, b"embedded plan", Some(ORIGIN)).unwrap();
         let (tx, lines) = channel();
         let (wake, signal) = UnixStream::pair().unwrap();
         let mut updates = Updates {

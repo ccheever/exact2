@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const UPDATE_COMPAT: &str = r#"{"id":"fixture00000000","inputs":{"app":"com.exact.fixture","keys":null,"trust":"development","store":{"L":"A"}},"delivery":{"channel":"prod","origin":"https://updates.example"}}"#;
+/// Dev binaries check only a named origin; name the fixture's.
+const ORIGIN: &str = "https://updates.example";
 
 #[derive(Default)]
 struct Named;
@@ -33,7 +35,7 @@ fn checked(
     assets: &[(&str, Vec<u8>)],
     running: bool,
 ) -> Client {
-    let mut client = Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap();
+    let mut client = Client::open_at(dir, dir, UPDATE_COMPAT, baked, Some(ORIGIN)).unwrap();
     if running {
         client.boot_started().unwrap();
     }
@@ -80,7 +82,7 @@ fn checked(
         client
     } else {
         drop(client);
-        Client::open(dir, dir, UPDATE_COMPAT, baked).unwrap()
+        Client::open_at(dir, dir, UPDATE_COMPAT, baked, Some(ORIGIN)).unwrap()
     }
 }
 
@@ -189,7 +191,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let compat = UPDATE_COMPAT;
-    let mut client = Client::open(&dir, Path::new("."), compat, &baked).unwrap();
+    let mut client = Client::open_at(&dir, Path::new("."), compat, &baked, Some(ORIGIN)).unwrap();
     let head_url = client.head_url().unwrap().to_string();
     let plan_url = head_url.replace("exact.json", "app.plan");
     let head = serde_json::to_vec(&serde_json::json!({
@@ -501,7 +503,7 @@ fn verified_launch_refusals_are_demoted_after_failed_launches() {
         let record = client.dir().join("record.json");
         drop(client);
         for expected in 1..=2 {
-            let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+            let client = Client::open_at(&dir, &dir, UPDATE_COMPAT, &baked, Some(ORIGIN)).unwrap();
             let mut config = selected_config(&dir, &baked, client);
             assert!(config.entry.is_some());
             let (mut presenter, error) =
@@ -524,7 +526,7 @@ fn verified_launch_refusals_are_demoted_after_failed_launches() {
                 "the admitted sequence floor survives refusal"
             );
         }
-        let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+        let client = Client::open_at(&dir, &dir, UPDATE_COMPAT, &baked, Some(ORIGIN)).unwrap();
         let config = selected_config(&dir, &baked, client);
         assert!(
             config.entry.is_none(),
@@ -567,7 +569,7 @@ fn a_crash_during_selected_app_construction_is_counted_before_it_happens() {
     let record = client.dir().join("record.json");
     drop(client);
     for expected in 1..=2 {
-        let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+        let client = Client::open_at(&dir, &dir, UPDATE_COMPAT, &baked, Some(ORIGIN)).unwrap();
         let mut config = selected_config(&dir, &baked, client);
         assert!(config.entry.is_some());
         assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -579,7 +581,7 @@ fn a_crash_during_selected_app_construction_is_counted_before_it_happens() {
         assert_eq!(saved["failures"], expected);
         assert!(saved["lastGood"].is_null());
     }
-    let client = Client::open(&dir, &dir, UPDATE_COMPAT, &baked).unwrap();
+    let client = Client::open_at(&dir, &dir, UPDATE_COMPAT, &baked, Some(ORIGIN)).unwrap();
     let mut config = selected_config(&dir, &baked, client);
     assert!(config.entry.is_none());
     let (mut presenter, error) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();

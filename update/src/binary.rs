@@ -208,9 +208,14 @@ impl Baked {
 
     /// The head this binary checks (`store::head_url`), at `origin` when the
     /// host names one — a dev override — else at the baked origin; `None`
-    /// when neither exists.
+    /// when neither exists. A development binary admits unsigned heads, so
+    /// it never checks the baked origin: only one the developer names.
     pub fn head_url(&self, origin: Option<&str>) -> Option<String> {
-        let origin = origin.or(self.origin.as_deref())?;
+        let baked = match self.embedded.trust {
+            Trust::Production => self.origin.as_deref(),
+            Trust::Development => None,
+        };
+        let origin = origin.or(baked)?;
         Some(crate::store::head_url(
             origin,
             &self.embedded.channel,
@@ -264,6 +269,25 @@ mod tests {
         assert_eq!(
             b.head_url(Some("http://127.0.0.1:8000/")).as_deref(),
             Some("http://127.0.0.1:8000/.exact/beta/9f1c0a2b3d4e5f60718293a4b5c6d7e8/exact.json")
+        );
+    }
+
+    #[test]
+    fn a_development_binary_checks_only_a_named_origin() {
+        let b = Baked::from_compat(
+            r#"{"id":"abc","inputs":{"app":"x","keys":null,"trust":"development"},"delivery":{"channel":"prod","origin":"https://caltrain.example"}}"#,
+            b"",
+        )
+        .unwrap();
+        assert_eq!(b.origin.as_deref(), Some("https://caltrain.example"));
+        assert_eq!(
+            b.head_url(None),
+            None,
+            "unsigned heads never come from the baked origin"
+        );
+        assert_eq!(
+            b.head_url(Some("http://127.0.0.1:8000/")).as_deref(),
+            Some("http://127.0.0.1:8000/.exact/prod/abc/exact.json")
         );
     }
 
