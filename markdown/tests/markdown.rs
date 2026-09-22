@@ -846,3 +846,41 @@ fn repeated_mixed_emphasis_preserves_partial_runs_and_nested_styles() {
     }
     assert_eq!(plain(&source), "é tail a b c x y z end ".repeat(256));
 }
+
+#[test]
+fn autolink_search_boundaries_preserve_nested_starts_and_labels() {
+    let cases: &[(&str, &[&str])] = &[
+        ("<<ok:tail>", &["ok:tail"]),
+        ("<<me@example.com>", &["mailto:<me@example.com"]),
+        ("<@<no>> <@@> <@a@b> <a@b@> <a@b>", &["mailto:a@b"]),
+        ("<bad <ok:tail>", &["ok:tail"]),
+        ("[<bad](outer) <ok:tail>", &["outer", "ok:tail"]),
+        (
+            "<bad [<me@example.com>](outer) <ok:tail>",
+            &["mailto:me@example.com", "ok:tail"],
+        ),
+        ("<bad [<@<no>>](outer) <ok:tail>", &["outer", "ok:tail"]),
+        ("> <bad\n> <me@example.com>", &["mailto:me@example.com"]),
+        (
+            "<é:foo> <a:foo> <aa:> <a.:foo> <é@x>",
+            &["a.:foo", "mailto:é@x"],
+        ),
+        ("<bad`<inner`<ok:tail>", &["ok:tail"]),
+    ];
+    for (source, expected) in cases {
+        let links: Vec<_> = style(source, None)
+            .spans
+            .into_iter()
+            .filter(|span| span.style & LINK != 0)
+            .map(|span| span.href)
+            .collect();
+        assert_eq!(links, *expected, "{source}");
+    }
+    let prefix = "😀".to_owned() + &"<".repeat(2048);
+    let source = format!("{prefix}<aa:tail>");
+    let styled = style(&source, None);
+    assert_eq!(styled.spans.len(), 1);
+    assert_eq!(styled.spans[0].href, "aa:tail");
+    assert_eq!(styled.spans[0].range, Range::new(2051, 2058));
+    assert_eq!(plain(&source), format!("{prefix}aa:tail"));
+}

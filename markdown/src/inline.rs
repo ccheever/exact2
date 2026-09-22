@@ -39,6 +39,12 @@ struct Delim {
     close: bool,
 }
 
+#[derive(Default)]
+struct AutolinkEnd {
+    close: usize,
+    last_at: Option<usize>,
+}
+
 struct Scanner<'a> {
     source: &'a str,
     /// The content's characters at their byte positions, lines joined by `\n`.
@@ -151,6 +157,7 @@ impl Scanner<'_> {
 
     fn scan(&mut self, lo: usize, hi: usize) {
         let mut delims: Vec<Delim> = Vec::new();
+        let mut autolink_end = AutolinkEnd::default();
         let mut i = lo;
         while i < hi {
             let c = self.ch(i);
@@ -162,7 +169,7 @@ impl Scanner<'_> {
                     Some(i + 2)
                 }
                 '`' => self.code(i, hi),
-                '<' => self.autolink(i, hi),
+                '<' => self.autolink(i, hi, &mut autolink_end),
                 '!' if i + 1 < hi && self.ch(i + 1) == '[' => self.bracket(i + 1, hi, true),
                 '[' => self.bracket(i, hi, false),
                 'h' if i == lo || self.ch(i - 1).is_whitespace() || self.ch(i - 1) == '(' => {
@@ -201,21 +208,42 @@ impl Scanner<'_> {
         Some(i + len)
     }
 
-    fn autolink(&mut self, i: usize, hi: usize) -> Option<usize> {
-        let close = (i + 1..hi).find(|&j| self.ch(j) == '>' || self.ch(j).is_whitespace())?;
-        if self.ch(close) != '>' || close == i + 1 {
+    fn autolink(&mut self, i: usize, hi: usize, end: &mut AutolinkEnd) -> Option<usize> {
+        // Rejected starts before this boundary share the same terminator and
+        // last @. Keep this cursor local to each scan, including link labels.
+        if end.close <= i {
+            end.close = i + 1;
+            end.last_at = None;
+            while end.close < hi {
+                let c = self.ch(end.close);
+                if c == '>' || c.is_whitespace() {
+                    break;
+                }
+                if c == '@' {
+                    end.last_at = Some(end.close);
+                }
+                end.close += 1;
+            }
+        }
+        let close = end.close;
+        if close == hi || self.ch(close) != '>' || close == i + 1 {
             return None;
         }
         let target = &self.source[self.pos(i + 1)..self.pos(close)];
-        let scheme = target.split_once(':').is_some_and(|(s, rest)| {
-            s.len() >= 2
-                && !rest.is_empty()
-                && s.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || "+.-".contains(c))
-        });
+        // An invalid scheme prefix ends the search before a later '<' can
+        // cause the same suffix to be searched again.
+        let scheme = target
+            .bytes()
+            .position(|c| !c.is_ascii_alphanumeric() && !b"+.-".contains(&c))
+            .is_some_and(|colon| {
+                target.as_bytes()[colon] == b':' && colon >= 2 && colon + 1 < target.len()
+            });
         let href = if scheme {
             target.to_string()
-        } else if target.contains('@') && !target.starts_with('@') && !target.ends_with('@') {
+        } else if end.last_at.is_some_and(|at| at > i)
+            && !target.starts_with('@')
+            && !target.ends_with('@')
+        {
             format!("mailto:{target}")
         } else {
             return None;

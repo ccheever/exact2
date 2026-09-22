@@ -113,13 +113,16 @@ X/Twitter, Instagram, TikTok), so the source stays portable Markdown.
 
 Reading and editing call the same `style`, which makes the *styling* agree;
 editing behaviour (D1) and rendering parity are proven by the slices' runs,
-not by construction. `style` is whole-source and linear in it; an opening
+not by construction. `style` is whole-source; an opening
 fence changes everything below it, so a host restyles from the edited block
 to the end of the source, not the edited paragraph alone. Incremental reuse
 is a later optimization with a measured trigger. Delimiter pairing keeps
 processed entries in an active prefix of its input buffer; retiring a match
 leaves unread delimiters in place, preserving partial runs and opener-search
-boundaries without repeatedly compacting the tail.
+boundaries without repeatedly compacting the tail. Autolink searches reuse
+the next terminator and last `@` within each inline range; scheme validation
+stops at the first invalid prefix byte. Rejected starts therefore do not
+repeatedly search the same suffix.
 
 ### D3 — One kernel row: `markup`
 
