@@ -115,7 +115,7 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
 }
 
 #[test]
-fn activation_retries_a_refused_edge_with_unchanged_endpoints() {
+fn an_edge_before_activation_commits_and_activation_asks_once() {
     struct Deferred(bool);
     impl DataSource for Deferred {
         fn ready(&self) -> bool {
@@ -166,11 +166,17 @@ fn activation_retries_a_refused_edge_with_unchanged_endpoints() {
             let _ = p.frame();
         }
     }
-    assert_eq!(p.host.runner().slot("next"), Some(&Value::Number(0.)));
+    // The compiled placeholder stands until activation (LLP 1038 D5, LLP
+    // 1027 D4): the source is not asked, so the edge's action commits.
+    assert_eq!(p.host.runner().slot("next"), Some(&Value::Number(1.)));
     let before = p.host.collections()[0].count;
     p.first_pixel();
     settle(&mut p);
-    assert_eq!(p.host.runner().slot("next"), Some(&Value::Number(1.)));
+    assert_eq!(
+        p.host.runner().slot("next"),
+        Some(&Value::Number(1.)),
+        "activation neither loses the edge nor runs it again"
+    );
     assert_eq!(
         p.host.collections()[0].count,
         before,
