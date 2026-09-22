@@ -1,6 +1,5 @@
 //! Browser-backed regression for LLP 1035.000.001, independent of platform fonts.
-#[path = "support/reader.rs"]
-mod reader;
+use crate::support::reader;
 use exact_kernel::Offer;
 
 #[test]

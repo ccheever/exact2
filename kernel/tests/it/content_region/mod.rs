@@ -1,6 +1,5 @@
 #![allow(clippy::field_reassign_with_default)]
 //! Kernel publication only: manual paragraph completion, no host/worker claim.
-#[path = "content_region/mod.rs"]
 mod support;
 use exact_kernel::*;
 use std::rc::Rc;
@@ -1165,11 +1164,8 @@ fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
     assert_eq!(r.shell.flow_changed, vec![key(&k, 4)]);
     assert!(!r.shell.changed.contains(&key(&k, 4)));
 }
-#[path = "content_region/flex.rs"]
 mod flex;
-#[path = "content_region/projection.rs"]
 mod projection;
 
 // Split-profile acceptance tests; baseline uses a separate existing-API fragment.
-#[path = "content_region/split_facts.rs"]
 mod split_facts;

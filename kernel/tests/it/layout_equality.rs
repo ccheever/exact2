@@ -568,8 +568,7 @@ fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
     );
 }
 
-#[path = "support/reader.rs"]
-mod reader;
+use crate::support::reader;
 
 #[test]
 fn reader_resize_replacement_and_recreation_equal_replay_and_rehydration() {

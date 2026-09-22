@@ -27,7 +27,7 @@ known dimensions/available space, parent size and definiteness;
 `Cache::get(&LayoutInput)` compares keys, never promotes a result's size
 into an input dimension. Both parts of the old patch are therefore removed.
 
-The 24 literal-Chrome reader cases in `kernel/tests/reader.rs` retain their
+The 24 literal-Chrome reader cases in `kernel/tests/it/reader.rs` retain their
 expectations, including both width spellings, both box-sizing modes and the
 long-token overflow case. Incremental/fresh/rehydrated reader equality stays.
 
@@ -77,7 +77,7 @@ replaced-element overflow correction, now expressed as
 `scrollable_overflow_rect` covering the used padding box. Natural bitmap size
 must not enlarge an explicitly sized image's scrollable extent.
 
-`kernel/tests/image.rs` covers the constraint table and stretching flex column;
+`kernel/tests/it/image.rs` covers the constraint table and stretching flex column;
 `review_fixes.rs` covers intrinsic item contributions. The new upstream block
 algorithm itself respects an image's natural width: the former declared
 block-stretch deviation no longer exists.
@@ -126,7 +126,7 @@ three seconds at 3,600 px/s, went from 59,682 to 614 measure calls, unchanged
 row calls 57,793 to 9, and CoreText measurements 694 to 455. These are his
 0.9.2 measurements, not a new 0.14 timing claim.
 
-**Held by** his unchanged `kernel/tests/reader.rs` regression
+**Held by** his unchanged `kernel/tests/it/reader.rs` regression
 `a_scroller_in_a_flex_row_is_not_probed_for_a_minimum_it_does_not_use`
 (only 628px text offers; 5974px column), and the two adjacent intrinsic-cache
 regressions, now with an ordinary non-scrolling box that requires the probe.
