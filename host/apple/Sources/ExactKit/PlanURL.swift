@@ -255,7 +255,7 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
     struct Generation {
         let identity: String
         let plan: Data
-        let assets: [String: Data]
+        let assets: AssetResolver
         let module: ExactModule?
     }
     private struct Revision: Equatable {
@@ -602,7 +602,9 @@ final class PlanURL: NSObject, URLSessionDataDelegate {
                     do {
                         let logic = try DevelopmentModules.combine(javascript: javascript, rust: rustModule)
                         let assetBytes = Dictionary(uniqueKeysWithValues: assets.enumerated().map { ($0.element.name, payloads[$0.offset + 1]) })
-                        let candidate = Generation(identity: identity, plan: payloads[0], assets: assetBytes, module: logic)
+                        let resolver = try AssetResolver(root: FileManager.default.temporaryDirectory, verified: assetBytes)
+                        let candidate = Generation(identity: identity, plan: payloads[0], assets: resolver, module: logic)
+                        payloads.removeAll()
                         let fetched = ProcessInfo.processInfo.systemUptime
                         func commitCandidate() {
                             guard !self.closed, self.terminal == nil, generation == self.resolution else { return }

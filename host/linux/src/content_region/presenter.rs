@@ -44,6 +44,7 @@ impl<D: DataSource> Presenter<D> {
     }
     /// Paint a frame and publish its immutable pixels, hits and native source together.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        self.brush.placements = self.surfaces.placements(&self.host);
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();

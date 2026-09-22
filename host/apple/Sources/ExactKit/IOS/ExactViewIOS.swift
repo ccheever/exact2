@@ -66,6 +66,7 @@ public final class ExactView: UIView {
     public override func didMoveToWindow() {
         super.didMoveToWindow()
         session.rasters.setPaused(window == nil)
+        session.canvases.lifecycle.refresh()
         if window == nil {
             session.presenter.menus.unmounted()
             session.presenter.modals.unmounted()
@@ -77,6 +78,7 @@ public final class ExactView: UIView {
                 guard let self, window != nil, session.state != .destroyed else { return }
                 fit()
                 session.presenter.navigation.mounted()
+                session.presenter.syncAccessibility()
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
@@ -135,8 +137,25 @@ public final class ExactView: UIView {
                 insets.bottom = 0
             }
         }
-        if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
-        let size = frame.size
+        guard frame.width > 0, frame.height > 0 else { return }
+        var size = frame.size
+        // The agent's explicit viewport size is shared with web/macOS/Linux.
+        // Fit those logical points into the device window; hit testing and
+        // captures still use the viewport's own coordinate system.
+        let env = ProcessInfo.processInfo.environment
+        if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
+           let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
+           width.isFinite, height.isFinite, width > 0, height > 0 {
+            size = CGSize(width: width, height: height)
+            let scale = min(frame.width / size.width, frame.height / size.height)
+            presenter.viewport.transform = CGAffineTransform(scaleX: scale, y: scale)
+            presenter.viewport.bounds = CGRect(origin: .zero, size: size)
+            presenter.viewport.center = CGPoint(x: frame.midX, y: frame.midY)
+            insets = .zero
+        } else {
+            presenter.viewport.transform = .identity
+            if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+        }
         guard size.width > 0, size.height > 0 else { return }
         if !session.booted {
             lastSize = size

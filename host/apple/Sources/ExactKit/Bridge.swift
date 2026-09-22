@@ -115,6 +115,11 @@ final class Runtime {
 
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { read(exact_pump(rt, now)) }
+    func requestActive(_ ticket: UInt64) -> Bool { exact_request_active(rt, ticket) != 0 }
+    func fulfillSurface(_ ticket: UInt64, kind: UInt32, body: Data = Data(), now: Double) -> Batch {
+        let n = write(body)
+        return read(exact_fulfill_surface(rt, ticket, kind, n, now))
+    }
     func press(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 0, 0, now)) }
     /// The pointer over the view (`true`) or gone from it.
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) }
@@ -163,6 +168,10 @@ final class Runtime {
         return read(exact_dispatch(rt, view, 19, n, now))
     }
     func load(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 8, 0, now)) }
+    func surfaceRecord(_ name: String, _ json: String?) -> Batch {
+        let n = write(name + (json.map { "\0" + $0 } ?? ""))
+        return read(exact_surface_record(rt, n))
+    }
     func message(_ view: UInt32, _ value: String, now: Double) -> Batch {
         let n = write(value)
         return read(exact_dispatch(rt, view, 9, n, now))

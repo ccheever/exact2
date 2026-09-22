@@ -1,0 +1,9 @@
+linux: boot 257.5 ms; 280 nodes; 131 journal lines
+linux fixture: the scroll node stops at 652, then the page scrolls (root at -471)
+linux readback: the canvas matches its reference — 0.00% beyond the band, mean 0.00 (420×120)
+linux deck: 28 cards, card-mv-north-131 focused by a tap; material crt
+linux motion: linear 75 at 125 ms, spring in flight, settle a fixed point; across the timer one seek = steps (75/100 vs 75/100)
+linux insets: env {"safe-area-inset-top":0,"safe-area-inset-right":0,"safe-area-inset-bottom":0,"safe-area-inset-left":0,"keyboard-inset-height":0}; the viewport 420×860; no keyboard
+linux viewport fact: 420×860 → 420×860; layout 420×860; keyboard 0
+linux tests: 3 passed, 0 failed (caltrain/app.test.contract)
+linux smoke: ok in 7.6 s

@@ -17,6 +17,7 @@ mod logic;
 mod map;
 mod receipt;
 mod sources;
+mod surface;
 mod symbols;
 mod typescript;
 
@@ -271,6 +272,10 @@ fn compile_path_output(
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
+    if let Some(declared) = surface::arguments(&app_root)? {
+        contract_analyze::check_surface_arguments(&file, &declared)
+            .map_err(|e| sources.resolve(e.into()))?;
+    }
     let (mut plan, sites) =
         compile_file_output(&file, Some(&app_root), mapped).map_err(|e| sources.resolve(e))?;
     if app_root.join("app.json").is_file() {
@@ -447,6 +452,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     }
     delivery_shape(&plan)?;
     viewport_shape(&plan)?;
+    surface::shape(&plan)?;
     let mut runner = Runner::boot(
         plan.clone(),
         data,

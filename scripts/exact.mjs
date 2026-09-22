@@ -33,6 +33,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
+import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -86,21 +87,21 @@ function build(app, { quiet = false } = {}) {
  * The dist marker says whose it is, so this asks rather than assumes: a
  * match is live reload, anything else is the baked plan and a printed line
  * saying so. `EXACT_DEV_PLAN` in the environment always wins. */
-function devPlan(app) {
+async function devPlan(app) {
   if (process.env.EXACT_DEV_PLAN) return { path: process.env.EXACT_DEV_PLAN, why: 'EXACT_DEV_PLAN' };
   const dist = resolve(ROOT, 'host/web/dist');
   const plan = resolve(dist, 'app.plan');
   if (!existsSync(plan)) return { path: null, why: `no dev server has built into ${dist.replace(ROOT + '/', '')}` };
-  if (!builtAppMatches(dist, app)) return { path: null, why: `${dist.replace(ROOT + '/', '')} holds another app's build` };
+  if (!await builtAppMatches(dist, app).finally(closeFilesystemReader)) return { path: null, why: `${dist.replace(ROOT + '/', '')} holds another app's build` };
   return { path: plan, why: null };
 }
 
 /** `exact run` — the foreground app: its log is this terminal's, and ^C ends it. */
-function run(app, files) {
+async function run(app, files) {
   const bundle = build(app);
   const documents = files.map((f) => resolve(process.cwd(), f));
   for (const document of documents) if (!existsSync(document)) throw new Error(`no such file: ${document}`);
-  const dev = devPlan(app);
+  const dev = await devPlan(app);
   console.log(dev.path
     ? `live reload: watching ${dev.path.replace(ROOT + '/', '')} — edit ${app.name}/app.contract and this window restarts from it`
     : `live reload: off (${dev.why}). Start it with: bun host/web/dev.mjs --app ${app.name}`);
@@ -327,6 +328,6 @@ function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  try { main(process.argv.slice(2)); }
+  try { await main(process.argv.slice(2)); }
   catch (e) { console.error(`exact: ${e.message}`); process.exit(1); }
 }

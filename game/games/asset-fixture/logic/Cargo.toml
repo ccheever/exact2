@@ -1,0 +1,12 @@
+[package]
+workspace = "../.shells"
+name = "asset-fixture-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+[dependencies]
+exact-game = { path = "../../../engine" }
+exact-game-physics = { path = "../../../physics" }
+
+[dev-dependencies]
+exact-game-bake = { path = "../../../bake" }

@@ -26,6 +26,7 @@ let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 
 let smoke = ExactEnv.smoke
 let agentMode = ExactEnv.agentMode
+let agentReadable = agentMode || ExactEnv.environment["EXACT_AGENT"] == "live"
 setvbuf(stdout, nil, _IOLBF, 0)
 // Nothing restores this app: a session boots its plan, and the window below is
 // not restorable. AppKit would still save the application's own state some
@@ -91,7 +92,7 @@ final class Adapter: ExactSessionDelegate {
 }
 let adapter = Adapter()
 let session = exact.makeSession(delegate: adapter, label: "main")
-if agentMode { session.clock = 0 }
+if ExactEnv.agentFreezes { session.clock = 0 }
 let launchURL = ExactEnv.environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
 var launchDevelopmentURL: URL?
 if let url = launchURL {
@@ -230,9 +231,6 @@ nonisolated(unsafe) var readySent = false
 // Delay both attachment and boot until Launch Services has delivered launch URLs.
 // @ref LLP 1038 D5/D8
 func finishLaunching() {
-    window.contentView = view
-    view.attachWindowToolbar(to: window)
-    ExactEnv.stamp("contentView")
     ExactEnv.stamp("before boot")
     let tBoot = CACurrentMediaTime()
     // The dev loop (LLP 1007 §6, here): EXACT_DEV_PLAN names the plan the
@@ -273,6 +271,11 @@ func finishLaunching() {
         if session.booted { return session.bootError }
         return session.boot(size: size).error
     }()
+    // Boot the selected plan before attachment can auto-boot the embedded one.
+    // A session mounts once, including its one autofocus attempt.
+    window.contentView = view
+    view.attachWindowToolbar(to: window)
+    ExactEnv.stamp("contentView")
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs
@@ -320,7 +323,7 @@ func finishLaunching() {
     /// ordered front; an accessory app's window is not key until something
     /// asks, and a `type` asks (`AgentMac`).
 
-    if agentMode {
+    if agentReadable {
         DispatchQueue.main.async { agentReady() }
     }
     if smoke {
@@ -339,7 +342,7 @@ func finishLaunching() {
 }
 
 func agentReady() {
-    guard agentMode, !readySent else { return }
+    guard agentReadable, !readySent else { return }
     readySent = true
     Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": session.bootError ?? NSNull()])
     Agent.startStdio(sessions: [("main", session)])

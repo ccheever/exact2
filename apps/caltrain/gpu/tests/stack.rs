@@ -37,6 +37,8 @@ fn frame(now_ms: f64) -> Frame {
         scale: 1.0,
         now_ms,
         children_generation: 1,
+        seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     }
 }
@@ -52,22 +54,24 @@ fn map(h: &[f32; 9], x: f32, y: f32) -> (f32, f32) {
 
 #[test]
 fn the_fan_places_cards_down_the_canvas_and_settles() {
-    let Ok(gpu) = fixture::device() else {
-        eprintln!("no adapter; the stack fixture is skipped");
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
     // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
     let mut stack = StackSurface::new();
     stack
-        .bind(&[
-            board(),
-            Value::Option(None),
-            Value::Bool(true),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(None),
+                Value::Bool(true),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
-    assert!(stack.wants_children_each());
+    assert_eq!(stack.children_mode(), exact_gpu::ChildrenMode::Each);
     // Four cards, 90 points tall, laid out by the kernel as a column.
     let texture = gpu
         .device
@@ -102,9 +106,8 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     );
     let view = texture.create_view(&Default::default());
     for i in 0..4 {
-        stack.child(i, Some(&view), [0.0, 90.0 * i as f32, 380.0, 90.0]);
+        stack.child(i, "", Some(&view), [0.0, 90.0 * i as f32, 380.0, 90.0]);
     }
-    stack.children_count(4);
 
     // The first frame: cards start on the closed deck and want to move.
     let (_, wants) = fixture::render(&gpu, &mut stack, &frame(0.0)).unwrap();
@@ -139,12 +142,15 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
 
     // Focus the second card: it comes forward, and wants frames again.
     stack
-        .bind(&[
-            board(),
-            Value::Option(Some(Value::str("b").into())),
-            Value::Bool(true),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(Some(Value::str("b").into())),
+                Value::Bool(true),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
     let (_, wants) = fixture::render(&gpu, &mut stack, &frame(2000.0)).unwrap();
     assert!(wants, "the focus moves");
@@ -162,12 +168,15 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
     // arrive settled — the same poses a display link would have reached —
     // and every number stays finite.
     stack
-        .bind(&[
-            board(),
-            Value::Option(None),
-            Value::Bool(false),
-            Value::Number(0.0),
-        ])
+        .bind(
+            &[
+                board(),
+                Value::Option(None),
+                Value::Bool(false),
+                Value::Number(0.0),
+            ],
+            None,
+        )
         .unwrap();
     let (_, wants) = fixture::render(&gpu, &mut stack, &frame(64_000.0)).unwrap();
     assert!(!wants, "a sixty-second jump lands settled");
@@ -178,4 +187,10 @@ fn the_fan_places_cards_down_the_canvas_and_settles() {
         cx.abs() < 8.0 && cy < 40.0,
         "the deck closed: card a back at the top ({cx}, {cy})"
     );
+    stack.child(1, "", None, [0.; 4]);
+    stack.child(2, "", None, [0.; 4]);
+    stack.child(3, "", None, [0.; 4]);
+    fixture::render(&gpu, &mut stack, &frame(64_001.0)).unwrap();
+    assert!(stack.placement(1).is_none());
+    assert!(stack.placement(2).is_none());
 }

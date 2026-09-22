@@ -8,7 +8,7 @@ use std::fmt::Write;
 ///
 /// `Sources` checks each provider independently; `Answer` checks the module's
 /// dispatcher. Types describe JSON values, not Rust's positional records.
-/// Runner-owned `exactDelivery` and `exactViewport` are not app implementation duties.
+/// Runner-owned delivery, viewport and surface records are not app implementation duties.
 /// @ref LLP 1039 D1
 /// This is a build-time artifact, never a runtime import or committed file.
 pub fn typescript(plan: &Plan) -> Result<String, String> {
@@ -62,7 +62,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
     out.push_str("\nexport interface SourceMap {\n");
     for row in &plan.sources {
         let name = plan.str(row.name);
-        if matches!(name, "exactDelivery" | "exactViewport") {
+        if exact_plan::runner_owned_source(name) {
             continue;
         }
         write!(out, "  {}: {{ args: [", quoted(name)).unwrap();

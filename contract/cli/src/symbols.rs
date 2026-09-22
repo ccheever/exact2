@@ -711,7 +711,9 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
-            Expr::Some(inner, _) | Expr::Unary(_, inner, _) => self.expr(inner),
+            Expr::NamedArg(_, inner, _) | Expr::Some(inner, _) | Expr::Unary(_, inner, _) => {
+                self.expr(inner)
+            }
             Expr::Ident(name, span) => self.name(name, *span),
             Expr::Member(base, field, span) => {
                 self.expr(base);

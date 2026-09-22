@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
+import { focusController, installShortcuts, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -46,6 +46,7 @@ function syncMedia(el, set = {}, clear = []) {
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
+const messageViews = new Set();
 const messageFrames = new Set(); // iframes whose node handles `message`
 let messageListening = false;
 let wasm = null;
@@ -95,6 +96,8 @@ function flowBatch(batch) {
 }
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
+const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor});
+const focusAutofocus = focus.autofocus;
 function setInputReady(ready) {
   inputReady = ready;
   root.setAttribute("aria-busy", String(!ready));
@@ -105,6 +108,7 @@ function setInputReady(ready) {
     }
   }
   if(ready)motion.commit();
+  if (ready) focusAutofocus();
 }
 for (const kind of ["click", "beforeinput", "submit"]) {
   root.addEventListener(kind, event => {
@@ -147,9 +151,6 @@ function commitGuestOrigin(el) {
 function guestMessageAuthorized(el, eventOrigin) {
   const committed = iframeOrigins.get(el);
   if (!committed) return false;
-  // Opaque sandboxed guests retain source identity but have no targetable
-  // origin. Source identity still bounds their guest→app string messages;
-  // application protocols and any replies belong to the app.
   return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
 }
 function readOut(len) {
@@ -162,9 +163,6 @@ function writeIn(text) {
   new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
   return bytes.length;
 }
-// A deployed page owns one immutable local namespace. Absolute app asset
-// paths (including Caltrain's /deck) need the same binding as relative ones;
-// ordinary network/data URLs retain their authored meaning.
 function localAssetURL(source, assets = devAssets) {
   let url;
   try { url = new URL(source, document.baseURI); } catch { return source; }
@@ -191,8 +189,6 @@ function assetNamespace(cards) {
   return assets;
 }
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
-// DOM scrollTop/scrollLeft writes apply after this batch's new children and styles exist.
-// An unchanged binding never overrides a user's scroll position.
 const lists = new Map();
 let listSelection, listSelectionLoading;
 function listView(el, id) {
@@ -239,7 +235,6 @@ function contextAnchor(target, port = root.getBoundingClientRect()) {
     scroll, scrollTop: scroll ? scroll.getBoundingClientRect().top - port.top : null };
 }
 function prepareContexts(batch) {
-  // Focus commands can resize the keyboard viewport in this same batch.
   for (const op of batch.ops ?? []) {
     const props = op.op === "create" ? op.props : op.op === "props" ? op.set : null;
     if (!props?.contextTarget) continue;
@@ -255,8 +250,6 @@ function contextContent(source) {
   return null;
 }
 function positionContexts() {
-  // Native context presentation magnifies the preview without reflowing its
-  // text. Keep authored individual transforms; this is the panel projection.
   for (const node of contextTransforms) node.style.transform = "";
   contextTransforms.clear();
   for (const [id, anchor] of contextAnchors) {
@@ -279,7 +272,6 @@ function positionContexts() {
     const anchor = contextAnchors.get(id);
     const source = { left: port.left + anchor.left, top: port.top + anchor.top,
       right: port.left + anchor.left + anchor.width, width: anchor.width, height: anchor.height };
-    // iPhone 17 / iOS 26.5: 15%, with growth capped on the larger dimension.
     const scale = preview.getAttribute("contextMagnify") === "false" ? 1 : Math.min(1.15, 1 + 26 / Math.max(content.width, content.height));
     const extra = content.height * (scale - 1);
     const trailing = source.left + source.width / 2 > port.left + port.width / 2;
@@ -292,8 +284,6 @@ function positionContexts() {
       if (side.right <= content.left + 0.01) project(sibling, `translateX(${dx - content.width * (scale - 1) / 2}px)`);
       else if (side.left >= content.right - 0.01) project(sibling, `translateX(${dx + content.width * (scale - 1) / 2}px)`);
     }
-    // The panel moves up by half the added height. Offset later content once
-    // at each enclosing level so receipts keep their source-relative position.
     for (let child = preview; child && child !== panel; child = child.parentElement) {
       const bottom = child.getBoundingClientRect().bottom;
       for (const sibling of child.parentElement.children) {
@@ -310,8 +300,6 @@ function positionContexts() {
     const maximum = Math.min(region.bottom, port.bottom - 8) - box.height - overflow;
     const top = Math.max(minimum, Math.min(wanted, maximum));
     panel.style.top = `${parseFloat(getComputedStyle(panel).top) + top - box.top}px`;
-    // Native Messages keeps trailing controls inside the available region,
-    // overlapping an oversized preview when the whole panel cannot fit.
     let branch = preview;
     while (branch.parentElement && branch.parentElement !== panel) branch = branch.parentElement;
     const branchBottom = branch.getBoundingClientRect().bottom;
@@ -356,7 +344,6 @@ function refreshSymbols() {
       el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
-    // A transparent source supplies intrinsic dimensions; the mask supplies ink.
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
     el.style.setProperty("--exact-symbol-tint", el.style.getPropertyValue("--exact-tint") || "#000");
@@ -395,6 +382,8 @@ function applyProps(el, set, clear) {
     else if (name === "text") el.textContent = "";
     else if (name === "value") el.value = "";
     else if (name === "checked") el.checked = false;
+    else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
+    else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
     else if (name === "inert") { el.authoredInert = false; el.inert = false; }
     else el.removeAttribute(name);
   }
@@ -407,12 +396,15 @@ function applyProps(el, set, clear) {
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") { if (el.childElementCount === 0) el.textContent = value;
     } else if (name === "markupPieces") { renderMarkup(el, value);
+    } else if (name === "data-action") {
+      el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
       writeValue(el, value);
     } else if (name === "checked") {
       el.checked = value === "true";
     } else if (name === "inert") {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
+    } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
@@ -420,9 +412,6 @@ function applyProps(el, set, clear) {
       el.setAttribute(name, (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value);
     }
   }
-  // Native range/date controls can edit on pointer/key defaults without
-  // beforeinput. Disable controls until activation, keeping the plan's own
-  // disabled value through any intervening prop updates. Scrollers stay live.
   if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
     const disabled = set && "disabled" in set ? set.disabled === "true"
       : clear?.includes("disabled") ? false : authoredDisabled.get(el) ?? el.disabled;
@@ -430,8 +419,6 @@ function applyProps(el, set, clear) {
     el.disabled = true;
   }
   if (el instanceof HTMLIFrameElement && sandboxChanged) {
-    // Sandbox tokens take effect on navigation. Re-set the authored source
-    // so an immutable-per-mount sandbox change remounts as it does on Apple.
     iframeLoading.set(el, true);
     const source = el.getAttribute("src");
     el.setAttribute("src", source ?? "about:blank");
@@ -470,7 +457,6 @@ function syncViewportFit() {
   const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
   if (meta && meta.content !== want) meta.content = want;
   const vv = globalThis.visualViewport;
-  // Project resizes-content on Safari too; zoom must not resize the layout viewport.
   root.style.height = widget === "resizes-content" && vv && vv.scale === 1 ? `${Math.min(innerHeight, vv.height)}px` : "";
 }
 let probe;
@@ -494,8 +480,7 @@ function attach(el, id, handlers) {
   el.dataset.view = String(id);
   el.exactFlowEvents = handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"] }[k] ?? []));
   if (el.exactMedia) el.exactMedia.handlers = handlers;
-  // Teardown can synchronously blur the old input after the new runner is
-  // live. Only the element currently owning this id may dispatch into it.
+  if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle) => el.addEventListener(event, (e) => {
     if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load")) handle(e);
   });
@@ -511,13 +496,11 @@ function attach(el, id, handlers) {
       ensureMessageListener();
     }
   }
-  // A node with focus, blur, or key handlers can take the focus (an input
-  // or a button does by itself): the web's rule that only a focusable
   // element hears these.
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
+      on("click", e => focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))));
     } else if (kind === "pan") {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
@@ -568,15 +551,16 @@ function attach(el, id, handlers) {
     }
   }
 }
+
+installShortcuts(root, () => wasm && inputReady);
+
 function viewFor(op, id) {
   const el = views.get(id);
   if (!el) console.error(`exact: ${op} names missing view ${id}`);
   return el;
 }
 function apply(batch) {
-  // The runner has already removed these views. A preceding children op can
-  // detach a focused descendant (and synchronously blur it) before its destroy
-  // op arrives. Retire dispatch first, while keeping the DOM lookup for cleanup.
+  // Retire dispatch before children ops can synchronously blur removed views.
   for (const op of batch.ops ?? []) {
     if (op.op === "destroy") {
       const el = views.get(op.id);
@@ -595,11 +579,7 @@ function apply(batch) {
       case "textflow": break; // consumed once after the complete DOM batch
       case "router": navigation.apply(op); break;
       case "create": {
-        // A canvas node is a <div> hosting its surface <canvas> under its
-        // children (LLP 1014 D2): the kernel's children are laid out in the
-        // box, in flow, over the surface — a bare <canvas>'s children would
-        // be fallback content, never rendered. The surface element is the
-        // host's, never a child the kernel knows (`data-surface`).
+        // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
         const el = document.createElement(op.tag === "canvas" ? "div" : op.tag);
         if (op.tag === "canvas") {
           const surface = document.createElement("canvas");
@@ -608,7 +588,7 @@ function apply(batch) {
           el.append(surface);
         }
         applyProps(el, op.props, []);
-        el.style.cssText = op.css;
+        el.style.cssText = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : "");
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
         // Shared collections own geometry feedback, including authored estimates.
@@ -622,7 +602,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) motion.style(op.id, op.css);
+        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
         break;
       }
       case "children": {
@@ -659,7 +639,7 @@ function apply(batch) {
           const pending = (globalThis.exact.pendingSurfaces ??= []);
           const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
           if (queued) { queued.name = op.name; queued.values = op.values; }
-          else pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation });
+          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded)); }
         }
         break;
       }
@@ -702,6 +682,24 @@ function apply(batch) {
         inflight.add(p);
         p.finally(() => inflight.delete(p));
         break;
+      }
+      case "surfaceWork": {
+        const requestIncarnation=incarnation;
+        const p=Promise.resolve().then(async()=>{
+          if(op.refusal)throw Object.assign(new Error(op.refusal),{kind:2});
+          if(!surfaceGranted(op))throw Object.assign(new Error(`refused by grant: surface ${op.name}`),{kind:2});
+          loadGpuIfNeeded();await gpuLoading;
+          if(!exact.gpu)throw Object.assign(new Error(`surface ${op.name}: expected one live surface, found 0`),{kind:2});
+          if(requestIncarnation!==incarnation||wasm.exact_request_active(op.ticket)!==1)throw Object.assign(new Error('surface request retired'),{kind:4});
+          let bytes;
+          if(op.mode==="restore"){
+            if((op.body??"").length>HOST_WORK_BASE64)throw Object.assign(new Error('surface restore exceeds 16 MiB'),{kind:2});
+            bytes=Uint8Array.from(atob(op.body??""),c=>c.charCodeAt(0));
+          }
+          return exact.gpu.surfaceWork(op.name,op.mode,bytes,()=>requestIncarnation===incarnation&&wasm.exact_request_active(op.ticket)===1);
+        }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,op.mode==="capture"?6:7,0,"",bytes??new Uint8Array()))
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",enc.encode(String(error.message??error))));
+        inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
@@ -772,7 +770,7 @@ function apply(batch) {
         arrange.destroy(op.id);
         motion.destroy(op.id);
         const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
-        views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
+        views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
         const roots = [];
@@ -817,8 +815,6 @@ function apply(batch) {
   for (const { args, selectText } of focusCommands) {
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
-    // A focus that cannot be delivered is a journal line with its reason,
-    // never silence (LLP 1035.001 D6); the reasons are the iOS host's.
     const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled") ? "disabled"
       : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
       : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
@@ -827,11 +823,13 @@ function apply(batch) {
     el.focus();
     if (selectText && document.activeElement === el) el.select();
   }
+  focusAutofocus();
   positionContexts();
   return batch.timers;
 }
 function applyBatch(batch) {
   textflow?.beforeBatch(batch);
+  globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
   motion.commit(); arrange.commit();
   if (agentMode) {
@@ -843,6 +841,7 @@ function applyBatch(batch) {
   }
   flowBatch(batch);
   return { timers, batch };
+  } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }
 }
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
@@ -893,6 +892,7 @@ const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
 const enc = new TextEncoder();
+const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
 function granted(url, scope = null) {
   // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
   // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
@@ -904,6 +904,11 @@ function granted(url, scope = null) {
     if (kind !== "net.fetch" || !granted) return false;
     try { return new URL(granted).origin === origin; } catch { return false; }
   });
+}
+function surfaceGranted(op) {
+  const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
+  const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
+  return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
 }
 function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
   // `boot` starts tickets again at one. A completion from the program that
@@ -966,7 +971,7 @@ function nodeDetail(id, plan = false) {
   const r2 = (x) => Math.round(x * 100) / 100;
   const rect = (r) => ({ x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) });
   const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
-  const r = el.getBoundingClientRect();
+  const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
   node.space = {
     viewport: rect(r),
     local: { w: r2(el.clientWidth), h: r2(el.clientHeight) },
@@ -1033,6 +1038,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
+    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
     node.loading = iframeLoading.get(el) !== false;
@@ -1127,15 +1133,15 @@ async function waitForInflight(deadline) {
   clearTimeout(timer);
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
-
-function agent(request) {
+async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
+function agent(request) { return agentMode ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
+function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
+    if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     switch (request.op) {
       case "state": {
-        // The runner's state, then what the page observes (LLP 1035.002
-        // D2): the focused element, the software keyboard as the visual
-        // viewport reports it, and the routes as the DOM declares them.
         const st = ask(request);
         if (st.error) return st;
         const r2 = (x) => Math.round(x * 100) / 100;
@@ -1158,7 +1164,7 @@ function agent(request) {
         const nodes = [];
         for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
           if (!el.isConnected) continue;
-          const r = el.getBoundingClientRect();
+          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : el.getBoundingClientRect();
           const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
           if (el instanceof HTMLIFrameElement) {
             const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
@@ -1186,6 +1192,8 @@ function agent(request) {
       case "tap": {
         const frame = views.get(request.id);
         if (request.history !== undefined) return navigation.travel(frame, request.history);
+        if (frame && (frame.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(frame).visibility)))
+          return { handled: true, error: `view ${request.id} is hidden or inert` };
         return frame instanceof HTMLIFrameElement ? guestTap(frame, request) : { guest: false };
       }
       case "type": {
@@ -1197,7 +1205,7 @@ function agent(request) {
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock":
-        return tagged(clock(request));
+        return clock(request).then(tagged);
       case "tree":
         return tree(request);
       case "tags":
@@ -1238,20 +1246,25 @@ function tagged(reply) {
 async function clock(request) {
   const settle = !!request.settle;
   const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
+  let world = {};
+  const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return { clock: agentClock, settled: false };
-    const to = settle ? settleCandidate() : request.to;
+    if (settle && !(await waitForInflight(deadline))) return reply(false);
+    await settleGpu();
+    const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;
     if (textflow) await textflow.settle();
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
-    if (!settle) return { clock: agentClock };
-    if (inflight.size) { if (rounds >= 15) return { clock: agentClock, settled: false }; continue; }
-    const next = settleCandidate();
-    if (next <= agentClock) return { clock: agentClock, settled: true };
-    if (rounds >= 15) return { clock: agentClock, settled: false };
+    await settleGpu();
+    world = globalThis.exact.gpu?.clock?.(settle) ?? {};
+    if (!settle) return reply();
+    if (inflight.size) { if (rounds >= 15) return reply(false); continue; }
+    const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
+    if (next <= agentClock && !world.pending) return reply(true);
+    if (rounds >= 15) return reply(false);
   }
 }
 
@@ -1268,8 +1281,9 @@ function activateData() {
 }
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
-// Returns the milliseconds from call to first frame in the DOM.
-async function boot(bytes, assets = devAssets, current = () => true, module = null) {
+let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
+function boot(...args) { return mutate(() => bootNow(...args)); }
+async function bootNow(bytes, assets = devAssets, current = () => true, module = null) {
   const t = performance.now(), request = ++bootAttempt;
   // Decode and load private font faces while the live page keeps running.
   // Carry state only at the synchronous host acceptance point below.
@@ -1316,8 +1330,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   const oldAssets = devAssets;
   devAssets = assets;
   shaderCommit?.();
-  // The candidate is now the live Rust Host. Tear down without yielding;
-  // attach's ownership guard refuses synchronous events from removed nodes.
+  // Tear down without yielding; ownership guards refuse retired views.
   incarnation += 1;
   globalThis.exact.generation = incarnation;
   // A queued surface belongs to the plan that named it. The GPU device may
@@ -1328,14 +1341,14 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   arrange.reset(); motion.reset();
   if (textflow) for (const el of views.values()) retiredViews.add(el);
   textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null;
-  globalThis.exact?.gpu?.reset();
+  globalThis.exact?.gpu?.reset(Boolean(bytes));
   for (const el of followedScrolls.keys()) followScroll(el, false);
   pendingScrolls.clear();
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
   views.clear();
-  messageFrames.clear();
+  messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
   for (const controller of controllers) controller.abort();
@@ -1344,6 +1357,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   root.replaceChildren();
   commitFonts(preparedFonts);
   applyBatch(batch);
+  globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
   // @ref LLP 1043.000 §3 D7 — an optional initial flow load cannot gate paint/readiness.
@@ -1357,7 +1371,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
 // `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
-globalThis.exact = {
+globalThis.exact = { mutate,
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
@@ -1395,21 +1409,18 @@ globalThis.exact = {
       if (candidate && activeModule !== candidate) candidate.realm?.dispose();
     }
   },
+  message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, agentSettled, now } : {}), views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
 // canvas is on the page.
-let gpuRequested = false;
+let gpuLoading = null;
 function loadGpuIfNeeded() {
-  if (gpuRequested || !(globalThis.exact.pendingSurfaces ?? []).length) return;
-  gpuRequested = true;
-  const s = document.createElement("script");
-  s.type = "module";
-  s.src = new URL("./gpu-glue.js", import.meta.url).href;
-  document.head.append(s);
+  if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
+  gpuLoading = loadAfterPaint('./gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
 }
 async function main() {
   const url = new URL("./app.wasm", import.meta.url);

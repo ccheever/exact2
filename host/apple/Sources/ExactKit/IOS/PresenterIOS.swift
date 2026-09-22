@@ -12,6 +12,7 @@ final class Presenter {
     var scrollCreatedRows = 0
     var scrollOffscreenRows = 0
 
+    var autofocusProcessed: Set<ObjectIdentifier> = []
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -250,6 +251,7 @@ final class Presenter {
         session?.transformInputHold?.cancel()
         session?.rasters.reset()
         collections.reset()
+        autofocusProcessed.removeAll()
         segments.reset()
         menus.reset()
         swipeActions.reset()
@@ -430,7 +432,13 @@ final class Presenter {
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
-    func message(_ id: UInt32, _ value: String) { send(id) { [self] in onMessage?(id, value) } }
+    func message(_ id: UInt32, _ value: String) {
+        guard let view = views[id], view.handlers.contains("message") else { return }
+        send(id) { [weak self, weak view] in
+            guard let self, let view, views[id] === view, view.handlers.contains("message") else { return }
+            onMessage?(id, value)
+        }
+    }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
 
     func apply(_ batch: Batch) {
@@ -528,7 +536,7 @@ final class Presenter {
                 let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
                 for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
             case .surface:
-                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] as? [Any] ?? []) }
+                if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
@@ -570,6 +578,7 @@ final class Presenter {
         interactiveWidget = first?.props["interactiveWidget"]
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
+        session?.canvases.cancelMovedControls()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls).union(materialNodes) {
             guard let node = views[id] else { continue }
@@ -589,6 +598,7 @@ final class Presenter {
         menus.sync()
         swipeActions.sync()
         positionContexts()
+        syncAccessibility()
     }
 
     /// Geometry can be deferred for the source route while a modal owns the
@@ -887,6 +897,7 @@ enum Capture {
         var hidden: [UIView] = []
         func hide(_ v: UIView) {
             for s in v.subviews {
+                if let n = s as? NodeView, n.placement != nil, !n.isHidden { n.isHidden = true; hidden.append(n); continue }
                 // A nested canvas paints its readback in `draw` (LLP 1014):
                 // drop the layer's cached picture so the render calls `draw`
                 // instead of copying what it drew last time (its placements

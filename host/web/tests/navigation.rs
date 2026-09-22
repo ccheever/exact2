@@ -69,6 +69,11 @@ fn browser_session_history_and_published_deep_locations() {
     )
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
+    let accessibility = contract::compile(include_str!(
+        "../../../contract/corpus/accessibility.contract"
+    ))
+    .unwrap();
+    std::fs::write(dir.join("accessibility.plan"), accessibility.encode()).unwrap();
     let output = Command::new("bun")
         .arg("host/web/tests/navigation.mjs")
         .env("EXACT_ROUTER_DIST", dist)

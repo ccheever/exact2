@@ -339,6 +339,7 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
+ "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
@@ -792,6 +793,7 @@ dependencies = [
 name = "exact-linux"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "caltrain",
  "caltrain-data",
  "contract",
@@ -808,6 +810,7 @@ dependencies = [
  "exact-textflow",
  "ibex2",
  "libc",
+ "libloading",
  "png",
  "serde",
  "serde_json",

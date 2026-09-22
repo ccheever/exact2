@@ -211,7 +211,7 @@ public final class ExactApp {
             return true
         }, current: { [weak self] in self?.devGeneration }, waiting: { [weak self] in self?.generationPending == true }, apply: { [weak self] candidate, label in
             guard let self else { return false }
-            let resolver = AssetResolver(root: self.assetRoot, names: Array(candidate.assets.keys), read: { candidate.assets[$0] })
+            let resolver = candidate.assets
             return self.applyTogether(candidate.plan, label: label, resolver: resolver, token: 0, identity: candidate.identity, module: candidate.module, commit: { true })
         })
     }
@@ -363,6 +363,8 @@ public final class ExactSession {
     weak var transformInputHold: TransformDragHold?
     func trackInputHold(_ hold: SwipeHold) { inputHolds.add(hold) }
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
+    private var pendingSurfaceRecords: [(String, String?)] = []
+    private var pendingSurfaceWork: [([String: Any], Int)] = []
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -582,6 +584,12 @@ public final class ExactSession {
     /// @ref LLP 1038 D7/D11 — observation only; Swift never interprets slots.
     private(set) var routerOp: [String: Any]?
 
+    func surfaceRecord(_ name: String, _ json: String?) {
+        guard state != .destroyed else { return }
+        if applying { pendingSurfaceRecords.append((name, json)); return }
+        apply(runtime.surfaceRecord(name, json))
+    }
+
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
         let outermost = !applying
@@ -590,15 +598,20 @@ public final class ExactSession {
         #if os(macOS)
         regions.prepare(batch)
         #endif
+        for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
-        if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
+        if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         scheduleClock(due: batch.timerDueMs)
         if ExactEnv.environment["EXACT_TIMER_TRACE"] == "1", !ExactEnv.agentMode {
             if let line = timerTrace.record(batch, at: ExactEnv.wall()) { fputs(line + "\n", stderr) }
         }
         if outermost {
+            while !pendingSurfaceRecords.isEmpty {
+                let (name, json) = pendingSurfaceRecords.removeFirst()
+                apply(runtime.surfaceRecord(name, json))
+            }
             presenter.collections.flush()
             // Route projection and all structural/style changes are now final.
             // Ineligible recognizers may never receive another mouse/touch event.
@@ -638,6 +651,22 @@ public final class ExactSession {
         }
     }
 
+    private func drainSurfaceWork() {
+        guard canvases.module != nil || canvases.failed != nil || canvases.entries.isEmpty,
+              !pendingSurfaceWork.isEmpty else { return }
+        let work = pendingSurfaceWork
+        pendingSurfaceWork = []
+        DispatchQueue.main.async { [weak self] in
+            guard let self, state != .destroyed else { return }
+            for (op, owner) in work { canvases.surfaceWork(op, generation: owner) }
+        }
+    }
+
+    func completeSurface(_ ticket: UInt64, generation owner: Int, kind: UInt32, body: Data = Data()) {
+        guard state != .destroyed, generation == owner, runtime.requestActive(ticket) else { return }
+        apply(runtime.fulfillSurface(ticket, kind: kind, body: body, now: now()))
+    }
+
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
     /// the next turn; the update store hears first pixel (LLP 1026 D11).
     /// Capture at node creation. A delayed old draw cannot bless its successor.
@@ -669,6 +698,8 @@ public final class ExactSession {
                 app.firstPixel(token)
             }
             canvases.loadIfNeeded()
+            drainSurfaceWork()
+            frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
         }
     }
@@ -822,6 +853,21 @@ final class Frames: NSObject {
     var link: CADisplayLink?
     var motion = false
     var timerSoon = false
+    private var canvasRequested = false
+
+    /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
+    func requestCanvas() {
+        guard let s = session else { return }
+        if s.clock == nil { run(true); return }
+        guard !canvasRequested else { return }
+        canvasRequested = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            canvasRequested = false
+            guard let s = session, s.state != .destroyed else { return }
+            s.canvases.settle(now: s.now())
+        }
+    }
     #if canImport(UIKit)
     /// EXACT_FPS=1 (iOS): the display link runs always and the measure
     /// reports once a second (`main.swift` prints it).
@@ -838,11 +884,20 @@ final class Frames: NSObject {
         #if canImport(UIKit)
         if fpsMode { measure(link.timestamp) }
         #endif
-        let now = s.now()
-        if timerSoon, !ExactEnv.agentMode, s.clock == nil { s.apply(s.runtime.advance(now: now)) }
-        if motion { s.apply(s.runtime.tick(now: now)) }
-        let more = s.canvases.tick(now: s.now())
-        run(motion || timerSoon || more || s.canvases.wantsFrames)
+        s.canvases.lifecycle.frame()
+        // Motion keeps its existing sampling clock; canvas frames target presentation.
+        let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
+        // ProMotion changes callback cadence (e.g. 120 → 80 Hz) while duration
+        // can remain the nominal base interval. The target interval is actual;
+        // canvases quantizes it and republishes this session’s stable class before rendering.
+        s.canvases.period((link.targetTimestamp - link.timestamp) * 1000)
+        let previous = s.canvases.frameNow
+        s.canvases.frameNow = frameNow
+        defer { s.canvases.frameNow = previous }
+        if timerSoon, !ExactEnv.agentMode, s.clock == nil { s.apply(s.runtime.advance(now: s.now())) }
+        if motion { s.apply(s.runtime.tick(now: s.now())) }
+        let more = s.canvases.tick(now: frameNow)
+        run(motion || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
 
     #if canImport(UIKit)
@@ -860,17 +915,16 @@ final class Frames: NSObject {
     }
     #endif
 
-    func run(_ on: Bool) {
+    func run(_ wanted: Bool) {
+        if wanted, session?.clock != nil { requestCanvas() }
         #if canImport(UIKit)
-        let on = on || fpsMode
+        let on = (wanted || fpsMode) && session?.clock == nil
+        #else
+        let on = wanted && session?.clock == nil
         #endif
         if on, link == nil {
             #if canImport(UIKit)
             let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
-            // The measure wants the display's real rate (a ProMotion phone's
-            // 120), so a dropped frame is a dropped frame; the bundle's plist
-            // opts in (CADisableMinimumFrameDurationOnPhone) or this is 60.
-            if fpsMode { l.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120) }
             #else
             guard let viewport = session?.presenter.viewport else { return }
             let l = viewport.displayLink(target: self, selector: #selector(tick(_:)))
@@ -881,5 +935,12 @@ final class Frames: NSObject {
             l.invalidate()
             link = nil
         }
+        #if canImport(UIKit)
+        if let link {
+            let fullRate = fpsMode || session?.canvases.wantsFrames == true
+            let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
+            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate) : .default
+        }
+        #endif
     }
 }

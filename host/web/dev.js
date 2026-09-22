@@ -3,10 +3,14 @@
 const es = typeof EventSource === "undefined" ? null : new EventSource("/__dev");
 const encoder = new TextEncoder();
 let overlay = null;
-function show(message) {
-  if (!message) { overlay?.remove(); overlay = null; return; }
+const errors = new Map();
+function show(message, source = "app") {
+  if (message) errors.set(source, message); else errors.delete(source);
+  const text = [...errors.values()].join("\n\n");
+  if (!text) { overlay?.remove(); overlay = null; return; }
   overlay ??= document.body.appendChild(Object.assign(document.createElement("pre"), { style: "position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647" }));
-  overlay.textContent = message;
+  overlay.textContent = text + "\n(click to dismiss)";
+  overlay.onclick = () => { errors.clear(); show(null); };
 }
 
 // SHA-256 also works on trusted-LAN HTTP pages where SubtleCrypto is absent.
@@ -185,6 +189,7 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
 
 if (!es) globalThis.exactDevProtocol = { digest, generationClient, validIdentity };
 if (es) {
+  globalThis.exact.devError = show;
   // Host affordance, outside the app tree and absent from static/production pages.
   // Agent input targets the app tree; this host-only link covers app controls.
   if (!new URLSearchParams(location.search).has('agent')) {
@@ -227,7 +232,20 @@ if (es) {
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }
-    if (message.error) { show(message.error); console.error("exact dev:", message.error); return; }
+    if (message.error) { show(message.error, message.source); console.error("exact dev:", message.error); return; }
+    if (message.fresh) { if (new URLSearchParams(location.search).get('agent') !== '1') location.reload(); return; }
+    if (message.gpu !== undefined) {
+      // A drive owns its clock and code. Do not change either behind the driver.
+      if (new URLSearchParams(location.search).get('agent') === '1') return;
+      globalThis.exact.gpuVersion = message.gpu;
+      if (globalThis.exact.gpu) (async () => {
+        if (message.gpu !== globalThis.exact.gpuVersion) return;
+        const result = await globalThis.exact.gpu.swap(message.gpu);
+        show(result.errors.join('\n') || null, "gpu");
+        navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${result.ms.toFixed(1)}`);
+      })().catch(error => { show(String(error), "gpu"); console.error('exact dev:', error); });
+      return;
+    }
     if (message.ready === false) return;
     client.receive(message);
   };

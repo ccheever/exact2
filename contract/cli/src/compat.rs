@@ -29,6 +29,8 @@ const ABI_HEADER: &str = include_str!(concat!(
 ));
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
+/// The separately linked Rust data-source request/outcome wire ABI.
+pub(crate) const RUST_ABI: u32 = 3;
 /// The update store's record codec (LLP 1030 D1): the first.
 pub const STORE_CODEC: u32 = 2;
 /// The domain separator over the canonical inputs.
@@ -165,7 +167,13 @@ impl Manifest {
                 None => String::new(),
             }
         };
-        let path = app_dir.join("app.json");
+        // Game bakes resolve authored defaults once; the compiler reads that same dialect.
+        let resolved = app_dir.join(".shells/app.json");
+        let path = if resolved.is_file() {
+            resolved
+        } else {
+            app_dir.join("app.json")
+        };
         if !path.exists() {
             return Ok(Manifest {
                 json: serde_json::json!({}),
@@ -674,7 +682,7 @@ fn compatibility_with_trust(
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
-        "rustAbi": if rust_mode == "off" { Value::Null } else { json!(2) },
+        "rustAbi": if rust_mode == "off" { Value::Null } else { json!(RUST_ABI) },
         "rustTarget": rust_target,
         "rustModule": rust_module,
         // Where each language's module runs (LLP 1027.002 §6): a host
@@ -903,6 +911,38 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     #[test]
+    fn resolved_manifest_is_the_only_reader_dialect() {
+        let dir = app("resolved-only");
+        for game in [
+            serde_json::json!({"crate":"beacons-logic","type":"Beacons"}),
+            serde_json::Value::Null,
+        ] {
+            std::fs::write(
+                dir.join("app.json"),
+                serde_json::json!({"id":"com.exact.beacons","name":"Beacons","game":game})
+                    .to_string(),
+            )
+            .unwrap();
+            assert!(Manifest::read(&dir).is_err());
+        }
+        std::fs::write(
+            dir.join("app.json"),
+            r#"{"app":{"id":"com.exact.beacons","name":"Beacons"}}"#,
+        )
+        .unwrap();
+        assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.beacons");
+        std::fs::create_dir_all(dir.join(".shells")).unwrap();
+        std::fs::write(
+            dir.join(".shells/app.json"),
+            r#"{"app":{"id":"com.exact.resolved","name":"Resolved"}}"#,
+        )
+        .unwrap();
+        std::fs::write(dir.join("app.json"), "{}").unwrap();
+        assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mixed_source_ownership_is_hashed_even_when_the_host_ceiling_is_unchanged() {
         let dir = app("mixed-source-grants");
         let manifest = Manifest::read(&dir).unwrap();
@@ -1115,7 +1155,7 @@ mod tests {
         }
         assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
         assert_eq!(i["rustMode"], "wasm");
-        assert_eq!(i["rustAbi"], 2);
+        assert_eq!(i["rustAbi"], super::RUST_ABI);
         assert_eq!(i["rustTarget"], "wasm32-unknown-unknown");
         assert!(i["rustModule"].is_null());
         assert_eq!(i["executors"], serde_json::json!(["native", "wasmi"]));
@@ -1182,7 +1222,7 @@ mod tests {
                 if mode == "off" {
                     serde_json::Value::Null
                 } else {
-                    serde_json::json!(2)
+                    serde_json::json!(super::RUST_ABI)
                 }
             );
             let expected = executor.map_or_else(

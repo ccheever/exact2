@@ -1,0 +1,22 @@
+:root { font-family: system-ui, sans-serif; color: #f3f6e9; background: #263e39; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+#game, #viewport, canvas { width: 100%; height: 100%; position: absolute; inset: 0; display: block; }
+#game:focus { outline: none; }
+[hidden] { display: none !important; }
+header { position: absolute; inset: 30px 34px auto; display: flex; justify-content: space-between; align-items: flex-start; }
+h1 { font-size: 26px; font-weight: 500; margin: 4px 0; letter-spacing: -.6px; text-shadow: 0 2px 10px #122f2b; }
+.eyebrow { font-size: 11px; letter-spacing: 3px; font-weight: 650; color: #d8e6bc; }
+button { font: inherit; font-weight: 600; border: 1px solid #edf2d87a; border-radius: 7px; padding: 12px 25px; background: #eff4db; color: #23413b; cursor: pointer; }
+button:hover { background: #fff; }
+button:focus-visible { outline: 3px solid #ffc95b; outline-offset: 5px; }
+#pause { background: #17332bd9; color: #fff; font-size: 14px; }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #112d2852; }
+.card { text-align: center; padding: 40px 55px; border: 1px solid #eaf2d22e; background: #183a32ed; border-radius: 16px; box-shadow: 0 30px 90px #0003; }
+h2 { font-weight: 450; font-size: clamp(38px, 6vw, 70px); letter-spacing: -3px; margin: 10px 0 16px; }
+p { line-height: 1.7; color: #cedacd; margin: 0 0 25px; }
+.small { font-size: 12px; margin: 26px 0 0; color: #adbdaf; }
+footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 21px 34px; display: flex; gap: 20px; justify-content: space-between; align-items: center; background: linear-gradient(transparent, #0b2b2cc9); font-size: 11px; letter-spacing: .8px; }
+footer strong { color: #ffe29e; font-size: 14px; letter-spacing: 0; }
+#paused { position: absolute; top: 45%; width: 100%; text-align: center; font-size: 44px; text-shadow: 0 2px 15px #000; pointer-events: none; }
+@media(max-width: 650px) { header { inset: 20px 20px auto; } footer { flex-wrap: wrap; padding: 16px; } .card { padding: 30px; } }

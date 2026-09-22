@@ -6,7 +6,7 @@ impl DataSource for Fixture {
         "test.logic"
     }
     fn grants(&self) -> &str {
-        "secret.keep token"
+        "secret.keep token\nsurface.read world\nsurface.write world"
     }
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
         Ok(Value::Number(self.0.into()))
@@ -40,6 +40,11 @@ impl DataSource for Fixture {
                 };
                 Ok(Answer::Later(request))
             }
+            "surface-capture" => Ok(Answer::Later(Request::capture_surface("world"))),
+            "surface-restore" => Ok(Answer::Later(Request::restore_surface(
+                "world",
+                vec![0, 128, 255],
+            ))),
             _ => Ok(Answer::Now(Value::record(vec![
                 Value::str(&old),
                 Value::Number(self.0.into()),
@@ -62,8 +67,60 @@ impl DataSource for Fixture {
                     .map(|byte| Value::Number(byte.into()))
                     .collect(),
             ))),
+            Outcome::Surface(SurfaceOutcome::Captured(bytes)) => Ok(Answer::Now(Value::list(
+                bytes
+                    .into_iter()
+                    .map(|byte| Value::Number(byte.into()))
+                    .collect(),
+            ))),
+            Outcome::Surface(SurfaceOutcome::Restored) => Ok(Answer::Now(Value::Unit)),
             Outcome::Failed { message, .. } => Err(DataError::Unavailable(message)),
         }
+    }
+}
+
+#[test]
+fn surface_requests_and_outcomes_round_trip_without_becoming_storage_or_http() {
+    let mut module = Session::new(Fixture(0));
+    let mut store = Store::new(
+        "secret.keep token\nsurface.read world\nsurface.write world",
+        [],
+    );
+    for (source, expected) in [
+        ("surface-capture", Request::capture_surface("world")),
+        (
+            "surface-restore",
+            Request::restore_surface("world", vec![0, 128, 255]),
+        ),
+    ] {
+        module
+            .dispatch(&call_request(&store, source, &[], None).unwrap())
+            .unwrap();
+        let Answer::Later(request) = call_reply(module.output(), &mut store).unwrap() else {
+            panic!("expected surface request")
+        };
+        assert_eq!(request, expected);
+        assert!(request.storage.is_none() && request.url.is_empty());
+    }
+
+    for (outcome, expected) in [
+        (
+            Outcome::Surface(SurfaceOutcome::Captured(vec![0, 128, 255])),
+            Value::list(vec![
+                Value::Number(0.),
+                Value::Number(128.),
+                Value::Number(255.),
+            ]),
+        ),
+        (Outcome::Surface(SurfaceOutcome::Restored), Value::Unit),
+    ] {
+        module
+            .dispatch(&call_request(&store, "surface-capture", &[], Some(&outcome)).unwrap())
+            .unwrap();
+        assert_eq!(
+            call_reply(module.output(), &mut store).unwrap(),
+            Answer::Now(expected)
+        );
     }
 }
 
@@ -122,7 +179,7 @@ fn network_request_preserves_absent_empty_and_restricted_grants() {
 
 #[test]
 fn storage_unknown_tags_truncation_and_oversize_are_refused_before_effects() {
-    for tag in [6, 255] {
+    for tag in [8, 255] {
         assert!(read_outcome(&mut Reader::new(&[tag])).is_err());
         assert!(read_result(&mut Reader::new(&[tag])).is_err());
     }
@@ -288,7 +345,10 @@ fn exported_buffers_belong_to_module_and_sessions_are_distinct() {
         .to_vec();
         assert_eq!(
             metadata_reply(&output).unwrap(),
-            ("test.logic".into(), "secret.keep token".into())
+            (
+                "test.logic".into(),
+                "secret.keep token\nsurface.read world\nsurface.write world".into()
+            )
         );
         exports::exact_logic_destroy(a);
         exports::exact_logic_destroy(b);

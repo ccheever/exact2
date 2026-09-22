@@ -153,6 +153,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(batch)
     }
 
+    /// Whether the current runner still owns a request ticket.
+    pub fn request_active(&self, ticket: f64) -> u32 {
+        u32::from(
+            ticket.is_finite()
+                && ticket >= 0.0
+                && self.host.as_ref().is_some_and(|host| {
+                    host.runner()
+                        .pending()
+                        .iter()
+                        .any(|(_, held)| *held == ticket as u64)
+                }),
+        )
+    }
+
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
@@ -488,6 +502,21 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A name alone clears a surface; name NUL JSON publishes it, even if empty.
+    pub fn surface_record(&mut self, len: usize) -> u32 {
+        let Ok(text) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.emit(exact_runner::agent::error("surface record: invalid UTF-8"));
+        };
+        let (name, json) = text
+            .split_once('\0')
+            .map_or((text, None), |(name, json)| (name, Some(json)));
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("surface record: not booted"),
+            |host| host.surface_record(name, json),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch.
     /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
@@ -807,7 +836,8 @@ macro_rules! host {
         }
 
         /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /
-        /// 2 refused / 3 unsupported / 4 aborted; the input buffer holds
+        /// 2 refused / 3 unsupported / 4 aborted / 5 storage / 6 captured
+        /// surface / 7 restored surface; the input buffer holds
         /// `hlen` bytes of `name: value` header lines then `blen` bytes of
         /// body (or the message). Returns the batch's length.
         #[no_mangle]
@@ -815,7 +845,25 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
-        /// The layout viewport changed; returns the batch's length (LLP 1039).
+        /// Whether a presenter-owned operation may still affect its surface.
+        #[no_mangle]
+        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
+        }
+
+        /// Publish or clear a named surface record; returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_surface_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                let Ok(mut bridge) = b.try_borrow_mut() else {
+                    eprintln!("exact_surface_record refused: nested bridge export");
+                    return 0;
+                };
+                bridge.surface_record(len as usize)
+            })
+        }
+
+        /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))

@@ -12,6 +12,7 @@ import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -35,7 +36,7 @@ const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-
 // dist, so a server sees the previous app or the next one, never a mixture;
 // replacing the directory also drops every stale optional/private artifact.
 // Stages live under ignored target/, so even a SIGKILL leaves no source dirt.
-const stages = resolve(root, 'target/web-dist-stages');
+const stages = resolve(app.target, 'web-dist-stages');
 mkdirSync(stages, { recursive: true });
 // A worktree may share target/ through a symlink. This directory is ours;
 // retain its physical name before the strict filesystem reader inventories it.
@@ -61,7 +62,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 const shaders = resolve(app.dir, 'gpu', 'shaders');
-copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
+if (!app.manifest.game) copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 function copyHostFiles(group) {
   for (const [name, source] of Object.entries(webHostFiles(group))) copyFileSync(resolve(root, source), resolve(stage, name));
@@ -156,7 +157,7 @@ if (ios.associatedDomains && ios.team) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 const gpuCrate = crate.replace(/-web$/, '-gpu');
 let gpuNote = 'no GPU crate';
-if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
+if (app.hasGpu) {
   const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
   const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', stage, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });
   if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; }
@@ -174,7 +175,7 @@ if (existsSync(resolve(app.dir, 'gpu', 'Cargo.toml'))) {
 // can never be mistaken for a completed build of the requested app.
 writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
-  files: publicFileCards(stage),
+  files: await publicFileCards(stage).finally(closeFilesystemReader),
 }) + '\n');
 rmSync(previous, { recursive: true, force: true });
 if (existsSync(dist)) renameSync(dist, previous);

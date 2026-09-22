@@ -664,8 +664,30 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                         // `surface=name(args)`: the name is the GPU module's,
                         // not a function; the arguments are expressions.
                         if let Expr::Call(_, args, _) = &a.value {
+                            let named = args.iter().any(|arg| matches!(arg, Expr::NamedArg(..)));
+                            let mut names = std::collections::BTreeSet::new();
                             for arg in args {
-                                infer(arg, scope, shapes)?;
+                                let value = match arg {
+                                    Expr::NamedArg(name, value, span) => {
+                                        if !names.insert(name) {
+                                            return err(
+                                                "type-surface-argument",
+                                                format!("duplicate surface argument `{name}`"),
+                                                *span,
+                                            );
+                                        }
+                                        value.as_ref()
+                                    }
+                                    _ if named => {
+                                        return err(
+                                            "type-surface-argument",
+                                            format!("use either named or positional surface arguments (`{}` is named)", args.iter().find_map(|arg| match arg { Expr::NamedArg(name, _, _) => Some(name), _ => None }).unwrap()),
+                                            arg.span(),
+                                        )
+                                    }
+                                    _ => arg,
+                                };
+                                infer(value, scope, shapes)?;
                             }
                         }
                         continue;

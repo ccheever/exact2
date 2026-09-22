@@ -162,6 +162,7 @@ fn request_from(json: &Json) -> Result<Request, DataError> {
         .transpose()?
         .unwrap_or_default();
     Ok(Request {
+        surface: None,
         continuation: json["continuation"].as_u64(),
         http: match &json["max_response_bytes"] {
             Json::Null => HttpScheduling::Ordered,

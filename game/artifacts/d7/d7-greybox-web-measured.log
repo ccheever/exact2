@@ -1,0 +1,5208 @@
+BUILD cached greybox web
+tree 
+epoch 1 · incarnation 1 · clock 0 ms · 5 nodes
+View#1
+  View#2
+    Text#3 "Grey box"
+    Pressable#4 [play] [focused] name="Play" (press)
+      Text#5 "Play"
+PASS Play is initially focused and named by its text
+state 
+{
+  "epoch": 1,
+  "incarnation": 1,
+  "clock": 0,
+  "slots": {
+    "playing": false,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 4,
+    "editor": null,
+    "responder": "button",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  }
+}
+PASS state focus agrees with tree
+PASS title and Play are the initial UI
+PASS no world or loaded GPU module on the title
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png
+{"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/greybox-title.png","w":1280,"h":720,"epoch":1,"incarnation":1,"clock":0}
+tap play
+{"at":[640.005,400],"tapped":4,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+tree 
+epoch 2 · incarnation 1 · clock 0 ms · 5 nodes
+View#1
+  Canvas#6 [world] [focused] world{world} · 8 entities · tick 0
+    Text#7 [hud-beacons] "Beacons 0 / 1"
+    Pressable#8 [pause] name="Pause" (press)
+      Text#9 "Pause"
+PASS HUD is polite and Pause is named by text
+PASS canvas carries the setup world summary: {"name":"world","entities":8,"tick":0}
+PASS hud-beacons is a direct canvas child: {"id":7,"parent":6,"depth":2,"type":"Text","props":{"text":"Beacons 0 / 1","testId":"hud-beacons","accessibilityLive":"polite"},"handlers":[],"children":[],"focused":false}
+PASS pause is a direct canvas child: {"id":8,"parent":6,"depth":2,"type":"Pressable","props":{"testId":"pause","accessibilityRole":"button"},"handlers":["press"],"children":[9],"focused":false,"accessibleName":"Pause"}
+PASS initial HUD text
+tree world
+epoch 2 · incarnation 1 · clock 0 ms · tick 0 · 8 entities
+ground#0 (Material, Mesh, Transform)
+player#1 (Material, Mesh, Player, Transform)
+camera#2 (Camera, Follow, Transform)
+sun#3 (DirectionalLight, Transform)
+crate-1#4 (Material, Mesh, Transform)
+crate-2#5 (Material, Mesh, Transform)
+crate-3#6 (Material, Mesh, Transform)
+beacon-1#7 (Beacon, Material, Mesh, Transform)
+PASS world outline contains ground
+PASS world outline contains player
+PASS world outline contains camera
+PASS world outline contains sun
+PASS world outline contains crate-1
+PASS world outline contains crate-2
+PASS world outline contains crate-3
+PASS world outline contains beacon-1
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 0,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0xbba6329f68d0c2f1",
+      "entities": 8,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 0
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 3,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": null,
+        "inputToFirstFrameMs": null,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS setup hash equals native golden: "0xbba6329f68d0c2f1"
+type world {"phase":"down","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+PASS W reaches the real browser input path: {"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+clock +1500
+{"clock":1500,"world":[{"canvas":6,"tick":90,"hash":"0x5d40bcb196c6e6e2","quiescent":false}],"epoch":2,"incarnation":1}
+state world:player
+{
+  "tick": 90,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -5.3666644
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+PASS player has the exact authored capsule: {"Capsule":{"radius":0.4,"height":1.8}}
+PASS W for 1500 ms equals the native pinned position: [0,0.9,-5.3666644]
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 90,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x5d40bcb196c6e6e2",
+      "entities": 8,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [
+          "KeyW"
+        ],
+        "forwarded": [
+          "KeyW"
+        ]
+      },
+      "published": {
+        "beacons": 0
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 7,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": 855.2999999523163,
+        "inputToFirstFrameMs": 215.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS W for 1500 ms equals the current native hash: "0x5d40bcb196c6e6e2"
+PASS 1500 ms advances exactly 90 ticks: 90
+layout world:player
+#1 player world 0,0.9,-5.3667 · screen 611.058,294.5889 57.8839×128.9388 · depth 9.434 · in frustum
+PASS player has a viewport-space screen box: {"x":611.058,"y":294.5889,"w":57.8839,"h":128.9388}
+type world {"phase":"up","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+layout world [639.99995,359.05830000000003]
+{"tick":90,"hit":{"id":1,"name":"player","distance":8.9538,"point":[0,1.1659,-4.9667]},"epoch":2,"incarnation":1,"clock":1500}
+PASS pick at the player box reaches player: {"tick":90,"hit":{"id":1,"name":"player","distance":8.9538,"point":[0,1.1659,-4.9667]},"epoch":2,"incarnation":1,"clock":1500}
+tap world:player
+{"at":[639.99995,359.05830000000003],"delivery":"platform","tapped":6,"target":"world:player","entity":"player","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+PASS entity tap uses platform input: {"at":[639.99995,359.05830000000003],"delivery":"platform","tapped":6,"target":"world:player","entity":"player","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+type world {"key":"KeyW","for":100}
+type world {"key":"KeyW","phase":"down"}
+{"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+clock +100
+{"clock":1600,"world":[{"canvas":6,"tick":96,"hash":"0x98b53f2ab3d7fece","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"key":"KeyW","phase":"up"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1600}
+type world {"key":"KeyE"}
+{"typed":6,"key":"KeyE","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1600}
+clock +100
+{"clock":1700,"world":[{"canvas":6,"tick":102,"hash":"0x451221b285562759","quiescent":false}],"epoch":3,"incarnation":1}
+state world:beacon-1
+{
+  "tick": 102,
+  "entity": {
+    "id": 7,
+    "name": "beacon-1",
+    "components": {
+      "Beacon": {
+        "lit": true,
+        "glow": {
+          "target": 1,
+          "start_value": 0,
+          "start_velocity": 0,
+          "start_tick": 96,
+          "config": {
+            "stiffness": 100,
+            "damping": 10,
+            "mass": 1
+          }
+        }
+      },
+      "Material": {
+        "color": [
+          0.15,
+          0.6,
+          0.8,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0.76098204,
+          0.76098204,
+          0.76098204
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Sphere": {
+          "radius": 0.5
+        }
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.75,
+          -6.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 1700
+}
+PASS E lights beacon-1: {"tick":102,"entity":{"id":7,"name":"beacon-1","components":{"Beacon":{"lit":true,"glow":{"target":1,"start_value":0,"start_velocity":0,"start_tick":96,"config":{"stiffness":100,"damping":10,"mass":1}}},"Material":{"color":[0.15,0.6,0.8,1],"metallic":0,"roughness":0.5,"emissive":[0.76098204,0.76098204,0.76098204],"grid_spacing":0},"Mesh":{"Sphere":{"radius":0.5}},"Transform":{"position":[0,0.75,-6.5],"rotation":[0,0,0,1],"scale":[1,1,1]}}},"epoch":3,"incarnation":1,"clock":1700}
+clock settle
+{"clock":6050,"settled":true,"world":[{"canvas":6,"tick":363,"hash":"0x7f3c217f98bb0fb6","quiescent":true}],"epoch":3,"incarnation":1}
+PASS world settles after movement and beacon spring: {"clock":6050,"settled":true,"world":[{"canvas":6,"tick":363,"hash":"0x7f3c217f98bb0fb6","quiescent":true}],"epoch":3,"incarnation":1}
+tree 
+epoch 3 · incarnation 1 · clock 6050 ms · 5 nodes
+View#1
+  Canvas#6 [world] [focused] world{world} · 8 entities · tick 363
+    Text#7 [hud-beacons] "Beacons 1 / 1"
+    Pressable#8 [pause] name="Pause" (press)
+      Text#9 "Pause"
+PASS typed surface record → HUD text: {"id":7,"parent":6,"depth":2,"type":"Text","props":{"text":"Beacons 1 / 1","testId":"hud-beacons","accessibilityLive":"polite"},"handlers":[],"children":[],"focused":false}
+state 
+{
+  "epoch": 3,
+  "incarnation": 1,
+  "clock": 6050,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 1
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 363,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x7f3c217f98bb0fb6",
+      "entities": 8,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 1
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 20,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": 855.2999999523163,
+        "inputToFirstFrameMs": 215.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+logs 
+t=0 boot: 5 nodes, epoch 1
+t=0 press view 4 (play) → epoch 2 (+4 −4 ~1)
+t=0 surface world (1 asked again) → epoch 2 (+0 −0 ~0)
+t=1700 surface world (1 asked again) → epoch 3 (+0 −0 ~1)
+world t=0 tick=0 spawn #0
+world t=0 tick=0 spawn #1
+world t=0 tick=0 spawn #2
+world t=0 tick=0 spawn #3
+world t=0 tick=0 spawn #4
+world t=0 tick=0 spawn #5
+world t=0 tick=0 spawn #6
+world t=0 tick=0 spawn #7
+world t=0 tick=0 publish beacons: Number(0.0)
+world t=1600 tick=96 publish beacons: Number(1.0)
+world t=1600 tick=96 beacon-1 lit
+  chrome: [63694:315057578:0917/232046.508159:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 "errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server." (-25308)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+  chrome: [63694:315057569:0917/232046.760561:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+  chrome: [63694:315057567:0917/232046.761375:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+PASS world journal carries beacon-1 lit: [{"canvas":6,"from":0,"next":11,"lines":["t=0 tick=0 spawn #0","t=0 tick=0 spawn #1","t=0 tick=0 spawn #2","t=0 tick=0 spawn #3","t=0 tick=0 spawn #4","t=0 tick=0 spawn #5","t=0 tick=0 spawn #6","t=0 tick=0 spawn #7","t=0 tick=0 publish beacons: Number(0.0)","t=1600 tick=96 publish beacons: Number(1.0)","t=1600 tick=96 beacon-1 lit"],"dropped":0}]
+PASS no browser/GPU errors: ["chrome: [63694:315057578:0917/232046.508159:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 \"errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server.\" (-25308)","chrome: Trying to load the allocator multiple times. This is *not* supported.","chrome: [63694:315057569:0917/232046.760561:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.","chrome: [63694:315057567:0917/232046.761375:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available."]
+tap pause
+{"at":[1220.9850000000001,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":6050}
+state world:*
+{
+  "tick": 363,
+  "hash": "0x7f3c217f98bb0fb6",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -6.133331
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            1.8666692
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "target": 1,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 96,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            3,
+            3,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 6050
+}
+type world {"phase":"down","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":6050}
+clock +2000
+{"clock":8050,"world":[{"canvas":6,"tick":363,"hash":"0x7f3c217f98bb0fb6","quiescent":true}],"epoch":4,"incarnation":1}
+state world:*
+{
+  "tick": 363,
+  "hash": "0x7f3c217f98bb0fb6",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            0
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -6.133331
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            1.8666692
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": true,
+          "glow": {
+            "target": 1,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 96,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            3,
+            3,
+            3
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 8050
+}
+PASS pause + 2 seconds preserves the simulation snapshot with W held
+type world {"phase":"up","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":4,"incarnation":1,"clock":8050}
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png
+{"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/greybox-web.png","w":1280,"h":720,"epoch":4,"incarnation":1,"clock":8050}
+tree 
+epoch 4 · incarnation 1 · clock 8050 ms · 5 nodes
+View#1
+  Canvas#6 [world] [focused] world{world} · 8 entities · tick 363
+    Text#7 [hud-beacons] "Beacons 1 / 1"
+    Pressable#8 [pause] name="Resume" (press)
+      Text#9 "Resume"
+PASS Resume accessible name follows its text
+PASS paused HUD offers Resume
+state 
+{
+  "epoch": 4,
+  "incarnation": 1,
+  "clock": 8050,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": true
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 1
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 363,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x7f3c217f98bb0fb6",
+      "entities": 8,
+      "paused": true,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": true
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 1
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 28,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": 855.2999999523163,
+        "inputToFirstFrameMs": 215.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS Contract paused argument reaches world
+PASS first-pixel and first-world timings are in state.world.perf: {"wallClock":true,"pixels":[1280,720],"frameMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"tickMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"feedMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"encodeMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"ticksPerFrame":{"p50":0,"p95":0,"p99":0,"max":0,"count":28,"mean":0},"draws":29,"instances":6,"triangles":1143,"navigationToFirstContentfulPaintMs":324,"gpuMs":100.6,"inputMs":640,"firstFrameSubmittedMs":838.5,"firstFrameMs":855.2999999523163,"inputToFirstFrameMs":215.29999995231628,"firstFrameMeaning":"rendering opportunity after GPU submission; not scanout","resources":[{"name":"/app.wasm","startMs":191.70000004768372,"endMs":294.2000000476837,"bytes":633792},{"name":"/gpu-glue.js","startMs":670.2000000476837,"endMs":723.7000000476837,"bytes":24707},{"name":"/gpu.js","startMs":724.5,"endMs":730.2999999523163,"bytes":76265},{"name":"/gpu_bg.wasm","startMs":731.6000001430511,"endMs":818.4000000953674,"bytes":689380}]}
+PASS /gpu-glue.js fetched only after title paint and Play: {"name":"/gpu-glue.js","startMs":670.2000000476837,"endMs":723.7000000476837,"bytes":24707}
+PASS /gpu.js fetched only after title paint and Play: {"name":"/gpu.js","startMs":724.5,"endMs":730.2999999523163,"bytes":76265}
+PASS /gpu_bg.wasm fetched only after title paint and Play: {"name":"/gpu_bg.wasm","startMs":731.6000001430511,"endMs":818.4000000953674,"bytes":689380}
+TIMINGS {"wallClock":true,"pixels":[1280,720],"frameMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"tickMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"feedMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"encodeMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"ticksPerFrame":{"p50":0,"p95":0,"p99":0,"max":0,"count":28,"mean":0},"draws":29,"instances":6,"triangles":1143,"navigationToFirstContentfulPaintMs":324,"gpuMs":100.6,"inputMs":640,"firstFrameSubmittedMs":838.5,"firstFrameMs":855.2999999523163,"inputToFirstFrameMs":215.29999995231628,"firstFrameMeaning":"rendering opportunity after GPU submission; not scanout","resources":[{"name":"/app.wasm","startMs":191.70000004768372,"endMs":294.2000000476837,"bytes":633792},{"name":"/gpu-glue.js","startMs":670.2000000476837,"endMs":723.7000000476837,"bytes":24707},{"name":"/gpu.js","startMs":724.5,"endMs":730.2999999523163,"bytes":76265},{"name":"/gpu_bg.wasm","startMs":731.6000001430511,"endMs":818.4000000953674,"bytes":689380}]}
+tap pause
+{"at":[1213.5549999999998,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":8050}
+state world:player
+{
+  "tick": 363,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          0
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -6.133331
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 5,
+  "incarnation": 1,
+  "clock": 8050
+}
+type pause {"key":"KeyW","phase":"down"}
+{"typed":8,"key":"KeyW","phase":"down","delivery":"platform","target":"pause","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":8050}
+clock +500
+{"clock":8550,"world":[{"canvas":6,"tick":393,"hash":"0x70d69d3f4e3beb10","quiescent":false}],"epoch":5,"incarnation":1}
+type pause {"key":"KeyW","phase":"up"}
+{"typed":8,"key":"KeyW","phase":"up","delivery":"platform","target":"pause","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":8550}
+state world:player
+{
+  "tick": 393,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -7.4999986
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 5,
+  "incarnation": 1,
+  "clock": 8550
+}
+PASS W bubbles from the focused Resume button and moves the world
+type world {"phase":"down","key":"Space"}
+{"typed":6,"key":"Space","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":5,"incarnation":1,"clock":8550}
+tap pause
+{"at":[1220.9850000000001,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":8550}
+type pause {"key":"Space","phase":"up"}
+{"typed":8,"key":"Space","phase":"up","delivery":"platform","target":"pause","carrier":"web","mode":"agent","epoch":6,"incarnation":1,"clock":8550}
+state 
+{
+  "epoch": 6,
+  "incarnation": 1,
+  "clock": 8550,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": true
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 1
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 8,
+    "editor": null,
+    "responder": "button",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 393,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x70d69d3f4e3beb10",
+      "entities": 8,
+      "paused": true,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": true
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 1
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 40,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": 855.2999999523163,
+        "inputToFirstFrameMs": 215.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS hold Space then click Pause releases the world key
+tap pause
+{"at":[1213.5549999999998,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":7,"incarnation":1,"clock":8550}
+type pause {"key":"Space"}
+{"typed":8,"key":"Space","delivery":"platform","target":"pause","carrier":"web","mode":"agent","epoch":8,"incarnation":1,"clock":8550}
+state 
+{
+  "epoch": 8,
+  "incarnation": 1,
+  "clock": 8550,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": true
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 1
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 8,
+    "editor": null,
+    "responder": "button",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 393,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x70d69d3f4e3beb10",
+      "entities": 8,
+      "paused": true,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": true
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 1
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 45,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 324,
+        "gpuMs": 100.6,
+        "inputMs": 640,
+        "firstFrameSubmittedMs": 838.5,
+        "firstFrameMs": 855.2999999523163,
+        "inputToFirstFrameMs": 215.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 191.70000004768372,
+            "endMs": 294.2000000476837,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 670.2000000476837,
+            "endMs": 723.7000000476837,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 724.5,
+            "endMs": 730.2999999523163,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 731.6000001430511,
+            "endMs": 818.4000000953674,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS Space activates the focused button
+tap pause
+{"at":[1213.5549999999998,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":9,"incarnation":1,"clock":8550}
+clock +100
+{"clock":8650,"world":[{"canvas":6,"tick":399,"hash":"0xf90f5aa906b2208b","quiescent":false}],"epoch":9,"incarnation":1}
+state world:player
+{
+  "tick": 399,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -2.0000005
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -7.783332
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 9,
+  "incarnation": 1,
+  "clock": 8650
+}
+PASS button Space never queues a world jump: [0,0.9,-7.783332]
+tap pause
+{"at":[1220.9850000000001,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":10,"incarnation":1,"clock":8650}
+tap pause
+{"at":[1213.5549999999998,45],"tapped":8,"target":"pause","delivery":"platform","carrier":"web","mode":"agent","epoch":11,"incarnation":1,"clock":8650}
+type world {"phase":"down","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":11,"incarnation":1,"clock":8650}
+clock +100
+{"clock":8750,"world":[{"canvas":6,"tick":405,"hash":"0x64a4c8a94950863f","quiescent":false}],"epoch":11,"incarnation":1}
+state world:player
+{
+  "tick": 405,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          0,
+          -3.2000008
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          0.9,
+          -8.053332
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 11,
+  "incarnation": 1,
+  "clock": 8750
+}
+PASS Resume continues the existing world
+type world {"phase":"up","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":11,"incarnation":1,"clock":8750}
+tap play
+{"at":[640.005,400],"tapped":4,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+clock 0
+{"clock":0,"world":[{"canvas":6,"tick":0,"hash":"0xbba6329f68d0c2f1","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"phase":"down","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+clock +500
+{"clock":500,"world":[{"canvas":6,"tick":30,"hash":"0xc5efd0271c6bf469","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"phase":"down","key":"Space"}
+{"typed":6,"key":"Space","phase":"down","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":500}
+state world:*
+{
+  "tick": 30,
+  "hash": "0xc5efd0271c6bf469",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -1.366667
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            6.633333
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "target": 0,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 0,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 500
+}
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world world save
+{"bytes":3141,"hash":"0xc5efd0271c6bf469","tick":30,"epoch":2,"incarnation":1,"clock":500,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/checkpoint.world"}
+clock +500
+{"clock":1000,"world":[{"canvas":6,"tick":60,"hash":"0x26e545105083c07a","quiescent":false}],"epoch":2,"incarnation":1}
+state world:player
+{
+  "tick": 60,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          -0.052784264,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          2.099858,
+          -3.3666663
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1000
+}
+PASS saved queued jump executes after capture: [0,2.099858,-3.3666663]
+type world {"phase":"up","key":"Space"}
+{"typed":6,"key":"Space","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1000}
+clock +1000
+{"clock":2000,"world":[{"canvas":6,"tick":120,"hash":"0x328c33eb29d5b172","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"phase":"up","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":2000}
+state world:*
+{
+  "tick": 120,
+  "hash": "0x328c33eb29d5b172",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -7.3666625
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            0.6333375
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "target": 0,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 0,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 2000
+}
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/original.world world save
+{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":2000,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/original.world"}
+CLOSED original browser/process before restoring
+tree 
+epoch 1 · incarnation 1 · clock 0 ms · 5 nodes
+View#1
+  View#2
+    Text#3 "Grey box"
+    Pressable#4 [play] [focused] name="Play" (press)
+      Text#5 "Play"
+PASS save waits behind Play
+tap play
+{"at":[640.005,400],"tapped":4,"target":"play","delivery":"platform","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 30,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0xc5efd0271c6bf469",
+      "entities": 8,
+      "paused": false,
+      "restored": true,
+      "restoredFrom": {
+        "seed": 7,
+        "paused": false
+      },
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [
+          "KeyW"
+        ],
+        "forwarded": [
+          "KeyW",
+          "Space"
+        ]
+      },
+      "published": {
+        "beacons": 0
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 2,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 420,
+        "gpuMs": 101.8,
+        "inputMs": 751.3000001907349,
+        "firstFrameSubmittedMs": 971.1000001430511,
+        "firstFrameMs": null,
+        "inputToFirstFrameMs": null,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 208.70000004768372,
+            "endMs": 399.5,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 783.8000001907349,
+            "endMs": 849.9000000953674,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 850.9000000953674,
+            "endMs": 856.8000001907349,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 858.6000001430511,
+            "endMs": 946.1000001430511,
+            "bytes": 689380
+          }
+        ]
+      },
+      "canvas": 6
+    }
+  ]
+}
+PASS new session restores before first render, with the same tick and hash: {"name":"world","tick":30,"hz":60,"seed":7,"hash":"0xc5efd0271c6bf469","entities":8,"paused":false,"restored":true,"restoredFrom":{"seed":7,"paused":false},"args":{"seed":7,"paused":false},"resources":{},"audio":{"voices":[],"sources":[]},"input":{"actions":{"act":{"name":"act","keys":["KeyE","Enter"],"touch":[],"stick":[]},"jump":{"name":"jump","keys":["Space"],"touch":[],"stick":[]},"move":{"name":"move","keys":[],"touch":[],"stick":[{"keys":[["KeyW","KeyS","KeyA","KeyD"],["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"]],"touch":[]}]}},"held":["KeyW"],"forwarded":["KeyW","Space"]},"published":{"beacons":0},"device":true,"perf":{"wallClock":true,"pixels":[1280,720],"frameMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"tickMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"feedMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"encodeMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"ticksPerFrame":{"p50":0,"p95":0,"p99":0,"max":0,"count":2,"mean":0},"draws":29,"instances":6,"triangles":1143,"navigationToFirstContentfulPaintMs":420,"gpuMs":101.8,"inputMs":751.3000001907349,"firstFrameSubmittedMs":971.1000001430511,"firstFrameMs":null,"inputToFirstFrameMs":null,"firstFrameMeaning":"rendering opportunity after GPU submission; not scanout","resources":[{"name":"/app.wasm","startMs":208.70000004768372,"endMs":399.5,"bytes":633792},{"name":"/gpu-glue.js","startMs":783.8000001907349,"endMs":849.9000000953674,"bytes":24707},{"name":"/gpu.js","startMs":850.9000000953674,"endMs":856.8000001907349,"bytes":76265},{"name":"/gpu_bg.wasm","startMs":858.6000001430511,"endMs":946.1000001430511,"bytes":689380}]},"canvas":6}
+state world:*
+{
+  "tick": 30,
+  "hash": "0xc5efd0271c6bf469",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -1.366667
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            6.633333
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "target": 0,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 0,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0
+}
+PASS restore preserves the simulation snapshot
+clock +500
+{"clock":500,"world":[{"canvas":6,"tick":60,"hash":"0x26e545105083c07a","quiescent":false}],"epoch":2,"incarnation":1}
+state world:player
+{
+  "tick": 60,
+  "entity": {
+    "id": 1,
+    "name": "player",
+    "components": {
+      "Material": {
+        "color": [
+          0.8,
+          0.45,
+          0.15,
+          1
+        ],
+        "metallic": 0,
+        "roughness": 0.5,
+        "emissive": [
+          0,
+          0,
+          0
+        ],
+        "grid_spacing": 0
+      },
+      "Mesh": {
+        "Capsule": {
+          "radius": 0.4,
+          "height": 1.8
+        }
+      },
+      "Player": {
+        "velocity": [
+          0,
+          -0.052784264,
+          -4
+        ]
+      },
+      "Transform": {
+        "position": [
+          0,
+          2.099858,
+          -3.3666663
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    }
+  },
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 500
+}
+PASS saved queued jump executes after capture: [0,2.099858,-3.3666663]
+type world {"phase":"up","key":"Space"}
+{"typed":6,"key":"Space","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":500}
+clock +1000
+{"clock":1500,"world":[{"canvas":6,"tick":120,"hash":"0x328c33eb29d5b172","quiescent":false}],"epoch":2,"incarnation":1}
+type world {"phase":"up","key":"KeyW"}
+{"typed":6,"key":"KeyW","phase":"up","delivery":"platform","target":"world","carrier":"web","mode":"agent","epoch":2,"incarnation":1,"clock":1500}
+state world:*
+{
+  "tick": 120,
+  "hash": "0x328c33eb29d5b172",
+  "entities": [
+    {
+      "id": 0,
+      "name": "ground",
+      "components": {
+        "Material": {
+          "color": [
+            0.25,
+            0.27,
+            0.3,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 1
+        },
+        "Mesh": {
+          "Plane": {
+            "width": 40,
+            "depth": 40
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 1,
+      "name": "player",
+      "components": {
+        "Material": {
+          "color": [
+            0.8,
+            0.45,
+            0.15,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Capsule": {
+            "radius": 0.4,
+            "height": 1.8
+          }
+        },
+        "Player": {
+          "velocity": [
+            0,
+            0,
+            -4
+          ]
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.9,
+            -7.3666625
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 2,
+      "name": "camera",
+      "components": {
+        "Camera": {
+          "fov_y_degrees": 60,
+          "near": 0.1,
+          "far": 1000,
+          "active": true
+        },
+        "Follow": {
+          "target": {
+            "Entity": [
+              {
+                "index": 1,
+                "generation": 0
+              }
+            ]
+          },
+          "resolved": [
+            {
+              "index": 1,
+              "generation": 0
+            }
+          ],
+          "offset": [
+            0,
+            5,
+            8
+          ],
+          "look_at_offset": [
+            0,
+            0,
+            0
+          ],
+          "lag": 0,
+          "initialized": true
+        },
+        "Transform": {
+          "position": [
+            0,
+            5.9,
+            0.6333375
+          ],
+          "rotation": [
+            -0.27568254,
+            0,
+            0,
+            0.9612488
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "name": "sun",
+      "components": {
+        "DirectionalLight": {
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "illuminance": 10000,
+          "shadows": true
+        },
+        "Transform": {
+          "position": [
+            5,
+            10,
+            5
+          ],
+          "rotation": [
+            -0.4247082,
+            0.33985114,
+            0.1759199,
+            0.82047325
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "name": "crate-1",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            5.6685147,
+            0.5,
+            7.563838
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "name": "crate-2",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            6.6891494,
+            0.5,
+            5.7472677
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "name": "crate-3",
+      "components": {
+        "Material": {
+          "color": [
+            1,
+            1,
+            1,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Box": {
+            "size": [
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        "Transform": {
+          "position": [
+            4.3184667,
+            0.5,
+            -1.0410995
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "name": "beacon-1",
+      "components": {
+        "Beacon": {
+          "lit": false,
+          "glow": {
+            "target": 0,
+            "start_value": 0,
+            "start_velocity": 0,
+            "start_tick": 0,
+            "config": {
+              "stiffness": 100,
+              "damping": 10,
+              "mass": 1
+            }
+          }
+        },
+        "Material": {
+          "color": [
+            0.15,
+            0.6,
+            0.8,
+            1
+          ],
+          "metallic": 0,
+          "roughness": 0.5,
+          "emissive": [
+            0,
+            0,
+            0
+          ],
+          "grid_spacing": 0
+        },
+        "Mesh": {
+          "Sphere": {
+            "radius": 0.5
+          }
+        },
+        "Transform": {
+          "position": [
+            0,
+            0.75,
+            -6.5
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        }
+      }
+    }
+  ],
+  "truncated": false,
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 1500
+}
+screenshot /Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/restored.world world save
+{"bytes":3141,"hash":"0x328c33eb29d5b172","tick":120,"epoch":2,"incarnation":1,"clock":1500,"screenshot":"/Users/ccheever/projects/exact2-wt-game/game/games/greybox/artifacts/restored.world"}
+PASS D6 two sessions continue to the same simulation snapshot
+PASS D6 entire Sim save is byte-identical, including held input, queue, clock, journal and publications
+PASS the operation creating the canvas reports its restore refusal: "tags: surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])"
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 0,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 0,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0xbba6329f68d0c2f1",
+      "entities": 8,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 0
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 2,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 316,
+        "gpuMs": 102,
+        "inputMs": 482,
+        "firstFrameSubmittedMs": 691.7000000476837,
+        "firstFrameMs": null,
+        "inputToFirstFrameMs": null,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 117,
+            "endMs": 295.39999985694885,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 516.5,
+            "endMs": 574.3999998569489,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 575.2999999523163,
+            "endMs": 581,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 582.5,
+            "endMs": 670.7000000476837,
+            "bytes": 689380
+          }
+        ]
+      },
+      "restoreError": "surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])",
+      "canvas": 6
+    }
+  ]
+}
+PASS refusal belongs to canvas state and leaves a fresh world: {"name":"world","tick":0,"hz":60,"seed":7,"hash":"0xbba6329f68d0c2f1","entities":8,"paused":false,"restored":false,"args":{"seed":7,"paused":false},"resources":{},"audio":{"voices":[],"sources":[]},"input":{"actions":{"act":{"name":"act","keys":["KeyE","Enter"],"touch":[],"stick":[]},"jump":{"name":"jump","keys":["Space"],"touch":[],"stick":[]},"move":{"name":"move","keys":[],"touch":[],"stick":[{"keys":[["KeyW","KeyS","KeyA","KeyD"],["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"]],"touch":[]}]}},"held":[],"forwarded":[]},"published":{"beacons":0},"device":true,"perf":{"wallClock":true,"pixels":[1280,720],"frameMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"tickMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"feedMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"encodeMs":{"p50":0,"p95":0,"p99":0,"max":0,"count":0,"mean":0},"ticksPerFrame":{"p50":0,"p95":0,"p99":0,"max":0,"count":2,"mean":0},"draws":29,"instances":6,"triangles":1143,"navigationToFirstContentfulPaintMs":316,"gpuMs":102,"inputMs":482,"firstFrameSubmittedMs":691.7000000476837,"firstFrameMs":null,"inputToFirstFrameMs":null,"firstFrameMeaning":"rendering opportunity after GPU submission; not scanout","resources":[{"name":"/app.wasm","startMs":117,"endMs":295.39999985694885,"bytes":633792},{"name":"/gpu-glue.js","startMs":516.5,"endMs":574.3999998569489,"bytes":24707},{"name":"/gpu.js","startMs":575.2999999523163,"endMs":581,"bytes":76265},{"name":"/gpu_bg.wasm","startMs":582.5,"endMs":670.7000000476837,"bytes":689380}]},"restoreError":"surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])","canvas":6}
+clock +100
+{"clock":100,"world":[{"canvas":6,"tick":6,"hash":"0x860d77d34217992e","quiescent":true}],"epoch":2,"incarnation":1}
+state 
+{
+  "epoch": 2,
+  "incarnation": 1,
+  "clock": 100,
+  "slots": {
+    "playing": true,
+    "seed": 7,
+    "paused": false
+  },
+  "derives": {},
+  "resources": {
+    "hud": {
+      "beacons": 0
+    }
+  },
+  "pending": [],
+  "store": [],
+  "delivery": {
+    "stream": "embedded",
+    "seq": 0,
+    "embeddedSeq": 0,
+    "staged": false,
+    "sunset": "",
+    "interpreted": [],
+    "compatibilityId": "47296b9625037cf33f019b333ebb1b3c",
+    "L": "0",
+    "E": [
+      "native"
+    ]
+  },
+  "logic": {
+    "revision": null,
+    "rustExecutor": null,
+    "ready": true
+  },
+  "focus": {
+    "logical": 6,
+    "editor": null,
+    "responder": "div",
+    "pending": null
+  },
+  "keyboard": {
+    "visible": false,
+    "overlap": 0,
+    "policy": "resizes-visual",
+    "interactive": false
+  },
+  "navigation": {
+    "url": null,
+    "route": null,
+    "stack": [],
+    "presentation": null,
+    "source": null,
+    "closedby": null,
+    "transition": {
+      "interactive": false,
+      "phase": "idle"
+    }
+  },
+  "world": [
+    {
+      "name": "world",
+      "tick": 6,
+      "hz": 60,
+      "seed": 7,
+      "hash": "0x860d77d34217992e",
+      "entities": 8,
+      "paused": false,
+      "restored": false,
+      "args": {
+        "seed": 7,
+        "paused": false
+      },
+      "resources": {},
+      "audio": {
+        "voices": [],
+        "sources": []
+      },
+      "input": {
+        "actions": {
+          "act": {
+            "name": "act",
+            "keys": [
+              "KeyE",
+              "Enter"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "jump": {
+            "name": "jump",
+            "keys": [
+              "Space"
+            ],
+            "touch": [],
+            "stick": []
+          },
+          "move": {
+            "name": "move",
+            "keys": [],
+            "touch": [],
+            "stick": [
+              {
+                "keys": [
+                  [
+                    "KeyW",
+                    "KeyS",
+                    "KeyA",
+                    "KeyD"
+                  ],
+                  [
+                    "ArrowUp",
+                    "ArrowDown",
+                    "ArrowLeft",
+                    "ArrowRight"
+                  ]
+                ],
+                "touch": []
+              }
+            ]
+          }
+        },
+        "held": [],
+        "forwarded": []
+      },
+      "published": {
+        "beacons": 0
+      },
+      "device": true,
+      "perf": {
+        "wallClock": true,
+        "pixels": [
+          1280,
+          720
+        ],
+        "frameMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "tickMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "feedMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "encodeMs": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 0,
+          "mean": 0
+        },
+        "ticksPerFrame": {
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0,
+          "count": 4,
+          "mean": 0
+        },
+        "draws": 29,
+        "instances": 6,
+        "triangles": 1143,
+        "navigationToFirstContentfulPaintMs": 316,
+        "gpuMs": 102,
+        "inputMs": 482,
+        "firstFrameSubmittedMs": 691.7000000476837,
+        "firstFrameMs": 712.2999999523163,
+        "inputToFirstFrameMs": 230.29999995231628,
+        "firstFrameMeaning": "rendering opportunity after GPU submission; not scanout",
+        "resources": [
+          {
+            "name": "/app.wasm",
+            "startMs": 117,
+            "endMs": 295.39999985694885,
+            "bytes": 633792
+          },
+          {
+            "name": "/gpu-glue.js",
+            "startMs": 516.5,
+            "endMs": 574.3999998569489,
+            "bytes": 24707
+          },
+          {
+            "name": "/gpu.js",
+            "startMs": 575.2999999523163,
+            "endMs": 581,
+            "bytes": 76265
+          },
+          {
+            "name": "/gpu_bg.wasm",
+            "startMs": 582.5,
+            "endMs": 670.7000000476837,
+            "bytes": 689380
+          }
+        ]
+      },
+      "restoreError": "surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])",
+      "canvas": 6
+    }
+  ]
+}
+PASS unrelated operations keep working after a refused restore
+logs 
+t=0 boot: 5 nodes, epoch 1
+t=0 press view 4 (play) → epoch 2 (+4 −4 ~1)
+t=0 surface world (1 asked again) → epoch 2 (+0 −0 ~0)
+world t=0 tick=0 spawn #0
+world t=0 tick=0 spawn #1
+world t=0 tick=0 spawn #2
+world t=0 tick=0 spawn #3
+world t=0 tick=0 spawn #4
+world t=0 tick=0 spawn #5
+world t=0 tick=0 spawn #6
+world t=0 tick=0 spawn #7
+world t=0 tick=0 publish beacons: Number(0.0)
+world surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])
+  chrome: [65071:315061203:0917/232055.666589:ERROR:components/os_crypt/common/keychain_password_mac.mm:102] Keychain lookup failed: Error Domain=NSOSStatusErrorDomain Code=-25308 "errKCInteractionNotAllowed / errSecInteractionNotAllowed: / Interaction is not allowed with the Security Server." (-25308)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+  chrome: [65071:315061195:0917/232055.902761:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+  chrome: [65071:315061197:0917/232055.903096:ERROR:components/password_manager/core/browser/password_store/login_database_async_helper.cc:99] Encryption is not available.
+  console.error: surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])
+PASS restore refusal is in the canvas journal: [{"canvas":6,"from":0,"next":9,"lines":["t=0 tick=0 spawn #0","t=0 tick=0 spawn #1","t=0 tick=0 spawn #2","t=0 tick=0 spawn #3","t=0 tick=0 spawn #4","t=0 tick=0 spawn #5","t=0 tick=0 spawn #6","t=0 tick=0 spawn #7","t=0 tick=0 publish beacons: Number(0.0)"],"dropped":0},{"canvas":6,"lines":["surface world: restore refused: unsupported simulation save format (expected EXSIM v5; saw [69, 6e, 76, 61, 6c, 69, 64, 20])"]}]
+PASS all recorded children exited: []
+PROOF PASS greybox web: 0 failures; 12.856 s

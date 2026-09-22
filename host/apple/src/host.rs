@@ -367,7 +367,7 @@ impl<D: DataSource> Host<D> {
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
         for s in host.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
@@ -714,6 +714,22 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The viewport changed: lay out again; the batch carries the frames
+    /// A surface changed its current public record, or was disposed.
+    pub fn surface_record(&mut self, name: &str, json: Option<&str>) -> String {
+        let (receipts, error) = match self.runner.set_surface_record(name, json) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(error) => (vec![], Some(format!("surface {name}: {error:?}"))),
+        };
+        self.commit(&receipts, error)
+    }
+
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
@@ -1005,7 +1021,7 @@ impl<D: DataSource> Host<D> {
             self.layout(&mut batch).err()
         };
         for s in self.runner.take_surface_updates() {
-            batch.surface(s.view, &s.name, &s.values);
+            batch.surface(&s);
         }
         // The capabilities the actions called, after their commits, in order.
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.

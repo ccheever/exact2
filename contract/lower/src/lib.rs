@@ -1159,6 +1159,15 @@ impl<'a> Lowerer<'a> {
     ) -> Result<(), LowerError> {
         media::check(name, value, span)?;
         let want = tags::prop_ty(prop);
+        if prop == PropId::AccessibilityLive
+            && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
+        {
+            return err(
+                "lower-attr-value",
+                "`aria-live` takes \"off\", \"polite\" or \"assertive\"",
+                span,
+            );
+        }
         if prop == PropId::ImageSource {
             if let Expr::Str(source, _) = value {
                 if let Some(role) = source.strip_prefix("symbol:") {
@@ -1250,12 +1259,22 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         };
-        if (tag != "iframe" && matches!(a.name.as_str(), "sandbox" | "load" | "message"))
+        if (tag != "iframe"
+            && matches!(a.name.as_str(), "sandbox" | "load" | "message")
+            && !(tag == "canvas" && a.name == "message"))
             || (tag != "iframe" && tag != "video" && a.name == "src")
         {
             return err(
                 "lower-attr-tag",
-                format!("`{}` belongs to `iframe`, not `{tag}`", a.name),
+                format!(
+                    "`{}` belongs to {}, not `{tag}`",
+                    a.name,
+                    if a.name == "message" {
+                        "`iframe` or `canvas`"
+                    } else {
+                        "`iframe`"
+                    }
+                ),
                 a.span,
             );
         }
@@ -1364,7 +1383,11 @@ impl<'a> Lowerer<'a> {
                 };
                 let mut codes = Vec::new();
                 for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
+                    let (name, value) = match arg {
+                        Expr::NamedArg(name, value, _) => (name.as_str(), value.as_ref()),
+                        _ => ("", arg),
+                    };
+                    codes.push((name, self.expr_code(value, scope, locals)?));
                 }
                 *surface = Some(self.b.surface(name, &codes));
             }
@@ -1403,7 +1426,7 @@ impl<'a> Lowerer<'a> {
                                 "hover" => " plus whether the pointer is over",
                                 "key" => " plus the key's name",
                                 "change" => " plus the new value",
-                                "message" => " plus the guest's message",
+                                "message" => " plus the message",
                                 "scroll" => " plus scrollLeft and scrollTop",
                                 "heightrelease" => " plus height and velocity",
                                 "transformgeometry" => " plus four geometry numbers",

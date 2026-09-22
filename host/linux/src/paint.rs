@@ -226,6 +226,7 @@ impl BoxPaint {
         }
     }
 }
+type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
 
 /// A node's box as painted: its transformed bounding box in viewport
 /// points, the clip it was painted under (viewport points, axis-aligned),
@@ -240,13 +241,33 @@ pub struct PaintedBox {
     pub clip: Option<Rect4>,
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
+    projective: Option<ProjectiveHit>,
 }
 
 impl PaintedBox {
+    /// Project the local center, which need not be the projected AABB center.
+    pub fn center(&self) -> (f32, f32) {
+        if let Some((inv, rect, _, _)) = self.projective {
+            if let Some(h) = crate::placement::inverse(inv) {
+                return crate::placement::map(&h, rect.0 + rect.2 / 2., rect.1 + rect.3 / 2.);
+            }
+        }
+        (
+            self.rect.0 + self.rect.2 / 2.,
+            self.rect.1 + self.rect.3 / 2.,
+        )
+    }
+
     /// Whether a point (viewport points) is inside the box and its clip.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
-        inside(self.rect) && self.clip.is_none_or(inside)
+        inside(self.rect)
+            && self.clip.is_none_or(inside)
+            && self.projective.is_none_or(|(inv, rect, clip, planes)| {
+                let (x, y) = crate::placement::map(&inv, x, y);
+                let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
+                inside(rect) && clip.is_none_or(inside) && crate::placement::accepts(&planes, x, y)
+            })
     }
 }
 
@@ -310,6 +331,8 @@ pub trait Backend {
     fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
+    /// Composite an internally rendered canvas child, distinct from decoded image assets.
+    fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
@@ -354,6 +377,9 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    viewport: (f32, f32),
+    cpu_ms: Option<f64>,
     // One generational source, lifted only inside its existing List clip.
     pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
     // One lease per actually accepted owner, not one global width per string.
@@ -413,6 +439,9 @@ impl Painter {
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
+            placements: BTreeMap::new(),
+            viewport: (0., 0.),
+            cpu_ms: None,
         }
     }
 
@@ -427,9 +456,11 @@ impl Painter {
         self.backend = backend;
     }
 
-    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
     pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        self.backend.last_frame_ms()
+        self.backend
+            .last_frame_ms()
+            .or(self.cpu_ms.map(|ms| (ms, 0.)))
     }
 
     /// Accepted leaves that fell back after an incomplete bounded walk.
@@ -539,6 +570,8 @@ impl Painter {
         skip: Option<exact_kernel::NodeKey>,
         replay: Option<&region::Replay<'_>>,
     ) -> Result<Frame, String> {
+        let started = std::time::Instant::now();
+        self.viewport = viewport;
         let partial = if let Some(previous) = self
             .damage
             .pixels
@@ -577,6 +610,9 @@ impl Painter {
             self.backend.pointer(px, py);
         }
         let finished = self.backend.finish();
+        if self.backend.name() == "cpu" {
+            self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
+        }
         // Publication is the ownership boundary. On Err the previous accepted
         // set remains intact; candidate leases simply unwind with `walk`.
         if finished.is_ok() {
@@ -599,6 +635,76 @@ impl Painter {
         })
     }
 
+    fn placed(
+        &mut self,
+        walk: &mut Walk<'_, '_>,
+        id: ViewId,
+        ts: Transform,
+        offset: (f32, f32),
+        clip: Option<Rect4>,
+    ) -> bool {
+        use crate::placement::{self, Placement};
+        let Some(p) = self.placements.get(&id).copied() else {
+            return false;
+        };
+        let Placement::Visible {
+            h,
+            canvas,
+            clip_depth,
+            ..
+        } = p
+        else {
+            return true;
+        };
+        let Some(node) = walk.scene.kernel.node(id) else {
+            return true;
+        };
+        let Some(parent) = walk.scene.kernel.node(canvas) else {
+            return true;
+        };
+        let h = placement::compose(h, ts, parent.frame.x - offset.0, parent.frame.y - offset.1);
+        let Some(inv) = placement::inverse(h) else {
+            return true;
+        };
+        let f = node.frame;
+        if f.width <= 0. || f.height <= 0. {
+            return true;
+        }
+        let mut painter = Painter::new(
+            self.text.clone(),
+            self.scale,
+            Box::new(crate::raster::Raster::transparent()),
+        );
+        painter.dark = self.dark;
+        painter.placements = self.placements.clone();
+        painter.placements.remove(&id);
+        painter.viewport = (f.width, f.height);
+        painter.backend.begin(f.width, f.height, self.scale);
+        let mut child_walk = Walk {
+            scene: walk.scene,
+            boxes: Vec::new(),
+            text: BTreeMap::new(),
+            skip: None,
+            replay: None,
+        };
+        painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
+        walk.text.extend(child_walk.text);
+        if let Ok(source) = painter.backend.finish() {
+            if let Some((pixels, rect)) =
+                placement::warp_clipped(&source, h, clip_depth, self.scale, self.viewport)
+            {
+                self.backend.surface_image(Arc::new(pixels), rect);
+            }
+        }
+        for mut b in child_walk.boxes {
+            b.projective = Some((inv, b.rect, b.clip, clip_depth));
+            b.rect = placement::clipped_bounds(&h, clip_depth, b.rect);
+            b.clip = clip;
+            walk.boxes.push(b);
+        }
+        true
+    }
+
     fn node(
         &mut self,
         walk: &mut Walk<'_, '_>,
@@ -607,6 +713,9 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        if self.placed(walk, id, ts, offset, clip_rect) {
+            return;
+        }
         if let Some(replay) = walk.replay.filter(|r| {
             walk.scene
                 .kernel
@@ -653,6 +762,7 @@ impl Painter {
         };
         walk.boxes.push(PaintedBox {
             id,
+            projective: None,
             rect: bbox(ts, (x, y, w, h)),
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
@@ -839,7 +949,20 @@ impl Painter {
             .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
             .filter(|source| source.parent == Some(node.id))
             .map(|source| source.id);
-        for child in node.children().into_iter().filter(|id| Some(*id) != lift) {
+        let mut children: Vec<_> = node
+            .children()
+            .into_iter()
+            .filter(|id| Some(*id) != lift)
+            .collect();
+        children.sort_by(
+            |a, b| match (self.placements.get(a), self.placements.get(b)) {
+                (Some(a), Some(b)) => b.depth().total_cmp(&a.depth()),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                _ => std::cmp::Ordering::Equal,
+            },
+        );
+        for child in children {
             self.node(walk, child, ts, child_offset, child_rect);
         }
         if let Some(child) = lift {

@@ -27,12 +27,12 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { developmentInstallPage, installNetworkPage, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -56,14 +56,92 @@ let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') 
 let rebuildOn = rebuildPolicy(app.manifest);
 let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
 let rustInputFiles = new Set();
-let changed = new Set(), timer=null, building=false, again=false, builds=0;
+let changed = new Set(), timer=null, building=false, buildPending=false, rustPending=false, builds=0;
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
-if (!builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
+async function currentWebBuild() {
+  if (!await builtAppMatches(dist, app)) return false;
+  try {
+    const build = JSON.parse(readFileSync(graphPath, 'utf8'));
+    return build.version === 1 && build.trust === 'development' && pendingBuildInputs(build).length === 0;
+  } catch { return false; }
+}
+if (!await currentWebBuild()) {
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
+// The last complete cdylib links name their transitive source files, including
+// path dependencies outside this workspace. Unknown/shared inputs take the full build.
+let gpuInputs = new Set(), appInputs = new Set();
+const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
+// A server epoch pairs function-scoped glue with its Wasm bytes.
+let gpuSide = null, gpuVersion = Date.now(), gpuBuildChild = null;
+const gpuTimings = new Map(), gpuVersions = new Map();
+function readGpuInputs(profile = 'web') {
+  const inputs = (kind, profile) => {
+    const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
+    return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
+  };
+  if (profile === 'web') appInputs = gameRuntimeInputs(inputs('web', 'web'));
+  gpuInputs = inputs('gpu', profile);
+}
+function gameRuntimeInputs(inputs) {
+  if (!app.manifest.game || !inputs.size) return inputs;
+  // A generated game's bake reads Game::NAME/Args::FIELDS; its logic is not
+  // linked into the app. Cargo's summary .d includes that build-only closure.
+  const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', 'wasm32-unknown-unknown'], {cwd:app.workspace, env:buildEnv, encoding:'utf8', maxBuffer:128*1024*1024});
+  if (result.status !== 0) throw new Error(`cargo metadata failed: ${result.stderr || result.error || result.status}`);
+  const metadata = JSON.parse(result.stdout), packages = new Map(metadata.packages.map(p => [p.id,p]));
+  const nodes = new Map(metadata.resolve.nodes.map(n => [n.id,n]));
+  const root = metadata.packages.find(p => p.name === app.crate('web'));
+  if (!root) return inputs;
+  const runtime = new Set(), pending = [root.id];
+  while (pending.length) {
+    const id = pending.pop(); if (runtime.has(id)) continue; runtime.add(id);
+    // Keep build inputs of runtime dependencies: their generated Rust can be
+    // part of the app. Only the known generated game bake is metadata-only.
+    for (const dep of nodes.get(id)?.deps ?? [])
+      if (dep.dep_kinds.some(k => k.kind === null || (id !== root.id && k.kind === 'build'))) pending.push(dep.pkg);
+  }
+  const sources = new Set([...runtime].flatMap(id => packages.get(id).targets
+    .filter(t => t.kind.some(k => ['lib','rlib','cdylib','proc-macro'].includes(k)) || (id !== root.id && t.kind.includes('custom-build')))
+    .map(t => resolve(t.src_path))));
+  const included = new Set(), found = new Set();
+  for (const profile of [resolve(app.target,'web'), resolve(app.target,'wasm32-unknown-unknown/web')]) {
+    const build = resolve(profile,'build');
+    const directories = [resolve(profile,'deps'), ...(existsSync(build) ? readdirSync(build,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>resolve(build,e.name)) : [])];
+    for (const directory of directories) if (existsSync(directory)) {
+      const output=resolve(directory,'output');
+      if (existsSync(output)) for (const id of runtime) {
+        const pkg=packages.get(id), name=directory.slice(directory.lastIndexOf('/')+1);
+        if (id===root.id || name.replace(/-[a-f0-9]+$/,'')!==pkg.name) continue;
+        for (const line of readFileSync(output,'utf8').split('\n')) {
+          const changed=/^cargo::?rerun-if-changed=(.+)$/.exec(line); if (!changed) continue;
+          const watched=resolve(pkg.manifest_path,'..',changed[1]);
+          for (const path of inputs) if (path===watched || path.startsWith(watched+'/')) included.add(path);
+        }
+      }
+      for (const file of readdirSync(directory)) {
+        if (!file.endsWith('.d')) continue;
+        const paths = compilerPaths(readFileSync(resolve(directory,file),'utf8'),app.workspace);
+        const roots = paths.filter(path=>sources.has(path));
+        if (roots.length) { for (const path of roots) found.add(path); for (const path of paths) included.add(path); }
+      }
+    }
+  }
+  // Exact rustc unit files retain include! inputs outside their package. If
+  // evidence for a compiled runtime source is missing, keep the full rebuild.
+  if ([...sources].some(path=>inputs.has(path) && !found.has(path))) return inputs;
+  const owners = metadata.packages.map(p=>({id:p.id,dir:resolve(p.manifest_path,'..')})).sort((a,b)=>b.dir.length-a.dir.length);
+  return new Set([...inputs].filter(path=>{
+    const owner = owners.find(p=>path===p.dir || path.startsWith(p.dir+'/'));
+    return !owner || runtime.has(owner.id) || included.has(path);
+  }));
+}
+readGpuInputs();
+const gpuOnly = files => files.length > 0 && appInputs.size > 0
+  && files.every(path => path.endsWith('.rs') && gpuInputs.has(path) && !appInputs.has(path));
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
 
 const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
@@ -277,7 +355,10 @@ function startCompiler() {
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--', source, plan], { cwd: app.workspace, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
+  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
+  const hasDev = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
+  dev = spawn('cargo', ['run', '-q', '--release', '-p', hasDev ? app.crate('web') : 'exact-web', '--bin', hasDev ? 'dev' : 'exact-dev', '--', source, plan], { cwd: hasDev ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -306,7 +387,7 @@ function startCompiler() {
       }
     }
   });
-  dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); process.exit(code ?? 1); } });
+  dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); killCompiler(); process.exit(code ?? 1); } });
 }
 // Direct file watchers avoid recursive-directory event coalescing on macOS.
 // The directory watcher discovers new paths; file metadata suppresses its
@@ -468,10 +549,16 @@ function readRustGeneration() {
   push(announcement());
   console.log(`Rust generation ${id.slice(0,12)} ready; restart with carry`);
 }
-function produceRust() {
-  if (building) { rustDirty = true; again = true; return; }
-  if (changed.size) { rebuild(); return; }
-  if (rustActive) { rustDirty = true; return; }
+function produceRust() { rustPending = true; drainBuilds(); }
+function drainBuilds() {
+  if (building || rustActive) return;
+  if (buildPending || changed.size) {
+    buildPending = false;
+    const files = [...changed]; changed = new Set();
+    if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
+  } else if (rustPending) { rustPending = false; produceRustNow(); }
+}
+function produceRustNow() {
   if (!rustChild) {
     const child=rustChild=spawn(process.execPath,[resolve(root,'scripts/rust.mjs'),app.name,'--serve'],{cwd:root,env:buildEnv,detached:true,stdio:['pipe','pipe','pipe']});
     let buffer='';
@@ -480,6 +567,7 @@ function produceRust() {
       rustChild=null;rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
       console.error(error.message);push({error:error.message});
       try{process.kill(-child.pid,'SIGTERM');}catch{}
+      drainBuilds();
     };
     child.on('error',failed);
     child.on('exit',(code,signal)=>failed(new Error(`Rust producer exited (${code??signal})`)));
@@ -495,7 +583,8 @@ function produceRust() {
           if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
           rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
           if(!reply.ok){console.error(reply.error);push({error:reply.error});}
-          if(rustDirty && rebuildOn.rust==='save')produceRust();
+          if(rustDirty && rebuildOn.rust==='save') rustPending = true;
+          drainBuilds();
         } catch(error){failed(error);return;}
       }
     });
@@ -514,7 +603,7 @@ function startRustCompiler() {
     try { readRustGeneration(); } catch (error) { console.error(error.message); push({error:error.message}); }
   });
   rustSourceWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
-    || /\.(ts|json)$/.test(name)
+    || /\.(ts|json)$/.test(name) || gpuOnly([resolve(app.dir, name)])
     || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/')), error => {
     if (error) { push({error:error.message}); return; }
     // The TS producer owns mixed Contract edits. If a Contract changes
@@ -527,6 +616,8 @@ function startRustCompiler() {
   produceRust();
 }
 const killCompiler = () => {
+  const gpuChild = gpuBuildChild; gpuBuildChild = null;
+  if (gpuChild) { try { process.kill(-gpuChild.pid, 'SIGKILL'); } catch {} }
   manualTypescript = null;
   rustSourceWatch?.close(); rustSourceWatch = null; rustOutputWatch?.close(); rustOutputWatch = null;
   clearInterval(rustHeartbeat); rustHeartbeat = null; rustActive = false;
@@ -537,7 +628,13 @@ const killCompiler = () => {
   if (moduleStage) { rmSync(moduleStage, { recursive: true, force: true }); moduleStage = null; }
 };
 startCompiler();
-const stop = () => { killCompiler(); localInstallChild?.kill('SIGTERM'); process.exit(0); };
+const stop = async () => {
+  const children = [dev, rustChild, gpuBuildChild, localInstallChild].filter(Boolean);
+  const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
+  killCompiler();
+  localInstallChild?.kill('SIGTERM');
+  await Promise.all(exits); process.exit(0);
+};
 
 // The asset row (LLP 1030 D10; 1030.000 stage 1): an edit to an image, a
 // font, a deck page, or a shader under the app's `assets/`, `deck/`, or
@@ -557,7 +654,7 @@ try {
       assetChanges.set(change.targetRoot, change);
     } else if (!assetChanges.has(change.targetRoot)) assetChanges.set(change.name, change);
     clearTimeout(assetTimer);
-    assetTimer = setTimeout(pushAssets, 100);
+    assetTimer = setTimeout(pushAssets, 20);
   });
 } catch (e) { console.error(`cannot watch static trees under ${app.dir}: ${e.message}`); }
 function pushAssets() {
@@ -694,56 +791,66 @@ function classifyRebuild() {
 const watched=new Map();
 let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
 function watchCompilerInputs() {
-  // Watching source directories also catches newly added modules after their
-  // declaring file changes. Generated output and third-party caches never
-  // cause build loops; their source declarations remain in the receipt.
-  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  // Poll declared file metadata: saves and replacement survive directory-event
+  // coalescing. Only open-ended source discovery needs a directory watch.
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
   files.add(resolve(app.dir,'app.json'));
   compilerInputFiles = files;
   compilerInputTrees = builtReceipts.flatMap(r=>r.binary.directories.map(d=>d.path));
   compilerMissingInputs = builtReceipts.flatMap(r=>r.binary.missing);
   swiftSourceDirectories = new Set([...files].filter(path=>path.endsWith('.swift')).map(path=>resolve(path,'..')));
-  const directories=new Set([...files].map(path=>resolve(path,'..')));
-  for(const receipt of builtReceipts) {
-    for(const {path} of receipt.binary.directories)directories.add(path);
-    for(const missing of receipt.binary.missing) {
-      let dir=resolve(missing,'..');while(!existsSync(dir)&&resolve(dir,'..')!==dir)dir=resolve(dir,'..');
-      directories.add(dir);
-    }
-  }
-  for(const dir of directories) {
-    if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
-    try {watched.set(dir,watch(dir,(_event,name)=>{
+  const directories=new Set([...compilerInputTrees,...swiftSourceDirectories]);
+  const targets=new Set([...files,...directories]);
+  for(const [path,handle] of watched)if(!targets.has(path)){handle.close();watched.delete(path);}
+  for(const target of targets) {
+    if(skipped.test(target)||target.includes('/.cargo/')||watched.has(target))continue;
+    const file=files.has(target),dir=file?resolve(target,'..'):target;
+    const changedPath=name=>{
+      if(file)name=target.slice(target.lastIndexOf('/')+1);
       if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
       // Parent-directory notifications include unrelated documents and output.
       // Only receipt inputs, declared trees/missing paths, and Swift's implicit
       // source discovery can invalidate the host. Rust additions are reached
       // when their declaring module or build input changes.
       const path = resolve(dir, name);
+      if(!file&&compilerInputFiles.has(path))return;
+      // The resident Contract compiler already watches generated game arguments.
+      // Rebuilding the host afterward would discard the carried world.
+      if (app.manifest.game && path === resolve(app.dir, '.shells/surfaces.json')) return;
       if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
       if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
       if (portableRust && rustInputFiles.has(resolve(dir,name))) { rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return; }
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
-      if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,200);}
-    }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
+      if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,gpuOnly([...changed]) ? 20 : 200);}
+    };
+    try {
+      if(file){
+        const listener=(now,previous)=>{
+          if(['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))changedPath();
+        };
+        watchFile(target,{bigint:true,interval:100},listener);
+        watched.set(target,{close:()=>unwatchFile(target,listener)});
+      }else if(existsSync(target))watched.set(target,watch(target,(_event,name)=>changedPath(name)));
+    }catch(error){console.error(`cannot watch ${target}: ${error.message}`);}
   }
 }
 watchCompilerInputs();
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', input => {
   for (const command of input.trim().split(/\s+/)) {
+    if (command === 'f') push({fresh:true});
     if (command === 't') manualTypescript?.();
     if (command === 'r') { if (portableRust && !changed.size) produceRust(); else rebuild(); }
   }
 });
-console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript`);
+console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript, f + Enter starts a fresh page`);
 
-function rebuild() {
-  if (building) { again = true; return; }
+function rebuild() { buildPending = true; drainBuilds(); }
+function rebuildNow(files) {
   building = true;
-  const files = [...changed]; changed = new Set();
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
   const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -763,10 +870,12 @@ function rebuild() {
       portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
+      for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
+      gpuVersions.clear(); gpuSide = null; readGpuInputs(); watchCompilerInputs();
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
       // their rebuild there. Do not re-arm a third build below on that success.
-      again = false;
+      rustPending = false;
       startCompiler();
       console.log(`rust: rebuilt in ${(ms / 1000).toFixed(1)} s · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading\n  ${classifyRebuild().join('\n  ')}`);
       push({ rebuilt: builds });
@@ -775,16 +884,66 @@ function rebuild() {
       console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s\n${errors}`);
       push({ error: `the wasm did not build:\n${errors}` });
     }
-    if (again) { again = false; rebuild(); }
+    drainBuilds();
   });
+}
+
+async function produceGpu(files) {
+  building = true;
+  const start = Date.now();
+  const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
+  if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
+  mkdirSync(gpuSideRoot, { recursive: true });
+  const stage = mkdtempSync(resolve(gpuSideRoot, 'build-'));
+  const run = (command, args) => new Promise((ok, fail) => {
+    const child = gpuBuildChild = spawn(command, args, { cwd: app.workspace, env: {...buildEnv, CARGO_TARGET_DIR:app.target}, stdio:['ignore','pipe','pipe'], detached:true });
+    let output = '';
+    child.stdout.on('data', data => { output += data; });
+    child.stderr.on('data', data => { output += data; });
+    child.on('error', fail);
+    child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
+  });
+  try {
+    console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
+    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
+    const compiled = Date.now();
+    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
+    gpuSide = stage; gpuVersion++; gpuVersions.set(gpuVersion, stage);
+    // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
+    // than silently pairing exports from one build with another build's wasm.
+    while (gpuVersions.size > 3) { const [version, directory] = gpuVersions.entries().next().value; rmSync(directory, {recursive:true,force:true}); gpuVersions.delete(version); }
+    readGpuInputs(profile); watchCompilerInputs();
+    const ms = Date.now() - start;
+    gpuTimings.set(gpuVersion, { ms, start });
+    console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
+    push({gpu:gpuVersion});
+  } catch (error) {
+    rmSync(stage, {recursive:true,force:true});
+    console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
+    push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
+  } finally {
+    building = false;
+    drainBuilds();
+  }
 }
 
 const server = createServer(async (req, res) => {
   const url = webRequestURL(req.url);
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
-  const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted';
+  const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
+  if (url.pathname === '/__dev/gpu') {
+    const timing = gpuTimings.get(Number(url.searchParams.get('g')));
+    if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
+    res.writeHead(204); res.end(); return;
+  }
+  if (gpuSide && url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
+    const directory = url.searchParams.has('g') ? gpuVersions.get(Number(url.searchParams.get('g'))) : gpuSide;
+    if (!directory) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
+    res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});
+    res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(directory,url.pathname.slice(1)))); return;
+  }
   if (localInstall) {
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body) + '\n'); };
     if (req.headers['x-exact-install-token'] !== localInstallToken) { json(404, { message: 'Not found.' }); return; }
@@ -839,6 +998,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
     res.write(`data: ${hello()}\n\n`);
+    if (gpuSide) res.write(`data: ${JSON.stringify({gpu:gpuVersion})}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));
@@ -904,6 +1064,7 @@ server.listen(port, host, () => {
     if (lanAddresses.length === 0) console.log('no LAN interface found; serving loopback only in effect');
   }
   console.log(urls.join('\n'));
+  console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${loopback ? 'loopback only' : 'LAN bind — --loopback to keep it local; macOS may ask to allow node'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);

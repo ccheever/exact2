@@ -1,0 +1,475 @@
+//! Sound executors. Construction of Player<NullOutput> never opens an audio device.
+#![deny(unsafe_code)]
+mod surface;
+mod synth;
+pub use surface::SurfacePlayer;
+pub use synth::render;
+
+use exact_game::{
+    audio::{self, At, AudioListener, AudioSource, Sounds, Voices},
+    math, Quat, Vec3, World,
+};
+use std::{collections::BTreeMap, sync::Arc};
+#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[allow(unsafe_code)]
+mod apple;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use apple::AppleOutput;
+#[cfg(target_arch = "wasm32")]
+mod web;
+#[cfg(target_arch = "wasm32")]
+pub use web::WebOutput;
+
+/// Playback state supplied by the frame owner. Increment generation on seek,
+/// restore, rebuild, and successful output unlock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Transport {
+    pub generation: u64,
+    pub playing: bool,
+}
+impl Default for Transport {
+    fn default() -> Self {
+        Self {
+            generation: 0,
+            playing: true,
+        }
+    }
+}
+/// One device or a test recorder. PCM is mono; set applies stereo gains.
+pub trait Output {
+    /// Request device activation from an input gesture.
+    fn unlock(&mut self) {}
+    fn capacity(&self) -> usize {
+        usize::MAX
+    }
+    fn ready(&self) -> bool {
+        true
+    }
+    fn flush(&mut self) {}
+    fn retain_pcm(&mut self, _pcm: &[Arc<[f32]>]) {}
+    /// Whether the device still owns this allocation (including unacknowledged stops).
+    fn owns_pcm(&self, _pcm: &Arc<[f32]>) -> bool {
+        false
+    }
+    /// Accept a start, or leave it inactive so the Player retries next sync.
+    fn start(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) -> bool;
+    fn set(&mut self, id: u64, gain_l: f32, gain_r: f32);
+    fn stop(&mut self, id: u64);
+}
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call {
+    Start {
+        id: u64,
+        samples: usize,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    },
+    Set {
+        id: u64,
+        left: f32,
+        right: f32,
+    },
+    Stop {
+        id: u64,
+    },
+}
+/// Discarding output for agent sessions and headless Linux. No call history.
+#[derive(Default)]
+pub struct NullOutput;
+impl Output for NullOutput {
+    fn capacity(&self) -> usize {
+        0
+    }
+    fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+        false
+    }
+    fn set(&mut self, _: u64, _: f32, _: f32) {}
+    fn stop(&mut self, _: u64) {}
+}
+/// Explicit test recorder; never used by agent sessions.
+pub struct RecordingOutput {
+    pub calls: Vec<Call>,
+    pub capacity: usize,
+    pub ready: bool,
+}
+impl Default for RecordingOutput {
+    fn default() -> Self {
+        Self {
+            calls: Vec::new(),
+            capacity: usize::MAX,
+            ready: true,
+        }
+    }
+}
+impl Output for RecordingOutput {
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+    fn ready(&self) -> bool {
+        self.ready
+    }
+    fn start(
+        &mut self,
+        id: u64,
+        pcm: &Arc<[f32]>,
+        rate: u32,
+        looping: bool,
+        offset: usize,
+        pitch: f32,
+    ) -> bool {
+        self.calls.push(Call::Start {
+            id,
+            samples: pcm.len(),
+            rate,
+            looping,
+            offset,
+            pitch,
+        });
+        true
+    }
+    fn set(&mut self, id: u64, left: f32, right: f32) {
+        self.calls.push(Call::Set { id, left, right });
+    }
+    fn stop(&mut self, id: u64) {
+        self.calls.push(Call::Stop { id });
+    }
+}
+/// World-space ears: local +X is right, local -Z is forward.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Listener {
+    pub position: Vec3,
+    pub rotation: Quat,
+}
+impl Listener {
+    /// Lowest entity-order listener. Missing ears silence spatial sources.
+    pub fn from_world(world: &World) -> Option<Self> {
+        let e = world.query::<&AudioListener>().iter().next()?.0;
+        let pose = world.global(e)?;
+        let (_, rotation, position) = pose.to_scale_rotation_translation();
+        Some(Self { position, rotation })
+    }
+}
+/// Inverse distance beyond 1m, smoothstep fade from 1m to 40m, equal-power pan.
+pub fn spatial_gains(listener: Listener, point: Vec3, gain: f32) -> (f32, f32) {
+    let delta = point - listener.position;
+    let distance = delta.length();
+    if distance >= 40.0 {
+        return (0.0, 0.0);
+    }
+    let local = listener.rotation.conjugate() * delta;
+    let pan = if distance > 0.000001 {
+        (local.x / distance).clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    let level = gain / distance.max(1.0) * (1.0 - math::smoothstep(1.0, 40.0, distance));
+    (
+        level * math::sqrt((1.0 - pan) * 0.5),
+        level * math::sqrt((1.0 + pan) * 0.5),
+    )
+}
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Key {
+    Voice(u64),
+    Source(exact_game::Entity),
+}
+struct Active {
+    output_id: u64,
+    signature: (u64, u64, u32),
+}
+struct Wanted {
+    preferred: bool,
+    key: Key,
+    synth: audio::Definition,
+    gains: (f32, f32),
+    began: u64,
+    looping: bool,
+    pitch: f32,
+    offset: usize,
+}
+/// PCM cache and identities belong to the executor, never to the world.
+pub struct Player<O: Output> {
+    pub output: O,
+    rate: u32,
+    cache: BTreeMap<u64, Arc<[f32]>>,
+    wanted: Vec<Wanted>,
+    revisions: Vec<u64>,
+    pcm: Vec<Arc<[f32]>>,
+    active: BTreeMap<Key, Active>,
+    refused_sources: std::collections::BTreeSet<(exact_game::Entity, String)>,
+    next_id: u64,
+    transport: Option<Transport>,
+}
+impl<O: Output> Player<O> {
+    pub fn new(output: O, rate: u32) -> Self {
+        assert!(rate > 0);
+        Self {
+            output,
+            rate,
+            cache: BTreeMap::new(),
+            wanted: Vec::new(),
+            revisions: Vec::new(),
+            pcm: Vec::new(),
+            active: BTreeMap::new(),
+            refused_sources: Default::default(),
+            next_id: 0,
+            transport: None,
+        }
+    }
+    pub fn cached_sounds(&self) -> usize {
+        self.cache.len()
+    }
+    fn stop_all(&mut self) {
+        for active in self.active.values() {
+            self.output.stop(active.output_id);
+        }
+        self.active.clear();
+    }
+    /// Stable priority: loops first, then louder (max stereo gain), then newer
+    /// start boundary, then larger stable identity. Stops precede all starts.
+    pub fn sync(&mut self, world: &World, listener: Option<Listener>, transport: Transport) {
+        self.output.flush();
+        let effective = Transport {
+            playing: transport.playing && self.output.ready(),
+            ..transport
+        };
+        if self.transport != Some(effective) {
+            self.stop_all();
+        }
+        self.transport = Some(effective);
+        if self.output.capacity() == 0 {
+            self.stop_all();
+            self.cache.clear();
+            return;
+        }
+        let master = world
+            .try_resource::<audio::Audio>()
+            .map_or(1.0, |a| audio::gain(a.master));
+        let gains = |at: &At, position: Option<Vec3>, gain: f32| {
+            let gain = audio::gain(gain) * master;
+            let point = match at {
+                At::Ui => return (audio::gain(gain), audio::gain(gain)),
+                At::Point(p) => Some(*p),
+                At::Entity(e) => world.global(*e).map(|t| t.translation.into()).or(position),
+            };
+            let (l, r) = listener
+                .zip(point)
+                .map(|(l, p)| spatial_gains(l, p, gain))
+                .unwrap_or((0.0, 0.0));
+            (audio::gain(l), audio::gain(r))
+        };
+        self.refused_sources.retain(|(e, name)| {
+            world
+                .get::<AudioSource>(*e)
+                .is_some_and(|s| s.sound == *name)
+        });
+        let wanted = &mut self.wanted;
+        wanted.clear();
+        if world.has_audio() && effective.playing {
+            for v in &world.resource::<Voices>().voices {
+                if v.began <= world.tick() && world.tick() < v.ends {
+                    wanted.push(Wanted {
+                        preferred: false,
+                        key: Key::Voice(v.id),
+                        synth: v.synth.clone(),
+                        gains: gains(&v.at, v.position, v.gain),
+                        began: v.began,
+                        looping: false,
+                        pitch: if v.pitch.is_finite() {
+                            v.pitch.clamp(0.01, 16.0)
+                        } else {
+                            1.0
+                        },
+                        offset: 0,
+                    });
+                }
+            }
+            for (e, source) in world.query::<&AudioSource>().iter() {
+                if source.playing {
+                    if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
+                        if !synth.looping {
+                            if self.refused_sources.insert((e, source.sound.clone())) {
+                                world.log(format!("refusal: AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound));
+                            }
+                            continue;
+                        }
+                        wanted.push(Wanted {
+                            preferred: false,
+                            key: Key::Source(e),
+                            synth: synth.clone(),
+                            gains: gains(&At::Entity(e), None, source.gain),
+                            began: 0,
+                            looping: synth.looping,
+                            pitch: 1.0,
+                            offset: 0,
+                        });
+                    }
+                }
+            }
+        }
+        wanted.retain_mut(|w| {
+            if w.gains.0.max(w.gains.1) <= 0.0 {
+                return false;
+            }
+            let len = synth::sample_count(&w.synth, self.rate);
+            if len == 0 {
+                return false;
+            }
+            let elapsed = ((world.tick() - w.began) as f64 * self.rate as f64 * w.pitch as f64
+                / world.hz() as f64)
+                .floor();
+            w.offset = if w.looping {
+                (elapsed % len as f64) as usize
+            } else {
+                elapsed as usize
+            };
+            w.offset < len
+        });
+        wanted.sort_unstable_by(|a, b| {
+            b.looping
+                .cmp(&a.looping)
+                .then_with(|| {
+                    b.gains
+                        .0
+                        .max(b.gains.1)
+                        .total_cmp(&a.gains.0.max(a.gains.1))
+                })
+                .then_with(|| b.began.cmp(&a.began))
+                .then_with(|| b.key.cmp(&a.key))
+        });
+        let capacity = self.output.capacity();
+        let signature = |w: &Wanted| (w.synth.revision(), w.began, w.pitch.to_bits());
+        // Plan priority winners with the byte bound too, so a small fallback
+        // retains its identity across frames. Actual allocation below also counts
+        // PCM still waiting for acknowledgement, which can temporarily refuse one.
+        self.revisions.clear();
+        let (mut bytes, mut count) = (0usize, 0usize);
+        for w in wanted.iter_mut() {
+            let revision = w.synth.revision();
+            let extra = if self.revisions.contains(&revision) {
+                0
+            } else {
+                synth::sample_count(&w.synth, self.rate).saturating_mul(4)
+            };
+            w.preferred = count < capacity && extra <= audio::PCM_BYTE_BUDGET.saturating_sub(bytes);
+            if w.preferred {
+                bytes += extra;
+                count += 1;
+                self.revisions.push(revision);
+            }
+        }
+        // Stop priority losers before starts, then walk past output refusals.
+        self.active.retain(|key, a| {
+            if wanted
+                .iter()
+                .any(|w| w.preferred && &w.key == key && signature(w) == a.signature)
+            {
+                true
+            } else {
+                self.output.stop(a.output_id);
+                false
+            }
+        });
+        self.pcm.clear();
+        self.pcm.extend(
+            self.cache
+                .iter()
+                .filter(|(revision, _)| self.active.values().any(|a| a.signature.0 == **revision))
+                .map(|(_, pcm)| pcm.clone()),
+        );
+        self.output.retain_pcm(&self.pcm);
+        self.pcm.clear();
+        self.cache.retain(|revision, pcm| {
+            self.active.values().any(|a| a.signature.0 == *revision) || self.output.owns_pcm(pcm)
+        });
+        let mut reserved: usize = self.cache.values().map(|pcm| pcm.len() * 4).sum();
+        let mut accepted = 0;
+        let mut preferred_waiting = false;
+        for w in wanted.iter() {
+            if preferred_waiting && !w.preferred {
+                continue;
+            }
+            if accepted == capacity {
+                break;
+            }
+            let revision = w.synth.revision();
+            if !self.cache.contains_key(&revision) {
+                let bytes = synth::sample_count(&w.synth, self.rate).saturating_mul(4);
+                if bytes > audio::PCM_BYTE_BUDGET.saturating_sub(reserved) {
+                    // A stopped allocation is still owned by the callback. Do not
+                    // restart losers from it while a winner waits for that release.
+                    preferred_waiting |= w.preferred;
+                    continue;
+                }
+                // Reserve before synthesis, once per shared definition allocation.
+                reserved += bytes;
+                self.cache
+                    .insert(revision, render(&w.synth, self.rate).into());
+            }
+            let pcm = &self.cache[&revision];
+            let active = match self.active.entry(w.key.clone()) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let id = self.next_id;
+                    self.next_id += 1;
+                    if !self
+                        .output
+                        .start(id, pcm, self.rate, w.looping, w.offset, w.pitch)
+                    {
+                        if !self.output.owns_pcm(pcm)
+                            && !self.active.values().any(|a| a.signature.0 == revision)
+                        {
+                            reserved -= pcm.len() * 4;
+                            self.cache.remove(&revision);
+                        }
+                        continue;
+                    }
+                    entry.insert(Active {
+                        output_id: id,
+                        signature: signature(w),
+                    })
+                }
+            };
+            accepted += 1;
+            self.output.set(active.output_id, w.gains.0, w.gains.1);
+        }
+        self.output.flush();
+    }
+}
+impl<O: Output> Drop for Player<O> {
+    fn drop(&mut self) {
+        self.stop_all();
+        self.output.flush();
+    }
+}
+
+#[cfg(test)]
+mod named_targets {
+    use exact_game::{audio::Synth, Transform, World};
+    #[test]
+    fn named_audio_keeps_the_transform_lease_and_names_missing_targets() {
+        let mut w = World::new(60, 0);
+        w.sounds([("footstep", Synth::default())]);
+        w.spawn_named("player", Transform::default());
+        let mut pose = w.get_mut::<Transform>("player").unwrap();
+        w.play("footstep").at("player").pitch(1.).start();
+        pose.position.x = 1.;
+        drop(pose);
+        let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.play("footstep").at("absent").start();
+        }))
+        .unwrap_err();
+        let message = error.downcast_ref::<String>().unwrap();
+        assert!(message.contains("audio target `absent` does not exist"));
+    }
+}

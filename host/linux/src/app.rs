@@ -347,6 +347,11 @@ pub fn boot_presenter<D: DataSource + Default>(
     }
 }
 
+/// Run a Contract app without application data, sharing its compiled host.
+pub fn run_empty(baked: &[u8], compat: &str) -> i32 {
+    run::<()>(baked, compat)
+}
+
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {
@@ -435,6 +440,7 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
     // drive named an origin; a headless run has no user to wait for.
     let _ = p.frame();
     p.first_pixel();
+    p.sync_surfaces();
     p.poll_development(D::default);
     if std::env::var_os("EXACT_UPDATE_ORIGIN").is_some() {
         p.check_update();

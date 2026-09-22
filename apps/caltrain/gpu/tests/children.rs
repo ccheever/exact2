@@ -61,12 +61,8 @@ fn children(gpu: &Gpu, block: Option<(u32, u32, u32, u32)>) -> wgpu::TextureView
 
 #[test]
 fn the_aurora_composes_its_children_over_the_sky() {
-    let gpu = match fixture::device() {
-        Ok(gpu) => gpu,
-        Err(e) => {
-            eprintln!("{e}; the readback fixture is skipped");
-            return;
-        }
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
     };
     // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
@@ -76,16 +72,21 @@ fn the_aurora_composes_its_children_over_the_sky() {
         scale: 1.0,
         now_ms: 1234.0,
         children_generation: 0,
+        seekable: false,
+        period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
     };
     let mut sky = AuroraSurface::new();
-    sky.bind(&[Value::str("mv")]).unwrap();
-    assert!(sky.wants_children(), "the aurora samples its children");
+    sky.bind(&[Value::str("mv")], None).unwrap();
+    assert_eq!(
+        sky.children_mode(),
+        exact_gpu::ChildrenMode::Composite { previous: false }
+    );
 
     // The sky alone, then with a transparent children texture: the same
     // picture, pixel for pixel.
     let (alone, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
-    sky.children(Some(&children(&gpu, None)));
+    sky.children(Some(&children(&gpu, None)), None);
     let (clear, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(
         alone.data == clear.data,
@@ -95,7 +96,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
     // A white block in the middle: white ink where it is (the glow only
     // brightens), the sky untouched away from it.
     let block = (60, 40, 40, 40);
-    sky.children(Some(&children(&gpu, Some(block))));
+    sky.children(Some(&children(&gpu, Some(block))), None);
     let (composed, wants) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(wants, "still lit from the clock");
     composed.save("aurora-children");
@@ -129,7 +130,50 @@ fn the_aurora_composes_its_children_over_the_sky() {
     );
 
     // The children gone: the sky alone again.
-    sky.children(None);
+    sky.children(None, None);
     let (again, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
     assert!(again.data == alone.data, "no children, no ink");
+}
+
+#[test]
+fn glass_receives_current_and_previous_children() {
+    exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let current = children(&gpu, Some((60, 40, 40, 40)));
+    let previous = children(&gpu, Some((10, 10, 40, 40)));
+    let frame = Frame {
+        width: W as f32,
+        height: H as f32,
+        scale: 1.,
+        now_ms: 1000.,
+        children_generation: 1,
+        seekable: true,
+        period_ms: 0.,
+        shader_generation: exact_gpu::shaders::shader_generation(),
+    };
+    let render = |old: &wgpu::TextureView| {
+        let mut glass = caltrain_gpu::GlassSurface::new();
+        glass.children(Some(&current), Some(old));
+        fixture::render(&gpu, &mut glass, &frame).unwrap();
+        // Textures stay allocated while the module uploads a new generation.
+        fixture::render(
+            &gpu,
+            &mut glass,
+            &Frame {
+                now_ms: 2000.,
+                children_generation: 2,
+                ..frame
+            },
+        )
+        .unwrap()
+        .0
+    };
+    let changed = render(&previous);
+    let unchanged = render(&current);
+    assert_ne!(
+        changed.data, unchanged.data,
+        "the previous slice must affect the start of the fade"
+    );
 }

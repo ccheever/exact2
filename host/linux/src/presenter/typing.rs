@@ -1,0 +1,184 @@
+//! Text and keyboard input, sharing the presenter's focus owner.
+use super::*;
+
+impl<D: DataSource> Presenter<D> {
+    /// Set an input's value as typing does: focused, the value replaced,
+    /// one `change` heard by the runner.
+    pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
+        if self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is hidden or inert"));
+        }
+        let kernel = self.host.kernel();
+        let node = kernel.node(id).ok_or_else(|| format!("no view {id}"))?;
+        // @ref LLP 1038 D11 — the agent's root text is a location.
+        if node.props.str(PropId::NavigationBack).is_some() {
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return Err(format!("view {id} is disabled"));
+            }
+            let error =
+                self.host
+                    .dispatch_at(id, Event::Navigate(text.to_owned()), self.host.now());
+            let after = self.after_commit();
+            if let Some(error) = error.or(after) {
+                return Err(error);
+            }
+            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        }
+        if node.node_type != NodeType::TextInput {
+            return Err(format!("view {id} is not an input"));
+        }
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return Err(format!("view {id} is disabled"));
+        }
+        if node.props.bool(PropId::Editable) == Some(false) {
+            return Err(format!("view {id} is readonly"));
+        }
+        if node.props.bool(PropId::EmojiPicker) == Some(true) {
+            return Err("emoji selection is not supported on the Linux host".into());
+        }
+        self.focus = Some(id);
+        let now = self.host.now();
+        let error = self
+            .host
+            .dispatch_at(id, Event::Change(text.to_string()), now);
+        let e = self.after_commit();
+        if let Some(e) = error.or(e) {
+            return Err(e);
+        }
+        let value = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
+            .unwrap_or_default();
+        let mut s = format!("{{\"typed\":{id},\"value\":");
+        quote(&value, &mut s);
+        s.push('}');
+        Ok(s)
+    }
+
+    /// Targeted keyboard input for both the agent and device adapters.
+    pub fn type_key(
+        &mut self,
+        id: ViewId,
+        code: &str,
+        key: &str,
+        down: bool,
+        repeat: bool,
+    ) -> Result<String, String> {
+        self.restore_controls();
+        let contact = if code == "Space" {
+            u32::MAX - 1
+        } else {
+            u32::MAX - 2
+        };
+        if !down
+            && matches!(code, "Space" | "Enter" | "NumpadEnter")
+            && self.owns_control(id, contact)
+        {
+            return if self.control_input(id, "up", 0., 0., contact, self.host.now()) {
+                Ok(format!("{{\"typed\":{id}}}"))
+            } else {
+                Err("control release refused".into())
+            };
+        }
+        let node = self
+            .host
+            .kernel()
+            .node(id)
+            .ok_or_else(|| format!("no view {id}"))?;
+        if node.props.bool(PropId::Disabled) == Some(true) || self.host.route_visibility(id).1 {
+            return Err(format!("view {id} is disabled or inert"));
+        }
+        if node.props.str(PropId::Action).is_some()
+            && matches!(code, "Space" | "Enter" | "NumpadEnter")
+        {
+            if !self.holds_control(id) {
+                self.focus = Some(id);
+            }
+            let (x, y, _, _) = self.rect_of(id).ok_or("control has no box")?;
+            return if self.control_input(
+                id,
+                if down { "down" } else { "up" },
+                x,
+                y,
+                if code == "Space" {
+                    u32::MAX - 1
+                } else {
+                    u32::MAX - 2
+                },
+                self.host.now(),
+            ) {
+                Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
+            } else {
+                Err(format!("control {id} refused input"))
+            };
+        }
+        let editable = node.node_type == NodeType::TextInput;
+        let activation = matches!(code, "Space" | "Enter" | "NumpadEnter")
+            && matches!(
+                node.props.str(PropId::AccessibilityRole),
+                Some("button" | "link")
+            );
+        if !self.host.route_visibility(id).1 && !editable && code != "Tab" && (!down || !activation)
+            && self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()})) {
+            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
+        }
+        if !self.focusable(id) || self.host.route_visibility(id).1 {
+            return Err(format!("view {id} cannot take focus"));
+        }
+        self.focus = Some(id);
+        self.dirty = true;
+        if down && !(activation && repeat) {
+            let ch = match key {
+                "Space" | " " => Some(' '),
+                "Enter" | "NumpadEnter" => Some('\n'),
+                s if s.chars().count() == 1 => s.chars().next(),
+                _ => None,
+            };
+            self.key(ch, key == "Backspace", self.host.now());
+        }
+        Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
+    }
+
+    /// A key for the focused input: a character appended, a backspace, or
+    /// nothing. The runner hears one `change` with the new value.
+    pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
+        let Some(id) = self.focus else { return };
+        if !self.display.allows(self.host.kernel(), id) {
+            return;
+        }
+        let Some(node) = self.host.kernel().node(id) else {
+            return;
+        };
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return;
+        }
+        if node.props.str(PropId::AccessibilityRole) == Some("button") {
+            if matches!(ch, Some(' ' | '\n' | '\r')) {
+                self.dispatch_press(id, now_ms, false);
+            }
+            return;
+        }
+        if node.props.bool(PropId::Editable) == Some(false) {
+            return;
+        }
+        if ch == Some('\n') && node.props.str(PropId::SemanticTag) != Some("textarea") {
+            return;
+        }
+        let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
+        match (ch, backspace) {
+            (Some(c), _) => value.push(c),
+            (None, true) => {
+                value.pop();
+            }
+            _ => return,
+        }
+        if let Some(e) = self.host.dispatch_at(id, Event::Change(value), now_ms) {
+            eprintln!("exact: {e}");
+        }
+        if let Some(e) = self.after_commit() {
+            eprintln!("exact: {e}");
+        }
+    }
+}

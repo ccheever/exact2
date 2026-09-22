@@ -250,7 +250,12 @@ fn unload_invalidates_continuations_and_configuration_survives_reload() {
     let mut m = root.module();
     m.activate().unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
-    let Answer::Later(r) = m.answer(&mut s, "work", &args("file", "cancel")).unwrap() else {
+    assert_eq!(
+        call(&mut m, &mut s, "file", "before unload"),
+        "before unload"
+    );
+    // Unload cannot undo an already-started external write, so probe cancellation with a read.
+    let Answer::Later(r) = m.answer(&mut s, "work", &args("read", "")).unwrap() else {
         panic!("expected asynchronous work")
     };
     let token = r.continuation.unwrap();
@@ -258,10 +263,14 @@ fn unload_invalidates_continuations_and_configuration_survives_reload() {
     m.unload();
     assert!(matches!(
         std::thread::spawn(wait).join().unwrap(),
-        Outcome::Failed { .. }
+        Outcome::Failed {
+            kind: exact_runner::FailureKind::Aborted,
+            ..
+        }
     ));
     assert!(m.continuation(token).is_none());
     m.activate().unwrap();
+    assert_eq!(call(&mut m, &mut s, "read", ""), "before unload");
     assert_eq!(call(&mut m, &mut s, "file", "again"), "again");
 }
 

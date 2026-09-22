@@ -443,10 +443,30 @@ impl PlanBuilder {
 
     /// A canvas node's surface binding: the surface's name in the app's GPU
     /// module and its argument expressions (LLP 1009 D3).
-    pub fn surface(&mut self, name: &str, args: &[Code]) -> SurfacesId {
-        let args = self.args(args);
+    pub fn surface(&mut self, name: &str, args: &[(&str, Code)]) -> SurfacesId {
+        let start = self.plan.surface_args.len() as u32;
+        for (name, expr) in args {
+            let name = self.str(name);
+            self.plan
+                .surface_args
+                .push(SurfaceArgsRow { name, expr: *expr });
+        }
+        let args = SurfaceArgsRange {
+            start,
+            len: args.len() as u32,
+        };
         let name = self.str(name);
-        self.plan.surfaces.push(SurfacesRow { name, args });
+        let mode = if args.len != 0
+            && self
+                .plan
+                .str(self.plan.surface_args[args.start as usize].name)
+                .is_empty()
+        {
+            SurfaceArgsMode::Positional
+        } else {
+            SurfaceArgsMode::Named
+        };
+        self.plan.surfaces.push(SurfacesRow { name, args, mode });
         SurfacesId(self.plan.surfaces.len() as u32 - 1)
     }
 

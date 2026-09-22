@@ -17,7 +17,7 @@ mod arity;
 
 use contract_syntax::{Action, Component, Expr, File, Node, Span, Stmt};
 use contract_types::{Checked, Ref, Scope, Ty};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Another authored location needed to understand a rejection.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +58,86 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
         span,
         related: Vec::new(),
     })
+}
+
+/// Check surface calls against an emitted module interface, before imports merge
+/// so each refusal still belongs to its source file. No module is constructed.
+pub fn check_surface_arguments(
+    file: &File,
+    declared: &BTreeMap<String, Vec<String>>,
+) -> Result<(), AnalyzeError> {
+    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>) -> Result<(), AnalyzeError> {
+        for node in nodes {
+            match node {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } => {
+                    for attr in attrs
+                        .iter()
+                        .filter(|a| tag == "canvas" && a.name == "surface")
+                    {
+                        let Expr::Call(name, args, span) = &attr.value else {
+                            continue;
+                        };
+                        let Some(fields) = declared.get(name) else {
+                            return err(
+                                "analyze-surface-arguments",
+                                format!("unknown surface `{name}`"),
+                                *span,
+                            );
+                        };
+                        for arg in args {
+                            if let Expr::NamedArg(field, _, span) = arg {
+                                if !fields.contains(field) {
+                                    return err(
+                                        "analyze-surface-arguments",
+                                        format!("unknown surface argument `{field}` for `{name}`; declared names: {}", fields.join(", ")),
+                                        *span,
+                                    );
+                                }
+                            }
+                        }
+                        if !args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
+                            && args.len() > fields.len()
+                        {
+                            return err(
+                                "analyze-surface-arguments",
+                                format!(
+                                    "surface `{name}` expected at most {} arguments ({}), got {}",
+                                    fields.len(),
+                                    fields.join(", "),
+                                    args.len()
+                                ),
+                                *span,
+                            );
+                        }
+                    }
+                    walk(children, declared)?;
+                }
+                Node::Use { children, .. } => walk(children, declared)?,
+                Node::Provide { body, .. } | Node::Each { body, .. } => walk(body, declared)?,
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, declared)?;
+                    walk(otherwise, declared)?;
+                }
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, declared)?;
+                    walk(none, declared)?;
+                }
+                Node::Children { .. } => {}
+            }
+        }
+        Ok(())
+    }
+    for component in &file.components {
+        walk(&component.view, declared)?;
+    }
+    Ok(())
 }
 
 /// What analysis established beyond the types. Every rule analysis checks
@@ -120,6 +200,7 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
         check_tasks(c)?;
         check_view(&c.view, &scope, file)?;
     }
+    check_controls(&expanded.root.view, false)?;
     arity::check(file, types, &expanded.root)?;
     Ok(Analysis {})
 }
@@ -308,7 +389,7 @@ pub const HANDLERS: [&str; 35] = [
 
 /// What a handler's event carries as its action's last argument: `change`
 /// the new text, `hover` whether the pointer is over, `key` the key's name,
-/// `message` the iframe guest's string; the others nothing.
+/// `message` the posted string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "key" | "message" | "navigate" | "error" => Some("string"),
@@ -453,7 +534,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                     match handler_payload(attr) {
                         Some("bool") => " plus whether the pointer is over",
                         Some(_) if attr == "key" => " plus the key's name",
-                        Some(_) if attr == "message" => " plus the guest's message",
+                        Some(_) if attr == "message" => " plus the message",
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",
                         None if attr == "heightrelease" => " plus height and velocity",
@@ -484,6 +565,47 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                 format!("`{attr}` supplies only numeric payload parameters"),
                 span,
             );
+        }
+    }
+    Ok(())
+}
+
+// Check the expanded tree: a component can supply a canvas's controls.
+fn check_controls(nodes: &[Node], in_canvas: bool) -> Result<(), AnalyzeError> {
+    for node in nodes {
+        match node {
+            Node::Element {
+                tag,
+                attrs,
+                children,
+                ..
+            } => {
+                for attr in attrs.iter().filter(|a| a.name == "action") {
+                    if !in_canvas || tag != "button" {
+                        return err(
+                            "analyze-control-parent",
+                            "`action` requires a button inside a canvas",
+                            attr.span,
+                        );
+                    }
+                }
+                check_controls(children, in_canvas || tag == "canvas")?;
+            }
+            Node::Provide { body, .. } | Node::Each { body, .. } => {
+                check_controls(body, in_canvas)?
+            }
+            Node::When {
+                then, otherwise, ..
+            } => {
+                check_controls(then, in_canvas)?;
+                check_controls(otherwise, in_canvas)?;
+            }
+            Node::Match { some, none, .. } => {
+                check_controls(&some.1, in_canvas)?;
+                check_controls(none, in_canvas)?;
+            }
+            Node::Use { children, .. } => check_controls(children, in_canvas)?,
+            Node::Children { .. } => {}
         }
     }
     Ok(())

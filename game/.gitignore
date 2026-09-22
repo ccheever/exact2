@@ -1,0 +1,14 @@
+/games/*/dist/
+/games/*/dist.previous/
+/games/*/artifacts/
+/games/*/app.contract.d.ts
+
+/artifacts/s3a/
+
+# The feel probe's per-attempt Chrome profiles (mkdtemp under bench/).
+bench/.feel-*/
+
+/games/*/.shells/
+/games/*/target/
+/bench/*/.shells/
+/bench/*/target/

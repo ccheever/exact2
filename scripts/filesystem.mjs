@@ -113,6 +113,11 @@ export async function filesystemLock(root, path, fn) {
 // executable assessment. Idle pipes do not keep Bun alive; pending reads do.
 // Parent exit terminates its helper, including one still awaiting OS startup.
 let reader;
+/** Ends the resident reader now (it would otherwise live until this process exits). */
+export function closeFilesystemReader() {
+  reader?.close();
+  reader = undefined;
+}
 export function filesystemRead(input) {
   if (input.op !== 'get') return Promise.reject(new Error('read session only accepts get'));
   reader ??= createReader();
@@ -157,7 +162,7 @@ function createReader() {
       pending.push({resolve, reject});
       child.stdin.write(`${JSON.stringify(request(input))}\n`, error => { if (error) fail(error); });
     });
-  }};
+  }, close() { fail(new Error('filesystem reader closed')); }};
   reference(false);
   return session;
 }

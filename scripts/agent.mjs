@@ -4,50 +4,29 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
-//   tree [target] | layout [target] | state | logs | screenshot <png> [window]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
+//   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
 //   clock <ms|+ms|settle>
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it — instead of a bare
-// delta. Elastic overscroll lives entirely in those phases, so a plain wheel
 // exercises a path a finger never takes (LLP 1033 D4a). macOS only: a host
-// that cannot phase a wheel refuses rather than quietly sending a plain one.
-// `tap … contextmenu` and `tap … dblclick` use browser secondary/double clicks;
-// on iOS they inject the recognized event, not a UIKit finger gesture.
 // `tap … hover` moves the pointer onto the target (a hover, LLP 1005 §3);
-// `type … key Enter` presses a key at it, by the web's key names — forms of
-// tap and type, not operations of their own (rules/NOT-DOING.md).
-// As a library:  import { open } from '../scripts/agent.mjs'
-//   const s = await open({ host: 'web' }); await s.tap('change-station'); const t = await s.tree(); await s.close();
 //
-// Carriers. The web app runs in headless Chrome driven over the DevTools
-// protocol on a pipe (no port, no dependency): `tap` and `type` are CDP
-// input events — Chrome's own hit-testing and dispatch, the path a click
-// takes — `screenshot` is Page.captureScreenshot, and the rest is
-// `exact.agentSettled(…)` in the page (`host/web/glue.js`). The macOS app and the
-// Linux host run with EXACT_AGENT=1 and answer JSON lines on stdio
-// (`Agent.swift`; `host/linux/src/agent.rs` — the Linux binary runs headless
-// on any machine, macOS included, so `linux` works wherever it was built);
-// the driver resolves a target to a view id through `tree` first, so every
-// host sees the same request. Console and stderr lines ride along with `logs`.
-// The Linux host is launched with the pinned font (scripts/fixtures/fonts,
 // LLP 1015 §5) so a pixel taken through this driver is the same pixel on
-// every machine; an `env` option, or the environment, overrides it.
-// The iOS app runs on a simulator (`host/apple/build.mjs --ios` builds and
-// installs it; a booted iPhone is used, else the newest, EXACT_SIM names
-// one) and answers the same JSON lines over a Unix socket — a simulator app
-// has no stdin (`AgentIOS.swift`); its stdout and stderr come through the
-// `simctl launch --console` that stays attached.
-// ios --device connects back to a one-launch TCP listener on this Mac's LAN
-// address (EXACT_AGENT_HOST overrides its selection); --phone selects a paired
-// phone. This is a trusted-LAN developer carrier, not an encrypted remote agent.
 // Build/install first with build.mjs --device. No Mac-local plan/assets paths.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+const WORLD_LIMIT = 256 * 1024 * 1024;
+function worldFile(path) {
+  if (statSync(path).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  const bytes = readFileSync(path);
+  if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  return bytes;
+}
 import { connect, createServer as createTCPServer } from 'node:net';
 import { networkInterfaces, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -220,17 +199,20 @@ export class Cdp {
 
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
-export function assertWebDistApp(dist, app) {
-  if (!builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; run bun host/web/build.mjs ${app.crate('web')}`);
+export async function assertWebDistApp(dist, app) {
+  const shellQuote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
+  if (reuse) {
+    try { await reuse.reset(); return reuse; }
+    catch (error) { await reuse.close(); throw error; }
+  }
   const selected = resolveApp(app);
-  const dist = webDist ? resolve(webDist) : resolve(ROOT, 'host/web/dist');
-  if (!pageURL) assertWebDistApp(dist, selected);
-  let gpuMs = null;
+  const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
+  if (!pageURL) await assertWebDistApp(dist, selected);
   const server = createServer((req, res) => {
-    if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     serveStatic(dist, req, res);
@@ -239,16 +221,29 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
   const port = server.address().port;
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
-  const child = spawn(chrome, [
+  let child;
+  try {
+    child = spawn(chrome, [
     '--headless=new', '--remote-debugging-pipe', `--window-size=${size[0]},${size[1]}`, '--hide-scrollbars',
     '--enable-unsafe-webgpu', '--disable-smooth-scrolling', `--user-data-dir=${profile}`, '--no-sandbox',
     '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--no-first-run',
     '--no-default-browser-check', 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
+    await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
+  } catch (error) {
+    server.close();
+    rmSync(profile, {recursive:true, force:true});
+    throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
+  }
+  onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l); });
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); }));
+  const exited = new Promise((r) => {
+    child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); });
+    child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`); r(); });
+  });
   const close = async () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
     await waitAtMost(exited, 2000);
@@ -259,7 +254,15 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     const { targetInfos } = await cdp.send('Target.getTargets');
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
-    const call = (method, params) => cdp.send(method, params, sessionId);
+    const heldKeys = new Map();
+    const call = async (method, params) => {
+      const reply = await cdp.send(method, params, sessionId);
+      if (method === 'Input.dispatchKeyEvent') {
+        if (params.type === 'keyUp') heldKeys.delete(params.code);
+        else if (params.type === 'keyDown' || params.type === 'rawKeyDown') heldKeys.set(params.code, params);
+      }
+      return reply;
+    };
     cdp.listeners.push((msg) => {
       if (msg.sessionId !== sessionId) return;
       if (msg.method === 'Runtime.consoleAPICalled') hostLines.push(`console.${msg.params.type}: ` + msg.params.args.map((a) => a.value ?? a.description ?? a.type).join(' '));
@@ -269,6 +272,13 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     await call('Runtime.enable');
     await call('Log.enable');
     await call('Page.enable');
+    // Timestamp the actual browser input before a lazy surface module exists.
+    // Its first-frame latency belongs in state.world.perf, outside the clock/hash.
+    await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+      addEventListener('click', event => {
+        if (event.isTrusted) { performance.clearMarks('exact-agent-input'); performance.mark('exact-agent-input', {startTime: event.timeStamp}); }
+      }, true);
+    ` });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
     const evaluate = async (expression) => {
@@ -276,11 +286,14 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
+    if (world && !plan) {
+      const encoded = worldFile(world).toString('base64');
+      await call('Page.addScriptToEvaluateOnNewDocument', { source: `globalThis.exactWorldCarry = Uint8Array.from(atob(${JSON.stringify(encoded)}), c => c.charCodeAt(0));` });
+    }
     // The page: this carrier's own server over dist/, or a URL the caller
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
-    page.searchParams.set('smoke', '1');
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
@@ -291,7 +304,10 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
       boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null);
     }
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
-    if (plan) await evaluate("fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))");
+    if (plan) {
+      const carry = world ? `exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(worldFile(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
+      await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b)); })`);
+    }
     const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
@@ -299,7 +315,38 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
     let contact = null;
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
-      host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
+      host: 'web', boot: Number(boot), hostLines,
+      async gpuMs() {
+        const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
+        return ms == null ? null : Number(ms);
+      },
+      async reset() {
+        // Release browser-owned input while its original document still exists.
+        for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
+        if (contact) await call('Input.dispatchTouchEvent', {type:'touchCancel', touchPoints:[]});
+        await frame();
+        contact = null;
+        if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
+        touch = false;
+        await evaluate('sessionStorage.clear()');
+        await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
+        await call('Page.navigate', {url:'about:blank'});
+        const deadline = Date.now() + 30000;
+        while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
+          if (Date.now() > deadline) throw new Error('the reused page never left its old document');
+          await sleep(15);
+        }
+        hostLines.length = 0;
+        await call('Page.navigate', {url:page.href});
+        let boot;
+        while ((boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null)) == null) {
+          if (Date.now() > deadline) throw new Error('the reused page never booted');
+          await sleep(15);
+        }
+        await evaluate('exact.ready');
+        await call('Page.resetNavigationHistory');
+        this.boot = Number(boot);
+      },
       ask,
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
@@ -308,6 +355,9 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
           if (reply.error) throw new Error(reply.error);
           await frame();
           return reply;
+        }
+        if (kind === 'key' && (opts.phase != null || await evaluate(`exact.gpu?.wantsInput(${id}) || exact.views.get(${id})?.matches('button, a[href], [role="button"], [role="link"]') || false`))) {
+          return browserKey({ id, opts, evaluate, ask, call, frame });
         }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
@@ -331,7 +381,7 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
           // real time so its velocity is real too.
           if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 }); touch = true; }
           if (kind === 'down') {
-            if (contact) throw new Error('a contact is already down; up it first');
+            if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
             await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }] });
             contact = { x: px, y: py };
@@ -372,9 +422,9 @@ async function openWeb({ plan, size = [420, 900], url: pageURL, app, webDist }) 
         else if (kind === 'key') {
           const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
-          const key = opts.key;
-          const code = { Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
-          const vk = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
+          const key = opts.key === 'Space' ? ' ' : opts.key;
+          const code = { ' ': 'Space', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight' }[key] ?? (key.length === 1 ? `Key${key.toUpperCase()}` : key);
+          const vk = { ' ': 32, Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37, ArrowRight: 39 }[key] ?? (key.length === 1 ? key.toUpperCase().charCodeAt(0) : 0);
           await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
           await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
         }
@@ -477,7 +527,7 @@ export async function phoneBridge() {
 }
 
 /** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
-async function openStdio({ host, plan, size, app, env: extra = {}, session, device = false, phone: pick }) {
+async function openStdio({ host, plan, world, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
@@ -491,6 +541,12 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   if (device) {
     const installed = spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, deviceBundle], { encoding: 'utf8' });
     if (installed.status !== 0) throw new Error(`device install: ${installed.stderr || installed.stdout || installed.error?.message}`);
+    if (world) {
+      const copied = spawnSync('xcrun', ['devicectl', 'device', 'copy', 'to', '--quiet', '--device', ph.udid,
+        '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', resolve(world), '--destination', 'tmp/exact-agent.world'], { encoding: 'utf8', timeout: 45000 });
+      if (copied.status !== 0) throw new Error(`phone world copy: ${copied.stderr || copied.error || copied.stdout}`);
+      extra = { ...extra, EXACT_WORLD: '~/tmp/exact-agent.world' };
+    }
   }
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
@@ -501,6 +557,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
     // The pinned font: DejaVu Sans from scripts/fixtures/fonts shapes and
     // paints the host's text on every machine, so a pixel fixture recorded
     // here matches on a builder (LLP 1015 §5). The environment still wins.
+    env.EXACT_PAINTER ??= 'cpu';
     env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
     env.EXACT_FONT ??= 'DejaVu Sans';
   }
@@ -508,8 +565,9 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const bridge = device ? await phoneBridge() : null;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
-        '--environment-variables', JSON.stringify({ ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
+        '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
     : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+  onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
   if (device) child.stdout.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -517,7 +575,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
   const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); try { process.kill(child.pid, 'SIGKILL'); } catch {} };
+  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); if (child.exitCode === null && child.signalCode === null) { try { child.kill('SIGKILL'); } catch {} } await exited; };
   let readyTimeout;
   try {
     const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
@@ -535,8 +593,8 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    const ask = async (req) => {
-      const reply = lines.ask(state.session ? { ...req, session: state.session } : req);
+    const ask = async (req, session = state.session) => {
+      const reply = lines.ask(session ? { ...req, session } : req);
       if (!device) return reply;
       let timer;
       try {
@@ -552,9 +610,13 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
       async input(id, kind, opts) {
-        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
+        if (kind === 'key') {
+          const session = state.session;
+          return nativeKey({id, opts: linux ? {...opts, ownedRelease:false} : opts, ask: req => ask(req, session)});
+        }
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
-        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -583,7 +645,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
 // ---------------------------------------------------------------- iOS, over a Unix socket
 
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
-async function openIOS({ plan, app, env: extra = {}, session, hostFixture = false }) {
+async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture = false, onProcess }) {
   const a = resolveApp(app);
   const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
   const id = hostFixture ? `${a.id}.host` : a.id;
@@ -592,10 +654,11 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
   install(dev, bundle, a, hostFixture);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
-  const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...extra };
+  const env = { EXACT_ASSETS: a.dir, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  onProcess?.(console_);
   const hostLines = [];
   for (const stream of [console_.stdout, console_.stderr]) stream.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !/^com\.exact\.\w+: \d+$/.test(l)) hostLines.push('app: ' + l); });
   let consoleDone = false;
@@ -636,7 +699,7 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
-    const ask = (req) => lines.ask(state.session ? { ...req, session: state.session } : req);
+    const ask = (req, session = state.session) => lines.ask(session ? { ...req, session } : req);
     // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
     // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
     // mouse on the Mac's desktop, posted into the Simulator's window by
@@ -699,11 +762,12 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       pointer = { ask: (req) => io.ask(req), child };
       return pointer;
     };
+    let canvasContact = false;
     const phaseSim = async (kind, id, opts) => {
       const p = await helper();
       const unsupported = (reason) => ({ phase: kind, delivery: 'unsupported', reason });
       if (kind === 'down') {
-        if (contact) throw new Error('a contact is already down; up it first');
+        if (contact) throw new Error('a contact is already down; use `tap up` first');
         const trusted = await p.ask({ op: 'trusted' });
         if (!trusted.trusted) return unsupported('the desktop pointer needs Accessibility permission for this terminal (System Settings › Privacy & Security › Accessibility)');
         await p.ask({ op: 'activate' });
@@ -757,9 +821,23 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
       pointer: true,
       ask,
       async input(id, kind, opts) {
-        const guest = { selector: opts.selector, x: opts.x, y: opts.y };
-        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) return phaseSim(kind, id, opts);
-        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : kind === 'key' ? await ask({ op: 'type', id, key: opts.key, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        if (kind === 'key') {
+          const session = state.session;
+          return nativeKey({id, opts, ask: req => ask(req, session)});
+        }
+        const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
+        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
+          if (kind === 'down' || canvasContact) {
+            const r = await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms });
+            if (r.error) throw new Error(r.error);
+            if (r.delivery !== 'unsupported' || canvasContact) {
+              canvasContact = !['up', 'cancel'].includes(kind);
+              return r;
+            }
+          }
+          return phaseSim(kind, id, opts);
+        }
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -778,10 +856,71 @@ async function openIOS({ plan, app, env: extra = {}, session, hostFixture = fals
 
 // ---------------------------------------------------------------- the eight operations
 
+/** A convenience over state, screenshot and type; wire replies keep all tags. */
+export function worldView(session, name) {
+  return {
+    async snapshot() {
+      const {tick, hash, entities, truncated} = await session.state(`${name}:*`);
+      return {tick, hash, entities, truncated};
+    },
+    state: entity => session.state(`${name}:${entity}`),
+    save: path => session.screenshot(path, name, 'save'),
+    run: ms => {
+      if (!Number.isFinite(ms) || ms < 0) throw new Error('run duration must be finite and nonnegative');
+      // Like Sim::run, establish the current epoch after deferred assets settle
+      // before moving time. Otherwise a newly ready world can eat the first seek.
+      return session.clock('+0').then(() => session.clock(`+${ms}`));
+    },
+    settle: async () => (await session.clock('settle')).settled === true,
+    tap: code => session.type(name, {key:code}),
+    key_down: code => session.type(name, {key:code, phase:'down'}),
+    key_up: code => session.type(name, {key:code, phase:'up'}),
+    async local_position(entity) { return (await this.get(entity, 'Transform'))?.position; },
+    async global_position(entity) {
+      try { return (await session.layout(`${name}:${entity}`)).entity?.world?.position; }
+      catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    async get(entity, component) {
+      try {
+        return (await session.state(`${name}:${entity}`)).entity?.components?.[component];
+      } catch (error) {
+        if ((error.reply?.error === `no entity named \`${entity}\`` || error.reply?.error?.startsWith(`no entity named \`${entity}\`; `))) return undefined;
+        throw error;
+      }
+    },
+    hold: (code, ms) => session.type(name, {key:code, for:ms}),
+  };
+}
+
+/** Explain a refused placed-child tap using the world's own visibility. */
+export async function tapRefusal(session, target, error) {
+  try {
+    for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
+      const canvasName = canvas.props?.testId ?? canvas.id;
+      const outline = await session.tree(canvasName);
+      if (!outline.entities?.some(entity => entity.name === target)) continue;
+      const owner = `${canvasName}:${target}`;
+      const state = await session.state(owner).catch(() => null);
+      if (!state?.entity?.placed?.hidden) continue;
+      const box = await session.layout(owner);
+      const reason = box.entity?.visible?.behindCamera ? 'hidden (behind the camera)' : 'hidden';
+      error.message = `${target} is ${reason}: \`layout ${owner}\` (with --json before the quoted operation) shows visibility and any available screen box; layout ${target} shows the child when mounted`;
+      return error;
+    }
+  } catch { /* Preserve the original refusal if the diagnostic target also vanished. */ }
+  return error;
+}
+
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({ host, plan, size, env, app, session, url, webDist, device = false, phone: pick, timing = 'agent' } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
+  if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+  if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
   // the driver still owns the runner's clock, but UIKit's own transitions,
@@ -799,11 +938,12 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app }) : host === 'ios' ? await openIOS({ plan, env, app }) : await openWeb({ plan, size, url, app, webDist });
+  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   const sourceMaps = sourceMapReader(mapLocator);
   const s = {
+    carrier,
     host: carrier.host,
     /** The sample host's sessions by label, and which one the next request goes to (`s.session = "b"`). */
     sessions: carrier.sessions ?? null,
@@ -814,30 +954,35 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     /** The agent's clock, milliseconds: the last `clock` value (0 at boot). */
     now: 0,
     logCursor: 0,
+    /** Await the current page's GPU load time, or null before loading/on native. */
     gpuMs: carrier.gpuMs,
     async op(req) {
       const r = await carrier.ask(req);
-      if (r.error) throw new Error(`${req.op}: ${r.error}`);
+      if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
       return r;
     },
     /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
-    tree(target, { shallow = false } = {}) {
+    async tree(target, options = {}) {
+      if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"tree", ...await s.target(target), world:true, ...(typeof options === "string" ? {under:options} : {})});
+      const {shallow = false} = options;
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
       return s.op(req);
     },
+    world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: () => s.op({ op: 'state' }),
+    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
       const dropped = Math.max(0, r.from - s.logCursor);
       s.logCursor = r.next;
-      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped };
+      return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
-    async layout(target) {
+    async layout(target, at) {
+      if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
       const req = { op: 'layout' };
       if (target != null) {
         req.id = (await s.find(target)).id;
@@ -852,12 +997,19 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       for (const n of l.nodes) { const k = by.get(n.id); if (k) { n.type = k.type; if (k.props.testId) n.testId = k.props.testId; } }
       return l;
     },
+    async target(target) {
+      const text = String(target), colon = text.indexOf(':');
+      const node = await s.find(target, false);
+      if (node) return { id: node.id };
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets`);
+      return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
+    },
     /** The node for a target: a testId (first in preorder) or a view id. */
-    async find(target) {
+    async find(target, required = true) {
       if (target == null) throw new Error(`no view matches ${target}`);
       const t = await s.tree(target, { shallow: true });
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
-      if (!node) throw new Error(`no view matches ${target}`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets`);
       return node;
     },
     /**
@@ -878,7 +1030,23 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
     async tap(target, opts = {}) {
-      const node = await s.find(target);
+      let node;
+      try { node = await s.target(target); }
+      catch (error) { throw await tapRefusal(s, target, error); }
+      if (node.entity !== undefined) {
+        const { entity } = await s.op({ op: 'layout', ...node });
+        if (entity?.visible?.inFrustum === false || entity?.visible?.behindCamera === true) throw new Error(`${target} is ${entity.visible.behindCamera ? 'hidden (behind the camera)' : 'off screen'}: layout ${target} shows the placed box`);
+        const b = entity?.screen;
+        if (!b || ![b.x, b.y, b.w, b.h].every(Number.isFinite)) throw new Error(`${target} has no screen box; layout ${target} shows visibility; state world:* shows camera/components`);
+        const x = b.x + b.w / 2, y = b.y + b.h / 2;
+        const { hit } = await s.op({ op: 'layout', id: node.id, world: true, x, y });
+        if (!hit) throw new Error(`${target} is not hit at ${x},${y}; layout ${target} shows its box; layout ${String(target).split(':')[0]} at ${x} ${y} shows the pick`);
+        if (hit.id !== entity.id) throw new Error(`${target} is behind ${hit.name ?? hit.id} at ${x},${y}; layout ${target} shows its box and layout ${String(target).split(':')[0]}:${hit.name ?? hit.id} shows the blocker`);
+        if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
+        const down = await carrier.input(node.id, 'down', { x, y });
+        const { phase, ...r } = down.delivery === 'unsupported' ? down : await carrier.input(null, 'up', {});
+        return s.tagged({ ...r, tapped: node.id, target, entity: node.entity, at: [x, y], delivery: r.delivery ?? s.input.delivery('down'), carrier: host, mode: timing });
+      }
       // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
       if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
       // A gesture is the platform's, and only the AppKit carrier can phase
@@ -889,10 +1057,13 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       const kind = opts.history !== undefined ? 'history' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
-      if (kind === 'down' && s.contact) throw new Error('a contact is already down; up or cancel it first');
+      if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
-      const r = await carrier.input(node.id, kind, { ...opts, ...at });
+      let r;
+      try { r = await carrier.input(node.id, kind, { ...opts, ...at }); }
+      catch(error) { throw await tapRefusal(s, target, error); }
+      if (r.error) r.error = (await tapRefusal(s, target, new Error(r.error))).message;
       if (kind === 'down' && r.delivery !== 'unsupported') {
         s.contact = r.contact === false ? null : { x: r.at[0], y: r.at[1] };
         if (Number.isFinite(r.clock)) s.now = r.clock;
@@ -909,6 +1080,12 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
      */
     async pointer(phase, opts = {}) {
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+      if (!s.contact && ['up','cancel'].includes(phase)) {
+        const state = await s.state();
+        const contacts = (state.world ?? []).flatMap(w => (w.input?.controlContacts ?? []).filter(c=>c.id<4294967292).map(c=>({...c,canvas:w.canvas})));
+        if (contacts.length === 1) return s.op({op:'tap',id:contacts[0].canvas,contact:contacts[0].id,phase});
+        if (contacts.length > 1) throw new Error('multiple restored contacts; release one with tap and its contact ID');
+      }
       if (!s.contact) throw new Error('no contact is down (tap <target> down first)');
       const r = await carrier.input(null, phase, opts);
       if (r.delivery !== 'unsupported') {
@@ -923,6 +1100,10 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       const node = await s.find(target);
       const options = typeof text === 'object' && text !== null ? text : { text };
       const key = options.key;
+      if (options.for !== undefined) {
+        if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
+        return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.tagged(reply), delivery: s.input.delivery('key'), host, timing });
+      }
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
       return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
@@ -932,13 +1113,29 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
-      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}`);
+      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
       const r = await s.op(req);
       s.now = r.clock;
+      if (req.settle && r.settled === false) r.diagnostic = `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
-    /** The pixels, as a PNG at `path`. On macOS `window: true` asks the window server (Metal layers included). */
-    screenshot: async (path, window = false) => s.tagged(await carrier.screenshot(resolve(path), window)),
+    /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
+    screenshot: async (path, target = false, form) => {
+      if (form === 'save') {
+        if (!['web','macos','ios','linux'].includes(s.host)) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+        const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
+        const {data, ...metadata} = reply;
+        if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes; inspect state and state ${target}:* for the refusal reason`);
+        if (reply.bytes > WORLD_LIMIT || data.length > 4 * Math.ceil(WORLD_LIMIT / 3)) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
+        const bytes = Buffer.from(data, 'base64');
+        if (bytes.length !== reply.bytes) throw new Error(`canvas ${target} returned a truncated save; inspect state and logs; retry screenshot checkpoint.world ${target} save`);
+        writeFileSync(resolve(path), bytes);
+        return s.tagged({...metadata, screenshot:resolve(path)});
+      }
+      if (form !== undefined) throw new Error(`screenshot: unknown form ${form}`);
+      if (typeof target === 'string') return s.op({op:'screenshot', ...await s.target(target), world:true, path:resolve(path)});
+      return s.tagged(await carrier.screenshot(resolve(path), target));
+    },
     /**
      * Every reply carries the runner's `epoch`, `incarnation` and `clock`
      * (LLP 1035.002 D3). A host that answered the operation itself stamps
@@ -958,6 +1155,85 @@ export async function open({ host, plan, size, env, app, session, url, webDist, 
 }
 
 // ---------------------------------------------------------------- the CLI
+
+/** Browser-owned key release carries device identity, never a canvas lookup. */
+export async function browserKey({id, opts, evaluate, ask, call, frame}) {
+  if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
+  const isWorld = await evaluate(`exact.gpu?.wantsInput(${id}) ?? false`);
+  const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
+  if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
+  let code = opts.key, key, vk;
+  if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
+  else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
+  else {
+    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16] }[code];
+    if (!special) throw new Error(`key: unsupported code ${code}`);
+    [key, vk] = special;
+    if (code === 'Shift') code = 'ShiftLeft';
+  }
+  const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+  const release = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', code, key, windowsVirtualKeyCode: vk });
+    await frame();
+    return reply('up');
+  };
+  try {
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, ...(phase === 'down' && key === 'Enter' ? {text:'\r'} : {}) });
+    await frame();
+  } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
+  return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
+}
+
+/** Native key carrier shared by stdio, phone and simulator. */
+export async function nativeKey({id, opts, ask}) {
+  const releaseKey = opts.phase === 'down' && opts.ownedRelease ? randomBytes(16).toString('hex') : undefined;
+  const {ownedRelease, ...input} = opts;
+  const release = async () => {
+    const r = await ask({op:'type', releaseKey, phase:'up'});
+    if (r.error) throw new Error(r.error);
+    return r;
+  };
+  try {
+    const r = await ask({op:'type', id, ...input, ...(releaseKey ? {releaseKey} : {})});
+    if (r.error) throw new Error(r.error);
+    return {...r, ...(releaseKey ? {release} : {})};
+  } catch (error) { if (releaseKey) error.release = release; throw error; }
+}
+
+/** Held-key form: one resolved carrier, including release after a failed clock. */
+export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
+  const {for: duration, ...held} = options, key = String(held.key), steps = [];
+  let release;
+  const send = async phase => {
+    const args = [target, {...held, phase}];
+    try {
+      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase, ownedRelease:true});
+      const {release: ownedRelease, ...r} = result;
+      if (phase === 'down') release = ownedRelease;
+      const reply = await tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
+      steps.push({op:'type', args, reply});
+    } catch (error) { release ??= error.release; steps.push({op:'type', args, error:error.message}); throw error; }
+  };
+  let failure;
+  try {
+    await send('down');
+    const args = [`+${duration}`];
+    try { steps.push({op:'clock', args, reply:await clock(args[0])}); }
+    catch (error) { steps.push({op:'clock', args, error:error.message}); throw error; }
+  } catch (error) { failure = error; }
+  finally { try { await send('up'); } catch (error) { failure ??= error; } }
+  if (failure) { failure.steps = steps; throw failure; }
+  return tagged({typed:node.id, target, key, for:duration, delivery:steps[0].reply.delivery, steps});
+}
+/** Parse the CLI type form without treating an ordinary text suffix as a key. */
+export function typeArguments(args) {
+  if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
+  if (args[3] === 'for') {
+    if (args.length !== 5) throw new Error('type key for: expected one duration');
+    return [args[0], {key:args[2], for:Number(args[4])}];
+  }
+  return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
+}
 
 /**
  * The transcript form (LLP 1012 §7): the one text rendering of a reply, for
@@ -980,17 +1256,21 @@ export function render(op, r) {
   const q = JSON.stringify;
   switch (op) {
     case 'tree': {
+      const entities = Array.isArray(r.entities) ? r.entities : r.nodes?.some((n) => n.components) ? r.nodes : null;
+      if (entities) return [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · tick ${r.tick} · ${entities.length} entities`, ...entities.map((e) => `${'  '.repeat(e.depth ?? 0)}${e.name ?? ''}#${e.id} (${(e.components ?? []).join(', ')})${e.tags?.length ? ' ' + e.tags.join(' ') : ''}`), ...(r.truncated ? ['(truncated)'] : [])].join('\n');
       const lines = [`epoch ${r.epoch} · incarnation ${r.incarnation} · clock ${r.clock} ms · ${r.nodes.length} nodes`];
       const rootDepth = r.nodes[0]?.depth ?? 0;
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.focused ? " [focused]" : ""}${n.accessibleName != null ? ` name=${q(n.accessibleName)}` : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
     }
     case 'layout': {
+      if (r.entity) { const e = r.entity, b = e.screen, p = e.world?.position; return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b && ['x','y','w','h'].every(k => Number.isFinite(b[k])) ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ' · screen unavailable'}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible ? ` · inFrustum ${!!e.visible.inFrustum} · behindCamera ${!!e.visible.behindCamera}` : ''}`; }
+      if (!r.viewport) return q(r);
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
       // `overscroll` is how far a scroller sits past its own ends — a
@@ -1002,9 +1282,12 @@ export function render(op, r) {
       return lines.join('\n');
     }
     case 'logs':
-      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
+      return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':
       return q(r, null, 2);
+    case 'type':
+      if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
+      return q(r);
     default:
       return q(r);
   }
@@ -1127,6 +1410,7 @@ async function main(argv) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
+    else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
@@ -1149,21 +1433,20 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree [target] | layout [target] | state | logs | screenshot <png> [window] | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
+  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
   try {
     for (const line of ops) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree':
-          if (args.length > 1) throw Error('tree accepts at most one target');
-          r = await s.tree(args[0]); break;
-        case 'state': case 'logs': r = await s[op](); break;
-        case 'layout': r = await s.layout(args[0]); break;
-        case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[1] === 'window'); break;
+        case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
+        case 'logs': r = await s.logs(); break;
+        case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
+        case 'screenshot': r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2]); break;
         case 'tap':
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
           // `tap hold`, `tap up`, `tap cancel` only while a contact is down;
@@ -1180,7 +1463,7 @@ async function main(argv) {
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
-        case 'type': r = args[1] === 'key' && args[2] ? await s.type(args[0], { key: args[2] }) : await s.type(args[0], args.slice(1).join(' ')); break;
+        case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
       }
@@ -1193,5 +1476,5 @@ async function main(argv) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { console.error(e.message); process.exit(1); });
+  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (e.steps) console.error(render('type', {steps:e.steps})); console.error(e.message); process.exit(1); });
 }

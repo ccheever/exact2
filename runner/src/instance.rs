@@ -160,8 +160,55 @@ pub struct SurfaceUpdate {
     pub view: ViewId,
     /// The surface's name in the app's GPU module.
     pub name: String,
+    /// The authored call mode survives even when no arguments were supplied.
+    pub mode: exact_plan::SurfaceArgsMode,
+    /// Argument names in source order, or empty for positional arguments.
+    pub names: Vec<String>,
     /// Its arguments, evaluated.
     pub values: Vec<Value>,
+}
+
+impl SurfaceUpdate {
+    /// Positional JSON array or named JSON object consumed by the surface module.
+    /// Host reserialization may reorder keys: transport bytes are never hash inputs.
+    pub fn arguments_json(&self) -> String {
+        fn value_json(value: &Value, out: &mut String) {
+            use std::fmt::Write;
+            match value {
+                Value::Number(n) if n.is_finite() => {
+                    let _ = write!(out, "{n}");
+                }
+                Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
+                Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+                Value::Str(s) => crate::agent::quote(s, out),
+                Value::Option(Some(v)) => value_json(v, out),
+                Value::List(items) | Value::Record(items) => {
+                    out.push('[');
+                    for (i, value) in items.iter().enumerate() {
+                        if i != 0 {
+                            out.push(',');
+                        }
+                        value_json(value, out);
+                    }
+                    out.push(']');
+                }
+            }
+        }
+        let named = self.mode == exact_plan::SurfaceArgsMode::Named;
+        let mut out = String::from(if named { "{" } else { "[" });
+        for (i, value) in self.values.iter().enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            if named {
+                crate::agent::quote(&self.names[i], &mut out);
+                out.push(':');
+            }
+            value_json(value, &mut out);
+        }
+        out.push(if named { '}' } else { ']' });
+        out
+    }
 }
 
 /// What one update needs: the environment and the id allocator, plus the op
@@ -412,12 +459,20 @@ impl NodeInst {
             let s = plan.surface(surface);
             let mut values = Vec::with_capacity(s.args.len as usize);
             for a in s.args.iter() {
-                values.push(u.eval(plan.arg(a).expr, frames)?);
+                values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
             if self.last_surface.as_ref() != Some(&values) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
+                    mode: s.mode,
+                    names: s
+                        .args
+                        .iter()
+                        .map(|a| plan.str(plan.surface_arg(a).name))
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_owned)
+                        .collect(),
                     values: values.clone(),
                 });
                 self.last_surface = Some(values);

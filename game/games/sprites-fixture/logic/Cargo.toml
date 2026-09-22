@@ -1,0 +1,13 @@
+[package]
+workspace = "../.shells"
+name = "sprites-fixture-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+exact-game = { path = "../../../engine" }
+
+[dev-dependencies]
+exact-game-render = { path = "../../../render" }
+exact-game-bake = { path = "../../../bake" }

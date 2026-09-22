@@ -29,6 +29,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, uti
 import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
+import { closeFilesystemReader } from './filesystem.mjs';
 import { publicFileCards, readStaticFile, webContentType } from '../host/web/serve.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
@@ -270,10 +271,10 @@ if (process.argv.includes('--scaling')) {
 // timeout). Every server here sends no-store, so nothing is cached.
 const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
-const step = (name, f) => { const t = Date.now(); const v = f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
+const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).
-step('native', () => {
+await step('native', () => {
   const source = resolve(app.dir, 'web/src/bin/metrics.rs');
   if (!existsSync(source)) {
     Object.assign(out, Object.fromEntries(['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'inherit_ms', 'inherit_touched', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'].map((key) => [key, NaN])));
@@ -287,11 +288,11 @@ step('native', () => {
 
 // 2. The wasm, raw and gzipped — always rebuilt (a warm build is ~1.5 s),
 // so every number below is for the code as it is now.
-step('wasm', () => {
+await step('wasm', async () => {
   const dist = resolve(ROOT, 'host/web/dist');
   const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: ['ignore', 'ignore', 'inherit'] });
   if (b.status !== 0) process.exit(b.status ?? 1);
-  out.web_artifacts = publicFileCards(dist);
+  out.web_artifacts = await publicFileCards(dist).finally(closeFilesystemReader);
   out.web_artifact_id = sha256(JSON.stringify(out.web_artifacts));
   const wasm = readFileSync(resolve(dist, 'app.wasm'));
   out.wasm_bytes = wasm.length;
@@ -307,7 +308,7 @@ step('wasm', () => {
 });
 
 // 3. Boot modules (the fifth check's count).
-step('boot', () => {
+await step('boot', () => {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/boot.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
   out.boot = JSON.parse(r.stdout);
   out.boot_modules = out.boot.modules;
@@ -566,7 +567,7 @@ step('boot', () => {
 
 // 6. Optional: the dev loop without the resident driver — touch app.contract, rebuild the wasm.
 if (rebuild) {
-  step('rebuild', () => {
+  await step('rebuild', () => {
     const source = resolve(app.dir, 'app.contract');
     const now = new Date();
     utimesSync(source, now, now);
@@ -619,7 +620,7 @@ const floorRun = () => {
   out.floor_finish_launching_ms = stampOf('didFinishLaunching') - stampOf('activate');
   out.floor_draw_ms = stampOf('first draw');
 };
-step('macos-boot', () => {
+await step('macos-boot', () => {
   if (!existsSync(macBin)) { out.macos_boot_ms = NaN; out.macos_note = 'not built (bun host/apple/build.mjs)'; return; }
   const built = macBuiltApp();
   if (built !== app.id) { out.macos_boot_ms = NaN; out.macos_note = `binary receipt is for ${built ?? 'an unknown app'}, not ${app.id} (bun host/apple/build.mjs ${app.crate('apple')})`; return; }
@@ -632,7 +633,7 @@ step('macos-boot', () => {
 // swift), then the budget row "touch one line, rebuild that crate" for the
 // host crate — and the startup again on the fresh binary.
 if (long) {
-  step('macos', () => {
+  await step('macos', () => {
     const build = () => {
       const t = Date.now();
       const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple')], { cwd: ROOT, encoding: 'utf8' });
@@ -658,7 +659,7 @@ if (long) {
   // the archive and ExactKit and nothing else — against the empty AppKit app
   // `floor.swift`, installed bytes and gzip apart; each optional artifact
   // (the GPU module, the web arm) reported beside it, never folded in.
-  step('macos-link-delta', () => {
+  await step('macos-link-delta', () => {
     const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
     if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
     assertAppleIdentity(app, macHostBinary);

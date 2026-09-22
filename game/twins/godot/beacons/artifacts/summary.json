@@ -1,0 +1,16 @@
+{
+  "passed": true,
+  "equality": {
+    "same_script": true,
+    "fresh_process_continuation": true
+  },
+  "wall_seconds": 10.096114667,
+  "completed_utc": "2026-09-17T15:58:57.868971+00:00",
+  "state_sha256": {
+    "restored.state": "c9d2b818cdf89a522e11e9d9785608820e99a23f52b2dcc71df25f6da98654d8",
+    "run-a.state": "c9d2b818cdf89a522e11e9d9785608820e99a23f52b2dcc71df25f6da98654d8",
+    "screenshot.state": "c9d2b818cdf89a522e11e9d9785608820e99a23f52b2dcc71df25f6da98654d8",
+    "path-check.state": "c9d2b818cdf89a522e11e9d9785608820e99a23f52b2dcc71df25f6da98654d8",
+    "run-b.state": "c9d2b818cdf89a522e11e9d9785608820e99a23f52b2dcc71df25f6da98654d8"
+  }
+}

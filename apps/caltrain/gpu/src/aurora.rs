@@ -50,7 +50,7 @@ impl AuroraSurface {
 }
 
 impl Surface for AuroraSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [seed] = inputs else {
             return Err(SurfaceError(format!(
                 "aurora: expected 1 input, got {}",
@@ -122,11 +122,15 @@ impl Surface for AuroraSurface {
         true
     }
 
-    fn wants_children(&self) -> bool {
-        true
+    fn children_mode(&self) -> exact_gpu::ChildrenMode {
+        exact_gpu::ChildrenMode::Composite { previous: false }
     }
 
-    fn children(&mut self, texture: Option<&wgpu::TextureView>) {
+    fn children(
+        &mut self,
+        texture: Option<&wgpu::TextureView>,
+        _previous: Option<&wgpu::TextureView>,
+    ) {
         self.children = texture.cloned();
         self.rebind = true;
     }

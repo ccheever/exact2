@@ -34,12 +34,16 @@ final class PlainView: UIView {
 final class ScrollView: UIScrollView {
     var scrollsX = true
     var scrollsY = true
+    override func touchesShouldCancel(in view: UIView) -> Bool {
+        !CanvasInput.owns(view) && super.touchesShouldCancel(in: view)
+    }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === panGestureRecognizer {
             let velocity = panGestureRecognizer.velocity(in: self)
             let location = panGestureRecognizer.location(in: self)
             let translation = panGestureRecognizer.translation(in: self)
             var view = hitTest(CGPoint(x: location.x - translation.x, y: location.y - translation.y), with: nil)
+            if CanvasInput.owns(view) { return false }
             // CSS intersects touch-action from the hit element through the
             // scroll container. It governs initial direction, not reversal.
             while let current = view {
@@ -100,6 +104,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var textLayoutValid = false
     var flowShapes: [TextFlowShape] = []
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
+    var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     var clipPath: CGPath?
@@ -198,6 +203,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var contextRecognizer: UILongPressGestureRecognizer?
     var doubleRecognizer: UITapGestureRecognizer?
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if CanvasInput.owns(touch.view) { return false }
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
@@ -271,6 +277,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var content = CGSize.zero
     /// A canvas node's Metal layer (LLP 1009).
     var metal: MetalView?
+    var canvasInput: CanvasInput?
     /// A canvas's children live here (LLP 1014): laid out by the kernel in
     /// the canvas's box, over the Metal layer; when the surface samples them
     /// they are painted into its children texture and this view composites
@@ -285,6 +292,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// Hit-testing inverts it, nearest child first; accessibility reports the
     /// mapped box.
     var placement: [Double]?
+    private var hiddenBeforePlacement = false
+    var placementHidden = false {
+        didSet {
+            if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
+            if placementHidden { isHidden = true }
+            else if oldValue { isHidden = hiddenBeforePlacement }
+            accessibilityElementsHidden = placementHidden || props["inert"] == "true"
+        }
+    }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
     /// from an older load, or for a view that was destroyed, is dropped.
@@ -316,7 +332,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && !handlers.isDisjoint(with: ["focus", "blur", "key"]) }
+    override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (kind == "button" || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }
         let ok = super.becomeFirstResponder()
@@ -327,12 +343,28 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
         if ok { presenter?.collections.pinsChanged() }
+        if ok { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:true)
+        if presses.isEmpty {return}
+        if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
+        if !disabled, handlers.contains("press"), let key = presses.first?.key,
+           ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
         guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
         presenter?.key(id, NodeView.keyName(key))
+    }
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:false)
+        if presses.isEmpty {return}
+        if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesEnded(presses, with: event) }
+    }
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let presses=pressedControls(presses,down:false)
+        if presses.isEmpty {return}
+        if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
     }
     /// The web's key names for UIKit's.
     static func keyName(_ key: UIKey) -> String {
@@ -480,6 +512,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let prior = swipeHold; swipeHold = nil
         DispatchQueue.main.async { prior?.cancel() }
         presenter?.forgetParagraph(self)
+        cancelSurfaceControls()
+        textParent?.textChildren.removeAll { $0 === self }
+        textParent = nil
+        textChildren.removeAll()
         invalidateText()
         cachedTextLayout = nil
         dropTextRaster()
@@ -651,7 +687,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var placedAncestor: NodeView? {
         var v: UIView? = self
         while let n = v {
-            if let node = n as? NodeView, node.placement != nil { return node }
+            if let node = n as? NodeView, (node.placement != nil || node.placementHidden) { return node }
             if let s = n.superview as? PlainView, let c = s.superview as? NodeView, c.overlay === s { return nil }
             v = n.superview
         }
@@ -705,8 +741,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if placedAncestor?.placementHidden == true { return nil }
         if let clipPath, !clipPath.contains(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
+        if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
         // UIKit's default rejects a view when alpha is near zero. CSS opacity
         // changes painting, not hit participation, so walk the ordinary
         // subtree ourselves without consulting alpha.
@@ -733,19 +771,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             return bounds.contains(point) ? self : nil
         }
         guard let overlay else { return ordinary() }
-        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil }
+        let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
         guard !placed.isEmpty else { return ordinary() }
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+        // Ordinary HUD paints above the captured children, so it hits first.
+        let inOverlay = overlay.convert(point, from: self)
+        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+            if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
+        }
         // Nearest first: what is seen on top is what a tap reaches.
-        for child in placed.sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
+        for child in placed.reversed().sorted(by: { ($0.placement?[9] ?? 0) > ($1.placement?[9] ?? 0) }) {
             guard let h = child.placement, let inv = NodeView.invert(h) else { continue }
             let p = NodeView.map(inv, point)
             guard child.bounds.contains(p) else { continue }
             if let hit = child.hitTest(p, with: event) { return hit }
-        }
-        let inOverlay = overlay.convert(point, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil {
-            if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
         }
         return self
     }
@@ -755,6 +794,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// agent's `layout` reports.
     override var accessibilityFrame: CGRect {
         get {
+            if placedAncestor?.placementHidden == true { return .zero }
             guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
             let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
             let xs = corners.map { $0.x }, ys = corners.map { $0.y }
@@ -964,6 +1004,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var pendingScrollLeft: Double? { didSet { presenter?.pendingScrolls.insert(id) } }
     var pendingScrollTop: Double? { didSet { presenter?.pendingScrolls.insert(id) } }
     func applyProps(set: [String: String], clear: [String]) {
+        if clear.contains("action") { cancelSurfaceControls() }
         if clear.contains("scrollLeft") { pendingScrollLeft = nil }
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
@@ -1225,6 +1266,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
         guard !disabled else { pressed = false; return }
         if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
@@ -1233,9 +1275,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
         if !pressed { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
         guard !disabled else { pressed = false; inlinePressed = nil; return }
         if let run = inlinePressed {
             inlinePressed = nil
@@ -1249,10 +1293,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // loses it, as a click on a button blurs a page's input.
         let inside = touches.first.map { bounds.contains(local($0.location(in: nil))) } ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
-        if inside, presenter?.views[id] === self { presenter?.press(id) }
+        if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
 
@@ -1264,6 +1309,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
         guard let target = activationTarget(at: windowPoint) else { return nil }
+        if target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
         target.presenter?.press(target.id)
         return target
     }
@@ -1273,7 +1319,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var v: UIView? = self
         while let cur = v {
             if let n = cur as? NodeView, n.disabled { return nil }
-            if let n = cur as? NodeView, n.handlers.contains("press") {
+            if let n = cur as? NodeView, (n.handlers.contains("press") || n.isSurfaceControl) {
                 guard n.bounds.contains(n.local(windowPoint)) else { return nil }
                 return n
             }

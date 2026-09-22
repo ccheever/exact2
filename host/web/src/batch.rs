@@ -282,21 +282,14 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"surface","id":…,"name":…,"values":[…]}` — a canvas's inputs
-    /// (LLP 1009 D2): plan values as JSON — numbers, strings, booleans,
-    /// `null` for unit and `none`, lists, records as positional lists.
-    pub fn surface(&mut self, id: u32, name: &str, values: &[exact_plan::Value]) {
+    /// A canvas binding, preserving positional values or authored argument names.
+    pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{id},\"name\":");
-        quote(name, &mut s);
-        s.push_str(",\"values\":[");
-        for (i, v) in values.iter().enumerate() {
-            if i > 0 {
-                s.push(',');
-            }
-            value_json(v, &mut s);
-        }
-        s.push_str("]}");
+        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);
+        quote(&update.name, &mut s);
+        s.push_str(",\"values\":");
+        s.push_str(&update.arguments_json());
+        s.push('}');
         self.ops.push(s);
     }
 
@@ -306,6 +299,45 @@ impl Batch {
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
         if let Some(message) = request_refusal(&r.request) {
             self.refuse(r.ticket, message);
+            return;
+        } else if let Some(work) = r.request.surface.as_deref() {
+            let (mode, name, bytes) = match work {
+                exact_runner::SurfaceRequest::Capture { name } => ("capture", name, None),
+                exact_runner::SurfaceRequest::Restore { name, bytes } => {
+                    ("restore", name, Some(bytes.as_slice()))
+                }
+            };
+            let mixed = r.request.continuation.is_some()
+                || r.request.storage.is_some()
+                || r.request.method != "GET"
+                || !r.request.url.is_empty()
+                || !r.request.headers.is_empty()
+                || !r.request.body.is_empty();
+            let oversized =
+                bytes.is_some_and(|bytes| bytes.len() > exact_runner::MAX_HOST_WORK_BYTES);
+            let mut s = format!(
+                "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{mode}\",\"name\":",
+                r.ticket
+            );
+            quote(name, &mut s);
+            s.push_str(",\"scope\":");
+            if let Some(scope) = &r.request.grants {
+                quote(scope, &mut s)
+            } else {
+                s.push_str("null")
+            }
+            if let Some(bytes) = bytes.filter(|_| !mixed && !oversized) {
+                s.push_str(",\"body\":\"");
+                s.push_str(&exact_runner::agent::base64(bytes));
+                s.push('"');
+            }
+            if oversized {
+                s.push_str(",\"refusal\":\"surface restore exceeds 16 MiB\"");
+            } else if mixed {
+                s.push_str(",\"refusal\":\"surface request combines multiple host-work kinds\"");
+            }
+            s.push('}');
+            self.ops.push(s);
             return;
         }
         if let Some(token) = r.request.continuation {

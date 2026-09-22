@@ -11,7 +11,6 @@ const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationK
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
-// A completed pop and Escape use the same live, selected control (1035.001 D1/D2).
 function pressBack(nav) {
   const route = selectedRoute(nav);
   if (!route || ["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return;
@@ -21,8 +20,6 @@ function pressBack(nav) {
 }
 
 function go(to, from, finish = () => {}) {
-  // A second popstate can already have arrived while an echo was pending.
-  // Restore from the browser's *current* position, not the queued event's.
   const index = browserIndex();
   const current = index !== null && originIndex !== null ? index - originIndex : from;
   if (to === current) { finish(); return; }
@@ -30,8 +27,6 @@ function go(to, from, finish = () => {}) {
   history.go(to - current);
 }
 
-// D7's commit table. Intervening *removed ids*, never URL equality or DOM
-// differences, distinguish a pop from a tab switch or a newly opened chain.
 function commit(op) {
   for (const id of op.removed) gone.add(id);
   if (first === null) {
@@ -55,8 +50,6 @@ function commit(op) {
         return;
       }
     }
-    // Accepted entries from before this boot can have negative indices.
-    // Array.length/splice do not account for those indexed properties.
     for (const index of Object.keys(written)) if (Number(index) > cursor) delete written[index];
     written.length = Math.max(0, cursor + 1);
     written[++cursor] = stamp(cursor, op);
@@ -64,8 +57,6 @@ function commit(op) {
   }
 }
 
-// D7's popstate table. Hold a synchronous router op until we distinguish
-// acceptance of this traversal from a separate change the app chose.
 function popped({ j, state, url }) {
   const entry = written[j];
   const owned = entry && state?.exact === j && state.id === entry.id && state.url === entry.url;
@@ -85,8 +76,6 @@ function popped({ j, state, url }) {
       written[cursor] = stamp(cursor, last);
       go(cursor, j ?? cursor, () => history.replaceState(written[cursor], "", location.origin + written[cursor].url));
     } else if (pop.op) {
-      // The action changed the router elsewhere. Restore before mirroring
-      // its commit so the browser cursor and the value share a base again.
       const op = pop.op;
       if (j !== null && j !== cursor) go(cursor, j, () => commit(op));
       else {
@@ -130,9 +119,6 @@ export const navigation = {
         const finish = echo.finish; echo = null; finish(); drain(); settled(); return;
       }
       queue.push({ j, state: event.state, url: location.pathname + location.search });
-      // A newer browser traversal can cancel an outstanding go. Reissue
-      // the absolute destination from this new position; do not wait for
-      // an echo the browser will no longer send.
       if (echo !== null) {
         const pending = echo; echo = null;
         go(pending.index, j ?? cursor, pending.finish);
@@ -142,7 +128,6 @@ export const navigation = {
     document.addEventListener("keydown", event => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (!root.contains(event.target) && event.target !== document.body && event.target !== document.documentElement) return;
-      // The browser's top layer gets first refusal of Escape.
       if (document.querySelector("dialog:modal") || [...document.querySelectorAll(":popover-open")].some(p => p.popover === "auto" || p.popover === "hint")) return;
       for (const nav of root.querySelectorAll("[navigationBack]")) {
         if (!["modal", "fullscreen"].includes(selectedRoute(nav)?.getAttribute("navigationPresentation"))) continue;
@@ -152,8 +137,6 @@ export const navigation = {
   },
   reset(op = null) {
     refused = new WeakMap();
-    // An in-document reboot carries the router, not the rebuilt DOM ids.
-    // Its first op proves whether our browser cursor still names its top.
     if (op && written[cursor]?.id === op.top) return;
     last = null;
     written = []; gone = new Set(); cursor = 0; first = null; originIndex = null;
@@ -170,7 +153,6 @@ export const navigation = {
     if (nav !== root.querySelector("[navigationBack]")) return { error: "history target is not the navigation root" };
     if (!Number.isInteger(delta) || delta === 0) return { error: "history must be a nonzero integer" };
     return new Promise(resolve => {
-      // Out-of-range history.go is a browser no-op, with no popstate.
       const timer = setTimeout(finish, 1000);
       function finish() {
         clearTimeout(timer); waiters.delete(finish);
@@ -220,8 +202,6 @@ export const navigation = {
 };
 
 // @ref LLP 1010 §6 — committed DOM projection, alongside navigation above.
-// Keep this in the existing host controller module: the boot graph stays two files.
-// The runner alone selects/mounts rows; the host reports only live geometry.
 export function collectionBytes(facts) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
@@ -246,7 +226,6 @@ export function collectionBytes(facts) {
   return bytes;
 }
 
-// Apply committed geometry before interpreting the collection call's outcome.
 export function applyCollectionFeedback(batch, applyBatch) {
   applyBatch(batch);
   return batch.accepted === true;
@@ -276,8 +255,6 @@ export function collectionController({ root, views, report, settled=()=>{},
       rowWidth: s.el.clientWidth - number(css.paddingLeft) - number(css.paddingRight) };
   }
   function liveView(s, element) {
-    // Only authored descendants of a live wrapper can pin. No logical lookup
-    // or manufactured offscreen selection/search result exists in the DOM host.
     let owner;
     for (let at = element; at && at !== root; at = at.parentElement) {
       if ((owner = rowOwners.get(at))) break;
@@ -314,9 +291,6 @@ export function collectionController({ root, views, report, settled=()=>{},
   }
   function flush(beforePaint = false) {
     if (!beforePaint) { frame = null; reportsLeft = 4; }
-    // One queued frame, at most four reports/frame and two dependent passes
-    // per external stimulus or new measurement epoch. Retire pins before replacements,
-    // including when focus/interaction swap owners in the same turn.
     const attempted = new Set();
     for (let pass = 0; pass < 4 && reportsLeft > 0; pass++) {
       const releases = [...states.values()].filter(retiring);
@@ -342,8 +316,6 @@ export function collectionController({ root, views, report, settled=()=>{},
           return { view: row.view, epoch: row.epoch, height: rect.height };
         });
       } else if (releases.includes(s)) {
-        // A hidden/partially attached former owner can release with its last
-        // real geometry and no measurements; this never admits a new pin.
         g = { raw: old.scroll_top, width: old.port_width, height: old.port_height, rowWidth: old.row_width };
       } else continue;
       scrollChanged(s);
@@ -353,26 +325,18 @@ export function collectionController({ root, views, report, settled=()=>{},
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
         scroll_top: Math.max(0, g.raw), port_width: g.width, port_height: g.height, row_width: g.rowWidth,
         focus_view: pins[0], interaction_view: pins[1], measurements };
-      // Revision alone is not a stimulus: stale feedback and repeated snapshots
-      // cannot cause a loop. Changed wrapper epochs, pins or geometry can.
       const signature = [facts.scroll_top, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.height])].join('|');
-      // Even identical feedback settles deferred row baselines (width is not
-      // part of a row measurement). Keep samples local to this DOM pass.
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature) continue;
       let bytes;
       try { bytes = collectionBytes(facts); } catch { continue; }
       s.budget--; reportsLeft--;
       for (const el of s.observed.keys()) if (!measuredSizes.has(el)) s.observed.set(el, size(el));
-      // Samples belong to this DOM pass only; report can synchronously replace rows.
       measuredSizes.clear();
       delivering = true;
       let accepted;
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
-      // The synchronous Rust call consumes the current revision/epochs. A
-      // rejected report retains the reservation; an edge-action refusal after
-      // accepted geometry must release it, despite the surfaced action error.
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
         if(!notification){notification=true;queueMicrotask(()=>{notification=false;settled();});}
@@ -1452,4 +1416,65 @@ export function renderMarkup(el, json) {
     if (flags & 8 && href) span.href = href;
     el.appendChild(span);
   }
+}
+
+export function focusController({ready, elements, inert}) {
+  const processed = new WeakSet();
+  let pointerTarget = null;
+  const autofocus = () => {
+    if (!ready()) return;
+    for (const el of elements()) {
+      if (processed.has(el) || !el.exactAutofocus || !el.getClientRects().length || inert(el) || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;
+      processed.add(el); // Once per mount, including a refused autofocus.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== pointerTarget && !(active.matches('[data-gpu-input]') && active.contains(el))) return;
+      el.setAttribute('autofocus', ''); el.focus(); return;
+    }
+  };
+  return {autofocus, press(event, el, dispatch) {
+    event.stopPropagation();
+    const canvas = el.closest('[data-gpu-input]');
+    const previous = pointerTarget;
+    pointerTarget = event.detail > 0 ? el : null;
+    try {
+      dispatch(); // Blur handlers must not retire the press target before dispatch.
+      const removed = !el.isConnected && document.activeElement === document.body;
+      if (el instanceof HTMLButtonElement && ((pointerTarget && document.activeElement === el) || removed) && el.getAttribute('role') !== 'slider' && !el.hasAttribute('data-action')) {
+        if (canvas?.isConnected) {event.preventDefault();canvas.focus({preventScroll:true});pointerTarget=canvas;}
+      }
+      autofocus();
+    } finally {pointerTarget = previous;}
+  }};
+}
+
+
+export function installShortcuts(root, ready) {
+// App-declared ARIA shortcuts activate the same mounted buttons as a click.
+// Browsers may reserve a chord before it reaches the page (notably Meta+N).
+document.addEventListener("keydown", (event) => {
+  if (event.isComposing || !ready() || event.defaultPrevented) return;
+  const matches = (chord) => {
+    const parts = chord.split("+");
+    const key = parts.pop();
+    const modifiers = new Set(parts);
+    if (key === "Escape" && !parts.length) return event.key === "Escape"
+      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
+      && (modifiers.has("Meta") || modifiers.has("Control"))
+      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
+      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
+      && event.key.toLowerCase() === key.toLowerCase();
+  };
+  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
+    const modal = document.activeElement.closest("dialog:modal");
+    if (modal && !modal.contains(el)) continue;
+    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat && !el.disabled) el.click();
+    return;
+  }
+}, true);
+
 }

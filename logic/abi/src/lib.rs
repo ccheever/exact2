@@ -7,12 +7,13 @@ use exact_plan::{
 };
 use exact_runner::{
     Answer, DataError, DataSource, FailureKind, HttpScheduling, Outcome, Request, Response, Store,
+    SurfaceOutcome, SurfaceRequest,
 };
 
 /// Seam version, independent of the plan format version.
-pub const ABI: u32 = 2;
+pub const ABI: u32 = 3;
 /// Maximum request or response bytes, enforced on both sides.
-pub const MAX_MESSAGE: usize = 16 << 20;
+pub const MAX_MESSAGE: usize = exact_runner::MAX_HOST_WORK_BYTES;
 
 fn error(e: impl std::fmt::Debug) -> String {
     format!("logic ABI: {e:?}")
@@ -111,6 +112,11 @@ fn encode_outcome(w: &mut Writer, outcome: &Outcome) {
             w.u8(5);
             bytes(w, payload);
         }
+        Outcome::Surface(SurfaceOutcome::Captured(payload)) => {
+            w.u8(6);
+            bytes(w, payload);
+        }
+        Outcome::Surface(SurfaceOutcome::Restored) => w.u8(7),
         Outcome::Response(r) => {
             w.u8(0);
             w.u16(r.status);
@@ -139,6 +145,14 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
     }
     if tag == 5 {
         return Ok(Outcome::Storage(read_bytes(r)?.to_vec()));
+    }
+    if tag == 6 {
+        return Ok(Outcome::Surface(SurfaceOutcome::Captured(
+            read_bytes(r)?.to_vec(),
+        )));
+    }
+    if tag == 7 {
+        return Ok(Outcome::Surface(SurfaceOutcome::Restored));
     }
     let kind = match tag {
         1 => FailureKind::Network,
@@ -169,13 +183,43 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             w.u8(0);
             v.encode(w);
         }
-        Ok(Answer::Later(r)) if r.continuation.is_none() && r.storage.is_some() => {
+        Ok(Answer::Later(r))
+            if r.continuation.is_none()
+                && r.storage.is_none()
+                && r.surface.is_some()
+                && r.method == "GET"
+                && r.url.is_empty()
+                && r.headers.is_empty()
+                && r.body.is_empty() =>
+        {
+            match r.surface.as_deref().unwrap() {
+                SurfaceRequest::Capture { name } => {
+                    w.u8(6);
+                    w.string(name);
+                }
+                SurfaceRequest::Restore {
+                    name,
+                    bytes: payload,
+                } => {
+                    w.u8(7);
+                    w.string(name);
+                    bytes(w, payload);
+                }
+            }
+            w.u8(u8::from(r.grants.is_some()));
+            w.string(r.grants.as_deref().unwrap_or(""));
+        }
+        Ok(Answer::Later(r))
+            if r.continuation.is_none() && r.surface.is_none() && r.storage.is_some() =>
+        {
             w.u8(5);
             bytes(w, r.storage.as_ref().unwrap());
             w.u8(u8::from(r.grants.is_some()));
             w.string(r.grants.as_deref().unwrap_or(""));
         }
-        Ok(Answer::Later(r)) if r.continuation.is_none() => {
+        Ok(Answer::Later(r))
+            if r.continuation.is_none() && r.surface.is_none() && r.storage.is_none() =>
+        {
             // Additive HTTP result kind. Older hosts reject tag 6 before
             // executing effects; it must never silently decode as ordered.
             match r.http {
@@ -192,10 +236,16 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
             pairs(w, &r.headers);
             bytes(w, &r.body);
         }
-        Ok(Answer::Later(_)) => encode_result(
+        Ok(Answer::Later(r)) if r.continuation.is_some() => encode_result(
             w,
             Err(DataError::Unavailable(
                 "executor-local continuations cannot cross the Rust module seam".into(),
+            )),
+        ),
+        Ok(Answer::Later(_)) => encode_result(
+            w,
+            Err(DataError::Unavailable(
+                "request combines multiple host-work kinds".into(),
             )),
         ),
         Err(e) => {
@@ -227,6 +277,7 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
             },
             continuation: None,
             storage: None,
+            surface: None,
             grants: {
                 let present = r.u8().map_err(error)?;
                 let s = r.string().map_err(error)?;
@@ -246,6 +297,26 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
             let present = r.u8().map_err(error)?;
             let scope = r.string().map_err(error)?;
             let mut request = Request::storage(payload);
+            request.grants = match present {
+                0 => None,
+                1 => Some(scope),
+                _ => return Err("invalid grant scope tag".into()),
+            };
+            Ok(Answer::Later(request))
+        }
+        tag @ (6 | 7) => {
+            let name = r.string().map_err(error)?;
+            let payload = if tag == 7 {
+                Some(read_bytes(r)?.to_vec())
+            } else {
+                None
+            };
+            let present = r.u8().map_err(error)?;
+            let scope = r.string().map_err(error)?;
+            let mut request = match payload {
+                Some(bytes) => Request::restore_surface(name, bytes),
+                None => Request::capture_surface(name),
+            };
             request.grants = match present {
                 0 => None,
                 1 => Some(scope),

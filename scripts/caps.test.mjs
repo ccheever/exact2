@@ -439,33 +439,33 @@ for (const [name, html, files, expectCode, expect] of [
   const planDigest = createHash('sha256').update(plan).digest('hex');
   writeFileSync(join(dir, 'app.wasm'), 'wasm');
   writeFileSync(join(dir, 'exact.json'), JSON.stringify({ exact: 1, app: { id, name: app.displayName }, plan: { url: './app.plan', sha256: planDigest, bytes: plan.length } }));
-  result('dev startup rejects an incomplete dist', !builtAppMatches(dir, app));
+  result('dev startup rejects an incomplete dist', !await builtAppMatches(dir, app));
   writeFileSync(join(dir, 'app.plan'), plan);
   for (const name of ['glue.js', 'navigation.js']) writeFileSync(join(dir, name), '');
   writeFileSync(join(dir, 'index.html'), '');
   writeFileSync(join(dir, 'manifest.json'), '{}');
   writeFileSync(join(dir, '.exact-build.json'), JSON.stringify({ exactBuild: 1,
     app: { id, name: app.displayName }, manifestSha256: appManifestDigest(app),
-    files: publicFileCards(dir) }));
-  const complete = builtAppMatches(dir, app);
-  const staleName = !builtAppMatches(dir, { ...app, displayName: 'Renamed' });
-  const staleManifest = !builtAppMatches(dir, { ...app, manifest: { ...app.manifest, theme_color: '#000000' } });
+    files: await publicFileCards(dir) }));
+  const complete = await builtAppMatches(dir, app);
+  const staleName = !await builtAppMatches(dir, { ...app, displayName: 'Renamed' });
+  const staleManifest = !await builtAppMatches(dir, { ...app, manifest: { ...app.manifest, theme_color: '#000000' } });
   const wasm = readFileSync(join(dir, 'app.wasm'));
   writeFileSync(join(dir, 'app.wasm'), 'another app');
-  const replacedWasm = !builtAppMatches(dir, app);
+  const replacedWasm = !await builtAppMatches(dir, app);
   writeFileSync(join(dir, 'app.wasm'), wasm);
   writeFileSync(join(dir, 'glue.js'), 'truncated');
-  const changedRuntime = !builtAppMatches(dir, app);
+  const changedRuntime = !await builtAppMatches(dir, app);
   writeFileSync(join(dir, 'glue.js'), '');
   const named = JSON.parse(readFileSync(join(dir, 'exact.json'), 'utf8'));
   delete named.app.id;
   writeFileSync(join(dir, 'exact.json'), JSON.stringify(named));
-  const missingEnvelopeId = !builtAppMatches(dir, app);
+  const missingEnvelopeId = !await builtAppMatches(dir, app);
   const unnamedPlanRefused = await rejects(() => webEnvelope(app, Buffer.alloc(36), []), error => error.message.includes('nonempty app id'));
   writeFileSync(join(dir, 'app.plan'), 'corrupt');
   result('dev startup identifies only a complete coherent named app build', complete && staleName
     && staleManifest && replacedWasm && changedRuntime && missingEnvelopeId
-    && unnamedPlanRefused && !builtAppMatches(dir, app));
+    && unnamedPlanRefused && !await builtAppMatches(dir, app));
   rmSync(dir, { recursive: true, force: true });
 }
 // The completion marker is build-private. The exact same public inventory

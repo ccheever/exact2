@@ -51,7 +51,7 @@ fn input(value: &Value, name: &str, maximum: f64) -> Result<f32, SurfaceError> {
 }
 
 impl Surface for WeatherSurface {
-    fn bind(&mut self, inputs: &[Value]) -> Result<(), SurfaceError> {
+    fn bind(&mut self, inputs: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
         let [cloud, rain, daylight, hour, wind, animated] = inputs else {
             return Err(SurfaceError(format!(
                 "weather: expected 6 inputs, got {}",
@@ -146,10 +146,6 @@ impl Surface for WeatherSurface {
         }
         queue.submit([encoder.finish()]);
         self.animated
-    }
-
-    fn wants_children(&self) -> bool {
-        false
     }
 }
 
@@ -250,9 +246,11 @@ mod tests {
             scale: 1.0,
             now_ms: 1_789_000_000_000.0,
             children_generation: 0,
+            seekable: false,
+            period_ms: 0.0,
             shader_generation: exact_gpu::shaders::shader_generation(),
         };
-        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, true)).unwrap();
+        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, true), None).unwrap();
         let (day, animated) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         assert!(animated);
         day.save("weather-day");
@@ -265,7 +263,8 @@ mod tests {
                 .any(|x| day.at(x, y) != moving.at(x, y))),
             "clouds must move even when the host clock is an epoch timestamp"
         );
-        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, false)).unwrap();
+        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, false), None)
+            .unwrap();
         frame.now_ms += 100.0;
         let (paused_moving, animated) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         assert!(!animated);
@@ -277,7 +276,7 @@ mod tests {
         let (still_paused, animated) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         assert!(!animated);
         assert_eq!(paused_moving.data, still_paused.data);
-        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, true)).unwrap();
+        sky.bind(&inputs(45.0, 0.0, 1.0, 14.0, true), None).unwrap();
         frame.now_ms += 30_000.0;
         let (resumed, animated) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         assert!(animated);
@@ -292,14 +291,15 @@ mod tests {
             resumed.data, moving_again.data,
             "resumed clouds move on the next clock"
         );
-        sky.bind(&inputs(45.0, 0.0, 0.0, 23.0, true)).unwrap();
+        sky.bind(&inputs(45.0, 0.0, 0.0, 23.0, true), None).unwrap();
         let (night, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         night.save("weather-night");
         assert!(day.at(20, 200)[1] > night.at(20, 200)[1]);
-        sky.bind(&inputs(45.0, 0.0, 1.0, 18.5, true)).unwrap();
+        sky.bind(&inputs(45.0, 0.0, 1.0, 18.5, true), None).unwrap();
         let (dusk, _) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         dusk.save("weather-dusk");
-        sky.bind(&inputs(95.0, 4.0, 1.0, 14.0, false)).unwrap();
+        sky.bind(&inputs(95.0, 4.0, 1.0, 14.0, false), None)
+            .unwrap();
         let (paused, animated) = fixture::render(&gpu, &mut sky, &frame).unwrap();
         assert!(!animated);
         paused.save("weather-rain");

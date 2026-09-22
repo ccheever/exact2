@@ -1044,7 +1044,17 @@ impl Parser {
     fn call_args(&mut self) -> R<Vec<Expr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
-            out.push(self.expr()?);
+            let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
+                && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
+            {
+                let (name, span) = self.ident()?;
+                self.next();
+                let value = self.expr()?;
+                Expr::NamedArg(name, Box::new(value), span)
+            } else {
+                self.expr()?
+            };
+            out.push(arg);
             if !self.eat_punct(",") {
                 break;
             }

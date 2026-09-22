@@ -270,6 +270,7 @@ fn request_from_json(text: &str) -> Result<Request, String> {
         },
         continuation: None,
         storage: None,
+        surface: None,
         grants: None,
         method: field("method").ok_or("no method")?,
         url: field("url").ok_or("no url")?,
@@ -282,6 +283,9 @@ fn outcome_to_json(outcome: &Outcome) -> Json {
     match outcome {
         Outcome::Storage(_) => {
             json!({"failed":{"kind":"Unsupported","message":"storage result supplied to a fetch continuation"}})
+        }
+        Outcome::Surface(_) => {
+            json!({"failed":{"kind":"Unsupported","message":"surface result supplied to a fetch continuation"}})
         }
         Outcome::Response(r) => json!({
             "response": {
@@ -486,7 +490,8 @@ impl Module {
     }
 
     /// Drop the runtime; answers are `Unavailable` until the next
-    /// [`Module::load`], and every answer in flight is forgotten.
+    /// [`Module::load`], and every answer in flight is forgotten. Already-started
+    /// external effects may finish; unloading does not wait for them.
     pub fn unload(&mut self) {
         if let Some(mut engine) = self.engine.take() {
             self.logs.extend(engine.take_log());

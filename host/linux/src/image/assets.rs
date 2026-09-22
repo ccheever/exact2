@@ -72,6 +72,22 @@ impl Assets {
         }
     }
 
+    /// A module's one-shot asset delivery; errors remain distinct from tombstones.
+    pub fn read_asset(&self, name: &str) -> Result<Option<Arc<[u8]>>, String> {
+        if !Self::relative(name) {
+            return Err("invalid asset name".into());
+        }
+        if let Some(selected) = &self.selected {
+            return selected(name);
+        }
+        let Some(path) = self.path(name) else {
+            return Ok(None);
+        };
+        std::fs::read(path)
+            .map(|b| Some(Arc::from(b)))
+            .map_err(|e| e.to_string())
+    }
+
     pub(super) fn image_input(&self, name: &str) -> Option<ImageInput> {
         if !Self::relative(name) {
             return None;

@@ -15,7 +15,7 @@
  * exact_out(rt) reports; the app reads a UTF-8 JSON batch from it:
  *   {"ops":[...],"timers":bool,"motion":bool,"clock":ms,"error":null|"..."}
  * with ops create / props / style / children / destroy / roots / frame /
- * content / present / surface / command (host/apple/src/batch.rs).
+ * content / present / surface / surfaceWork / command (host/apple/src/batch.rs).
  *
  * Text measurement and the plan-scoped font catalog are the calls the other
  * way, set per runtime before its first boot: exact_set_measure registers
@@ -227,6 +227,10 @@ void exact_discard_plan(ExactRuntime rt);
  * commits (empty when none). A request the app sends (LLP 1016) runs on the
  * library's own executor thread — ibex2::host — never through the host. */
 uint32_t exact_pump(ExactRuntime rt, double now_ms);
+/* Presenter-owned surface work uses the ordinary runner ticket. Kinds are
+ * 2 refused, 3 unsupported, 4 aborted, 6 captured bytes, 7 restored. */
+uint8_t exact_request_active(ExactRuntime rt, uint64_t ticket);
+uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, size_t len, double now_ms);
 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */
@@ -258,6 +262,8 @@ uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
 uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double vx, double vy, double now_ms);
 uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
+/* Input: name alone clears; name NUL JSON publishes a current record. */
+uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).

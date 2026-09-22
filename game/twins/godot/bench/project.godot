@@ -1,0 +1,17 @@
+; The Godot twin of game/bench: the same scenes, measured the same way.
+; Diagnostic, never a check (LLP 1041.000 §6a).
+config_version=5
+
+[application]
+config/name="exact2 bench twin"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.7")
+
+[display]
+window/size/viewport_width=2560
+window/size/viewport_height=1440
+window/dpi/allow_hidpi=true
+window/vsync/vsync_mode=1
+
+[rendering]
+anti_aliasing/quality/msaa_3d=2

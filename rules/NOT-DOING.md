@@ -104,6 +104,15 @@ dependency-free evaluation fails and Charlie says so.
 captioned figures — no camera, no generic file input. Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
+**Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
+`lane/game` as an optional add-on, with a full-screen Weird Castle demo.
+`game/` is a separate Cargo workspace; games opt in through their GPU artifact,
+loaded after first paint. No core crate depends on the engine, renderer, physics
+or audio. The core gains only canvas input, state publication, inspection and
+save/restore seams. Take: further standalone showcase work waits behind this
+consumer; no default engine linkage, core feature matrix or extra blocking gate.
+See LLP 1046 §5 and LLP 1046.003.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

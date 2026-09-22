@@ -11,7 +11,6 @@
 //! it, then up to the nearest node with a `press` handler, the path a click
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
-
 use crate::gpu::Gpu;
 use crate::host::{Host, HostError};
 use crate::image::AssetResolver;
@@ -53,6 +52,7 @@ mod retained_action;
 mod swipe;
 mod transform;
 mod transform_geometry;
+mod typing;
 
 #[cfg(test)]
 #[path = "presenter/collection_tests.rs"]
@@ -64,7 +64,8 @@ mod swipe_tests;
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
-    host: Host<D>,
+    pub(crate) host: Host<D>,
+    pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
     activation_failed: bool,
@@ -72,22 +73,25 @@ pub struct Presenter<D: DataSource> {
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
     text: Shared,
-    brush: Painter,
+    pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
     page: (f32, f32),
     images: Images,
-    assets: Assets,
+    pub(crate) assets: Assets,
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
-    compat: String,
-    focus: Option<ViewId>,
+    pub(crate) compat: String,
+    pub(crate) focus: Option<ViewId>,
+    autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
+    pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
+    pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
-    dirty: bool,
+    pub(crate) dirty: bool,
     /// A failed painter's blank fallback cannot bless an update generation.
     last_frame_succeeded: bool,
-    display: display_frame::State,
+    pub(crate) display: display_frame::State,
     /// Which painter was asked for (`Auto` may change its mind after a
     /// failed frame).
     choice: PainterChoice,
@@ -120,12 +124,10 @@ pub struct Presenter<D: DataSource> {
     last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
 }
-
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
-
 /// Which backend paints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PainterChoice {
@@ -136,7 +138,6 @@ pub enum PainterChoice {
     /// tiny-skia.
     Cpu,
 }
-
 impl PainterChoice {
     /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
     pub fn from_env() -> PainterChoice {
@@ -357,9 +358,13 @@ impl<D: DataSource> Presenter<D> {
             assets,
             compat: String::new(),
             focus: None,
+            autofocus_processed: Default::default(),
             pointer: None,
+            control_contact: None,
+            control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             dirty: true,
+            surfaces: Default::default(),
             module: None,
             painted: false,
             activation_failed: false,
@@ -589,6 +594,7 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
+        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = text.clone();
@@ -693,8 +699,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let module = module.or_else(|| self.module.clone());
         let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        // Fonts are candidate state too. Keep the running plan's catalog and
-        // caches untouched until its runner has booted successfully.
+        // Preserve live font state until the candidate runner boots successfully.
         let candidate_text = TextEngine::shared_for_assets(&decoded, &self.assets);
         if let Some(reason) = self.assets.take_refusal() {
             return Err(HostError::Asset(reason));
@@ -724,6 +729,7 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
+        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = candidate_text.clone();
@@ -789,7 +795,7 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
-    /// The last frame's (encode + render, readback) milliseconds, on the GPU.
+    /// The last frame's (paint, readback) milliseconds; CPU readback is zero.
     pub fn last_frame_ms(&self) -> Option<(f64, f64)> {
         self.brush.last_frame_ms()
     }
@@ -819,7 +825,7 @@ impl<D: DataSource> Presenter<D> {
     /// After anything that may have committed: images follow the tree,
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
-    fn after_commit(&mut self) -> Option<String> {
+    pub(crate) fn after_commit(&mut self) -> Option<String> {
         self.dirty = true;
         self.finish_commit()
     }
@@ -848,7 +854,13 @@ impl<D: DataSource> Presenter<D> {
         if !self.host.has_ordered_request_refusals() {
             self.executor.resume_ordered();
         }
+        self.cancel_removed_controls();
+        let admitted = self.host.grants();
         for r in self.host.take_requests() {
+            if r.request.surface.is_some() {
+                self.surfaces.enqueue(r, &admitted);
+                continue;
+            }
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None => {
@@ -887,6 +899,39 @@ impl<D: DataSource> Presenter<D> {
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
+        let live: std::collections::BTreeSet<_> = self
+            .host
+            .kernel()
+            .rows(None)
+            .unwrap_or_default()
+            .iter()
+            .map(|r| r.id)
+            .collect();
+        self.autofocus_processed.retain(|id| live.contains(id));
+        {
+            for id in live {
+                let node = self.host.kernel().node(id).unwrap();
+                if self.autofocus_processed.contains(&id)
+                    || node.props.bool(PropId::Autofocus) != Some(true)
+                    || !self.focusable(id)
+                    || self.host.route_visibility(id).1
+                {
+                    continue;
+                }
+                if !self
+                    .box_of(id)
+                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
+                {
+                    continue;
+                }
+                self.autofocus_processed.insert(id);
+                if self.focus.is_none() {
+                    self.focus = Some(id);
+                    self.dirty = true;
+                }
+                break;
+            }
+        }
         error
     }
 
@@ -998,8 +1043,7 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // The page's environment (LLP 1012 §1): no safe area and no
-        // software keyboard on this host — every value is zero.
+        // LLP 1012 §1: this host has no safe area or software keyboard.
         let _ = write!(
             s,
             "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0}},\"nodes\":[",
@@ -1041,7 +1085,8 @@ impl<D: DataSource> Presenter<D> {
             }
             // @ref LLP 1038 D6; LLP 1035.002 D1 — hidden rows remain in
             // the kernel, but have no painted box and refuse input.
-            let (hidden, inert) = self.host.route_visibility(id);
+            let (route_hidden, inert) = self.host.route_visibility(id);
+            let hidden = route_hidden || self.placement_hidden(id);
             let _ = write!(
                 detail,
                 ",\"visible\":{{\"hidden\":{hidden},\"inert\":{inert}}}"
@@ -1057,6 +1102,7 @@ impl<D: DataSource> Presenter<D> {
                         num(r2(b.rect.3))
                     );
                 }
+                None if self.placement_hidden(id) => detail.push_str(",\"space\":{\"viewport\":{\"x\":0,\"y\":0,\"w\":0,\"h\":0},\"capture\":{\"scale\":1}}"),
                 None => detail.push_str(",\"space\":{\"capture\":{\"scale\":1}}"),
             }
             // @ref LLP 1043.000 §3 D7 — ordinary paragraphs keep the existing
@@ -1083,6 +1129,20 @@ impl<D: DataSource> Presenter<D> {
         s
     }
 
+    pub(crate) fn placement_hidden(&self, id: ViewId) -> bool {
+        let mut at = Some(id);
+        while let Some(id) = at {
+            if matches!(
+                self.brush.placements.get(&id),
+                Some(crate::placement::Placement::Hidden)
+            ) {
+                return true;
+            }
+            at = self.host.kernel().node(id).and_then(|n| n.parent);
+        }
+        false
+    }
+
     /// The deepest painted box under a point (viewport points), through
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
@@ -1101,67 +1161,11 @@ impl<D: DataSource> Presenter<D> {
             .map(|b| b.id)
     }
 
-    /// The nearest node at or above `id` with a handler for `kind`.
-    fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
-        if kind != EventKind::Scroll && self.brush.region_blocks_action(id) {
-            return None;
-        }
-        if self.host.route_visibility(id).1 {
-            return None;
-        }
-        let kernel = self.host.kernel();
-        let mut at = Some(id);
-        while let Some(n) = at {
-            let node = kernel.node(n)?;
-            if node.props.bool(PropId::Disabled) == Some(true) {
-                return None;
-            }
-            if self.host.runner().handlers_of(n).contains(&kind) {
-                return Some(n);
-            }
-            at = self.display.parent(kernel, n);
-        }
-        None
-    }
-
-    /// A press at a point, the path a click takes: hit, then up to a
-    /// `press` handler; focus follows the click (an input takes it, anything
-    /// else drops it). Returns the node pressed, if any.
-    pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
-        let hit = self.hit(x, y)?;
-        if crate::navigation::popover_invoker(self.host.kernel(), hit) {
-            self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
-            return None;
-        }
-        if self.brush.region_blocks_action(hit) {
-            return self.retained_press(hit, now_ms);
-        }
-        let kernel = self.host.kernel();
-        let focus = kernel
-            .node(hit)
-            .filter(|node| node.node_type == NodeType::TextInput)
-            .filter(|node| node.props.bool(PropId::Disabled) != Some(true))
-            .map(|_| hit);
-        if self.focus != focus {
-            self.focus = focus;
-            self.dirty = true;
-            self.queue_collections();
-        }
-        let target = self.handler_target(hit, EventKind::Press)?;
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
-            eprintln!("exact: {e}");
-        }
-        let e = self.after_commit();
-        if let Some(e) = e {
-            eprintln!("exact: {e}");
-        }
-        Some(target)
-    }
-
     /// The agent's `tap`: a press at the node's center through the same
     /// path a pointer takes.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
+        self.boxes();
+        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
         }
         if crate::navigation::popover_invoker(self.host.kernel(), id) {
@@ -1170,9 +1174,37 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = (b.rect.0 + b.rect.2 / 2.0, b.rect.1 + b.rect.3 / 2.0);
+        let (x, y) = b.center();
+        let mut hit = self.hit(x, y);
+        while hit.is_some() && hit != Some(id) {
+            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
+        }
+        if hit != Some(id) {
+            return Err(format!(
+                "view {id} is covered or not hit at its projected center"
+            ));
+        }
         let now = self.host.now();
-        self.press_at(x, y, now);
+        let actual = self.hit(x, y).and_then(|hit| {
+            self.control_target(hit)
+                .or_else(|| self.handler_target(hit, EventKind::Press))
+        });
+        if let Some(actual) = actual.filter(|actual| {
+            *actual != id
+                && self
+                    .control_target(id)
+                    .or_else(|| self.handler_target(id, EventKind::Press))
+                    != Some(*actual)
+        }) {
+            return Err(format!(
+                "view {id} activates view {actual} at its projected center"
+            ));
+        }
+        let activated = self.press_at(x, y, now);
+        if actual.is_some() && activated.is_none() {
+            return Err(format!("view {id} did not accept activation"));
+        }
+        let id = activated.unwrap_or(id);
         Ok(format!(
             "{{\"tapped\":{id},\"at\":[{},{}]}}",
             num(r2(x)),
@@ -1271,104 +1303,6 @@ impl<D: DataSource> Presenter<D> {
             num(r2(x)),
             num(r2(y))
         ))
-    }
-
-    /// Set an input's value as typing does: focused, the value replaced,
-    /// one `change` heard by the runner.
-    pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        let kernel = self.host.kernel();
-        let node = kernel.node(id).ok_or_else(|| format!("no view {id}"))?;
-        // @ref LLP 1038 D11 — the agent's root text is a location.
-        if node.props.str(PropId::NavigationBack).is_some() {
-            if node.props.bool(PropId::Disabled) == Some(true) {
-                return Err(format!("view {id} is disabled"));
-            }
-            let error =
-                self.host
-                    .dispatch_at(id, Event::Navigate(text.to_owned()), self.host.now());
-            let after = self.after_commit();
-            if let Some(error) = error.or(after) {
-                return Err(error);
-            }
-            return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
-        }
-        if node.node_type != NodeType::TextInput {
-            return Err(format!("view {id} is not an input"));
-        }
-        if node.props.bool(PropId::Disabled) == Some(true) {
-            return Err(format!("view {id} is disabled"));
-        }
-        if node.props.bool(PropId::Editable) == Some(false) {
-            return Err(format!("view {id} is readonly"));
-        }
-        if node.props.bool(PropId::EmojiPicker) == Some(true) {
-            return Err("emoji selection is not supported on the Linux host".into());
-        }
-        self.focus = Some(id);
-        let now = self.host.now();
-        let error = self
-            .host
-            .dispatch_at(id, Event::Change(text.to_string()), now);
-        let e = self.after_commit();
-        if let Some(e) = error.or(e) {
-            return Err(e);
-        }
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
-            .unwrap_or_default();
-        let mut s = format!("{{\"typed\":{id},\"value\":");
-        quote(&value, &mut s);
-        s.push('}');
-        Ok(s)
-    }
-
-    /// A key for the focused input: a character appended, a backspace, or
-    /// nothing. The runner hears one `change` with the new value.
-    pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
-        let Some(id) = self.focus else { return };
-        if !self.display.allows(self.host.kernel(), id) {
-            return;
-        }
-        let Some(node) = self.host.kernel().node(id) else {
-            return;
-        };
-        if node.props.bool(PropId::Disabled) == Some(true) {
-            return;
-        }
-        if node.props.bool(PropId::Editable) == Some(false) {
-            return;
-        }
-        if ch == Some('\n') && node.props.str(PropId::SemanticTag) != Some("textarea") {
-            return;
-        }
-        let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
-        match (ch, backspace) {
-            (Some(c), _) => value.push(c),
-            (None, true) => {
-                value.pop();
-            }
-            _ => return,
-        }
-        if let Some(e) = self.host.dispatch_at(id, Event::Change(value), now_ms) {
-            eprintln!("exact: {e}");
-        }
-        if let Some(e) = self.after_commit() {
-            eprintln!("exact: {e}");
-        }
-    }
-
-    /// Drop focus.
-    pub fn blur(&mut self) {
-        if self.focus.take().is_some() {
-            self.dirty = true;
-            self.queue_collections();
-        }
     }
 
     /// The executor's replies into the runner (LLP 1016 D2), each a

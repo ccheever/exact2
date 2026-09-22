@@ -1,7 +1,7 @@
 // Tooling-only filesystem operations; never linked by an app. @ref LLP 1030.002.
-mod directory;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use directory::{refuse, Directory};
+use exact_filesystem as directory;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -25,28 +25,17 @@ fn tree(
     out: &mut serde_json::Map<String, Value>,
     read: bool,
 ) -> io::Result<()> {
-    for leaf in dir.names()? {
-        let path = format!("{prefix}{leaf}");
-        match dir.kind(&leaf)?.st_mode & libc::S_IFMT {
-            libc::S_IFDIR => tree(&dir.child(&leaf, false)?, &format!("{path}/"), out, read)?,
-            libc::S_IFREG => {
-                out.insert(
-                    path,
-                    if read {
-                        Value::String(STANDARD.encode(dir.read(&leaf)?))
-                    } else {
-                        Value::Null
-                    },
-                );
-            }
-            _ => {
-                return Err(refuse(
-                    "static app files must be regular files or directories",
-                ))
-            }
-        }
-    }
-    Ok(())
+    dir.visit_files(prefix, &mut |path, parent, leaf| {
+        out.insert(
+            path.to_owned(),
+            if read {
+                Value::String(STANDARD.encode(parent.read(leaf)?))
+            } else {
+                Value::Null
+            },
+        );
+        Ok(())
+    })
 }
 
 // Retained dev generations are ordinary immutable files. Quota admission and

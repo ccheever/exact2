@@ -1,0 +1,8 @@
+[package]
+name = "exact-game-derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true

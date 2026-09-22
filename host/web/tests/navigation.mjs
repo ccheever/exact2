@@ -98,7 +98,7 @@ try {
   };
   let since = 0;
   const record = async (name, path, length, depth, presses, journal = null) => {
-    const row = await evaluate(`(()=>{const state=exact.agent({op:'state'});return {origin:location.origin,location:location.pathname+location.search,length:history.length,stamp:history.state,navigation:state.navigation,backPresses:state.slots.backPresses,navigatePresses:state.slots.navigatePresses,logs:exact.agent({op:'logs',since:${since}}),calls:historyCalls.splice(0),pops:popEvents.splice(0)};})()`);
+    const row = await evaluate(`(async()=>{const state=await exact.agent({op:'state'});return {origin:location.origin,location:location.pathname+location.search,length:history.length,stamp:history.state,navigation:state.navigation,backPresses:state.slots.backPresses,navigatePresses:state.slots.navigatePresses,logs:await exact.agent({op:'logs',since:${since}}),calls:historyCalls.splice(0),pops:popEvents.splice(0)};})()`);
     since = row.logs.next; rows.push({ name, ...row }); console.log(JSON.stringify({ name, ...row }));
     assert.equal(row.location, path, name); assert.equal(row.length, length, name);
     assert.equal(row.navigation.url, path, name); assert.equal(row.navigation.stack.length, depth, name);
@@ -108,7 +108,7 @@ try {
   };
   const historyTap = async delta => {
     const before = await evaluate('popEvents.length');
-    const r = await evaluate(`exact.agent({op:'tap',id:exact.agent({op:'tree'}).roots[0],history:${delta}})`);
+    const r = await evaluate(`(async()=>exact.agent({op:'tap',id:(await exact.agent({op:'tree'})).roots[0],history:${delta}}))()`);
     assert.equal(r.delivery, 'platform');
     await until(`popEvents.length > ${before}`);
   };
@@ -132,7 +132,7 @@ try {
     await tap('editor');
     // A URL event leaves focus on the old editor until the route's ancestor
     // is removed. Clicking a different control first would hide this bug.
-    await evaluate(`exact.agent({op:'type',id:exact.agent({op:'tree'}).roots[0],text:'/'})`);
+    await evaluate(`(async()=>exact.agent({op:'type',id:(await exact.agent({op:'tree'})).roots[0],text:'/'}))()`);
     await until(`location.pathname==='/'`);
     const landed = await state();
     assert.equal(landed.slots.blurPresses, 1, 'retired editor must not dispatch blur');
@@ -392,6 +392,29 @@ try {
       assert.equal((await session.state()).slots.backPresses, 1);
     } finally { await session.close(); }
   });
+  await run('autofocus preserves existing focus and starts afresh after reload', async () => {
+    served = dist;
+    const plan = [...readFileSync(dir + '/accessibility.plan')];
+    const page = readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8');
+    writeFileSync(dist + '/index.html', page.replace('<script type="module" src="./glue.js"></script>',
+      `<script>(${fixture})(${JSON.stringify(plan)})</script><script type="module" src="./glue.js"></script>`));
+    await call('Page.navigate', {url:url+'/'});
+    await until(`globalThis.exact?.ready?.then(()=>!!document.querySelector('[data-testid="first"]'))`);
+    await evaluate('exact.ready');
+    const first = () => evaluate(`document.activeElement?.getAttribute('data-testid')`);
+    assert.equal(await first(), 'first');
+    const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="other"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    for (const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent', {type,button:'left',clickCount:1,...at});
+    assert.equal(await first(), 'other');
+    for (const type of ['keyDown','keyUp']) await call('Input.dispatchKeyEvent', {type,key:' ',code:'Space',windowsVirtualKeyCode:32});
+    assert.equal((await state()).slots.count, 2);
+    await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
+    assert.equal(await first(), 'other');
+    await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
+    assert.equal(await first(), 'first');
+    assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), true);
+  });
+
 } finally {
   if (process.env.EXACT_ROUTER_EVIDENCE) { mkdirSync(process.env.EXACT_ROUTER_EVIDENCE, { recursive: true }); writeFileSync(process.env.EXACT_ROUTER_EVIDENCE + '/browser.json', JSON.stringify({ rows, failures, consoleLines }, null, 2)); }
   process.kill(-child.pid, 'SIGKILL'); await exited;

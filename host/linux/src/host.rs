@@ -252,6 +252,28 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
+    pub(crate) fn take_surface_updates(&mut self) -> Vec<exact_runner::SurfaceUpdate> {
+        self.runner.take_surface_updates()
+    }
+    pub(crate) fn surface_record(&mut self, name: &str, json: Option<&str>) -> Option<String> {
+        match self.runner.set_surface_record(name, json) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("surface {name}: {e:?}")),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply_test_ops(&mut self, ops: &[exact_kernel::Op]) {
+        self.runner.kernel_mut().apply(0, 0, ops).unwrap();
+    }
+
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()

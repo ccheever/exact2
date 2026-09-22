@@ -37,6 +37,7 @@ pub mod request;
 pub mod runner;
 pub mod stdlib;
 pub mod store;
+pub mod surface_record;
 pub mod viewport;
 pub mod vm;
 
@@ -49,8 +50,8 @@ pub use instance::collection::{
 };
 pub use instance::SurfaceUpdate;
 pub use request::{
-    Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request, RequestOut,
-    Response, Work,
+    io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request,
+    RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,
 };
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, ListStatus, ListTextPosition,
