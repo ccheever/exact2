@@ -1,4 +1,5 @@
 //! Subject/key dependencies only. Row-body changes never trigger an all-N key pass.
+use super::super::dependencies::Scope;
 use super::super::{Env, Frame};
 use crate::compare::same;
 use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
@@ -17,13 +18,6 @@ enum Input {
 pub(super) struct KeyMemo {
     inputs: Vec<Input>,
     saved: Option<Snapshot>,
-}
-#[derive(Debug)]
-struct Scope {
-    item: Option<Value>,
-    bound: Option<Value>,
-    region: Option<u32>,
-    has_row: bool,
 }
 #[derive(Debug)]
 struct Snapshot {
@@ -150,15 +144,7 @@ impl KeyMemo {
         }
         Some(Snapshot {
             inputs: out,
-            frames: frames
-                .iter()
-                .map(|frame| Scope {
-                    item: frame.item.clone(),
-                    bound: frame.bound.clone(),
-                    region: frame.region,
-                    has_row: frame.row.is_some(),
-                })
-                .collect(),
+            frames: Scope::of(frames),
         })
     }
     pub(super) fn unchanged(&self, env: &Env<'_>, frames: &[Frame]) -> bool {
@@ -167,22 +153,9 @@ impl KeyMemo {
         };
         old.inputs.len() == now.inputs.len()
             && old.inputs.iter().zip(&now.inputs).all(|(a, b)| same(a, b))
-            && old.frames.len() == now.frames.len()
-            && old.frames.iter().zip(&now.frames).all(|(a, b)| {
-                a.region == b.region
-                    && a.has_row == b.has_row
-                    && same_opt(&a.item, &b.item)
-                    && same_opt(&a.bound, &b.bound)
-            })
+            && Scope::same(&old.frames, frames)
     }
     pub(super) fn remember(&mut self, env: &Env<'_>, frames: &[Frame]) {
         self.saved = self.values(env, frames);
-    }
-}
-fn same_opt(a: &Option<Value>, b: &Option<Value>) -> bool {
-    match (a, b) {
-        (Some(a), Some(b)) => same(a, b),
-        (None, None) => true,
-        _ => false,
     }
 }

@@ -190,16 +190,8 @@ impl Collection {
             children: Vec::new(),
             key_memo: KeyMemo::new(plan, region),
             key_environment: KeyMemo::key_only(plan, region),
-            // Unchanged `when` arms add empty frames, not contextual values.
-            // Keep the global dependency memo through those arms; an item,
-            // match binding or row-local state still needs normal evaluation.
-            body_memo: frames
-                .iter()
-                .all(|f| {
-                    f.item.is_none() && f.bound.is_none() && f.region.is_none() && f.row.is_none()
-                })
-                .then(|| dependencies::Memo::for_region(plan, u.sites, region, true))
-                .flatten(),
+            // Enclosing scopes are compared by identity with the globals.
+            body_memo: dependencies::Memo::for_region(plan, u.sites, region, true),
             revision: 0,
             next_epoch: 0,
             zero_heights: Default::default(),
@@ -226,7 +218,10 @@ impl Collection {
             .key_memo
             .as_ref()
             .is_some_and(|m| m.unchanged(&u.env, frames));
-        let body_changed = !self.body_memo.as_ref().is_some_and(|m| m.unchanged(&u.env));
+        let body_changed = !self
+            .body_memo
+            .as_ref()
+            .is_some_and(|m| m.unchanged(&u.env, frames));
         if !data_changed && !body_changed {
             u.work.regions_skipped += 1;
             return Ok(());
@@ -319,7 +314,7 @@ impl Collection {
             m.remember(&u.env, frames);
         }
         if let Some(m) = &mut self.body_memo {
-            m.remember(&u.env);
+            m.remember(&u.env, frames);
         }
         Ok(())
     }

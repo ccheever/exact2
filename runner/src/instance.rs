@@ -597,12 +597,12 @@ impl RegionInst {
         let mut inst = RegionInst {
             region,
             window: None,
-            memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+            memo: if u.env.plan.region(region).kind == RegionKind::Each {
                 dependencies::Memo::for_region(u.env.plan, u.sites, region, false)
             } else {
                 None
             },
-            body_memo: if frames.is_empty() && u.env.plan.region(region).kind == RegionKind::Each {
+            body_memo: if u.env.plan.region(region).kind == RegionKind::Each {
                 dependencies::Memo::for_region(u.env.plan, u.sites, region, true)
             } else {
                 None
@@ -624,7 +624,7 @@ impl RegionInst {
         if self
             .memo
             .as_ref()
-            .is_some_and(|memo| memo.unchanged(&u.env))
+            .is_some_and(|memo| memo.unchanged(&u.env, frames))
         {
             u.work.regions_skipped += 1;
             return Ok(());
@@ -632,7 +632,7 @@ impl RegionInst {
         let body_unchanged = self
             .body_memo
             .as_ref()
-            .is_some_and(|memo| memo.unchanged(&u.env));
+            .is_some_and(|memo| memo.unchanged(&u.env, frames));
         let plan = u.env.plan;
         let row = plan.region(self.region);
         let subject = u.eval(row.subject, frames)?;
@@ -747,10 +747,15 @@ impl RegionInst {
                     frame.region = Some(self.region.0);
                     match existing {
                         Some(mut r) => {
-                            let unchanged = body_unchanged
-                                // Row bodies may distinguish signed zero (`1 / n > 0`):
-                                // compare by bits, not by the language's `==`.
-                                && crate::compare::equivalent_opt(&r.frame.item, &frame.item);
+                            // Row bodies may distinguish signed zero (`1 / n > 0`):
+                            // compare by bits, not by the language's `==`. An
+                            // equivalent item keeps its object for nested memos.
+                            let same_item =
+                                crate::compare::equivalent_opt(&r.frame.item, &frame.item);
+                            if same_item {
+                                frame.item = r.frame.item.take();
+                            }
+                            let unchanged = body_unchanged && same_item;
                             frame.row = Some(r.slots.clone());
                             r.frame = frame.clone();
                             let inner = with_frame(frames, frame);
@@ -799,10 +804,10 @@ impl RegionInst {
         };
         if result.is_ok() {
             if let Some(memo) = &mut self.memo {
-                memo.remember(&u.env);
+                memo.remember(&u.env, frames);
             }
             if let Some(memo) = &mut self.body_memo {
-                memo.remember(&u.env);
+                memo.remember(&u.env, frames);
             }
         }
         result
@@ -820,11 +825,14 @@ impl RegionInst {
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
-        let inner = with_frame(frames, new_frame.clone());
         if *arm == want {
-            *frame = new_frame;
-            return update_all(u, roots, &inner);
+            // An equivalent binding keeps its object for nested memos.
+            if !crate::compare::equivalent_opt(&frame.bound, &new_frame.bound) {
+                *frame = new_frame;
+            }
+            return update_all(u, roots, &with_frame(frames, frame.clone()));
         }
+        let inner = with_frame(frames, new_frame.clone());
         let old = std::mem::take(roots);
         destroy_all(u, old);
         *arm = want;

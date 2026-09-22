@@ -1,9 +1,10 @@
-//! Conservative memo for outer keyed regions. The cache compares only referenced
-//! immutable globals, never a deep list walk. Row-local state and contextual
-//! expressions fall back to normal evaluation. No app annotation is required.
+//! Conservative memo for keyed regions. The cache compares only referenced
+//! immutable globals and the enclosing scopes' items by identity, never a deep
+//! list walk. Row-local state falls back to normal evaluation. No app
+//! annotation is required.
 use super::{Site, SiteIndex};
 use crate::compare::same;
-use crate::vm::Env;
+use crate::vm::{Env, Frame};
 use exact_plan::{bytes::Reader, Code, Opcode, Operand, Plan, RegionsId, Stdlib, Value};
 use std::collections::BTreeSet;
 
@@ -20,7 +21,46 @@ enum Input {
 #[derive(Debug)]
 pub(super) struct Memo {
     inputs: Vec<Input>,
-    saved: Option<Vec<Value>>,
+    saved: Option<(Vec<Value>, Vec<Scope>)>,
+}
+
+/// An enclosing scope as a memo sees it: what a body could read of it.
+#[derive(Debug)]
+pub(super) struct Scope {
+    item: Option<Value>,
+    bound: Option<Value>,
+    region: Option<u32>,
+    has_row: bool,
+}
+
+impl Scope {
+    pub(super) fn of(frames: &[Frame]) -> Vec<Scope> {
+        frames
+            .iter()
+            .map(|frame| Scope {
+                item: frame.item.clone(),
+                bound: frame.bound.clone(),
+                region: frame.region,
+                has_row: frame.row.is_some(),
+            })
+            .collect()
+    }
+
+    /// The same scopes, item for item, by identity.
+    pub(super) fn same(old: &[Scope], frames: &[Frame]) -> bool {
+        let same_opt = |a: &Option<Value>, b: &Option<Value>| match (a, b) {
+            (Some(a), Some(b)) => same(a, b),
+            (None, None) => true,
+            _ => false,
+        };
+        old.len() == frames.len()
+            && old.iter().zip(frames).all(|(a, b)| {
+                a.region == b.region
+                    && a.has_row == b.row.is_some()
+                    && same_opt(&a.item, &b.item)
+                    && same_opt(&a.bound, &b.bound)
+            })
+    }
 }
 impl Memo {
     pub(super) fn for_region(
@@ -77,16 +117,18 @@ impl Memo {
             })
             .collect()
     }
-    pub(super) fn unchanged(&self, env: &Env<'_>) -> bool {
-        let (Some(old), Some(now)) = (&self.saved, self.values(env)) else {
+    pub(super) fn unchanged(&self, env: &Env<'_>, frames: &[Frame]) -> bool {
+        let (Some((old, scopes)), Some(now)) = (&self.saved, self.values(env)) else {
             return false;
         };
         // Immutable values are shared across updates. A different allocation is a
         // conservative miss even if equal: checking it recursively would itself be O(N).
-        old.len() == now.len() && old.iter().zip(&now).all(|(a, b)| same(a, b))
+        old.len() == now.len()
+            && old.iter().zip(&now).all(|(a, b)| same(a, b))
+            && Scope::same(scopes, frames)
     }
-    pub(super) fn remember(&mut self, env: &Env<'_>) {
-        self.saved = self.values(env);
+    pub(super) fn remember(&mut self, env: &Env<'_>, frames: &[Frame]) {
+        self.saved = self.values(env).map(|values| (values, Scope::of(frames)));
     }
 }
 
