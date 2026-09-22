@@ -439,3 +439,28 @@ the UI thread. These are parse-only numbers, not a new host responsiveness or
 parser comparison. The production reader's native continuation already moves
 parsing off the UI thread; the synthetic synchronous source and eventual text
 layout still need their own scheduling and frame-budget work.
+
+## One markup node — 2026-09-21
+
+A fourth render mode, **One markup node** (`toggle-single`), supplies the
+whole source as one `text markup="markdown"` node (LLP 1045 D3/D4): the host
+styles it from `exact-markdown::pieces`, the same function for measure and
+paint. Against **Render ALL blocks** on the same generated document, three
+rounds, medians of agent acknowledgement times on an M4 Pro at 60 Hz:
+
+| host | budget | mode | tree nodes | mode switch → settle | 4,000 pt wheel → settle |
+|---|---:|---|---:|---:|---:|
+| iOS simulator | 256 KiB | all blocks | 8,805 | 692 ms | 48 ms |
+| iOS simulator | 256 KiB | one node | 61 | 133 ms | 27 ms |
+| iOS simulator | 1 MiB | all blocks | 35,105 | 3,015 ms | 151 ms |
+| iOS simulator | 1 MiB | one node | 61 | 1,020 ms | 34 ms |
+| web (Chrome) | 256 KiB | all blocks | 8,805 | 238 ms | 64 ms |
+| web (Chrome) | 256 KiB | one node | 61 | 133 ms | 40 ms |
+| web (Chrome) | 1 MiB | all blocks | 35,105 | 830 ms | 145 ms |
+| web (Chrome) | 1 MiB | one node | 61 | 735 ms | 41 ms |
+
+These are command acknowledgements, not frames. A single node lays the whole
+document out; it is not windowed, which is what segments are for. macOS taps
+in this app were ignored on the measuring machine at the unmodified base, so
+there is no macOS row. The driver is a scratch script over
+`scripts/agent.mjs` (`open`, `tap`, `clock('settle')`, `tree`).

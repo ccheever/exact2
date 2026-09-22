@@ -119,9 +119,33 @@ impl TextStyle {
     }
 }
 
+/// What the node's string is: plain text, or a markup the host styles.
+/// @ref LLP 1045 D3 — the kernel carries the prop and the source as one
+/// run; a host that links `exact-markdown` expands it for measure and paint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Markup {
+    /// The text as written.
+    #[default]
+    None,
+    /// Markdown source.
+    Markdown,
+}
+
+impl Markup {
+    /// The `markup` prop's value, as written in Contract.
+    pub fn from_prop(value: Option<&str>) -> Self {
+        match value {
+            Some("markdown") => Markup::Markdown,
+            _ => Markup::None,
+        }
+    }
+}
+
 /// Paragraph-level style: what applies to the whole measured block.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Paragraph {
+    /// What the runs' text is; `Markdown` means one run of source.
+    pub markup: Markup,
     /// The paragraph strut: minimum line box even when all inline runs are smaller.
     pub strut: TextStyle,
     /// Base direction.
@@ -142,6 +166,7 @@ impl Paragraph {
     /// The paragraph style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
         Paragraph {
+            markup: Markup::None,
             strut: TextStyle::from_style(s),
             direction: s.direction,
             text_align: s.text_align,
@@ -386,6 +411,7 @@ mod tests {
 
     fn paragraph() -> Paragraph {
         Paragraph {
+            markup: Markup::None,
             strut: style(10.0),
             direction: Direction::Ltr,
             text_align: TextAlign::Left,

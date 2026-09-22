@@ -11,6 +11,7 @@ fn args(profile: &str, size: usize, revision: usize, page: usize, eager: bool) -
         Value::Number(revision as f64),
         Value::Number(page as f64),
         Value::Bool(eager),
+        Value::Bool(false),
     ]
 }
 
@@ -135,6 +136,7 @@ fn malformed_ack_and_each_mismatched_argument_preserve_current_result() {
         Value::Number(262_144.0),
         Value::Number(4.0),
         Value::Number(0.0),
+        Value::Bool(true),
         Value::Bool(true),
     ]
     .into_iter()

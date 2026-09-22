@@ -60,6 +60,7 @@ fn args(revision: usize, page: usize) -> Vec<Value> {
         Value::Number(revision as f64),
         Value::Number(page as f64),
         Value::Bool(false),
+        Value::Bool(false),
     ]
 }
 

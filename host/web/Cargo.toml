@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-kernel = { path = "../../kernel" }
+exact-markdown = { path = "../../markdown" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }

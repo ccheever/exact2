@@ -26,10 +26,12 @@ mod block;
 mod edit;
 mod inline;
 mod offsets;
+mod pieces;
 mod segment;
 mod style;
 
 pub use edit::{edit, Command, Edit};
+pub use pieces::{pieces, Piece, Role};
 pub use segment::{embed, excerpt, plain, segments, video, Embed, Provider, Segment};
 pub use style::{style, Footnote, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled};
 

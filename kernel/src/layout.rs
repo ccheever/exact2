@@ -602,12 +602,14 @@ impl LayoutTree {
                         }
                         // Direction and alignment inherit (a paragraph inside a
                         // centred column centres, as in CSS); the rest are its own.
+                        let mut paragraph = Paragraph::from_style(
+                            &arena.computed_style(slot, StyleMask::INHERITED),
+                        );
+                        paragraph.markup = arena.markup(slot);
                         let request = TextMeasureRequest {
                             exclusions: &[],
                             runs: &runs,
-                            paragraph: Paragraph::from_style(
-                                &arena.computed_style(slot, StyleMask::INHERITED),
-                            ),
+                            paragraph,
                             width,
                             height,
                         };

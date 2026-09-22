@@ -716,3 +716,54 @@ fn this_repositorys_own_documents_hold_the_invariants() {
         }
     }
 }
+
+#[test]
+fn pieces_flatten_a_document_into_runs_one_engine_paints() {
+    let source = "# Title\n\nA **bold** [link](https://e.dev) and `code`.\n\n- one\n- [x] two\n  wrapped\n\n> quoted\n\n```\nlet a;\n```\n\n---\n\nEnd[^1].\n\n[^1]: Note.";
+    let out = pieces(source);
+    let text: String = out.iter().map(|p| p.text.as_str()).collect();
+    assert_eq!(
+        text,
+        "Title\n\nA bold link and code.\n\n•  one\n☑  two\n   wrapped\n\n▎ quoted\n\nlet a;\n\n──────────\n\nEnd[1].\n\n[1] Note."
+    );
+    let title = &out[0];
+    assert!(
+        (title.scale - 1.6).abs() < 1e-6 && title.weight == 700 && title.text == "Title",
+        "{title:?}"
+    );
+    assert!(out.iter().any(|p| p.text == "bold" && p.weight == 700));
+    assert!(out
+        .iter()
+        .any(|p| p.text == "link" && p.href == "https://e.dev" && p.role == Role::Link));
+    assert!(out
+        .iter()
+        .any(|p| p.text == "code" && p.mono && p.role == Role::Code));
+    assert!(out.iter().any(|p| p.text.starts_with("let a;") && p.mono));
+    assert!(out
+        .iter()
+        .any(|p| p.text == "quoted" && p.role == Role::Quote));
+    assert!(out
+        .iter()
+        .any(|p| p.text == "[1]" && p.scale < 1.0 && p.role == Role::Marker));
+    // A gap between blocks is a short line; every source piece maps back to the source.
+    assert_eq!(
+        out.iter()
+            .filter(|p| p.text == "\n" && p.scale < 1.0)
+            .count(),
+        7
+    );
+    for p in out.iter().filter(|p| p.source.is_some()) {
+        let r = p.source.unwrap();
+        let back = utf16(source, r);
+        assert!(
+            p.text
+                .trim_end_matches('\n')
+                .starts_with(back.trim_end_matches('\n').split('\n').next().unwrap()),
+            "{:?} vs {:?}",
+            p.text,
+            back
+        );
+    }
+    assert_eq!(pieces(""), Vec::<Piece>::new());
+    assert_eq!(pieces("plain")[0].text, "plain");
+}

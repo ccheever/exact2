@@ -18,6 +18,8 @@ pub const PAGE_BLOCKS: usize = 40;
 struct Parsed {
     key: (Profile, usize, usize),
     bytes: usize,
+    /// The generated source, for the one-node mode.
+    text: String,
     document: Document,
     largest_block: usize,
     #[cfg(test)]
@@ -57,6 +59,8 @@ struct DocumentArgs {
     key: (Profile, usize, usize),
     page: usize,
     eager: bool,
+    /// Supply the whole source for one `markup` node (LLP 1045 D4).
+    single: bool,
 }
 
 impl DocumentArgs {
@@ -64,9 +68,11 @@ impl DocumentArgs {
         if source != "document" {
             return Err(DataError::UnknownSource(source.into()));
         }
-        let [Value::Str(profile), budget, revision, page, Value::Bool(eager)] = args else {
+        let [Value::Str(profile), budget, revision, page, Value::Bool(eager), Value::Bool(single)] =
+            args
+        else {
             return Err(DataError::BadArguments(
-                "document(profile, budget, revision, page, eager)".into(),
+                "document(profile, budget, revision, page, eager, single)".into(),
             ));
         };
         let profile = Profile::parse(profile).map_err(|e| DataError::BadArguments(e.into()))?;
@@ -82,6 +88,7 @@ impl DocumentArgs {
             key: (profile, budget, revision),
             page,
             eager: *eager,
+            single: *single,
         })
     }
 }
@@ -107,6 +114,7 @@ impl Parsed {
         Ok(Self {
             key,
             bytes: text.len(),
+            text,
             document,
             largest_block,
             #[cfg(test)]
@@ -148,6 +156,7 @@ impl Parsed {
                     .count() as f64,
             ),
             Value::list(blocks),
+            Value::str(if args.single { &self.text } else { "" }),
         ])
     }
 }

@@ -151,7 +151,25 @@ Images, videos, embeds and tables are their own segments; a huge document is
 segmented by `limit` and windowed by the existing measured list. A feed card
 is `excerpt`, one plain node.
 
-This is the performance *hypothesis*, not a result: Apple already mounts only
+**Landed 2026-09-21 (slice 2, first form).** The kernel carries `markup` and
+`Paragraph.markup`; `exact-markdown::pieces` flattens a source into display
+runs (headings as bigger bold runs, bullets, boxes, rules, quote bars and
+footnote marks as glyph runs, a short line between blocks) that the existing
+run painters draw, through `exact_markup_pieces` on Apple and a JSON prop on
+the web — one function for measure and paint. Block decoration that runs
+cannot express (code backgrounds, real quote bars, hanging indents) is owed
+to a later form that carries paragraph attributes. Measured in
+`apps/markdown-stress` ("One markup node" against "Render ALL blocks", same
+generated document, three rounds, medians, agent acknowledgement times, an
+M4 Pro at 60 Hz): iOS simulator 256 KiB — 8,805 nodes → 61, mode switch to
+settle 692 → 133 ms, a 4,000 pt wheel to settle 48 → 27 ms; 1 MiB — 35,105 →
+61, 3,015 → 1,020 ms, 151 → 34 ms. Web (Chrome) 256 KiB — 238 → 133 ms,
+64 → 40 ms; 1 MiB — 830 → 735 ms, 145 → 42 ms; the wasm grew 26 KiB raw,
+5 KiB gzipped. The row stays. A single node is not windowed, so a 1 MiB
+document still lays out whole; segments over the measured list are the
+design for that (below).
+
+This was the performance *hypothesis* before that measurement: Apple already mounts only
 the paragraph view and keeps runs as data, and a bigger segment is a bigger
 invalidation and selection unit; a single paragraph or fenced block larger
 than `limit` stays one segment. Slice 2 measures the prototype against the

@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController } from "./navigation.js";
+import { navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -405,8 +405,8 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
-    } else if (name === "text") {
-      if (el.childElementCount === 0) el.textContent = value;
+    } else if (name === "text") { if (el.childElementCount === 0) el.textContent = value;
+    } else if (name === "markupPieces") { renderMarkup(el, value);
     } else if (name === "value") {
       writeValue(el, value);
     } else if (name === "checked") {

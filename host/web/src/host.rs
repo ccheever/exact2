@@ -1067,6 +1067,53 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
     }
 }
 
+/// The pieces of a Markdown source as a JSON array of
+/// `[text, scale, weight, flags, href]`, flags being italic 1, mono 2,
+/// strike 4, link 8, quiet (marker or quote) 16.
+fn markup_json(source: &str) -> String {
+    fn quoted(out: &mut String, s: &str) {
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+    let mut out = String::from("[");
+    for (n, p) in exact_markdown::pieces(source).iter().enumerate() {
+        if n > 0 {
+            out.push(',');
+        }
+        out.push('[');
+        quoted(&mut out, &p.text);
+        let flags = u8::from(p.italic)
+            | u8::from(p.mono) << 1
+            | u8::from(p.strike) << 2
+            | u8::from(p.role == exact_markdown::Role::Link) << 3
+            | u8::from(matches!(
+                p.role,
+                exact_markdown::Role::Marker | exact_markdown::Role::Quote
+            )) << 4;
+        out.push_str(&format!(
+            ",{},{},{},",
+            crate::css::num(p.scale),
+            p.weight,
+            flags
+        ));
+        quoted(&mut out, &p.href);
+        out.push(']');
+    }
+    out.push(']');
+    out
+}
+
 /// Props as DOM attributes/properties. Names are the DOM's.
 fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
@@ -1076,7 +1123,21 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
     if node.node_type == NodeType::Text && !node.is_inline_run() {
         out.insert("data-exact-text".into(), String::new());
     }
+    // A `markup="markdown"` text node paints its source as pieces the page
+    // builds into spans (LLP 1045 D3, D4): the same expansion the native
+    // hosts measure and paint, as one JSON value, never as HTML.
+    let markup = node.node_type == NodeType::Text
+        && node.props.str(PropId::Markup) == Some("markdown")
+        && !node.is_inline_run();
+    if markup {
+        if let Some(source) = node.props.str(PropId::Text) {
+            out.insert("markupPieces".into(), markup_json(source));
+        }
+    }
     for (id, value) in node.props.iter() {
+        if markup && id == PropId::Text {
+            continue;
+        }
         if id == PropId::Editable {
             out.insert(
                 "readonly".into(),
@@ -1092,6 +1153,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         };
         let name = match id {
             PropId::Text => "text",
+            PropId::Markup => "markup",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
@@ -1217,4 +1279,20 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod markup_tests {
+    use super::markup_json;
+
+    #[test]
+    fn markup_pieces_are_json_the_page_builds_spans_from() {
+        let json = markup_json("# T \"q\"\n\n**b** [l](https://e.dev/a?b=1) `c`");
+        assert_eq!(
+            json,
+            r#"[["T \"q\"",1.6,700,0,""],["\n",1,0,0,""],["\n",0.5,0,0,""],["b",1,700,0,""],[" ",1,0,0,""],["l",1,0,8,"https://e.dev/a?b=1"],[" ",1,0,0,""],["c",0.92,0,2,""]]"#
+        );
+        assert_eq!(markup_json(""), "[]");
+        assert_eq!(markup_json("a\\b\tc"), r#"[["a\\b\tc",1,0,0,""]]"#);
+    }
 }

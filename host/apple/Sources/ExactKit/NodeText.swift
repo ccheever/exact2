@@ -84,7 +84,11 @@ extension NodeView {
         // its own to read. It inherits the paragraph's, which is the one
         // actually on screen. @ref LLP 1034 D2
         let night = drawsDark
-        if let value = props["text"] {
+        if props["markup"] == "markdown", let source = props["text"] {
+            // Markdown source: the archive expands it into runs, the same
+            // expansion the measurer used (LLP 1045 D3).
+            runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+        } else if let value = props["text"] {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night) }

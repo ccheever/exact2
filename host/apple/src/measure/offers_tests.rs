@@ -553,6 +553,7 @@ mod storage {
                 direction: 0,
                 exclusions: std::ptr::null(),
                 exclusion_count: 0,
+                markup: 0,
             },
             calls: 0,
             exact: true,

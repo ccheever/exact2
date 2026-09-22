@@ -80,6 +80,7 @@ fn malformed_controls_are_refused_before_generation() {
                     Value::Number(n),
                     Value::Number(0.0),
                     Value::Number(0.0),
+                    Value::Bool(false),
                     Value::Bool(false)
                 ]
             )

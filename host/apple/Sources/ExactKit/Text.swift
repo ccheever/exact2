@@ -845,7 +845,10 @@ final class TextEngine {
             // proved these owned runs and metric fields are the same request.
             spec = knownIdentity.geometry
         } else {
-            let runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+            var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+            // Markdown source arrives as one run; the archive expands it the
+            // same way the presenter paints it (LLP 1045 D3).
+            if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
             // Metric-only keys match the geometry used by the colored presenter.
             spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         }

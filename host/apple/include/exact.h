@@ -133,7 +133,21 @@ typedef struct ExactMeasureRequest {
     uint8_t direction;     /* 0 ltr, 1 rtl */
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
+    uint8_t markup;        /* 1: the one run is Markdown source; expand it with exact_markup_pieces (LLP 1045 D3) */
 } ExactMeasureRequest;
+
+/* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
+typedef struct ExactMarkupPiece {
+    const uint8_t *text; size_t len;   /* UTF-8, not NUL-terminated; may end in a newline */
+    float scale;                        /* font size relative to the node's */
+    uint16_t font_weight;               /* CSS weight; 0 keeps the node's */
+    uint8_t italic, mono, strike;
+    uint8_t role;                       /* 0 ink, 1 code, 2 link, 3 marker, 4 quote */
+    const uint8_t *href; size_t href_len; /* a link's target; null when none */
+} ExactMarkupPiece;
+/* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
+uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
+void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {
     float width;

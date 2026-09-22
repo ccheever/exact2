@@ -284,6 +284,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
         "role" => AttrTarget::Prop(p("accessibilityRole")),
+        // `markup="markdown"` on a `text` or `textarea`: the host styles the
+        // node's own string (LLP 1045 D3). Not CSS; there is none for this.
+        "markup" => AttrTarget::Prop(p("markup")),
         "placeholder" => AttrTarget::Prop(p("placeholder")),
         "type" => AttrTarget::Prop(p("type")),
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM

@@ -45,6 +45,9 @@ enum TextMetricKey {
         fields(request.strut, &h)
         h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
         h.combine(Int(request.direction)); h.combine(Int(request.white_space))
+        // A Markdown request hashes apart from the plain request of its one
+        // source run; a plain request hashes as its Spec does.
+        if request.markup != 0 { h.combine(Int(request.markup)) }
         return h.finalize()
     }
     private static func equalFields(_ raw: ExactTextRun, _ owned: Run) -> Bool {
@@ -54,6 +57,9 @@ enum TextMetricKey {
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
     }
     static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
+        // An expanded Markdown request has more runs than its one source run;
+        // its geometry is keyed by the request hash and never borrowed by runs.
+        guard request.markup == 0 else { return false }
         guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,

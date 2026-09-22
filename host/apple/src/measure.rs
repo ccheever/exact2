@@ -83,6 +83,8 @@ pub struct CRequest {
     pub exclusions: *const crate::textflow::Shape,
     /// Exclusion count.
     pub exclusion_count: usize,
+    /// 1 when the one run is Markdown source the host expands (LLP 1045 D3).
+    pub markup: u8,
 }
 
 /// What the callback returns.
@@ -252,6 +254,7 @@ impl CallbackMeasurer {
             direction: request.paragraph.direction as u8,
             exclusions: shapes.flat.as_ptr(),
             exclusion_count: shapes.flat.len(),
+            markup: u8::from(request.paragraph.markup == exact_kernel::Markup::Markdown),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.

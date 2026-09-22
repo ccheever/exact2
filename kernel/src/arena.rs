@@ -429,6 +429,11 @@ impl NodeArena {
         }
     }
 
+    /// What the leaf's string is (LLP 1045 D3): its `markup` prop.
+    pub fn markup(&self, slot: u32) -> crate::text::Markup {
+        crate::text::Markup::from_prop(self.props[slot as usize].str(PropId::Markup))
+    }
+
     /// Append the text runs of the leaf rooted at `slot`, in order. A run
     /// measures with its computed style: the rows it sets, else its
     /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.

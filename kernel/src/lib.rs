@@ -61,8 +61,8 @@ pub use style::{
     GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
-    MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun,
-    TextStyle,
+    Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
+    TextRun, TextStyle,
 };
 pub use transform::TransformDragBinding;
 pub use txn::CommitReceipt;
