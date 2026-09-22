@@ -16,6 +16,11 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+/// The longest string, in UTF-8 bytes, an expression may build or an
+/// action may take or keep: doubling a string every few instructions
+/// otherwise outruns memory within one evaluation.
+pub const MAX_STRING: usize = 1 << 26;
+
 /// A keyed row's own slots — the values of the `state` a child component
 /// declared, one set per row (LLP 1017 P4c) — shared by the row and every
 /// frame that reaches it, so a read during an update and a write applied
@@ -122,6 +127,10 @@ pub enum Trap {
         pc: usize,
     },
     NoResult,
+    /// A `Concat` would make a string longer than [`MAX_STRING`] bytes.
+    StringTooLong {
+        pc: usize,
+    },
     /// A derive or resource read before it settled this update; the runner's
     /// settlement loop retries it later in the same pass.
     Pending {
@@ -401,6 +410,9 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let a = pop!(pc);
                 match (a, b) {
                     (Value::Str(a), Value::Str(b)) => {
+                        if a.len() + b.len() > MAX_STRING {
+                            return Err(Trap::StringTooLong { pc });
+                        }
                         let mut s = String::with_capacity(a.len() + b.len());
                         s.push_str(&a);
                         s.push_str(&b);

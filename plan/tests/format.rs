@@ -577,3 +577,35 @@ fn router_format_round_trips_and_checks_semantic_links() {
     assert_eq!(Stdlib::Now as u8, 0);
     assert_eq!(Stdlib::Min as u8, 10);
 }
+
+#[test]
+fn sites_nest_at_most_max_site_depth_and_types_never_contain_themselves() {
+    use exact_plan::MAX_SITE_DEPTH;
+    let deep = |levels: usize| {
+        let mut b = PlanBuilder::new(0, 1);
+        let mut parent = None;
+        for _ in 0..levels {
+            parent = Some(b.node(0, parent, None, 0, &[], &[], None));
+        }
+        b.finish()
+    };
+    assert!(deep(MAX_SITE_DEPTH).is_ok());
+    assert!(matches!(
+        deep(MAX_SITE_DEPTH + 1),
+        Err(PlanError::SiteTooDeep { table: "nodes", .. })
+    ));
+    let mut cycle = deep(2).unwrap();
+    cycle.nodes[0].parent = Some(exact_plan::NodesId(1));
+    assert!(matches!(
+        cycle.validate(),
+        Err(PlanError::SiteTooDeep { .. })
+    ));
+
+    let mut b = PlanBuilder::new(0, 1);
+    let number = b.primitive(TypeKind::Number);
+    let list = b.list(number);
+    let row = b.record("Row", &[("n", number), ("items", list)]);
+    let mut plan = b.finish().unwrap();
+    plan.types[list.0 as usize].elem = Some(row);
+    assert!(matches!(plan.validate(), Err(PlanError::TypeCycle { .. })));
+}

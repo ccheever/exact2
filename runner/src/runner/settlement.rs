@@ -922,4 +922,45 @@ mod tests {
             "the refused query's store read is not provenance"
         );
     }
+
+    #[test]
+    fn strings_past_the_limit_are_refused_where_they_would_be_built_or_kept() {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let string = b.primitive(TypeKind::String);
+        let init = b.constant(&Value::str("ab"));
+        let text = b.slot("text", string, init);
+        // text = text + text, 26 times: 2 << 26 bytes, past MAX_STRING.
+        let mut body = Asm::new();
+        body.load_slot(text);
+        for _ in 0..26 {
+            body.bind_local()
+                .load_local(0)
+                .load_local(0)
+                .op(exact_plan::Opcode::Concat, &[])
+                .drop_local();
+        }
+        body.store_slot(text).op(exact_plan::Opcode::Unit, &[]);
+        let body = b.code(body);
+        b.action("double", &[], &[text], body);
+        let mut keep = Asm::new();
+        keep.load_param(0)
+            .store_slot(text)
+            .op(exact_plan::Opcode::Unit, &[]);
+        let keep = b.code(keep);
+        b.action("keep", &[("value", string)], &[text], keep);
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let mut r = boot(b.finish().unwrap(), Data::new(Value::Unit));
+        assert!(matches!(
+            r.act("double", vec![]),
+            Err(RunnerError::Trap(crate::vm::Trap::StringTooLong { .. }))
+        ));
+        let long = "x".repeat(crate::vm::MAX_STRING + 1);
+        assert!(matches!(
+            r.act("keep", vec![Value::str(&long)]),
+            Err(RunnerError::StringTooLong { .. })
+        ));
+        assert_eq!(r.slot("text"), Some(&Value::str("ab")));
+        assert!(!r.is_poisoned());
+        r.act("keep", vec![Value::str("fits")]).unwrap();
+    }
 }

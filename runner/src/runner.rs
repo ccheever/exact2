@@ -142,6 +142,11 @@ pub enum RunnerError {
         action: String,
         param: String,
     },
+    /// An action argument or a slot write is a string longer than
+    /// [`crate::vm::MAX_STRING`] bytes.
+    StringTooLong {
+        name: String,
+    },
 }
 
 impl From<Trap> for RunnerError {

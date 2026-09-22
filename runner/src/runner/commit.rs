@@ -4,6 +4,11 @@
 
 use super::*;
 
+/// A string argument or write past [`crate::vm::MAX_STRING`] bytes.
+fn too_long(value: &Value) -> bool {
+    matches!(value, Value::Str(s) if s.len() > crate::vm::MAX_STRING)
+}
+
 /// Everything a refused commit leaves as it was (§6 atomicity): state, the
 /// store, the request book-keeping, and the flags a settlement pass sets on
 /// its way — a deferred resource's staleness, store provenance, and the
@@ -252,6 +257,11 @@ impl<D: DataSource> Runner<D> {
                     param: self.plan.str(param.name).to_string(),
                 });
             }
+            if too_long(&args[i]) {
+                return Err(RunnerError::StringTooLong {
+                    name: self.plan.str(param.name).to_string(),
+                });
+            }
         }
         let allowed: Vec<u32> = row
             .writes
@@ -310,14 +320,21 @@ impl<D: DataSource> Runner<D> {
             .map(|(s, v)| (s, v))
             .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
         {
-            if !value.conforms(&self.plan, self.plan.slots[*slot as usize].ty) {
+            let row = &self.plan.slots[*slot as usize];
+            let refusal = if !value.conforms(&self.plan, row.ty) {
+                Some(RunnerError::SlotType {
+                    slot: self.plan.str(row.name).to_string(),
+                })
+            } else if too_long(value) {
+                Some(RunnerError::StringTooLong {
+                    name: self.plan.str(row.name).to_string(),
+                })
+            } else {
+                None
+            };
+            if let Some(refusal) = refusal {
                 self.discard_later(&later);
-                return Err(RunnerError::SlotType {
-                    slot: self
-                        .plan
-                        .str(self.plan.slots[*slot as usize].name)
-                        .to_string(),
-                });
+                return Err(refusal);
             }
         }
         // Row writes land in their rows now, remembered for a rollback.

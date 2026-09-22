@@ -860,6 +860,15 @@ fn a_region_at_the_plan_root_is_refused() {
         plan.nodes[i].parent = None;
     }
     plan.nodes.remove(0);
+    // Every surviving parent index moves down with the removal.
+    for parent in plan
+        .nodes
+        .iter_mut()
+        .map(|n| &mut n.parent)
+        .chain(plan.regions.iter_mut().map(|r| &mut r.parent))
+    {
+        *parent = parent.and_then(|p| p.0.checked_sub(1).map(exact_plan::NodesId));
+    }
     plan.validate().unwrap_or_else(|e| panic!("{e:?}"));
     let err = Runner::boot(
         plan,

@@ -153,7 +153,20 @@ pub enum PlanError {
     GenericStacks,
     /// A `u16` kernel row cannot carry this many stack ids.
     TooManyStacks(usize),
+    /// A node or region nests deeper than [`MAX_SITE_DEPTH`], or its parents
+    /// form a cycle; realization recurses once per level.
+    SiteTooDeep {
+        table: &'static str,
+        row: u32,
+    },
+    /// A type contains itself; every type-directed walk must end.
+    TypeCycle {
+        ty: u32,
+    },
 }
+
+/// How deeply sites may nest: nodes inside nodes and region arms.
+pub const MAX_SITE_DEPTH: usize = 256;
 
 /// Why a code range was refused.
 #[allow(missing_docs)]
@@ -369,6 +382,100 @@ impl Plan {
             })
         {
             return Err(PlanError::GenericStacks);
+        }
+        self.validate_site_depth()?;
+        self.validate_acyclic_types()
+    }
+
+    /// Every node and region sits at most [`MAX_SITE_DEPTH`] levels below
+    /// the root, following node parents and arm regions (no recursion here).
+    fn validate_site_depth(&self) -> Result<(), PlanError> {
+        // Sites: nodes first, then regions. 0 = unknown, u32::MAX = on the path.
+        let first_region = self.nodes.len();
+        let mut depth = vec![0u32; first_region + self.regions.len()];
+        let up = |site: usize| -> Option<usize> {
+            let (parent, arm) = match site.checked_sub(first_region) {
+                None => (self.nodes[site].parent, self.nodes[site].arm),
+                Some(r) => (self.regions[r].parent, self.regions[r].arm),
+            };
+            match (parent, arm) {
+                (Some(node), _) => Some(node.0 as usize),
+                (None, Some(arm)) => Some(first_region + self.arm(arm).region.0 as usize),
+                (None, None) => None,
+            }
+        };
+        let refuse = |site: usize| match site.checked_sub(first_region) {
+            None => PlanError::SiteTooDeep {
+                table: "nodes",
+                row: site as u32,
+            },
+            Some(r) => PlanError::SiteTooDeep {
+                table: "regions",
+                row: r as u32,
+            },
+        };
+        let mut path = Vec::new();
+        for start in 0..depth.len() {
+            let mut site = Some(start);
+            while let Some(s) = site.filter(|s| depth[*s] == 0) {
+                if path.len() >= MAX_SITE_DEPTH {
+                    return Err(refuse(start));
+                }
+                depth[s] = u32::MAX;
+                path.push(s);
+                site = up(s);
+            }
+            let mut below = match site {
+                None => 0,
+                Some(s) if depth[s] == u32::MAX => return Err(refuse(s)),
+                Some(s) => depth[s],
+            };
+            while let Some(s) = path.pop() {
+                below += 1;
+                if below as usize > MAX_SITE_DEPTH {
+                    return Err(refuse(s));
+                }
+                depth[s] = below;
+            }
+        }
+        Ok(())
+    }
+
+    /// No type reaches itself through an element or a field.
+    fn validate_acyclic_types(&self) -> Result<(), PlanError> {
+        // 0 unvisited, 1 on the path, 2 done; an explicit stack of (type, next edge).
+        let mut state = vec![0u8; self.types.len()];
+        for start in 0..self.types.len() {
+            if state[start] != 0 {
+                continue;
+            }
+            let mut stack = vec![(start, 0usize)];
+            state[start] = 1;
+            while let Some((ty, edge)) = stack.last_mut() {
+                let row = &self.types[*ty];
+                let edges = row.elem.map_or(0, |_| 1) + row.fields.len as usize;
+                if *edge == edges {
+                    state[*ty] = 2;
+                    stack.pop();
+                    continue;
+                }
+                let next = match (row.elem, *edge) {
+                    (Some(elem), 0) => elem.0 as usize,
+                    (elem, e) => {
+                        let field = row.fields.start as usize + e - usize::from(elem.is_some());
+                        self.fields[field].ty.0 as usize
+                    }
+                };
+                *edge += 1;
+                match state[next] {
+                    0 => {
+                        state[next] = 1;
+                        stack.push((next, 0));
+                    }
+                    1 => return Err(PlanError::TypeCycle { ty: next as u32 }),
+                    _ => {}
+                }
+            }
         }
         Ok(())
     }
