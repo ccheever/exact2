@@ -144,10 +144,37 @@ final class MarkupEditor: NSObject {
 /// without a text-change delegate callback; completion publishes the source
 /// once, after the complete native undo/redo transaction and its selection.
 final class NativeTextUndo {
-    let manager = UndoManager()
+    let manager: UndoManager
     private var observers: [NSObjectProtocol] = []
 
-    init(before: @escaping () -> Void, after: @escaping () -> Void) {
+    static func prepareForEdit(on manager: UndoManager?) {
+        guard let manager, manager.groupsByEvent, manager.groupingLevel == 0,
+              !manager.isUndoing, !manager.isRedoing else { return }
+        // Closing an event group during this run-loop pass can leave native
+        // text registration without a group. Open its replacement only at
+        // an actual edit, so an empty group cannot consume the next Undo.
+        manager.beginUndoGrouping()
+        if manager.groupingLevel == 2 { manager.endUndoGrouping() }
+    }
+
+    static func group(on manager: UndoManager?, _ edit: () -> Void) {
+        guard let manager else { edit(); return }
+        // Native typing can leave the event's outer group open. A format
+        // must not become part of that earlier typing transaction. A deeper
+        // group belongs to a caller, and must retain its existing ownership.
+        if manager.groupsByEvent, manager.groupingLevel == 1 { manager.endUndoGrouping() }
+        let ownsTopLevel = manager.groupingLevel == 0
+        manager.beginUndoGrouping()
+        edit()
+        manager.endUndoGrouping()
+        // beginUndoGrouping can create a new automatic outer group around
+        // our explicit group. Finish it too, without toggling groupsByEvent:
+        // native typing still owns the manager's next automatic event group.
+        if ownsTopLevel, manager.groupsByEvent, manager.groupingLevel == 1 { manager.endUndoGrouping() }
+    }
+
+    init(manager: UndoManager = UndoManager(), before: @escaping () -> Void, after: @escaping () -> Void) {
+        self.manager = manager
         let center = NotificationCenter.default
         for name in [Notification.Name.NSUndoManagerWillUndoChange, .NSUndoManagerWillRedoChange] {
             observers.append(center.addObserver(forName: name, object: manager, queue: nil) { _ in before() })

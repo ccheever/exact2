@@ -27,11 +27,11 @@ extension NodeView {
         let edit = minimalTextEdit(from: f.string, to: result.source)
         f.breakUndoCoalescing()
         if let edit {
-            f.undoManager?.beginUndoGrouping()
-            f.insertText(edit.text, replacementRange: edit.range)
-            f.setSelectedRange(result.selection)
-            f.undoManager?.endUndoGrouping()
-            f.undoManager?.setActionName(command == "newline" ? "Typing" : "Markdown \(command)")
+            NativeTextUndo.group(on: f.undoManager) {
+                f.insertText(edit.text, replacementRange: edit.range)
+                f.setSelectedRange(result.selection)
+                f.undoManager?.setActionName(command == "newline" ? "Typing" : "Markdown \(command)")
+            }
         } else { f.setSelectedRange(result.selection) }
         editor.bookmark = f.selectedRange()
         editor.applying = false

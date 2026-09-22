@@ -14,14 +14,14 @@ extension NodeView {
         guard let result = MarkupCommands.edit(f.text ?? "", selection: selection, command: command, argument: argument) else { editor.applying = false; return false }
         let edit = minimalTextEdit(from: f.text ?? "", to: result.source)
         if let edit {
-            f.undoManager?.beginUndoGrouping()
-            f.selectedRange = edit.range
-            // insertText uses UIKit's native undo registration, as typing and
-            // paste do. Direct mutations of textStorage would not register it.
-            f.insertText(edit.text)
-            f.selectedRange = result.selection
-            f.undoManager?.endUndoGrouping()
-            f.undoManager?.setActionName(command == "newline" ? "Typing" : "Markdown \(command)")
+            NativeTextUndo.group(on: f.undoManager) {
+                f.selectedRange = edit.range
+                // insertText uses UIKit's native undo registration, as typing and
+                // paste do. Direct mutations of textStorage would not register it.
+                f.insertText(edit.text)
+                f.selectedRange = result.selection
+                f.undoManager?.setActionName(command == "newline" ? "Typing" : "Markdown \(command)")
+            }
         } else { f.selectedRange = result.selection }
         editor.bookmark = f.selectedRange
         editor.applying = false

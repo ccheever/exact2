@@ -19,6 +19,11 @@ final class TextArea: NSTextView {
     weak var owner: NodeView?
     var markup: MarkupEditor?
 
+    override func shouldChangeText(inRanges affectedRanges: [NSValue], replacementStrings: [String]?) -> Bool {
+        if markup != nil, isEditable, replacementStrings != nil { NativeTextUndo.prepareForEdit(on: undoManager) }
+        return super.shouldChangeText(inRanges: affectedRanges, replacementStrings: replacementStrings)
+    }
+
     override func resignFirstResponder() -> Bool {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
         return super.resignFirstResponder()
