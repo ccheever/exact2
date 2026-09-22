@@ -169,7 +169,7 @@ fn read_outcome(r: &mut Reader<'_>) -> Result<Outcome, String> {
 fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
     match result {
         Ok(Answer::Later(r))
-            if (r.storage.is_some() || r.continuation.is_some())
+            if (r.storage.is_some() || r.continuation.is_some() || r.surface.is_some())
                 && r.http != HttpScheduling::Ordered =>
         {
             encode_result(
@@ -194,14 +194,14 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
         {
             match r.surface.as_deref().unwrap() {
                 SurfaceRequest::Capture { name } => {
-                    w.u8(6);
+                    w.u8(7);
                     w.string(name);
                 }
                 SurfaceRequest::Restore {
                     name,
                     bytes: payload,
                 } => {
-                    w.u8(7);
+                    w.u8(8);
                     w.string(name);
                     bytes(w, payload);
                 }
@@ -304,9 +304,9 @@ fn read_result(r: &mut Reader<'_>) -> Result<Result<Answer, DataError>, String> 
             };
             Ok(Answer::Later(request))
         }
-        tag @ (6 | 7) => {
+        tag @ (7 | 8) => {
             let name = r.string().map_err(error)?;
-            let payload = if tag == 7 {
+            let payload = if tag == 8 {
                 Some(read_bytes(r)?.to_vec())
             } else {
                 None

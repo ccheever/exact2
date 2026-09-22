@@ -1367,6 +1367,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 restore_logged: false,
             },
         );
+        p.dirty = true; // The injected canvas changes the next presented frame.
         assert!(p.tap(under).unwrap_err().contains("covered or not hit"));
         assert_eq!(
             p.host.runner().slot("count"),

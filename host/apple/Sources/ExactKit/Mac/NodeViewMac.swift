@@ -414,6 +414,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseMoved(with event: NSEvent) {
+        if canvasInput?.pointer(event, phase: "move") == true { return }
         let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
         presenter?.hoverInline(run?.id)
         if run == nil, handlers.contains("hover") { presenter?.hover(self, true) }
@@ -549,9 +550,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func forget() {
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
-        textParent?.textChildren.removeAll { $0 === self }
-        textParent = nil
-        textChildren.removeAll()
         invalidateText()
         cachedTextLayout = nil
         dropTextRaster()
@@ -1406,9 +1404,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func otherMouseUp(with event: NSEvent) {
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
-    }
-    override func mouseMoved(with event: NSEvent) {
-        if canvasInput?.pointer(event, phase: "move") != true { super.mouseMoved(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
         if canvasInput?.wheel(event) != true { super.scrollWheel(with: event) }

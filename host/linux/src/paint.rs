@@ -956,7 +956,7 @@ impl Painter {
             .collect();
         children.sort_by(
             |a, b| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => b.depth().total_cmp(&a.depth()),
+                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()),
                 (Some(_), None) => std::cmp::Ordering::Less,
                 (None, Some(_)) => std::cmp::Ordering::Greater,
                 _ => std::cmp::Ordering::Equal,

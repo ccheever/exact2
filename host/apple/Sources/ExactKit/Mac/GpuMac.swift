@@ -201,7 +201,7 @@ final class Canvases {
         var uploaded = 0
         let t0 = CACurrentMediaTime()
         for (i, child) in children.enumerated() {
-            if child.frame.width <= 0 || child.frame.height <= 0 || (child.style["display"] as? String) == "none" {
+            if child.frame.width <= 0 || child.frame.height <= 0 || child.style["display"]?.string == "none" {
                 let r = m.child(e.id, UInt32(i), child.props["testId"] ?? "", 0, 0, 0, 0, 0, 0, nil, 0)
                 if r != 0 { return false }
                 continue

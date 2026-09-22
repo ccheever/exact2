@@ -303,7 +303,10 @@ fn file_compilation_checks_surface_arguments_at_the_source() {
     let source = "use Child from \"./child.contract\"\ncomponent App\n  view\n    Child()\n";
     let error = contract::compile_path_source(&path, source).unwrap_err();
     let diagnostic: serde_json::Value = serde_json::from_str(&error.to_json()).unwrap();
-    assert_eq!(diagnostic["file"], imported.to_str().unwrap());
+    assert_eq!(
+        diagnostic["file"],
+        imported.canonicalize().unwrap().to_str().unwrap()
+    );
     assert_eq!(diagnostic["line"], 3);
     assert_eq!(error.id, "analyze-surface-arguments");
 
@@ -311,7 +314,10 @@ fn file_compilation_checks_surface_arguments_at_the_source() {
         std::fs::write(&declaration, malformed).unwrap();
         let error = contract::compile_path_source(&path, source).unwrap_err();
         assert_eq!(error.id, "analyze-surface-declaration");
-        assert_eq!(error.file.as_deref(), Some(declaration.as_path()));
+        assert_eq!(
+            error.file.as_deref(),
+            Some(declaration.canonicalize().unwrap().as_path())
+        );
     }
     std::fs::remove_file(&declaration).unwrap();
     assert!(

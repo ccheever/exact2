@@ -12,7 +12,7 @@ enum RequestEffect {
     Answered,
     Later {
         args: Vec<Value>,
-        request: Request,
+        request: Box<Request>,
         forced: bool,
     },
 }
@@ -317,7 +317,7 @@ impl<D: DataSource> Runner<D> {
                                     };
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),
-                                        request,
+                                        request: Box::new(request),
                                         forced,
                                     };
                                     pending_res[i] = true;
@@ -377,7 +377,7 @@ impl<D: DataSource> Runner<D> {
                 } = effect
                 {
                     let source = self.plan.str(self.plan.resources[i].source).to_string();
-                    self.enqueue(Target::Resource(i), source, args, request, forced);
+                    self.enqueue(Target::Resource(i), source, args, *request, forced);
                 }
             }
             return Ok(());

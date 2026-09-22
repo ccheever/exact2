@@ -1007,7 +1007,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** The node for a target: a testId (first in preorder) or a view id. */
     async find(target, required = true) {
       if (target == null) throw new Error(`no view matches ${target}`);
-      const t = await s.tree(target, { shallow: true });
+      const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
       const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
       if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets`);
       return node;

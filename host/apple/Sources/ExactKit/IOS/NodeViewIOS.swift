@@ -513,9 +513,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         DispatchQueue.main.async { prior?.cancel() }
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
-        textParent?.textChildren.removeAll { $0 === self }
-        textParent = nil
-        textChildren.removeAll()
         invalidateText()
         cachedTextLayout = nil
         dropTextRaster()

@@ -69,6 +69,7 @@ fn decode(outcome: Outcome) -> Result<Json, String> {
         }
         Outcome::Response(response) => Err(format!("HTTP {}", response.status)),
         Outcome::Failed { kind, .. } => Err(format!("Transport {kind:?}")),
+        Outcome::Surface(_) => Err("Unexpected surface response".into()),
         Outcome::Storage(_) => Err("Unexpected storage response".into()),
     }
 }

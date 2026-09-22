@@ -368,9 +368,9 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
   const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
-  const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('// @ref LLP 1020 D2 — one page listener'));
+  const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('function ensureMessageListener('));
   class Element {}
-  const apply = runInNewContext(fn+';applyProps', {inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
+  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
   const attrs = new Map();
   const el = {setAttribute:(k,v)=>attrs.set(k,v), removeAttribute:k=>attrs.delete(k)};
   apply(el, {autofocus:'true'}, []);

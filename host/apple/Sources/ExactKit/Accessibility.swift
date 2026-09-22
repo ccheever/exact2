@@ -8,7 +8,8 @@ import UIKit
 extension NodeView {
     var accessibleText: String {
         if let text = props["text"] { return text }
-        let children = kind == "text" ? textChildren : container.subviews.compactMap { $0 as? NodeView }
+        if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
+        let children = container.subviews.compactMap { $0 as? NodeView }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
     var accessibleName: String { props["accessibilityLabel"] ?? accessibleText }
