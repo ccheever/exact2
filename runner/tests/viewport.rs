@@ -1,15 +1,28 @@
 //! @ref LLP 1039 D3 / LLP 1030 D7 — host facts must not enter kept storage.
 use exact_kernel::{Kernel, NodeType};
-use exact_plan::{builder::PlanBuilder, TypeKind, Value};
+use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind, Value};
 use exact_runner::{DataError, DataSource, Runner, Viewport};
 
-struct Deferred;
+#[derive(Default)]
+struct Deferred {
+    ready: bool,
+    queries: Vec<Vec<Value>>,
+}
 impl DataSource for Deferred {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        panic!("runner fact reached data source {source}")
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        assert!(
+            self.ready,
+            "deferred application source ran before activation"
+        );
+        assert_eq!(
+            source, "value",
+            "runner fact reached application data source"
+        );
+        self.queries.push(args.to_vec());
+        Ok(args[0].clone())
     }
     fn ready(&self) -> bool {
-        false
+        self.ready
     }
 }
 
@@ -25,19 +38,31 @@ fn runner_facts_never_write_kept_answers() {
         exact_runner::viewport::SOURCE,
         &[],
         viewport,
-        None,
+        Some(&Value::record(vec![Value::Number(1.), Value::Number(1.)])),
     );
     b.resource(
         "delivery",
         exact_runner::delivery::SOURCE,
         &[],
         delivery,
-        None,
+        Some(&Value::record(vec![Value::str("baked stream")])),
     );
+    let zero = b.constant(&Value::Number(0.));
+    let revision = b.slot("revision", number, zero);
+    let mut arg = Asm::new();
+    arg.load_slot(revision);
+    let arg = b.code(arg);
+    let value = b.resource("value", "value", &[arg], number, Some(&Value::Number(0.)));
+    b.set_resource_initial_args(value, &[Value::Number(0.)]);
+    b.set_resource_reader(value, true);
+    let mut change = Asm::new();
+    change.load_param(0).store_slot(revision);
+    let change = b.code(change);
+    b.action("change", &[("revision", number)], &[revision], change);
     b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
     let mut runner = Runner::boot(
         b.finish().unwrap(),
-        Deferred,
+        Deferred::default(),
         Kernel::with_monospace(),
         Viewport::default(),
         "/",
@@ -46,6 +71,14 @@ fn runner_facts_never_write_kept_answers() {
     assert!(runner.take_router_change().is_none());
     assert!(runner.carry().keeps_answers);
     assert!(runner.take_store_writes().is_empty());
+    // Timers can change arguments while the host is still loading its module.
+    // Each change must keep the compiled placeholder, without invoking app code.
+    for revision in [1., 2.] {
+        runner.act("change", vec![Value::Number(revision)]).unwrap();
+        assert_eq!(runner.resource("value"), Some(&Value::Number(0.)));
+    }
+    assert!(runner.data().queries.is_empty());
+    assert!(runner.data_ready().unwrap().is_none());
     assert!(runner.set_viewport(1280.0, 900.0).unwrap().is_some());
     assert_eq!(
         runner.resource("viewport"),
@@ -60,4 +93,22 @@ fn runner_facts_never_write_kept_answers() {
     assert!(runner.set_delivery(delivery).unwrap().is_some());
     assert!(runner.take_store_writes().is_empty());
     assert!(runner.carry().store.is_empty());
+    assert_eq!(
+        runner.resource("delivery"),
+        Some(&Value::record(vec![Value::str("updated")]))
+    );
+    runner.data().ready = true;
+    assert!(runner.data_ready().unwrap().is_some());
+    assert_eq!(runner.resource("value"), Some(&Value::Number(2.)));
+    assert_eq!(runner.data().queries, vec![vec![Value::Number(2.)]]);
+    assert!(runner.data_ready().unwrap().is_none());
+    assert_eq!(runner.data().queries.len(), 1);
+    assert_eq!(
+        runner
+            .take_store_writes()
+            .iter()
+            .map(|write| write.name.as_str())
+            .collect::<Vec<_>>(),
+        ["exact.kept.value"]
+    );
 }

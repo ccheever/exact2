@@ -237,7 +237,7 @@ impl<D: DataSource> Runner<D> {
                     let reused = reuse.is_some();
                     let value = match reuse {
                         Some(v) => v,
-                        None if boot
+                        None if (boot || !self.data.ready())
                             && self.plan.str(row.source) != crate::delivery::SOURCE
                             && self.plan.str(row.source) != crate::viewport::SOURCE
                             && row.initial.len > 0
@@ -247,10 +247,10 @@ impl<D: DataSource> Runner<D> {
                                     == Value::list(args.clone())
                                     && (!self.store_readers[i] || self.stale[i]))) =>
                         {
-                            // Deferred sources cannot answer before first pixel.
-                            // Their compiled value is a placeholder even when a
-                            // deep launch changed its arguments (LLP 1038 D5,
-                            // LLP 1027 D4); data_ready asks the current arguments.
+                            // Keep deferred placeholders until activation, even
+                            // when timers or a deep launch change arguments after
+                            // boot (LLP 1038 D5, LLP 1027 D4). data_ready asks the
+                            // current arguments once the executor can answer.
                             if !self.data.ready() {
                                 self.stale[i] = true;
                             }
