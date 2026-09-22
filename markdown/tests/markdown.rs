@@ -818,3 +818,31 @@ fn pieces_keep_unicode_sources_and_replacements_across_many_blocks() {
         .filter(|p| p.text == "[1]" || p.text == "[1] ")
         .all(|p| p.role == Role::Marker && p.scale == 0.75 && p.source.is_none()));
 }
+
+#[test]
+fn repeated_mixed_emphasis_preserves_partial_runs_and_nested_styles() {
+    let unit = "***é** tail* **a *b* c** ~~x **y** z~~ _end_ ";
+    let source = unit.repeat(256);
+    let units: Vec<_> = source.encode_utf16().collect();
+    let styled = style(&source, None);
+    let expected = [
+        ("é", BOLD | ITALIC),
+        (" tail", ITALIC),
+        ("a ", BOLD),
+        ("b", BOLD | ITALIC),
+        (" c", BOLD),
+        ("x ", STRIKE),
+        ("y", STRIKE | BOLD),
+        (" z", STRIKE),
+        ("end", ITALIC),
+    ];
+    assert_eq!(styled.spans.len(), expected.len() * 256);
+    for (span, (text, flags)) in styled.spans.iter().zip(expected.iter().cycle()) {
+        assert_eq!(span.style, *flags);
+        assert_eq!(
+            String::from_utf16(&units[span.range.start as usize..span.range.end as usize]).unwrap(),
+            *text
+        );
+    }
+    assert_eq!(plain(&source), "é tail a b c x y z end ".repeat(256));
+}

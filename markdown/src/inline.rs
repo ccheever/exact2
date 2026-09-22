@@ -29,6 +29,7 @@ pub(crate) struct Out {
     pub constructs: Vec<Construct>,
 }
 
+#[derive(Clone, Copy)]
 struct Delim {
     ch: char,
     start: usize,
@@ -353,7 +354,7 @@ impl Scanner<'_> {
     /// CommonMark's `openers_bottom`: once a closer of this shape finds no
     /// opener, no later closer of the same shape searches below it.
     fn emphasis(&mut self, mut d: Vec<Delim>) {
-        let mut ci = 0;
+        let mut active = 0;
         let shape = |c: &Delim| {
             (match c.ch {
                 '*' => 0,
@@ -364,50 +365,51 @@ impl Scanner<'_> {
                 + c.total % 3
         };
         let mut bottoms = [0usize; 18];
-        while ci < d.len() {
-            if !d[ci].close || d[ci].len == 0 {
-                ci += 1;
-                continue;
+        // Processed delimiters occupy a compact prefix. The unread tail stays
+        // in place; a match retires intervening entries by shortening the prefix.
+        for read in 0..d.len() {
+            d[active] = d[read];
+            loop {
+                let ci = active;
+                if !d[ci].close || d[ci].len == 0 {
+                    break;
+                }
+                let bottom = bottoms[shape(&d[ci])];
+                let found = (bottom..ci).rev().find(|&oi| {
+                    let (o, c) = (&d[oi], &d[ci]);
+                    let thirds = (o.open && o.close || c.open && c.close)
+                        && (o.total + c.total) % 3 == 0
+                        && !(o.total % 3 == 0 && c.total % 3 == 0);
+                    o.ch == c.ch && o.open && o.len > 0 && !thirds
+                });
+                let Some(oi) = found else {
+                    bottoms[shape(&d[ci])] = ci;
+                    break;
+                };
+                let take = if d[oi].len >= 2 && d[ci].len >= 2 {
+                    2
+                } else {
+                    1
+                };
+                let kind = match (d[ci].ch, take) {
+                    ('~', _) => STRIKE,
+                    (_, 2) => BOLD,
+                    _ => ITALIC,
+                };
+                let open_end = d[oi].start + d[oi].len;
+                let close_start = d[ci].start;
+                let outer = self.pos(open_end - take)..self.pos(close_start + take);
+                self.construct(kind, outer, self.pos(open_end)..self.pos(close_start), None);
+                d[oi].len -= take;
+                d[ci].start += take;
+                d[ci].len -= take;
+                active = oi + usize::from(d[oi].len != 0);
+                d[active] = d[ci];
+                for b in &mut bottoms {
+                    *b = (*b).min(active);
+                }
             }
-            let bottom = bottoms[shape(&d[ci])];
-            let found = (bottom..ci).rev().find(|&oi| {
-                let (o, c) = (&d[oi], &d[ci]);
-                let thirds = (o.open && o.close || c.open && c.close)
-                    && (o.total + c.total) % 3 == 0
-                    && !(o.total % 3 == 0 && c.total % 3 == 0);
-                o.ch == c.ch && o.open && o.len > 0 && !thirds
-            });
-            let Some(oi) = found else {
-                bottoms[shape(&d[ci])] = ci;
-                ci += 1;
-                continue;
-            };
-            let take = if d[oi].len >= 2 && d[ci].len >= 2 {
-                2
-            } else {
-                1
-            };
-            let kind = match (d[ci].ch, take) {
-                ('~', _) => STRIKE,
-                (_, 2) => BOLD,
-                _ => ITALIC,
-            };
-            let open_end = d[oi].start + d[oi].len;
-            let close_start = d[ci].start;
-            let outer = self.pos(open_end - take)..self.pos(close_start + take);
-            self.construct(kind, outer, self.pos(open_end)..self.pos(close_start), None);
-            d[oi].len -= take;
-            d[ci].start += take;
-            d[ci].len -= take;
-            d.drain(oi + 1..ci);
-            ci = oi + 1;
-            if d[oi].len == 0 {
-                d.remove(oi);
-                ci -= 1;
-            }
-            for b in &mut bottoms {
-                *b = (*b).min(ci);
-            }
+            active += 1;
         }
     }
 }
