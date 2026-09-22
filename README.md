@@ -1,6 +1,6 @@
 # Exact
 
-Tooling runs on **Bun 1.3.12 or newer** (release toolchain pinned in `package.json`).
+Tooling runs on **Bun 1.4.2**, the version `package.json` pins.
 Run `bun install --frozen-lockfile` to install the dependencies in `bun.lock`.
 Node and npm are not required. Rolldown remains the app bundler; the existing
 build, serve, watch, and reload scripts run under Bun. Run tooling unit tests with
