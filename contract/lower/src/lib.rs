@@ -138,7 +138,7 @@ pub(crate) struct Lowerer<'a> {
     pub styles: BTreeMap<String, Vec<Attr>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5).
-    pub fns: BTreeMap<String, FnDecl>,
+    pub fns: BTreeMap<&'a str, &'a FnDecl>,
     /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
     pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
     /// The item/binding scope at each expanded `each`, for row-slot initializers.
@@ -218,11 +218,7 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
-        fns: file
-            .fns
-            .iter()
-            .map(|f| (f.name.clone(), f.clone()))
-            .collect(),
+        fns: file.fns.iter().map(|f| (f.name.as_str(), f)).collect(),
         fn_depth: 0,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
