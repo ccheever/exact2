@@ -2,6 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // Resolve authored keys in memory; only the bake writes the resolved manifest.
 const merge = (base, overrides) => {
@@ -11,7 +12,8 @@ const merge = (base, overrides) => {
   }
   return result;
 };
-const gameRoot = resolve(import.meta.dir, '..');
+// Not Bun's import.meta.dir: apps outside this repo import this under Node.
+const gameRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const hasArt = dir => existsSync(resolve(dir, 'art')) || existsSync(resolve(dir, '.baked-assets.json'));
 const writeChanged = (path, text, authored = true) => {
   if (!existsSync(path) || readFileSync(path, "utf8") !== text) {
