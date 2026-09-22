@@ -29,6 +29,7 @@ final class TextArea: UITextView {
     var markup: MarkupEditor?
     override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
+        if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
         let resigned = super.resignFirstResponder()
         // UITextView's editing delegate omits read-only selection sessions.
         // They still blur in HTML, and the app must be able to remove its
@@ -37,6 +38,26 @@ final class TextArea: UITextView {
             owner.presenter?.blur(owner.id)
         }
         return resigned
+    }
+    override var keyCommands: [UIKeyCommand]? {
+        guard markup != nil, isEditable else { return super.keyCommands }
+        return (super.keyCommands ?? []) + [
+            UIKeyCommand(title: "Bold", action: #selector(markupBold), input: "b", modifierFlags: .command),
+            UIKeyCommand(title: "Italic", action: #selector(markupItalic), input: "i", modifierFlags: .command),
+            UIKeyCommand(title: "Link", action: #selector(markupLink), input: "k", modifierFlags: .command),
+            UIKeyCommand(title: "Copy Plain Text", action: #selector(copyPlainText), input: "c", modifierFlags: [.command, .shift]),
+        ]
+    }
+    @objc private func markupBold() { owner?.formatMarkup("bold") }
+    @objc private func markupItalic() { owner?.formatMarkup("italic") }
+    @objc private func markupLink() { owner?.editMarkupLink() }
+    @objc func copyPlainText() {
+        guard markup != nil, selectedRange.length > 0, let plain = MarkupCommands.plain((text as NSString).substring(with: selectedRange)) else { return }
+        UIPasteboard.general.string = plain
+    }
+    override func copy(_ sender: Any?) {
+        guard markup != nil else { super.copy(sender); return }
+        if selectedRange.length > 0 { UIPasteboard.general.string = (text as NSString).substring(with: selectedRange) }
     }
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
@@ -97,9 +118,8 @@ extension NodeView {
     }
 
     func makeTextArea() {
-        // A Markdown editor stays on TextKit 2 (LLP 1045 D5): markers hide
-        // by attributes and marker glyphs draw from a layout fragment, so
-        // `layoutManager` is never touched.
+        // UIKit defaults to TextKit 2 on our iOS 17 floor. Never access
+        // `layoutManager`: that would irreversibly switch back to TextKit 1.
         let f = TextArea(frame: .zero)
         f.owner = self
         f.backgroundColor = .clear
@@ -109,8 +129,20 @@ extension NodeView {
         addSubview(f)
         textArea = f
     }
+    func configureMarkup() {
+        guard let f = textArea as? TextArea else { return }
+        if props["markup"] == "markdown" {
+            if f.markup == nil { f.markup = MarkupEditor() }
+        } else if let editor = f.markup, f.markedTextRange == nil {
+            let storage = f.textStorage
+            editor.detach(storage)
+            f.typingAttributes = editor.plainAttributes
+            f.markup = nil
+        }
+    }
     func applyTextArea() {
         guard let f = textArea else { return }
+        configureMarkup()
         writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
@@ -125,6 +157,7 @@ extension NodeView {
     }
     func styleTextArea() {
         guard let f = textArea, let t = text else { return }
+        guard f.markedTextRange == nil else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
         f.textColor = color("text_color", .black)
         f.tintColor = caretColor
@@ -136,21 +169,19 @@ extension NodeView {
     func layoutTextArea() { textArea?.frame = contentBox() }
     /// Restyle a Markdown editor's storage for its text and selection.
     func restyleMarkup() {
-        guard let f = textArea as? TextArea, let t = text else { return }
-        // The props arrive after the view; the styler attaches on the first
-        // apply that names Markdown and stays for the view's life.
-        if f.markup == nil, props["markup"] == "markdown" { f.markup = MarkupEditor() }
-        guard let editor = f.markup else { return }
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let t = text, let editor = f.markup, f.markedTextRange == nil else { return }
         let look = MarkupEditor.Look(
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
             size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
             italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .black))
-        editor.restyle(f, look: look)
+        editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
+        f.typingAttributes = editor.baseAttributes(look)
     }
     /// The app's value into the editor: nothing while text is being composed
     /// (held until the composition ends), else the changed middle only, with
     /// the selection carried through (LLP 1045 D5).
     func writeValue(_ value: String, into f: UITextView) {
+        if (f.text ?? "").utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.markedTextRange != nil { pendingValue = value; return }
         pendingValue = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
@@ -161,23 +192,30 @@ extension NodeView {
             f.textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))
         }
         f.selectedRange = carrySelection(selection, through: edit)
+        (f as? TextArea)?.markup?.bookmark = f.selectedRange
         restyleMarkup()
     }
     func textViewDidChange(_ textView: UITextView) {
+        if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
         if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
+        configureMarkup()
         restyleMarkup()
+        publishMarkupSelection()
     }
     func textViewDidChangeSelection(_ textView: UITextView) {
-        // The caret reveals the markers of what it touches (LLP 1045 D1).
-        if (textView as? TextArea)?.markup != nil { restyleMarkup() }
+        guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil else { return }
+        if f.isFirstResponder { editor.bookmark = f.selectedRange }
+        restyleMarkup()
+        publishMarkupSelection()
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         if handlers.contains("focus") { presenter?.focus(id) }
         presenter?.reveal(self)
+        publishMarkupSelection(force: true)
     }
     func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }

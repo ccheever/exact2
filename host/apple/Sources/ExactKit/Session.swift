@@ -632,6 +632,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
+                if name == "format" {
+                    app.deliver { [weak self] in self?.presenter.formatElement(args) }
+                    continue
+                }
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }

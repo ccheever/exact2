@@ -1,137 +1,79 @@
-// The WYSIWYG Markdown editor on iOS (LLP 1045 D1, D5): a TextKit 2
-// `UITextView` whose storage is the source, restyled in place from the
-// archive's `exact_markup_style` after every edit and selection move.
-//
-// Attributes are set over the existing storage — never `attributedText` —
-// so the selection and any marked (composing) text survive. A marker the
-// selection does not touch is hidden by attributes alone: a near-zero font
-// removes its advance and a clear colour its ink, which works under any
-// layout manager and survives autocorrect, dictation and IME. A construct
-// the caret touches shows its markers dimmed (the styler's MARKER spans).
-// List markers stay visible, dimmed: a bullet or box drawn in their place is
-// owed (an `NSTextList` on the paragraph indented but drew no marker in
-// `UITextView`, and a layout-fragment delegate set on its text layout manager
-// was not consulted, 2026-09-21). Nothing here touches `layoutManager` (that
-// would switch the view back to TextKit 1) and nothing round-trips through
-// the runner.
-#if canImport(UIKit)
+// @ref LLP 1045 D5, D6 — source replacements through UIKit's own input path.
+#if os(iOS)
 import UIKit
-import CExact
 
-final class MarkupEditor: NSObject {
-    private var styling = false
-    /// The hidden font: no advance, no ink.
-    static let hiddenFont = UIFont.systemFont(ofSize: 0.001)
-
-    struct Look {
-        let font: (CGFloat, Int, Int, Bool) -> UIFont
-        let size: CGFloat
-        let weight: Int
-        let family: Int
-        let italic: Bool
-        let lineHeight: CGFloat?
-        let ink: UIColor
+extension NodeView {
+    @discardableResult func formatMarkup(_ command: String, argument: String = "", selection override: NSRange? = nil) -> Bool {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !disabled,
+              f.markedTextRange == nil, !editor.applying else { return false }
+        let selection = override ?? (f.isFirstResponder ? f.selectedRange : (editor.bookmark ?? f.selectedRange))
+        guard let result = MarkupCommands.edit(f.text ?? "", selection: selection, command: command, argument: argument) else { return false }
+        let edit = minimalTextEdit(from: f.text ?? "", to: result.source)
+        editor.applying = true
+        if let edit {
+            f.undoManager?.beginUndoGrouping()
+            f.selectedRange = edit.range
+            // insertText uses UIKit's native undo registration, as typing and
+            // paste do. Direct mutations of textStorage would not register it.
+            f.insertText(edit.text)
+            f.selectedRange = result.selection
+            f.undoManager?.endUndoGrouping()
+            f.undoManager?.setActionName(command == "newline" ? "Typing" : "Markdown \(command)")
+        } else { f.selectedRange = result.selection }
+        editor.bookmark = f.selectedRange
+        editor.applying = false
+        if edit != nil { textViewDidChange(f) }
+        else { restyleMarkup(); publishMarkupSelection() }
+        f.scrollRangeToVisible(f.selectedRange)
+        return true
     }
 
-    /// The attributes plain typing takes, whatever the caret sits beside.
-    func baseAttributes(_ look: Look) -> [NSAttributedString.Key: Any] {
-        let paragraph = NSMutableParagraphStyle()
-        if let h = look.lineHeight { paragraph.minimumLineHeight = h; paragraph.maximumLineHeight = h }
-        return [.font: look.font(look.size, look.weight, look.family, look.italic), .foregroundColor: look.ink, .paragraphStyle: paragraph]
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        guard let f = textView as? TextArea, let editor = f.markup, !editor.applying,
+              f.markedTextRange == nil, text == "\n" else { return true }
+        return !formatMarkup("newline", selection: range)
     }
 
-    /// Restyle `view`'s storage for its current text and selection.
-    func restyle(_ view: UITextView, look: Look) {
-        guard view.markedTextRange == nil, !styling else { return }
-        styling = true; defer { styling = false }
-        let storage = view.textStorage
-        let selection = view.selectedRange
-        var text = storage.string
-        var json: UnsafePointer<UInt8>? = nil
-        var count = 0
-        let handle = text.withUTF8 { bytes in
-            exact_markup_style(bytes.baseAddress, bytes.count, UInt32(clamping: selection.location), UInt32(clamping: selection.location + selection.length), &json, &count)
+    func publishMarkupSelection(force: Bool = false) {
+        guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup,
+              !editor.applying, !editor.styling, f.markedTextRange == nil,
+              let state = MarkupCommands.selection(f.text ?? "", range: f.selectedRange), force || editor.lastSelectionState != state else { return }
+        editor.lastSelectionState = state
+        presenter?.session?.selection(node: id, json: state)
+    }
+
+    func editMarkupLink() {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, f.markedTextRange == nil,
+              var controller = f.window?.rootViewController else { return }
+        while let presented = controller.presentedViewController { controller = presented }
+        editor.bookmark = f.selectedRange
+        let alert = UIAlertController(title: "Link URL", message: nil, preferredStyle: .alert)
+        var existing = "https://"
+        if let state = MarkupCommands.selection(f.text ?? "", range: f.selectedRange), let data = state.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let link = object["link"] as? String, !link.isEmpty { existing = link }
+        alert.addTextField { field in
+            field.text = existing; field.keyboardType = .URL; field.autocapitalizationType = .none; field.autocorrectionType = .no
         }
-        defer { exact_markup_free(handle) }
-        guard handle != 0, let json,
-              let object = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: count)) as? [String: [[Any]]] else { return }
-        let length = storage.length
-        let clamp = { (a: Any, b: Any) -> NSRange in
-            let s = min((a as? Int) ?? 0, length), e = min((b as? Int) ?? 0, length)
-            return NSRange(location: s, length: max(0, e - s))
-        }
-        let base = baseAttributes(look)
-        let baseFont = base[.font] as! UIFont
-        let paragraph = base[.paragraphStyle] as! NSParagraphStyle
-        storage.beginEditing()
-        storage.setAttributes(base, range: NSRange(location: 0, length: length))
-        // Paragraphs: headings scale and embolden; code is monospace on a
-        // tint; quotes dim; list items and quotes indent.
-        for p in object["p"] ?? [] where p.count >= 6 {
-            let range = clamp(p[0], p[1])
-            let kind = (p[2] as? Int) ?? 0, level = (p[3] as? Int) ?? 0, depth = (p[4] as? Int) ?? 0, quote = (p[5] as? Int) ?? 0
-            var attributes: [NSAttributedString.Key: Any] = [:]
-            let style = paragraph.mutableCopy() as! NSMutableParagraphStyle
-            let indent = CGFloat(depth) * 20 + CGFloat(quote) * 16
-            style.headIndent = indent; style.firstLineHeadIndent = indent
-            switch kind {
-            case 1:
-                let scale: CGFloat = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0][max(0, min(5, level - 1))]
-                attributes[.font] = look.font((look.size * scale).rounded(), 700, look.family, look.italic)
-                if look.lineHeight != nil { style.minimumLineHeight = 0; style.maximumLineHeight = 0 }
-            case 2, 3, 4:
-                style.headIndent = indent + 20
-            case 6, 7, 9:
-                attributes[.font] = look.font((look.size * 0.92).rounded(), look.weight, MarkupRuns.monospaceFamily, false)
-                attributes[.backgroundColor] = look.ink.withAlphaComponent(0.06)
-            default: break
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak f] _ in f?.becomeFirstResponder() })
+        alert.addAction(UIAlertAction(title: "Apply Link", style: .default) { [weak self, weak f, weak alert] _ in
+            guard let self, let f, let url = alert?.textFields?.first?.text, !url.isEmpty else { return }
+            self.formatMarkup("link", argument: url)
+            f.becomeFirstResponder()
+        })
+        controller.present(alert, animated: true)
+    }
+
+    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let f = textView as? TextArea, f.markup != nil else { return nil }
+        var actions: [UIMenuElement] = []
+        if f.isEditable, f.markedTextRange == nil {
+            for (title, command) in [("Bold", "bold"), ("Italic", "italic"), ("Code", "code"), ("Strikethrough", "strike")] {
+                actions.append(UIAction(title: title) { [weak self] _ in self?.formatMarkup(command) })
             }
-            if quote > 0 { attributes[.foregroundColor] = look.ink.withAlphaComponent(0.62) }
-            attributes[.paragraphStyle] = style
-            storage.addAttributes(attributes, range: range)
+            actions.append(UIAction(title: "Link…") { [weak self] _ in self?.editMarkupLink() })
         }
-        for s in object["s"] ?? [] where s.count >= 4 {
-            let range = clamp(s[0], s[1])
-            guard range.length > 0 else { continue }
-            let flags = (s[2] as? Int) ?? 0
-            let href = (s[3] as? String) ?? ""
-            var attributes: [NSAttributedString.Key: Any] = [:]
-            let current = storage.attribute(.font, at: range.location, effectiveRange: nil) as? UIFont ?? baseFont
-            if flags & 64 != 0 { attributes[.foregroundColor] = look.ink.withAlphaComponent(0.4) }
-            if flags & 7 != 0 {
-                let mono = flags & 4 != 0
-                let bold = flags & 1 != 0 || current.fontDescriptor.symbolicTraits.contains(.traitBold)
-                attributes[.font] = look.font(mono ? (current.pointSize * 0.92).rounded() : current.pointSize, bold ? 700 : look.weight, mono ? MarkupRuns.monospaceFamily : look.family, flags & 2 != 0 || look.italic)
-                if mono { attributes[.backgroundColor] = look.ink.withAlphaComponent(0.06) }
-            }
-            if flags & 8 != 0 { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if flags & 16 != 0 {
-                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                attributes[.foregroundColor] = view.tintColor ?? look.ink
-                if !href.isEmpty, let url = URL(string: href) { attributes[.link] = url }
-            }
-            storage.addAttributes(attributes, range: range)
-        }
-        let hide: [NSAttributedString.Key: Any] = [.font: MarkupEditor.hiddenFont, .foregroundColor: UIColor.clear]
-        for h in object["h"] ?? [] where h.count >= 2 { storage.addAttributes(hide, range: clamp(h[0], h[1])) }
-        for r in object["r"] ?? [] where r.count >= 4 {
-            let range = clamp(r[0], r[1])
-            guard range.length > 0 else { continue }
-            let kind = (r[2] as? Int) ?? 0
-            switch kind {
-            case 0, 1, 2:
-                // The list marker, dimmed, until a drawn bullet or box replaces it.
-                storage.addAttribute(.foregroundColor, value: look.ink.withAlphaComponent(0.4), range: range)
-            case 3: storage.addAttribute(.foregroundColor, value: look.ink.withAlphaComponent(0.3), range: range)
-            default:
-                // A footnote mark: the label in a small raised run.
-                storage.addAttributes([.font: look.font((look.size * 0.75).rounded(), look.weight, look.family, false), .baselineOffset: look.size * 0.33, .foregroundColor: look.ink.withAlphaComponent(0.62)], range: range)
-            }
-        }
-        storage.endEditing()
-        if view.selectedRange != selection { view.selectedRange = selection }
-        // Typing takes the base look, not the hidden or dimmed marker beside the caret.
-        view.typingAttributes = base
+        if range.length > 0 { actions.append(UIAction(title: "Copy Plain Text") { [weak f] _ in f?.copyPlainText() }) }
+        return UIMenu(children: suggestedActions + [UIMenu(title: "Markdown", children: actions)])
     }
 }
 #endif

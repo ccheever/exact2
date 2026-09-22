@@ -27,6 +27,12 @@ final class TextValueTests: XCTestCase {
         XCTAssertEqual(f.range, NSRange(location: 2, length: 2))
     }
 
+    func testCanonicallyEquivalentSourceStillUpdatesItsExactCodeUnits() {
+        let edit = minimalTextEdit(from: "caf\u{e9}", to: "cafe\u{301}")
+        XCTAssertEqual(edit?.range, NSRange(location: 3, length: 1))
+        XCTAssertEqual(Array(edit!.text.utf16), [101, 769])
+    }
+
     func testSelectionCarriesThroughAnEdit() {
         let insert = (range: NSRange(location: 2, length: 0), text: "XY")
         XCTAssertEqual(carrySelection(NSRange(location: 1, length: 0), through: insert), NSRange(location: 1, length: 0))

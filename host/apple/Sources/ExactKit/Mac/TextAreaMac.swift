@@ -3,6 +3,50 @@
 import AppKit
 
 final class TextArea: NSTextView {
+    weak var owner: NodeView?
+    var markup: MarkupEditor?
+
+    override func resignFirstResponder() -> Bool {
+        if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
+        return super.resignFirstResponder()
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
+        super.insertNewline(sender)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if markup != nil, event.modifierFlags.intersection([.command, .shift, .control, .option]) == [.command, .shift],
+           event.charactersIgnoringModifiers?.lowercased() == "c" {
+            copyPlainText(nil); return true
+        }
+        if markup != nil, isEditable, !hasMarkedText(),
+           event.modifierFlags.intersection([.command, .shift, .control, .option]) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "b": return owner?.formatMarkup("bold") == true
+            case "i": return owner?.formatMarkup("italic") == true
+            case "k": owner?.editMarkupLink(); return true
+            default: break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    @objc func copyPlainText(_ sender: Any?) {
+        guard markup != nil, selectedRange().length > 0,
+              let plain = MarkupCommands.plain((string as NSString).substring(with: selectedRange())) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(plain, forType: .string)
+    }
+    override func copy(_ sender: Any?) {
+        guard markup != nil else { super.copy(sender); return }
+        let selection = selectedRange()
+        guard selection.length > 0 else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString((string as NSString).substring(with: selection), forType: .string)
+    }
+
     var placeholder = "" { didSet { needsDisplay = true } }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
@@ -26,7 +70,9 @@ extension NodeView {
     var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
 
     func makeTextArea() {
-        let f = TextArea(frame: .zero)
+        let f = TextArea(usingTextLayoutManager: true)
+        f.owner = self
+        f.allowsUndo = true
         f.isRichText = false
         f.importsGraphics = false
         f.drawsBackground = false
@@ -49,6 +95,7 @@ extension NodeView {
     /// (held until the composition ends), else the changed middle only, with
     /// the selection carried through (LLP 1045 D5).
     func writeValue(_ value: String, into f: NSTextView) {
+        if f.string.utf16.elementsEqual(value.utf16) { pendingValue = nil; return }
         if f.hasMarkedText() { pendingValue = value; return }
         pendingValue = nil
         guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
@@ -59,9 +106,23 @@ extension NodeView {
             f.string = value
         }
         f.setSelectedRange(carrySelection(selection, through: edit))
+        (f as? TextArea)?.markup?.bookmark = f.selectedRange()
+        restyleMarkup()
+    }
+    func configureMarkup() {
+        guard let f = textArea as? TextArea else { return }
+        if props["markup"] == "markdown" {
+            if f.markup == nil { f.markup = MarkupEditor() }
+        } else if let editor = f.markup, !f.hasMarkedText() {
+            guard let storage = f.textStorage else { return }
+            editor.detach(storage)
+            f.typingAttributes = editor.plainAttributes
+            f.markup = nil
+        }
     }
     func applyTextArea() {
         guard let f = textArea else { return }
+        configureMarkup()
         writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
@@ -73,6 +134,7 @@ extension NodeView {
     }
     func styleTextArea() {
         guard let f = textArea, let t = text else { return }
+        guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
         f.textColor = color("text_color", .black)
         f.insertionPointColor = caretColor
@@ -86,6 +148,7 @@ extension NodeView {
         let attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
         f.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: (f.string as NSString).length))
         f.typingAttributes.merge(attributes) { _, authored in authored }
+        restyleMarkup()
         layoutTextArea()
     }
     func layoutTextArea() {
@@ -96,11 +159,26 @@ extension NodeView {
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
     }
     func textDidChange(_ notification: Notification) {
-        textArea?.needsDisplay = true
-        if !disabled, handlers.contains("change") { presenter?.change(id, textArea?.string ?? "") }
-        if let f = textArea, !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
+        guard let f = textArea else { return }
+        if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
+        f.needsDisplay = true
+        if !disabled, handlers.contains("change") { presenter?.change(id, f.string) }
+        if !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
+        configureMarkup()
+        restyleMarkup()
+        publishMarkupSelection()
     }
-    func textDidBeginEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("focus") { presenter?.focus(id) } }
+    func textDidBeginEditing(_ notification: Notification) {
+        presenter?.collections.pinsChanged()
+        if handlers.contains("focus") { presenter?.focus(id) }
+        publishMarkupSelection(force: true)
+    }
+    func textViewDidChangeSelection(_ notification: Notification) {
+        guard let f = textArea as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, !f.hasMarkedText() else { return }
+        if f.window?.firstResponder === f { editor.bookmark = f.selectedRange() }
+        restyleMarkup()
+        publishMarkupSelection()
+    }
     func textDidEndEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }
 }
 #endif

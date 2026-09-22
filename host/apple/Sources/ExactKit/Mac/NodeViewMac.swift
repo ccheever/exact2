@@ -1283,9 +1283,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if acceptsFirstResponder { window?.makeFirstResponder(self) }
+        var focusNode: NSView? = self
+        var retainFocus = false
+        while let view = focusNode {
+            if (view as? NodeView)?.props["retainFocus"] == "true" { retainFocus = true; break }
+            focusNode = view.superview
+        }
+        if acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(self) }
         if handlers.contains("press") {
-            if !acceptsFirstResponder { window?.makeFirstResponder(nil) }
+            if !acceptsFirstResponder, !retainFocus { window?.makeFirstResponder(nil) }
             pressed = true
         } else { super.mouseDown(with: event) }
     }
