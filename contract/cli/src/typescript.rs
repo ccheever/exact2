@@ -23,7 +23,7 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
     // Ibex2 owns the storage surface. Include its declaration source directly:
     // this compiler needs neither its Rust runtime nor a JavaScript engine.
     out.push_str(include_str!(
-        "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex2/src/bindings/storage.d.ts"
     ));
     out.push('\n');
     for (i, row) in plan.types.iter().enumerate() {

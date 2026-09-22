@@ -13,6 +13,8 @@ default-members = [
     "apps/markdown/parse", "apps/markdown-stress/data", "apps/textflow/data", "apps/typetour/data",
     "apps/update-lab/data", "apps/video-player/data",
 ]
+# Vendored path dependencies are built, not linted or tested here.
+exclude = ["vendor"]
 resolver = "2"
 
 # Snapback4 0.2.30 release source: a397218e2332964ebe29aa1d30918c436713cc8a.

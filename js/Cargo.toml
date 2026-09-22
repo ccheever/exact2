@@ -10,8 +10,8 @@ description = "The TypeScript data-source executor (LLP 1027): an app's `app.ts`
 crate-type = ["rlib"]
 
 [dependencies]
-ibex2-sqlite = { path = "../../ibex/crates/ibex2-sqlite" }
-ibex2 = { path = "../../ibex/crates/ibex2", default-features = false }
+ibex2-sqlite = { path = "../vendor/ibex2-sqlite" }
+ibex2 = { path = "../vendor/ibex2", default-features = false }
 exact-data = { path = "../data" }
 exact-js-value = { path = "value" }
 exact-plan = { path = "../plan" }

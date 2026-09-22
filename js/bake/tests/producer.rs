@@ -393,7 +393,7 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     f.write("app.ts", &source);
     let baked = f.bake();
     assert!(baked.declarations.contains(include_str!(
-        "../../../../ibex/crates/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex2/src/bindings/storage.d.ts"
     )));
     let candidate = paired(&baked);
     let live = Runner::boot(

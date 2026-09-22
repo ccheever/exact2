@@ -37,8 +37,9 @@ fn main() {
     println!("cargo:rerun-if-changed=src/pure.js");
 
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // ibex2's sources are vendored; the engine builds stay in the ibex checkout.
     let ibex = manifest.join("../../ibex");
-    let bindings = ibex.join("crates/ibex2");
+    let bindings = manifest.join("../vendor/ibex2");
     for file in [
         "include/ibex2_jsi.h",
         "src/engine/ibex2_jsi.cc",

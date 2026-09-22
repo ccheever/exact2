@@ -1,0 +1,13 @@
+[package]
+name = "ibex2-sqlite"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+ibex2 = { path = "../ibex2", default-features = false }
+rusqlite = { version = "0.40.2", features = ["bundled", "hooks", "limits", "extra_check"] }
+
+[dev-dependencies]
+tempfile = "3"

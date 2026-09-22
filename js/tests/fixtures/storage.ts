@@ -1,4 +1,4 @@
-import type { Storage } from "../../../../ibex/crates/ibex2/src/bindings/storage";
+import type { Storage } from "../../../vendor/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
 const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";

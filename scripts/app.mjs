@@ -379,11 +379,6 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
-  // contract-cli includes the canonical declaration as text without linking
-  // ibex2 into the compiler. It is therefore a compiler input even on targets
-  // whose Cargo graph correctly omits the native runtime crate. Its bytes are
-  // hashed below exactly like every other input; only this file is admitted.
-  const storageTypes = resolve(ROOT, '../ibex/crates/ibex2/src/bindings/storage.d.ts');
   const nameOf = (path) => {
     path = resolve(path);
     const made = generated.find((g) => under(g.path,path));
@@ -393,7 +388,6 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
-    if (path === storageTypes) return 'included:ibex2/src/bindings/storage.d.ts';
     throw new Error(`compiler input has no captured source identity: ${path}`);
   };
   const inputs = new Map(), absent = new Map(), directories = new Map();
@@ -464,7 +458,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
-      add(storageTypes);
+      add(resolve(ROOT, 'vendor/ibex2/src/bindings/storage.d.ts'));
       for (const path of Object.values(webHostFiles('module'))) add(resolve(ROOT, path));
     }
     if (existsSync(resolve(app.dir, 'app.ts')) || /^\s*(?:fs\.|sqlite\.)/m.test(compat.inputs.grantCeiling ?? '')) {
