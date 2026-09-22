@@ -24,23 +24,18 @@ final class TextField: UITextField {
 }
 
 final class TextArea: UITextView {
-    // UIKit already owns a specialized manager per editor. Its native text
-    // undo actions require that manager; observe it without replacing it.
-    private var textUndo: NativeTextUndo?
-    override var undoManager: UndoManager? {
-        guard let manager = super.undoManager else { return nil }
-        if textUndo?.manager !== manager {
-            textUndo = NativeTextUndo(manager: manager, before: { [weak self] in
-                self?.markup?.applying = true
-            }, after: { [weak self] in
-                guard let self, let editor = markup else { return }
-                editor.applying = false
-                editor.bookmark = selectedRange
-                owner?.textViewDidChange(self)
-            })
-        }
-        return manager
-    }
+    // Each editor owns its native undo history. An authoritative external
+    // source update can reset this editor without clearing another field's
+    // actions from a window-wide manager.
+    private lazy var textUndo = NativeTextUndo(before: { [weak self] in
+        self?.markup?.applying = true
+    }, after: { [weak self] in
+        guard let self, let editor = markup else { return }
+        editor.applying = false
+        editor.bookmark = selectedRange
+        owner?.textViewDidChange(self)
+    })
+    override var undoManager: UndoManager? { textUndo.manager }
 
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
@@ -52,13 +47,7 @@ final class TextArea: UITextView {
         // the command's own native insertion bypasses through `applying`.
         if text == "\n", let editor = markup, !editor.applying,
            markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
-        if markup != nil, isEditable, !text.isEmpty || selectedRange.length > 0 { NativeTextUndo.prepareForEdit(on: undoManager) }
         super.insertText(text)
-    }
-
-    override func deleteBackward() {
-        if markup != nil, isEditable, selectedRange.location > 0 || selectedRange.length > 0 { NativeTextUndo.prepareForEdit(on: undoManager) }
-        super.deleteBackward()
     }
 
     override func resignFirstResponder() -> Bool {
