@@ -74,10 +74,11 @@ pub(crate) fn emit(
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
+    let trust = compat.inputs["trust"].clone();
     if platform != "web" {
         if let Some(name) = std::env::var("EXACT_GPU_DEVELOPMENT")
             .ok()
-            .filter(|_| std::env::var("EXACT_UPDATE_TRUST").as_deref() == Ok("development"))
+            .filter(|_| trust == "development")
         {
             // gpu-dev authenticates the independently completed module receipt
             // at load. Production always embeds the exact GPU digest below.
@@ -91,7 +92,7 @@ pub(crate) fn emit(
             compat.embedded["gpu"] = json!({
                 "name":path.file_name().and_then(|n| n.to_str()).ok_or("GPU product filename is not UTF-8")?,
                 "sha256":hash(&bytes), "app":manifest.id, "cohort":compat.id,
-                "trust":std::env::var("EXACT_UPDATE_TRUST").unwrap_or("production".into())
+                "trust":trust
             });
         }
     }

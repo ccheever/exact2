@@ -29,9 +29,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. Cargo's scope is the root
   `default-members`; the async lane runs the same with `--workspace`. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
-- Set `EXACT_UPDATE_TRUST=development` for local Cargo validation, as the shared
-  build scripts do. Production native bakes require an authenticated
-  `EXACT_UPDATE_RECEIPT` or explicit new-stream `EXACT_UPDATE_GENESIS=1` (README).
+- An unset `EXACT_UPDATE_TRUST` bakes development trust, which checks only an
+  origin named by `EXACT_UPDATE_ORIGIN`. `EXACT_UPDATE_TRUST=production` native
+  bakes require an authenticated `EXACT_UPDATE_RECEIPT` or explicit new-stream
+  `EXACT_UPDATE_GENESIS=1` (README).
 - An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
   one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.

@@ -361,7 +361,6 @@ opportunity; the 100 ms save-to-present p50 target is not demonstrated.
 ## The five checks
 
 ```sh
-export EXACT_UPDATE_TRUST=development                                   # local development artifacts
 cargo build --all-targets                                               # build
 cargo test --lib --bins --tests                                         # test
 cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check # lint
@@ -378,8 +377,10 @@ Debug assertions and overflow checks remain enabled; the normal development
 profile still leaves app and engine code unoptimized. Tests keep their full frame
 counts. Use release builds when comparing application frame costs.
 
-The shared build scripts select development trust explicitly too. Direct Cargo
-builds otherwise use production trust: an updating native artifact requires
+An unset `EXACT_UPDATE_TRUST` bakes development trust. A development binary
+admits unsigned heads, so it checks only an origin named by
+`EXACT_UPDATE_ORIGIN`, never the manifest's. `EXACT_UPDATE_TRUST=production`
+bakes a release: an updating native artifact requires
 `EXACT_UPDATE_RECEIPT` pointing to the authenticated publisher receipt for its
 exact plan and complete asset roster. A new production stream instead requires
 `EXACT_UPDATE_GENESIS=1`; it starts at sequence zero. Existing streams retain the

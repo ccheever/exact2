@@ -34,7 +34,7 @@ export function prepareRustBundle(app, platform, target, env) {
   const recordPath=resolve(env.EXACT_UPDATE_RECEIPT), record=JSON.parse(readFileSync(recordPath));
   const head=record.envelope, cards=head?.assets?.filter(a=>a.name.startsWith('rust/')) ?? [];
   if (!cards.length) return null;
-  const mode=rustPolicy(app.manifest,platform,env.EXACT_UPDATE_TRUST==='development'?'dev':'prod');
+  const mode=rustPolicy(app.manifest,platform,env.EXACT_UPDATE_TRUST==='production'?'prod':'dev');
   const filename=mode==='tiered'?'app.module.bin':mode==='wasm'?'app.module.wasm':target.includes('apple')?'app.module.dylib':target.includes('windows')?'app.module.dll':'app.module.so';
   if (mode==='off'||cards.length!==2||!cards.some(c=>c.name==='rust/app.module.json')||!cards.some(c=>c.name==='rust/'+filename)) throw new Error('publisher receipt has an incompatible Rust companion roster');
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});

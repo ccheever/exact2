@@ -223,7 +223,7 @@ export const developmentURLScheme = (appId) => 'exact2-' + createHash('sha256').
 export const appSourceKey = (app) => createHash('sha256').update(realpathSync(app.dir)).digest('hex').slice(0, 24);
 /** The private directory receiving documents emitted by actual app build scripts. */
 export function bakeOutput(app, env = process.env) {
-  return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', appSourceKey(app), app.id, env.EXACT_UPDATE_TRUST ?? 'production');
+  return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', appSourceKey(app), app.id, env.EXACT_UPDATE_TRUST ?? 'development');
 }
 
 /** Read and validate the receipt emitted by the app's actual target/grants bake. */
@@ -471,7 +471,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'production',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 /** Ephemeral output ownership shared by Apple builders and Cargo bakes.

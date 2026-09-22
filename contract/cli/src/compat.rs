@@ -503,7 +503,9 @@ pub fn compatibility_id_sources(
     }
     let trust = match std::env::var("EXACT_UPDATE_TRUST") {
         Ok(value) => value,
-        Err(std::env::VarError::NotPresent) => "production".into(),
+        // Unset is development: such a binary checks only an origin the
+        // developer names (EXACT_UPDATE_ORIGIN), never the manifest's.
+        Err(std::env::VarError::NotPresent) => "development".into(),
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
     let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
