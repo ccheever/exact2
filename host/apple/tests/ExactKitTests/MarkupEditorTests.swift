@@ -69,6 +69,29 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertEqual(f.string, "**hello**")
     }
 
+    func testExternalSourceWriteResetsOnlyItsEditorsNativeHistory() {
+        let (node, f, window, presenter) = editor("hello world", selection: NSRange(location: 0, length: 5))
+        defer { window.close(); _ = presenter }
+        let other = TextArea(usingTextLayoutManager: true)
+        other.allowsUndo = true
+        other.insertText("other", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertTrue(other.undoManager?.canUndo == true)
+        XCTAssertTrue(node.formatMarkup("bold"))
+        node.writeValue(f.string, into: f)
+        XCTAssertTrue(f.undoManager?.canUndo == true, "a controlled echo must retain undo")
+        node.writeValue("PREFIX **hello** world", into: f)
+        XCTAssertFalse(f.undoManager?.canUndo == true)
+        XCTAssertFalse(f.undoManager?.canRedo == true)
+        XCTAssertEqual(f.string, "PREFIX **hello** world")
+        XCTAssertTrue(other.undoManager?.canUndo == true, "another editor retains its history")
+        other.undoManager?.undo()
+        XCTAssertEqual(other.string, "")
+        f.insertText("!", replacementRange: NSRange(location: (f.string as NSString).length, length: 0))
+        XCTAssertTrue(f.undoManager?.canUndo == true)
+        f.undoManager?.undo()
+        XCTAssertEqual(f.string, "PREFIX **hello** world")
+    }
+
     func testListReturnAndExitAreEachOneNativeUndoGroup() {
         let (node, f, window, presenter) = editor("- item", selection: NSRange(location: 6, length: 0))
         defer { window.close(); _ = presenter }

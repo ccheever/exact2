@@ -3,6 +3,12 @@
 import AppKit
 
 final class TextArea: NSTextView {
+    // Each editor owns its native undo history. An authoritative external
+    // source update can reset this editor without clearing another field's
+    // actions from a window-wide manager.
+    private let textUndo = UndoManager()
+    override var undoManager: UndoManager? { textUndo }
+
     weak var owner: NodeView?
     var markup: MarkupEditor?
 
@@ -107,6 +113,10 @@ extension NodeView {
         if f.hasMarkedText() { pendingValue = value; return }
         pendingValue = nil
         guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
+        // Native undo ranges refer to the old buffer. An external edit has
+        // no position map for those ranges; discard only this view's history.
+        f.breakUndoCoalescing()
+        f.undoManager?.removeAllActions()
         let selection = f.selectedRange()
         if let storage = f.textStorage, storage.length > 0, edit.range.length < storage.length {
             storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))

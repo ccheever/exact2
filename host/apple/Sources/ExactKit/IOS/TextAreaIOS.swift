@@ -24,6 +24,12 @@ final class TextField: UITextField {
 }
 
 final class TextArea: UITextView {
+    // Each editor owns its native undo history. An authoritative external
+    // source update can reset this editor without clearing another field's
+    // actions from a window-wide manager.
+    private let textUndo = UndoManager()
+    override var undoManager: UndoManager? { textUndo }
+
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     var markup: MarkupEditor?
@@ -185,6 +191,9 @@ extension NodeView {
         if f.markedTextRange != nil { pendingValue = value; return }
         pendingValue = nil
         guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
+        // Native undo ranges refer to the old buffer. An external edit has
+        // no position map for those ranges; discard only this view's history.
+        f.undoManager?.removeAllActions()
         let selection = f.selectedRange
         if f.textStorage.length == 0 || edit.range.length == f.textStorage.length {
             f.text = value
