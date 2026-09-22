@@ -67,7 +67,8 @@ pub fn call(
         }
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
-            Value::Str(s) => s.chars().count() as f64,
+            // The web's String.length (and `maxlength`): UTF-16 code units.
+            Value::Str(s) => s.encode_utf16().count() as f64,
             _ => return None,
         }),
         Stdlib::IsEmpty => Value::Bool(match args.first()? {
@@ -142,6 +143,26 @@ mod tests {
                 call(Stdlib::ToString, &[Value::Number(value)], 0.0, &plan, None),
                 Some(Value::str(expected)),
                 "{value}"
+            );
+        }
+    }
+
+    #[test]
+    fn length_counts_utf16_code_units_as_the_web_does() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        for (text, expected) in [
+            ("", 0.0),
+            ("abc", 3.0),
+            ("é", 1.0),
+            ("😀", 2.0),
+            ("a👍🏽", 5.0),
+        ] {
+            assert_eq!(
+                call(Stdlib::Length, &[Value::str(text)], 0.0, &plan, None),
+                Some(Value::Number(expected)),
+                "{text}"
             );
         }
     }
