@@ -45,10 +45,24 @@ extension NodeView {
         textArea = f
         textAreaScroll = scroller
     }
+    /// The app's value into the editor: nothing while text is being composed
+    /// (held until the composition ends), else the changed middle only, with
+    /// the selection carried through (LLP 1045 D5).
+    func writeValue(_ value: String, into f: NSTextView) {
+        if f.hasMarkedText() { pendingValue = value; return }
+        pendingValue = nil
+        guard let edit = minimalTextEdit(from: f.string, to: value) else { return }
+        let selection = f.selectedRange()
+        if let storage = f.textStorage, storage.length > 0, edit.range.length < storage.length {
+            storage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))
+        } else {
+            f.string = value
+        }
+        f.setSelectedRange(carrySelection(selection, through: edit))
+    }
     func applyTextArea() {
         guard let f = textArea else { return }
-        let value = props["value"] ?? ""
-        if f.string != value { f.string = value }
+        writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
         f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
@@ -84,6 +98,7 @@ extension NodeView {
     func textDidChange(_ notification: Notification) {
         textArea?.needsDisplay = true
         if !disabled, handlers.contains("change") { presenter?.change(id, textArea?.string ?? "") }
+        if let f = textArea, !f.hasMarkedText(), let held = pendingValue { writeValue(held, into: f) }
     }
     func textDidBeginEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("focus") { presenter?.focus(id) } }
     func textDidEndEditing(_ notification: Notification) { presenter?.collections.pinsChanged(); if handlers.contains("blur") { presenter?.blur(id) } }

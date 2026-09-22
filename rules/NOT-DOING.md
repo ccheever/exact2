@@ -92,6 +92,18 @@ no new kernel row and no app-side measurement seam. Take: no Pretext library,
 no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed;
 the dragon is a polygon, not a `shape-outside: <image>`.
 
+**Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
+across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
+reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
+in storage and scan cheaply. Take (Charlie, 2026-09-21): the reader's open
+follow-ups other than code-block highlighting (heading anchors, file
+watching, the compact folder layout) wait behind it; no rich value type,
+collaboration or HTML paste import; a web editor dependency only if the
+dependency-free evaluation fails and Charlie says so.
+`fileinput` comes off in one form (LLP 1045 D10): an image/video picker for
+captioned figures — no camera, no generic file input. Linux editing is v2
+(Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

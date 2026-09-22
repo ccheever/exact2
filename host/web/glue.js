@@ -403,6 +403,15 @@ function inertAncestor(el) {
   }
   return null;
 }
+
+// The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
+const composing = new WeakSet(), heldValues = new WeakMap();
+function writeValue(el, value) {
+  const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
+  if (typeof el.setRangeText !== "function" || old === "" || document.activeElement !== el) { el.value = value; return; }
+  let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
+  const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
+  el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
 function applyProps(el, set, clear) {
   syncMedia(el, set, clear);
   let sandboxChanged = false;
@@ -429,7 +438,7 @@ function applyProps(el, set, clear) {
     } else if (name === "text") {
       if (el.childElementCount === 0) el.textContent = value;
     } else if (name === "value") {
-      if (el.value !== value) el.value = value;
+      writeValue(el, value);
     } else if (name === "checked") {
       el.checked = value === "true";
     } else if (name === "inert") {
@@ -558,6 +567,7 @@ function attach(el, id, handlers) {
         send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
       });
     } else if (kind === "change") {
+      on("compositionstart", () => composing.add(el)); on("compositionend", () => { composing.delete(el); if (heldValues.has(el)) writeValue(el, heldValues.get(el)); });
       on("input", (e) => {
         const value = el.value;
         if (el.getAttribute("emojiPicker") === "true") {

@@ -241,6 +241,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     weak var presenter: Presenter?
     var textArea: UITextView?
     var field: UITextField?
+    /// A `value` that arrived mid-composition, applied when it ends.
+    var pendingValue: String?
     var scroll: ScrollView?
     /// The platform view returned by the dlopened iframe arm (@ref LLP 1020 D3).
     var video: VideoView?
@@ -950,7 +952,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let f = field {
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
-            if let v = props["value"], f.text != v { f.text = v }
+            if let v = props["value"] { writeValue(v, into: f) }
             applyPlaceholder(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
@@ -1236,7 +1238,24 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         activate(at: convert(CGPoint(x: bounds.midX, y: bounds.midY), to: nil)) != nil
     }
 
+    /// As `writeValue(_:into:)` for a text view: composition defers the write,
+    /// and the caret is carried through the changed middle.
+    func writeValue(_ value: String, into f: UITextField) {
+        if f.markedTextRange != nil { pendingValue = value; return }
+        pendingValue = nil
+        guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
+        var selection = NSRange(location: (f.text ?? "").utf16.count, length: 0)
+        if let r = f.selectedTextRange {
+            selection = NSRange(location: f.offset(from: f.beginningOfDocument, to: r.start), length: f.offset(from: r.start, to: r.end))
+        }
+        f.text = value
+        let carried = carrySelection(selection, through: edit)
+        if let start = f.position(from: f.beginningOfDocument, offset: carried.location), let end = f.position(from: start, offset: carried.length) {
+            f.selectedTextRange = f.textRange(from: start, to: end)
+        }
+    }
     @objc func fieldChanged() {
+        if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
         if props["emojiPicker"] == "true", let field {
             let value = field.text ?? ""
             field.text = ""

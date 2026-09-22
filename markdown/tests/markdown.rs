@@ -1,0 +1,718 @@
+//! The styler, the commands and the segments, over the source string.
+
+use exact_markdown::*;
+
+fn utf16(source: &str, range: Range) -> String {
+    let units: Vec<u16> = source.encode_utf16().collect();
+    String::from_utf16(&units[range.start as usize..range.end as usize]).unwrap()
+}
+
+fn spans(source: &str, reveal: Option<Range>) -> Vec<(String, u8)> {
+    style(source, reveal)
+        .spans
+        .iter()
+        .map(|s| (utf16(source, s.range), s.style))
+        .collect()
+}
+
+fn hidden(source: &str, reveal: Option<Range>) -> Vec<String> {
+    style(source, reveal)
+        .hidden
+        .iter()
+        .map(|r| utf16(source, *r))
+        .collect()
+}
+
+/// Runs a command where `|` marks the selection and returns the same notation.
+fn run(marked: &str, command: Command) -> String {
+    let first = marked.find('|').expect("a caret");
+    let rest = marked[first + 1..].find('|');
+    let source: String = marked.replace('|', "");
+    let start = marked[..first].encode_utf16().count() as u32;
+    let end = rest.map_or(start, |r| {
+        start + marked[first + 1..first + 1 + r].encode_utf16().count() as u32
+    });
+    let edit = edit(&source, Range::new(start, end), command);
+    let after = edit.apply(&source);
+    let units: Vec<u16> = after.encode_utf16().collect();
+    let cut = |a: u32, b: u32| String::from_utf16(&units[a as usize..b as usize]).unwrap();
+    let sel = edit.selection;
+    if sel.start == sel.end {
+        format!(
+            "{}|{}",
+            cut(0, sel.start),
+            cut(sel.start, units.len() as u32)
+        )
+    } else {
+        format!(
+            "{}|{}|{}",
+            cut(0, sel.start),
+            cut(sel.start, sel.end),
+            cut(sel.end, units.len() as u32)
+        )
+    }
+}
+
+#[test]
+fn reading_hides_every_marker() {
+    let source =
+        "# Title\n\nSome **bold**, *italic*, `code`, ~~gone~~ and [a link](https://example.com).";
+    assert_eq!(
+        hidden(source, None),
+        [
+            "# ",
+            "**",
+            "**",
+            "*",
+            "*",
+            "`",
+            "`",
+            "~~",
+            "~~",
+            "[",
+            "](https://example.com)"
+        ]
+    );
+    assert_eq!(
+        spans(source, None),
+        [
+            ("bold".into(), BOLD),
+            ("italic".into(), ITALIC),
+            ("code".into(), CODE),
+            ("gone".into(), STRIKE),
+            ("a link".into(), LINK)
+        ]
+    );
+    let styled = style(source, None);
+    assert_eq!(styled.paragraphs[0].kind, ParagraphKind::Heading(1));
+    assert_eq!(styled.spans[4].href, "https://example.com");
+    assert_eq!(
+        plain(source),
+        "Title\n\nSome bold, italic, code, gone and a link."
+    );
+}
+
+#[test]
+fn the_selection_reveals_only_what_it_touches() {
+    let source = "a **bold** and *italic*";
+    let caret = Range::caret(5);
+    assert_eq!(hidden(source, Some(caret)), ["*", "*"]);
+    assert_eq!(
+        spans(source, Some(caret)),
+        [
+            ("**".into(), MARKER),
+            ("bold".into(), BOLD),
+            ("**".into(), MARKER),
+            ("italic".into(), ITALIC)
+        ]
+    );
+    // A caret just outside the closing marker still touches it, as in Bear.
+    assert_eq!(hidden(source, Some(Range::caret(10))), ["*", "*"]);
+    assert_eq!(hidden(source, Some(Range::caret(12))).len(), 4);
+}
+
+#[test]
+fn nested_emphasis_flattens_into_spans_that_never_overlap() {
+    let source = "***both*** and **bold *both* bold**";
+    assert_eq!(
+        spans(source, None),
+        [
+            ("both".into(), BOLD | ITALIC),
+            ("bold ".into(), BOLD),
+            ("both".into(), BOLD | ITALIC),
+            (" bold".into(), BOLD)
+        ]
+    );
+    let styled = style(source, None);
+    assert!(styled
+        .spans
+        .windows(2)
+        .all(|w| w[0].range.end <= w[1].range.start));
+    assert!(styled.hidden.windows(2).all(|w| w[0].end < w[1].start));
+}
+
+#[test]
+fn words_with_underscores_and_loose_stars_are_not_emphasis() {
+    assert!(spans("snake_case_name and 2 * 3 * 4 and a ~single~ tilde", None).is_empty());
+    assert_eq!(
+        spans("an _emphatic_ word", None),
+        [("emphatic".into(), ITALIC)]
+    );
+    assert_eq!(hidden(r"\*not\* `**code**`", None), ["\\", "\\", "`", "`"]);
+}
+
+#[test]
+fn ranges_are_utf16_code_units() {
+    let source = "🎉 **né** [日本](https://example.com/日本)";
+    assert_eq!(
+        spans(source, None),
+        [("né".into(), BOLD), ("日本".into(), LINK)]
+    );
+    assert_eq!(style(source, None).spans[0].range, Range::new(5, 7));
+    assert_eq!(run("🎉 |né|", Command::Bold), "🎉 **|né|**");
+    assert_eq!(run("🎉 **n|é**", Command::Bold), "🎉 n|é");
+}
+
+#[test]
+fn links_autolinks_and_bare_urls() {
+    let source = "See <https://a.example/x>, https://b.example/y(z). And ![alt text](pic.png) or mail <me@example.com>";
+    let styled = style(source, None);
+    let targets: Vec<(&str, u8)> = styled
+        .spans
+        .iter()
+        .map(|s| (s.href.as_str(), s.style))
+        .collect();
+    assert_eq!(
+        targets,
+        [
+            ("https://a.example/x", LINK),
+            ("https://b.example/y(z)", LINK),
+            ("pic.png", IMAGE),
+            ("mailto:me@example.com", LINK)
+        ]
+    );
+    assert_eq!(
+        spans("**[bold link](u)**", None),
+        [("bold link".into(), BOLD | LINK)]
+    );
+    assert_eq!(
+        spans("[*styled* label](u)", None),
+        [("styled".into(), ITALIC | LINK), (" label".into(), LINK)]
+    );
+}
+
+#[test]
+fn lists_tasks_quotes_and_rules() {
+    let source = "- one\n  - nested\n    continued\n1. first\n- [x] done\n- [ ] todo\n> quoted **text**\n> > deeper\n\n---\n";
+    let styled = style(source, None);
+    let kinds: Vec<(ParagraphKind, u8, u8)> = styled
+        .paragraphs
+        .iter()
+        .map(|p| (p.kind.clone(), p.depth, p.quote))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (ParagraphKind::Bullet, 0, 0),
+            (ParagraphKind::Bullet, 1, 0),
+            (ParagraphKind::Ordered, 0, 0),
+            (ParagraphKind::Task(true), 0, 0),
+            (ParagraphKind::Task(false), 0, 0),
+            (ParagraphKind::Body, 0, 1),
+            (ParagraphKind::Body, 0, 2),
+            (ParagraphKind::Rule, 0, 0),
+        ]
+    );
+    assert_eq!(
+        utf16(source, styled.paragraphs[1].range),
+        "  - nested\n    continued"
+    );
+    let drawn: Vec<Replacement> = styled.replaced.iter().map(|r| r.with.clone()).collect();
+    assert_eq!(
+        drawn,
+        [
+            Replacement::Bullet,
+            Replacement::Bullet,
+            Replacement::TaskBox(true),
+            Replacement::TaskBox(false),
+            Replacement::Rule
+        ]
+    );
+    assert_eq!(
+        plain("- one\n- [x] done\n> quoted\n"),
+        "• one\n☑ done\nquoted\n"
+    );
+    // An ordered item's number is text: visible, dimmed.
+    assert!(spans(source, None).contains(&("1.".into(), MARKER)));
+}
+
+#[test]
+fn a_fenced_block_is_a_group_revealed_together() {
+    let source = "before\n\n```rust\nlet a = **not bold**;\n\n# not a heading\n```\nafter";
+    let styled = style(source, None);
+    let kinds: Vec<ParagraphKind> = styled.paragraphs.iter().map(|p| p.kind.clone()).collect();
+    assert_eq!(
+        kinds,
+        [
+            ParagraphKind::Body,
+            ParagraphKind::Fence,
+            ParagraphKind::Code("rust".into()),
+            ParagraphKind::Fence,
+            ParagraphKind::Body
+        ]
+    );
+    assert_eq!(hidden(source, None), ["```rust", "```"]);
+    assert!(styled.spans.is_empty());
+    // A caret anywhere in the code shows both fences.
+    let inside = source.find("let").unwrap() as u32;
+    assert!(hidden(source, Some(Range::caret(inside))).is_empty());
+    assert_eq!(
+        plain(source),
+        "before\n\nlet a = **not bold**;\n\n# not a heading\nafter"
+    );
+    // An unclosed fence runs to the end, as it does while being typed.
+    assert_eq!(style("```\ncode", None).paragraphs.len(), 2);
+}
+
+#[test]
+fn footnotes_number_by_first_reference_whatever_the_selection() {
+    // Labels are names, not numbers: `[^7]` referenced first is 1, as GFM draws it.
+    let source = "A claim[^7] and another[^note], again[^7].\n\n[^note]: With *emphasis*.\n[^7]: The source.\n[^lost]: Never referenced.";
+    let styled = style(source, None);
+    let marks: Vec<(String, Replacement)> = styled
+        .replaced
+        .iter()
+        .map(|r| (utf16(source, r.range), r.with.clone()))
+        .collect();
+    assert_eq!(
+        marks,
+        [
+            ("[^7]".into(), Replacement::Footnote("1".into())),
+            ("[^note]".into(), Replacement::Footnote("2".into())),
+            ("[^7]".into(), Replacement::Footnote("1".into())),
+            ("[^note]: ".into(), Replacement::Footnote("2".into())),
+            ("[^7]: ".into(), Replacement::Footnote("1".into())),
+            ("[^lost]: ".into(), Replacement::Footnote("3".into())),
+        ]
+    );
+    let index: Vec<(&str, u32, usize, bool)> = styled
+        .footnotes
+        .iter()
+        .map(|f| {
+            (
+                f.label.as_str(),
+                f.ordinal,
+                f.references.len(),
+                f.definition.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        index,
+        [
+            ("7", 1, 2, true),
+            ("note", 2, 1, true),
+            ("lost", 3, 0, true)
+        ]
+    );
+    assert_eq!(styled.paragraphs[1].kind, ParagraphKind::Footnote);
+    assert_eq!(spans(source, None), [("emphasis".into(), ITALIC)]);
+    // Revealing the first reference changes nothing else's number.
+    let caret = Range::caret(source.find("[^7]").unwrap() as u32 + 2);
+    let revealed = style(source, Some(caret));
+    assert_eq!(spans(source, Some(caret))[0], ("[^7]".into(), MARKER));
+    assert_eq!(revealed.replaced.len(), 5);
+    assert_eq!(revealed.replaced[0].with, Replacement::Footnote("2".into()));
+    assert_eq!(revealed.footnotes, styled.footnotes);
+    assert_eq!(plain("x[^a] y[^a]\n\n[^a]: z"), "x y\n\nz");
+}
+
+#[test]
+fn the_defects_astra_traced_are_fixed() {
+    // Toggling an empty fenced document made overlapping edits and panicked.
+    assert_eq!(run("```\n|```", Command::CodeBlock), "|");
+    assert_eq!(run("a\n```\n|```\nb", Command::CodeBlock), "a\n|b");
+    // Return inside a fence never continues a list.
+    assert_eq!(
+        run("```\n- item|\n```", Command::Newline),
+        "```\n- item\n|\n```"
+    );
+    assert_eq!(run("```\n> q|", Command::Newline), "```\n> q\n|");
+    // The delimiter follows the authored digits.
+    assert_eq!(run("01. a|\n02. b", Command::Newline), "01. a\n2. |\n3. b");
+    // A code span's delimiter is longer than any run of backticks inside.
+    assert_eq!(run("say |a ` b|", Command::Code), "say ``|a ` b|``");
+    assert_eq!(run("say |``x``|", Command::Code), "say |x|");
+    assert_eq!(
+        run("say |a ``b`` c|", Command::Code),
+        "say ```|a ``b`` c|```"
+    );
+    // An excerpt never cuts a construct open.
+    let long = format!("[ok](https://e/{}) tail", "x".repeat(2000));
+    assert_eq!(excerpt(&long, 4), "ok…");
+    assert_eq!(excerpt(&long, 8), "ok tail");
+}
+
+#[test]
+fn adversarial_input_stays_linear() {
+    let start = std::time::Instant::now();
+    let brackets = "[".repeat(20_000) + "]";
+    let closers = "a* ".repeat(20_000);
+    let marks = "**a** ".repeat(20_000);
+    let url = format!("https://e/{}", ")".repeat(20_000));
+    for source in [&brackets, &closers, &marks, &url] {
+        style(source, None);
+        segments(source, 0);
+    }
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(2),
+        "{:?}",
+        start.elapsed()
+    );
+    assert_eq!(style(&marks, None).spans.len(), 20_000);
+}
+
+#[test]
+fn inline_commands_toggle() {
+    assert_eq!(
+        run("make |this| bold", Command::Bold),
+        "make **|this|** bold"
+    );
+    assert_eq!(run("make **th|is** bold", Command::Bold), "make th|is bold");
+    assert_eq!(
+        run("make **|this|** bold", Command::Bold),
+        "make |this| bold"
+    );
+    assert_eq!(run("caret |here", Command::Italic), "caret *|*here");
+    assert_eq!(run("caret *|*here", Command::Italic), "caret |here");
+    assert_eq!(run("pad | this |out", Command::Code), "pad  `|this|` out");
+    assert_eq!(run("a |b\nc| d", Command::Strike), "a ~~|b~~\n~~c|~~ d");
+    assert_eq!(run("***b|oth***", Command::Italic), "**b|oth**");
+    assert_eq!(
+        run("a |word| here", Command::Link(String::new())),
+        "a [word](|) here"
+    );
+    assert_eq!(
+        run("a |word| here", Command::Link("https://x.dev".into())),
+        "a [|word|](https://x.dev) here"
+    );
+    assert_eq!(
+        run(
+            "a [wo|rd](https://x.dev) here",
+            Command::Link(String::new())
+        ),
+        "a wo|rd here"
+    );
+}
+
+#[test]
+fn block_commands_toggle_lines() {
+    assert_eq!(run("a tit|le", Command::Heading(2)), "## a tit|le");
+    assert_eq!(run("## a tit|le", Command::Heading(2)), "a tit|le");
+    assert_eq!(run("## a tit|le", Command::Heading(1)), "# a tit|le");
+    assert_eq!(run("|one\n\ntwo|", Command::Bullet), "- |one\n\n- two|");
+    assert_eq!(run("- |one\n- two|", Command::Ordered), "1. |one\n2. two|");
+    assert_eq!(run("1. one|", Command::Task), "- [ ] one|");
+    assert_eq!(run("- [ ] one|", Command::ToggleTask), "- [x] one|");
+    assert_eq!(run("- [x] one|", Command::ToggleTask), "- [ ] one|");
+    assert_eq!(run("|", Command::Bullet), "- |");
+    assert_eq!(run("|a\nb|", Command::Quote), "> |a\n> b|");
+    assert_eq!(run("> a|\n> b", Command::Quote), "a|\n> b");
+    assert_eq!(run("- a|", Command::Indent), "  - a|");
+    assert_eq!(run("  - a|\n\t- b", Command::Outdent), "- a|\n\t- b");
+    assert_eq!(
+        run("x\n|let a;\nlet b;|\ny", Command::CodeBlock),
+        "x\n```\n|let a;\nlet b;|\n```\ny"
+    );
+    assert_eq!(
+        run("x\n```\nlet |a;\n```\ny", Command::CodeBlock),
+        "x\nlet |a;\ny"
+    );
+}
+
+#[test]
+fn return_continues_a_list_and_ends_it_on_an_empty_item() {
+    assert_eq!(run("- one|", Command::Newline), "- one\n- |");
+    assert_eq!(run("- one\n- |", Command::Newline), "- one\n|");
+    assert_eq!(run("  * a|b", Command::Newline), "  * a\n  * |b");
+    assert_eq!(run("- [x] done|", Command::Newline), "- [x] done\n- [ ] |");
+    assert_eq!(run("> said|", Command::Newline), "> said\n> |");
+    assert_eq!(run("> - item|", Command::Newline), "> - item\n> - |");
+    assert_eq!(
+        run("1. a|\n2. b\n   - x\n3. c\n\n1. other", Command::Newline),
+        "1. a\n2. |\n3. b\n   - x\n4. c\n\n1. other"
+    );
+    assert_eq!(run("9) nine|", Command::Newline), "9) nine\n10) |");
+    assert_eq!(run("plain|", Command::Newline), "plain\n|");
+    assert_eq!(
+        run("```\n    deep|\n```", Command::Newline),
+        "```\n    deep\n    |\n```"
+    );
+    assert_eq!(run("-| one", Command::Newline), "-\n| one");
+}
+
+#[test]
+fn a_footnote_command_numbers_itself_and_opens_its_definition() {
+    assert_eq!(
+        run("A claim|.", Command::Footnote),
+        "A claim[^1].\n\n[^1]: |"
+    );
+    assert_eq!(
+        run("A[^1] claim|.\n\n[^1]: one\n", Command::Footnote),
+        "A[^1] claim[^2].\n\n[^1]: one\n\n[^2]: |"
+    );
+}
+
+#[test]
+fn embeds_are_lone_urls_of_known_providers() {
+    let video = embed("https://www.youtube.com/watch?t=9&v=dQw4w9WgXcQ#x").unwrap();
+    assert_eq!(
+        (video.provider, video.id.as_str()),
+        (Provider::YouTube, "dQw4w9WgXcQ")
+    );
+    assert_eq!(
+        video.frame,
+        "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?start=9"
+    );
+    assert_eq!(
+        video.poster,
+        "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg"
+    );
+    assert_eq!(
+        embed("https://youtu.be/dQw4w9WgXcQ?si=abc").unwrap().id,
+        "dQw4w9WgXcQ"
+    );
+    assert_eq!(
+        embed("https://youtube.com/shorts/abc_-123").unwrap().id,
+        "abc_-123"
+    );
+    assert_eq!(
+        embed("https://x.com/someone/status/1234567890?s=20")
+            .unwrap()
+            .provider,
+        Provider::X
+    );
+    assert_eq!(
+        embed("https://twitter.com/someone/status/1234567890")
+            .unwrap()
+            .id,
+        "1234567890"
+    );
+    assert_eq!(
+        embed("https://www.instagram.com/reel/Cabc123/")
+            .unwrap()
+            .frame,
+        "https://www.instagram.com/reel/Cabc123/embed"
+    );
+    assert_eq!(
+        embed("https://www.tiktok.com/@someone/video/7300000000000000000")
+            .unwrap()
+            .provider
+            .name(),
+        "tiktok"
+    );
+    assert_eq!(embed("https://vm.tiktok.com/ZMabc123/").unwrap().frame, "");
+    for other in [
+        "https://example.com/watch?v=abc",
+        "https://x.com/someone",
+        "https://youtube.com/",
+        "ftp://youtu.be/abc",
+    ] {
+        assert_eq!(embed(other), None, "{other}");
+    }
+}
+
+#[test]
+fn segments_cut_out_what_text_cannot_be() {
+    let source = "# Post\n\nIntro with https://youtu.be/inline12345 inline.\n\nhttps://youtu.be/dQw4w9WgXcQ\n\n![A chart](chart.png \"title\")\n\n| a | b \\| c |\n|---|---|\n| *1* | 2 |\n\nOutro.";
+    let parts = segments(source, 0);
+    assert_eq!(parts.len(), 5);
+    assert_eq!(
+        parts[0],
+        Segment::Text("# Post\n\nIntro with https://youtu.be/inline12345 inline.")
+    );
+    assert!(
+        matches!(&parts[1], Segment::Embed { caption: "", embed } if embed.id == "dQw4w9WgXcQ")
+    );
+    assert_eq!(
+        parts[2],
+        Segment::Image {
+            caption: "A chart",
+            src: "chart.png"
+        }
+    );
+    assert_eq!(
+        parts[3],
+        Segment::Table {
+            rows: vec![vec!["a", "b \\| c"], vec!["*1*", "2"]]
+        }
+    );
+    assert_eq!(parts[4], Segment::Text("Outro."));
+    assert_eq!(style(source, None).paragraphs[2].kind, ParagraphKind::Embed);
+}
+
+#[test]
+fn figures_carry_captions_and_videos_are_images_by_extension() {
+    let source = "[The talk](https://youtu.be/dQw4w9WgXcQ)\n\n![Our launch](launch.MP4?v=2)\n\n![](photo.jpg)\n\n[plain link](https://example.com)\n\nA [link](https://youtu.be/dQw4w9WgXcQ) in prose.";
+    let parts = segments(source, 0);
+    assert!(
+        matches!(&parts[0], Segment::Embed { caption: "The talk", embed } if embed.provider == Provider::YouTube)
+    );
+    assert_eq!(
+        parts[1],
+        Segment::Video {
+            caption: "Our launch",
+            src: "launch.MP4?v=2"
+        }
+    );
+    assert_eq!(
+        parts[2],
+        Segment::Image {
+            caption: "",
+            src: "photo.jpg"
+        }
+    );
+    assert_eq!(
+        parts[3],
+        Segment::Text(
+            "[plain link](https://example.com)\n\nA [link](https://youtu.be/dQw4w9WgXcQ) in prose."
+        )
+    );
+    let styled = style(source, None);
+    let kinds: Vec<ParagraphKind> = styled.paragraphs.iter().map(|p| p.kind.clone()).collect();
+    assert_eq!(
+        kinds,
+        [
+            ParagraphKind::Embed,
+            ParagraphKind::Video,
+            ParagraphKind::Image,
+            ParagraphKind::Body,
+            ParagraphKind::Body
+        ]
+    );
+    // The caption is the styled text; its syntax hides like any link's.
+    assert_eq!(
+        spans(source, None)[..2],
+        [("The talk".into(), LINK), ("Our launch".into(), IMAGE)]
+    );
+    assert!(hidden(source, None).contains(&"](https://youtu.be/dQw4w9WgXcQ)".into()));
+    assert_eq!(plain("![Our launch](launch.mp4)"), "Our launch");
+    assert!(video("a/b.webm#t=3") && !video("a.png") && !video("mp4"));
+}
+
+#[test]
+fn a_figure_command_makes_its_own_paragraph_with_the_caret_in_the_caption() {
+    assert_eq!(
+        run("text|", Command::Figure("p.jpg".into())),
+        "text\n\n![|](p.jpg)"
+    );
+    assert_eq!(
+        run("a\n\n|\n\nb", Command::Figure("p.jpg".into())),
+        "a\n\n![|](p.jpg)\n\nb"
+    );
+    assert_eq!(
+        run("a|b", Command::Figure("v.mp4".into())),
+        "a\n\n![|](v.mp4)\n\nb"
+    );
+    assert_eq!(run("|", Command::Figure("p.jpg".into())), "![|](p.jpg)");
+}
+
+#[test]
+fn a_limit_cuts_text_between_blocks_and_never_inside_a_fence() {
+    let source = "one\n\ntwo\n\n```\na\n\nb\n```\n\nthree";
+    let parts = segments(source, 8);
+    assert_eq!(
+        parts,
+        [
+            Segment::Text("one\n\ntwo"),
+            Segment::Text("```\na\n\nb\n```"),
+            Segment::Text("three")
+        ]
+    );
+    let joined: usize = parts
+        .iter()
+        .map(|p| if let Segment::Text(t) = p { t.len() } else { 0 })
+        .sum();
+    assert_eq!(joined + 4, source.len());
+}
+
+#[test]
+fn excerpts_are_one_plain_line() {
+    let source = "# A **Title**\n\nThe first paragraph has [a link](https://example.com) and `code`.\n\n- a list\n";
+    assert_eq!(
+        excerpt(source, 200),
+        "A Title The first paragraph has a link and code. • a list"
+    );
+    assert_eq!(excerpt(source, 24), "A Title The first…");
+    assert_eq!(excerpt("", 10), "");
+    assert_eq!(excerpt("Supercalifragilistic", 5), "Super…");
+    let long = "word ".repeat(10_000);
+    assert_eq!(excerpt(&long, 9), "word word…");
+}
+
+/// Every document in this repository styles, edits and segments without a
+/// panic, with sorted ranges inside the source, and with hidden markers never
+/// swallowing a newline outside a fence.
+#[test]
+fn this_repositorys_own_documents_hold_the_invariants() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let mut files = vec![
+        root.join("README.md"),
+        root.join("QUEUE.md"),
+        root.join("apps/markdown/README.md"),
+    ];
+    files.extend(
+        std::fs::read_dir(root.join("llp"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "md")),
+    );
+    assert!(files.len() > 50);
+    for file in files {
+        let source = std::fs::read_to_string(&file).unwrap();
+        let units = source.encode_utf16().count() as u32;
+        let styled = style(&source, None);
+        let name = file.display();
+        assert!(
+            styled
+                .spans
+                .windows(2)
+                .all(|w| w[0].range.end <= w[1].range.start),
+            "{name}: spans overlap"
+        );
+        assert!(
+            styled.hidden.windows(2).all(|w| w[0].end < w[1].start),
+            "{name}: hidden ranges overlap"
+        );
+        assert!(
+            styled
+                .paragraphs
+                .windows(2)
+                .all(|w| w[0].range.end <= w[1].range.start),
+            "{name}: paragraphs overlap"
+        );
+        for range in styled
+            .spans
+            .iter()
+            .map(|s| s.range)
+            .chain(styled.hidden.iter().copied())
+            .chain(styled.replaced.iter().map(|r| r.range))
+        {
+            assert!(
+                range.start < range.end && range.end <= units,
+                "{name}: {range:?}"
+            );
+        }
+        let text: usize = segments(&source, 4096)
+            .iter()
+            .map(|s| if let Segment::Text(t) = s { t.len() } else { 0 })
+            .sum();
+        assert!(text <= source.len(), "{name}");
+        assert!(
+            plain(&source).len() <= source.len() + styled.replaced.len() * 3,
+            "{name}"
+        );
+        // Commands reanalyze the whole source; the short documents are enough.
+        for at in [units / 3, units].into_iter().filter(|_| units < 12_000) {
+            for command in [
+                Command::Bold,
+                Command::Newline,
+                Command::Bullet,
+                Command::CodeBlock,
+                Command::Quote,
+                Command::Footnote,
+            ] {
+                let done = edit(&source, Range::caret(at), command);
+                let after = done.apply(&source);
+                assert!(
+                    done.selection.end <= after.encode_utf16().count() as u32,
+                    "{name}"
+                );
+                style(&after, Some(done.selection));
+            }
+        }
+    }
+}

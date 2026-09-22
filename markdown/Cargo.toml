@@ -1,0 +1,16 @@
+# Markdown for reading and editing: one styler over the source string.
+# @ref LLP 1045 D2 — a leaf below the kernel and hosts.
+# No exact2 dependency; builds for wasm32-unknown-unknown.
+[package]
+name = "exact-markdown"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Markdown styling, editing commands, and segments over a source string"
+publish = false
+
+[lib]
+name = "exact_markdown"
+crate-type = ["rlib"]
+
+[dependencies]

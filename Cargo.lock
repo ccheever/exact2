@@ -910,6 +910,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-markdown"
+version = "0.1.0"
+
+[[package]]
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [

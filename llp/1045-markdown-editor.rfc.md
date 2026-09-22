@@ -1,0 +1,345 @@
+# LLP 1045: Markdown editing and reading — one source string, one styler
+
+**Type:** RFC
+**Status:** Draft
+**Systems:** Text, Kernel (one prop), Contract (one attribute, two commands, one event), Apple host, Web host, Linux host (reading only; editing is v2), a new `markdown/` crate, Interview (first consumer)
+**Author:** Charlie Cheever / Claude (Fable 5.1)
+**Implementer:** Claude, starting 2026-09-21
+**Date:** 2026-09-21
+**Revised:** 2026-09-21 r2, after Astra's review (`llp/reviews/1045-markdown-editor.astra.md`)
+**Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
+
+## 1. Ask
+
+Charlie, 2026-09-21: a WYSIWYG Markdown editor on every Exact platform, iOS
+excellent; output that renders very cheaply so an app can scan through tons of
+it, not always in editable form; footnotes, code blocks, and embeds (tweets,
+Instagram, TikTok, YouTube); Bear as inspiration. Interview is the first
+consumer and may change to fit; it lives here as a standard-library candidate.
+
+## 2. What exists
+
+- Editable text is one controlled `value: String` on `TextInput`; the host owns
+  the native field (`UITextView`, `NSTextView`, `<textarea>`), sends the whole
+  string per change, and writes `value` back only when it differs. No selection,
+  no attributed value, no composition guard on that write. Linux's editor
+  appends to or pops the prop and paints a caret at the end of the buffer; it
+  has no selection and no caret movement.
+- Styled reading text is nested `text` runs. Each run is a runner node and an
+  unmounted presenter object; LLP 1044 found paragraphs of many runs to be the
+  long fill units. Its per-view timings are marked stale on current main
+  (1044 §8.1), so this document claims no number until slice 2 measures one.
+- `apps/markdown/parse` is a hand-written CommonMark subset: no footnotes,
+  strikethrough, task lists or nesting. Its `Blocks`/`Runs` components are
+  copied between three apps because `use` cannot leave an app directory.
+- `NativeView` (LLP 1024) is a reserved node type with no implementation.
+
+## 3. Decisions
+
+### D1 — The value is Markdown source, and nothing else crosses the wire
+
+Bear's model: the buffer *is* the Markdown; markers are hidden, not absent.
+The editor's `value` stays a string, `change` stays the whole string, the agent's
+`type` stays a paste. No rich value type, no document tree in plan state, no
+serializer whose normalization could rewrite what a person typed. Storage,
+search, diffing, AI-written posts and copy/paste are all the same text.
+
+Refused as the *wire* value: an attributed-runs model serialized to Markdown on
+change, which puts a new value type on every seam and a serializer between the
+person and their text. A host may keep whatever editing representation it
+needs behind the string — an attributed storage with the source's characters,
+or a mapped tree — as long as untouched source survives byte for byte. The
+editing behaviours the string does not decide are fixed here, not left to
+each host:
+
+- **Caret and deletion.** Hidden markers are skipped by arrow, word and line
+  movement as if absent; a caret arriving next to a construct reveals it (its
+  markers become visible, dimmed text), after which movement and deletion are
+  character by character through the syntax. Backspace at the start of a
+  hidden construct's text reveals rather than deletes. Deleting one of a pair
+  leaves the other visible as literal text — never silently removes it.
+- **Copy.** A selection copies its literal source substring (Charlie,
+  2026-09-21). A second copy command copies `plain()` of it — a modifier
+  chord on macOS and the web, an edit-menu item on iOS — for pasting where
+  syntax would read as noise. The exact chord is chosen when slice 3 lands
+  the edit menu.
+- **Autocorrect, dictation, IME.** Replacements land in the source; the styler
+  reruns after. A marked (composing) range is never restyled and the `value`
+  write-back never happens while it exists.
+- **Undo.** The system's undo; a `format` command's replacements are one
+  group, and Return's list continuation is one group with the newline.
+- **Accessibility.** VoiceOver reads the styled text with hidden markers
+  omitted and traits (heading, link, code) set; revealed markers read as text.
+- **Bidirectional text.** Markers are ASCII punctuation; hiding them removes
+  neutral characters, which cannot change the base direction of a paragraph.
+  Mixed-direction selection across a hidden range is proven on the phone, not
+  assumed.
+
+### D2 — One crate, `markdown/` (`exact-markdown`), depending on nothing
+
+Pure functions over `&str`, UTF-16 offsets out (what CoreText, TextKit and the
+DOM count in):
+
+- `style(source, reveal) -> Styled` — spans (range + inline style bits + link),
+  paragraph styles (heading level, list depth and marker, quote depth, code
+  block, footnote definition), **hidden ranges** (the markers), and replaced
+  ranges (a footnote reference shown as a superscript ordinal, a task box, a
+  rule). `reveal` is the selection: a construct the selection touches keeps its
+  markers visible, as in Bear. `reveal = None` is the reader: everything hidden.
+- `edit(source, selection, command) -> Edit` — `bold`, `italic`, `code`,
+  `strike`, `link`, `heading(n)`, `bullet`, `ordered`, `task`, `quote`,
+  `codeblock`, `footnote`, `indent`, `outdent`, `toggleTask`, and the input
+  rule `newline` (continue or end a list/quote, renumber). Returns replacement
+  ranges and the new selection, so a host applies it as ordinary undoable edits.
+- `segments(source, limit)` — the source cut at block boundaries into text
+  segments and the blocks text cannot be: image, embed, table.
+- `plain(source)`, `excerpt(source, chars)` — for feeds and search.
+
+**Dialect,** named exactly: ATX headings (no closing hashes, no indent),
+paragraphs, `*` `_` emphasis with CommonMark's flanking and rule of three,
+code spans (no edge-space normalization), `~~` strikethrough (two tildes; one
+stays literal), inline links, autolinks and bare `http(s)` URLs, backslash
+escapes, fenced code (not inside quotes), `- * +` and `1.` `1)` lists with
+`[ ]` tasks, block quotes by depth, thematic breaks, GFM pipe tables (alignment
+row required and ignored), footnote references and single-paragraph
+definitions, and figures (D9). **Not** setext headings, indented code,
+reference links, HTML (inert text), nested block structure beyond depth
+numbers, or multi-paragraph footnotes. This is the subset Interview needs; the
+CommonMark spec examples for the constructs above are the conformance bar
+when a host integrates, and each deviation stays listed here.
+
+**An embed is a paragraph that is only a URL of a known provider** (YouTube,
+X/Twitter, Instagram, TikTok), so the source stays portable Markdown.
+
+Reading and editing call the same `style`, which makes the *styling* agree;
+editing behaviour (D1) and rendering parity are proven by the slices' runs,
+not by construction. `style` is whole-source and linear in it; an opening
+fence changes everything below it, so a host restyles from the edited block
+to the end of the source, not the edited paragraph alone. Incremental reuse
+is a later optimization with a measured trigger.
+
+### D3 — One kernel row: `markup`
+
+`markup` (`none` | `markdown`), a measure prop on `Text` and `TextInput`.
+Contract: `text post.body markup="markdown"` and `textarea … markup="markdown"`.
+The host, which already links Rust, styles the node's own string. Not CSS —
+there is no CSS for this; declared in LLP 1001 with this reason when the row
+lands. The parser stays out of `exact-kernel`: the kernel carries the prop,
+the hosts link `exact-markdown`.
+
+What the row does not do on its own: the measurement seam today carries one
+paragraph configuration and a flat run list (`kernel/src/text.rs`
+`TextMeasureRequest`; `host/apple/src/measure.rs`). A marked-up segment is a
+*sequence* of paragraphs with their own metrics, indents and spacing. So the
+row lands with a measurement contract: the request for a `markup` node
+carries the styler's paragraphs and spans, the host measures that sequence
+with the same code that paints it, and the cache key includes the reveal —
+because moving the caret reveals markers and changes height without changing
+`value`. A host-local reveal change invalidates that node's measurement
+(`field-sizing: content` sees it as an intrinsic-size change). Typography is
+defined against the browser: a `markup` node on the web is spans in one
+element, and the native block spacing, list indents and code backgrounds are
+held to that rendering by the parity fixtures the reader already has.
+
+### D4 — The reader is one node per segment
+
+`text markup="markdown"` paints a whole segment — headings, lists, quotes, code
+blocks, footnotes — as one attributed paragraph sequence in one view: CoreText
+on Apple, one element of spans on the web, one cosmic-text buffer on Linux. A
+typical post is one segment, so one node, against today's 1 + runs per block.
+Images, videos, embeds and tables are their own segments; a huge document is
+segmented by `limit` and windowed by the existing measured list. A feed card
+is `excerpt`, one plain node.
+
+This is the performance *hypothesis*, not a result: Apple already mounts only
+the paragraph view and keeps runs as data, and a bigger segment is a bigger
+invalidation and selection unit; a single paragraph or fenced block larger
+than `limit` stays one segment. Slice 2 measures the prototype against the
+current reader on the same documents — fill-unit time, views created, wasm
+size raw and compressed (the web host has no Markdown dependency today),
+first-pixel work, jumps, selection across segments, links, accessibility —
+and the row is kept only if the numbers say so.
+
+### D5 — The editor is the platform's text view with the styler attached
+
+- **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
+  on **TextKit 1, chosen explicitly** (`UITextView(usingTextLayoutManager:
+  false)`; the Mac view is TextKit 1 already). TextKit 1 has the one mechanism
+  that removes a glyph *and its advance*: `NSLayoutManagerDelegate`'s glyph
+  generation with `.null` glyph properties. TextKit 2 has no equivalent and
+  switches back irreversibly the moment `layoutManager` is touched, so it is
+  not a choice for this editor; a later TextKit 2 design would be its own
+  document. The host restyles from the edited block to the end (D2) in place —
+  attributes, never `attributedText` — so selection and marked text survive;
+  caret rectangles, hit testing and selection highlights are TextKit's over
+  the same glyph stream, and D1's behaviours are verified over it. The shared
+  Swift lives in `host/apple/swift`.
+- **Web:** a `contenteditable` element whose text content is the source; spans
+  are rebuilt from the edited block to the end with the selection restored by
+  offset, never during composition; hidden markers are `display: none`. The
+  editor keeps a source string of its own beside the DOM (the DOM is not the
+  serialization: browsers insert `<br>` and wrappers), applies `beforeinput`
+  where cancelable and reconciles from `input` where not, and owns copy, cut,
+  paste (plain text) and drop. `glue.js`'s `.value` and `.select()` paths gain
+  a `markup` branch. "No editor dependency" is a constraint the slice-4
+  prototype evaluates in Safari, iOS Safari, Chrome and Firefox — composition,
+  replacement suggestions, paragraph joins, backward selections, paste, undo,
+  external value updates — and reports on; if the bar is not met within the
+  slice, that is Charlie's decision, not a quiet dependency.
+- **Linux:** v2 (Charlie, 2026-09-21: "focus on web ios macos for now and
+  worry about linux in v2"). It reads through `markup` when the row lands,
+  since the painter already links Rust; editing stays the existing plain
+  end-of-buffer editor until a Linux lane takes it up.
+- The `value` write-back is fixed first, in slice 2, on every host, before any
+  styling is layered on it: a write arriving during composition is deferred
+  until the composition ends; a write that differs from the buffer applies as
+  a minimal replacement (common prefix and suffix kept) with the selection
+  transformed through it, so an app's own edit to `value` does not throw the
+  caret to the end.
+
+### D6 — Commands and toolbar state
+
+`format(id, command)` joins `focus(id)` and `selectText(id)` as a capability
+command (the lowerer and VM already pass generic command names and arguments);
+the host runs `edit` against its live buffer and selection and applies the
+replacements as one undo group and one `change`. Commands with arguments —
+`link(url)`, `figure(src)`, `heading(n)` — are the same command with a string.
+A `select` event is new event vocabulary (the event table and handler list
+gain one entry) and carries a small record: the formats at the caret, `mixed`
+when a selection spans differing formats, the link target under the caret if
+any, and which commands are unavailable there (inside a fence, most are).
+That is what a toolbar, a link sheet and an agent assertion need; no range
+crosses the wire. The toolbar is authored Contract (`retainFocus`), riding
+the existing keyboard viewport on iOS. A link sheet that focuses its own
+field cannot keep the editor's selection by `retainFocus`; the host keeps a
+selection bookmark for the editor across `focus` and restores it when the
+sheet's `format(link(url))` arrives. ⌘B/⌘I/⌘K and the iOS edit menu are
+host-native. No ninth agent operation: the agent drives editing with `tap` on
+the toolbar and `type` with `key`, and reads `select`'s record through `state`.
+Passing those drives proves the wiring; the iOS ergonomics bar is a phone.
+
+### D7 — Embeds are cards until asked
+
+The runner does no I/O, so a segment carries provider, id and URL only. The
+reader shows a card (YouTube's poster is derivable from the id — and loading
+it is a request to Google, so an app that promises no third-party requests
+before activation renders the card without it; the rest show provider and
+URL, or title/thumbnail the app supplies from its own oEmbed fetch).
+Activation mounts an `iframe` (LLP 1020) on web and Apple; Linux opens
+nothing. Scrolling past a hundred embeds costs a hundred cards.
+
+Provider facts, to be verified on web and iPhone in slice 5 and not before
+claimed: YouTube's `youtube-nocookie.com/embed/{id}` needs an embedding
+identity (HTTP Referer; the Apple wrapper's `exact.invalid` origin is not
+one) and its terms' required controls; TikTok's documented player is
+`/player/v1/{id}`, and a `vm.tiktok.com` short link is an unresolved card
+until the app resolves it; X and Instagram publish embed *code* (a script and
+a blockquote), and the direct iframe URLs the crate emits for them are
+assumptions that the slice validates or replaces with a wrapper document the
+host owns. Fullscreen, inline playback and sizing messages from the frame are
+the wrapper's; the active frame is evicted when its card leaves the window.
+
+### D8 — Footnotes and code
+
+A reference is a replaced range: a superscript ordinal in both modes, the
+`[^label]` revealed under the caret. Numbers are by first reference in
+document order whatever the label says (`[^7]` referenced first is 1, as GFM
+draws it), never by what the selection reveals; a definition with no reference
+numbers after every referenced one; a reference with no definition draws `?`.
+`Styled.footnotes` is the index: label, ordinal, every reference range, the
+definition paragraph. Definitions style as a footnote paragraph where they
+are written; the reader orders them at the end of the last text segment, and
+because numbering is document-wide and segments are styled one at a time, a
+text segment must carry its footnote base — owed in slice 5 (today `segments`
+restarts numbering per segment). Code blocks are monospace paragraphs with a
+block background and `pre-wrap`, **highlighted** (Charlie, 2026-09-21: "i
+want to do syntax highlighting in code blocks"): the styler tokenizes a
+fenced block by its info string and emits spans with a `token` class —
+keyword, string, comment, number, type, punctuation — that a host maps to
+colours from the theme; no flags bit is spent. The tokenizer lives in the
+crate, dependency-free, for a fixed set of languages (Rust, Swift,
+TypeScript/JavaScript, Python, JSON, shell, HTML, CSS, Markdown); an unknown
+language is plain monospace. Highlighting is a reading feature that the
+editor shows too, since both call `style`.
+
+### D9 — A figure is a lone image, video or embed, and its caption is the link text
+
+Charlie, 2026-09-21: embeds, images and videos need captions. The source
+already has a slot for each, so no syntax is added:
+
+- `![Caption](photo.jpg)` alone in a paragraph is a figure; the bracket text is
+  drawn beneath it and is its accessible name (Pandoc's implicit figure, the
+  convention most Markdown tools already render this way). An image inside a
+  paragraph is still an inline image with alt text only.
+- `![Caption](clip.mp4)` — an image whose target ends in a video extension
+  (`mp4`, `mov`, `m4v`, `webm`) is a video figure, played by LLP 1042's player.
+- `[Caption](https://youtu.be/…)` alone in a paragraph is a captioned embed;
+  the bare URL form of D7 is an uncaptioned one.
+
+Every form degrades in any other renderer to a link, an image with alt text,
+or a URL. In the editor a figure is a replaced range drawn as the figure with
+its caption editable in place; the caret in the caption reveals the syntax.
+
+### D10 — Media upload: the host picks, the app stores, the editor inserts a URL
+
+An `upload` capability command — `upload(id, "image" | "video")` — asks the
+host for media: PHPicker on iOS, an open panel on macOS, `<input type=file>` on
+the web, refused on Linux. The picked file arrives through the app's data seam
+as an app-scoped file (LLP 1030.002) the app's logic uploads or keeps; the app
+then issues `format(id, figure(url))`, which inserts `![](url)` as its own
+paragraph with the caret in the caption. The editor never sees bytes; the
+runner does no I/O; where a file goes is the app's decision. Progress is the
+app's state (a placeholder URL the app later replaces in the source).
+
+This takes `fileinput` off `rules/NOT-DOING.md` in this form only — a
+picker limited to images and video, no camera, no generic file input.
+
+## 4. Slices (each verified by running)
+
+1. `markdown/`: `style`, `edit`, `segments`, `plain`, `excerpt`, with tests
+   over the dialect's cases, adversarial input, and this repository's own
+   documents. *2026-09-21, r2 after review.*
+2. **Write-back and a measured reader prototype.** The `value` write-back fix
+   on every host (D5). `markup` on `Text` behind the measurement contract of
+   D3, on Apple and web first, over the current reader's documents, measured
+   against nested runs (D4). The row is kept or dropped on that evidence.
+3. **iOS editing prototype on a phone.** TextKit 1 styling, hidden markers,
+   D1's behaviours — Japanese and Chinese composition, dictation, autocorrect
+   across a boundary, emoji and combining characters, Arabic/Hebrew, VoiceOver,
+   selection handles, undo/redo, Dynamic Type, caret reveal under the keyboard
+   — `format`, `select`, the toolbar. Driven on the simulator; judged on a
+   phone.
+4. **Thin Interview integration**, as soon as 3 renders: the compose screen on
+   the prototype, post bodies through `markup`, feed cards through `excerpt`,
+   drafts through the existing `value` path. This is where the TypeScript
+   route to `segments`/`excerpt` (a data-seam call into the crate, LLP
+   1027.001's shape) and external updates are found, not in the last slice.
+5. macOS (shared Swift) and the web editor with its browser evaluation (D5).
+6. Embeds verified per provider (D7), figures with captions, footnote base per
+   segment, tables as a segment, code-block highlighting (D8), plain-text
+   paste and drop, link editing.
+7. Media upload: the picker on iOS, macOS and web, and figure insertion.
+8. `apps/markdown` moves onto segments, keeping its relative link and image
+   resolution against the document's directory; `apps/markdown/parse` is
+   deleted only then.
+
+## 5. Not in this design
+
+Collaborative editing, a rich paste importer (HTML → Markdown), a camera or
+generic file input, image editing, highlighting beyond the fixed language
+set, table editing beyond
+source (v1 types pipes; v2 owes a grid editor or a cell-aware `format`), a Contract component
+library (`use` across apps stays as QUEUE has it), LLP 1024, and any editor
+dependency (CodeMirror, ProseMirror) on the web.
+
+## 6. Open, for Charlie
+
+- Decided 2026-09-21: the `rules/NOT-DOING.md` take is the reader's other
+  open follow-ups (heading anchors, file watching, the compact folder layout);
+  code-block highlighting is in v1 (D8). LLP 1024 was already deferred on
+  2026-09-05 and is not a new trade.
+- Decided 2026-09-21: copy defaults to source with a plain-text alternative
+  (D1); "no editor dependency" on the web is not absolute — slice 5's
+  evaluation reports and Charlie chooses; tables are source-only in v1 and v2
+  owes a real answer (§5).
+- `llp/current/` is at 15; this document is not linked there until one leaves.

@@ -106,8 +106,7 @@ extension NodeView {
     }
     func applyTextArea() {
         guard let f = textArea else { return }
-        let value = props["value"] ?? ""
-        if f.text != value { f.text = value }
+        writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
         let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
@@ -129,9 +128,25 @@ extension NodeView {
         layoutTextArea()
     }
     func layoutTextArea() { textArea?.frame = contentBox() }
+    /// The app's value into the editor: nothing while text is being composed
+    /// (held until the composition ends), else the changed middle only, with
+    /// the selection carried through (LLP 1045 D5).
+    func writeValue(_ value: String, into f: UITextView) {
+        if f.markedTextRange != nil { pendingValue = value; return }
+        pendingValue = nil
+        guard let edit = minimalTextEdit(from: f.text ?? "", to: value) else { return }
+        let selection = f.selectedRange
+        if f.textStorage.length == 0 || edit.range.length == f.textStorage.length {
+            f.text = value
+        } else {
+            f.textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))
+        }
+        f.selectedRange = carrySelection(selection, through: edit)
+    }
     func textViewDidChange(_ textView: UITextView) {
         textView.setNeedsDisplay()
         if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }
+        if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()

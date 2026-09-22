@@ -214,6 +214,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var textArea: NSTextView?
     var textAreaScroll: NSScrollView?
     var field: NSTextField?
+    /// A `value` that arrived mid-composition, applied when it ends.
+    var pendingValue: String?
     var scroll: ChainingScrollView?
     var materialView: NSView?
     private var materialContent: NSView?
@@ -958,7 +960,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         if let f = field {
-            if let v = props["value"], f.stringValue != v { f.stringValue = v }
+            if let v = props["value"] {
+                // While the field is being edited its field editor holds the
+                // caret; write there so the caret survives, as in a text view.
+                if let editor = f.currentEditor() as? NSTextView { writeValue(v, into: editor) } else if f.stringValue != v { f.stringValue = v }
+            }
             applyPlaceholder(f)
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
@@ -1306,6 +1312,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if bounds.contains(local(event.locationInWindow)) { presenter?.press(id) }
     }
     func controlTextDidChange(_ obj: Notification) {
+        if let editor = field?.currentEditor() as? NSTextView, !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }
         if props["emojiPicker"] == "true", let field {
             let value = field.stringValue
             field.stringValue = ""
