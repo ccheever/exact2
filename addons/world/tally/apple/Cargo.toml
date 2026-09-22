@@ -1,0 +1,15 @@
+[package]
+name = "tally-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[lib]
+name = "tally_apple"
+crate-type = ["staticlib", "rlib"]
+[dependencies]
+tally-data = { path = "../data" }
+exact-apple = { path = "../../../../host/apple" }
+exact-apple-update = { path = "../../../../host/apple-update" }
+[build-dependencies]
+tally-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }

@@ -1,0 +1,13 @@
+[package]
+name = "tally-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+exact-world = { path = "../../world" }
+world-source = { path = "../../world-source" }
+tally-logic = { path = "../logic" }
+exact-runner = { path = "../../../../runner" }
+[dev-dependencies]
+contract = { path = "../../../../contract/cli" }
+exact-kernel = { path = "../../../../kernel" }

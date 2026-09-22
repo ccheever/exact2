@@ -1,0 +1,19 @@
+[package]
+name = "tally-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[[bin]]
+name = "tally-linux"
+path = "src/main.rs"
+[dependencies]
+tally-data = { path = "../data" }
+exact-linux = { path = "../../../../host/linux" }
+exact-linux-update = { path = "../../../../host/linux-update" }
+[build-dependencies]
+tally-data = { path = "../data" }
+contract = { path = "../../../../contract/cli" }
+
+[[bin]]
+name = "tally-linux-live"
+path = "src/bin/live.rs"
