@@ -86,11 +86,11 @@ fn cloned_scopes_keep_shadowing_and_region_depth_independent() {
     right.push_region(None);
     right.push_region(Some(("item".into(), Ref::Item(0), Ty::Bool)));
 
-    assert_eq!(outer.lookup("value"), Some((Ref::Slot(0), nested.clone())));
-    assert_eq!(left.lookup("value"), Some((Ref::Param(0), Ty::String)));
-    assert_eq!(left.lookup("item"), Some((Ref::Item(1), Ty::Number)));
-    assert_eq!(left.lookup("bound"), Some((Ref::Bound(0), nested.clone())));
-    assert_eq!(right.lookup("item"), Some((Ref::Item(0), Ty::Bool)));
+    assert_eq!(outer.lookup("value"), Some((Ref::Slot(0), &nested)));
+    assert_eq!(left.lookup("value"), Some((Ref::Param(0), &Ty::String)));
+    assert_eq!(left.lookup("item"), Some((Ref::Item(1), &Ty::Number)));
+    assert_eq!(left.lookup("bound"), Some((Ref::Bound(0), &nested)));
+    assert_eq!(right.lookup("item"), Some((Ref::Item(0), &Ty::Bool)));
     assert_eq!(right.region_depth(), 3);
     assert_eq!(outer.region_depth(), 1);
     assert_eq!(outer.lookup("bound"), None);
@@ -100,7 +100,7 @@ fn cloned_scopes_keep_shadowing_and_region_depth_independent() {
     left.pop();
     right.pop();
     assert_eq!(outer.lookup("item"), None);
-    assert_eq!(left.lookup("item"), Some((Ref::Item(0), Ty::Number)));
-    assert_eq!(right.lookup("item"), Some((Ref::Item(1), Ty::Number)));
-    assert_eq!(left.lookup("value"), Some((Ref::Slot(0), nested)));
+    assert_eq!(left.lookup("item"), Some((Ref::Item(0), &Ty::Number)));
+    assert_eq!(right.lookup("item"), Some((Ref::Item(1), &Ty::Number)));
+    assert_eq!(left.lookup("value"), Some((Ref::Slot(0), &nested)));
 }

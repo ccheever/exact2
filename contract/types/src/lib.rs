@@ -194,13 +194,14 @@ impl Shapes {
         })
     }
 
-    /// A field's position and type in a shape.
-    pub fn field(&self, shape: &str, name: &str) -> Option<(usize, Ty)> {
+    /// A field's position and borrowed type in a shape.
+    pub fn field(&self, shape: &str, name: &str) -> Option<(usize, &Ty)> {
         self.map
             .get(shape)?
             .iter()
-            .position(|(n, _)| n == name)
-            .map(|i| (i, self.map[shape][i].1.clone()))
+            .enumerate()
+            .find(|(_, (n, _))| n == name)
+            .map(|(i, (_, ty))| (i, ty))
     }
 }
 
@@ -272,8 +273,8 @@ impl Scope {
     }
 
     /// Resolve a name. `Item`/`Bound` come back with their depth from the
-    /// innermost region frame.
-    pub fn lookup(&self, name: &str) -> Option<(Ref, Ty)> {
+    /// innermost region frame. The type borrows its immutable scope frame.
+    pub fn lookup(&self, name: &str) -> Option<(Ref, &Ty)> {
         let mut depth = 0u32;
         for frame in self.frames.iter().rev() {
             for (n, r, t) in &frame.names {
@@ -283,7 +284,7 @@ impl Scope {
                         Ref::Bound(_) => Ref::Bound(depth),
                         other => *other,
                     };
-                    return Some((r, t.clone()));
+                    return Some((r, t));
                 }
             }
             if frame.region {
@@ -456,7 +457,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::Ident(name, span) => match scope.lookup(name) {
-            Some((_, t)) => t,
+            Some((_, t)) => t.clone(),
             None => {
                 let hint = if name.contains('-') {
                     " (a name may contain hyphens, as in CSS, so subtraction between two names needs spaces: `a - b`)"
@@ -474,7 +475,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             let t = infer(obj, scope, shapes)?;
             match &t {
                 Ty::Record(shape) => match shapes.field(shape, field) {
-                    Some((_, ft)) => ft,
+                    Some((_, ft)) => ft.clone(),
                     None => return Err(shapes.unknown_field(shape, field, *span)),
                 },
                 other => {

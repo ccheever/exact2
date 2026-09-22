@@ -361,6 +361,8 @@ stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
 ownership preserves the public scope's ability to cross threads. Frames live only
 as long as the scopes that use them; there is no cross-compilation cache.
+Name and field lookups borrow their stored types. Inference copies a type when
+it needs an owned result; lowering and handler checks inspect only what they need.
 Ordinary state initializers grow one non-region frame after each initializer is
 inferred. Earlier bindings are retained without recopying the whole prefix; later
 states remain unavailable, and duplicate declarations are refused beforehand.
