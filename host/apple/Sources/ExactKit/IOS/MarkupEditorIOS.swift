@@ -31,12 +31,6 @@ extension NodeView {
         return true
     }
 
-    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-        guard let f = textView as? TextArea, let editor = f.markup, !editor.applying,
-              f.markedTextRange == nil, text == "\n" else { return true }
-        return !formatMarkup("newline", selection: range)
-    }
-
     func publishMarkupSelection(force: Bool = false) {
         guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup,
               !editor.applying, !editor.styling, f.markedTextRange == nil,

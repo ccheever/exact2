@@ -40,6 +40,16 @@ final class TextArea: UITextView {
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     var markup: MarkupEditor?
+
+    override func insertText(_ text: String) {
+        // UIKeyInput (including the software keyboard) need not ask the
+        // text-view delegate before insertion. Handle a plain Return here;
+        // the command's own native insertion bypasses through `applying`.
+        if text == "\n", let editor = markup, !editor.applying,
+           markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
+        super.insertText(text)
+    }
+
     override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         if wasFirst, markedTextRange == nil { markup?.bookmark = selectedRange }
