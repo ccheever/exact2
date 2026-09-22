@@ -151,6 +151,16 @@ uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupP
  * ranges and replacements over the source in UTF-16 units; the selection reveals markers it touches
  * (sel_start UINT32_MAX for none). Valid until exact_markup_free(handle). */
 uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
+/* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
+ * Invalid commands return {error:...}; the original source is unchanged. */
+uint64_t exact_markup_edit(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
+    const uint8_t *command, size_t command_len, const uint8_t *argument, size_t argument_len,
+    const uint8_t **out, size_t *count);
+/* {formats:string,mixed:bool,link:string,unavailable:string}; token lists use spaces. */
+uint64_t exact_markup_selection(const uint8_t *utf8, size_t len, uint32_t start, uint32_t end,
+    const uint8_t **out, size_t *count);
+/* Raw UTF-8 plain text, sharing the same handle lifetime. */
+uint64_t exact_markup_plain(const uint8_t *utf8, size_t len, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {
@@ -239,7 +249,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 15 = heightrelease, 16 = transformgeometry, 17 = transformrelease,
  * 18 = reorder (collection move payload),
  * 20 = pan (UTF-8 dx,dy; incremental viewport CSS pixels, LLP 1043.000 D8),
- * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds).
+ * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds),
+ * 21 = select (formats + newline + mixed 0/1 + newline + unavailable + newline + link).
+ * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);

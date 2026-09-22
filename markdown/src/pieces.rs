@@ -89,6 +89,7 @@ pub fn pieces(source: &str) -> Vec<Piece> {
     let mut out: Vec<Piece> = Vec::new();
     let mut previous: Option<BlockKind> = None;
     let blocks = &analysis.blocks;
+    let (mut si, mut hi, mut ri) = (0, 0, 0);
     for (n, block) in blocks.iter().enumerate() {
         let (kind, depth, quote) = (&block.kind, block.depth as usize, block.quote as usize);
         // Spacing: none inside a run of list items or code lines, a short line otherwise.
@@ -144,42 +145,56 @@ pub fn pieces(source: &str) -> Vec<Piece> {
         // The block's text, cut at every span, hidden range and replacement;
         // the markers are hidden or replaced, so the block's whole range serves.
         let range = block.range.clone();
+        // All three analyses are ordered. Keep cursors across blocks so a
+        // many-paragraph document never scans its whole range tables per block.
+        while si < analysis.spans.len() && analysis.spans[si].0.end <= range.start {
+            si += 1;
+        }
+        while hi < analysis.hidden.len() && analysis.hidden[hi].end <= range.start {
+            hi += 1;
+        }
+        while ri < analysis.replaced.len() && analysis.replaced[ri].0.end <= range.start {
+            ri += 1;
+        }
+        let spans = &analysis.spans[si..];
+        let spans = &spans[..spans.partition_point(|(r, _, _)| r.start < range.end)];
+        let hidden = &analysis.hidden[hi..];
+        let hidden = &hidden[..hidden.partition_point(|r| r.start < range.end)];
+        let replaced = &analysis.replaced[ri..];
+        let replaced = &replaced[..replaced.partition_point(|(r, _)| r.start < range.end)];
         let mut cuts: Vec<usize> = vec![range.start, range.end];
-        for (r, _, _) in &analysis.spans {
+        for (r, _, _) in spans {
             cuts.extend([r.start, r.end]);
         }
-        for r in &analysis.hidden {
+        for r in hidden {
             cuts.extend([r.start, r.end]);
         }
-        for (r, _) in &analysis.replaced {
+        for (r, _) in replaced {
             cuts.extend([r.start, r.end]);
         }
         cuts.retain(|&c| c >= range.start && c <= range.end);
         cuts.sort_unstable();
         cuts.dedup();
+        let (mut span_at, mut hide_at, mut replace_at) = (0, 0, 0);
         for pair in cuts.windows(2) {
             let (start, end) = (pair[0], pair[1]);
-            if analysis
-                .hidden
-                .iter()
-                .any(|h| h.start <= start && end <= h.end)
+            while hide_at < hidden.len() && hidden[hide_at].end <= start {
+                hide_at += 1;
+            }
+            if hidden
+                .get(hide_at)
+                .is_some_and(|r| r.start <= start && end <= r.end)
             {
                 continue;
             }
-            if let Some((_, with)) = analysis
-                .replaced
-                .iter()
-                .find(|(r, _)| r.start <= start && end <= r.end)
+            while replace_at < replaced.len() && replaced[replace_at].0.end <= start {
+                replace_at += 1;
+            }
+            if let Some((r, with)) = replaced
+                .get(replace_at)
+                .filter(|(r, _)| r.start <= start && end <= r.end)
             {
-                if start
-                    == analysis
-                        .replaced
-                        .iter()
-                        .find(|(r, _)| r.start <= start && end <= r.end)
-                        .unwrap()
-                        .0
-                        .start
-                {
+                if start == r.start {
                     // A definition's label keeps its trailing space.
                     let spaced = source[start..end].ends_with(' ');
                     let (text, small) = match with {
@@ -215,10 +230,12 @@ pub fn pieces(source: &str) -> Vec<Piece> {
                 }
                 text = joined;
             }
-            let span = analysis
-                .spans
-                .iter()
-                .find(|(r, _, _)| r.start <= start && end <= r.end);
+            while span_at < spans.len() && spans[span_at].0.end <= start {
+                span_at += 1;
+            }
+            let span = spans
+                .get(span_at)
+                .filter(|(r, _, _)| r.start <= start && end <= r.end);
             let flags = span.map_or(0, |s| s.1);
             let href = span.map(|s| s.2.clone()).unwrap_or_default();
             out.push(Piece {

@@ -176,6 +176,17 @@ final class Runtime {
         let n = write(value)
         return read(exact_dispatch(rt, view, 1, n, now))
     }
+    /// Shared Markdown selection facts; the editor retains its own range.
+    func selection(_ view: UInt32, json: String, now: Double) -> Batch? {
+        guard let data = json.data(using: .utf8),
+              let state = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let formats = state["formats"] as? String,
+              let mixed = state["mixed"] as? Bool,
+              let link = state["link"] as? String,
+              let unavailable = state["unavailable"] as? String else { return nil }
+        let n = write(formats + "\n" + (mixed ? "1" : "0") + "\n" + unavailable + "\n" + link)
+        return read(exact_dispatch(rt, view, 21, n, now))
+    }
     // @ref LLP 1038 D8/D11 — Rust owns URL interpretation on every host.
     func location(of href: String) -> String {
         let n = write(href)

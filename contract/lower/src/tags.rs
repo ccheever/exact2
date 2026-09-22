@@ -203,6 +203,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canplay" => AttrTarget::Handler("canplay"),
         "press" => AttrTarget::Handler("press"),
         "change" => AttrTarget::Handler("change"),
+        "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),

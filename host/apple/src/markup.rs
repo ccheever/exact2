@@ -149,70 +149,11 @@ pub fn style(
         return 0;
     };
     let reveal = (sel_start != u32::MAX).then(|| exact_markdown::Range::new(sel_start, sel_end));
-    let styled = exact_markdown::style(source, reveal);
-    let mut json = String::from("{\"p\":[");
-    for (n, p) in styled.paragraphs.iter().enumerate() {
-        use exact_markdown::ParagraphKind as K;
-        let (kind, level) = match &p.kind {
-            K::Body => (0, 0),
-            K::Heading(l) => (1, *l),
-            K::Bullet => (2, 0),
-            K::Ordered => (3, 0),
-            K::Task(done) => (4, u8::from(*done)),
-            K::Rule => (5, 0),
-            K::Fence => (6, 0),
-            K::Code(_) => (7, 0),
-            K::Footnote => (8, 0),
-            K::Table => (9, 0),
-            K::Embed => (10, 0),
-            K::Image => (11, 0),
-            K::Video => (12, 0),
-        };
-        if n > 0 {
-            json.push(',');
-        }
-        json.push_str(&format!(
-            "[{},{},{kind},{level},{},{}]",
-            p.range.start, p.range.end, p.depth, p.quote
-        ));
-    }
-    json.push_str("],\"s\":[");
-    for (n, sp) in styled.spans.iter().enumerate() {
-        if n > 0 {
-            json.push(',');
-        }
-        json.push_str(&format!(
-            "[{},{},{},",
-            sp.range.start, sp.range.end, sp.style
-        ));
-        json_string(&mut json, &sp.href);
-        json.push(']');
-    }
-    json.push_str("],\"h\":[");
-    for (n, h) in styled.hidden.iter().enumerate() {
-        if n > 0 {
-            json.push(',');
-        }
-        json.push_str(&format!("[{},{}]", h.start, h.end));
-    }
-    json.push_str("],\"r\":[");
-    for (n, r) in styled.replaced.iter().enumerate() {
-        use exact_markdown::Replacement as R;
-        let (kind, text) = match &r.with {
-            R::Bullet => (0, String::new()),
-            R::TaskBox(false) => (1, String::new()),
-            R::TaskBox(true) => (2, String::new()),
-            R::Rule => (3, String::new()),
-            R::Footnote(t) => (4, t.clone()),
-        };
-        if n > 0 {
-            json.push(',');
-        }
-        json.push_str(&format!("[{},{},{kind},", r.range.start, r.range.end));
-        json_string(&mut json, &text);
-        json.push(']');
-    }
-    json.push_str("]}");
+    let json = exact_markdown::wire::style(source, reveal);
+    hold_json(json, out, count)
+}
+
+fn hold_json(json: String, out: *mut *const u8, count: *mut usize) -> u64 {
     let handle = NEXT.with_borrow_mut(|n| {
         let h = *n;
         *n += 1;
@@ -226,18 +167,84 @@ pub fn style(
     handle
 }
 
-fn json_string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
+fn text_input<'a>(
+    text: *const u8,
+    len: usize,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> Option<&'a str> {
+    if out.is_null() || count.is_null() {
+        return None;
     }
-    out.push('"');
+    unsafe {
+        *out = std::ptr::null();
+        *count = 0;
+    }
+    slice(text, len).and_then(|b| std::str::from_utf8(b).ok())
+}
+
+/// Shared source-relative edits, serialized as JSON; the caller frees the handle.
+#[allow(clippy::too_many_arguments)]
+pub fn edit(
+    text: *const u8,
+    len: usize,
+    start: u32,
+    end: u32,
+    command: *const u8,
+    command_len: usize,
+    argument: *const u8,
+    argument_len: usize,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> u64 {
+    let Some(source) = text_input(text, len, out, count) else {
+        return 0;
+    };
+    let Some(command) = slice(command, command_len).and_then(|b| std::str::from_utf8(b).ok())
+    else {
+        return 0;
+    };
+    let Some(argument) = slice(argument, argument_len).and_then(|b| std::str::from_utf8(b).ok())
+    else {
+        return 0;
+    };
+    hold_json(
+        exact_markdown::wire::edit(
+            source,
+            exact_markdown::Range::new(start, end),
+            command,
+            argument,
+        ),
+        out,
+        count,
+    )
+}
+
+/// Shared toolbar facts, serialized as JSON; no offsets cross into app state.
+pub fn selection(
+    text: *const u8,
+    len: usize,
+    start: u32,
+    end: u32,
+    out: *mut *const u8,
+    count: *mut usize,
+) -> u64 {
+    let Some(source) = text_input(text, len, out, count) else {
+        return 0;
+    };
+    hold_json(
+        exact_markdown::wire::selection(source, exact_markdown::Range::new(start, end)),
+        out,
+        count,
+    )
+}
+
+/// Copy Markdown as plain UTF-8 text; the caller frees the returned handle.
+pub fn plain(text: *const u8, len: usize, out: *mut *const u8, count: *mut usize) -> u64 {
+    let Some(source) = text_input(text, len, out, count) else {
+        return 0;
+    };
+    hold_json(exact_markdown::plain(source), out, count)
 }
 
 /// Release one expansion or styling. Zero, stale, and repeated frees are no-ops.
@@ -275,6 +282,55 @@ macro_rules! markup_exports {
             count: *mut usize,
         ) -> u64 {
             $crate::markup::style(text, len, sel_start, sel_end, out, count)
+        }
+        /// Apply a source-relative formatting command, as JSON replacements.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_edit(
+            text: *const u8,
+            len: usize,
+            start: u32,
+            end: u32,
+            command: *const u8,
+            command_len: usize,
+            argument: *const u8,
+            argument_len: usize,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::markup::edit(
+                text,
+                len,
+                start,
+                end,
+                command,
+                command_len,
+                argument,
+                argument_len,
+                out,
+                count,
+            )
+        }
+        /// Read toolbar selection facts as JSON.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_selection(
+            text: *const u8,
+            len: usize,
+            start: u32,
+            end: u32,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::markup::selection(text, len, start, end, out, count)
+        }
+        /// Copy Markdown as plain UTF-8 text.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_plain(
+            text: *const u8,
+            len: usize,
+            out: *mut *const u8,
+            count: *mut usize,
+        ) -> u64 {
+            $crate::markup::plain(text, len, out, count)
         }
         /// Release one expansion or styling.
         #[no_mangle]

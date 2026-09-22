@@ -122,9 +122,14 @@ pub(crate) struct Analysis {
 }
 
 fn touches(reveal: &Option<B>, construct: &B) -> bool {
-    reveal
-        .as_ref()
-        .is_some_and(|r| r.start <= construct.end && construct.start <= r.end)
+    reveal.as_ref().is_some_and(|r| {
+        r.start <= construct.end
+            && (if r.is_empty() {
+                construct.start <= r.end
+            } else {
+                construct.start < r.end
+            })
+    })
 }
 
 /// Marks into sorted spans that never overlap: flags joined, the innermost
@@ -243,6 +248,7 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
             match kind {
                 MarkerKind::Hide if revealed => out.marks.push(dim()),
                 MarkerKind::Hide => analysis.hidden.push(range.clone()),
+                MarkerKind::Bullet | MarkerKind::TaskBox(_) if revealed => out.marks.push(dim()),
                 MarkerKind::Bullet => analysis.replaced.push((range.clone(), Replacement::Bullet)),
                 MarkerKind::TaskBox(checked) => analysis
                     .replaced
@@ -276,11 +282,11 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
             }
             _ => inline::scan(source, &block.content, &mut out),
         }
-        for (marker, construct) in out.hidden.drain(..) {
+        for (marker, _) in out.hidden.drain(..) {
             if marker.is_empty() {
                 continue;
             }
-            if touches(&reveal, &construct) {
+            if revealed {
                 out.marks.push(Mark {
                     range: marker,
                     flags: MARKER,
@@ -291,7 +297,7 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
             }
         }
         for (range, label) in out.footnotes.drain(..) {
-            if touches(&reveal, &range) {
+            if revealed {
                 out.marks.push(Mark {
                     range,
                     flags: MARKER,
@@ -327,7 +333,7 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
 }
 
 /// How to draw `source`. `reveal` is the selection while editing: a construct
-/// it touches keeps its markers, as [`MARKER`](crate::MARKER) spans. `None`
+/// touching a paragraph reveals all its markers, as [`MARKER`](crate::MARKER) spans. `None`
 /// is reading: every marker hidden.
 pub fn style(source: &str, reveal: Option<Range>) -> Styled {
     let offsets = Offsets::new(source);

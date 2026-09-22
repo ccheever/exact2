@@ -236,11 +236,19 @@ fn link(source: &str, sel: B, target: &str) -> Draft {
         .find(|c| c.kind == LINK && c.outer.start <= sel.start && sel.end <= c.outer.end)
     {
         return Draft {
-            reps: vec![
-                (c.outer.start..c.inner.start, String::new()),
-                (c.inner.end..c.outer.end, String::new()),
-            ],
-            selection: None,
+            reps: if target.is_empty() {
+                vec![
+                    (c.outer.start..c.inner.start, String::new()),
+                    (c.inner.end..c.outer.end, String::new()),
+                ]
+            } else {
+                vec![(c.inner.end..c.outer.end, format!("]({target})"))]
+            },
+            selection: if target.is_empty() {
+                None
+            } else {
+                Some(c.inner.clone())
+            },
         };
     }
     let reps = vec![

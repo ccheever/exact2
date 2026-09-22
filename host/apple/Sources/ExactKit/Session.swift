@@ -707,6 +707,13 @@ public final class ExactSession {
         apply(batch)
         return batch.error == nil
     }
+    /// Deliver toolbar facts only when the authored editor has a select handler.
+    func selection(node: UInt32, json: String) {
+        guard booted, state != .destroyed,
+              presenter.views[node]?.handlers.contains("select") == true,
+              let batch = runtime.selection(node, json: json, now: now()) else { return }
+        apply(batch)
+    }
     /// A host URL before boot is a launch fact; afterwards it is one event.
     /// @ref LLP 1038 D8/D11 — development links are consumed by the adapter first.
     @discardableResult public func openURL(_ url: URL) -> Bool {

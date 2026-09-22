@@ -444,11 +444,69 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            21 => {
+                let Some(event) = Event::selection_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid Markdown selection"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
+        };
+        self.emit(out)
+    }
+
+    /// Shared Markdown styling, toolbar state, or plain text (operations 0, 1, 2).
+    pub fn markup(&mut self, op: u8, start: u32, end: u32, len: usize) -> u32 {
+        let out = match self
+            .input
+            .get(..len)
+            .and_then(|b| std::str::from_utf8(b).ok())
+        {
+            Some(source) => match op {
+                0 => exact_markdown::wire::style(
+                    source,
+                    (start != u32::MAX).then(|| exact_markdown::Range::new(start, end)),
+                ),
+                1 => {
+                    exact_markdown::wire::selection(source, exact_markdown::Range::new(start, end))
+                }
+                _ => exact_markdown::plain(source),
+            },
+            None => r#"{"error":"invalid Markdown UTF-8"}"#.into(),
+        };
+        self.emit(out)
+    }
+
+    /// Input is command bytes, argument bytes, then source bytes; all UTF-8.
+    pub fn markup_edit(
+        &mut self,
+        start: u32,
+        end: u32,
+        command_len: usize,
+        argument_len: usize,
+        len: usize,
+    ) -> u32 {
+        let parts = (|| {
+            let input = self.input.get(..len)?;
+            let source_at = command_len.checked_add(argument_len)?;
+            Some((
+                std::str::from_utf8(input.get(..command_len)?).ok()?,
+                std::str::from_utf8(input.get(command_len..source_at)?).ok()?,
+                std::str::from_utf8(input.get(source_at..)?).ok()?,
+            ))
+        })();
+        let out = match parts {
+            Some((command, argument, source)) => exact_markdown::wire::edit(
+                source,
+                exact_markdown::Range::new(start, end),
+                command,
+                argument,
+            ),
+            None => r#"{"error":"invalid Markdown edit input"}"#.into(),
         };
         self.emit(out)
     }
@@ -831,6 +889,27 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_motion(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
+        }
+
+        /// Style Markdown source from the input buffer; UTF-16 selection or UINT32_MAX.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_style(start: u32, end: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().markup(0, start, end, len as usize))
+        }
+        /// Read Markdown toolbar state as JSON.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_selection(start: u32, end: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().markup(1, start, end, len as usize))
+        }
+        /// Copy Markdown as plain UTF-8 text.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_plain(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().markup(2, 0, 0, len as usize))
+        }
+        /// Source-relative UTF-16 edits; input is command + argument + source UTF-8.
+        #[no_mangle]
+        pub extern "C" fn exact_markup_edit(start: u32, end: u32, command_len: u32, argument_len: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().markup_edit(start, end, command_len as usize, argument_len as usize, len as usize))
         }
 
         /// Segment, prepare, resolve/flow or free a browser paragraph.

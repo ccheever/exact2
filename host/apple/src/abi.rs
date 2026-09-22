@@ -764,6 +764,12 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            21 => {
+                let Some(event) = Event::selection_payload(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid Markdown selection"}"#.into());
+                };
+                event
+            }
             _ => Event::Change(payload),
         };
         let out = match self.host.as_mut() {

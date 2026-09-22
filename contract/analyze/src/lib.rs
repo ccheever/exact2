@@ -268,9 +268,10 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 35] = [
+pub const HANDLERS: [&str; 36] = [
     "press",
     "change",
+    "select",
     "hover",
     "focus",
     "blur",
@@ -314,6 +315,7 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
         "change" | "key" | "message" | "navigate" | "error" => Some("string"),
         "timeupdate" | "durationchange" => Some("number"),
         "hover" => Some("bool"),
+        "select" => Some("MarkdownSelection"),
         _ => None,
     }
 }

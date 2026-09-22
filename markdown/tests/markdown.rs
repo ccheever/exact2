@@ -93,22 +93,25 @@ fn reading_hides_every_marker() {
 }
 
 #[test]
-fn the_selection_reveals_only_what_it_touches() {
-    let source = "a **bold** and *italic*";
+fn the_selection_reveals_its_paragraph_and_no_other() {
+    let source = "a **bold** and *italic*\n\nother **paragraph**";
     let caret = Range::caret(5);
-    assert_eq!(hidden(source, Some(caret)), ["*", "*"]);
+    assert_eq!(hidden(source, Some(caret)), ["**", "**"]);
     assert_eq!(
         spans(source, Some(caret)),
         [
             ("**".into(), MARKER),
             ("bold".into(), BOLD),
             ("**".into(), MARKER),
-            ("italic".into(), ITALIC)
+            ("*".into(), MARKER),
+            ("italic".into(), ITALIC),
+            ("*".into(), MARKER),
+            ("paragraph".into(), BOLD),
         ]
     );
-    // A caret just outside the closing marker still touches it, as in Bear.
-    assert_eq!(hidden(source, Some(Range::caret(10))), ["*", "*"]);
-    assert_eq!(hidden(source, Some(Range::caret(12))).len(), 4);
+    assert_eq!(hidden(source, Some(Range::caret(12))), ["**", "**"]);
+    // A selection ending at the next paragraph start leaves that paragraph hidden.
+    assert_eq!(hidden(source, Some(Range::new(5, 24))), ["**", "**"]);
 }
 
 #[test]
@@ -301,7 +304,7 @@ fn footnotes_number_by_first_reference_whatever_the_selection() {
     let caret = Range::caret(source.find("[^7]").unwrap() as u32 + 2);
     let revealed = style(source, Some(caret));
     assert_eq!(spans(source, Some(caret))[0], ("[^7]".into(), MARKER));
-    assert_eq!(revealed.replaced.len(), 5);
+    assert_eq!(revealed.replaced.len(), 3);
     assert_eq!(revealed.replaced[0].with, Replacement::Footnote("2".into()));
     assert_eq!(revealed.footnotes, styled.footnotes);
     assert_eq!(plain("x[^a] y[^a]\n\n[^a]: z"), "x y\n\nz");
@@ -766,4 +769,70 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     }
     assert_eq!(pieces(""), Vec::<Piece>::new());
     assert_eq!(pieces("plain")[0].text, "plain");
+}
+
+#[test]
+fn toolbar_facts_use_utf16_and_distinguish_mixed_content() {
+    let source = "## 😀 **bold** and plain [link](https://e.dev)\n\n- [ ] task";
+    let selected = selection(source, Range::caret(9));
+    assert_eq!(selected.formats, "bold heading2");
+    assert!(!selected.mixed);
+    let selected = selection(source, Range::new(8, 22));
+    assert_eq!(selected.formats, "heading2");
+    assert!(selected.mixed);
+    let pos = source[..source.find("link]").unwrap()]
+        .encode_utf16()
+        .count() as u32;
+    assert_eq!(
+        selection(source, Range::caret(pos + 1)).link,
+        "https://e.dev"
+    );
+    assert_eq!(
+        selection(source, Range::caret(source.encode_utf16().count() as u32)).formats,
+        "task"
+    );
+    let code = selection("```rust\nlet x = 1;\n```", Range::caret(10));
+    assert_eq!(code.formats, "codeblock");
+    assert!(code.unavailable.split_whitespace().any(|s| s == "bold"));
+    assert!(wire::edit("```\nx\n```", Range::caret(5), "bold", "").contains("unavailable"));
+}
+
+#[test]
+fn editing_wire_keeps_source_offsets_and_escapes_data() {
+    assert_eq!(
+        wire::edit("😀 word", Range::new(3, 7), "bold", ""),
+        r#"{"replacements":[[3,3,"**"],[7,7,"**"]],"selection":[5,9]}"#
+    );
+    assert_eq!(
+        run("a [wo|rd](old) here", Command::Link("https://new".into())),
+        "a [|word|](https://new) here"
+    );
+    assert!(wire::edit("", Range::caret(0), "heading", "7").contains("error"));
+    assert!(wire::selection("[x](u)", Range::caret(2)).contains(r#""link":"u""#));
+    let s = style("- [ ] task\n\n**other**", Some(Range::caret(8)));
+    assert!(s.replaced.is_empty());
+    assert!(s.spans.iter().any(|s| s.style & MARKER != 0));
+    assert_eq!(s.hidden.len(), 2);
+}
+
+#[test]
+fn reading_many_blocks_matches_their_individual_styles() {
+    let block = "## A **title**\n\nSome *text* and [a link](https://example.com).\n\n- item\n- [x] done\n\n";
+    for n in [1, 32, 512] {
+        let source = block.repeat(n);
+        let pieces = pieces(&source);
+        let text: String = pieces.iter().map(|p| p.text.as_str()).collect();
+        assert_eq!(text.matches("A title").count(), n);
+        assert_eq!(
+            pieces
+                .iter()
+                .filter(|p| p.href == "https://example.com")
+                .count(),
+            n
+        );
+        assert!(pieces
+            .iter()
+            .filter_map(|p| p.source)
+            .all(|r| r.end <= source.len() as u32));
+    }
 }

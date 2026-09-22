@@ -20,6 +20,7 @@
 mod checks;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod routes;
+mod selection;
 
 use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
@@ -780,6 +781,7 @@ fn calls_in(e: &Expr, out: &mut Vec<String>) {
 pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
     routes::declare(file, &mut shapes)?;
+    selection::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
             return err(
@@ -1358,6 +1360,7 @@ fn refine_params_from_view(
                         a.name.as_str(),
                         "press"
                             | "change"
+                            | "select"
                             | "hover"
                             | "focus"
                             | "blur"
@@ -1409,6 +1412,7 @@ fn refine_params_from_view(
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
                                 "hover" => vec![Ty::Bool],
+                                "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 "scroll" => vec![Ty::Number, Ty::Number],
                                 _ => vec![],
                             };

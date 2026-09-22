@@ -132,6 +132,17 @@ pub enum Event {
     Press,
     /// A text input changed to `value`.
     Change(String),
+    /// Markdown toolbar facts. Selection offsets remain local to the editor.
+    Select {
+        /// Space-separated active format names.
+        formats: String,
+        /// The selection spans differing formats or link targets.
+        mixed: bool,
+        /// The common link target, or empty.
+        link: String,
+        /// Space-separated unavailable command names.
+        unavailable: String,
+    },
     /// The pointer came over the view (`true`) or left it (`false`) —
     /// `pointerenter`/`pointerleave`, not a bubbling `mouseover`.
     Hover(bool),
@@ -202,6 +213,31 @@ pub enum Event {
 }
 
 impl Event {
+    /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
+    /// remainder, separated by newlines. Token lists never contain newlines;
+    /// a target may, so the final remainder is kept verbatim.
+    pub fn selection_payload(payload: &str) -> Option<Self> {
+        let mut parts = payload.splitn(4, '\n');
+        let formats = parts.next()?;
+        let mixed = match parts.next()? {
+            "0" => false,
+            "1" => true,
+            _ => return None,
+        };
+        let unavailable = parts.next()?;
+        let link = parts.next()?;
+        let tokens = |s: &str| s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b' ');
+        if !tokens(formats) || !tokens(unavailable) {
+            return None;
+        }
+        Some(Self::Select {
+            formats: formats.into(),
+            mixed,
+            link: link.into(),
+            unavailable: unavailable.into(),
+        })
+    }
+
     /// Decode a media event carried as `name\npayload` through host kind 19.
     pub fn media_payload(payload: &str) -> Option<Self> {
         let (name, value) = payload.split_once('\n')?;
@@ -639,6 +675,7 @@ impl<D: DataSource> Runner<D> {
                 Event::ReorderDrop { .. } => "reorderdrop",
                 Event::Press => "press",
                 Event::Change(_) => "change",
+                Event::Select { .. } => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
@@ -683,6 +720,21 @@ impl<D: DataSource> Runner<D> {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::Press => (EventKind::Press, None, "press"),
             Event::Change(text) => (EventKind::Change, Some(Value::str(text)), "change"),
+            Event::Select {
+                formats,
+                mixed,
+                link,
+                unavailable,
+            } => (
+                EventKind::Select,
+                Some(Value::record(vec![
+                    Value::str(formats),
+                    Value::Bool(*mixed),
+                    Value::str(link),
+                    Value::str(unavailable),
+                ])),
+                "select",
+            ),
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
