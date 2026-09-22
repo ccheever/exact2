@@ -18,9 +18,13 @@ extension NodeView {
         guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !disabled,
               !f.hasMarkedText(), !editor.applying else { return false }
         let selection = f.window?.firstResponder === f ? f.selectedRange() : (editor.bookmark ?? f.selectedRange())
-        guard let result = MarkupCommands.edit(f.string, selection: selection, command: command, argument: argument) else { return false }
-        let edit = minimalTextEdit(from: f.string, to: result.source)
+        // A link field can own the responder when its format arrives.
+        // Capture its bookmark first, then return native editing ownership
+        // before insertText so the command gets the editor's undo transaction.
         editor.applying = true
+        if f.window?.firstResponder !== f, f.window?.makeFirstResponder(f) != true { editor.applying = false; return false }
+        guard let result = MarkupCommands.edit(f.string, selection: selection, command: command, argument: argument) else { editor.applying = false; return false }
+        let edit = minimalTextEdit(from: f.string, to: result.source)
         f.breakUndoCoalescing()
         if let edit {
             f.undoManager?.beginUndoGrouping()

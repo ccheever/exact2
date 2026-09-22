@@ -113,10 +113,16 @@ final class MarkupEditorTests: XCTestCase {
     func testLinkCommandUsesBookmarkAfterFocusMoves() {
         let (node, f, window, presenter) = editor("first second", selection: NSRange(location: 6, length: 6))
         defer { window.close(); _ = presenter }
-        window.makeFirstResponder(nil)
+        let linkField = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 30))
+        node.addSubview(linkField)
+        window.makeFirstResponder(linkField)
         f.setSelectedRange(NSRange(location: 0, length: 0))
         XCTAssertTrue(node.formatMarkup("link", argument: "https://example.com"))
         XCTAssertEqual(f.string, "first [second](https://example.com)")
+        XCTAssertTrue(window.firstResponder === f)
+        XCTAssertTrue(f.undoManager?.canUndo == true, "a bookmarked format must restore editing ownership for native undo")
+        f.undoManager?.undo()
+        XCTAssertEqual(f.string, "first second")
     }
 
     func testMarkedTextDefersValueAndRefusesFormatting() {
