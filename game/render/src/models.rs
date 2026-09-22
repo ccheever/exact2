@@ -39,18 +39,23 @@ pub(crate) struct Uploaded {
 }
 pub(crate) struct Texture {
     bytes: u64,
-    active: bool,
+    pub(crate) active: bool,
     pub digest: u64,
     pub view: wgpu::TextureView,
     pub sampler: wgpu::Sampler,
     pub size: [u32; 2],
+    pub(crate) sprite_bind: Option<wgpu::BindGroup>,
+}
+struct PoseHistory {
+    entity: exact_game::Entity,
+    saved: Option<(u64, u64, [exact_game::Transform; 2])>,
 }
 #[derive(Default)]
 pub(crate) struct Models {
     pub loaded: BTreeMap<String, Uploaded>,
     prior_work: crate::world::assets::Work,
     pub revision: u64,
-    textures: BTreeMap<String, Texture>,
+    pub(crate) textures: BTreeMap<String, Texture>,
     samplers: BTreeMap<([Wrap; 2], [Filter; 3]), wgpu::Sampler>,
     pub uploads: u64,
     pub reallocations: u64,
@@ -63,13 +68,48 @@ pub(crate) struct Models {
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[exact_game::Transform; 2]>,
     pub pose_indices: Vec<usize>,
-    pose_entities: Vec<exact_game::Entity>,
+    pose_history: Vec<PoseHistory>,
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
-    pose_history: BTreeMap<exact_game::Entity, (u64, u64, [exact_game::Transform; 2])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
 }
 impl Models {
+    fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) {
+        if self.pose_history.len() == entities.len()
+            && self
+                .pose_history
+                .iter()
+                .zip(entities)
+                .all(|(history, entity)| history.entity == *entity)
+        {
+            return;
+        }
+        let mut old = std::mem::take(&mut self.pose_history)
+            .into_iter()
+            .peekable();
+        let mut merged = Vec::with_capacity(entities.len());
+        for &entity in entities {
+            while old
+                .peek()
+                .is_some_and(|history| history.entity.index() < entity.index())
+            {
+                old.next();
+            }
+            let saved = if old.peek().is_some_and(|history| history.entity == entity) {
+                old.next().unwrap().saved
+            } else {
+                if old
+                    .peek()
+                    .is_some_and(|history| history.entity.index() == entity.index())
+                {
+                    old.next();
+                }
+                None
+            };
+            merged.push(PoseHistory { entity, saved });
+        }
+        self.pose_history = merged;
+    }
     fn prepare(&mut self, device: &wgpu::Device, family: &crate::pipeline::ModelPipelines) {
         if self.instances.is_some() {
             return;
@@ -154,17 +194,17 @@ impl Models {
         instances.write(queue, 0, bytes(words));
         self.records.clear();
         self.records.extend_from_slice(records);
-        let entities: std::collections::BTreeSet<_> = records.iter().map(|r| r.transform).collect();
-        let indices: BTreeMap<_, _> = entities
-            .into_iter()
-            .enumerate()
-            .map(|(i, e)| (e, i))
-            .collect();
+        let mut entities: Vec<_> = records.iter().map(|r| r.transform).collect();
+        entities.sort_unstable();
+        entities.dedup();
         self.pose_indices.clear();
-        self.pose_indices
-            .extend(records.iter().map(|r| indices[&r.transform]));
+        self.pose_indices.extend(
+            records
+                .iter()
+                .map(|r| entities.binary_search(&r.transform).unwrap()),
+        );
         self.poses
-            .resize(indices.len(), [exact_game::Transform::default(); 2]);
+            .resize(entities.len(), [exact_game::Transform::default(); 2]);
         Ok(())
     }
 }
@@ -231,6 +271,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                         position: [p[0], p[1], p[2]],
                         normal: mesh.normals[i * 3..i * 3 + 3].try_into().unwrap(),
                         uv: mesh.uvs[i * 2..i * 2 + 2].try_into().unwrap(),
+                        color: if mesh.colors.is_empty() {
+                            [1.; 4]
+                        } else {
+                            mesh.colors[i * 4..i * 4 + 4].try_into().unwrap()
+                        },
                     })
                     .collect();
                 let id = self.add_mesh(&vertices, &mesh.indices);
@@ -417,8 +462,6 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         self.models
             .textures
             .retain(|n, t| n.starts_with('\0') || (t.active && live.contains(n)));
-        self.quads
-            .retain_textures(|n| self.models.textures.contains_key(n));
         self.reclaim_orphan_slots();
         if let Some(skin) = &mut self.models.skinning {
             skin.compact_metadata(&self.device, &self.queue, false);
@@ -484,12 +527,14 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     pub(crate) fn retire_texture(&mut self, name: &str) {
         if let Some(t) = self.models.textures.get_mut(name) {
             t.active = false;
+            t.sprite_bind = None;
         }
-        self.quads.retire_texture(name);
     }
     pub(crate) fn sprite_texture(&mut self, name: &str) {
-        if let Some(texture) = self.models.textures.get(name).filter(|t| t.active) {
-            self.quads.texture(&self.device, name, texture);
+        if let Some(texture) = self.models.textures.get_mut(name).filter(|t| t.active) {
+            if texture.sprite_bind.is_none() {
+                texture.sprite_bind = Some(self.quads.sprite_bind(&self.device, texture));
+            }
         }
     }
     /// Reuse a name only when its content digest matches. CPU mips may be dropped.
@@ -502,17 +547,19 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .filter(|t| t.digest == digest)
         {
             texture.active = true;
-            if self.quads.has_texture(name) {
-                self.quads.texture(&self.device, name, texture);
-            }
             return Ok(());
         }
         data.validate().map_err(RenderError::scene)?;
+        let sprite = self
+            .models
+            .textures
+            .get(name)
+            .is_some_and(|texture| texture.sprite_bind.is_some());
         let mut texture =
             upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
         texture.digest = digest;
-        if self.quads.has_texture(name) {
-            self.quads.texture(&self.device, name, &texture);
+        if sprite {
+            texture.sprite_bind = Some(self.quads.sprite_bind(&self.device, &texture));
         }
         self.models.textures.insert(name.into(), texture);
         self.models.uploads += 1;
@@ -588,29 +635,26 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
         }
-        if self.models.pose_entities != entities {
-            self.models.pose_history.retain(|e, _| {
-                entities
-                    .binary_search_by_key(&e.index(), |v| v.index())
-                    .is_ok_and(|i| entities[i] == *e)
-            });
-            self.models.pose_entities.clear();
-            self.models.pose_entities.extend_from_slice(entities);
-        }
-        for (history, &entity) in self.models.poses.iter_mut().zip(entities) {
+        self.models.reconcile_pose_history(entities);
+        let loaded = &self.models.loaded;
+        for (active, history) in self
+            .models
+            .poses
+            .iter_mut()
+            .zip(&mut self.models.pose_history)
+        {
+            let entity = history.entity;
             let digest = world
                 .get::<exact_game::Mesh>(entity)
                 .and_then(|m| match &*m {
-                    exact_game::Mesh::Asset(name) => self.models.loaded.get(name).map(|m| m.digest),
+                    exact_game::Mesh::Asset(name) => loaded.get(name).map(|m| m.digest),
                     _ => None,
                 })
                 .unwrap_or(0);
             if let Some(pose) = crate::world::scene::pose(world, entity) {
-                let saved = self.models.pose_history.entry(entity).or_insert((
-                    digest,
-                    world.tick(),
-                    [pose; 2],
-                ));
+                let saved = history
+                    .saved
+                    .get_or_insert((digest, world.tick(), [pose; 2]));
                 if initial || saved.0 != digest || crate::world::scene::snap(world, entity, false) {
                     saved.2 = [pose; 2];
                 } else {
@@ -621,7 +665,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 }
                 saved.0 = digest;
                 saved.1 = world.tick();
-                *history = saved.2;
+                *active = saved.2;
             }
         }
     }
@@ -809,6 +853,7 @@ fn upload_texture(
         digest: 0,
         view: texture.create_view(&Default::default()),
         sampler: sampler.clone(),
+        sprite_bind: None,
     }
 }
 
@@ -986,6 +1031,159 @@ mod retirement_regressions {
         let records = renderer.models.records.clone();
         renderer.set_draw_instances(&records).unwrap();
         assert_eq!(renderer.models.bind, bind);
+        // Direct uploads need the same ascending entity ranks as Feed, even when
+        // records arrive out of order or several model parts share one entity.
+        for (transforms, indices) in [
+            (&[9, 2, 9, u32::MAX, 0, 2][..], &[2, 1, 2, 3, 0, 1][..]),
+            (&[2, 9][..], &[0, 1][..]),
+            (&[9, 9, 9][..], &[0, 0, 0][..]),
+            (&[][..], &[][..]),
+            (&[0, u32::MAX][..], &[0, 1][..]),
+        ] {
+            let upload: Vec<_> = transforms
+                .iter()
+                .map(|&transform| DrawInstance {
+                    transform,
+                    skin: None,
+                    ..records[0]
+                })
+                .collect();
+            renderer.set_draw_instances(&upload).unwrap();
+            assert_eq!(renderer.models.pose_indices, indices);
+            assert_eq!(
+                renderer.models.poses.len(),
+                indices.iter().max().map_or(0, |i| i + 1)
+            );
+            assert!(renderer
+                .models
+                .records
+                .iter()
+                .map(|r| r.transform)
+                .eq(transforms.iter().copied()));
+        }
+    }
+
+    #[test]
+    fn direct_pose_shrink_and_regrow_restores_retained_history() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer
+            .prepare_model("moving.model", &crate::test_model::skinned_model())
+            .unwrap();
+        struct Moving;
+        impl exact_game::Game for Moving {
+            type Args = ();
+            const ID: &'static str = "direct-pose-resize";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                w.spawn_named(
+                    "hero",
+                    (
+                        exact_game::Transform::default(),
+                        exact_game::Mesh::asset("moving.model"),
+                    ),
+                );
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.get_mut::<exact_game::Transform>("hero")
+                    .unwrap()
+                    .position
+                    .x += 1.;
+            }
+        }
+        let mut sim = exact_game::Sim::<Moving>::new(()).unwrap();
+        sim.world_mut().propagate();
+        let mut feed = crate::Feed::default();
+        feed.feed(sim.world_mut(), &mut renderer).unwrap();
+        sim.run(1000. / 60.);
+        feed.feed(sim.world_mut(), &mut renderer).unwrap();
+        let hero = sim.world().resolve("hero").unwrap();
+        let records = renderer.models.records.clone();
+        let expected = renderer.models.poses.clone();
+        assert_ne!(expected[0][0], expected[0][1]);
+
+        renderer.set_draw_instances(&[]).unwrap();
+        assert!(renderer.models.poses.is_empty());
+        renderer.set_draw_instances(&records).unwrap();
+        assert_eq!(
+            renderer.models.poses,
+            vec![[exact_game::Transform::default(); 2]]
+        );
+        renderer.model_poses(sim.world(), &[hero], false);
+        assert_eq!(renderer.models.poses, expected);
+    }
+
+    #[test]
+    fn missing_global_and_recycled_generation_get_fresh_active_poses() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer
+            .prepare_model("generation.model", &crate::test_model::skinned_model())
+            .unwrap();
+        let mut world = exact_game::World::new(60, 0);
+        let parent = world.spawn(exact_game::Transform::default());
+        let mut local = exact_game::Transform::default();
+        local.position.x = 7.;
+        let missing = world.spawn_named(
+            "model",
+            (
+                local,
+                exact_game::Mesh::asset("generation.model"),
+                exact_game::Parent(parent),
+            ),
+        );
+        let node = renderer.models.loaded["generation.model"].nodes[0];
+        let mut record = DrawInstance {
+            transform: missing.index(),
+            geometry: node.0,
+            material: node.1,
+            local: node.2,
+            skin: None,
+        };
+        renderer
+            .set_draw_instances(std::slice::from_ref(&record))
+            .unwrap();
+        renderer.model_poses(&world, &[missing], false);
+        assert_eq!(
+            renderer.models.poses[0],
+            [exact_game::Transform::default(); 2]
+        );
+
+        world.propagate();
+        world.load(&world.save()).unwrap();
+        let missing = world.resolve("model").unwrap();
+        assert!(!world.is_fresh(missing));
+        let propagated = crate::world::scene::pose(&world, missing).unwrap();
+        renderer.model_poses(&world, &[missing], false);
+        assert_eq!(renderer.models.poses[0], [propagated; 2]);
+
+        assert!(world.despawn(missing));
+        let mut replacement_pose = exact_game::Transform::default();
+        replacement_pose.position.x = 19.;
+        let replacement = world.spawn_named(
+            "model",
+            (
+                replacement_pose,
+                exact_game::Mesh::asset("generation.model"),
+            ),
+        );
+        assert_eq!(replacement.index(), missing.index());
+        assert_ne!(replacement.generation(), missing.generation());
+        world.load(&world.save()).unwrap();
+        let replacement = world.resolve("model").unwrap();
+        assert!(!world.is_fresh(replacement));
+        record.transform = replacement.index();
+        renderer
+            .set_draw_instances(std::slice::from_ref(&record))
+            .unwrap();
+        assert_eq!(renderer.models.poses[0], [propagated; 2]);
+        renderer.model_poses(&world, &[replacement], false);
+        assert_eq!(renderer.models.poses[0], [replacement_pose; 2]);
     }
 
     #[test]
@@ -1061,7 +1259,7 @@ mod retirement_regressions {
             r.prepare_model(&name, &model).unwrap();
             r.add_texture(&tex, &texture).unwrap();
             assert!(
-                !r.quads.has_texture(&tex),
+                r.models.textures[&tex].sprite_bind.is_none(),
                 "model textures do not become sprite consumers"
             );
             r.models.loaded.get_mut(&name).unwrap().active = false;

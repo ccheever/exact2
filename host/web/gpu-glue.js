@@ -7,6 +7,7 @@ import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
 let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
+const HOST_WORK_LIMIT = 16 * 1024 * 1024;
 const worldSize = bytes => { if (bytes.length > WORLD_LIMIT) throw new Error("world carrier exceeds 256 MiB limit"); return bytes; };
 let terminalRestoreReported = false;
 const restoreJournal = [];
@@ -422,7 +423,7 @@ function listen(entry) {
     }
     if (owner) {
       sendControl(event, owner, phase, event.pointerId, event.clientX-owner.left, event.clientY-owner.top);
-      if (phase === "up" || phase === "cancel") { controls.delete(event.pointerId); if (owner.node === document.activeElement) el.focus({preventScroll:true}); }
+      if (phase === "up" || phase === "cancel") controls.delete(event.pointerId);
       event.preventDefault(); return;
     }
     if (!fallsThrough(event)) return;
@@ -509,7 +510,14 @@ function listen(entry) {
   // Assistive technology activates a button without a pointer/key sequence.
   on("click", event => { const button = control(event.target); if (button && event.detail === 0 && !controlKeys.size) { sendControl(event, binding(button), "down", 4294967292); sendControl(event, binding(button), "up", 4294967292); } });
   on("focusin", event => { if (editable(event.target)) blur(event); });
-  on("focusout", event => { if (!controls.size && !el.contains(event.relatedTarget)) blur(event); });
+  on("focusout", event => {
+    if (controls.size || el.contains(event.relatedTarget)) return;
+    if (event.relatedTarget) blur(event);
+    // Removing a focused control can return focus to this canvas in the same commit.
+    else queueMicrotask(() => {
+      if (live(entry.view) === entry && !controls.size && !el.contains(document.activeElement)) blur(event);
+    });
+  });
   entry.unlisten = () => {
     mutations.disconnect();
     window.removeEventListener("blur", inactive);
@@ -568,6 +576,24 @@ exact.gpu = {
   drainRecords,
   agent,
   settled,
+  async surfaceWork(name, mode, bytes, active) {
+    await ready;
+    const matches=[...surfaces.values()].filter(e=>e.name===name&&live(e.view)===e);
+    if(matches.length!==1)throw Object.assign(new Error(`surface ${name}: expected one live surface, found ${matches.length}`),{kind:2});
+    const entry=matches[0], id=entry.id;
+    await settled();
+    if(!active()||live(entry.view)!==entry||entry.id!==id)throw Object.assign(new Error(`surface ${name}: request retired or surface replaced`),{kind:4});
+    if(!id)throw Object.assign(new Error(`surface ${name}: module unavailable`),{kind:3});
+    if(mode==="capture"){
+      const out=gpu.gpu_carry(id);
+      if(out===undefined)throw Object.assign(new Error(`surface ${name}: carries no state`),{kind:3});
+      if(out.length>HOST_WORK_LIMIT)throw Object.assign(new Error(`surface ${name}: carried state exceeds 16 MiB`),{kind:2});
+      return out;
+    }
+    if(!(bytes instanceof Uint8Array)||bytes.length>HOST_WORK_LIMIT)throw Object.assign(new Error(`surface ${name}: invalid or oversized restore`),{kind:2});
+    if(!gpu.gpu_restore(id,bytes,0))throw Object.assign(new Error(`surface ${name}: ${gpu.gpu_error()}`),{kind:2});
+    messages(entry);schedule();
+  },
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
@@ -837,7 +863,6 @@ try {
   loaded = true;
 } catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
 if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
-if (loaded && new URLSearchParams(location.search).get("smoke") === "1") navigator.sendBeacon(`/__gpu?ms=${exact.root.dataset.gpuMs}`);
 try {
   const waiting = [...surfaces.values()];
   const report = error => { exact.devError?.(String(error)); console.error("exact gpu:", error); };

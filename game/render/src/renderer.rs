@@ -51,9 +51,15 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     texture_creations: u64,
 }
 
+// Use the uploaded affine records and the same presence test as transform.wgsl.
+fn attachment_matrix(words: &[f32], slot: u32) -> Option<glam::Mat4> {
+    let values = words.chunks_exact(16).nth(slot as usize)?;
+    (values[15] == 1.).then(|| glam::Mat4::from_cols_slice(values))
+}
+
 impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     fn slot_mirrored(&self, slot: u32, frame: &FrameInput<'_>) -> bool {
-        let (entity, local, fallback) = if slot >= crate::RENDER_SLOT_BASE {
+        let (entity, local, fallback) = if ASSETS && slot >= crate::RENDER_SLOT_BASE {
             let record = &self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize];
             (record.transform, record.local.determinant(), {
                 let pair = self.models.poses
@@ -65,11 +71,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         } else {
             (slot, 1., 1.)
         };
-        let owner = frame
-            .attachments
-            .iter()
-            .find(|a| a.entity.index() == entity)
-            .map_or(fallback, |a| a.matrix.determinant());
+        let owner =
+            attachment_matrix(&self.attachment_words, entity).map_or(fallback, |m| m.determinant());
         owner * local < 0.
     }
     // Keep compatible instances batched, splitting only where attachment winding differs.
@@ -87,7 +90,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let start = at;
             let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
             at += 1;
-            if frame.attachments.is_empty() && self.model_batches[index].is_none() {
+            if frame.attachments.is_empty() && (!ASSETS || self.model_batches[index].is_none()) {
                 at = end;
             } else {
                 while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored
@@ -300,23 +303,25 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     instances * u64::from(mesh.indices.end - mesh.indices.start) / 3;
             }
         }
-        self.model_batches.clear();
-        self.models.transparent.clear();
-        for (index, batch) in batches.iter().enumerate() {
-            let material = batch.slots.clone().next().and_then(|i| {
-                let slot = slot_list[i as usize];
-                (slot >= crate::RENDER_SLOT_BASE).then(|| {
-                    self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize].material
-                })
-            });
-            if material.is_some_and(|m| {
-                self.models.materials[m.0].alpha == exact_game::asset::AlphaMode::Blend
-            }) {
-                for slot in batch.slots.clone() {
-                    self.models.transparent.push((index, slot, 0.0));
+        if ASSETS {
+            self.model_batches.clear();
+            self.models.transparent.clear();
+            for (index, batch) in batches.iter().enumerate() {
+                let material = batch.slots.clone().next().and_then(|i| {
+                    let slot = slot_list[i as usize];
+                    (slot >= crate::RENDER_SLOT_BASE).then(|| {
+                        self.models.records[(slot - crate::RENDER_SLOT_BASE) as usize].material
+                    })
+                });
+                if material.is_some_and(|m| {
+                    self.models.materials[m.0].alpha == exact_game::asset::AlphaMode::Blend
+                }) {
+                    for slot in batch.slots.clone() {
+                        self.models.transparent.push((index, slot, 0.0));
+                    }
                 }
+                self.model_batches.push(material);
             }
-            self.model_batches.push(material);
         }
         self.slot_list.clear();
         self.slot_list.extend_from_slice(slot_list);
@@ -342,7 +347,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let index_start = self.indices.live;
         let vertex_end = vertex_start + size_of_val(vertices) as u64;
         let index_end = index_start + size_of_val(indices) as u64;
-        assert!(vertex_end / 32 <= i32::MAX as u64 && index_end / 4 <= u64::from(u32::MAX));
+        assert!(
+            vertex_end / size_of::<Vertex>() as u64 <= i32::MAX as u64
+                && index_end / 4 <= u64::from(u32::MAX)
+        );
         self.vertices.grow(&self.device, &self.queue, vertex_end);
         self.indices.grow(&self.device, &self.queue, index_end);
         self.vertices
@@ -368,7 +376,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             vertex_bytes: size_of_val(vertices) as u64,
             asset: false,
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
-            base_vertex: (vertex_start / 32) as i32,
+            base_vertex: (vertex_start / size_of::<Vertex>() as u64) as i32,
             center,
         };
         if id.0 == self.meshes.len() {
@@ -432,7 +440,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let n = u64::from(mesh.indices.end - mesh.indices.start) * 4;
             encoder.copy_buffer_to_buffer(
                 &self.vertices.raw,
-                mesh.base_vertex as u64 * 32,
+                mesh.base_vertex as u64 * size_of::<Vertex>() as u64,
                 &v.raw,
                 v.live,
                 mesh.vertex_bytes,
@@ -446,19 +454,21 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             );
             if let (Some(s), Some(target)) = (&self.models.skinning, &mut weights) {
                 let start = mesh.base_vertex as u64 * 32;
-                let bytes = mesh.vertex_bytes.min(s.weights.live.saturating_sub(start));
+                let bytes = (mesh.vertex_bytes / size_of::<Vertex>() as u64 * 32)
+                    .min(s.weights.live.saturating_sub(start));
+                let target_start = v.live / size_of::<Vertex>() as u64 * 32;
                 if bytes > 0 && skinned.contains(&index) {
                     encoder.copy_buffer_to_buffer(
                         &s.weights.raw,
                         start,
                         &target.raw,
-                        v.live,
+                        target_start,
                         bytes,
                     );
-                    target.live = v.live + bytes;
+                    target.live = target_start + bytes;
                 }
             }
-            mesh.base_vertex = (v.live / 32) as i32;
+            mesh.base_vertex = (v.live / size_of::<Vertex>() as u64) as i32;
             mesh.indices = (i.live / 4) as u32..((i.live + n) / 4) as u32;
             v.live += mesh.vertex_bytes;
             i.live += n;
@@ -536,6 +546,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let cascades = frame
             .sun
+            .filter(|sun| sun.illuminance != 0.0)
             .and_then(|s| s.shadows)
             .map(|s| Cascades::new(frame, s));
         if let Some(c) = &cascades {
@@ -571,7 +582,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             0,
             bytes(&frame::uniform(frame, cascades.as_ref(), size)),
         );
-        self.quads.frame::<ASSETS>(frame);
+        self.quads.frame::<ASSETS>(frame, &self.models.textures);
         // One total translucent order; opaque/primitive batches remain retained.
         if ASSETS {
             for (_, slot, depth) in &mut self.models.transparent {
@@ -581,19 +592,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .local
                     .transform_point3(self.meshes[record.geometry.0].center);
                 let history = self.models.poses[self.models.pose_indices[index]];
-                let pose = frame
-                    .attachments
-                    .iter()
-                    .find(|a| a.entity.index() == record.transform)
-                    .map_or_else(
-                        || {
-                            let t = crate::world::scene::interpolate(history, frame.alpha);
-                            glam::Mat4::from_scale_rotation_translation(
-                                t.scale, t.rotation, t.position,
-                            )
-                        },
-                        |a| a.matrix,
-                    );
+                let pose = attachment_matrix(&self.attachment_words, record.transform)
+                    .unwrap_or_else(|| {
+                        let t = crate::world::scene::interpolate(history, frame.alpha);
+                        glam::Mat4::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+                    });
                 let position = pose.transform_point3(center);
                 *depth = -frame.view.transform_point3(position).z;
             }
@@ -760,7 +763,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 }
             }
             for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
-                self.quads.draw::<ASSETS>(&mut pass, draw);
+                self.quads
+                    .draw::<ASSETS>(&mut pass, draw, &self.models.textures);
                 extra_draws += 1;
             }
             if frame::has_sky(frame) {
@@ -798,7 +802,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     let mesh = &self.meshes[batch.mesh.0];
                     pass.draw_indexed(mesh.indices.clone(), mesh.base_vertex, slot..slot + 1);
                 } else {
-                    self.quads.draw::<ASSETS>(&mut pass, draw);
+                    self.quads
+                        .draw::<ASSETS>(&mut pass, draw, &self.models.textures);
                 }
                 extra_draws += 1;
             }
@@ -837,12 +842,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         stats.draws += extra_draws;
         stats.instances += self.quads.instances();
         stats.triangles += 2 * self.quads.instances();
-        stats.draws -= self
-            .model_batches
-            .iter()
-            .flatten()
-            .filter(|m| self.models.materials[m.0].alpha == exact_game::asset::AlphaMode::Blend)
-            .count() as u32;
+        if ASSETS {
+            stats.draws -= self
+                .model_batches
+                .iter()
+                .flatten()
+                .filter(|m| self.models.materials[m.0].alpha == exact_game::asset::AlphaMode::Blend)
+                .count() as u32;
+        }
         stats.texture_creations = self.texture_creations;
         stats
     }
@@ -938,6 +945,67 @@ pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
 mod packing_tests {
     use super::*;
     #[test]
+    fn primitive_batches_skip_model_allocations_and_keep_attachment_winding() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut r = RendererWithAssets::<false>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (vertices, indices) = crate::shapes::plane();
+        let mesh = r.add_mesh(&vertices, &indices);
+        let pose = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        r.write_transforms_both(0, &pose.repeat(2)).unwrap();
+        r.write_materials(0, &[1.; 24]).unwrap();
+        for _ in 0..3 {
+            r.set_batches(&[Batch::new(mesh, 0..2)], &[0, 1]).unwrap();
+        }
+        assert_eq!(r.model_batches.capacity(), 0);
+        assert_eq!(r.models.transparent.capacity(), 0);
+        let mut world = exact_game::World::new(60, 0);
+        world.spawn(exact_game::Transform::default());
+        let mirrored = world.spawn(exact_game::Transform::default());
+        let attachments = [crate::DisplayedAttachment {
+            entity: mirrored,
+            matrix: glam::Mat4::from_scale(Vec3::new(-1., 1., 1.)),
+            pose: Default::default(),
+        }];
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 16,
+                height: 16,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let target = texture.create_view(&Default::default());
+        let mut frame = FrameInput {
+            attachments: &attachments,
+            sun: None,
+            ..Default::default()
+        };
+        frame.environment.bloom = None;
+        r.draw(&target, (16, 16), &frame);
+        assert_eq!(
+            r.winding_ranges(0, &frame).collect::<Vec<_>>(),
+            [(0..1, false), (1..2, true)]
+        );
+        frame.attachments = &[];
+        r.draw(&target, (16, 16), &frame);
+        assert_eq!(
+            r.winding_ranges(0, &frame).collect::<Vec<_>>(),
+            [(0..2, false)]
+        );
+    }
+    #[test]
     fn oversized_retired_arenas_pack_without_reuploading_live_meshes() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
@@ -994,11 +1062,12 @@ mod e10_tests {
             });
             w.spawn((Transform::at(0., 0., 5.), Camera::orthographic(4.)));
             let mut glow = Glow::default();
-            glow.0.to(w.now(), 1., 0.5);
+            // Exercise amplified light; intensity one preserves authored emission.
+            glow.0.to(w.now(), 16., 0.5);
             w.spawn((
                 Transform::default(),
                 Mesh::sphere(0.5),
-                Material::glow([16.; 3]),
+                Material::glow([1.; 3]),
                 glow,
             ));
         }
@@ -1053,8 +1122,13 @@ mod attachment_upload_tests {
         let mut r = crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
         let mut w = exact_game::World::new(60, 0);
         let a = w.spawn(exact_game::Transform::default());
+        let hole = w.spawn(exact_game::Transform::default());
         let b = w.spawn(exact_game::Transform::default());
-        let matrix = glam::Mat4::from_translation(glam::Vec3::X);
+        let matrix = glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(-1., 2., 3.),
+            glam::Quat::from_rotation_z(0.25),
+            Vec3::X,
+        );
         let attachments = [a, b].map(|entity| crate::DisplayedAttachment {
             entity,
             matrix,
@@ -1082,6 +1156,14 @@ mod attachment_upload_tests {
         };
         frame.environment.bloom = None;
         r.draw(&target, (16, 16), &frame);
+        assert_eq!(
+            attachment_matrix(&r.attachment_words, a.index()),
+            Some(matrix)
+        );
+        assert_eq!(attachment_matrix(&r.attachment_words, hole.index()), None);
+        assert_eq!(attachment_matrix(&r.attachment_words, u32::MAX), None);
+        assert!(r.slot_mirrored(a.index(), &frame));
+        assert!(r.slot_mirrored(b.index(), &frame));
         let size = (u64::from(b.index()) + 1) * 64;
         let read = |r: &crate::Renderer| {
             crate::skinning::tests::read(&gpu, &r.attachment_matrices.raw, size)
@@ -1093,11 +1175,41 @@ mod attachment_upload_tests {
         );
         frame.attachments = &attachments[..1];
         r.draw(&target, (16, 16), &frame);
+        assert!(r.slot_mirrored(a.index(), &frame));
+        assert!(!r.slot_mirrored(b.index(), &frame));
         let after = read(&r);
         assert_eq!(
             &after[a.index() as usize * 64..(a.index() as usize + 1) * 64],
             bytes(&matrix.to_cols_array())
         );
         assert!(after[b.index() as usize * 64..].iter().all(|b| *b == 0));
+        frame.attachments = &[];
+        r.draw(&target, (16, 16), &frame);
+        assert!(r.attachment_words.is_empty());
+        assert_eq!(attachment_matrix(&r.attachment_words, a.index()), None);
+        assert!(read(&r).iter().all(|b| *b == 0));
+        // A singular affine override is present even though its determinant is zero.
+        let collapsed = [crate::DisplayedAttachment {
+            entity: b,
+            matrix: glam::Mat4::from_scale(Vec3::new(0., 1., 1.)),
+            pose: Default::default(),
+        }];
+        frame.attachments = &collapsed;
+        r.draw(&target, (16, 16), &frame);
+        assert_eq!(attachment_matrix(&r.attachment_words, a.index()), None);
+        assert_eq!(
+            attachment_matrix(&r.attachment_words, b.index()),
+            Some(collapsed[0].matrix)
+        );
+        assert!(!r.slot_mirrored(b.index(), &frame));
+        // Repeated direct-call overrides use the last upload on both CPU and GPU.
+        let repeated = [collapsed[0], attachments[1]];
+        frame.attachments = &repeated;
+        r.draw(&target, (16, 16), &frame);
+        assert_eq!(
+            attachment_matrix(&r.attachment_words, b.index()),
+            Some(matrix)
+        );
+        assert!(r.slot_mirrored(b.index(), &frame));
     }
 }

@@ -1,11 +1,6 @@
 use exact_game::character::Character;
 use exact_game::*;
 
-#[derive(Default, exact_game::Data)]
-struct Hud {
-    lit: u32,
-    near: String,
-}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
@@ -50,15 +45,7 @@ impl Game for SmallGame {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.4, 0.1),
-                // These are Character's defaults, kept visible for auditing the game.
-                Character::new()
-                    .speed(4.0)
-                    .accel(12.0)
-                    .brake(20.0)
-                    .jump(1.2)
-                    .gravity(9.81)
-                    .ground(0.9)
-                    .bounds_xz(-19.6..=19.6),
+                Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
             ),
         );
         w.spawn_named(
@@ -67,6 +54,13 @@ impl Game for SmallGame {
                 Transform::default(),
                 Camera::default(),
                 Follow::new(player).offset(0.0, 9.0, 13.0).lag(0.15),
+            ),
+        );
+        w.spawn_named(
+            "sun",
+            (
+                Transform::at(5.0, 10.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+                DirectionalLight::default(),
             ),
         );
         for (i, x) in [2.0, 6.0].into_iter().enumerate() {
@@ -85,14 +79,16 @@ impl Game for SmallGame {
                     Mesh::sphere(0.5),
                     Material {
                         color: [0.22, 0.68, 0.74, 1.],
-                        ..Material::glow([3., 1.5, 0.3])
+                        ..Material::glow([3., 0.45, 0.025])
                     },
                     Glow::default(),
                     Beacon::default(),
                 ),
             );
         }
-        w.publish_record(&Hud::default());
+        w.publish("total", w.count::<Beacon>(|_| true));
+        w.publish("lit", 0);
+        w.publish("near", "");
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -100,21 +96,16 @@ impl Game for SmallGame {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
-        let mut near = String::new();
+        let mut near = "";
         if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             if input.pressed("light") {
                 beacon.lit = true;
-                w.get_mut::<Glow>(entity)
-                    .unwrap()
-                    .0
-                    .to(w.tick_end(), 1.0, 0.5);
+                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
             } else {
-                near = w.name(entity).unwrap_or_default().to_owned();
+                near = w.name(entity).unwrap_or_default();
             }
         }
-        w.publish_record(&Hud {
-            lit: w.count::<Beacon>(|b| b.lit),
-            near,
-        });
+        w.publish("lit", w.count::<Beacon>(|b| b.lit));
+        w.publish("near", near);
     }
 }

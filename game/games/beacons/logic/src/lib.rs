@@ -1,11 +1,6 @@
 use exact_game::character::Character;
 use exact_game::*;
 
-#[derive(Default, exact_game::Data)]
-struct Hud {
-    lit: u32,
-    near: String,
-}
 #[derive(Default, Args)]
 pub struct Options {
     pub seed: u64,
@@ -46,15 +41,7 @@ impl Game for Beacons {
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
                 Material::rgb(0.8, 0.4, 0.1),
-                // These are Character's defaults, kept visible for auditing the game.
-                Character::new()
-                    .speed(4.0)
-                    .accel(12.0)
-                    .brake(20.0)
-                    .jump(1.2)
-                    .gravity(9.81)
-                    .ground(0.9)
-                    .bounds_xz(-19.6..=19.6),
+                Character::new().ground(0.9).bounds_xz(-19.6..=19.6),
             ),
         );
         w.spawn_named(
@@ -108,7 +95,8 @@ impl Game for Beacons {
                 ),
             );
         }
-        w.publish_record(&Hud::default());
+        w.publish("lit", 0);
+        w.publish("near", "");
     }
     fn paused(args: &Options) -> bool {
         args.paused
@@ -116,27 +104,16 @@ impl Game for Beacons {
     fn tick(w: &mut World, input: &Input, _: &Options) {
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
-        let near = if let Some((entity, mut beacon)) =
-            w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit)
-        {
+        let mut near = "";
+        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
             if input.pressed("light") {
                 beacon.lit = true;
-                w.get_mut::<Glow>(entity)
-                    .unwrap()
-                    .0
-                    .to(w.tick_end(), 1.0, 0.5);
-            }
-            if beacon.lit {
-                String::new()
+                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
             } else {
-                w.name(entity).unwrap_or("").to_owned()
+                near = w.name(entity).unwrap_or_default();
             }
-        } else {
-            String::new()
-        };
-        w.publish_record(&Hud {
-            lit: w.count::<Beacon>(|b| b.lit),
-            near,
-        });
+        }
+        w.publish("lit", w.count::<Beacon>(|b| b.lit));
+        w.publish("near", near);
     }
 }

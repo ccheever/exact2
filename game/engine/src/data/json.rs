@@ -82,13 +82,13 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
+    fn bytes(&mut self, value: super::Bulk<'_>) {
         let mut hash = super::hash::Hasher::default();
-        hash.bytes(kind, value);
+        hash.bytes(value);
         write!(
             self.text,
             "{{\"bytes\":{},\"hash\":\"0x{:016x}\"}}",
-            value.len(),
+            value.byte_len(),
             hash.finish()
         )
         .unwrap();
@@ -339,10 +339,14 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
-    fn bytes(&mut self, _kind: BulkKind) -> Result<Vec<u8>, DataError> {
+    fn bytes(&mut self, _kind: BulkKind) -> Result<Option<&[u8]>, DataError> {
+        self.ws();
+        if self.peek() == Some(b'[') {
+            return Ok(None);
+        }
         self.skip()?;
         Err(DataError::new(
-            "JSON bulk summaries are inspection-only; arrays are refused too; restore from binary",
+            "JSON bulk summaries are inspection-only; supply a numeric array or restore from binary",
         ))
     }
     fn claim(&mut self, bytes: usize) -> Result<(), DataError> {

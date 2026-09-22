@@ -225,6 +225,67 @@ fn sensors_filter_events_and_journal() {
     physics::step(&mut w);
     assert!(physics::events(&w).is_empty());
 }
+
+#[test]
+fn removed_colliders_keep_their_event_identity_across_restore() {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    let sensor = w.spawn_named(
+        "sensor",
+        (
+            Transform::default(),
+            Collider {
+                sensor: true,
+                ..Collider::default()
+            },
+            physics::Announce,
+        ),
+    );
+    let mover = |w: &mut World| {
+        w.spawn((
+            Transform::at(0.0, 0.9, 0.0),
+            Body {
+                kind: BodyKind::Kinematic,
+                ..Body::default()
+            },
+            Collider::default(),
+        ))
+    };
+    let events = |w: &World| {
+        physics::events(w)
+            .iter()
+            .map(|event| (event.a, event.b, event.began))
+            .collect::<Vec<_>>()
+    };
+    let old = mover(&mut w);
+    physics::step(&mut w);
+    assert_eq!(events(&w), [(sensor, old, true)]);
+    w.remove::<Collider>(old);
+    let replacement = mover(&mut w);
+    physics::step(&mut w);
+    assert_eq!(
+        events(&w),
+        [(sensor, old, false), (sensor, replacement, true)]
+    );
+
+    let mut restored = World::new(60, 0);
+    physics::register(&mut restored);
+    restored.load(&w.save()).unwrap();
+    for world in [&mut w, &mut restored] {
+        world.despawn(replacement);
+        physics::step(world);
+        assert_eq!(events(world), [(sensor, replacement, false)]);
+        assert!(world
+            .journal()
+            .last()
+            .unwrap()
+            .line
+            .ends_with(&format!("untouch sensor × #{}", replacement.index())));
+    }
+    assert_eq!(w.save(), restored.save());
+    physics::step(&mut w);
+    assert!(physics::events(&w).is_empty());
+}
 #[test]
 fn observed_bodies_participate_in_settle() {
     let mut s = scene("drop");

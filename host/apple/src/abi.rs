@@ -26,7 +26,9 @@ use crate::host::Host;
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow, snapshot_of};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
-use exact_runner::{DataSource, Event};
+use exact_runner::{
+    DataSource, Event, FailureKind, Outcome, SurfaceOutcome, SurfaceRequest, MAX_HOST_WORK_BYTES,
+};
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::rc::Rc;
@@ -182,17 +184,36 @@ impl<D: DataSource> Bridge<D> {
         Some(self.refuse_preparation(why))
     }
 
-    fn emit(&mut self, s: String) -> u32 {
-        // Whatever the last call asked the host to run goes to the executor
-        // with the batch (LLP 1016 D2); the presenter never sees a request.
+    fn emit(&mut self, mut s: String) -> u32 {
+        // I/O stays on the executor. Surface work joins the batch because its
+        // module belongs to the presenter thread.
         if let (Some(h), Some(x)) = (self.host.as_mut(), self.executor.as_ref()) {
-            for r in h.take_requests() {
+            let requests = h.take_requests();
+            let admitted = requests
+                .iter()
+                .any(|r| r.request.surface.is_some())
+                .then(|| h.grants());
+            let mut presenter = crate::batch::Batch::new();
+            for r in requests {
+                if let Some(surface) = r.request.surface.as_deref() {
+                    let oversized = matches!(surface, SurfaceRequest::Restore { bytes, .. } if bytes.len() > MAX_HOST_WORK_BYTES);
+                    let refusal = oversized
+                        .then(|| "surface restore exceeds 16 MiB".to_string())
+                        .or_else(|| {
+                            r.request
+                                .check_surface_grant(admitted.as_deref().unwrap_or(""))
+                                .err()
+                        });
+                    presenter.surface_work(&r, refusal.as_deref());
+                    continue;
+                }
                 let work = r
                     .request
                     .continuation
                     .and_then(|token| h.continuation(token));
                 x.run(r, work);
             }
+            presenter.prepend_to(&mut s);
         }
         self.output = s.into_bytes();
         self.output.len() as u32
@@ -211,6 +232,43 @@ impl<D: DataSource> Bridge<D> {
             Some(h) => h.fulfill_all(outcomes, now_ms),
             None => not_booted(),
         };
+        self.emit(out)
+    }
+
+    /// Whether the current runner still owns a presenter-work ticket.
+    pub fn request_active(&self, ticket: u64) -> bool {
+        self.host.as_ref().is_some_and(|host| {
+            host.runner()
+                .pending()
+                .iter()
+                .any(|(_, held)| *held == ticket)
+        })
+    }
+
+    /// A surface operation completed on the presenter thread.
+    pub fn fulfill_surface(&mut self, ticket: u64, kind: u32, len: usize, now_ms: f64) -> u32 {
+        let body = self.input[..len.min(self.input.len())].to_vec();
+        let outcome = match kind {
+            6 if body.len() <= MAX_HOST_WORK_BYTES => {
+                Outcome::Surface(SurfaceOutcome::Captured(body))
+            }
+            7 if body.is_empty() => Outcome::Surface(SurfaceOutcome::Restored),
+            2..=4 => Outcome::Failed {
+                kind: match kind {
+                    2 => FailureKind::Refused,
+                    4 => FailureKind::Aborted,
+                    _ => FailureKind::Unsupported,
+                },
+                message: String::from_utf8_lossy(&body).into_owned(),
+            },
+            _ => Outcome::Failed {
+                kind: FailureKind::Refused,
+                message: "invalid or oversized surface outcome".into(),
+            },
+        };
+        let out = self.host.as_mut().map_or_else(not_booted, |host| {
+            host.fulfill_all(vec![(ticket, outcome)], now_ms)
+        });
         self.emit(out)
     }
 
@@ -1061,6 +1119,18 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_pump(rt: u32, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.pump(now_ms), |n| n)
+        }
+
+        /// Whether a presenter-owned operation may still affect its surface.
+        #[no_mangle]
+        pub extern "C" fn exact_request_active(rt: u32, ticket: u64) -> u8 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| u8::from(b.request_active(ticket)), |_| 0)
+        }
+
+        /// Complete presenter-owned surface work; the input is bytes or a failure message.
+        #[no_mangle]
+        pub extern "C" fn exact_fulfill_surface(rt: u32, ticket: u64, kind: u32, len: usize, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.fulfill_surface(ticket, kind, len, now_ms), |n| n)
         }
 
         /// Boot from plan bytes in the input buffer; returns the first batch's length.

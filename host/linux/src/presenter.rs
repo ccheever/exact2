@@ -735,7 +735,16 @@ impl<D: DataSource> Presenter<D> {
         self.dirty = true;
         self.cancel_removed_controls();
         // LLP 1016 D2: execute requests; pump replies and run commands in the loop.
-        for r in self.host.take_requests() {
+        let requests = self.host.take_requests();
+        let admitted = requests
+            .iter()
+            .any(|r| r.request.surface.is_some())
+            .then(|| self.host.grants());
+        for r in requests {
+            if r.request.surface.is_some() {
+                self.surfaces.enqueue(r, admitted.as_deref().unwrap_or(""));
+                continue;
+            }
             let work = r
                 .request
                 .continuation
@@ -1021,84 +1030,6 @@ impl<D: DataSource> Presenter<D> {
             .map(|b| b.id)
     }
 
-    /// The nearest node at or above `id` with a handler for `kind`.
-    fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
-        if self.host.route_visibility(id).1 {
-            return None;
-        }
-        let kernel = self.host.kernel();
-        let mut at = Some(id);
-        while let Some(n) = at {
-            let node = kernel.node(n)?;
-            if node.props.bool(PropId::Disabled) == Some(true) {
-                return None;
-            }
-            if self.host.runner().handlers_of(n).contains(&kind) {
-                return Some(n);
-            }
-            at = node.parent;
-        }
-        None
-    }
-
-    fn focusable(&self, id: ViewId) -> bool {
-        self.host.kernel().node(id).is_some_and(|n| {
-            n.props.bool(PropId::Disabled) != Some(true)
-                && (n.props.str(PropId::Action).is_some()
-                    || n.node_type == NodeType::TextInput
-                    || n.props.str(PropId::AccessibilityRole) == Some("button"))
-        })
-    }
-
-    /// Pointer activation releases button focus after press.
-    pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
-        let hit = self.hit(x, y)?;
-        if let Some(control) = self.control_target(hit) {
-            for phase in ["down", "up"] {
-                if !self.control_input(control, phase, x, y, 1, now_ms) {
-                    return None;
-                }
-            }
-            return Some(control);
-        }
-        let mut focus = Some(hit);
-        while let Some(id) = focus {
-            if self.focusable(id) {
-                break;
-            }
-            focus = self.host.kernel().node(id).and_then(|n| n.parent);
-        }
-        let editing = self.surfaces.wants_input(hit)
-            && self
-                .focus
-                .and_then(|id| self.host.kernel().node(id))
-                .is_some_and(|node| node.node_type == NodeType::TextInput);
-        if self.focus != focus && !editing {
-            self.focus = focus;
-            self.dirty = true;
-        }
-        let Some(target) = self.handler_target(hit, EventKind::Press) else {
-            return self.surface_pointer(hit, x, y, now_ms);
-        };
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
-            eprintln!("exact: {e}");
-        }
-        let e = self.after_commit();
-        if let Some(e) = e {
-            eprintln!("exact: {e}");
-        }
-        if self.focus == Some(target)
-            && self
-                .host
-                .kernel()
-                .node(target)
-                .is_some_and(|node| node.props.str(PropId::AccessibilityRole) == Some("button"))
-        {
-            self.focus = None;
-            self.dirty = true;
-        }
-        Some(target)
-    }
     /// Agent tap follows the pointer path.
     pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
         self.boxes();
@@ -1281,16 +1212,23 @@ impl<D: DataSource> Presenter<D> {
         Ok(s)
     }
 
-    /// Agent keyboard input follows the focused activation path.
-    pub fn type_key(&mut self, id: ViewId, key: &str, down: bool) -> Result<String, String> {
+    /// Targeted keyboard input for both the agent and device adapters.
+    pub fn type_key(
+        &mut self,
+        id: ViewId,
+        code: &str,
+        key: &str,
+        down: bool,
+        repeat: bool,
+    ) -> Result<String, String> {
         self.restore_controls();
-        let contact = if key == "Space" {
+        let contact = if code == "Space" {
             u32::MAX - 1
         } else {
             u32::MAX - 2
         };
         if !down
-            && matches!(key, "Space" | "Enter" | "NumpadEnter")
+            && matches!(code, "Space" | "Enter" | "NumpadEnter")
             && self.owns_control(id, contact)
         {
             return if self.control_input(id, "up", 0., 0., contact, self.host.now()) {
@@ -1308,7 +1246,7 @@ impl<D: DataSource> Presenter<D> {
             return Err(format!("view {id} is disabled or inert"));
         }
         if node.props.str(PropId::Action).is_some()
-            && matches!(key, "Space" | "Enter" | "NumpadEnter")
+            && matches!(code, "Space" | "Enter" | "NumpadEnter")
         {
             if !self.holds_control(id) {
                 self.focus = Some(id);
@@ -1319,7 +1257,7 @@ impl<D: DataSource> Presenter<D> {
                 if down { "down" } else { "up" },
                 x,
                 y,
-                if key == "Space" {
+                if code == "Space" {
                     u32::MAX - 1
                 } else {
                     u32::MAX - 2
@@ -1332,13 +1270,13 @@ impl<D: DataSource> Presenter<D> {
             };
         }
         let editable = node.node_type == NodeType::TextInput;
-        let activation = matches!(key, "Space" | "Enter" | "NumpadEnter")
+        let activation = matches!(code, "Space" | "Enter" | "NumpadEnter")
             && matches!(
                 node.props.str(PropId::AccessibilityRole),
                 Some("button" | "link")
             );
-        if !self.host.route_visibility(id).1 && !editable && key != "Tab" && (!down || !activation)
-            && self.surface_input(id, serde_json::json!({"t":"key","code":key,"key":key,"down":down,"repeat":false,"at":self.host.now()})) {
+        if !self.host.route_visibility(id).1 && !editable && code != "Tab" && (!down || !activation)
+            && self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()})) {
             return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
         }
         if !self.focusable(id) || self.host.route_visibility(id).1 {
@@ -1346,7 +1284,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.focus = Some(id);
         self.dirty = true;
-        if down {
+        if down && !(activation && repeat) {
             let ch = match key {
                 "Space" | " " => Some(' '),
                 "Enter" | "NumpadEnter" => Some('\n'),
@@ -1370,8 +1308,7 @@ impl<D: DataSource> Presenter<D> {
         }
         if node.props.str(PropId::AccessibilityRole) == Some("button") {
             if matches!(ch, Some(' ' | '\n' | '\r')) {
-                self.host.dispatch_at(id, Event::Press, now_ms);
-                self.after_commit();
+                self.dispatch_press(id, now_ms, false);
             }
             return;
         }
@@ -1394,20 +1331,6 @@ impl<D: DataSource> Presenter<D> {
         }
         if let Some(e) = self.after_commit() {
             eprintln!("exact: {e}");
-        }
-    }
-
-    /// Drop focus.
-    pub fn blur(&mut self) {
-        self.cancel_controls();
-        if let Some((id, _, _)) = self.control_contact.take() {
-            self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
-        }
-        if let Some(id) = self.focus {
-            self.surface_input(id, serde_json::json!({"t":"blur","at":self.host.now()}));
-        }
-        if self.focus.take().is_some() {
-            self.dirty = true;
         }
     }
 

@@ -237,9 +237,8 @@ pub struct Feed {
     shapes: BTreeMap<Shape, usize>,
     batches: Vec<Batch>,
     slots: Vec<u32>,
-    material_page: Box<[f32; PAGE * 12]>,
+    page_scratch: Box<[f32; PAGE * 12]>,
     dimensions: Vec<[f32; 3]>,
-    transform_page: Box<[f32; PAGE * 10]>,
     scratch: Vec<f32>,
     transforms: [upload::Pages; 2],
     materials: upload::Pages,
@@ -261,9 +260,8 @@ impl Default for Feed {
             shapes: BTreeMap::new(),
             batches: Vec::new(),
             slots: Vec::new(),
-            material_page: Box::new([0.0; PAGE * 12]),
+            page_scratch: Box::new([0.0; PAGE * 12]),
             dimensions: Vec::new(),
-            transform_page: Box::new([0.0; PAGE * 10]),
             scratch: Vec::new(),
             transforms: Default::default(),
             materials: Default::default(),
@@ -315,7 +313,8 @@ impl Feed {
     pub(crate) fn trace_camera(&self, alpha: f32) -> [f64; 3] {
         self.scene.trace_camera(alpha)
     }
-    /// Fixed-size frame inputs, including the interpolated camera and nearest 16 lights.
+    /// Frame inputs: interpolated camera and up to 16 positive tick-end lights,
+    /// ordered by tick-end camera distance then entity index. Lit samples frame time.
     /// No world queries; retained attachment chains are composed at this alpha.
     pub fn frame(&mut self, world: &World, alpha: f32, aspect: f32) -> crate::FrameInput<'_> {
         {
@@ -401,14 +400,14 @@ impl Feed {
                 }
                 let mut values = &page.floats()[..len];
                 if parented {
-                    self.transform_page[..len].copy_from_slice(values);
+                    self.page_scratch[..len].copy_from_slice(values);
                     while let Some((e, pose)) =
                         overrides.next_if(|(e, _)| e.index() < page.first + PAGE as u32)
                     {
                         let at = (e.index() - page.first) as usize * 10;
-                        self.transform_page[at..at + 10].copy_from_slice(pose);
+                        self.page_scratch[at..at + 10].copy_from_slice(pose);
                     }
-                    values = &self.transform_page[..len];
+                    values = &self.page_scratch[..len];
                 }
                 if self.transforms[self.current].dirty(index, page.generation, values, true) {
                     if !self.scratch.is_empty()
@@ -442,7 +441,7 @@ impl Feed {
                     }
                 }
                 for &(e, t) in &self.overrides {
-                    if !w.fresh().contains(&e) && scene::snap(w, e, parent_changed) {
+                    if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
                         r.previous(e.index(), &t)?;
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
@@ -537,7 +536,7 @@ impl Feed {
                 }
                 let len = page_len(first, r.max_slots());
                 let default = material_floats(Material::default());
-                for (i, out) in self.material_page[..len * 12]
+                for (i, out) in self.page_scratch[..len * 12]
                     .chunks_exact_mut(12)
                     .enumerate()
                 {
@@ -555,7 +554,7 @@ impl Feed {
                         self.dimensions.get(first as usize + i).unwrap_or(&[1.0; 3]),
                     );
                 }
-                let values = &self.material_page[..len * 12];
+                let values = &self.page_scratch[..len * 12];
                 if self.materials.dirty(index, generation, values, true) {
                     if !self.scratch.is_empty() && run + (self.scratch.len() / 12) as u32 != first {
                         r.materials(run, &self.scratch)?;

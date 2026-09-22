@@ -50,6 +50,11 @@ impl<D> Storage<D> {
         }
     }
 }
+impl<D: Default> Default for Storage<D> {
+    fn default() -> Self {
+        Self::new(D::default())
+    }
+}
 impl<D: DataSource> Storage<D> {
     fn step(
         &mut self,

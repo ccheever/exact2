@@ -10,6 +10,8 @@ import { inputRecorder, keys } from './probes/input.mjs';
 // after the frame timestamp, deliberately exposing the rAF/event clock pitfall.
 function fixture(stepped = false) {
   const plan = script();
+  // This fixture has a 100 Hz presentation clock and exactly 10 ms response.
+  plan.schedule = plan.schedule.map(e => ({...e, at_ms: Math.round(e.at_ms / 10) * 10}));
   const raw = { schema: 1, stride: 8, overflow: false,
     events: plan.schedule.flatMap(e => [1000 + e.at_ms, e.code, +e.down, e.trial]), frames: [] };
   for (let t = 0; t <= plan.duration_ms; t += 10) {
@@ -30,7 +32,37 @@ test('the live script keeps all holds, release order, and twenty separated trial
   expect(p.schedule.filter(e => e.trial >= 0).length).toBe(20);
   expect(script(30).schedule[10].at_ms).toBe(30000);
   expect(script(7.02).schedule[10].at_ms).toBe(10020);
-  expect(p.duration_ms).toBe(80900);
+  expect(p.duration_ms).toBe(p.schedule.at(-2).at_ms + 500);
+});
+
+test('latency targets vary frame phase while preserving hold and rest durations', () => {
+  const plan = script(), presses = plan.schedule.filter(e => e.trial >= 0);
+  expect(script()).toEqual(plan);
+  for (const [i, press] of presses.entries()) {
+    const release = plan.schedule[plan.schedule.indexOf(press) + 1];
+    expect(release.at_ms - press.at_ms).toBeCloseTo(100, 8);
+    if (i) {
+      const gap = press.at_ms - presses[i - 1].at_ms;
+      expect(gap).toBeGreaterThanOrEqual(3600);
+      expect(gap).toBeLessThan(3700);
+    }
+  }
+  for (const hz of [59.94, 60, 90, 119.88, 120, 144]) {
+    const phases = presses.map(e => (e.at_ms * hz / 1000) % 1);
+    expect(new Set(phases.map(p => Math.floor(p * 8))).size).toBe(8);
+  }
+});
+
+test('latency reports delivered event phase against raw callback clocks', () => {
+  const {raw, plan} = fixture();
+  for (let i = 0; i < raw.events.length; i += 4) {
+    if (raw.events[i + 3] >= 0) raw.events[i] += raw.events[i + 3] % 10;
+  }
+  const m = analyze(raw, plan);
+  expect(m.latency.raw_phase_bins).toEqual([4, 2, 2, 2, 4, 2, 2, 2]);
+  expect(m.latency.trials.map(t => t.raw_callback_phase)).toEqual(
+    Array.from({length: 20}, (_, i) => ((i + 5) % 10) / 10));
+  expect(analyze({...raw, exact_trace:{}}, plan).latency.raw_phase_bins).toBeNull();
 });
 
 test('constant velocity has zero judder; alternating move/repeat approaches one', () => {
@@ -409,6 +441,8 @@ test('reanalyze retains focus, trial, edge and provisional rules from saved evid
     expect(reanalyze([path])[0]).toMatchObject({valid:false, latency:{valid_trials:19}});
     save({events:raw.events.slice(4)});
     expect(reanalyze([path])[0].error).toContain('Expected 50 delivered events');
+    save({schedule: undefined});
+    expect(reanalyze([path])[0].error).toContain('no recorded input schedule');
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 

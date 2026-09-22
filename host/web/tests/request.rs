@@ -2,7 +2,7 @@
 //! the runner as a `request` op the page runs, and `exact_fulfill`'s reply
 //! commits through the same batch path as an event.
 
-use exact_runner::{Answer, DataError, DataSource, Event, Request, Value};
+use exact_runner::{Answer, DataError, DataSource, Event, Outcome, Request, SurfaceOutcome, Value};
 use exact_web::Host;
 
 const SRC: &str = r#"
@@ -174,4 +174,62 @@ fn storage_batch_preserves_text_and_scope_and_refuses_invalid_utf8() {
         );
         assert!(!wire.contains('�'));
     }
+}
+
+#[test]
+fn surface_batch_and_outcomes_keep_their_typed_kind() {
+    use exact_runner::RequestOut;
+    for (request, mode, body) in [
+        (Request::capture_surface("world"), "capture", None),
+        (
+            Request::restore_surface("world", vec![0, 128, 255]),
+            "restore",
+            Some("AID/"),
+        ),
+    ] {
+        let mut batch = exact_web::batch::Batch::default();
+        batch.request(&RequestOut {
+            ticket: 7,
+            target: "save".into(),
+            request,
+            forced: false,
+        });
+        let wire = batch.finish(false, 0., None);
+        assert!(wire.contains(&format!(
+            r#""op":"surfaceWork","ticket":7,"mode":"{mode}","name":"world""#
+        )));
+        assert_eq!(body.is_some(), wire.contains(r#""body":"#));
+        if let Some(body) = body {
+            assert!(wire.contains(&format!(r#""body":"{body}""#)));
+        }
+    }
+    assert_eq!(
+        exact_web::host::outcome_from(6, 0, "", vec![1, 2]),
+        Outcome::Surface(SurfaceOutcome::Captured(vec![1, 2]))
+    );
+    assert_eq!(
+        exact_web::host::outcome_from(7, 0, "", vec![]),
+        Outcome::Surface(SurfaceOutcome::Restored)
+    );
+    assert!(matches!(
+        exact_web::host::outcome_from(6, 0, "", vec![0; exact_runner::MAX_HOST_WORK_BYTES + 1]),
+        Outcome::Failed {
+            kind: exact_runner::FailureKind::Refused,
+            ..
+        }
+    ));
+
+    let mut mixed = Request::capture_surface("world");
+    mixed.storage = Some(b"{}".to_vec());
+    let mut batch = exact_web::batch::Batch::default();
+    batch.request(&RequestOut {
+        ticket: 8,
+        target: "save".into(),
+        request: mixed,
+        forced: false,
+    });
+    let wire = batch.finish(false, 0., None);
+    assert!(wire.contains(r#""op":"surfaceWork""#));
+    assert!(wire.contains("surface request combines multiple host-work kinds"));
+    assert!(!wire.contains(r#""payload":"#));
 }

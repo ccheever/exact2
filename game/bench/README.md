@@ -95,7 +95,9 @@ unsubtracted observer cost; the games' own allocation and UI work remain include
   and NDC-to-canvas conversion ([three.js camera matrices](https://threejs.org/docs/pages/Camera.html),
   [Godot camera projection](https://docs.godotengine.org/en/4.7/classes/class_camera3d.html)).
 - **Input latency:** 20 alternating W/S presses, each held 100 ms and separated by
-  3.5 seconds after release. No teleport, save restore, velocity reset or paused
+  3.5–3.6 seconds after release. Fixed-seed jitter uses the same schedule for every
+  engine; a constant 3.6-second press interval repeatedly sampled one nominal phase
+  at both 60 and 120 Hz. The actual schedule is saved with each trace. No teleport, save restore, velocity reset or paused
   simulation is used. Before each event the last 100 ms must contain at least three
   frames with exactly unchanged player position; otherwise the trial is invalid,
   not a misleading zero-latency success. The first subsequent frame with any changed
@@ -107,6 +109,12 @@ unsubtracted observer cost; the games' own allocation and UI work remain include
   and p95 are milliseconds and multiples of the run's **raw** median refresh interval.
   Failed/moving-baseline trials are explicit; fewer than 20 valid trials makes the
   row invalid. The command exits nonzero if any attempt is invalid.
+  Each trial also records delivery's fractional position between its surrounding
+  raw callback timestamps. The table shows counts in eight equal phase bins;
+  these are raw-clock observations, not display scanout phases. Missing raw clocks
+  yield `—`; median rows omit these per-run counts. Scheduling jitter does not
+  remove Godot's after-sample injection phase. Reanalysis requires the recorded
+  schedule, so a changed default cannot silently rewrite an old trace's timing.
 
 **This measures the engine's pipeline from event delivery to presented state, not
 the OS/USB path, GPU completion, compositor queue or scanout.** Chrome events use

@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v6 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v7 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -15,7 +15,7 @@
  * exact_out(rt) reports; the app reads a UTF-8 JSON batch from it:
  *   {"ops":[...],"timers":bool,"motion":bool,"clock":ms,"error":null|"..."}
  * with ops create / props / style / children / destroy / roots / frame /
- * content / present / surface / command (host/apple/src/batch.rs).
+ * content / present / surface / surfaceWork / command (host/apple/src/batch.rs).
  *
  * Text measurement and the plan-scoped font catalog are the calls the other
  * way, set per runtime before its first boot: exact_set_measure registers
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 6
+#define EXACT_ABI_VERSION 7
 
 #ifdef __cplusplus
 extern "C" {
@@ -133,6 +133,10 @@ void exact_discard_plan(ExactRuntime rt);
  * commits (empty when none). A request the app sends (LLP 1016) runs on the
  * library's own executor thread — ibex2::host — never through the host. */
 uint32_t exact_pump(ExactRuntime rt, double now_ms);
+/* Presenter-owned surface work uses the ordinary runner ticket. Kinds are
+ * 2 refused, 3 unsupported, 4 aborted, 6 captured bytes, 7 restored. */
+uint8_t exact_request_active(ExactRuntime rt, uint64_t ticket);
+uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, size_t len, double now_ms);
 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */

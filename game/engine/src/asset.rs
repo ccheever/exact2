@@ -7,7 +7,10 @@ mod names;
 pub use names::asset_name;
 use std::{collections::BTreeSet, mem::ManuallyDrop, rc::Rc, sync::Arc};
 
+mod generated;
+pub(crate) mod level;
 mod map;
+pub use level::{Level, LevelValue};
 /// Renderer-neutral pose records and rig geometry.
 pub mod pose;
 
@@ -26,6 +29,8 @@ pub struct MeshData {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
     pub uvs: Vec<f32>,
+    /// Optional linear RGBA vertex colours; empty means white.
+    pub colors: Vec<f32>,
     pub joints: Vec<u16>,
     pub weights: Vec<f32>,
     pub indices: Vec<u32>,
@@ -195,6 +200,7 @@ impl Model {
                 || m.positions.len() != n * 3
                 || m.normals.len() != n * 3
                 || m.uvs.len() != n * 2
+                || (!m.colors.is_empty() && m.colors.len() != n * 4)
                 || (!m.joints.is_empty() && m.joints.len() != n * 4)
                 || (!m.weights.is_empty() && m.weights.len() != n * 4)
                 || m.joints.is_empty() != m.weights.is_empty()
@@ -211,6 +217,7 @@ impl Model {
                 .chain(&m.normals)
                 .chain(&m.uvs)
                 .chain(&m.weights)
+                .chain(&m.colors)
                 .any(|v| !v.is_finite())
             {
                 return fail("non-finite vertex");
@@ -342,15 +349,15 @@ impl Model {
     /// Compose the hierarchy once at load, preserving full affine offsets.
     pub fn offsets(&self) -> Result<Vec<glam::Mat4>, String> {
         let mut out = vec![glam::Mat4::IDENTITY; self.nodes.len()];
-        let mut done = vec![false; self.nodes.len()];
+        let mut state = vec![0_u8; self.nodes.len()];
+        let mut chain = Vec::new();
         for start in 0..self.nodes.len() {
-            let mut chain = Vec::new();
             let mut at = start;
             loop {
-                if done[at] {
+                if state[at] == 2 {
                     break;
                 }
-                if chain.contains(&at) {
+                if state[at] == 1 {
                     return Err(format!("model node {at}: parent cycle"));
                 }
                 let n = &self.nodes[at];
@@ -360,6 +367,7 @@ impl Model {
                 {
                     return Err(format!("model node {at}: invalid transform, mesh or skin"));
                 }
+                state[at] = 1;
                 chain.push(at);
                 match n.parent {
                     Some(i) if (i as usize) < self.nodes.len() => at = i as usize,
@@ -367,7 +375,7 @@ impl Model {
                     None => break,
                 }
             }
-            for i in chain.into_iter().rev() {
+            while let Some(i) = chain.pop() {
                 let n = &self.nodes[i];
                 out[i] = n.parent.map_or(glam::Mat4::IDENTITY, |p| out[p as usize])
                     * glam::Mat4::from_cols_array(&n.transform);
@@ -383,7 +391,7 @@ impl Model {
                         n.name
                     ));
                 }
-                done[i] = true;
+                state[i] = 2;
             }
         }
         Ok(out)
@@ -399,6 +407,8 @@ pub enum AssetState {
 #[derive(Default, Clone)]
 pub(crate) struct Assets {
     pub models: map::AssetMap<ModelAsset>,
+    pub identities: std::collections::BTreeMap<String, u64>,
+    pub levels: map::AssetMap<Arc<LevelValue>>,
     pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
     pub required: BTreeSet<String>,
@@ -416,6 +426,7 @@ pub(crate) struct Assets {
 pub(crate) struct AssetStore {
     owner: Option<ManuallyDrop<Rc<Assets>>>,
     release: Option<fn(ManuallyDrop<Rc<Assets>>)>,
+    identity: Option<&'static generated::IdentityCodec>,
 }
 impl Drop for AssetStore {
     fn drop(&mut self) {
@@ -429,6 +440,8 @@ impl std::ops::Deref for AssetStore {
     fn deref(&self) -> &Assets {
         static EMPTY: Assets = Assets {
             models: map::AssetMap::EMPTY,
+            identities: std::collections::BTreeMap::new(),
+            levels: map::AssetMap::EMPTY,
             states: map::AssetMap::EMPTY,
             declared: BTreeSet::new(),
             required: BTreeSet::new(),
@@ -450,6 +463,7 @@ impl std::ops::DerefMut for AssetStore {
             *self = Self {
                 owner: Some(ManuallyDrop::new(Rc::new(Assets::default()))),
                 release: Some(|owner| drop(ManuallyDrop::into_inner(owner))),
+                identity: None,
             };
         }
         Rc::make_mut(self.owner.as_mut().unwrap())
@@ -493,8 +507,8 @@ impl Assets {
         true
     }
     pub fn retire(&mut self, roots: &BTreeSet<String>) {
-        self.retired.clear();
         let mut live = roots.clone();
+        live.extend(self.identities.keys().cloned());
         for name in roots {
             if let Some(deps) = self.dependencies.get(name) {
                 live.extend(deps.iter().cloned());
@@ -507,17 +521,20 @@ impl Assets {
             .cloned()
             .collect();
         for name in removed {
-            self.states.remove(&name);
-            if !self.declared.contains(&name) {
-                self.models.remove(&name);
-                self.dependencies.remove(&name);
-            }
-            self.requested.remove(&name);
-            self.prepared.remove(&name);
-            self.redelivery.remove(&name);
-            self.retired.push(name);
+            self.retire_name(name);
         }
         self.refusal = None;
+    }
+    pub(super) fn retire_name(&mut self, name: String) {
+        self.states.remove(&name);
+        if !self.declared.contains(&name) {
+            self.models.remove(&name);
+            self.dependencies.remove(&name);
+        }
+        self.requested.remove(&name);
+        self.prepared.remove(&name);
+        self.redelivery.remove(&name);
+        self.retired.push(name);
     }
     pub fn state_json(&self) -> String {
         let mut rows: Vec<_> = self
@@ -532,8 +549,12 @@ impl Assets {
                         format!(",\"reason\":{}", crate::values::quote(reason)),
                     ),
                 };
+                let value = self
+                    .levels
+                    .get(name)
+                    .map_or(String::new(), |v| format!(",\"value\":{}", v.text));
                 format!(
-                    "{{\"name\":{},\"state\":{}{reason}}}",
+                    "{{\"name\":{},\"state\":{}{reason}{value}}}",
                     crate::values::quote(name),
                     crate::values::quote(state)
                 )
@@ -617,25 +638,33 @@ impl crate::Mesh {
 pub enum Content {
     Model(Model),
     Texture(TextureData),
+    /// JSON is typed by the game declaration when it crosses the barrier.
+    Level(String),
 }
 impl Content {
-    pub fn decode(name: &str, bytes: &[u8]) -> Result<Self, String> {
+    pub fn decode<const MODELS: bool>(name: &str, bytes: &[u8]) -> Result<Self, String> {
         if !asset_name(name) {
             return Err("invalid asset name".into());
         }
         if bytes.len() > 64 * 1024 * 1024 {
             return Err("exceeds 64 MiB".into());
         }
-        if name.ends_with(".tex") {
+        if name.ends_with(".level.json") {
+            Ok(Self::Level(
+                std::str::from_utf8(bytes)
+                    .map_err(|e| e.to_string())?
+                    .into(),
+            ))
+        } else if MODELS && name.ends_with(".tex") {
             let texture: TextureData = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
             texture.validate()?;
             Ok(Self::Texture(texture))
-        } else if name.ends_with(".model") {
+        } else if MODELS && name.ends_with(".model") {
             let model: Model = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
             model.validate()?;
             Ok(Self::Model(model))
         } else {
-            Err("expected .model or .tex".into())
+            Err("expected .model, .tex or .level.json".into())
         }
     }
 }
@@ -646,7 +675,7 @@ impl<G: crate::Game> crate::Sim<G> {
             name,
             bytes
                 .ok_or_else(|| "missing file".to_owned())
-                .and_then(|b| Content::decode(name, b)),
+                .and_then(|b| Content::decode::<true>(name, b)),
         )
     }
 }

@@ -23,6 +23,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         }
         if let Some(sim) = &mut self.sim {
             let generation = sim.generation();
+            let models = sim.world().model_revision();
             sim.bind_with(
                 values,
                 at_ms,
@@ -37,6 +38,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
                 ),
             )
             .map_err(SurfaceError)?;
+            self.assets_dirty |= models != sim.world().model_revision();
             if generation != sim.generation() {
                 if let Some((_, feed)) = &mut self.render {
                     feed.reset();

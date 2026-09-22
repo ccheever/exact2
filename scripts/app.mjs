@@ -32,7 +32,7 @@ import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
 
 /** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
-  (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || existsSync(resolve(workspace, 'Cargo.lock'))) ? ['--locked', '--offline'] : [];
+  (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
@@ -64,8 +64,12 @@ export function resolveApp(nameOrCrate) {
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
   let packages;
-  const prepare = (refresh = false) => {
-    if (manifest.game && (refresh || !packages)) packages = prepareGame(dir, manifest.game, resolve(ROOT, 'game')).packages;
+  const prepare = (refresh = false, options) => {
+    if (manifest.game && (refresh || !packages)) {
+      const metadata = prepareGame(dir, manifest.game, resolve(ROOT, 'game'), options);
+      packages = metadata.packages;
+      return metadata;
+    }
   };
   const cargoPackage = kind => {
     prepare();
@@ -235,9 +239,9 @@ const canonicalBuild = (v) => v === null || typeof v !== 'object' ? JSON.stringi
 const buildHash = (v) => createHash('sha256').update(v).digest('hex');
 const under = (root, path) => path === root || path.startsWith(root + '/');
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
-function buildCommand(command, args, app, env) {
-  const result = spawnSync(command, args, { cwd: app.workspace, env, encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
-  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr}\n${(result.stdout ?? '').slice(-4000)}`);
+function buildCommand(command, args, app, env, stderr = 'pipe') {
+  const result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   return result;
 }
 export function bakeTarget(platform) {
@@ -251,7 +255,9 @@ export function bakeTarget(platform) {
   return host;
 }
 function buildGraph(app, target, kind, env, gpu) {
-  const metadata = JSON.parse(buildCommand('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target], app, env).stdout);
+  const prepared = app.prepare?.(true, {target, env});
+  const metadata = prepared?.workspace_root === app.workspace ? prepared
+    : JSON.parse(buildCommand('cargo', ['metadata', ...cargoReproducibilityFlags(app), '--format-version', '1', '--filter-platform', target], app, env).stdout);
   const packages = new Map(metadata.packages.map((p) => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map((n) => [n.id, n]));
   const root = metadata.packages.find((p) => p.name === app.crate(kind));
@@ -287,12 +293,17 @@ export function compilerPaths(text, workspace) {
 }
 // rustc records relative inputs against Cargo's workspace root, even when
 // EXACT_APP_DIR makes the invoking directory a nested app in that workspace.
-export function unitDepInfo(message, workspace) {
+export function unitDepInfo(message, workspace, metadata) {
+  // Cargo reports copied roots in target_directory and units in build_directory.
+  // When the directories nest, the more specific root identifies the file.
+  const intermediate = file => metadata && under(metadata.target_directory, file)
+      && (!under(metadata.build_directory, file) || metadata.target_directory.length > metadata.build_directory.length)
+    ? resolve(metadata.build_directory, relative(metadata.target_directory, file)) : file;
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
     // Selected libraries are copied out of deps; Cargo's sibling summary .d
     // omits env-dep rows. Read rustc's exact unit file, also on a cache hit.
-    for (const candidate of [resolve(dirname(file), 'deps', stem + '.d'), resolve(dirname(file), stem + '.d')]) {
+    for (const candidate of [resolve(dirname(intermediate(file)), 'deps', stem + '.d'), resolve(dirname(intermediate(file)), stem + '.d')]) {
       if (!existsSync(candidate)) continue;
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
@@ -303,15 +314,16 @@ export function unitDepInfo(message, workspace) {
   }
   // Cargo copies libraries and executables out of deps without reporting their
   // hashed unit filenames. Match the copied bytes; refuse ambiguous evidence.
-  for (const file of message.filenames.filter(path => path.endsWith('.rlib') || path === message.executable)) {
-    const directory = resolve(dirname(file), 'deps');
+  for (const file of message.filenames.filter(path => /\.(rlib|a)$/.test(path) || path === message.executable)) {
+    const directory = resolve(dirname(intermediate(file)), 'deps');
     if (!existsSync(directory)) continue;
     const executable = file === message.executable;
-    const stem = executable ? message.target.name.replaceAll('-', '_') : basename(file, '.rlib');
+    const extension = executable ? '' : file.slice(file.lastIndexOf('.'));
+    const stem = executable ? message.target.name.replaceAll('-', '_') : basename(file, extension);
     const bytes = readFileSync(file), matches = [];
     for (const name of readdirSync(directory)) {
-      if (!name.startsWith(stem + '-') || (!executable && !name.endsWith('.rlib'))) continue;
-      const unit = executable ? name : name.slice(3, -5);
+      if (!name.startsWith(stem + '-') || (!executable && !name.endsWith(extension))) continue;
+      const unit = executable ? name : name.slice(3, -extension.length);
       if (!/^[a-f0-9]+$/.test(unit.slice(unit.lastIndexOf('-') + 1))) continue;
       const product = resolve(directory, name);
       if (statSync(product).size !== bytes.length || !readFileSync(product).equals(bytes)) continue;
@@ -330,7 +342,8 @@ export function unitDepInfo(message, workspace) {
 }
 function completeBuild(app, platform, target, graph, messages, roots, env) {
   const scripts = messages.filter((m) => m.reason === 'build-script-executed' && graph.roles.has(m.package_id));
-  const roleOf = (path) => under(resolve(app.target, target), path) ? target : 'host';
+  const targetDirs = [app.target, graph.metadata.build_directory].map(dir => resolve(dir, target));
+  const roleOf = (path) => targetDirs.some(dir => under(dir, path)) ? target : 'host';
   const generated = scripts.map((m) => ({ path: resolve(m.out_dir), pkg: graph.packages.get(m.package_id), role: roleOf(m.out_dir) })).sort((a,b) => b.path.length-a.path.length);
   const rootOutput = generated.find((g) => g.pkg.id === graph.root.id && g.role === target)?.path;
   if (!rootOutput) throw new Error('Cargo did not report the selected target bake output');
@@ -379,7 +392,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   for (const m of messages.filter((m) => m.reason === 'compiler-artifact' && !m.target.kind.includes('custom-build') && graph.roles.has(m.package_id))) {
     const role = roleOf(m.filenames[0]); if (!graph.roles.get(m.package_id).has(role)) continue;
     usedPackages.add(m.package_id);
-    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root), 'utf8');
+    const dep = readFileSync(unitDepInfo(m,graph.metadata.workspace_root,graph.metadata), 'utf8');
     for (const path of compilerPaths(dep,graph.metadata.workspace_root)) add(path);
     const environment = dep.split('\n').filter((s) => s.startsWith('# env-dep:')).map((s) => { const pair=s.slice(10),at=pair.indexOf('=');return at<0?[pair,null]:[pair.slice(0,at),pair.slice(at+1)]; }).map(normalizeEnv);
     units.push({package:graph.packages.get(m.package_id).name,role,target:m.target.name,kind:m.target.kind,features:m.features,profile:m.profile,environment});
@@ -469,20 +482,31 @@ export const cargoLibraryTarget = (pkg) => pkg.targets.find(t => t.kind.some(k =
 export const appleCargoClaims = (app, target, units) => [...new Set(units.map(unit =>
   resolve(app.target, '.apple-cargo-locks', target, `lib${unit.name.replace(/-/g, '_')}.lock`)))].sort();
 
+// Only explicitly developmental gpu-dev hosts may be reused across GPU edits.
+export const bindGpuProduct = (profile, trust) => profile !== 'gpu-dev' || trust !== 'development';
+export function bakeSelection(graph, part) {
+  if (part && !['gpu','host'].includes(part)) throw new Error(`unknown bake part: ${part}`);
+  return (part === 'gpu' ? [graph.surface] : part === 'host' ? [graph.root] : [graph.surface,graph.root]).filter(Boolean);
+}
+
 /** One actual target build, including the optional GPU artifact. Consumers
  * classify its completed receipt; compatibility is never recomputed in JS. */
 export function buildBake(app, platform, target, options = {}) {
-  app.prepare?.(true);
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
   const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
-  env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && existsSync(resolve(app.dir,'art'))) || existsSync(resolve(app.dir,root))).join(',');
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
   delete env.EXACT_GPU_PRODUCT;
-  const selected = [graph.surface,graph.root].filter(Boolean).map(pkg => {
+  if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
+    const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
+    env.EXACT_GPU_DEVELOPMENT = `lib${cargoLibraryTarget(graph.surface).name.replaceAll('-','_')}.${extension}`;
+  }
+  else delete env.EXACT_GPU_DEVELOPMENT;
+  if (options.part && (kind !== 'linux' || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST))) throw new Error('partial bakes require development gpu-dev Linux');
+  const selected = bakeSelection(graph, options.part).map(pkg => {
     const unit = pkg.id === graph.root.id && kind === 'linux' ? pkg.targets.find(t => t.kind.includes('bin')) : cargoLibraryTarget(pkg);
     if (!unit) throw new Error(`Cargo has no buildable target for ${pkg.name}`);
     return {pkg, unit};
@@ -493,17 +517,23 @@ export function buildBake(app, platform, target, options = {}) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
-    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json'];
-    const result=buildCommand('cargo',args,app,env);if(result.stderr)process.stderr.write(result.stderr);
+    // The GPU bake can create the first asset directory (for a typed level).
+    env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
+    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
-    for(const message of output)if(message.reason==='compiler-message'&&message.message.rendered)process.stderr.write(message.message.rendered);
     if (pkg.id === graph.surface?.id && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
       if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
       options.prepareGpu?.(product);
-      env.EXACT_GPU_PRODUCT = product;
+      if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = product;
     }
+  }
+  if (options.part === 'gpu') {
+    // The proof completes the independent input/product receipt. There is no
+    // host bake output to classify when only the surface graph was selected.
+    return {products:messages.filter(m=>m.reason==='compiler-artifact' && m.package_id===graph.surface.id).flatMap(m=>m.filenames)};
   }
   const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');

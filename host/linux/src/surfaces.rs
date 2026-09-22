@@ -3,7 +3,10 @@
 #![allow(unsafe_code)]
 use crate::{Host, Presenter};
 use base64::Engine;
-use exact_runner::{DataSource, Event};
+use exact_runner::{
+    DataSource, Event, FailureKind, Outcome, RequestOut, SurfaceOutcome, SurfaceRequest,
+    MAX_HOST_WORK_BYTES,
+};
 use libloading::Library;
 use serde_json::{json, Value};
 use std::{
@@ -102,8 +105,18 @@ impl Abi {
         })
     }
     fn read(&self, name: &[u8], id: u32) -> Option<Vec<u8>> {
+        self.read_bounded(name, id, LIMIT)
+    }
+    fn read_bounded(&self, name: &[u8], id: u32, limit: usize) -> Option<Vec<u8>> {
         let length = unsafe { self.symbol::<Read>(name)(id) };
         if name == b"gpu_carry" && length == u32::MAX - 1 {
+            return None;
+        }
+        if length as usize > limit && length < u32::MAX - 1 {
+            *self.output_error.borrow_mut() = Some(format!(
+                "surface output exceeds {} MiB limit",
+                limit / (1024 * 1024)
+            ));
             return None;
         }
         self.bytes(length)
@@ -176,8 +189,28 @@ fn verify_module(path: &std::path::Path, compat: &Value) -> Result<(), String> {
             return Err(refuse(&format!("{key} identity mismatch")));
         }
     }
+    let receipt;
+    let identity = if card["receipt"] == true
+        && card["trust"] == "development"
+        // No-delivery apps omit trust from the cohort; their baked GPU card
+        // still records the explicit development build trust.
+        && (compat["inputs"]["trust"].is_null() || compat["inputs"]["trust"] == "development")
+    {
+        let bytes = std::fs::read(format!("{}.proof.json", path.display()))
+            .map_err(|e| refuse(&format!("completed GPU receipt: {e}")))?;
+        receipt = serde_json::from_slice::<Value>(&bytes).map_err(|e| refuse(&e.to_string()))?;
+        if !receipt["inputs"]
+            .as_str()
+            .is_some_and(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return Err(refuse("invalid GPU receipt inputs"));
+        }
+        &receipt["artifact"]
+    } else {
+        &card["sha256"]
+    };
     let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
-    if card["sha256"].as_str() != Some(format!("{:x}", Sha256::digest(bytes)).as_str()) {
+    if identity.as_str() != Some(format!("{:x}", Sha256::digest(bytes)).as_str()) {
         return Err(refuse("digest mismatch"));
     }
     Ok(())
@@ -243,8 +276,35 @@ pub(crate) struct Surfaces {
     restore: Option<Result<Vec<u8>, String>>,
     restore_read: bool,
     pub(crate) error: Option<String>,
+    work: Vec<RequestOut>,
+    outcomes: Vec<(u64, Outcome)>,
 }
 impl Surfaces {
+    pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
+        let oversized = matches!(
+            request.request.surface.as_deref(),
+            Some(SurfaceRequest::Restore { bytes, .. }) if bytes.len() > MAX_HOST_WORK_BYTES
+        );
+        if let Some(message) = oversized
+            .then(|| "surface restore exceeds 16 MiB".to_string())
+            .or_else(|| request.request.check_surface_grant(admitted).err())
+        {
+            self.outcomes.push((
+                request.ticket,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    message,
+                },
+            ));
+        } else {
+            self.work.push(request);
+        }
+    }
+
+    pub(crate) fn take_outcomes(&mut self) -> Vec<(u64, Outcome)> {
+        std::mem::take(&mut self.outcomes)
+    }
+
     fn sync<D: DataSource>(
         &mut self,
         host: &mut Host<D>,
@@ -267,6 +327,18 @@ impl Surfaces {
             }
         }
         let updates = host.take_surface_updates();
+        if updates.is_empty() && self.canvases.is_empty() && !self.work.is_empty() {
+            self.outcomes.extend(self.work.drain(..).map(|request| {
+                (
+                    request.ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Refused,
+                        message: "surface request has no live surface".into(),
+                    },
+                )
+            }));
+            return changed;
+        }
         if !updates.is_empty() && !self.attempted {
             self.attempted = true;
             match Abi::open(&serde_json::from_str(compat).unwrap_or(Value::Null)) {
@@ -285,6 +357,17 @@ impl Surfaces {
             }
         }
         let Some(abi) = &self.abi else {
+            if self.attempted {
+                self.outcomes.extend(self.work.drain(..).map(|request| {
+                    (
+                        request.ticket,
+                        Outcome::Failed {
+                            kind: FailureKind::Unsupported,
+                            message: "surface module unavailable".into(),
+                        },
+                    )
+                }));
+            }
             return changed;
         };
         for update in updates {
@@ -477,6 +560,101 @@ impl Surfaces {
                 }
             }
         }
+        let mut completed = Vec::new();
+        for request in std::mem::take(&mut self.work) {
+            let ticket = request.ticket;
+            if !host
+                .runner()
+                .pending()
+                .iter()
+                .any(|(_, held)| *held == ticket)
+            {
+                continue;
+            }
+            let Some(surface) = request.request.surface else {
+                continue;
+            };
+            let (name, restore) = match *surface {
+                SurfaceRequest::Capture { name } => (name, None),
+                SurfaceRequest::Restore { name, bytes } => (name, Some(bytes)),
+            };
+            let matches: Vec<_> = self
+                .canvases
+                .iter()
+                .filter(|(view, canvas)| {
+                    canvas.name == name && host.kernel().node(**view).is_some()
+                })
+                .map(|(view, canvas)| (*view, canvas.id))
+                .collect();
+            if matches.len() != 1 {
+                completed.push((
+                    ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Refused,
+                        message: format!(
+                            "surface {name}: expected one live surface, found {}",
+                            matches.len()
+                        ),
+                    },
+                ));
+                continue;
+            }
+            let (view, id) = matches[0];
+            if let Some(bytes) = restore {
+                let ok = unsafe {
+                    abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(
+                        b"gpu_restore",
+                    )(id, bytes.as_ptr(), bytes.len(), 0)
+                };
+                if !ok {
+                    completed.push((
+                        ticket,
+                        Outcome::Failed {
+                            kind: FailureKind::Refused,
+                            message: abi
+                                .error()
+                                .unwrap_or_else(|| format!("surface {name}: restore refused")),
+                        },
+                    ));
+                    continue;
+                }
+                let c = self.canvases.get_mut(&view).unwrap();
+                if let Some(bytes) = abi.read(b"gpu_published", id).filter(|_| c.owner) {
+                    let record = String::from_utf8_lossy(&bytes);
+                    self.error = self
+                        .error
+                        .take()
+                        .or(host.surface_record(&name, Some(&record)));
+                    changed = true;
+                }
+                if let Some(bytes) = abi.read(b"gpu_messages", id) {
+                    if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
+                        for message in messages.into_iter().filter(|m| m != "exact:audio") {
+                            self.error = self.error.take().or(host.dispatch_at(
+                                view,
+                                Event::Message(message),
+                                host.now(),
+                            ));
+                            changed = true;
+                        }
+                    }
+                }
+                completed.push((ticket, Outcome::Surface(SurfaceOutcome::Restored)));
+            } else if let Some(bytes) = abi.read_bounded(b"gpu_carry", id, MAX_HOST_WORK_BYTES) {
+                completed.push((ticket, Outcome::Surface(SurfaceOutcome::Captured(bytes))));
+            } else {
+                completed.push((
+                    ticket,
+                    Outcome::Failed {
+                        kind: FailureKind::Unsupported,
+                        message: abi
+                            .error()
+                            .unwrap_or_else(|| format!("surface {name}: carries no state")),
+                    },
+                ));
+            }
+        }
+        self.outcomes.extend(completed);
         if let Some(error) = abi.error() {
             self.error = Some(error);
         }
@@ -587,18 +765,23 @@ impl Surfaces {
     }
     fn input(&mut self, view: u32, event: Value) -> bool {
         if let Some(c) = self.canvases.get_mut(&view) {
-            if event["t"] == "key" {
-                let code = event["code"].as_str().unwrap_or_default().to_string();
-                if event["down"] == true {
-                    c.held.insert(code);
-                } else if !c.held.remove(&code) {
-                    return true;
-                }
+            let code = event["code"].as_str().unwrap_or_default();
+            if event["t"] == "key" && event["down"] == false && !c.held.contains(code) {
+                return true;
             }
             let abi = self.abi.as_ref().unwrap();
             if abi.text(b"gpu_input", c.id, &event.to_string()) != 0 {
                 self.error = abi.error();
                 return false;
+            }
+            if event["t"] == "key" {
+                if event["down"] == true {
+                    c.held.insert(code.into());
+                } else {
+                    c.held.remove(code);
+                }
+            } else if event["t"] == "blur" {
+                c.held.clear();
             }
             return true;
         }
@@ -614,6 +797,16 @@ impl<D: DataSource> Presenter<D> {
                 .surfaces
                 .sync(&mut self.host, &self.compat, &self.assets);
             self.cancel_removed_controls();
+            let outcomes = self.surfaces.take_outcomes();
+            if !outcomes.is_empty() {
+                let now = self.host.now();
+                let error = self.host.fulfill_all(outcomes, now);
+                let after = self.after_commit();
+                if let Some(error) = error.or(after) {
+                    self.surfaces.error = Some(error);
+                }
+                continue;
+            }
             if !changed {
                 return;
             }
@@ -777,7 +970,51 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use exact_runner::Request;
     use sha2::{Digest, Sha256};
+
+    #[test]
+    fn surface_work_scope_is_refused_before_presenter_effects() {
+        let request = |ticket, mut request: exact_runner::Request| {
+            request.grants = Some("surface.read other".into());
+            RequestOut {
+                ticket,
+                target: "save".into(),
+                request,
+                forced: false,
+            }
+        };
+        let mut surfaces = Surfaces::default();
+        surfaces.enqueue(
+            request(7, Request::capture_surface("world")),
+            "surface.read world\nsurface.read other",
+        );
+        assert!(surfaces.work.is_empty());
+        assert!(matches!(
+            surfaces.take_outcomes().as_slice(),
+            [(
+                7,
+                Outcome::Failed {
+                    kind: FailureKind::Refused,
+                    ..
+                }
+            )]
+        ));
+
+        let mut allowed = Request::capture_surface("world");
+        allowed.grants = Some("surface.read world".into());
+        surfaces.enqueue(
+            RequestOut {
+                ticket: 8,
+                target: "save".into(),
+                request: allowed,
+                forced: false,
+            },
+            "surface.read world",
+        );
+        assert_eq!(surfaces.work.len(), 1);
+    }
+
     #[test]
     fn deferred_restore_keeps_bytes_until_commit_and_late_refusal_is_once() {
         for refused in [true, false] {
@@ -860,8 +1097,15 @@ uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
 }
 static uint32_t cancels = 0;
 uint32_t test_cancels(void) { return cancels; }
+static char event[2048];
+static uint32_t event_id, event_count;
+const char *test_input(void) { return event; }
+uint32_t test_input_id(void) { return event_id; }
+uint32_t test_input_count(void) { return event_count; }
 uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
-  char event[2048]; if(len>=sizeof(event)) return 1; memcpy(event,text,len);event[len]=0;
+  if(len>=sizeof(event)) return 1; memcpy(event,text,len);event[len]=0;
+  event_id=id; event_count++;
+  if (strstr(event,"RejectKey")) return 1;
   if (strstr(event,"cancel") || strstr(event,"blur")) cancels++;
   return strstr(event,"control") && !strstr(event,"jump") ? 1 : 0;
 }
@@ -1048,26 +1292,26 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         p.boxes();
         assert!(p.control_input(button, "down", 20., 30., 1, 0.));
         assert_eq!(p.focus(), Some(button));
-        p.activation_key("Space", true);
+        p.hardware_key("Space", "Space", true, false);
         assert_eq!(p.control_bindings[&(canvas, u32::MAX - 1)].name, "jump");
-        p.activation_key("Space", false);
+        p.hardware_key("Space", "Space", false, false);
         assert!(!p.control_bindings.contains_key(&(canvas, u32::MAX - 1)));
         // A held pointer owns activation keys even when focus is elsewhere.
         // Release it before testing the raw canvas fallback.
         assert!(p.control_input(button, "up", 20., 30., 1, 0.));
         p.focus = None;
-        p.activation_key("Space", true);
+        p.hardware_key("Space", "Space", true, false);
         assert!(p.surfaces.canvases[&canvas].held.contains("Space"));
-        p.activation_key("Space", false);
+        p.hardware_key("Space", "Space", false, false);
         assert!(p.surfaces.canvases[&canvas].held.is_empty());
         assert!(p.control_input(button, "down", 20., 30., 1, 0.));
         p.focus = Some(button);
-        p.activation_key("Space", true);
+        p.hardware_key("Space", "Space", true, false);
         p.host.dispatch_at(rename, Event::Press, 0.);
         p.after_commit();
-        p.activation_key("Space", true); // hardware autorepeat keeps the original press
+        p.hardware_key("Space", "Space", true, false); // hardware autorepeat keeps the original press
         assert_eq!(p.control_bindings[&(canvas, u32::MAX - 1)].name, "jump");
-        p.activation_key("Space", false);
+        p.hardware_key("Space", "Space", false, false);
         assert!(
             p.control_input(button, "up", 200., 300., 1, 0.),
             "release must still be jump"
@@ -1080,7 +1324,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
             .restored_controls = Some(vec![
             json!({"id":4294967294u32,"action":"jump","position":[0,0]}),
         ]);
-        assert!(p.type_key(button, "Space", false).is_ok());
+        assert!(p.type_key(button, "Space", "Space", false, false).is_ok());
         assert!(!p.control_input(button, "down", 20., 30., 3, 0.));
         assert!(
             !p.control_bindings.contains_key(&(canvas, 3)),
@@ -1130,6 +1374,34 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         );
         drop(p);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn e11_development_module_requires_its_own_completed_receipt() {
+        let dir = std::env::temp_dir().join(format!("e11-gpu-receipt-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let product = dir.join("gpu.dylib");
+        let receipt = dir.join("gpu.dylib.proof.json");
+        std::fs::write(&product, b"module").unwrap();
+        // A standalone app without delivery has no trust component in its cohort.
+        let mut compat = json!({"id":"cohort","inputs":{"app":"game","trust":null},"embedded":{"gpu":{"app":"game","cohort":"cohort","trust":"development","receipt":true}}});
+        assert!(verify_module(&product, &compat).is_err());
+        use sha2::{Digest, Sha256};
+        std::fs::write(
+            &receipt,
+            json!({"inputs":"a".repeat(64),"artifact":format!("{:x}",Sha256::digest(b"module"))})
+                .to_string(),
+        )
+        .unwrap();
+        verify_module(&product, &compat).unwrap();
+        std::fs::write(&product, b"changed").unwrap();
+        assert!(verify_module(&product, &compat).is_err());
+        std::fs::write(&product, b"module").unwrap();
+        compat["inputs"]["trust"] = json!("production");
+        assert!(verify_module(&product, &compat).is_err());
+        compat["inputs"]["trust"] = Value::Null;
+        compat["embedded"]["gpu"]["trust"] = json!("production");
+        assert!(verify_module(&product, &compat).is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn production_ignores_module_path_override() {

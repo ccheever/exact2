@@ -1197,3 +1197,80 @@ fn registration_filters_live_arguments_and_validates_before_register() {
     assert!(Sim::<Conditional>::new(Options::default()).is_err());
     assert_eq!(REGISTERS.with(|n| n.get()), 0);
 }
+
+#[test]
+fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
+    let drive = |mode, epoch| {
+        let mut s = Sim::<Counter>::new(CounterArgs::default())
+            .unwrap()
+            .paranoid(mode);
+        s.viewport(800., 600.);
+        s.advance(epoch, Clock::Seekable);
+        s.input(InputEvent::Key {
+            code: "KeyE".into(),
+            down: true,
+            at_ms: epoch + 5.,
+        });
+        s.input(InputEvent::Pointer {
+            id: 7,
+            phase: PointerPhase::Down,
+            x: 100.,
+            y: 100.,
+            at_ms: epoch + 6.,
+        });
+        s.input(InputEvent::Pointer {
+            id: 7,
+            phase: PointerPhase::Move,
+            x: 110.,
+            y: 105.,
+            at_ms: epoch + 7.,
+        });
+        s.input(InputEvent::Wheel {
+            dx: 2.,
+            dy: -3.,
+            at_ms: epoch + 8.,
+        });
+        s.input(InputEvent::Key {
+            code: "KeyE".into(),
+            down: false,
+            at_ms: epoch + 24.,
+        });
+        s.input(InputEvent::Control {
+            name: "act".into(),
+            id: 9,
+            phase: PointerPhase::Down,
+            x: 0.,
+            y: 0.,
+            at_ms: epoch + 40.,
+        });
+        s.input(InputEvent::Control {
+            name: "act".into(),
+            id: 9,
+            phase: PointerPhase::Up,
+            x: 0.,
+            y: 0.,
+            at_ms: epoch + 70.,
+        });
+        s.advance(epoch + 17., Clock::Seekable);
+        let saved = s.save().unwrap();
+        assert_eq!(s.save().unwrap(), saved, "save is a read");
+        let mut restored = sim().paranoid(mode);
+        restored.restore(&saved).unwrap();
+        assert_eq!(restored.save().unwrap(), saved, "{mode:?} edge boundary");
+        s.advance(epoch + 100., Clock::Seekable);
+        restored.advance(500_000., Clock::Seekable);
+        restored.advance(500_083., Clock::Seekable);
+        assert_eq!(restored.save().unwrap(), s.save().unwrap());
+        let counts = s.world().resource::<Counts>();
+        assert_eq!(counts.pressed, 2);
+        assert_eq!(counts.released, 2);
+        assert_eq!(counts.wheel, Vec2::new(2., -3.));
+        (saved, s.save().unwrap())
+    };
+    for epoch in [0., 100_000.] {
+        let expected = drive(Paranoid::Off, epoch);
+        for mode in [Paranoid::Save, Paranoid::FreshGame] {
+            assert_eq!(drive(mode, epoch), expected, "{mode:?}");
+        }
+    }
+}

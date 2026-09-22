@@ -18,6 +18,9 @@ fn panic_text(f: impl FnOnce()) -> String {
 #[test]
 fn generations_names_and_order_under_churn() {
     let mut w = World::new(60, 19);
+    let identity = w.id();
+    assert_ne!(World::new(60, 19).id(), identity);
+    assert_eq!(w.named("fox"), None);
     let first = w.spawn_named("fox", (A(1),));
     let second = w.spawn_named("fox", (A(2),));
     let third = w.spawn((A(3),));
@@ -26,8 +29,11 @@ fn generations_names_and_order_under_churn() {
     assert_eq!(w.resolve(&format!("#{}", third.index())), Some(third));
     assert_eq!(w.resolve(&format!("fox#{}", third.index())), None);
     w.despawn(second);
+    assert_eq!(w.named("fox"), Some(first));
     w.despawn(first);
+    assert_eq!(w.named("fox"), None);
     let recycled = w.spawn_named("fox", (A(4),));
+    assert_eq!(w.named("fox"), Some(recycled));
     assert_eq!(recycled.index(), first.index());
     assert_eq!(recycled.generation(), first.generation() + 1);
     assert!(!w.contains(first));
@@ -40,7 +46,13 @@ fn generations_names_and_order_under_churn() {
             let i = rng.range(0..entities.len() as u32) as usize;
             w.despawn(entities.remove(i));
         } else {
-            entities.push(w.spawn((A(rng.next_u32()),)));
+            let name = format!("group-{}", rng.range(0..5));
+            entities.push(w.spawn_named(name, (A(rng.next_u32()),)));
+        }
+        for group in 0..5 {
+            let name = format!("group-{group}");
+            let expected = w.entities().find(|&e| w.name(e) == Some(name.as_str()));
+            assert_eq!(w.named(&name), expected);
         }
         let got: Vec<_> = w.query::<&A>().iter().map(|(e, _)| e.index()).collect();
         assert!(got.windows(2).all(|p| p[0] < p[1]));
@@ -49,8 +61,23 @@ fn generations_names_and_order_under_churn() {
         assert_eq!(got, expected);
     }
     let mut restored = World::new(1, 0);
+    let before_restore = restored.id();
     restored.register::<A>();
     restored.load(&w.save()).unwrap();
+    assert_eq!(w.id(), identity, "mutation retains world identity");
+    assert_ne!(
+        restored.id(),
+        before_restore,
+        "load replaces world identity"
+    );
+    assert_ne!(
+        restored.id(),
+        identity,
+        "equal worlds have distinct identities"
+    );
+    let loaded = restored.id();
+    assert!(restored.load(b"invalid save").is_err());
+    assert_eq!(restored.id(), loaded, "failed load retains world identity");
     let rows = |w: &World| {
         w.query::<&A>()
             .iter()
@@ -59,6 +86,18 @@ fn generations_names_and_order_under_churn() {
     };
     assert_eq!(rows(&w), rows(&restored));
     assert_eq!(w.hash(), restored.hash());
+    for group in 0..5 {
+        let name = format!("group-{group}");
+        assert_eq!(w.named(&name), restored.named(&name));
+    }
+    drop(w);
+    for _ in 0..1000 {
+        assert_ne!(
+            World::new(60, 19).id(),
+            identity,
+            "a retained identity never recycles"
+        );
+    }
 }
 #[test]
 fn joins_option_filters_and_nested_reads() {
@@ -180,19 +219,49 @@ fn resource_and_non_state_outputs() {
 }
 #[test]
 fn hierarchy_despawn_and_live_generations() {
+    use exact_game::Transform;
     let mut w = World::new(60, 0);
-    let child = w.spawn((A(1),));
-    let root = w.spawn(());
-    let leaf = w.spawn((Parent(child),));
+    let child = w.spawn((A(1), Transform::at(2.0, 0.0, 0.0)));
+    let root = w.spawn(Transform::at(1.0, 0.0, 0.0));
+    let leaf = w.spawn((Transform::at(3.0, 0.0, 0.0), Parent(child)));
     w.insert(child, Parent(root));
+    let survivor = w.spawn(Transform::at(10.0, 0.0, 0.0));
+    let survivor_child = w.spawn((Transform::at(2.0, 0.0, 0.0), Parent(survivor)));
+    w.propagate();
+    assert_eq!(w.global(leaf).unwrap().translation.x, 6.0);
     assert_eq!(w.children(root), [child]);
+    let cursor = w.journal().len();
     assert!(w.despawn(root));
     assert!(w.contains(leaf));
     w.reap_orphans();
     assert!(!w.contains(leaf));
+    assert_eq!(w.entities().collect::<Vec<_>>(), [survivor, survivor_child]);
+    assert_eq!(
+        w.journal()[cursor..]
+            .iter()
+            .map(|e| e.line.clone())
+            .collect::<Vec<_>>(),
+        [root, child, leaf].map(|e| format!("t=0 tick=0 despawn #{}", e.index()))
+    );
+    assert_eq!(w.global(survivor_child).unwrap().translation.x, 12.0);
+    w.propagate();
+    assert_eq!(w.global(survivor_child).unwrap().translation.x, 12.0);
+    let replacement = w.spawn(Transform::at(20.0, 0.0, 0.0));
+    assert_eq!(replacement.index(), child.index());
+    assert!(!w.contains(child));
+    let next = w.spawn((Transform::at(2.0, 0.0, 0.0), Parent(replacement)));
+    w.propagate();
+    assert_eq!(w.global(next).unwrap().translation.x, 22.0);
+    w.despawn(replacement);
+    w.reap_orphans();
+    assert!(!w.contains(next));
+    assert_eq!(w.global(survivor_child).unwrap().translation.x, 12.0);
+    w.despawn(survivor);
+    w.reap_orphans();
     assert!(w.is_empty());
     assert!(!w.contains(Entity::default()));
 }
+
 #[test]
 fn eight_way_query_and_retained_mutable_rows() {
     #[derive(Default, Component)]

@@ -44,13 +44,16 @@ export function script(seconds = 12) {
   key(4520, 83, true); key(6020, 83, false);
   // One second idle completes the script at 7020 ms. Padding also lets the
   // exponential three.js deceleration reach a genuinely unchanged position.
-  const start = Math.max(seconds * 1000, 10020);
+  let at = Math.max(seconds * 1000, 10020), jitter = 0x9e3779b9;
   for (let trial = 0; trial < 20; trial++) {
-    const at = start + trial * 3600, code = trial % 2 ? 83 : 87;
+    const code = trial % 2 ? 83 : 87;
     key(at, code, true, trial); key(at + 100, code, false);
+    // Shared fixed-seed jitter avoids repeating one 60/120 Hz frame phase.
+    jitter = (Math.imul(jitter, 1664525) + 1013904223) >>> 0;
+    at += 3600 + jitter / 2 ** 32 * 100;
   }
   return { schedule, codes: Object.values(keys).map(([code]) => edge(code, false).code),
-    duration_ms: start + 19 * 3600 + 500 };
+    duration_ms: schedule.at(-2).at_ms + 500 };
 }
 
 export function quantile(values, q) {
@@ -135,7 +138,9 @@ export function analyze(raw, plan) {
     const stationary = rest.length >= 3 && rest.every(f => same(f, baseline));
     const up = events.find(x => x[0] > e[0] && x[1] === e[1] && !x[2]);
     const first = frames.find(f => f[1] >= e[0] && f[1] < up[0] + 300 && !same(f, baseline));
+    const left = hasRaw && frames.findLast(f => f[0] <= e[0]), right = hasRaw && frames.find(f => f[0] > e[0]);
     latency.push({ trial: e[3], delivered_ms: e[0], first_changed_frame_ms: first?.[1] ?? null,
+      raw_callback_phase: left && right ? (e[0] - left[0]) / (right[0] - left[0]) : null,
       latency_ms: stationary && first ? first[1] - e[0] : null, stationary_before: stationary });
   }
   const valid = latency.filter(x => x.latency_ms !== null).map(x => x.latency_ms);
@@ -146,6 +151,7 @@ export function analyze(raw, plan) {
     frame_ms: pacing, hitches, hitch_percent: hitches === null ? null : hitches / frames.length * 100,
     drawn_clock_ms: drawnPacing, drawn_hitches: drawnHitches, drawn_hitch_percent: drawnHitches / frames.length * 100,
     player, camera, screen_player, screen_landmark, legacy_clock_caveat: hasRaw ? null : 'Legacy Exact: every drawn row retained; resize redraws cannot be distinguished from callbacks.', latency: { trials: latency, valid_trials: valid.length,
+      raw_phase_bins: hasRaw ? Array.from({length: 8}, (_, i) => latency.filter(t => t.raw_callback_phase !== null && Math.floor(t.raw_callback_phase * 8) === i).length) : null,
       median_ms: quantile(valid, .5), p95_ms: quantile(valid, .95),
       median_intervals: valid.length && median ? quantile(valid, .5) / median : null,
       p95_intervals: valid.length && median ? quantile(valid, .95) / median : null },
@@ -335,12 +341,12 @@ export function table(rows) {
     judderText(row.player.judder), percent(row.player.repeated_fraction), judderText(row.camera.judder), percent(row.camera.repeated_fraction),
     `${fmt(row.latency.median_ms)}/${fmt(row.latency.p95_ms)}`, `${fmt(row.latency.median_intervals)}/${fmt(row.latency.p95_intervals)}`,
     row.engine === 'godot' ? '_input → _process pose; after sample' : 'listener → draw pose; CDP between callbacks',
-    fmt(row.tick_phase, 4), `${row.latency.valid_trials}/20; ${row.delivered_events}/${row.expected_events}`,
+    fmt(row.tick_phase, 4), row.latency.raw_phase_bins?.join('/') ?? '—', `${row.latency.valid_trials}/20; ${row.delivered_events}/${row.expected_events}`,
     row.frontmost_visible_confirmed ? 'yes' : 'NO'];
   const lines = [['variant', 'run / trace', 'status', 'load1', 'raw Hz', 'raw callback intervals p50/p95/p99/max ms', 'raw hitches',
     'drawn-clock intervals p50/p95/p99/max ms', 'drawn hitches', 'landmark CV (px)', 'landmark Δ change >0.5 px %', 'landmark zero %', 'player screen CV (diagnostic)',
     'world player CV (m)', 'world player zero %', 'world camera CV (m)', 'world camera zero %',
-    'event delivery → first drawn pose p50/p95 ms', 'latency / raw interval p50/p95', 'endpoints; injection phase', 'tick_phase', 'trials; edges', 'front/visible']];
+    'event delivery → first drawn pose p50/p95 ms', 'latency / raw interval p50/p95', 'endpoints; injection phase', 'tick_phase', 'delivery phase bins (raw clock)', 'trials; edges', 'front/visible']];
   for (const variant of [...new Set(rows.map(r => `${r.engine}/${r.variant}`))]) {
     const all = rows.filter(r => `${r.engine}/${r.variant}` === variant);
     all.forEach(r => lines.push(r.error
@@ -360,6 +366,7 @@ export function table(rows) {
       if (group.some(r => !r[key])) { middle[key] = null; continue; }
       for (const field of fields) middle[key][field] = group.some(r => r[key][field] === null) ? null : quantile(group.map(r => r[key][field]), .5);
     }
+    middle.latency.raw_phase_bins = null; // Per-run observations, not synthetic median counts.
     middle.tick_phase = group.every(r => Number.isFinite(r.tick_phase)) ? quantile(group.map(r => r.tick_phase), .5) : null;
     middle.provisional = group.some(r => r.provisional);
     middle.frontmost_visible_confirmed = group.every(r => r.frontmost_visible_confirmed);
@@ -543,7 +550,8 @@ export function reanalyze(paths, landmark) {
       label: `[reanalyzed #${run} (${name.slice(0, 24)})](results/${basename(path)})`, trace: path,
       provisional: receipt?.provisional ?? true, load1: receipt?.load1 ?? raw.load1 ?? null };
     try {
-      const m = analyze(raw, { schedule: raw.schedule ?? script().schedule });
+      if (!Array.isArray(raw.schedule)) throw new Error('Trace has no recorded input schedule');
+      const m = analyze(raw, { schedule: raw.schedule });
       return { ...info, valid: m.latency.valid_trials === 20 && front,
         tick_phase: raw.tick_phase ?? null, ...m, frontmost_visible_confirmed: front };
     } catch (error) { return { ...info, valid: false, error: error.message }; }

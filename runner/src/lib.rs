@@ -44,7 +44,10 @@ pub mod vm;
 pub use delivery::Delivery;
 pub use exact_plan::Value;
 pub use instance::SurfaceUpdate;
-pub use request::{Answer, FailureKind, Outcome, Request, RequestOut, Response};
+pub use request::{
+    io_grants, Answer, FailureKind, Outcome, Request, RequestOut, Response, SurfaceOutcome,
+    SurfaceRequest, MAX_HOST_WORK_BYTES,
+};
 pub use runner::{
     Advanced, Carried, Command, DataError, DataSource, Event, RouterChange, Runner, RunnerError,
     Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,

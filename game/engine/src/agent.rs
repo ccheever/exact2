@@ -4,6 +4,7 @@ use crate::{
     World,
 };
 use std::collections::BTreeMap;
+use std::fmt::Write;
 
 #[derive(Default)]
 struct Request {
@@ -83,17 +84,20 @@ fn identity(w: &World, e: Entity) -> String {
         w.name(e).map_or_else(|| "null".into(), quote)
     )
 }
+fn identity_into(out: &mut String, w: &World, e: Entity) {
+    write!(out, "\"id\":{},\"name\":", e.index()).unwrap();
+    if let Some(name) = w.name(e) {
+        json::quote_into(out, name);
+    } else {
+        out.push_str("null");
+    }
+}
 fn hierarchy(w: &World) -> Result<Vec<(Entity, Option<Entity>, u32)>, String> {
-    let parents: BTreeMap<_, _> = w
-        .query::<&Parent>()
-        .iter()
-        .filter(|(_, p)| w.contains(p.0))
-        .map(|(e, p)| (e, p.0))
-        .collect();
+    let mut parents = w.query::<Option<&Parent>>();
     let mut children: BTreeMap<Option<Entity>, Vec<Entity>> = BTreeMap::new();
-    for e in w.entities() {
+    for (e, parent) in parents.iter() {
         children
-            .entry(parents.get(&e).copied())
+            .entry(parent.map(|p| p.0).filter(|p| w.contains(*p)))
             .or_default()
             .push(e);
     }
@@ -114,8 +118,9 @@ fn hierarchy(w: &World) -> Result<Vec<(Entity, Option<Entity>, u32)>, String> {
     if out.len() != w.len() {
         let members = parents
             .iter()
-            .filter(|(e, _)| !out.iter().any(|(seen, _, _)| seen == *e))
-            .map(|(e, p)| format!("{} -> Parent #{}", identity(w, *e), p.index()))
+            .filter_map(|(e, p)| p.map(|p| (e, p.0)))
+            .filter(|(e, p)| w.contains(*p) && !out.iter().any(|(seen, _, _)| seen == e))
+            .map(|(e, p)| format!("{} -> Parent #{}", identity(w, e), p.index()))
             .collect::<Vec<_>>()
             .join("; ");
         return Err(format!(
@@ -229,20 +234,37 @@ impl<G: Game> Sim<G> {
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
-                let entities = all[start..end].iter().take(512).map(|&(e,p,d)| {
-                    let names = w.component_names(e).into_iter().map(quote).collect::<Vec<_>>().join(",");
-                    format!("{{{},\"parent\":{},\"depth\":{d},\"components\":[{names}],\"tags\":[]}}", identity(w,e), p.map_or_else(|| "null".into(), |e| e.index().to_string()))
-                }).collect::<Vec<_>>().join(",");
-                Ok(format!("{{\"tick\":{tick},\"entities\":[{entities}],\"truncated\":{}}}", end-start > 512))
+                let mut out = format!("{{\"tick\":{tick},\"entities\":[");
+                for (i, &(e, parent, depth)) in all[start..end].iter().take(512).enumerate() {
+                    if i != 0 { out.push(','); }
+                    out.push('{');
+                    identity_into(&mut out, w, e);
+                    out.push_str(",\"parent\":");
+                    if let Some(parent) = parent { write!(out, "{}", parent.index()).unwrap(); } else { out.push_str("null"); }
+                    write!(out, ",\"depth\":{depth},\"components\":[").unwrap();
+                    for (i, name) in w.component_names(e).enumerate() {
+                        if i != 0 { out.push(','); }
+                        json::quote_into(&mut out, name);
+                    }
+                    out.push_str("],\"tags\":[]}");
+                }
+                write!(out, "],\"truncated\":{}}}", end-start > 512).unwrap();
+                Ok(out)
             }
             "state" if q.entity.as_deref() == Some("*") => {
                 let all = hierarchy(w)?;
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
-                let entities = all[start..end].iter().take(512).map(|&(e,_,_)| {
-                    Ok(format!("{{{},\"components\":{}}}", identity(w,e), w.components_json(e).map_err(|e|e.to_string())?))
-                }).collect::<Result<Vec<String>, String>>()?.join(",");
+                let mut entities = String::new();
+                for (i, &(e, _, _)) in all[start..end].iter().take(512).enumerate() {
+                    if i != 0 { entities.push(','); }
+                    entities.push('{');
+                    identity_into(&mut entities, w, e);
+                    entities.push_str(",\"components\":");
+                    entities.push_str(&w.components_json(e).map_err(|e| e.to_string())?);
+                    entities.push('}');
+                }
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}{}}}", w.hash(), end-start > 512, if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
             }
             "state" if q.entity.is_some() => {
@@ -274,11 +296,7 @@ impl<G: Game> Sim<G> {
                 let changing = encode(&self.changing(quiescent))?;
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
-            "logs" => {
-                let lines = w.journal(); let next = w.journal_next(); let start = lines.first().map_or(next, |e|e.index); let from = q.since.clamp(start,next);
-                let lines = lines.iter().filter(|e|e.index >= from).map(|e|quote(&e.line)).collect::<Vec<_>>().join(",");
-                Ok(format!("{{\"tick\":{tick},\"next\":{next},\"from\":{from},\"lines\":[{lines}]}}"))
-            }
+            "logs" => Ok(w.journal_json(q.since)),
             _ => Err(format!("unknown op `{}`; use tree, screenshot, tap, type, state, layout, logs or clock",q.op)),
         }
     }

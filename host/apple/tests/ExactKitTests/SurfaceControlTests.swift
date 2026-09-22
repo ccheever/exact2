@@ -40,6 +40,34 @@ final class SurfaceControlTests: XCTestCase {
         return (s, canvas, button)
     }
     #if os(macOS)
+    func testE11ActionAndSliderKeepPointerFocus() {
+        let (s, _, button) = fixture(); defer { s.destroy() }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        XCTAssertTrue(window.makeFirstResponder(button))
+        button.finishPointerPress()
+        XCTAssertTrue(window.firstResponder === button)
+        button.props.removeValue(forKey:"action");button.props["accessibilityRole"]="slider"
+        button.finishPointerPress()
+        XCTAssertTrue(window.firstResponder === button)
+        withExtendedLifetime(window) {}
+    }
+    func testE11NewAutofocusRunsAfterCanvasPointerHandoff() {
+        let (s, canvas, button) = fixture(); defer { s.destroy() }
+        button.props.removeValue(forKey:"action")
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        XCTAssertTrue(window.makeFirstResponder(button))
+        let next=NodeView(id:102,kind:"button",presenter:s.presenter)
+        next.frame=CGRect(x:0,y:100,width:100,height:50);next.props["autofocus"]="true"
+        canvas.addSubview(next);s.presenter.views[102]=next
+        s.presenter.syncAccessibility()
+        button.finishPointerPress()
+        XCTAssertTrue(window.firstResponder === next)
+        // Explicit focus selected by the committed route cannot be stolen.
+        button.finishPointerPress();XCTAssertTrue(window.firstResponder === next)
+        withExtendedLifetime(window) {}
+    }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
@@ -60,7 +88,87 @@ final class SurfaceControlTests: XCTestCase {
         controlEvents.removeAll(); button.keyDown(with:key)
         XCTAssertTrue(window.firstResponder === button)
         XCTAssertFalse(controlEvents.contains { $0["code"] as? String == "Space" })
+        let ordinary=NodeView(id:102,kind:"button",presenter:s.presenter)
+        ordinary.frame=CGRect(x:220,y:0,width:100,height:100); ordinary.handlers.insert("press")
+        s.presenter.root.addSubview(ordinary); s.presenter.views[102]=ordinary
+        XCTAssertTrue(window.makeFirstResponder(ordinary)); ordinary.pressed=true
+        let ordinaryPoint=ordinary.convert(NSPoint(x:10,y:10),to:nil)
+        let ordinaryUp=NSEvent.mouseEvent(with:.leftMouseUp,location:ordinaryPoint,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
+        ordinary.mouseUp(with:ordinaryUp)
+        XCTAssertTrue(window.firstResponder === ordinary)
+        controlEvents.removeAll(); ordinary.keyDown(with:key)
+        XCTAssertTrue(window.firstResponder === ordinary)
+        XCTAssertFalse(controlEvents.contains { $0["code"] as? String == "Space" })
         withExtendedLifetime((window,canvas)) {}
+    }
+    func testDetachedPointerButtonReturnsRawKeyToOriginalCanvas() {
+        let (s, canvas, button) = fixture(); defer { s.destroy() }
+        button.props.removeValue(forKey:"action"); button.handlers.insert("press")
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        s.presenter.onPress = { _ in
+            s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+        }
+        XCTAssertTrue(window.makeFirstResponder(button)); button.pressed=true
+        let point=button.convert(NSPoint(x:10,y:10),to:nil)
+        let event=NSEvent.mouseEvent(with:.leftMouseUp,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
+        button.mouseUp(with:event)
+        XCTAssertTrue(window.firstResponder === canvas)
+        controlEvents=[]
+        let raw=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"x",charactersIgnoringModifiers:"x",isARepeat:false,keyCode:7)!
+        window.sendEvent(raw)
+        XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "KeyX" && $0["down"] as? Bool == true })
+        withExtendedLifetime(window) {}
+    }
+    func testDetachedKeyboardButtonReturnsEnterAndSpaceToOriginalCanvas() {
+        for (characters,keyCode): (String,UInt16) in [("\r",36),(" ",49)] {
+            let (s, canvas, button) = fixture()
+            button.props.removeValue(forKey:"action"); button.handlers.insert("press")
+            let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+            window.contentView=s.presenter.viewport
+            XCTAssertTrue(window.makeFirstResponder(button))
+            s.presenter.onPress = { _ in
+                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+            }
+            let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:characters,charactersIgnoringModifiers:characters,isARepeat:false,keyCode:keyCode)!
+            window.sendEvent(event)
+            XCTAssertTrue(window.firstResponder === canvas)
+            s.destroy(); withExtendedLifetime(window) {}
+        }
+    }
+    func testDetachedButtonDoesNotStealExplicitFocusOrReviveRemovedCanvas() {
+        do {
+            let (s, canvas, button) = fixture(); defer { s.destroy() }
+            button.props.removeValue(forKey:"action"); button.handlers.insert("press")
+            let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+            window.contentView=s.presenter.viewport
+            let explicit=NodeView(id:102,kind:"button",presenter:s.presenter); explicit.frame=CGRect(x:220,y:0,width:100,height:100)
+            s.presenter.root.addSubview(explicit); s.presenter.views[102]=explicit
+            XCTAssertTrue(window.makeFirstResponder(button))
+            s.presenter.onPress = { _ in
+                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+                XCTAssertTrue(window.makeFirstResponder(explicit))
+            }
+            let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
+            window.sendEvent(enter)
+            XCTAssertTrue(window.firstResponder === explicit)
+            withExtendedLifetime((window,canvas)) {}
+        }
+        do {
+            let (s, canvas, button) = fixture(); defer { s.destroy() }
+            button.props.removeValue(forKey:"action"); button.handlers.insert("press")
+            let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+            window.contentView=s.presenter.viewport
+            XCTAssertTrue(window.makeFirstResponder(button))
+            s.presenter.onPress = { _ in
+                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)],["op":"destroy","id":Int(canvas.id)]],timers:false,motion:false,clock:nil,error:nil))
+            }
+            let space=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
+            window.sendEvent(space)
+            XCTAssertFalse(window.firstResponder === canvas)
+            XCTAssertNil(canvas.window)
+            withExtendedLifetime(window) {}
+        }
     }
     #endif
     func testR13NamedAndEmptyArgumentsSurviveBatchBinding() {

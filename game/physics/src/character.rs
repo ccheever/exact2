@@ -64,9 +64,10 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     let mut scene_guard = view.scene();
     let scene = &mut *scene_guard;
     let own = scene
-        .entities
+        .rapier
+        .colliders
         .iter()
-        .find_map(|(h, v)| (*v == e).then_some(ColliderHandle::from_raw_parts(h[0], h[1])))
+        .find_map(|(h, _)| (scene.entity(h) == e).then_some(h))
         .unwrap();
     let predicate = |_: ColliderHandle, co: &rapier3d::prelude::Collider| {
         co.collision_groups().memberships.bits() & mask != 0
@@ -154,6 +155,7 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     let push_filter = |h: ColliderHandle, co: &rapier3d::prelude::Collider| {
         predicate(h, co) && allowed.contains(&crate::state::raw(h))
     };
+    let entities = &scene.entities;
     let r = &mut scene.rapier;
     let mut q = QueryPipelineMut {
         dispatcher: r.narrow_phase.query_dispatcher(),
@@ -163,9 +165,9 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
         filter: filter.predicate(&push_filter),
     };
     controller.solve_character_collision_impulses(world.dt(), &mut q, &*shape, c.mass, &collisions);
-    for (h, co) in r.colliders.iter() {
+    for (_, co) in r.colliders.iter() {
         if let Some(rb) = co.parent().map(|h| &r.bodies[h]).filter(|b| b.is_dynamic()) {
-            let entity = scene.entities[&crate::state::raw(h)];
+            let entity = entities[co.user_data as usize];
             let v = math::vec3(rb.linvel());
             let spin = math::vec3(rb.angvel());
             let changed = world

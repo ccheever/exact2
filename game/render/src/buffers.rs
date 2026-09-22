@@ -20,7 +20,7 @@ pub(crate) fn bytes<T: Packed>(values: &[T]) -> &[u8] {
     const {
         assert!(size_of::<f32>() == 4);
         assert!(size_of::<u32>() == 4);
-        assert!(size_of::<Vertex>() == 32);
+        assert!(size_of::<Vertex>() == 48);
         assert!(align_of::<Vertex>() == 4);
     }
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), size_of_val(values)) }
@@ -28,9 +28,7 @@ pub(crate) fn bytes<T: Packed>(values: &[T]) -> &[u8] {
 
 pub(crate) struct Buffer {
     pub raw: wgpu::Buffer,
-    pub capacity: u64,
     pub live: u64,
-    usage: wgpu::BufferUsages,
     label: &'static str,
 }
 
@@ -49,18 +47,16 @@ impl Buffer {
                 usage,
                 mapped_at_creation: false,
             }),
-            capacity: size,
             live: 0,
-            usage,
             label,
         }
     }
 
     pub fn grow(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, needed: u64) -> bool {
-        if needed <= self.capacity {
+        if needed <= self.raw.size() {
             return false;
         }
-        let limit = if self.usage.contains(wgpu::BufferUsages::STORAGE) {
+        let limit = if self.raw.usage().contains(wgpu::BufferUsages::STORAGE) {
             device
                 .limits()
                 .max_storage_buffer_binding_size
@@ -70,7 +66,7 @@ impl Buffer {
         };
         assert!(needed <= limit, "buffer exceeds device limits");
         let capacity = needed.next_power_of_two().min(limit);
-        let mut next = Self::new(device, capacity, self.usage, self.label);
+        let mut next = Self::new(device, capacity, self.raw.usage(), self.label);
         if self.live != 0 {
             let mut encoder = device.create_command_encoder(&Default::default());
             encoder.copy_buffer_to_buffer(&self.raw, 0, &next.raw, 0, self.live);

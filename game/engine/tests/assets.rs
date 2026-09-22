@@ -235,6 +235,79 @@ fn unused_and_excessive_texture_lists_refuse() {
         .contains("unused texture `orphan.tex`"));
 }
 
+#[test]
+fn model_offsets_keep_disconnected_affine_chains_and_late_refusals_separate() {
+    let local: Vec<_> = (0..8)
+        .map(|i| {
+            let mut matrix = Mat4::from_translation(Vec3::new(i as f32, 0.25, 0.)).to_cols_array();
+            matrix[4] = 0.125 * (i + 1) as f32;
+            matrix[10] = if i % 2 == 0 { -1. } else { 1. };
+            Mat4::from_cols_array(&matrix)
+        })
+        .collect();
+    let parents = [
+        Some(4),
+        Some(0),
+        None,
+        Some(6),
+        None,
+        Some(2),
+        Some(4),
+        Some(6),
+    ];
+    let model = asset::Model {
+        nodes: parents
+            .into_iter()
+            .enumerate()
+            .map(|(i, parent)| asset::Node {
+                name: format!("n{i}"),
+                parent,
+                transform: local[i].to_cols_array(),
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
+    };
+    let expected = [
+        local[4] * local[0],
+        local[4] * local[0] * local[1],
+        local[2],
+        local[4] * local[6] * local[3],
+        local[4],
+        local[2] * local[5],
+        local[4] * local[6],
+        local[4] * local[6] * local[7],
+    ];
+    let bits = |matrix: Mat4| matrix.to_cols_array().map(f32::to_bits);
+    assert_eq!(
+        model
+            .offsets()
+            .unwrap()
+            .into_iter()
+            .map(bits)
+            .collect::<Vec<_>>(),
+        expected.map(bits)
+    );
+    assert!(asset::Model::default().offsets().unwrap().is_empty());
+    let mut invalid = model.clone();
+    invalid.nodes[7].parent = Some(7);
+    assert_eq!(invalid.offsets().unwrap_err(), "model node 7: parent cycle");
+    invalid.nodes[7] = model.nodes[7].clone();
+    invalid.nodes[4].parent = Some(7);
+    assert_eq!(invalid.offsets().unwrap_err(), "model node 4: parent cycle");
+    invalid.nodes[4] = model.nodes[4].clone();
+    invalid.nodes[7].parent = Some(u32::MAX);
+    assert_eq!(
+        invalid.offsets().unwrap_err(),
+        "model node 7: invalid parent"
+    );
+    invalid.nodes[7] = model.nodes[7].clone();
+    invalid.nodes[7].transform[3] = 0.25;
+    assert_eq!(
+        invalid.offsets().unwrap_err(),
+        "model node `n7` (7): singular or non-affine transform"
+    );
+}
 struct TextureDeclaration;
 impl Game for TextureDeclaration {
     const ID: &'static str = "texture-declaration";
@@ -455,6 +528,46 @@ fn failed_cosmetic_dependencies_do_not_gate_a_save() {
 }
 
 #[test]
+fn save_refusal_deduplicates_current_roots_and_their_pending_dependencies() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    sim.world_mut().spawn(Mesh::asset("late.model"));
+    sim.world_mut().spawn(Sprite::new("b.tex", [1., 1.]));
+    let extra = sim.world_mut().spawn(Sprite::new("z.tex", [1., 1.]));
+    sim.deliver_asset(
+        "late.model",
+        Ok(asset::Content::Model(asset::Model {
+            textures: vec!["b.tex".into(), "a.tex".into()],
+            ..Default::default()
+        })),
+    )
+    .unwrap();
+    let hash = sim.world().hash();
+    let error = sim.save().unwrap_err().to_string();
+    assert!(
+        error.starts_with("save refused: assets are not ready: [\"a.tex\", \"b.tex\", \"late.model\", \"z.tex\"];"),
+        "{error}"
+    );
+    assert_eq!(sim.world().hash(), hash);
+    sim.asset_failed("late.model", "missing cosmetic");
+    let error = sim.save().unwrap_err().to_string();
+    assert!(
+        error.starts_with("save refused: assets are not ready: [\"b.tex\", \"z.tex\"];"),
+        "failed model dependencies are ignored, directly referenced textures remain required: {error}"
+    );
+    sim.asset_failed("b.tex", "missing texture");
+    sim.world_mut().despawn(extra);
+    let saved = sim.save().unwrap();
+    sim.restore(&saved).unwrap();
+    assert_eq!(sim.save().unwrap(), saved);
+    *sim.world_mut().get_mut::<Mesh>("late").unwrap() = Mesh::asset("new.model");
+    let error = sim.save().unwrap_err().to_string();
+    assert!(
+        error.starts_with("save refused: assets are not ready: [\"new.model\"];"),
+        "current references matter before the next request drain: {error}"
+    );
+}
+
+#[test]
 fn loading_refusals_name_the_state_that_contains_pending_assets() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     let clock = sim.agent(r#"{"op":"clock"}"#);
@@ -493,5 +606,99 @@ fn rearming_texture_delivery_invalidates_the_hosts_answered_name_each_time() {
             "host must reopen the answered name whenever redelivery is armed"
         );
         assert!(s.take_assets().contains(&model.textures[0]));
+    }
+}
+
+#[test]
+fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
+    struct Changes<const SPRITES: bool>;
+    impl<const SPRITES: bool> Game for Changes<SPRITES> {
+        const ID: &'static str = "paranoid-asset-roots";
+        const HZ: u32 = 100;
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            if SPRITES {
+                w.spawn_named("root", Sprite::new("a.tex", [1., 1.]));
+            } else {
+                w.spawn_named("root", Mesh::asset("a.model"));
+            }
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            match w.tick() {
+                0 => {
+                    if SPRITES {
+                        w.require_mut::<Sprite>("root").texture = "b.tex".into();
+                    } else {
+                        *w.require_mut::<Mesh>("root") = Mesh::asset("b.model");
+                    }
+                }
+                1 if SPRITES => w.require_mut::<Sprite>("root").frame = [1, 0, 1, 1],
+                2 => {
+                    w.despawn(w.resolve("root").unwrap());
+                }
+                _ => {}
+            }
+        }
+    }
+    fn run<const SPRITES: bool>(mode: Paranoid) -> Vec<Vec<u8>> {
+        let suffix = if SPRITES { "tex" } else { "model" };
+        let names: Vec<_> = ["a", "b", "c"].map(|n| format!("{n}.{suffix}")).into();
+        let mut sim = Sim::<Changes<SPRITES>>::new(()).unwrap().paranoid(mode);
+        let deliver = |sim: &mut Sim<Changes<SPRITES>>, name: &str| {
+            let content = if SPRITES {
+                asset::Content::Texture(asset::TextureData {
+                    width: 1,
+                    height: 1,
+                    mips: vec![vec![255; 4]],
+                    ..Default::default()
+                })
+            } else {
+                asset::Content::Model(asset::Model::default())
+            };
+            sim.deliver_asset(name, Ok(content)).unwrap();
+        };
+        assert_eq!(sim.take_assets(), [names[0].clone()]);
+        deliver(&mut sim, &names[0]);
+        // Prepare the future root before the tick so paranoid saves can use it.
+        deliver(&mut sim, &names[1]);
+        sim.run(10.);
+        assert!(sim.take_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[0].clone()]);
+        let first = sim.save().unwrap();
+        sim.run(10.);
+        assert!(sim.take_assets().is_empty());
+        assert!(sim.take_retired_assets().is_empty());
+        let checkpoint = sim.save().unwrap();
+        sim.run(10.);
+        assert!(sim.take_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
+        let empty = sim.save().unwrap();
+        if SPRITES {
+            sim.world_mut()
+                .spawn_named("replacement", Sprite::new(&names[2], [1., 1.]));
+        } else {
+            sim.world_mut()
+                .spawn_named("replacement", Mesh::asset(&names[2]));
+        }
+        assert_eq!(sim.take_assets(), [names[2].clone()]);
+        deliver(&mut sim, &names[2]);
+        sim.run(10.);
+        assert!(sim.take_assets().is_empty());
+        let replacement = sim.save().unwrap();
+        sim.restore(&checkpoint).unwrap();
+        assert_eq!(sim.take_assets(), [names[1].clone()]);
+        assert_eq!(sim.take_retired_assets(), [names[2].clone()]);
+        deliver(&mut sim, &names[1]);
+        sim.run(10.);
+        assert!(sim.take_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
+        assert_eq!(sim.save().unwrap(), empty);
+        vec![first, checkpoint, empty, replacement]
+    }
+    let mesh = run::<false>(Paranoid::Off);
+    let sprites = run::<true>(Paranoid::Off);
+    for mode in [Paranoid::Save, Paranoid::FreshGame] {
+        assert_eq!(run::<false>(mode), mesh, "mesh {mode:?}");
+        assert_eq!(run::<true>(mode), sprites, "sprites {mode:?}");
     }
 }

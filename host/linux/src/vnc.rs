@@ -15,7 +15,7 @@
 //! socketpair it polls. Nothing here runs unless asked for, and nothing
 //! encrypts: a development tool on a private network.
 
-use crate::input::{InputEvent, Key, LINE};
+use crate::input::{InputEvent, Keyboard, LINE};
 use std::io::{self, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::fd::{AsRawFd, RawFd};
@@ -278,6 +278,8 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
         })
     };
 
+    let mut keyboard = Keyboard::default();
+    let mut held = std::collections::BTreeSet::new();
     // The reader: the client's messages.
     let result = (|| -> io::Result<()> {
         let mut buttons = 0u8;
@@ -318,9 +320,19 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
                     let b = read_exact::<7>(&mut stream)?;
                     let down = b[0] != 0;
                     let key = u32::from_be_bytes([b[3], b[4], b[5], b[6]]);
-                    if down {
-                        if let Some(k) = keysym(key) {
-                            push(&shared, InputEvent::Key(k));
+                    if let Some((code, shift)) = keysym(key) {
+                        let value = if down {
+                            if held.insert(code) {
+                                1
+                            } else {
+                                2
+                            }
+                        } else {
+                            held.remove(&code);
+                            0
+                        };
+                        if let Some(event) = keyboard.event(code, value, shift) {
+                            push(&shared, event);
                         }
                     }
                 }
@@ -365,6 +377,11 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
             }
         }
     })();
+    for code in held {
+        if let Some(event) = keyboard.event(code, 0, None) {
+            push(&shared, event);
+        }
+    }
     // Tell the writer, wherever it waits, and wait for it: no thread and no
     // socket outlive the client.
     {
@@ -425,13 +442,157 @@ fn send_frame(
     out.write_all(&msg)
 }
 
-/// An X11 keysym as a key the input path knows.
-fn keysym(key: u32) -> Option<Key> {
-    match key {
-        0x20..=0x7e => Some(Key::Char(char::from_u32(key)?)),
-        0xff08 => Some(Key::Backspace),
-        0xff0d | 0xff8d => Some(Key::Enter),
-        0xff1b => Some(Key::Escape),
-        _ => None,
+/// VNC has logical keysyms; use the same US map as the physical keyboard.
+fn keysym(sym: u32) -> Option<(u16, Option<bool>)> {
+    if (0x20..=0x7e).contains(&sym) {
+        for code in 1..=57 {
+            for shift in [false, true] {
+                if crate::input::key(code, shift)
+                    .is_some_and(|(_, key)| key.len() == 1 && u32::from(key.as_bytes()[0]) == sym)
+                {
+                    return Some((code, Some(shift)));
+                }
+            }
+        }
+        return None;
+    }
+    Some((
+        match sym {
+            0xff08 => 14,
+            0xff09 => 15,
+            0xff0d => 28,
+            0xff8d => 96,
+            0xff1b => 1,
+            0xff50 => 102,
+            0xff51 => 105,
+            0xff52 => 103,
+            0xff53 => 106,
+            0xff54 => 108,
+            0xff55 => 104,
+            0xff56 => 109,
+            0xff57 => 107,
+            0xff63 => 110,
+            0xffff => 111,
+            0xffe1 => 42,
+            0xffe2 => 54,
+            0xffe3 => 29,
+            0xffe4 => 97,
+            0xffe9 => 56,
+            0xffea => 100,
+            0xffeb => 125,
+            0xffec => 126,
+            _ => return None,
+        },
+        None,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn logical_keysyms_use_physical_map_without_losing_case_or_releases() {
+        let mut keyboard = Keyboard::default();
+        for (sym, code, key) in [
+            (b'W' as u32, "KeyW", "W"),
+            (b'w' as u32, "KeyW", "w"),
+            (b'!' as u32, "Digit1", "!"),
+            (0xff8d, "NumpadEnter", "Enter"),
+            (0xff51, "ArrowLeft", "ArrowLeft"),
+            (0xff09, "Tab", "Tab"),
+        ] {
+            let (physical, shift) = keysym(sym).unwrap();
+            for (value, down, repeat) in [(1, true, false), (2, true, true), (0, false, false)] {
+                let Some(InputEvent::Key {
+                    code: actual,
+                    shift,
+                    down: pressed,
+                    repeat: repeated,
+                }) = keyboard.event(physical, value, shift)
+                else {
+                    panic!("key event");
+                };
+                assert_eq!(crate::input::key(actual, shift), Some((code, key)));
+                assert_eq!((pressed, repeated), (down, repeat));
+            }
+        }
+        assert_eq!(keysym(0xffffffff), None);
+    }
+    #[test]
+    fn wire_keys_repeat_release_and_disconnect_release_held_key() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (wake, _rx) = UnixStream::pair().unwrap();
+        let shared = Arc::new(Shared {
+            frame: Mutex::new((None, 0)),
+            changed: Condvar::new(),
+            events: Mutex::new(Vec::new()),
+            wake: Mutex::new(wake),
+            width: 1,
+            height: 1,
+        });
+        let server = shared.clone();
+        let task = thread::spawn(move || serve(listener.accept().unwrap().0, server));
+        let mut client = TcpStream::connect(addr).unwrap();
+        client
+            .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        assert_eq!(&read_exact::<12>(&mut client).unwrap(), b"RFB 003.008\n");
+        client.write_all(b"RFB 003.008\n").unwrap();
+        assert_eq!(read_exact::<2>(&mut client).unwrap(), [1, 1]);
+        client.write_all(&[1]).unwrap();
+        assert_eq!(read_exact::<4>(&mut client).unwrap(), [0; 4]);
+        client.write_all(&[1]).unwrap();
+        let init = read_exact::<24>(&mut client).unwrap();
+        drain(
+            &mut client,
+            u32::from_be_bytes(init[20..24].try_into().unwrap()).into(),
+        )
+        .unwrap();
+        for (down, key) in [(true, b'w'), (true, b'w'), (false, b'w'), (true, b'd')] {
+            client
+                .write_all(&[4, u8::from(down), 0, 0, 0, 0, 0, key])
+                .unwrap();
+        }
+        client.shutdown(std::net::Shutdown::Both).unwrap();
+        assert_eq!(
+            task.join().unwrap().unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        assert_eq!(
+            *shared.events.lock().unwrap(),
+            vec![
+                InputEvent::Key {
+                    code: 17,
+                    shift: false,
+                    down: true,
+                    repeat: false
+                },
+                InputEvent::Key {
+                    code: 17,
+                    shift: false,
+                    down: true,
+                    repeat: true
+                },
+                InputEvent::Key {
+                    code: 17,
+                    shift: false,
+                    down: false,
+                    repeat: false
+                },
+                InputEvent::Key {
+                    code: 32,
+                    shift: false,
+                    down: true,
+                    repeat: false
+                },
+                InputEvent::Key {
+                    code: 32,
+                    shift: false,
+                    down: false,
+                    repeat: false
+                },
+            ]
+        );
     }
 }

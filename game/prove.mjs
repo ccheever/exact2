@@ -3,19 +3,20 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, resolve} from 'node:path';
-import {equal, agreePins, webUnavailable, paranoidRuns} from './proof.mjs';
+import {equal, agreePins, pinInputs, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
 const local = destination === '.' || destination?.includes('/');
 const name = local ? basename(resolve(destination)) : destination;
 const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag) + 1] : fallback;
+const device = args.includes('--device'), phone = option('--phone');
+if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
 let repin = args.includes('--repin');
 const repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1) {
   throw new Error('Usage: bun game/prove.mjs <name|path> --hosts web,linux,ios --repeat 2 --compare-saves');
 }
 const app = local ? resolve(destination) : resolve(import.meta.dir, 'games', name), script = resolve(app, 'proof.mjs');
-const argument = local ? `'${app.replaceAll("'", "'\\''")}'` : name;
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
 const pinFile = resolve(app, 'pins.json');
 const previous = JSON.parse(readFileSync(pinFile, 'utf8'));
@@ -31,15 +32,17 @@ if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['
   throw new Error('Use --hosts linux,web,macos,ios to select distinct proof hosts');
 }
 if (firstPins && (!hosts.includes('linux') || !hosts.includes('web'))) throw new Error('first baseline requires linux and web');
+if (device && !hosts.includes('ios')) throw new Error('--device requires ios in --hosts');
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = mkdtempSync(resolve(artifacts, 'run-'));
 console.log(`ARTIFACTS ${root}`);
 const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') => {
-  const out = resolve(root, `${host}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
+  const destination = host === 'ios' && device ? 'ios-device' : host;
+  const out = resolve(root, `${destination}-${mode}-${build ? 'build' : index}${profile === 'release' ? '-release' : ''}`);
   mkdirSync(out, {recursive:true});
   // Resolve an external entrypoint in its own directory, without Cargo metadata.
-  const child = spawn(process.execPath, ['./proof.mjs', host, ...(build ? ['--build-only'] : [])], {
+  const child = spawn(process.execPath, ['./proof.mjs', host, ...(host === 'ios' && device ? ['--device', ...(phone ? ['--phone', phone] : [])] : []), ...(build ? ['--build-only'] : [])], {
     cwd:app,
     env:{...process.env, EXACT_WEB_DIST:resolve(root,'dist'), EXACT_PROOF_OUT:out, EXACT_PROOF_COMPARE:build || repin ? '0' : '1', EXACT_PROOF_REPIN:repin ? '1' : '0', EXACT_GAME_PARANOID:mode, EXACT_GAME_PROOF_PROFILE:profile},
     stdio:['ignore','pipe','pipe'],
@@ -82,11 +85,11 @@ if (repin) {
   try { rows.push(await run('linux', 1, false, '0', 'release')); } catch (error) { errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
-  const candidate = agreePins(rows, before, hosts);
+  const candidate = agreePins(rows, before, hosts, app);
   const revision = spawnSync('git', ['rev-parse', 'HEAD'], {cwd:app, encoding:'utf8'});
   if (revision.status !== 0 && !firstPins) throw new Error('repin refused: cannot identify commit; pins.json unchanged');
-  const command = `bun game/prove.mjs ${argument}${args.includes('--repin') ? ' --repin' : ''} --hosts ${exercised.join(',')}`;
-  const after = {...candidate, game:name, generated:command, at:revision.status === 0 ? revision.stdout.trim() : 'initial external baseline', ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
+  const command = proofCommand(import.meta.path, local ? app : name, ...(args.includes('--repin') ? ['--repin'] : []), '--hosts', exercised.join(','), ...(device ? ['--device'] : []), ...(phone ? ['--phone', phone] : []));
+  const after = {...candidate, inputs:pinInputs(rows), game:name, generated:command, at:revision.status === 0 ? revision.stdout.trim() : 'initial external baseline', ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
   if (!exercised.includes('web')) console.log('WEB not exercised; pins record linux only, no web agreement claimed.');
@@ -118,7 +121,7 @@ for (const row of rows) {
   const hashOK = row.worlds.length > 0 && equal(hashes(row), hashes(baseline));
   const saveOK = row.saves.length > 0 && equal(row.saves, baseline.saves);
   failed ||= !hashOK || (args.includes('--compare-saves') && !saveOK);
-  console.log(`| ${row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
+  console.log(`| ${row.device ? 'ios-device' : row.host} | ${row.repeat} | ${row.seconds.toFixed(3)} | ${hashOK ? 'equal' : 'FAIL'} | ${args.includes('--compare-saves') ? (saveOK ? 'identical' : 'FAIL') : 'not requested'} | ${row.status ?? 'UNVERIFIED'} |`);
 }
 for (const failure of failures) console.error(failure.reason);
 if (hosts.length > 1) {
@@ -128,7 +131,7 @@ if (hosts.length > 1) {
 }
 const status = failed ? 'FAIL' : rows.length && rows.every(row => row.status === 'PASS') ? 'PASS' : 'UNVERIFIED';
 console.log(`PROOF ${status} ${name}`);
-if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with bun game/prove.mjs ${argument} --repin`);
+if (status === 'UNVERIFIED') console.log(`No complete tick/save baseline was checked. Generate it with ${proofCommand(import.meta.path, local ? app : name, '--repin')}`);
 writeFileSync(resolve(root, 'summary.json'), JSON.stringify({status, rows}, null, 2)+'\n');
 process.exitCode = status === 'PASS' ? 0 : 1;
 

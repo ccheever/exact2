@@ -150,6 +150,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(batch)
     }
 
+    /// Whether the current runner still owns a request ticket.
+    pub fn request_active(&self, ticket: f64) -> u32 {
+        u32::from(
+            ticket.is_finite()
+                && ticket >= 0.0
+                && self.host.as_ref().is_some_and(|host| {
+                    host.runner()
+                        .pending()
+                        .iter()
+                        .any(|(_, held)| *held == ticket as u64)
+                }),
+        )
+    }
+
     /// The input concatenates plan, pairing receipt, and browser environment id.
     /// The JS loader prepares that private environment before this synchronous swap.
     pub fn boot_module(&mut self, lengths: [usize; 3], admitted: D) -> u32 {
@@ -520,12 +534,19 @@ macro_rules! host {
         }
 
         /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /
-        /// 2 refused / 3 unsupported / 4 aborted; the input buffer holds
+        /// 2 refused / 3 unsupported / 4 aborted / 5 storage / 6 captured
+        /// surface / 7 restored surface; the input buffer holds
         /// `hlen` bytes of `name: value` header lines then `blen` bytes of
         /// body (or the message). Returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_fulfill(ticket: f64, kind: u32, status: u32, hlen: u32, blen: u32, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
+        }
+
+        /// Whether a presenter-owned operation may still affect its surface.
+        #[no_mangle]
+        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
         }
 
         /// Publish or clear a named surface record; returns the batch length.

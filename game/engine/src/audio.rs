@@ -404,6 +404,41 @@ struct SourceReport {
     playing: bool,
     refused: bool,
 }
+impl SourceReport {
+    fn off(&self, world: &World) {
+        if self.playing {
+            world.log(format_args!("loop {} off", self.sound));
+        }
+    }
+    fn update(&mut self, world: &World, source: &mut AudioSource) {
+        let sanitized = gain(source.gain);
+        let invalid = sanitized != source.gain;
+        if invalid && !self.refused {
+            world.log(format_args!(
+                "refusal: invalid AudioSource gain at {}",
+                At::Entity(self.entity).label(world)
+            ));
+        }
+        source.gain = sanitized;
+        let sound_changed = self.sound != source.sound;
+        if !source.playing || sound_changed {
+            self.off(world);
+        }
+        if source.playing && (!self.playing || sound_changed || self.gain != source.gain) {
+            world.log(format_args!(
+                "loop {} on gain {}",
+                source.sound,
+                Fixed(source.gain, 2)
+            ));
+        }
+        if sound_changed {
+            self.sound.clone_from(&source.sound);
+        }
+        self.gain = source.gain;
+        self.playing = source.playing;
+        self.refused |= invalid;
+    }
+}
 /// Finite linear gain, bounded to avoid overflow at the output boundary.
 pub fn gain(value: f32) -> f32 {
     if value.is_finite() {
@@ -569,20 +604,6 @@ fn detach(world: &World, entity: Entity) {
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
-    if world.has_audio() {
-        let tick = world.audio_boundary();
-        world
-            .resource_mut::<Voices>()
-            .voices
-            .retain(|v| v.ends > tick);
-        for voice in &mut world.resource_mut::<Voices>().voices {
-            if let At::Entity(e) = voice.at {
-                if let Some(pose) = world.global(e) {
-                    voice.position = Some(pose.translation.into());
-                }
-            }
-        }
-    }
     if !world.has_audio() {
         if let Some((entity, _)) = world.query::<&AudioSource>().iter().next() {
             panic!(
@@ -592,83 +613,85 @@ pub fn step(world: &mut World) {
         }
         return;
     }
-    if world.has_audio() {
+    let tick = world.audio_boundary();
+    world
+        .resource_mut::<Voices>()
+        .voices
+        .retain(|v| v.ends > tick);
+    for voice in &mut world.resource_mut::<Voices>().voices {
+        if let At::Entity(e) = voice.at {
+            if let Some(pose) = world.global(e) {
+                voice.position = Some(pose.translation.into());
+            }
+        }
+    }
+    {
         let mut audio = world.resource_mut::<Audio>();
         audio.master = gain(audio.master);
-        let mut reports = Vec::with_capacity(audio.reports.len());
-        let mut previous = audio.reports.iter().peekable();
-        for (entity, source) in world.query::<&mut AudioSource>().iter() {
-            while previous
-                .peek()
-                .is_some_and(|r| r.entity.index() < entity.index())
-            {
-                let old = previous.next().unwrap();
-                if old.playing {
-                    world.log(format_args!("loop {} off", old.sound));
-                }
-            }
-            let old = if previous
-                .peek()
-                .is_some_and(|r| r.entity.index() == entity.index())
-            {
-                let old = previous.next().unwrap();
-                if old.entity == entity {
-                    Some(old)
-                } else {
-                    if old.playing {
-                        world.log(format_args!("loop {} off", old.sound));
-                    }
-                    None
-                }
-            } else {
-                None
-            };
-            let sanitized = gain(source.gain);
-            let invalid = sanitized != source.gain;
-            let refused = old.is_some_and(|r| r.refused) || invalid;
-            if invalid && !old.is_some_and(|r| r.refused) {
-                world.log(format_args!(
-                    "refusal: invalid AudioSource gain at {}",
-                    At::Entity(entity).label(world)
-                ));
-            }
-            source.gain = sanitized;
-            if let Some(old) = old {
-                if old.playing && (!source.playing || old.sound != source.sound) {
-                    world.log(format_args!("loop {} off", old.sound));
-                }
-            }
-            if source.playing
-                && !old
-                    .is_some_and(|r| r.playing && r.sound == source.sound && r.gain == source.gain)
-            {
-                world.log(format_args!(
-                    "loop {} on gain {}",
-                    source.sound,
-                    Fixed(source.gain, 2)
-                ));
-            }
-            reports.push(SourceReport {
+        let previous_len = audio.reports.len();
+        let mut query = world.query::<&mut AudioSource>();
+        let mut sources = query.iter().peekable();
+        let mut inserted = Vec::new();
+        let mut add = |(entity, source): (Entity, &mut AudioSource)| {
+            let mut report = SourceReport {
                 entity,
                 sound: source.sound.clone(),
-                gain: source.gain,
-                playing: source.playing,
-                refused,
-            });
+                ..SourceReport::default()
+            };
+            report.update(world, source);
+            inserted.push(report);
+        };
+        // Merge in entity order, retaining each surviving report and its string.
+        // Only newly added sources need temporary storage.
+        audio.reports.retain_mut(|report| {
+            while sources
+                .peek()
+                .is_some_and(|(entity, _)| entity.index() < report.entity.index())
+            {
+                add(sources.next().unwrap());
+            }
+            if sources
+                .peek()
+                .is_some_and(|(entity, _)| entity.index() == report.entity.index())
+            {
+                let (entity, source) = sources.next().unwrap();
+                if entity != report.entity {
+                    report.off(world);
+                    report.entity = entity;
+                    report.playing = false;
+                    report.refused = false;
+                }
+                report.update(world, source);
+                true
+            } else {
+                report.off(world);
+                false
+            }
+        });
+        for source in sources {
+            add(source);
         }
-        for old in previous {
-            if old.playing {
-                world.log(format_args!("loop {} off", old.sound));
+        if !inserted.is_empty() {
+            if audio.reports.is_empty() {
+                audio.reports = inserted;
+            } else {
+                audio.reports.extend(inserted);
+                audio
+                    .reports
+                    .sort_unstable_by_key(|report| report.entity.index());
             }
         }
-        audio.reports = reports;
+        if audio.reports.len() < previous_len {
+            audio.reports.shrink_to_fit();
+        }
     }
     let listeners: Vec<_> = world
         .query::<&AudioListener>()
         .iter()
+        .skip(1)
         .map(|(e, _)| e)
         .collect();
-    for &e in listeners.iter().skip(1) {
+    for e in listeners {
         world.log(format_args!(
             "refusal: second AudioListener at {}",
             At::Entity(e).label(world)

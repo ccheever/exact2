@@ -106,6 +106,57 @@ fn a_failed_save_is_re_read_until_its_bytes_stabilize() {
 }
 
 #[test]
+fn surface_declarations_recheck_an_unchanged_source_and_preserve_the_last_plan() {
+    let dir = scratch("surface-declaration");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    let source = "component App\n  view\n    canvas surface=world(seed=7)\n";
+    std::fs::write(&src, source).unwrap();
+    let mut session = Session::new(&src, &out);
+    let first = session.poll::<NoData>().unwrap().unwrap();
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let declaration = dir.join(".shells/surfaces.json");
+    std::fs::write(&declaration, r#"{"world":[{"name":"seeds"}]}"#).unwrap();
+    let error = session.poll::<NoData>().unwrap().unwrap_err();
+    assert!(
+        error.contains("analyze-surface-arguments") && error.contains("`seed`"),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(&out).unwrap(), first.bytes);
+    assert!(
+        session.poll::<NoData>().is_none(),
+        "the same error is not repeated"
+    );
+    std::fs::write(&declaration, r#"{"world":[{"name":"seed"}]}"#).unwrap();
+    let fixed = session
+        .poll::<NoData>()
+        .expect("only the interface changed")
+        .unwrap();
+    assert_eq!(fixed.bytes, first.bytes);
+    assert!(session.poll::<NoData>().is_none());
+
+    std::fs::write(&src, source.replace("seed=", "typo=")).unwrap();
+    assert!(session
+        .poll::<NoData>()
+        .unwrap()
+        .unwrap_err()
+        .contains("`typo`"));
+    assert_eq!(std::fs::read(&out).unwrap(), first.bytes);
+    std::fs::write(&declaration, "{").unwrap();
+    let error = session.poll::<NoData>().unwrap().unwrap_err();
+    assert!(
+        error.contains("surfaces.json:") && error.contains("analyze-surface-declaration"),
+        "{error}"
+    );
+    std::fs::remove_file(&declaration).unwrap();
+    assert!(
+        session.poll::<NoData>().unwrap().is_ok(),
+        "removing the optional interface restores runtime binding"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn a_source_snapshot_keeps_its_path_for_declared_fonts() {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/fixtures/fonts/app.contract");

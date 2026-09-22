@@ -137,6 +137,41 @@ fn clock_reads_do_not_back_off_and_input_bind_restore_restart_reset() {
     }
     assert_eq!(clock(&mut s, true).settleAt, 100.0);
     assert_eq!(clock(&mut s, true).settleAt, 200.0);
+    let unchanged = clock(&mut s, false).settleAt;
+    s.bind(&Options::default().values(), None).unwrap();
+    assert_eq!(
+        clock(&mut s, false).settleAt,
+        unchanged,
+        "identical arguments retain backoff"
+    );
+    s.bind(
+        &Options {
+            gain: -0.0,
+            ..Default::default()
+        }
+        .values(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(s.args().gain.to_bits(), (-0.0_f32).to_bits());
+    assert_eq!(
+        clock(&mut s, false).settleAt,
+        100.0,
+        "a live signed-zero change invalidates backoff"
+    );
+    assert_eq!(clock(&mut s, true).settleAt, 100.0);
+    assert_eq!(clock(&mut s, true).settleAt, 200.0);
+    let unchanged = clock(&mut s, false).settleAt;
+    s.bind(
+        &Options {
+            gain: -0.0,
+            ..Default::default()
+        }
+        .values(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(clock(&mut s, false).settleAt, unchanged);
     s.tap("KeyE");
     assert!(clock(&mut s, false).settleAt <= 100.0);
     s.run(100.0);
@@ -214,7 +249,7 @@ fn springs_and_tweens_explain_rest_and_deadlines() {
         assert_eq!(t.value(now), -1.0);
         assert!(t.moving(now));
         let deadline = t.settle_tick(now).unwrap();
-        assert_eq!(deadline, 10 + hz as u64 / 2);
+        assert_eq!(deadline, 11 + hz as u64 / 2);
         assert_eq!(t.value(Now { tick: deadline, hz }), 1.0);
         let mid = Now {
             tick: 10 + hz as u64 / 4,

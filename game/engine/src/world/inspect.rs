@@ -1,6 +1,22 @@
 use super::*;
 
 impl World {
+    /// Declare a cosmetic/derived resource excluded from rest observation only.
+    /// Call in setup/register, like type registration; save and hash are unchanged.
+    pub fn ambient_resource<R: Resource>(&mut self) -> &mut Self {
+        self.register_resource::<R>();
+        self.registry.get_mut(R::NAME).unwrap().ambient = true;
+        self.mutated();
+        self
+    }
+    /// Declare a derived HUD key excluded from rest observation, including record fields.
+    /// Call in setup/register. Publication delivery, journal and EXSIM saves are unchanged.
+    pub fn derived_publication(&mut self, key: &str) -> &mut Self {
+        self.derived_publications.insert(key.into());
+        self.mutated();
+        self
+    }
+
     /// Mutation lease epoch, shared by all world storage; excluded from saves/hashes.
     pub fn mutation_epoch(&self) -> u64 {
         self.epoch.get()
@@ -126,11 +142,30 @@ impl World {
         self.in_tick = true;
         self.followed.set(false);
         self.state.busy.get_mut().clear();
-        self.fresh.clear();
+        for e in self.fresh.drain(..) {
+            self.state.slots[e.index as usize].fresh = false;
+        }
     }
     /// The next journal cursor. Draining a host never erases an agent's history.
     pub fn journal_next(&self) -> u64 {
         self.journal_next.get()
+    }
+    pub(crate) fn journal_json(&self, since: u64) -> String {
+        let lines = self.journal.borrow();
+        let next = self.journal_next.get();
+        let from = since.clamp(lines.front().map_or(next, |e| e.index), next);
+        let mut out = format!(
+            "{{\"tick\":{},\"next\":{next},\"from\":{from},\"lines\":[",
+            self.tick()
+        );
+        for (i, event) in lines.iter().filter(|e| e.index >= from).enumerate() {
+            if i != 0 {
+                out.push(',');
+            }
+            crate::json::quote_into(&mut out, &event.line);
+        }
+        out.push_str("]}");
+        out
     }
     pub(crate) fn restore_journal(&mut self, lines: Vec<Event>, next: u64) {
         *self.journal.borrow_mut() = lines.into();
@@ -160,11 +195,11 @@ impl World {
             .get(name)
             .is_some_and(|s| s.has(e.index() as usize))
     }
-    pub(crate) fn component_names(&self, e: Entity) -> Vec<&str> {
+    pub(crate) fn component_names(&self, e: Entity) -> impl Iterator<Item = &str> {
+        let index = e.index() as usize;
         self.components
             .iter()
-            .filter_map(|(name, s)| s.has(e.index() as usize).then_some(*name))
-            .collect()
+            .filter_map(move |(name, s)| s.has(index).then_some(*name))
     }
     pub(crate) fn components_json(&self, e: Entity) -> Result<String, DataError> {
         self.storages_json(&self.components, e.index() as usize)
@@ -222,8 +257,14 @@ impl World {
             None => crate::hash::of(&*rng),
         };
         let published = self.published.borrow();
-        out.published.resize_with(published.len(), Default::default);
-        for ((key, hash), (name, value)) in out.published.iter_mut().zip(published.iter()) {
+        let observed = || {
+            published
+                .iter()
+                .filter(|(name, _)| !self.derived_publications.contains(*name))
+        };
+        out.published
+            .resize_with(observed().count(), Default::default);
+        for ((key, hash), (name, value)) in out.published.iter_mut().zip(observed()) {
             if key != name {
                 key.clone_from(name);
             }

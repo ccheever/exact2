@@ -69,10 +69,17 @@ impl Encoder {
     }
 }
 impl Writer for Encoder {
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]) {
-        self.bytes.push(12 + kind as u8);
-        self.var(value.len() as u64);
-        self.bytes.extend_from_slice(value);
+    fn bytes(&mut self, value: super::Bulk<'_>) {
+        self.bytes.push(12 + value.kind() as u8);
+        self.var(value.byte_len() as u64);
+        match value {
+            super::Bulk::U8(v) => self.bytes.extend_from_slice(v),
+            super::Bulk::U16(v) => self.bytes.extend(v.iter().flat_map(|n| n.to_le_bytes())),
+            super::Bulk::U32(v) => self.bytes.extend(v.iter().flat_map(|n| n.to_le_bytes())),
+            super::Bulk::F32(v) => self
+                .bytes
+                .extend(v.iter().flat_map(|n| f32_bits(*n).to_le_bytes())),
+        }
     }
     fn boolean(&mut self, n: bool) {
         self.bytes.push(u8::from(n));
@@ -236,7 +243,7 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
-    fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError> {
+    fn bytes(&mut self, kind: BulkKind) -> Result<Option<&[u8]>, DataError> {
         let tag = self.byte()?;
         if tag != 12 + kind as u8 {
             let seen = match tag {
@@ -251,11 +258,7 @@ impl Reader for Decoder<'_> {
         let len = usize::try_from(self.var()?).map_err(|_| self.err("length overflow"))?;
         let bytes = self.take(len)?;
         self.claim(len)?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(len)
-            .map_err(super::limits::allocation)?;
-        out.extend_from_slice(bytes);
-        Ok(out)
+        Ok(Some(bytes))
     }
     fn claim(&mut self, bytes: usize) -> Result<(), DataError> {
         self.budget.claim(bytes)

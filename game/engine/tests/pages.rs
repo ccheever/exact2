@@ -57,10 +57,10 @@ fn page_masks_zero_bytes_leases_and_reallocation() {
         views.iter().map(|v| v.first).collect::<Vec<_>>(),
         [0, (2 * PAGE) as u32]
     );
-    assert_eq!(views[0].mask.len(), 16);
+    assert_eq!(views[0].mask.len(), PAGE / 64);
     assert_eq!(views[0].mask[0], (1 << 1) | (1 << 63));
     assert_eq!(views[0].mask[1], 1);
-    assert_eq!(views[0].mask[15], 1 << 63);
+    assert_eq!(views[0].mask[PAGE / 64 - 1], 1 << 63);
     assert_eq!(views[1].mask[0], 1 << 7);
     assert_eq!(views[0].as_ptr() as usize % 4, 0);
     for view in &views {

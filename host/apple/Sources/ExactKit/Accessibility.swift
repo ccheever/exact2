@@ -58,17 +58,20 @@ extension Presenter {
             } else { node.liveText = nil }
             guard !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
-            // Mark before dispatch: a focus action can synchronously apply another batch.
-            autofocusProcessed.insert(ObjectIdentifier(node))
             #if os(macOS)
             guard let window = node.window else { continue }
             let current = window.firstResponder
+            if (current as? NodeView)?.returnsPointerFocusToCanvas != true { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view || (current as? NodeView)?.canvasInput != nil else { continue }
+            // Blocked autofocus stays pending until the pointer hands focus back.
+            autofocusProcessed.insert(ObjectIdentifier(node))
             let target: NSView = node.textArea ?? node.field ?? node
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
             func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil) || view.subviews.contains(where: hasFocus) }
+            if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard let window = node.window, !hasFocus(window) else { continue }
+            autofocusProcessed.insert(ObjectIdentifier(node))
             let target: UIResponder = node.textArea ?? node.field ?? node
             _ = target.becomeFirstResponder()
             #endif

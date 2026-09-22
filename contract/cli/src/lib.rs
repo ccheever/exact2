@@ -32,6 +32,7 @@ use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
 use exact_runner::{Runner, RunnerError};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// A refusal from `bake`: the runner's, or the layout lint's (LLP 1017 P1d).
@@ -79,7 +80,7 @@ pub struct CompileError {
     /// What went wrong.
     pub message: String,
     /// The file the span is in when it is not the one compiled — a used
-    /// file's own syntax error; empty otherwise.
+    /// file's own syntax or surface-argument error; empty otherwise.
     pub file: String,
     /// Where: line, column, and the column after the token.
     pub span: Span,
@@ -226,6 +227,7 @@ pub fn compile_path(path: &Path) -> Result<Plan, CompileError> {
 /// Compile source bytes with their file path for relative `use` and font
 /// resolution. Unlike [`compile_path`], this never re-reads the root file;
 /// callers that watch a file can compile the exact snapshot they observed.
+/// When present, `.shells/surfaces.json` supplies the module's surface arguments.
 pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError> {
     let source_root = path
         .parent()
@@ -245,7 +247,8 @@ pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError>
             .unwrap_or_else(|| app_root.clone())
     });
     let mut seen = vec![root_key];
-    let file = load_source(path, src, &app_root, &mut seen)?;
+    let surfaces = surface_arguments(&app_root)?;
+    let file = load_source(path, src, &app_root, &mut seen, surfaces.as_ref())?;
     let mut plan = compile_file(file, Some(&app_root))?;
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root)
@@ -384,14 +387,63 @@ fn use_error(id: &str, message: String, u: &UseDecl) -> CompileError {
     plain("use", id, message, u.span)
 }
 
+fn surface_arguments(
+    app_root: &Path,
+) -> Result<Option<BTreeMap<String, Vec<String>>>, CompileError> {
+    let path = app_root.join(".shells/surfaces.json");
+    let refusal = |message| {
+        let mut error = plain(
+            "analyze",
+            "analyze-surface-declaration",
+            message,
+            Span::default(),
+        );
+        error.file = path.display().to_string();
+        error
+    };
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(refusal(e.to_string())),
+    };
+    let json: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| refusal(e.to_string()))?;
+    let declarations = json.as_object().and_then(|surfaces| {
+        surfaces
+            .iter()
+            .map(|(name, args)| {
+                let fields: Option<Vec<_>> = args
+                    .as_array()?
+                    .iter()
+                    .map(|arg| Some(arg.get("name")?.as_str()?.to_owned()))
+                    .collect();
+                Some((name.clone(), fields?))
+            })
+            .collect()
+    });
+    declarations.map(Some).ok_or_else(|| {
+        refusal(
+            "expected surface names mapped to argument declarations with a `name` string".into(),
+        )
+    })
+}
+
 fn load_source(
     path: &Path,
     src: &str,
     app_root: &Path,
     seen: &mut Vec<PathBuf>,
+    surfaces: Option<&BTreeMap<String, Vec<String>>>,
 ) -> Result<File, CompileError> {
     let mut file = contract_syntax::parse(src)?;
     contract_analyze::check_routes_root(&file, seen.len() == 1)?;
+    if let Some(surfaces) = surfaces {
+        contract_analyze::check_surface_arguments(&file, surfaces).map_err(|e| {
+            let mut error = CompileError::from(e);
+            error.file = path.display().to_string();
+            error
+        })?;
+    }
     let uses = std::mem::take(&mut file.uses);
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
     for u in &uses {
@@ -452,7 +504,7 @@ fn load_source(
             )
         })?;
         seen.push(key.clone());
-        let used = load_source(&key, &used_src, app_root, seen).map_err(|mut e| {
+        let used = load_source(&key, &used_src, app_root, seen, surfaces).map_err(|mut e| {
             if e.file.is_empty() && e.pass == "syntax" {
                 e.file = target.display().to_string();
             }
@@ -551,50 +603,6 @@ fn merge(into: &mut File, from: File, u: &UseDecl) -> Result<(), CompileError> {
         }
     }
     Ok(())
-}
-
-/// Validate all canvas calls against the bake's actual surface declarations,
-/// including calls behind branches which are not mounted on the first frame.
-pub fn bake_with_surface_arguments<D: DataSource>(
-    plan: Plan,
-    data: D,
-    mut arguments: impl FnMut(&str) -> Option<Vec<String>>,
-) -> Result<Plan, BakeError> {
-    for surface in &plan.surfaces {
-        let name = plan.str(surface.name);
-        let declared = arguments(name).ok_or_else(|| BakeError::Lint {
-            id: "bake-surface-arguments",
-            message: format!("unknown surface `{name}`"),
-        })?;
-        let fields = declared.join(", ");
-        let refusal = if surface.mode == exact_plan::SurfaceArgsMode::Named {
-            surface
-                .args
-                .iter()
-                .map(|id| plan.str(plan.surface_arg(id).name))
-                .find(|arg| !declared.iter().any(|field| field == arg))
-                .map(|arg| {
-                    format!(
-                        "unknown surface argument `{arg}` for `{name}`; declared names: {fields}"
-                    )
-                })
-        } else if surface.args.len as usize > declared.len() {
-            Some(format!(
-                "surface `{name}` expected at most {} arguments ({fields}), got {}",
-                declared.len(),
-                surface.args.len
-            ))
-        } else {
-            None
-        };
-        if let Some(message) = refusal {
-            return Err(BakeError::Lint {
-                id: "bake-surface-arguments",
-                message,
-            });
-        }
-    }
-    bake(plan, data)
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

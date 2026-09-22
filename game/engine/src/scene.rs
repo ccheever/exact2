@@ -304,6 +304,17 @@ impl Mesh {
 #[derive(Clone, Debug, Default, Component)]
 pub struct Glow(pub crate::Tween);
 
+/// Saved point-light intensity multiplier, sampled by the renderer at frame time.
+/// Negative spring overshoot clamps to zero; the authored PointLight stays constant.
+#[derive(Clone, Debug, Default, Component)]
+pub struct Lit(pub crate::Spring);
+impl Lit {
+    /// Retarget once, preserving the current value and velocity.
+    pub fn to(&mut self, now: crate::Now, intensity: f32) {
+        self.0.set_target(now, intensity);
+    }
+}
+
 /// Renderer-neutral surface properties: ten contiguous f32s including grid spacing.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 #[repr(C)]
@@ -424,6 +435,27 @@ impl Default for Visible {
 }
 
 impl World {
+    /// Reap dead-parent children in entity order, repeating for orphaned chains.
+    /// Sim calls this once after Game::tick and before propagate.
+    pub fn reap_orphans(&mut self) {
+        // Reaping and propagation use this entity scratch sequentially.
+        let mut orphans = std::mem::take(&mut self.hierarchy.entities);
+        loop {
+            orphans.clear();
+            for (e, p) in self.query::<&Parent>().iter() {
+                if !self.contains(p.0) {
+                    orphans.push(e);
+                }
+            }
+            if orphans.is_empty() {
+                break;
+            }
+            for &e in &orphans {
+                self.despawn(e);
+            }
+        }
+        self.hierarchy.entities = orphans;
+    }
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
     /// Stale parents act as roots; parents without Transform contribute identity.
     /// Runtime cycles lose the highest-index edge, with one journal line per cycle.
@@ -518,7 +550,7 @@ impl World {
     /// Set a local pose, refresh parented globals and mark this entity fresh.
     pub fn teleport(&mut self, e: Entity, transform: Transform) {
         if self.insert(e, transform) {
-            self.fresh.push(e);
+            self.mark_fresh(e);
             for (_, follow) in self.query::<&mut Follow>().iter() {
                 if follow.target.resolve(self) == Some(e) {
                     follow.initialized = false;
@@ -535,15 +567,15 @@ pub(crate) struct Hierarchy {
     entities: Vec<Entity>,
     path: Vec<Entity>,
     broken: Vec<Entity>,
-    stamp: u64,
+    stamp: u32,
 }
 #[derive(Default)]
 struct Node {
     entity: Entity,
     parent: Option<Entity>,
-    present: u64,
-    visiting: u64,
-    done: u64,
+    present: u32,
+    visiting: u32,
+    done: u32,
     global: Affine3A,
 }
 impl Hierarchy {
@@ -630,6 +662,38 @@ impl Hierarchy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hierarchy_refreshes_removed_recycled_and_wrapped_entries() {
+        let mut w = World::new(60, 0);
+        let root = w.spawn(Transform::at(1., 0., 0.));
+        let child = w.spawn((Transform::at(2., 0., 0.), Parent(root)));
+        w.propagate();
+        assert_eq!(w.global(child).unwrap().translation.x, 3.);
+
+        w.remove::<Parent>(child);
+        w.get_mut::<Transform>(root).unwrap().position.x = 5.;
+        w.propagate();
+        assert_eq!(w.global(child).unwrap().translation.x, 2.);
+        w.insert(child, Parent(root));
+        w.propagate();
+        assert_eq!(w.global(child).unwrap().translation.x, 7.);
+
+        w.hierarchy.stamp = u32::MAX;
+        w.propagate();
+        assert_eq!(w.global(child).unwrap().translation.x, 7.);
+
+        w.despawn(child);
+        let replacement = w.spawn((Transform::at(9., 0., 0.), Parent(root)));
+        assert_eq!(replacement.index(), child.index());
+        assert!(w.global(replacement).is_none());
+        w.propagate();
+        assert_eq!(w.global(replacement).unwrap().translation.x, 14.);
+        assert!(w.global(child).is_none());
+
+        w.remove::<Transform>(root);
+        w.propagate();
+        assert_eq!(w.global(replacement).unwrap().translation.x, 9.);
+    }
     #[test]
     fn parent_scratch_is_reused_and_flat_worlds_allocate_none() {
         let mut w = World::new(60, 0);

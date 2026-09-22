@@ -31,7 +31,12 @@ import { appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, b
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const run = (cmd, args, opts = {}) => { const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', ...opts }); if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`); return r; };
+const run = (cmd, args, opts = {}) => {
+  const r = spawnSync(cmd, args, { cwd: root, ...opts,
+    stdio: opts.stdio === 'ignore' ? ['ignore', 'ignore', 'pipe'] : opts.stdio ?? 'inherit' });
+  if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})${r.stderr?.length ? ': ' + String(r.stderr).trim() : ''}`);
+  return r;
+};
 const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
 // Every Apple toolchain invocation goes through here — cargo, swift build, and
 // the webarm swiftc alike: a mixed deployment target or an incompatible sysroot
@@ -570,8 +575,9 @@ function main(args) {
   // dlopens this file at the first iframe create commit.
   // `--sdk` and not a bare `xcrun`: xcrun exports SDKROOT for the tool it runs,
   // and the default is macosx — the same MacOSX-sysroot-for-an-iPhone-target the
-  // presenter's link step hits above.
-  const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(webBuildDir, 'module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
+  // presenter's link step hits above. The module cache stays in this app-owned
+  // Swift scratch while the completed dylib remains invocation-private.
+  const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
     webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
   } else {

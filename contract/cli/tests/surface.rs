@@ -248,34 +248,78 @@ fn r13_colon_call_refuses_with_equals_hint() {
 }
 
 #[test]
-fn r13_bake_refuses_unknown_names_and_excess_positional_arguments() {
+fn file_compilation_checks_surface_arguments_at_the_source() {
+    let dir = std::env::temp_dir().join(format!("contract-surfaces-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join(".shells")).unwrap();
+    let declaration = dir.join(".shells/surfaces.json");
+    std::fs::write(
+        &declaration,
+        r#"{"world":[{"name":"seed"},{"name":"paused"},{"name":"restart"}]}"#,
+    )
+    .unwrap();
+    let path = dir.join("app.contract");
     for (call, expected) in [
         ("world(sead=7)", "sead"),
         ("world(1, false, false, 4)", "got 4"),
+        ("missing()", "unknown surface"),
     ] {
-        let plan = contract::compile(&format!(
-            "component App\n  view\n    canvas surface={call}\n"
-        ))
-        .unwrap();
-        let result = contract::bake_with_surface_arguments(plan, NoData, |_| {
-            Some(vec!["seed".into(), "paused".into(), "restart".into()])
-        });
-        let error = result.unwrap_err().to_string();
-        assert!(
-            error.contains(expected) && error.contains("seed, paused, restart"),
-            "{error}"
+        let source = format!("component App\n  view\n    canvas surface={call}\n");
+        let error = contract::compile_path_source(&path, &source).unwrap_err();
+        assert_eq!(error.id, "analyze-surface-arguments");
+        assert!(error.message.contains(expected), "{error}");
+        assert_eq!(error.file, path.to_str().unwrap());
+        assert_eq!(error.span.line, 3);
+        let marked = &source.lines().nth(2).unwrap()
+            [error.span.col as usize - 1..error.span.end_col as usize - 1];
+        assert_eq!(
+            marked,
+            if expected == "sead" {
+                "sead"
+            } else {
+                call.split('(').next().unwrap()
+            }
         );
     }
-    for call in ["world()", "world(7)", "world(seed=7)"] {
-        let plan = contract::compile(&format!(
-            "component App\n  view\n    canvas surface={call}\n"
-        ))
-        .unwrap();
-        contract::bake_with_surface_arguments(plan, NoData, |_| {
-            Some(vec!["seed".into(), "paused".into(), "restart".into()])
-        })
-        .unwrap();
+    for call in [
+        "world()",
+        "world(7)",
+        "world(seed=7)",
+        "world(paused=true, seed=7)",
+    ] {
+        let source = format!("component App\n  view\n    canvas surface={call}\n");
+        let checked = contract::compile_path_source(&path, &source).unwrap();
+        assert_eq!(
+            checked.encode(),
+            contract::compile(&source).unwrap().encode(),
+            "validation leaves plan bytes unchanged"
+        );
     }
+    let imported = dir.join("child.contract");
+    std::fs::write(
+        &imported,
+        "component Child\n  view\n    canvas surface=world(typo=7)\n",
+    )
+    .unwrap();
+    let source = "use Child from \"./child.contract\"\ncomponent App\n  view\n    Child()\n";
+    let error = contract::compile_path_source(&path, source).unwrap_err();
+    let diagnostic: serde_json::Value =
+        serde_json::from_str(&error.to_json(path.to_str().unwrap())).unwrap();
+    assert_eq!(diagnostic["file"], imported.to_str().unwrap());
+    assert_eq!(diagnostic["line"], 3);
+    assert_eq!(error.id, "analyze-surface-arguments");
+
+    for malformed in ["{", r#"{"world":[{"default":0}]}"#, "[]"] {
+        std::fs::write(&declaration, malformed).unwrap();
+        let error = contract::compile_path_source(&path, source).unwrap_err();
+        assert_eq!(error.id, "analyze-surface-declaration");
+        assert_eq!(error.file, declaration.to_str().unwrap());
+    }
+    std::fs::remove_file(&declaration).unwrap();
+    assert!(
+        contract::compile_path_source(&path, source).is_ok(),
+        "a plain surface without an emitted interface retains runtime binding"
+    );
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

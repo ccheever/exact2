@@ -2,7 +2,7 @@
 //! The Cargo build script knows its actual target and data-source grants;
 //! Consumers read these bytes instead of reconstructing those facts.
 
-use crate::compat::{Compat, Manifest};
+use crate::compat::{Compat, Manifest, RUST_ABI};
 use exact_update::{Baked, Envelope};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -26,6 +26,7 @@ pub(crate) fn emit(
         "EXACT_RUST_BUNDLE",
         "EXACT_ASSET_ROOTS",
         "EXACT_GPU_PRODUCT",
+        "EXACT_GPU_DEVELOPMENT",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
     }
@@ -73,7 +74,15 @@ pub(crate) fn emit(
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
-        if let Some(path) = std::env::var_os("EXACT_GPU_PRODUCT") {
+        if let Some(name) = std::env::var("EXACT_GPU_DEVELOPMENT")
+            .ok()
+            .filter(|_| std::env::var("EXACT_UPDATE_TRUST").as_deref() == Ok("development"))
+        {
+            // gpu-dev authenticates the independently completed module receipt
+            // at load. Production always embeds the exact GPU digest below.
+            compat.embedded["gpu"] = json!({"app":manifest.id,"cohort":compat.id,
+                "name":name,"trust":"development","receipt":true});
+        } else if let Some(path) = std::env::var_os("EXACT_GPU_PRODUCT") {
             let path = PathBuf::from(path);
             println!("cargo:rerun-if-changed={}", path.display());
             let bytes =
@@ -126,46 +135,58 @@ pub(crate) fn emit(
     Ok(())
 }
 
-// The same directory-owned gate used by copying, including direct Cargo
-// bakes. This tooling process does not link Unix filesystem code into a wasm
-// consumer of `contract`; its Cargo cache is distinct from the calling build.
-fn asset_cards(app: &Path) -> Result<Vec<Value>, String> {
-    let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/filesystem.mjs");
-    println!("cargo:rerun-if-changed={}", gate.display());
-    for directory in ["assets", "deck", "gpu/shaders"] {
-        let path = app.join(directory);
-        if path.exists() {
-            println!("cargo:rerun-if-changed={}", path.display());
-        }
-    }
-    let code = r#"
-        import {pathToFileURL} from 'node:url';
-        import {resolve} from 'node:path';
-        import {createHash} from 'node:crypto';
-        const {filesystem} = await import(pathToFileURL(process.argv[1]));
-        const cards=[];
-        for (const [source,prefix] of [['assets','assets'],['deck','deck'],['gpu/shaders','shaders']]) {
-            const tree=filesystem({op:'tree',root:resolve(process.argv[2],source),optionalRoot:true});
-            for (const [name,base64] of Object.entries(tree??{})) {
-                const bytes=Buffer.from(base64,'base64');
-                cards.push({name:`${prefix}/${name}`,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length});
+// Both Rust bakes and the copying helper use the same owned-directory walk.
+// Pure Contract compilation remains portable; asset bakes run on macOS/Linux.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn asset_cards(app: &std::path::Path) -> Result<Vec<Value>, String> {
+    use exact_filesystem::Directory;
+    use std::path::{Component, PathBuf};
+    let refusal = |e: std::io::Error| format!("bake asset gate: {e}");
+    // Match path.resolve without following any user-controlled link.
+    let mut absolute = PathBuf::new();
+    for part in std::env::current_dir()
+        .map_err(refusal)?
+        .join(app)
+        .components()
+    {
+        match part {
+            Component::ParentDir => {
+                absolute.pop();
             }
+            Component::CurDir => {}
+            part => absolute.push(part.as_os_str()),
         }
-        process.stdout.write(JSON.stringify(cards.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0)));
-    "#;
-    let output = std::process::Command::new("bun")
-        .args(["--input-type=module", "-e", code])
-        .arg(gate)
-        .arg(app)
-        .output()
-        .map_err(|e| format!("bake asset gate: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "bake asset gate: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
     }
-    serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))
+    let mut cards = Vec::new();
+    for (source, prefix) in [
+        ("assets", "assets/"),
+        ("deck", "deck/"),
+        ("gpu/shaders", "shaders/"),
+    ] {
+        let path = absolute.join(source);
+        let root = match Directory::root(
+            path.to_str().ok_or("bake asset gate: non-UTF8 path")?,
+            false,
+        ) {
+            Ok(root) => root,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(refusal(e)),
+        };
+        println!("cargo:rerun-if-changed={}", path.display());
+        root.visit_files(prefix, &mut |name, parent, leaf| {
+            let bytes = parent.read(leaf)?;
+            cards.push(serde_json::json!({"name":name,"sha256":hash(&bytes),"bytes":bytes.len()}));
+            Ok(())
+        })
+        .map_err(refusal)?;
+    }
+    cards.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+    Ok(cards)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn asset_cards(_: &Path) -> Result<Vec<Value>, String> {
+    Err("bake asset gate requires a macOS or Linux build host".into())
 }
 
 // Supply bytes, never just signed names. A binary's entry-zero asset roster is
@@ -216,7 +237,7 @@ fn stage_rust_bundle(
         serde_json::from_slice(&receipt).map_err(|e| format!("Rust bundle receipt: {e}"))?;
     if meta["version"].as_u64() != Some(1)
         || meta["kind"] != "rust"
-        || meta["abi"].as_u64() != Some(2)
+        || meta["abi"].as_u64() != Some(RUST_ABI.into())
     {
         return Err("Rust bundle has an unsupported receipt or ABI".into());
     }
@@ -389,7 +410,7 @@ fn artifact_graph(
         } else {
             target.to_string()
         };
-        json!({"rustMode":mode,"rustAbi":2,"rustTarget":target,"grantCeiling":inputs["grantCeiling"],"rustGrants":inputs["rustGrants"]})
+        json!({"rustMode":mode,"rustAbi":RUST_ABI,"rustTarget":target,"grantCeiling":inputs["grantCeiling"],"rustGrants":inputs["rustGrants"]})
     } else {
         json!({})
     };
@@ -526,7 +547,7 @@ mod tests {
         let inputs =
             json!({"app":"com.exact.caltrain","grantCeiling":"","rustGrants":"","rustMode":"wasm"});
         let module = b"\0asm\x01\0\0\0";
-        let receipt = json!({"version":1,"kind":"rust","abi":2,"appId":inputs["app"],"grants":"",
+        let receipt = json!({"version":1,"kind":"rust","abi":RUST_ABI,"appId":inputs["app"],"grants":"",
             "target":"wasm32-unknown-unknown","executor":"wasm",
             "plan":{"file":"app.plan","sha256":hash(plan),"bytes":plan.len()},
             "module":{"file":"app.module.wasm","sha256":hash(module),"bytes":module.len()}});
@@ -587,7 +608,7 @@ mod tests {
         }
         let graph = artifact_graph(&plan, &inputs, &cards, "aarch64-apple-ios").unwrap();
         for row in graph["artifacts"].as_array().unwrap() {
-            assert_eq!(row["requires"]["rustAbi"], 2);
+            assert_eq!(row["requires"]["rustAbi"], RUST_ABI);
             assert_eq!(row["requires"]["rustMode"], "wasm");
             assert_eq!(row["requires"]["rustTarget"], "wasm32-unknown-unknown");
         }
@@ -810,20 +831,33 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join("assets")).unwrap();
         std::fs::create_dir_all(root.join("deck/nested")).unwrap();
+        std::fs::create_dir_all(root.join("gpu/shaders")).unwrap();
         std::fs::write(root.join("assets/image.png"), b"image").unwrap();
         std::fs::write(root.join("deck/nested/index.html"), b"deck").unwrap();
+        std::fs::write(root.join("gpu/shaders/effect.wgsl"), b"shader").unwrap();
         let cards = asset_cards(&root).unwrap();
         assert_eq!(
             cards,
             vec![
                 json!({"name":"assets/image.png","sha256":hash(b"image"),"bytes":5}),
                 json!({"name":"deck/nested/index.html","sha256":hash(b"deck"),"bytes":4}),
+                json!({"name":"shaders/effect.wgsl","sha256":hash(b"shader"),"bytes":6}),
             ]
         );
+        assert_eq!(asset_cards(&root.join("missing/..")).unwrap(), cards);
         std::fs::write(root.join("outside"), b"must not be embedded").unwrap();
         std::os::unix::fs::symlink("../outside", root.join("assets/escape")).unwrap();
         assert!(asset_cards(&root).unwrap_err().contains("bake asset gate"));
-        std::fs::remove_dir_all(root).unwrap();
+        std::fs::remove_file(root.join("assets/escape")).unwrap();
+        std::fs::rename(root.join("assets"), root.join("original-assets")).unwrap();
+        for target in ["original-assets", "missing-assets"] {
+            std::os::unix::fs::symlink(target, root.join("assets")).unwrap();
+            assert!(asset_cards(&root).unwrap_err().contains("symlinks"));
+            std::fs::remove_file(root.join("assets")).unwrap();
+        }
+        std::fs::rename(root.join("original-assets"), root.join("assets")).unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(asset_cards(&root).unwrap().is_empty());
     }
 
     fn signed_fixture() -> (Compat, Value, Vec<u8>) {

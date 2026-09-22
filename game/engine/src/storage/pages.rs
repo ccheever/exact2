@@ -60,7 +60,7 @@ pub struct Page<'a, C> {
     /// Conservative write generation; changes when a mutable row is handed out,
     /// inserted or removed. Compare only within one world presentation generation.
     pub generation: u64,
-    /// Sixteen presence words; bit zero corresponds to `first`.
+    /// Presence words for the page; bit zero corresponds to `first`.
     pub mask: &'a [u64],
     slots: *const C,
     _life: PhantomData<&'a C>,

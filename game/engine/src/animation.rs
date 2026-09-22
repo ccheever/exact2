@@ -11,7 +11,7 @@ use glam::Mat4;
 mod sockets;
 use sockets::SocketCache;
 pub use sockets::{socket, socket_matrix, socket_node, socket_stale, Motion, SocketFollow};
-use std::{any::TypeId, collections::BTreeMap};
+use std::{any::TypeId, collections::BTreeMap, sync::Arc};
 
 /// Saved output shared by every playback controller. Declare the motion root by node name.
 #[derive(Default, Clone, Debug, Data)]
@@ -501,11 +501,14 @@ struct Runtime {
     rigs: BTreeMap<String, Rig>,
     scratch: Vec<f32>,
     pending: Pose,
-    errors: BTreeMap<(Entity, ErrorSource), String>,
+    errors: BTreeMap<Entity, String>,
 }
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ErrorSource {
-    Sample,
+fn runtime(w: &World) -> std::cell::RefMut<'_, Runtime> {
+    std::cell::RefMut::map(w.animation_runtime.borrow_mut(), |slot| {
+        slot.get_or_insert_with(|| Box::new(Runtime::default()))
+            .downcast_mut::<Runtime>()
+            .expect("animation runtime type")
+    })
 }
 struct Rig {
     model: std::sync::Weak<Model>,
@@ -871,7 +874,7 @@ pub fn step(w: &mut World) -> Motion {
             w.revision::<Mesh>(),
         ]
     };
-    let mut cached = w.derived::<Runtime>();
+    let mut cached = runtime(w);
     // Check before queries, sorting or sampling. Redelivery still resamples at the saved clock.
     if cached.stamp == Some(stamp(w))
         && cached.errors.is_empty()
@@ -907,12 +910,9 @@ pub fn step(w: &mut World) -> Motion {
     runtime
         .entities
         .extend(w.query::<&Ik>().iter().map(|(e, _)| e));
-    runtime.errors.retain(|&(e, source), _| {
-        w.contains(e)
-            && match source {
-                ErrorSource::Sample => runtime.entities.contains(&e),
-            }
-    });
+    runtime
+        .errors
+        .retain(|e, _| w.contains(*e) && runtime.entities.contains(e));
     runtime.entities.sort_unstable();
     runtime.entities.dedup();
     let mut redelivered_models = std::collections::BTreeSet::new();
@@ -934,10 +934,13 @@ pub fn step(w: &mut World) -> Motion {
             if model.nodes.len() > 256 {
                 return Err("animation supports at most 256 imported nodes".into());
             }
-            let rig = runtime
-                .rigs
-                .entry(name.clone())
-                .or_insert_with(|| Rig::new(asset));
+            let rig = match runtime.rigs.get_mut(name) {
+                Some(rig) => rig,
+                None => runtime
+                    .rigs
+                    .entry(name.clone())
+                    .or_insert_with(|| Rig::new(asset)),
+            };
             if !rig
                 .model
                 .upgrade()
@@ -1098,31 +1101,48 @@ pub fn step(w: &mut World) -> Motion {
             if let Some(mut a) = w.get_mut::<Animator>(e) {
                 a.playback.clear();
             }
-            if runtime.errors.get(&(e, ErrorSource::Sample)) != Some(&error) {
+            if runtime.errors.get(&e) != Some(&error) {
                 w.log(format_args!("animation #{}: {error}", e.index()));
-                runtime.errors.insert((e, ErrorSource::Sample), error);
+                runtime.errors.insert(e, error);
             }
         } else {
-            runtime.errors.remove(&(e, ErrorSource::Sample));
+            runtime.errors.remove(&e);
         }
     }
-    runtime.output.0.clear();
+    // Reuse unshared output; retained results keep their immutable tick snapshot.
+    if runtime.output.0.as_mut().and_then(Arc::get_mut).is_none() {
+        runtime.output.0 = Some(Arc::new(Vec::with_capacity(runtime.entities.len())));
+    }
+    let output = Arc::get_mut(runtime.output.0.as_mut().unwrap()).unwrap();
+    let mut len = 0;
     for &e in &runtime.entities {
         if let Some(p) = w.get::<Pose>(e) {
-            runtime.output.0.push((
-                e,
-                w.name(e).map(String::from),
-                Playback {
-                    crossed: p.crossed.clone(),
-                    root_motion: p.root_motion,
-                    motion_root: None,
-                },
-            ));
+            if let Some((entity, name, playback)) = output.get_mut(len) {
+                *entity = e;
+                if let Some(current) = w.name(e) {
+                    current.clone_into(name.get_or_insert_with(String::new));
+                } else {
+                    *name = None;
+                }
+                playback.record(&p);
+            } else {
+                output.push((
+                    e,
+                    w.name(e).map(String::from),
+                    Playback {
+                        crossed: p.crossed.clone(),
+                        root_motion: p.root_motion,
+                        motion_root: None,
+                    },
+                ));
+            }
+            len += 1;
         }
     }
+    output.truncate(len);
     runtime.stamp = Some(stamp(w));
     let output = runtime.output.clone();
-    *w.derived::<Runtime>() = runtime;
+    *self::runtime(w) = runtime;
     output
 }
 /// Agent inspection only: all unique skin joints in imported-node order (models cap nodes at 256).

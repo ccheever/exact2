@@ -403,7 +403,11 @@ try {
     await evaluate('exact.ready');
     const first = () => evaluate(`document.activeElement?.getAttribute('data-testid')`);
     assert.equal(await first(), 'first');
-    await evaluate(`document.querySelector('[data-testid="other"]').focus()`);
+    const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="other"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    for (const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent', {type,button:'left',clickCount:1,...at});
+    assert.equal(await first(), 'other');
+    for (const type of ['keyDown','keyUp']) await call('Input.dispatchKeyEvent', {type,key:' ',code:'Space',windowsVirtualKeyCode:32});
+    assert.equal((await state()).slots.count, 2);
     await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
     assert.equal(await first(), 'other');
     await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);

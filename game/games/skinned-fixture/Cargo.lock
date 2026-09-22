@@ -219,6 +219,7 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
+ "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
@@ -540,6 +541,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-filesystem"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
@@ -556,10 +567,6 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
- "exact-game",
- "exact-gpu",
- "exact-runner",
- "serde_json",
 ]
 
 [[package]]
@@ -2074,9 +2081,10 @@ dependencies = [
 name = "skinned-fixture-gpu"
 version = "0.1.0"
 dependencies = [
- "exact-game-app",
+ "exact-game",
  "exact-game-bake",
  "exact-game-render",
+ "serde_json",
  "skinned-fixture-logic",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -3284,7 +3292,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "rapier3d"
-version = "0.35.3"

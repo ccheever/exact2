@@ -82,22 +82,18 @@ impl<T: Data> Data for Vec<T> {
         // Stable Rust has no specialization: downcasts select the four closed
         // bulk types without unsafe layout casts or changing other Vec<T> values.
         let any = self as &dyn Any;
-        if let Some(v) = any.downcast_ref::<Vec<u8>>() {
-            w.bytes(BulkKind::U8, v);
-            return;
-        }
         macro_rules! bulk {
-            ($ty:ty, $kind:ident, $bytes:expr) => {
+            ($ty:ty, $kind:ident) => {
                 if let Some(v) = any.downcast_ref::<Vec<$ty>>() {
-                    let bytes: Vec<u8> = v.iter().flat_map($bytes).collect();
-                    w.bytes(BulkKind::$kind, &bytes);
+                    w.bytes(super::Bulk::$kind(v));
                     return;
                 }
             };
         }
-        bulk!(u16, U16, |v: &u16| v.to_le_bytes());
-        bulk!(u32, U32, |v: &u32| v.to_le_bytes());
-        bulk!(f32, F32, |v: &f32| super::f32_bits(*v).to_le_bytes());
+        bulk!(u8, U8);
+        bulk!(u16, U16);
+        bulk!(u32, U32);
+        bulk!(f32, F32);
         w.begin_seq(self.len());
         for v in self {
             w.item();
@@ -108,13 +104,22 @@ impl<T: Data> Data for Vec<T> {
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let any = self as &mut dyn Any;
         if let Some(v) = any.downcast_mut::<Vec<u8>>() {
-            *v = r.bytes(BulkKind::U8)?;
+            let Some(bytes) = r.bytes(BulkKind::U8)? else {
+                return super::limits::read_vec(r, self, super::MAX_LOAD_BYTES);
+            };
+            let mut out = Vec::new();
+            out.try_reserve_exact(bytes.len())
+                .map_err(super::limits::allocation)?;
+            out.extend_from_slice(bytes);
+            *v = out;
             return Ok(());
         }
         macro_rules! bulk {
             ($ty:ty, $kind:ident, $decode:expr) => {
                 if let Some(v) = any.downcast_mut::<Vec<$ty>>() {
-                    let bytes = r.bytes(BulkKind::$kind)?;
+                    let Some(bytes) = r.bytes(BulkKind::$kind)? else {
+                        return super::limits::read_vec(r, self, super::MAX_LOAD_BYTES);
+                    };
                     const WIDTH: usize = std::mem::size_of::<$ty>();
                     if bytes.len() % WIDTH != 0 {
                         return Err(DataError::new(concat!(

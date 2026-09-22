@@ -3,8 +3,9 @@
 Vendored Rapier 0.35.3 behind Exact's saved components, in metres, kilograms and seconds.
 Call `register` during setup, `physics::capsule(w, "player").step(velocity)` after
 controls, and `physics::step` per tick. The capsule component is `CapsuleController`;
-it can coexist with the core flat-ground `Character`. The step result includes the
-actual `displacement` and `grounded` state.
+it can coexist in one world with the core flat-ground `Character` on a different
+entity; combining both controllers on one entity is refused. The step result includes
+the actual `displacement` and `grounded` state.
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
@@ -12,7 +13,8 @@ actual `displacement` and `grounded` state.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
-  Sleeping bodies still step; seekable Sim observes Body/Transform changes. Support edits wake all.
+  Sleeping bodies still step; any awake dynamic body reports busy to Sim, even
+  when its pose is unchanged. Support edits wake all.
 - Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
@@ -26,7 +28,9 @@ actual `displacement` and `grounded` state.
   queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
   The free query functions are thin one-shot calls through this same cache.
   The capsule handle uses the shared scene. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
-  80 kg default push budget. Movement and push share the layer-mask/sensor/self filter;
+  80 kg default push budget. A default 1 m³ crate is 1,000 kg and cannot be pushed
+  by that controller; author `Body { mass: 10., ..Default::default() }` for a light crate.
+  Movement and push share the layer-mask/sensor/self filter;
   the character's rigid collider is a sensor.
 
 EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
@@ -46,13 +50,25 @@ refreshes and decodes that same representation. There is no parallel field-by-fi
 Rapier clone. See [state.rs](src/state.rs), [continuation tests](tests/paranoid.rs)
 and [the pile diagnostic](examples/pile.rs).
 
-EXPHYS v2 parity has native arm64 and browser fixture evidence. The x86-64 v2
-card and a non-initial `deferred_optimize_pending = true` continuation remain owed;
-earlier v1 results do not establish either boundary.
+EXPHYS v2 parity has native arm64, x86-64 Linux and browser fixture evidence.
+On arm64 and x86-64,
+`tests/continuation/mod.rs` reaches a non-initial `deferred_optimize_pending = true`
+boundary at tick 6 through two bulk collision-only refreshes after a regular step.
+Off/Save/FreshGame and restored continuation agree at tick 12; clearing only the
+serialized pending flag changes the subsequent hash. Both continuations have consumed
+the flag by then: the divergence is subsequent executor state, not a retained flag bit.
+This proves the saved executor boundary, not that every kinematic scene reaches it.
+The minimal-120 pin changed because awake work now enters the existing saved busy
+reasons. Native arm64, x86-64 and Chrome Wasm agree in Off/Save/FreshGame; pile-600 is
+unchanged. This legacy physics card keeps both values in [tests/pins.json](tests/pins.json)
+rather than using the game prover's `--repin` command.
+The x86-64 v2 card passes with the existing pins and all 41 physics tests
+(Rust 1.97.0, 2026-09-21). A 2,134,660-byte query/controller/save trace also
+matches arm64 byte for byte. No pins changed for this verification.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
-cargo test -p exact-game-physics --no-fail-fast
+cargo test -p exact-game-physics --no-fail-fast -- --nocapture
 cargo test -p exact-game
 cargo clippy -p exact-game-physics --all-targets -- -D warnings
 cargo fmt --all -- --check
@@ -64,11 +80,14 @@ cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown 
 `Collider::of(&mesh)` matches each dimensioned primitive. A plane makes a static
 1 cm slab with its top face at Y=0; assets require authored collision geometry.
 
-The kinematic pending-flag parity pin remains owed. R5 tried a 256-static/32-kinematic
-scene with per-body vertical movement and a 512-static/64-kinematic scene moved
-horizontally after the initial tick. Both ran 32 ticks through the collision pipeline
-with matching Off/Save/FreshGame saves, but neither left `deferred_optimize_pending`
-true at a non-initial save boundary. The ignored diagnostic was deleted after those
-two attempts; the dynamic-only pins above do not prove this boundary. A replacement
-must reach the true flag, then show parity and divergence when the serialized flag
-is cleared.
+The copyable controller composition is [tests/living.rs](tests/living.rs):
+`Move`/`Jump`/`Gravity` feed an upright unit-scale `CapsuleController` over a heightfield
+slope, step and ledge; a rotated/scaled animated rig is its `Ambient` visual child.
+Animation root motion is discarded, never applied after collision movement. The
+explicit 10 kg crate is pushed, falls and sleeps. The sun turns, the child animates and a
+derived HUD counts down throughout. Off/Save/FreshGame pin the same rest at tick 547:
+player `(2.2726393, 1.5475401, -0.0044510923)`, crate
+`(4.3423862, -1.5000682, 0.061061338)`. Ordinary time continues to night. The fixture
+builds its two-node model in memory, so the physics test invokes neither the baker nor
+the network. The imported Fox remains covered by the bake, renderer and skinned-game
+fixtures; this test adds no game.

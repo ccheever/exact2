@@ -2,27 +2,50 @@
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {proof} from '../../proof.mjs';
+import {crop, decodePng, diff} from '../../../scripts/png.mjs';
+
+export async function walkTo(world, check, x, z) {
+  await world.settle();
+  for (const [axis,target,plus,minus] of [[0,x,'KeyD','KeyA'],[2,z,'KeyS','KeyW']]) {
+    for (let attempt=0;attempt<4;attempt++) {
+      const delta=target-(await world.local_position('player'))[axis];
+      if (Math.abs(delta)<0.1) break;
+      // Rest-to-rest travel includes acceleration (12), speed (4), and braking
+      // (20). Short corrections never reach full speed: d = 9.6 * hold².
+      const distance=Math.abs(delta);
+      const seconds=distance<16/15 ? Math.sqrt(distance/9.6) : (distance+4/15)/4;
+      await world.hold(delta>0?plus:minus,Math.min(4500,Math.ceil(seconds*60)*1000/60));
+      check('walk settles after releasing key',await world.settle());
+    }
+  }
+  const p=await world.local_position('player');
+  check(`walk reaches (${x}, ${z}) within 0.15 m`,Math.hypot(p[0]-x,p[2]-z)<0.15,p);
+}
 
 // Build products stay beside this game, including in callers with a shared target.
-process.env.CARGO_TARGET_DIR = resolve(import.meta.dir, 'target');
+if (import.meta.main) process.env.CARGO_TARGET_DIR = resolve(import.meta.dir, 'target');
 if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, host, pin, pinSave, say}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const world = s => s.world('world');
   const snapshot = s => world(s).snapshot();
   const position = s => world(s).local_position('player');
-  const walkTo = async (s, x, z) => {
-    await world(s).settle();
-    for (const [axis, target, plus, minus] of [[0,x,'KeyD','KeyA'], [2,z,'KeyS','KeyW']]) {
-      for (let attempt = 0; attempt < 100; attempt++) {
-        const delta = target - (await position(s))[axis];
-        if (Math.abs(delta) < 0.1) break;
-        // Observe the controller, then take a bounded step and let braking finish.
-        await world(s).hold(delta > 0 ? plus : minus, Math.abs(delta) > 1 ? 250 : 50);
-        check('walk settles after releasing key', await world(s).settle());
-      }
+  const captureGlow = async (s, label) => {
+    const screen = (await s.layout('world:beacon-1')).entity.screen;
+    const path = resolve(out,`beacon-1-glow-${label}.png`);
+    const shot = await s.screenshot(path);
+    const image = decodePng(readFileSync(path));
+    const scaleX = image.width / shot.w, scaleY = image.height / shot.h;
+    const x = Math.max(0,Math.floor(screen.x*scaleX));
+    const y = Math.max(0,Math.floor(screen.y*scaleY));
+    const right = Math.min(image.width,Math.ceil((screen.x+screen.w)*scaleX));
+    const bottom = Math.min(image.height,Math.ceil((screen.y+screen.h)*scaleY));
+    const pixels = crop(image,x,y,right-x,bottom-y);
+    let rgb = 0, min = 765, max = 0;
+    for (let i=0;i<pixels.data.length;i+=4) {
+      const value=pixels.data[i]+pixels.data[i+1]+pixels.data[i+2];
+      rgb+=value;min=Math.min(min,value);max=Math.max(max,value);
     }
-    const p = await position(s);
-    check(`walk reaches (${x}, ${z}) within 0.15 m`, Math.hypot(p[0]-x,p[2]-z) < 0.15, p);
+    return {pixels,screen,crop:{x,y,w:right-x,h:bottom-y},mean:rgb/(pixels.width*pixels.height*3),range:(max-min)/3};
   };
   let checkpointState, uninterrupted;
   const checkpoint = resolve(out,'checkpoint.world');
@@ -44,18 +67,36 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(s).settle();
     await world(s).tap('KeyE'); await world(s).run(100);
     check('E outside range lights nothing', !(await world(s).get('beacon-1','Beacon')).lit);
-    await walkTo(s,8,0);
+    await walkTo(world(s),check,8,0);
+    const glowFrames = host === 'web' ? {unlit:await captureGlow(s,'unlit')} : null;
     await world(s).tap('KeyE');
     await world(s).run(100);
     const [glow] = await world(s).get('beacon-1','Glow');
-    const t = Math.min(1,Math.max(0,((await snapshot(s)).tick-glow.start_tick)/60/glow.duration));
-    const partial = glow.start_value+(glow.target-glow.start_value)*t*t*(3-2*t);
-    check('glow is partway at 0.1 s', partial > 0 && partial < 1, partial);
+    check('saved Glow declares a half-second transition from 0 to 1', glow.start_value === 0 && glow.target === 1 && glow.duration === 0.5, glow);
+    const observed = await snapshot(s);
+    check('0.1 s observation lies inside the saved Glow transition', observed.tick > glow.start_tick && observed.tick < glow.start_tick + 60*glow.duration,{tick:observed.tick,start_tick:glow.start_tick,duration:glow.duration});
+    if (glowFrames) glowFrames.partial=await captureGlow(s,'100ms');
     check('beacon-1 lit', (await world(s).get('beacon-1','Beacon')).lit);
     const hud = node(await s.tree(),'hud-lit');
     check('HUD is Beacons 1 / 3 and a polite live region', hud?.props.text === 'Beacons 1 / 3' && hud?.props.accessibilityLive === 'polite');
-    await world(s).run(900);
-    check('glow completes at its declared half-second deadline', (await snapshot(s)).tick >= glow.start_tick + 60*glow.duration && glow.target === 1);
+    await world(s).run(500);
+    if (glowFrames) glowFrames.full=await captureGlow(s,'600ms');
+    await world(s).run(400);
+    if (glowFrames) {
+      glowFrames.later=await captureGlow(s,'1000ms');
+      const frames=Object.values(glowFrames), base=glowFrames.unlit;
+      const sameGeometry=frames.every(frame => ['x','y','w','h'].every(key => Math.abs(frame.screen[key]-base.screen[key])<0.01)
+        && ['x','y','w','h'].every(key => frame.crop[key]===base.crop[key]));
+      check('glow pixel crops keep the same geometry and non-uniform samples',sameGeometry && frames.every(frame=>frame.range>8),frames.map(({screen,crop,range})=>({screen,crop,range})));
+      const partial=diff(base.pixels,glowFrames.partial.pixels);
+      const full=diff(glowFrames.partial.pixels,glowFrames.full.pixels);
+      const stable=diff(glowFrames.full.pixels,glowFrames.later.pixels);
+      say(`glow pixel observations ${JSON.stringify({means:Object.fromEntries(Object.entries(glowFrames).map(([name,frame])=>[name,frame.mean])),diffs:{partial,full,stable}})}`);
+      check('web beacon pixels visibly brighten at 0.1 s',partial.differing>0.05 && partial.mean>2 && glowFrames.partial.mean>base.mean+2,{...partial,from:base.mean,to:glowFrames.partial.mean});
+      check('web beacon pixels brighten further by 0.6 s',full.differing>0.05 && full.mean>2 && glowFrames.full.mean>glowFrames.partial.mean+2,{...full,from:glowFrames.partial.mean,to:glowFrames.full.mean});
+      check('web beacon pixels stay stable from 0.6 to 1 s',stable.differing<0.01 && stable.mean<0.5 && Math.abs(glowFrames.later.mean-glowFrames.full.mean)<0.5,{...stable,from:glowFrames.full.mean,to:glowFrames.later.mean});
+    }
+    check('clock passes the saved Glow half-second deadline', (await snapshot(s)).tick >= glow.start_tick + 60*glow.duration && glow.target === 1);
     check('saved material stays constant while renderer samples glow', equal((await world(s).get('beacon-1','Material')).emissive,[3,3,3]));
     // Pause while moving and mid-jump, so freezing is not a stationary-world tautology.
     await world(s).key_down('KeyW'); await world(s).tap('Space'); await world(s).run(100);
@@ -97,7 +138,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await restored.pointer('up');
     await world(restored).settle();
   }
-  await walkTo(restored,-6,7);
+  await walkTo(world(restored),check,-6,7);
   if (host === 'web' || host === 'ios') {
     const light = await restored.tap('light', {down:true});
     await world(restored).run(1000 / 60);
@@ -105,7 +146,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     check(`${host} pointer Light lights beacon-2`, (await world(restored).get('beacon-2','Beacon')).lit, light);
   } else await world(restored).tap('KeyE');
   await world(restored).run(600);
-  await walkTo(restored,3,-9);
+  await walkTo(world(restored),check,3,-9);
   await world(restored).tap('KeyE'); await world(restored).run(600);
   const won = await restored.tree();
   check('all three light and win UI appears',node(won,'hud-lit')?.props.text === 'Beacons 3 / 3' && !!node(won,'victory'));
@@ -114,14 +155,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   check('restart clears count and resets player',node(await restored.tree(),'hud-lit')?.props.text === 'Beacons 0 / 3' && equal(await position(restored),[0,0.9,0]));
   const logs = await restored.logs();
   check('no host exceptions', !(logs.host ?? []).some(line => /^(exception:|console\.error:|error:)/.test(line)));
+  // The reset world is already at the title probe's starting state. Reuse its
+  // carrier for the focus check instead of launching a third native process.
+  await restored.tap('pause'); await restored.tap('pause');
+  check('pointer Resume releases focus', node(await restored.tree(),'pause')?.focused !== true);
+  await restored.type('world',{key:'Space',phase:'down'});
+  await world(restored).run(100);
+  await restored.type('world',{key:'Space',phase:'up'});
+  check('click Pause then Resume leaves Space to jump', (await position(restored))[1] > 0.9);
   await restored.close();
-  const pointerSession = await open({fresh:true});
-  await pointerSession.tap('play');
-  await pointerSession.tap('pause'); await pointerSession.tap('pause');
-  check('pointer Resume releases focus', node(await pointerSession.tree(),'pause')?.focused !== true);
-  await pointerSession.type('world',{key:'Space',phase:'down'});
-  await world(pointerSession).run(100);
-  await pointerSession.type('world',{key:'Space',phase:'up'});
-  check('click Pause then Resume leaves Space to jump', (await position(pointerSession))[1] > 0.9);
-  await pointerSession.close();
 });

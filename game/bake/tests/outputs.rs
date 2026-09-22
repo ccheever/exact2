@@ -11,6 +11,40 @@ fn temp() -> std::path::PathBuf {
 }
 const CRATE: &str = include_str!("fixtures/crate.gltf");
 #[test]
+fn app_cli_bakes_paths_with_spaces_and_refuses_authored_replacements() {
+    let app = std::env::temp_dir().join(format!(
+        "asset CLI outputs {} {:?}",
+        std::process::id(),
+        std::thread::current().id()
+    ));
+    fs::create_dir_all(app.join("art")).unwrap();
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    let run = || {
+        std::process::Command::new(env!("CARGO_BIN_EXE_exact-game-bake"))
+            .arg("--art")
+            .arg(&app)
+            .output()
+            .unwrap()
+    };
+    let output = run();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(app.join("assets/crate.model").exists());
+    assert!(app.join(".baked-assets.json").exists());
+    fs::write(app.join("assets/crate.model"), b"authored replacement").unwrap();
+    let output = run();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("authored asset"));
+    assert_eq!(
+        fs::read(app.join("assets/crate.model")).unwrap(),
+        b"authored replacement"
+    );
+    fs::remove_dir_all(app).unwrap();
+}
+#[test]
 fn generated_manifest_prunes_renames_deletions_and_absent_art_without_touching_authored_assets() {
     let app = temp();
     fs::write(app.join("art/crate.gltf"), CRATE).unwrap();

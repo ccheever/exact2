@@ -332,12 +332,21 @@ fn publication_preserves_owned_and_shared_contract_values() {
     let mut sim = Sim::<Moving>::new(()).unwrap();
     let saved = sim.world().save();
     let hash = sim.world().hash();
-    sim.world().publish("text", "beacon ready");
+    let mut source = String::from("beacon ready");
+    sim.world().publish("text", source.as_str());
+    source.clear();
+    source.push_str("changed after publication");
+    drop(source);
     assert_eq!(
         sim.take_published().as_deref(),
         Some(r#"{"text":"beacon ready"}"#)
     );
     let events = sim.world().journal().len();
+    let same = String::from("beacon ready");
+    sim.world().publish("text", same.as_str());
+    drop(same);
+    assert!(sim.take_published().is_none());
+    assert_eq!(sim.world().journal().len(), events);
     sim.world().publish("text", String::from("beacon ready"));
     assert!(sim.take_published().is_none());
     assert_eq!(sim.world().journal().len(), events);
@@ -368,6 +377,20 @@ fn publication_preserves_owned_and_shared_contract_values() {
     assert!(sim.take_published().is_none());
     assert_eq!(sim.world().journal().len(), events);
     assert_eq!(sim.world().published("record"), Some(shared));
+
+    sim.world().publish("number", 0.0_f64);
+    assert!(sim.take_published().is_some());
+    let events = sim.world().journal().len();
+    sim.world().publish("number", -0.0_f64);
+    assert!(sim.take_published().is_none());
+    assert_eq!(sim.world().journal().len(), events);
+    sim.world().publish("number", f64::NAN);
+    let with_nan = r#"{"number":null,"record":["héllo",[7,true],"present"],"text":"lit"}"#;
+    assert_eq!(sim.take_published().as_deref(), Some(with_nan));
+    let events = sim.world().journal().len();
+    sim.world().publish("number", f64::NAN);
+    assert_eq!(sim.take_published().as_deref(), Some(with_nan));
+    assert_eq!(sim.world().journal().len(), events + 1);
     assert_eq!(sim.world().hash(), hash);
     assert_eq!(sim.world().save(), saved);
 }
@@ -402,6 +425,104 @@ fn proximity_uses_both_parent_chains_and_returns_mutable_global_rows() {
     assert_eq!(w.near::<Beacon>("missing", 1.).count(), 0);
     w.get_mut::<Transform>(parent).unwrap().position.x = 50.;
     assert_eq!(w.near_xz::<Beacon>(player, 1.).count(), 0);
+}
+
+#[test]
+fn owned_entity_names_keep_resolution_diagnostics_and_custom_targets() {
+    struct Routed {
+        entity: Entity,
+        label: &'static str,
+    }
+    impl Target for Routed {
+        fn label(&self) -> String {
+            self.label.into()
+        }
+        fn entity(&self, _: &World) -> Option<Entity> {
+            Some(self.entity)
+        }
+    }
+
+    let mut w = World::new(60, 0);
+    let fox = w.spawn_named("fox", Transform::at(3., 0., 0.));
+    assert_eq!(w.get::<Transform>("fox").unwrap().position.x, 3.);
+    let name = String::from("fox");
+    assert_eq!(w.get::<Transform>(&name).unwrap().position.x, 3.);
+    let retained = w.require::<Transform>(name);
+    assert_eq!(retained.position.x, 3.);
+    drop(retained);
+
+    let named_slot = format!("fox#{}", fox.index());
+    assert_eq!(w.get::<Transform>(&named_slot).unwrap().position.x, 3.);
+    let slot = format!("#{}", fox.index());
+    assert_eq!(w.require::<Transform>(slot).position.x, 3.);
+
+    let missing = String::from("missing");
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        w.require::<Mesh>(&missing);
+    }))
+    .unwrap_err();
+    let message = failure.downcast_ref::<String>().unwrap();
+    assert!(
+        message.contains("missing") && message.contains("Mesh"),
+        "{message}"
+    );
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        w.require::<Mesh>(String::from("owned missing"));
+    }))
+    .unwrap_err();
+    let message = failure.downcast_ref::<String>().unwrap();
+    assert!(message.contains("owned missing"), "{message}");
+
+    assert!(w.despawn(fox));
+    let replacement = w.spawn(Transform::default());
+    assert_eq!(replacement.index(), fox.index());
+    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        w.require::<Transform>(Routed {
+            entity: fox,
+            label: "remembered fox",
+        });
+    }))
+    .unwrap_err();
+    let message = failure.downcast_ref::<String>().unwrap();
+    assert!(message.contains("remembered fox"), "{message}");
+}
+
+#[test]
+fn numeric_record_lists_preserve_values_through_publication_and_restore() {
+    #[derive(Default, Data)]
+    struct Hud {
+        bytes: Vec<u8>,
+        shorts: Vec<u16>,
+        words: Vec<u32>,
+        floats: Vec<f32>,
+    }
+    let mut sim = Sim::<Moving>::new(()).unwrap();
+    sim.world().publish_record(&Hud {
+        bytes: vec![0, u8::MAX],
+        shorts: vec![0, u16::MAX],
+        words: vec![0, u32::MAX],
+        floats: vec![-0.0, 1.25, f32::from_bits(0xffa12345), f32::INFINITY],
+    });
+    let Value::List(values) = sim.world().published("floats").unwrap() else {
+        panic!("numeric vector must publish a list");
+    };
+    assert_eq!(
+        values[0].as_number().unwrap().to_bits(),
+        (-0.0f64).to_bits()
+    );
+    assert_eq!(
+        values[2].as_number().unwrap().to_bits(),
+        (f32::NAN as f64).to_bits()
+    );
+    assert_eq!(
+        sim.take_published().unwrap(),
+        r#"{"bytes":[0,255],"floats":[-0,1.25,null,null],"shorts":[0,65535],"words":[0,4294967295]}"#
+    );
+    let saved = sim.save().unwrap();
+    let mut restored = Sim::<Moving>::new(()).unwrap();
+    restored.restore(&saved).unwrap();
+    assert_eq!(saved, restored.save().unwrap());
+    assert_eq!(sim.world().hash(), restored.world().hash());
 }
 
 #[test]

@@ -8,8 +8,6 @@
 // layout: see world/placed boxes, camera visibility and line-of-sight picks.
 // logs: read gameplay events and refusals, including reload/carry failures.
 // clock: advance deterministic ticks; settle reports what keeps moving.
-// Intended pin change: bun game/prove.mjs small-game --repin
-// Save/setup investigation: bun game/games/small-game/proof.mjs linux --paranoid
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { proof } from '../../proof.mjs';
@@ -22,24 +20,24 @@ const distance = (n, h, a=12, v=4) => {
 };
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave}) => {
   const movement = await open();
-  await movement.tap('play');
+  if (process.argv.includes('--screenshot-only')) {
+    check('screenshot uses web', host === 'web');
+    await movement.tap('play');
+    await movement.screenshot(resolve(out, 'game.png'));
+    await movement.close();
+    return;
+  }
+  await movement.type('play',{key:'Enter'});
   await movement.world('world').hold('KeyW',1500);
   const walked = await movement.world('world').local_position('player');
   check('W for 1.5 s matches the closed-form acceleration series', Math.abs(walked[2]+distance(180,120)) < 0.001, walked);
   await movement.close();
   const s = await open();
-  if (process.argv.includes('--screenshot-only')) {
-    check('screenshot uses web', host === 'web');
-    await s.tap('play');
-    await s.screenshot(resolve(out, 'game.png'));
-    await s.close();
-    return;
-  }
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
   check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('state agrees with initial focus', (await s.state()).focus.logical === node(title, 'play')?.id);
-  check('title and Play', !!node(title, 'play') && title.nodes.some(n => n.props?.text === 'Small game'));
+  check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'Touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
   check('world loads after Play', !node(title, 'world'));
   await s.tap('play');
   check('HUD is a polite live region', node(await s.tree(), 'hud-lit')?.props.accessibilityLive === 'polite');
@@ -53,7 +51,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.hold("KeyD", 500.0);
   await game.settle();
   const position = await game.global_position("player");
-  check('prompt appears in range', node(await s.tree(), 'near-prompt')?.props.text === 'Tap Light to light this beacon');
+  check('prompt appears in range', node(await s.tree(), 'near-prompt')?.props.text === 'Press E or tap Light');
   await game.tap("KeyE");
   await game.run(100.0);
   const beacon = await game.get("beacon-1", "Beacon");
@@ -103,5 +101,37 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await pointerSession.world('world').run(100);
   await pointerSession.type('world',{key:'Space',phase:'up'});
   check('click Pause then Resume leaves Space to jump', (await pointerSession.world('world').local_position('player'))[1] > 0.9);
+  const pointerGame = pointerSession.world('world');
+  const total = (await pointerGame.snapshot()).entities.filter(e => e.components?.Beacon).length;
+  check('the scene supplies a nonempty beacon goal', total > 0);
+  // The starter places the first beacon at x=2 and the rest four metres apart.
+  for (let i = 0; i < total; i++) {
+    await pointerGame.hold('KeyD', i === 0 ? 500 : 1000);
+    await pointerGame.settle();
+    await pointerGame.tap('KeyE');
+    await pointerGame.run(100);
+    const tree = await pointerSession.tree();
+    check(`beacon ${i + 1} reaches the HUD`, node(tree, 'hud-lit')?.props.text === `Lit ${i + 1}`);
+    check(`victory waits for every beacon (${i + 1}/${total})`, !!node(tree, 'again') === (i + 1 === total));
+  }
+  if (host === 'web') await pointerSession.screenshot(resolve(out, 'victory.png'));
+  await pointerSession.tap('again');
+  const restarted = await pointerSession.tree();
+  check('Play again clears victory and the lit count', !node(restarted, 'again') && node(restarted, 'hud-lit')?.props.text === 'Lit 0');
+  check('Play again returns keyboard focus to the game', node(restarted, 'world')?.focused === true);
+  await pointerGame.hold('KeyD', 500);
+  await pointerGame.settle();
+  await pointerGame.tap('KeyE');
+  await pointerGame.run(100);
+  await pointerSession.tap('pause');
+  const paused = await pointerSession.tree();
+  check('a paused game offers Restart before victory', node(paused, 'restart')?.accessibleName === 'Restart' && node(paused, 'hud-lit')?.props.text === 'Lit 1');
+  if (host === 'web') await pointerSession.screenshot(resolve(out, 'paused.png'));
+  await pointerSession.tap('restart');
+  const reset = await pointerSession.tree();
+  check('Restart clears progress and resumes play', node(reset, 'hud-lit')?.props.text === 'Lit 0' && !node(reset, 'restart') && node(reset, 'pause')?.accessibleName === 'Pause');
+  check('Restart returns keyboard focus to the game', node(reset, 'world')?.focused === true);
+  await pointerGame.hold('KeyD', 500);
+  check('Restart leaves movement running', (await pointerGame.local_position('player'))[0] > 0.5);
   await pointerSession.close();
 });

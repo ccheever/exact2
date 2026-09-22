@@ -52,7 +52,8 @@ impl Executor {
                     let scoped = job.request.grants.as_deref().map(|scope| {
                         exact_data::storage::scope(&grants, Some(scope))
                             .and_then(|s| {
-                                ibex2::grant::GrantSet::parse(s).map_err(|e| e.to_string())
+                                ibex2::grant::GrantSet::parse(&exact_runner::io_grants(s))
+                                    .map_err(|e| e.to_string())
                             })
                             .map(|g| ibex2::host::Host::new().endow(g))
                     });

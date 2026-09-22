@@ -181,6 +181,46 @@ impl Batch {
     /// — a request the runner handed the host to run (LLP 1016 D2); the
     /// reply comes back through `exact_fulfill`.
     pub fn request(&mut self, r: &exact_runner::RequestOut) {
+        if let Some(work) = r.request.surface.as_deref() {
+            let (mode, name, bytes) = match work {
+                exact_runner::SurfaceRequest::Capture { name } => ("capture", name, None),
+                exact_runner::SurfaceRequest::Restore { name, bytes } => {
+                    ("restore", name, Some(bytes.as_slice()))
+                }
+            };
+            let mixed = r.request.continuation.is_some()
+                || r.request.storage.is_some()
+                || r.request.method != "GET"
+                || !r.request.url.is_empty()
+                || !r.request.headers.is_empty()
+                || !r.request.body.is_empty();
+            let oversized =
+                bytes.is_some_and(|bytes| bytes.len() > exact_runner::MAX_HOST_WORK_BYTES);
+            let mut s = format!(
+                "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{mode}\",\"name\":",
+                r.ticket
+            );
+            quote(name, &mut s);
+            s.push_str(",\"scope\":");
+            if let Some(scope) = &r.request.grants {
+                quote(scope, &mut s)
+            } else {
+                s.push_str("null")
+            }
+            if let Some(bytes) = bytes.filter(|_| !mixed && !oversized) {
+                s.push_str(",\"body\":\"");
+                s.push_str(&exact_runner::agent::base64(bytes));
+                s.push('"');
+            }
+            if oversized {
+                s.push_str(",\"refusal\":\"surface restore exceeds 16 MiB\"");
+            } else if mixed {
+                s.push_str(",\"refusal\":\"surface request combines multiple host-work kinds\"");
+            }
+            s.push('}');
+            self.ops.push(s);
+            return;
+        }
         if let Some(token) = r.request.continuation {
             self.ops.push(format!(
                 "{{\"op\":\"continue\",\"ticket\":{},\"token\":{token}}}",

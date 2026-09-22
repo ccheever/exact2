@@ -108,8 +108,17 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
   };
   try {
     const s=await start();
-    // Establish the device's first draw before measuring after-ready ticks.
+    // Draw at tick zero before reading batching counters.
     if (host !== 'linux') await s.screenshot(resolve(out, 'crate-ready.png'));
+    const zero = (await s.state()).world[0];
+    pin(0, zero);
+    const level = zero.assets.find(a => a.name === 'island.level.json')?.value;
+    check('typed level is inspectable before tick one', zero.tick === 0 && level?.seed === 7 && level.lanterns.length === 3 && level.sign === 'Three lanterns on the seeded island', level);
+    for (const [name, expected] of [['terrainA',0.375],['terrainB',1.4375],['terrainC',2.25],['slopeContact',0.6399267]]) {
+      check(`seeded island ${name}`, Math.abs(zero.published[name] - expected) < 0.0001, zero.published[name]);
+    }
+    if (host !== 'linux') check('three shared rocks use one group: terrain, rocks, crate, lanterns plus tonemapping', zero.perf.draws === 5 && zero.perf.instances === 8, zero.perf);
+    // Establish the device's first draw before measuring after-ready ticks.
     await s.clock(500);
     const at30=(await s.state()).world[0];
     check('setup and exactly 30 ticks after settlement', at30.tick===30 && at30.loading.length===0 && at30.assets.every(a=>a.state==='Loaded'),at30);

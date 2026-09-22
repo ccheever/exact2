@@ -16,13 +16,22 @@ use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeRef, NodeType, PropId, Pr
 use exact_motion::Property;
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
 use exact_runner::{
-    Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError, Timed,
+    Carried, DataSource, Event, FailureKind, Outcome, Response, Runner, RunnerError,
+    SurfaceOutcome, Timed,
 };
 
 /// A reply as the ABI carries it, as the runner's `Outcome`.
 pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Outcome {
     match kind {
         5 => Outcome::Storage(body),
+        6 if body.len() <= exact_runner::MAX_HOST_WORK_BYTES => {
+            Outcome::Surface(SurfaceOutcome::Captured(body))
+        }
+        6 => Outcome::Failed {
+            kind: FailureKind::Refused,
+            message: "surface capture exceeds 16 MiB".into(),
+        },
+        7 => Outcome::Surface(SurfaceOutcome::Restored),
         0 => Outcome::Response(Response {
             status: status as u16,
             headers: headers
@@ -438,8 +447,8 @@ impl<D: DataSource> Host<D> {
 
     /// The page brought back request `ticket`'s outcome (LLP 1016 D2):
     /// `kind` 0 is a response with `status`, `headers` as `name: value`
-    /// lines, and `body`; 1–4 are `Network`, `Refused`, `Unsupported`,
-    /// `Aborted` with `body` the executor's message. The batch is the commit
+    /// lines, and `body`; 1–4 are failures, 5 is storage, and 6/7 are a
+    /// captured/restored surface. The batch is the commit
     /// the reply made — or nothing, for a ticket no longer held.
     pub fn fulfill_at(
         &mut self,

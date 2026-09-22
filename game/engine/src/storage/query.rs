@@ -320,9 +320,11 @@ impl<'w, Q: Query> QueryBorrow<'w, Q> {
     }
     /// The sole item, or None. Multiple matches are refused in every build.
     pub fn one(&mut self) -> Option<Q::Item<'_>> {
-        let count = self.iter().count();
-        assert!(count <= 1, "expected one {}, found {}", Q::names(), count);
-        self.iter().next().map(|(_, item)| item)
+        let mut rows = self.iter();
+        let (_, first) = rows.next()?;
+        let count = 1 + rows.count();
+        assert!(count == 1, "expected one {}, found {}", Q::names(), count);
+        Some(first)
     }
     /// Visit each matching entity once, yielding plain references.
     pub fn iter(&mut self) -> QueryIter<'_, 'w, Q> {

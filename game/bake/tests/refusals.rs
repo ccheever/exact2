@@ -127,3 +127,31 @@ fn cubic_tracks_preserve_gltf_neighbour_tangents_through_bake() {
         0.84375 * 4. + 0.140625 * 3. * 11. + 0.15625 * 8. - 0.046875 * 3. * 13.
     );
 }
+
+#[test]
+fn vertex_colors_survive_bake_and_merge_with_white_defaults() {
+    let mut v = source();
+    // A separate RGBA float accessor, shared by all 24 vertices.
+    v["buffers"].as_array_mut().unwrap().push(json!({"byteLength":384,"uri":"data:application/octet-stream;base64,AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/AACAPgAAAD8AAEA/AACAPwAAgD4AAAA/AABAPwAAgD8AAIA+AAAAPwAAQD8AAIA/"}));
+    v["bufferViews"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"buffer":1,"byteLength":384}));
+    v["accessors"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"bufferView":4,"componentType":5126,"count":24,"type":"VEC4"}));
+    let plain = v["meshes"][0]["primitives"][0].clone();
+    v["meshes"][0]["primitives"][0]["attributes"]["COLOR_0"] = json!(4);
+    v["meshes"][0]["primitives"]
+        .as_array_mut()
+        .unwrap()
+        .push(plain);
+    let baked = bake(v).unwrap();
+    assert_eq!(baked.meshes.len(), 1);
+    assert_eq!(
+        &baked.meshes[0].colors[..96],
+        &[0.25, 0.5, 0.75, 1.].repeat(24)
+    );
+    assert_eq!(&baked.meshes[0].colors[96..], &[1.; 96]);
+}

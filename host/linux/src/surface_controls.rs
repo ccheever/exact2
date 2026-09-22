@@ -1,5 +1,8 @@
-//! Canvas action ownership and restored contact routing.
+//! Pointer focus, canvas action ownership, and restored contact routing.
 use super::{ControlBinding, DataSource, Presenter, Value};
+use exact_kernel::{NodeType, PropId, ViewId};
+use exact_plan::EventKind;
+use exact_runner::Event;
 use serde_json::json;
 use std::collections::BTreeSet;
 
@@ -87,17 +90,9 @@ impl<D: DataSource> Presenter<D> {
         if !accepted && phase == "down" {
             self.control_bindings.remove(&key);
         }
-        // The reserved keyboard contacts keep focus; completed pointers release it.
-        if matches!(phase, "up" | "cancel")
-            && contact < u32::MAX - 2
-            && owner.view.is_some_and(|view| self.focus == Some(view))
-        {
-            self.focus = None;
-            self.dirty = true;
-        }
         accepted
     }
-    pub(super) fn input_surface(&self, id: u32) -> Option<u32> {
+    pub(crate) fn input_surface(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
         while let Some(view) = cursor {
             if self.surfaces.wants_input(view) {
@@ -235,15 +230,50 @@ impl<D: DataSource> Presenter<D> {
             self.surfaces.input(surface,json!({"t":"control","name":b.name,"phase":"cancel","id":contact,"x":0,"y":0,"at":self.host.now()}));
         }
     }
-    /// Route a hardware activation key through focused controls or the canvas.
-    pub fn activation_key(&mut self, key: &str, down: bool) {
+    /// Drop focus.
+    pub fn blur(&mut self) {
+        self.cancel_controls();
+        let mut views: Vec<_> = self
+            .surfaces
+            .canvases
+            .iter()
+            .filter(|(_, c)| !c.held.is_empty())
+            .map(|(view, _)| *view)
+            .collect();
+        for id in self
+            .control_contact
+            .take()
+            .map(|(id, _, _)| id)
+            .into_iter()
+            .chain(self.focus)
+        {
+            if let Some(view) = self.input_surface(id) {
+                views.push(view);
+            }
+        }
+        views.sort_unstable();
+        views.dedup();
+        for view in views {
+            self.surfaces
+                .input(view, serde_json::json!({"t":"blur","at":self.host.now()}));
+        }
+        if self.focus.take().is_some() {
+            self.dirty = true;
+        }
+    }
+
+    /// Route device keys through the same targeted path as agent keys.
+    pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
-        let contact = if key == "Space" {
+        let contact = if code == "Space" {
             u32::MAX - 1
         } else {
             u32::MAX - 2
         };
-        if !down && self.control_bindings.keys().any(|(_, c)| *c == contact) {
+        if !down
+            && matches!(code, "Space" | "Enter" | "NumpadEnter")
+            && self.control_bindings.keys().any(|(_, c)| *c == contact)
+        {
             let surfaces: Vec<_> = self
                 .control_bindings
                 .keys()
@@ -255,7 +285,7 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
-        if down && matches!(key, "Space" | "Enter" | "NumpadEnter") {
+        if down && matches!(code, "Space" | "Enter" | "NumpadEnter") {
             let owner = self
                 .control_bindings
                 .iter()
@@ -277,19 +307,44 @@ impl<D: DataSource> Presenter<D> {
                 return;
             }
         }
-        if let Some(id) = self.focus {
-            let _ = self.type_key(id, key, down);
-        } else if let Some(view) = self
-            .surfaces
-            .canvases
-            .keys()
-            .copied()
-            .find(|v| self.surfaces.wants_input(*v))
+        // A release belongs to the canvas that received the press, even after focus
+        // moves into an editor. The existing held set is the ownership record.
+        if !down {
+            let owners: Vec<_> = self
+                .surfaces
+                .canvases
+                .iter()
+                .filter(|(_, c)| c.held.contains(code))
+                .map(|(view, _)| *view)
+                .collect();
+            for view in owners {
+                self.surfaces.input(view, json!({"t":"key","code":code,"key":key,"down":false,"repeat":false,"at":self.host.now()}));
+            }
+            return;
+        }
+        if let Some(id) = self.focus.or_else(|| {
+            self.surfaces.canvases.keys().copied().find(|view| {
+                self.surfaces.wants_input(*view)
+                    && self.host.route_visibility(*view) == (false, false)
+                    && self
+                        .host
+                        .kernel()
+                        .node(*view)
+                        .is_some_and(|n| n.props.bool(PropId::Disabled) != Some(true))
+            })
+        }) {
+            let _ = self.type_key(id, code, key, down, repeat);
+        }
+        if code == "Escape"
+            && self.focus.is_some_and(|id| {
+                self.host
+                    .kernel()
+                    .node(id)
+                    .is_some_and(|n| n.node_type == NodeType::TextInput)
+                    || self.input_surface(id).is_none()
+            })
         {
-            self.surface_input(
-                view,
-                json!({"t":"key","code":key,"key":key,"down":down,"at":self.host.now()}),
-            );
+            self.blur();
         }
     }
 
@@ -366,5 +421,102 @@ impl<D: DataSource> Presenter<D> {
             _ => None,
         };
         Some(json!({"tapped":id,"phase":phase,"at":[x,y],"delivery":"recognized"}))
+    }
+}
+
+impl<D: DataSource> Presenter<D> {
+    /// The nearest node at or above `id` with a handler for `kind`.
+    pub(crate) fn handler_target(&self, id: ViewId, kind: EventKind) -> Option<ViewId> {
+        if self.host.route_visibility(id).1 {
+            return None;
+        }
+        let kernel = self.host.kernel();
+        let mut at = Some(id);
+        while let Some(n) = at {
+            let node = kernel.node(n)?;
+            if node.props.bool(PropId::Disabled) == Some(true) {
+                return None;
+            }
+            if self.host.runner().handlers_of(n).contains(&kind) {
+                return Some(n);
+            }
+            at = node.parent;
+        }
+        None
+    }
+
+    pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        self.host.kernel().node(id).is_some_and(|n| {
+            n.props.bool(PropId::Disabled) != Some(true)
+                && (n.props.str(PropId::Action).is_some()
+                    || n.node_type == NodeType::TextInput
+                    || n.props.str(PropId::AccessibilityRole) == Some("button"))
+        })
+    }
+
+    /// Pointer activation returns HUD button focus to its input canvas after press.
+    pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        let hit = self.hit(x, y)?;
+        if let Some(control) = self.control_target(hit) {
+            for phase in ["down", "up"] {
+                if !self.control_input(control, phase, x, y, 1, now_ms) {
+                    return None;
+                }
+            }
+            return Some(control);
+        }
+        let mut focus = Some(hit);
+        while let Some(id) = focus {
+            if self.focusable(id) {
+                break;
+            }
+            focus = self.host.kernel().node(id).and_then(|n| n.parent);
+        }
+        let editing = self.surfaces.wants_input(hit)
+            && self
+                .focus
+                .and_then(|id| self.host.kernel().node(id))
+                .is_some_and(|node| node.node_type == NodeType::TextInput);
+        if self.focus != focus && !editing {
+            self.focus = focus;
+            self.dirty = true;
+        }
+        let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            return self.surface_pointer(hit, x, y, now_ms);
+        };
+        self.dispatch_press(target, now_ms, true);
+        Some(target)
+    }
+
+    pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
+        // Capture ancestry before the handler can remove its button. Pointer
+        // activation yields focus to commit autofocus; keyboard activation keeps
+        // a surviving button focused. Never clear an editor or explicit focus.
+        let fallback = (self.focus == Some(target)).then(|| {
+            if pointer {
+                self.focus = None;
+            }
+            let node = self.host.kernel().node(target);
+            let hud = node.is_some_and(|n| {
+                n.props.str(PropId::AccessibilityRole) == Some("button")
+                    && n.props.str(PropId::Action).is_none()
+            });
+            if hud {
+                self.input_surface(target).unwrap_or(target)
+            } else {
+                target
+            }
+        });
+        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+            eprintln!("exact: {e}");
+        }
+        if let Some(e) = self.after_commit() {
+            eprintln!("exact: {e}");
+        }
+        if self.focus.is_none() {
+            self.focus = fallback.filter(|id| {
+                self.host.kernel().node(*id).is_some() && !self.host.route_visibility(*id).1
+            });
+        }
     }
 }

@@ -352,6 +352,7 @@ public final class ExactSession {
     private var pendingCommands: [(String, [Any])] = []
     private var applying = false
     private var pendingSurfaceRecords: [(String, String?)] = []
+    private var pendingSurfaceWork: [([String: Any], Int)] = []
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -563,10 +564,13 @@ public final class ExactSession {
         let outermost = !applying
         applying = true
         for op in batch.ops where op["op"] as? String == "router" { routerOp = op }
+        for op in batch.ops where op["op"] as? String == "surfaceWork" {
+            pendingSurfaceWork.append((op, generation))
+        }
         presenter.apply(batch)
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
-        if firstDrawMs != nil { canvases.loadIfNeeded() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); frames.run(frames.motion || canvases.wantsFrames) } }
+        if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || canvases.wantsFrames) } }
         frames.run(batch.motion || canvases.wantsFrames)
         if batch.timers, clockTimer == nil, !ExactEnv.agentMode {
             clockTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -608,6 +612,22 @@ public final class ExactSession {
         }
     }
 
+    private func drainSurfaceWork() {
+        guard canvases.module != nil || canvases.failed != nil || canvases.entries.isEmpty,
+              !pendingSurfaceWork.isEmpty else { return }
+        let work = pendingSurfaceWork
+        pendingSurfaceWork = []
+        DispatchQueue.main.async { [weak self] in
+            guard let self, state != .destroyed else { return }
+            for (op, owner) in work { canvases.surfaceWork(op, generation: owner) }
+        }
+    }
+
+    func completeSurface(_ ticket: UInt64, generation owner: Int, kind: UInt32, body: Data = Data()) {
+        guard state != .destroyed, generation == owner, runtime.requestActive(ticket) else { return }
+        apply(runtime.fulfillSurface(ticket, kind: kind, body: body, now: now()))
+    }
+
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
     /// the next turn; the update store hears first pixel (LLP 1026 D11).
     /// Capture at node creation. A delayed old draw cannot bless its successor.
@@ -636,6 +656,7 @@ public final class ExactSession {
             apply(batch)
             if batch.error == nil { app.firstPixel(token) }
             canvases.loadIfNeeded()
+            drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
         }
     }

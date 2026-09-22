@@ -54,8 +54,7 @@ fn map(h: &[f32; 9], x: f32, y: f32) -> (f32, f32) {
 
 #[test]
 fn the_fan_places_cards_down_the_canvas_and_settles() {
-    let Ok(gpu) = fixture::device() else {
-        eprintln!("no adapter; the stack fixture is skipped");
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
     // The shaders travel as files (LLP 1030 D8): registered as a host would.

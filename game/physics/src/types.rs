@@ -264,3 +264,17 @@ impl Collider {
         }
     }
 }
+
+impl Shape {
+    /// Build a visual mesh and static collision terrain from row-major heights.
+    /// Rows run along Z, columns along X; X/Z are centered, Y is scaled height.
+    /// The diagonal joins the next row to the next column, matching Rapier.
+    pub fn heightfield(
+        rows: u32,
+        cols: u32,
+        heights: Vec<f32>,
+        scale: Vec3,
+    ) -> Result<(exact_game::asset::MeshData, Self), String> {
+        crate::math::heightfield(rows, cols, heights, scale)
+    }
+}

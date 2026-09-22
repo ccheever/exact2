@@ -36,6 +36,7 @@ pub struct Session {
     out: PathBuf,
     last: Option<String>,
     stamp: Option<(SystemTime, u64)>,
+    surfaces_stamp: Option<(SystemTime, u64)>,
     failed: bool,
 }
 
@@ -52,6 +53,7 @@ impl Session {
             out: out.into(),
             last: None,
             stamp: None,
+            surfaces_stamp: None,
             failed: false,
         }
     }
@@ -67,11 +69,15 @@ impl Session {
     pub fn poll<D: DataSource + Default>(&mut self) -> Option<Result<Built, String>> {
         let meta = std::fs::metadata(&self.source).ok()?;
         let stamp = (meta.modified().ok()?, meta.len());
+        let surfaces_stamp = std::fs::metadata(self.source.with_file_name(".shells/surfaces.json"))
+            .ok()
+            .and_then(|m| Some((m.modified().ok()?, m.len())));
+        let surfaces_changed = self.surfaces_stamp != surfaces_stamp;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when
         // the coarse metadata stamp is unchanged; identical bad bytes are
         // still suppressed below.
-        if !self.failed && self.stamp == Some(stamp) {
+        if !self.failed && self.stamp == Some(stamp) && !surfaces_changed {
             return None;
         }
         self.stamp = Some(stamp);
@@ -82,11 +88,13 @@ impl Session {
                 return Some(Err(format!("{}: {e}", self.source.display())));
             }
         };
-        if self.last.as_deref() == Some(src.as_str()) {
+        if self.last.as_deref() == Some(src.as_str()) && !surfaces_changed {
             return None;
         }
         self.last = Some(src.clone());
-        let built = self.build::<D>(&src, unix_ms(stamp.0));
+        self.surfaces_stamp = surfaces_stamp;
+        let saved = surfaces_stamp.map_or(stamp.0, |s| s.0.max(stamp.0));
+        let built = self.build::<D>(&src, unix_ms(saved));
         self.failed = built.is_err();
         Some(built)
     }
@@ -96,8 +104,14 @@ impl Session {
         // Compile exactly the snapshot `poll` compared with `last`. Reading
         // the path again here can observe the middle of the next save and
         // then suppress its final bytes as already seen.
-        let plan = contract::compile_path_source(&self.source, src)
-            .map_err(|e| format!("{}:{e}", self.source.display()))?;
+        let plan = contract::compile_path_source(&self.source, src).map_err(|e| {
+            let file = if e.file.is_empty() {
+                self.source.display().to_string()
+            } else {
+                e.file.clone()
+            };
+            format!("{file}:{e}")
+        })?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
         let baked = contract::bake(plan, D::default()).map_err(|e| format!("bake: {e:?}"))?;

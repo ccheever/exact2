@@ -138,9 +138,8 @@ public final class ExactView: UIView {
         }
         guard frame.width > 0, frame.height > 0 else { return }
         var size = frame.size
-        #if targetEnvironment(simulator)
         // The agent's explicit viewport size is shared with web/macOS/Linux.
-        // Fit those logical points into the simulator window; hit testing and
+        // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
         let env = ProcessInfo.processInfo.environment
         if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
@@ -156,9 +155,6 @@ public final class ExactView: UIView {
             presenter.viewport.transform = .identity
             if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
         }
-        #else
-        if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
-        #endif
         guard size.width > 0, size.height > 0 else { return }
         if !session.booted {
             lastSize = size

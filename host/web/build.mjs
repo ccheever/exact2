@@ -107,12 +107,19 @@ const embeddedCompat = Buffer.from(new Uint8Array(exports.memory.buffer, exports
 const bakedReceipt = readBake(app, 'web', 'wasm32-unknown-unknown', buildEnv.EXACT_BAKE_OUTPUT);
 if (JSON.stringify(JSON.parse(embeddedCompat)) !== JSON.stringify(bakedReceipt)) throw new Error('the emitted receipt differs from the wasm receipt');
 // Storage is an app capability, including apps whose only logic is Rust.
-if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
-  for (const name of ['storage-request.js','storage.js','storage-fs.js','storage-sqlite.js','storage-worker.js']) {
+const grantCeiling = bakedReceipt.inputs.grantCeiling ?? '';
+if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(grantCeiling)) {
+  // Both storage entry points statically import the filesystem and SQLite
+  // adapters. The adapter starts its worker lazily, so only admitted SQLite
+  // apps need the worker and engine payload it loads.
+  for (const name of ['storage-request.js','storage.js','storage-fs.js','storage-sqlite.js']) {
     copyFileSync(resolve(root, 'host/web', name), resolve(stage, name));
   }
-  for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
-    copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
+  if (/^\s*sqlite\./m.test(grantCeiling)) {
+    copyFileSync(resolve(root, 'host/web/storage-worker.js'), resolve(stage, 'storage-worker.js'));
+    for (const [source, name] of [['index.mjs','sqlite3.mjs'],['sqlite3.wasm','sqlite3.wasm']]) {
+      copyFileSync(resolve(root, 'node_modules/@sqlite.org/sqlite-wasm/dist', source), resolve(stage, name));
+    }
   }
 }
 const copiedAssets = listAssets(stage);

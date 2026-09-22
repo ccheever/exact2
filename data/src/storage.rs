@@ -3,7 +3,7 @@ use exact_runner::{Outcome, Request};
 use serde_json::{json, Value};
 
 /// Bounded serialized request/result, including byte representation overhead.
-pub const MAX_BYTES: usize = 16 << 20;
+pub const MAX_BYTES: usize = exact_runner::MAX_HOST_WORK_BYTES;
 /// Encode a storage operation. Validation occurs before the host performs effects.
 pub fn request(op: &str, args: Value) -> Request {
     Request::storage(serde_json::to_vec(&json!({"version":1,"op":op,"args":args})).unwrap())

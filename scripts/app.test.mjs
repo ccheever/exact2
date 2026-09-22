@@ -59,8 +59,8 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 300000);
 
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
@@ -168,6 +168,7 @@ async function fixture(body) {
     write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
+    write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
     write('game/games/.gitignore', '*/.shells/\n');
     // Cargo permits an empty glob when its containing directory exists.
     pkg('game/ordinary/stub','ordinary-stub');
@@ -186,6 +187,26 @@ test('shell repair replaces half-written members before metadata', () => fixture
   rmSync(resolve(dirname(path),'src'),{recursive:true});
   assert.ok(app().cargoPackage('gpu'));
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
+}));
+
+test('copied app identities keep separate Cargo graphs and generated hosts', () => fixture(({app, dir, game, write}) => {
+  const first = app();
+  const before = ['gpu','web','apple','linux'].map(kind => first.cargoPackage(kind).manifest_path);
+  const copy = game('copy');
+  const manifest = JSON.parse(readFileSync(resolve(copy, 'app.json'), 'utf8'));
+  manifest.app.id = first.manifest.app.id;
+  write('game/games/copy/app.json', JSON.stringify(manifest));
+  process.env.EXACT_APP_DIR = copy;
+  const second = app('copy');
+  for (const kind of ['gpu','web','apple','linux']) {
+    const pkg = second.cargoPackage(kind);
+    assert.equal(pkg.name, `copy-${kind}`);
+    assert.ok(pkg.manifest_path.startsWith(copy + '/.shells/'));
+  }
+  process.env.EXACT_APP_DIR = dir;
+  const reopened = app();
+  assert.deepEqual(['gpu','web','apple','linux'].map(kind => reopened.cargoPackage(kind).manifest_path), before);
+  for (const path of before) assert.ok(existsSync(path));
 }));
 
 test('art adds its baker on demand and retains it until generated outputs are pruned', () => fixture(({app, dir, write, update}) => {
@@ -207,9 +228,10 @@ test('art adds its baker on demand and retains it until generated outputs are pr
   assert.equal(baked(), false);
 }));
 
-test('shell identity survives a renamed logic crate and removes old packages', () => fixture(({app, dir, write, run, update}) => {
+test('host paths survive app identity and logic crate renames', () => fixture(({app, dir, write, run, update}) => {
   const before = app().cargoPackage('gpu').manifest_path;
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
+  manifest.app.id = 'org.example.renamed';
   manifest.game.crate = 'renamed-logic';
   write('game/games/foo/app.json',JSON.stringify(manifest));
   write('game/games/foo/logic/Cargo.toml','[package]\nworkspace="../.shells"\nname="renamed-logic"\nversion="0.1.0"\nedition="2021"\n');
@@ -309,8 +331,8 @@ test('rendered tree includes focus and the computed accessible name', async () =
 test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
-  const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
-  const fn = source.slice(source.indexOf('function focusAutofocus()'), source.indexOf('function setInputReady'));
+  const source = readFileSync(new URL('../host/web/navigation.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('export function focusController'),source.indexOf('export function inertAncestor')).replace('export ', '');
   const element = () => ({exactAutofocus:true, getClientRects:()=>[{}], matches:()=>false,
     setAttribute() {}, focus() { document.activeElement = this; }});
   const document = {body:{}, activeElement:null};
@@ -318,7 +340,7 @@ test('autofocus is deferred and consumed per mounted control, preserving other U
   const views = new Map([[1,first]]);
   const context = {document, views, root:{querySelectorAll:()=>[...views.values()]}, inputReady:true,
     inertAncestor:()=>false, getComputedStyle:()=>({visibility:'visible'})};
-  const focus = runInNewContext('const autofocusProcessed = new WeakSet();'+fn+';focusAutofocus', context);
+  const focus = runInNewContext(fn+';focusController({ready:()=>inputReady,elements:()=>views.values(),inert:inertAncestor}).autofocus', context);
   document.activeElement = other;
   focus();
   assert.equal(document.activeElement, other, 'existing focus must win');
@@ -358,51 +380,56 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   assert.equal(el.exactAutofocus, false);
 });
 
-test.each(['library', 'executable'])('copied %s roots require unique compiler dep-info', async kind => {
+test.each(['rlib', 'staticlib', 'executable'].flatMap(kind => [null, 'intermediate', 'output/intermediate', '.'].map(split => [kind, split])))('copied %s roots with build directory %s require unique compiler dep-info', async (kind, split) => {
   const { unitDepInfo } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-unit-dep-'));
   try {
-    const dir = resolve(root, 'release'), deps = resolve(dir, 'deps'), src = resolve(root, 'src/main.rs');
+    const metadata = {target_directory:resolve(root, 'output'), build_directory:resolve(root, split ?? 'output')};
+    const dir = resolve(metadata.target_directory, 'release'), deps = resolve(metadata.build_directory, 'release/deps'), src = resolve(root, 'src/main.rs');
+    mkdirSync(dir, {recursive:true});
     mkdirSync(deps, {recursive:true});
     const executable = kind === 'executable', target = executable ? 'game-native' : 'game_apple';
-    const artifact = resolve(dir, executable ? target : `lib${target}.rlib`);
+    const extension = kind === 'staticlib' ? '.a' : '.rlib';
+    const artifact = resolve(dir, executable ? target : `lib${target}${extension}`);
     writeFileSync(artifact, 'selected unit');
-    const message = {filenames:executable ? [artifact] : [resolve(dir, `lib${target}.a`), artifact],
+    const message = {filenames:[artifact],
       executable:executable ? artifact : null, target:{name:target, src_path:src}};
     writeFileSync(resolve(dir, `${target}.d`), `${artifact}: ${src}\n`);
     const unit = (hash, bytes, source = src) => {
       const name = `${target.replaceAll('-', '_')}-${hash}`, dep = resolve(deps, `${name}.d`);
-      writeFileSync(resolve(deps, executable ? name : `lib${name}.rlib`), bytes);
+      writeFileSync(resolve(deps, executable ? name : `lib${name}${extension}`), bytes);
       writeFileSync(dep, `${dep}: ${source}\n\n# env-dep:EXACT_UPDATE_TRUST=development\n`);
       return dep;
     };
     unit('deadbeef', 'another unit');
-    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
     const expected = unit('a11ce', 'selected unit', resolve(root, 'old/main.rs'));
-    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
     writeFileSync(expected, `${resolve(root, 'copied.d')}: ${src}\n`);
-    assert.throws(() => unitDepInfo(message, root), /no matching rustc unit/);
+    assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
     unit('a11ce', 'selected unit');
-    assert.equal(unitDepInfo(message, root), expected);
-    assert.match(readFileSync(unitDepInfo(message, root), 'utf8'), /env-dep:EXACT_UPDATE_TRUST=development/);
+    assert.equal(unitDepInfo(message, root, metadata), expected);
+    assert.match(readFileSync(unitDepInfo(message, root, metadata), 'utf8'), /env-dep:EXACT_UPDATE_TRUST=development/);
     unit('aabbcc', 'selected unit');
-    assert.throws(() => unitDepInfo(message, root), /ambiguous rustc unit/);
+    assert.throws(() => unitDepInfo(message, root, metadata), /ambiguous rustc unit/);
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
 
-test('rustc unit dep-info accepts its raw output path with spaces', async () => {
+test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info accepts spaces and build directory %s', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const { spawnSync } = await import('node:child_process');
   const root = mkdtempSync(resolve(tmpdir(), 'exact unit dep '));
   try {
-    const source = resolve(root, 'lib.rs'), artifact = resolve(root, 'libspace_unit.rlib');
+    const metadata = {target_directory:resolve(root, 'output'), build_directory:resolve(root, split ?? 'output')};
+    mkdirSync(metadata.build_directory, {recursive:true});
+    const source = resolve(root, 'lib.rs'), artifact = resolve(metadata.build_directory, 'libspace_unit.rlib');
     writeFileSync(source, 'pub fn value() -> u32 { 1 }');
     const result = spawnSync('rustc', ['--crate-name', 'space_unit', '--crate-type', 'lib',
-      '--emit=dep-info,link', source, '--out-dir', root], {encoding:'utf8'});
+      '--emit=dep-info,link', source, '--out-dir', metadata.build_directory], {encoding:'utf8'});
     assert.equal(result.status, 0, result.stderr);
     const message = {filenames:[artifact], target:{name:'space_unit', src_path:source}};
-    assert.equal(unitDepInfo(message, root), resolve(root, 'space_unit.d'));
+    assert.equal(unitDepInfo(message, root, metadata), resolve(metadata.build_directory, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
@@ -442,6 +469,104 @@ test('R12 authored logic belongs only to its app workspace and locked edits refu
   assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),captured);
 }));
 
+test('game profiles drop redundant dependency overrides and keep authored optimization', () => fixture(({app, dir, root, run, write, update}) => {
+  write('game/Cargo.toml', readFileSync(resolve(root,'game/Cargo.toml'),'utf8') + `
+[profile.gpu-dev]
+inherits="dev"
+opt-level=1
+[profile.gpu-dev.package."*"]
+opt-level=3
+[profile.gpu-dev.package.exact-game]
+opt-level=3
+[profile.gpu-dev.package.absent-audio]
+opt-level=3
+[profile.gpu-dev.package.exact-game-render]
+opt-level=2
+[profile.gpu-dev.package."exact-runner@0.1.0"]
+opt-level=3
+[profile.gpu-dev.package.foo-logic]
+opt-level=3
+[profile.gpu-dev.package.foo-gpu]
+opt-level=3
+`);
+  write('game/games/foo/logic/Cargo.toml', readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8') + '\n[dependencies]\nexact-game.workspace=true\nexact-game-render.workspace=true\nexact-runner.workspace=true\n');
+  update();
+  app().cargoPackage('gpu');
+  const packages = Bun.TOML.parse(readFileSync(resolve(dir,'.shells/Cargo.toml'),'utf8')).profile['gpu-dev'].package;
+  assert.ok(!('exact-game' in packages));
+  assert.ok(!('absent-audio' in packages));
+  assert.equal(packages['foo-gpu']['opt-level'],3);
+  assert.equal(packages['exact-runner@0.1.0']['opt-level'],3);
+  const messages = run('cargo',['build','--offline','--locked','--manifest-path',resolve(dir,'.shells/Cargo.toml'),'-p','foo-logic','--profile','gpu-dev','--message-format=json']).trim().split('\n').map(JSON.parse);
+  const units = new Map(messages.filter(m=>m.reason==='compiler-artifact').map(m=>[m.target.name,m.profile.opt_level]));
+  assert.deepEqual(Object.fromEntries(units), {exact_game:'3',exact_game_render:'2',exact_runner:'3',foo_logic:'3'});
+}), 180000);
+
+
+test('game bakes resolve one fresh Cargo graph for the actual target and environment', () => fixture(({app, dir, root, run, write, pkg, update}) => {
+  write('game/Cargo.toml', readFileSync(resolve(root,'game/Cargo.toml'),'utf8') + '\n[profile.gpu-dev]\ninherits="dev"\n');
+  write('game/deps/exact-game/src/lib.rs', `
+    pub enum Value { Number(f64), Bool(bool), Str(Box<str>), Other }
+    pub trait Args: Default { const FIELDS: &'static [(&'static str, ())]; fn values(&self) -> Vec<Value>; }
+    impl Args for () {
+      const FIELDS: &'static [(&'static str, ())] = &[("seed", ()), ("paused", ()), ("label", ())];
+      fn values(&self) -> Vec<Value> { vec![Value::Number(7.0), Value::Bool(false), Value::Str("say \\"hi\\"\\n雪".into())] }
+    }
+    pub trait Game { const NAME: &'static str; type Args: Args; }
+  `);
+  write('game/deps/exact-game-render/src/lib.rs', '#[macro_export] macro_rules! module { ($game:ty) => { #[no_mangle] pub extern "C" fn answer() -> u32 { game_logic::ANSWER } }; }');
+  write('game/games/foo/logic/src/lib.rs', `pub struct SmallGame; impl SmallGame { pub const NAME: &'static str = "inherent"; } pub const ANSWER: u32 = 42; impl exact_game::Game for SmallGame { const NAME: &'static str = "world"; type Args = (); }`);
+  pkg('game/deps/wasm-only', 'wasm-only');
+  write('game/games/foo/logic/Cargo.toml', readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8') + '\n[dependencies]\nexact-game.workspace=true\n[target.\'cfg(target_arch = "wasm32")\'.dependencies]\nwasm-only={path="../../../deps/wasm-only"}\n');
+  update();
+  const info = app(), target = bakeTarget('linux'), cargo = run('rustup',['which','cargo']).trim();
+  info.cargoPackage('gpu'); // A package lookup must not make a later build graph stale.
+  for (const kind of ['gpu','web','apple']) assert.deepEqual(
+    info.cargoPackage(kind).targets.find(t=>!t.kind.includes('custom-build')).crate_types,
+    [kind === 'apple' ? 'staticlib' : 'cdylib']);
+  const prepare = info.prepare;
+  let graph;
+  info.prepare = (...args) => graph = prepare(...args);
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
+  const trace = resolve(root,'cargo-calls'), bin = resolve(root,'bin'), previous = process.env.PATH;
+  write('bin/cargo', `#!/bin/sh\nif [ "$1" = metadata ]; then printf '%s|%s\\n' "$*" "$CARGO_TARGET_DIR" >> ${quote(trace)}; fi\nexec ${quote(cargo)} "$@"\n`);
+  chmodSync(resolve(bin,'cargo'), 0o755);
+  process.env.PATH = `${bin}:${previous}`;
+  const bake = () => {
+    writeFileSync(trace, '');
+    const result = buildBake(info, 'linux', target, {profile:'gpu-dev', part:'gpu', env:{EXACT_UPDATE_TRUST:'development'}});
+    const calls = readFileSync(trace,'utf8').trim().split('\n');
+    assert.equal(calls.length, 1, calls.join('\n'));
+    assert.ok(calls[0].includes(`--filter-platform ${target}`));
+    assert.ok(calls[0].endsWith(`|${info.target}`));
+    assert.equal(graph.target_directory, info.target);
+    assert.equal(graph.build_directory, resolve(root,'game/target'));
+    assert.ok(!graph.resolve.nodes.some(node => graph.packages.find(p=>p.id===node.id)?.name === 'wasm-only'));
+    assert.ok(result.products.some(path=>/\.(so|dylib)$/.test(path)));
+    assert.ok(result.products.every(path=>!path.endsWith('.rlib')));
+    assert.ok(!existsSync(resolve(info.target,target,'gpu-dev/libfoo_gpu.rlib')));
+  };
+  try {
+    bake();
+    const declaration = resolve(dir, '.shells/surfaces.json');
+    assert.deepEqual(JSON.parse(readFileSync(declaration, 'utf8')), {world:[
+      {name:'seed', default:7}, {name:'paused', default:false}, {name:'label', default:'say "hi"\n雪'},
+    ]});
+    const timestamp = new Date(1234000);
+    utimesSync(declaration, timestamp, timestamp);
+    const web = info.prepare(true, {target:'wasm32-unknown-unknown', env:{...process.env, CARGO_TARGET_DIR:info.target}});
+    assert.ok(web.resolve.nodes.some(node => web.packages.find(p=>p.id===node.id)?.name === 'wasm-only'));
+    const privateBuild = resolve(dir,'private-build');
+    assert.equal(info.prepare(true, {target, env:{...process.env, CARGO_BUILD_BUILD_DIR:privateBuild}}).build_directory, privateBuild);
+    pkg('game/deps/new-dependency','new-dependency');
+    write('game/games/foo/logic/Cargo.toml', readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8').replace('[dependencies]', '[dependencies]\nnew-dependency={path="../../../deps/new-dependency"}'));
+    assert.throws(bake, /locked|lock file/);
+    update();
+    bake();
+    assert.equal(statSync(declaration).mtimeMs, timestamp.getTime(), 'a rebuilt GPU retains an unchanged declaration');
+    assert.ok(graph.resolve.nodes.some(node => graph.packages.find(p=>p.id===node.id)?.name === 'new-dependency'));
+  } finally { process.env.PATH = previous; }
+}), 180000);
 
 test('R12 named in-tree game resolves without EXACT_APP_DIR', () => fixture(({app, dir}) => {
   delete process.env.EXACT_APP_DIR;
@@ -506,16 +631,22 @@ test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixtu
   update();assert.ok(app().cargoPackage('gpu'));assert.notEqual(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),before);
 }));
 
-test('R14 ordinary no-lock workspace reaches buildBake', () => {
+test.each([false, true])('ordinary buildBake with split directories=%s streams progress and retains product receipts', async split => {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-')));
   const write = (name, text) => { mkdirSync(dirname(resolve(dir,name)), {recursive:true}); writeFileSync(resolve(dir,name),text); };
   try {
     const target = bakeTarget('linux'), id = 'com.exact.plain';
     write('Cargo.toml', '[workspace]\nmembers=["linux"]\nresolver="2"\n');
     write('linux/Cargo.toml', '[package]\nname="plain-linux"\nversion="0.1.0"\nedition="2021"\n');
-    write('linux/src/main.rs', 'fn main() {}');
+    write('linux/src/main.rs', 'fn main() { let unused = 1; }');
     write('app.contract', 'component App\n  view\n');
     write('linux/build.rs', `fn main() {
+      let release = std::path::Path::new(${JSON.stringify(resolve(dir,'progress-received'))});
+      let started = std::time::Instant::now();
+      while !release.exists() {
+        assert!(started.elapsed().as_secs() < 30, "Cargo progress was buffered until the build finished");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+      }
       let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
       std::fs::write(out.join("compat.json"), r#"${JSON.stringify({target,inputs:{platform:'linux',app:id,store:{L:'0'},keys:[]}})}"#).unwrap();
       std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
@@ -523,12 +654,38 @@ test('R14 ordinary no-lock workspace reaches buildBake', () => {
     }`);
     const app = {dir, workspace:dir, target:resolve(dir,'target'), name:'plain', id,
       manifest:{app:{id,name:'Plain'},rust:false}, crate:kind=>`plain-${kind}`};
+    write('bake.mjs', `import {buildBake} from ${JSON.stringify(resolve(import.meta.dir,'app.mjs'))};
+      const app = {...${JSON.stringify(app)},crate:kind=>'plain-'+kind};
+      const receipt = buildBake(app,'linux',${JSON.stringify(target)},{profile:'dev',output:${JSON.stringify(resolve(dir,'bakes'))}});
+      console.log(JSON.stringify(receipt));`);
+    const bake = () => new Promise((ok, fail) => {
+      const child = spawn(process.execPath,[resolve(dir,'bake.mjs')],{cwd:dir,env:{...process.env,EXACT_UPDATE_TRUST:'development',...(split ? {CARGO_BUILD_BUILD_DIR:resolve(dir,'intermediate')} : {})},stdio:['ignore','pipe','pipe']});
+      let stdout='',stderr='';
+      child.stdout.on('data', bytes=>{stdout+=bytes;});
+      child.stderr.on('data', bytes=>{
+        stderr+=bytes;
+        if (stderr.includes('Compiling plain-linux')) write('progress-received','seen before completion');
+      });
+      child.on('error',fail);
+      child.on('close',(code,signal)=>ok({code,signal,stdout,stderr}));
+    });
     assert.equal(existsSync(resolve(dir,'Cargo.lock')),false);
-    const receipt = buildBake(app,'linux',target,{profile:'dev',output:resolve(dir,'bakes')});
+    const built = await bake();
+    assert.equal(built.code,0,built.stderr);
+    assert.ok(existsSync(resolve(dir,'progress-received')));
+    assert.equal((built.stderr.match(/warning: unused variable/g)??[]).length,1,built.stderr);
+    const receipt = JSON.parse(built.stdout);
     assert.ok(receipt.products.some(p=>p.path.endsWith('/plain-linux')));
     assert.ok(existsSync(resolve(dir,'Cargo.lock')));
+    const receiptPath=resolve(dir,'bakes',`linux-${target}.build.json`), before=readFileSync(receiptPath,'utf8');
+    write('linux/src/main.rs','fn main() { let broken: u32 = "wrong type"; }');
+    const refused = await bake();
+    assert.notEqual(refused.code,0);
+    assert.match(refused.stderr,/mismatched types/);
+    assert.match(refused.stderr,/failed: exit 101/);
+    assert.equal(readFileSync(receiptPath,'utf8'),before,'failed builds cannot replace the completed receipt');
   } finally { rmSync(dir,{recursive:true,force:true}); }
-}, 60000);
+}, 180000);
 
 test('R14 external game capture refuses tracked output roots',()=>fixture(({app,root,write,run})=>{
   const external = resolve(root, 'outside/foreign');
@@ -557,7 +714,9 @@ test('R15 reproducibility flags follow workspace locks and always lock game shel
   try {
     const ordinary = {workspace:dir,manifest:{}};
     assert.deepEqual(cargoReproducibilityFlags(ordinary),[]);
-    writeFileSync(resolve(dir,'Cargo.lock'), '# lock');
+    writeFileSync(resolve(dir,'Cargo.lock'), '# stray lock');
+    assert.deepEqual(cargoReproducibilityFlags(ordinary),[]);
+    writeFileSync(resolve(dir,'Cargo.toml'), '[workspace]\nmembers=[]\n');
     assert.deepEqual(cargoReproducibilityFlags(ordinary),['--locked','--offline']);
     const game = {workspace:resolve(dir,'.shells'),manifest:{game:{}}};
     assert.deepEqual(cargoReproducibilityFlags(game),['--locked','--offline']);
@@ -576,3 +735,14 @@ test('R15 the root Caltrain workspace refuses a missing lock and accepts its res
   run('cargo',['generate-lockfile','--offline']);
   assert.equal(metadata().status,0);
 }));
+
+test('E11 partial bakes select only their graph and production retains GPU binding',async()=>{
+  const {bakeSelection,bindGpuProduct}=await import('./app.mjs');
+  const graph={root:{id:'host'},surface:{id:'gpu'}};
+  assert.deepEqual(bakeSelection(graph,'gpu'),[graph.surface]);
+  assert.deepEqual(bakeSelection(graph,'host'),[graph.root]);
+  assert.deepEqual(bakeSelection(graph),[graph.surface,graph.root]);
+  assert.equal(bindGpuProduct('gpu-dev','development'),false);
+  assert.equal(bindGpuProduct('gpu-dev','production'),true);
+  assert.equal(bindGpuProduct('release','development'),true);
+});

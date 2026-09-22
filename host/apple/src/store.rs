@@ -12,7 +12,7 @@ use ibex2::host::{Bindings, Host};
 /// The app's bindings from its grants (LLP 1016 D6): `None` when it declares
 /// grants that do not parse — every request is then refused, as before.
 pub fn endow(grants: &str) -> Option<Bindings> {
-    let set = ibex2::grant::GrantSet::parse(grants).ok()?;
+    let set = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants)).ok()?;
     let mut host = Host::new();
     let agent = std::env::var_os("EXACT_AGENT").is_some();
     let real = std::env::var("EXACT_STORE").is_ok_and(|v| v == "real");

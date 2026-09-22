@@ -29,6 +29,8 @@ const ABI_HEADER: &str = include_str!(concat!(
 ));
 /// The GPU module's C ABI (LLP 1009 D2): unnumbered in the module today.
 pub const GPU_MODULE_ABI: u32 = 1;
+/// The separately linked Rust data-source request/outcome wire ABI.
+pub(crate) const RUST_ABI: u32 = 3;
 /// The update store's record codec (LLP 1030 D1): the first.
 pub const STORE_CODEC: u32 = 2;
 /// The domain separator over the canonical inputs.
@@ -581,7 +583,7 @@ fn compatibility_with_trust(
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
-        "rustAbi": if rust_mode == "off" { Value::Null } else { json!(2) },
+        "rustAbi": if rust_mode == "off" { Value::Null } else { json!(RUST_ABI) },
         "rustTarget": rust_target,
         "rustModule": rust_module,
         "dataCrate": data_crate(app_dir)?,
@@ -1048,7 +1050,7 @@ mod tests {
         }
         assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
         assert_eq!(i["rustMode"], "wasm");
-        assert_eq!(i["rustAbi"], 2);
+        assert_eq!(i["rustAbi"], super::RUST_ABI);
         assert_eq!(i["rustTarget"], "wasm32-unknown-unknown");
         assert!(i["rustModule"].is_null());
         assert_eq!(i["executors"], serde_json::json!(["native", "wasmi"]));
@@ -1115,7 +1117,7 @@ mod tests {
                 if mode == "off" {
                     serde_json::Value::Null
                 } else {
-                    serde_json::json!(2)
+                    serde_json::json!(super::RUST_ABI)
                 }
             );
             let expected = executor.map_or_else(

@@ -191,3 +191,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/continuation/mod.rs"]
+mod continuation;

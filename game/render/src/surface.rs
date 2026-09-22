@@ -61,7 +61,6 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     dirty: bool,
     assets_dirty: bool,
     asset_check: Option<(exact_game::WorldId, u64, u64)>,
-    model_digests: std::collections::BTreeMap<String, u64>,
     reported: bool,
     generation: u64,
     seekable: bool,
@@ -89,7 +88,6 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             dirty: true,
             assets_dirty: false,
             asset_check: None,
-            model_digests: Default::default(),
             reported: false,
             generation: 0,
             seekable: true,
@@ -125,7 +123,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
                 "asset `{name}`: this module has no model support; declare game.assets"
             ))
         };
-        if let Some(name) = G::ASSETS.first() {
+        if let Some(name) = G::ASSETS
+            .iter()
+            .copied()
+            .find(|name| Some(*name) != G::LEVEL.map(|level| level.name))
+        {
             return Err(missing(name));
         }
         for (_, mesh) in world.query::<&exact_game::Mesh>().iter() {
@@ -137,7 +139,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
         Ok(())
     }
     fn storage_fits(&mut self, device: &wgpu::Device) -> bool {
-        self.storage_limit = device.limits().max_storage_buffers_per_shader_stage;
+        if self.storage_limit == 0 {
+            self.storage_limit = device.limits().max_storage_buffers_per_shader_stage;
+        }
         let needed = if ASSETS {
             crate::STORAGE_BINDINGS
         } else {
@@ -210,9 +214,6 @@ fn observer<'a, const ASSETS: bool>(
             }
         }
         if left < 2 && error.is_none() {
-            if let Some((_, feed)) = render {
-                feed.share_attachment_diagnostics(placed.attachments.diagnostics.clone());
-            }
             if let Err(e) = if ASSETS {
                 placed.feed(world)
             } else {
@@ -266,18 +267,19 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if self.error.is_none() {
                 self.error = self.check_primitive_assets().err();
             }
-            return exact_gpu::AssetChanges::default();
+            if self.error.is_some() || G::LEVEL.is_none() {
+                return exact_gpu::AssetChanges::default();
+            }
         }
         let requests = self.sim.as_mut().map_or_else(Vec::new, Sim::take_assets);
         let retired = self
             .sim
             .as_mut()
             .map_or_else(Vec::new, Sim::take_retired_assets);
-        if !retired.is_empty() {
+        if ASSETS && !retired.is_empty() {
             // A reference disappearing (including a restore) retires host flights,
             // not device residency. A later arrival must still compare its digest.
             for name in &retired {
-                self.model_digests.remove(name);
                 self.placed.attachments.model_digests.remove(name);
             }
             if let Some((renderer, _feed)) = &mut self.render {
@@ -295,16 +297,21 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         exact_gpu::AssetChanges { requests, retired }
     }
     fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
-        if ASSETS {
+        if ASSETS || G::LEVEL.is_some() {
             if let Some(sim) = &mut self.sim {
                 match bytes {
                     Ok(bytes) => {
-                        if sim.asset(name, Some(bytes)).is_ok() && name.ends_with(".model") {
+                        let accepted = sim
+                            .deliver_asset(
+                                name,
+                                exact_game::asset::Content::decode::<ASSETS>(name, bytes),
+                            )
+                            .is_ok();
+                        if ASSETS && accepted && name.ends_with(".model") {
                             if let Some((_, model)) =
                                 sim.presentation_models().find(|(n, _)| *n == name)
                             {
                                 let digest = crate::models::model_digest(model);
-                                self.model_digests.insert(name.into(), digest);
                                 self.placed
                                     .attachments
                                     .model_digests
@@ -365,13 +372,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             .presentation_models()
             .map(|(name, model)| {
                 let digest = *self
+                    .placed
+                    .attachments
                     .model_digests
                     .entry(name.to_owned())
                     .or_insert_with(|| crate::models::model_digest(model));
-                self.placed
-                    .attachments
-                    .model_digests
-                    .insert(name.to_owned(), digest);
                 (
                     name.to_owned(),
                     renderer
@@ -448,6 +453,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.render = None;
         self.ready_work = None;
         self.format = None;
+        self.storage_limit = 0;
         if ASSETS && !self.device_assets_invalidated {
             if let Some(sim) = &mut self.sim {
                 sim.invalidate_device_assets();
@@ -866,7 +872,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 .render
                 .as_ref()
                 .map_or_else(Default::default, |(r, _)| r.residency_work());
-            let mut reasons: Vec<String> = if ASSETS {
+            let mut reasons: Vec<String> = if ASSETS || G::LEVEL.is_some() {
                 sim.asset_failures().map(str::to_owned).collect()
             } else {
                 Vec::new()

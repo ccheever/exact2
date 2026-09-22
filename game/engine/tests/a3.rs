@@ -519,3 +519,39 @@ fn a20_one_returns_a_leased_item_and_refuses_ambiguity() {
         assert!(err.downcast_ref::<String>().unwrap().contains("ZLater"));
     }
 }
+
+#[test]
+fn one_keeps_sparse_optional_rows_borrowed_and_counts_every_match() {
+    let mut w = World::new(60, 0);
+    let entities: Vec<_> = (0..PAGE * 2 + 1)
+        .map(|i| w.spawn(ZLater(i as u32)))
+        .collect();
+    assert!(w.query::<&ZLater>().with::<Transform>().one().is_none());
+    let last = entities[PAGE * 2];
+    w.insert(last, Transform::default());
+    {
+        let mut q = w
+            .query::<(&mut ZLater, Option<&mut Transform>)>()
+            .with::<Transform>();
+        let (value, pose) = q.one().unwrap();
+        value.0 = 42;
+        pose.unwrap().position.x = 7.;
+        assert!(catch_unwind(AssertUnwindSafe(|| w.get::<ZLater>(last))).is_err());
+    }
+    assert_eq!(w.get::<ZLater>(last).unwrap().0, 42);
+    assert_eq!(w.get::<Transform>(last).unwrap().position.x, 7.);
+    for e in [entities[0], entities[PAGE]] {
+        w.insert(e, Transform::default());
+    }
+    let before = w.save();
+    let err = catch_unwind(AssertUnwindSafe(|| {
+        w.query::<&mut ZLater>().with::<Transform>().one();
+    }))
+    .unwrap_err();
+    assert_eq!(
+        err.downcast_ref::<String>().unwrap(),
+        "expected one ZLater, found 3"
+    );
+    assert_eq!(w.save(), before);
+    assert_eq!(w.query::<&ZLater>().with::<Transform>().iter().count(), 3);
+}

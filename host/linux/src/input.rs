@@ -23,23 +23,62 @@ pub enum InputEvent {
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
     /// down).
     Wheel(f32, f32),
-    /// A key went down: the character it types, or a control key.
-    Key(Key),
-    /// Space/Enter press edges for focused Contract controls.
-    Activation { code: u16, down: bool },
+    /// A keyboard edge. Translate US codes at dispatch, keeping the queue compact.
+    Key {
+        /// Physical evdev key code, also used by VNC's US mapping.
+        code: u16,
+        /// Whether the logical key uses the shifted US character.
+        shift: bool,
+        /// Press (`true`) or release.
+        down: bool,
+        /// A repeated press while the key is held.
+        repeat: bool,
+    },
 }
 
-/// A key that matters to an input.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Key {
-    /// A character.
-    Char(char),
-    /// Backspace.
-    Backspace,
-    /// Escape.
-    Escape,
-    /// Enter.
-    Enter,
+/// US keyboard state shared by evdev and VNC. Shift sides are independent;
+/// Ctrl/Meta shortcuts do not type or start game actions, but releases pass.
+#[derive(Default)]
+pub(crate) struct Keyboard {
+    modifiers: u8,
+}
+impl Keyboard {
+    pub(crate) fn event(
+        &mut self,
+        code: u16,
+        value: i32,
+        shift: Option<bool>,
+    ) -> Option<InputEvent> {
+        if !(0..=2).contains(&value) {
+            return None;
+        }
+        let down = value != 0;
+        let bit = match code {
+            42 => 1,
+            54 => 2,
+            29 => 4,
+            97 => 8,
+            125 => 16,
+            126 => 32,
+            _ => 0,
+        };
+        if down {
+            self.modifiers |= bit;
+        } else {
+            self.modifiers &= !bit;
+        }
+        if down && self.modifiers & !3 != 0 {
+            return None;
+        }
+        let shift = shift.unwrap_or(self.modifiers & 3 != 0);
+        key(code, shift)?;
+        Some(InputEvent::Key {
+            code,
+            shift,
+            down,
+            repeat: value == 2,
+        })
+    }
 }
 
 /// Points per wheel notch — the browser's tick.
@@ -51,7 +90,7 @@ type Ranges = [(i32, i32); 2];
 /// Every device that points or types.
 pub struct Input {
     devices: Vec<(Device, Option<Ranges>)>,
-    shift: bool,
+    keyboard: Keyboard,
 }
 
 impl Input {
@@ -97,7 +136,7 @@ impl Input {
         }
         Input {
             devices,
-            shift: false,
+            keyboard: Keyboard::default(),
         }
     }
 
@@ -168,14 +207,11 @@ impl Input {
                             // BTN_LEFT (a mouse) and BTN_TOUCH (a
                             // touchscreen). Both are a primary press.
                             0x110 | 0x14a => out.push(InputEvent::Button(down)),
-                            42 | 54 => self.shift = down,
-                            28 | 57 => out.push(InputEvent::Activation { code, down }),
-                            _ if down => {
-                                if let Some(k) = key(code, self.shift) {
-                                    out.push(InputEvent::Key(k));
+                            _ => {
+                                if let Some(event) = self.keyboard.event(code, value, None) {
+                                    out.push(event);
                                 }
                             }
-                            _ => {}
                         }
                     }
                     _ => {}
@@ -201,62 +237,149 @@ fn coalesce(events: Vec<InputEvent>) -> Vec<InputEvent> {
         .collect()
 }
 
-/// The US keymap for the evdev key codes that type.
-pub fn key(code: u16, shift: bool) -> Option<Key> {
-    let pair = |a: char, b: char| Some(Key::Char(if shift { b } else { a }));
-    let letter = |c: char| Some(Key::Char(if shift { c.to_ascii_uppercase() } else { c }));
-    match code {
-        1 => Some(Key::Escape),
-        2 => pair('1', '!'),
-        3 => pair('2', '@'),
-        4 => pair('3', '#'),
-        5 => pair('4', '$'),
-        6 => pair('5', '%'),
-        7 => pair('6', '^'),
-        8 => pair('7', '&'),
-        9 => pair('8', '*'),
-        10 => pair('9', '('),
-        11 => pair('0', ')'),
-        12 => pair('-', '_'),
-        13 => pair('=', '+'),
-        14 => Some(Key::Backspace),
-        16 => letter('q'),
-        17 => letter('w'),
-        18 => letter('e'),
-        19 => letter('r'),
-        20 => letter('t'),
-        21 => letter('y'),
-        22 => letter('u'),
-        23 => letter('i'),
-        24 => letter('o'),
-        25 => letter('p'),
-        26 => pair('[', '{'),
-        27 => pair(']', '}'),
-        28 => Some(Key::Enter),
-        30 => letter('a'),
-        31 => letter('s'),
-        32 => letter('d'),
-        33 => letter('f'),
-        34 => letter('g'),
-        35 => letter('h'),
-        36 => letter('j'),
-        37 => letter('k'),
-        38 => letter('l'),
-        39 => pair(';', ':'),
-        40 => pair('\'', '"'),
-        41 => pair('`', '~'),
-        43 => pair('\\', '|'),
-        44 => letter('z'),
-        45 => letter('x'),
-        46 => letter('c'),
-        47 => letter('v'),
-        48 => letter('b'),
-        49 => letter('n'),
-        50 => letter('m'),
-        51 => pair(',', '<'),
-        52 => pair('.', '>'),
-        53 => pair('/', '?'),
-        57 => Some(Key::Char(' ')),
-        _ => None,
+/// The US evdev map: physical code, unshifted/shifted logical key.
+pub(crate) fn key(code: u16, shift: bool) -> Option<(&'static str, &'static str)> {
+    let (code, plain, shifted) = match code {
+        1 => ("Escape", "Escape", "Escape"),
+        2 => ("Digit1", "1", "!"),
+        3 => ("Digit2", "2", "@"),
+        4 => ("Digit3", "3", "#"),
+        5 => ("Digit4", "4", "$"),
+        6 => ("Digit5", "5", "%"),
+        7 => ("Digit6", "6", "^"),
+        8 => ("Digit7", "7", "&"),
+        9 => ("Digit8", "8", "*"),
+        10 => ("Digit9", "9", "("),
+        11 => ("Digit0", "0", ")"),
+        12 => ("Minus", "-", "_"),
+        13 => ("Equal", "=", "+"),
+        14 => ("Backspace", "Backspace", "Backspace"),
+        15 => ("Tab", "Tab", "Tab"),
+        16 => ("KeyQ", "q", "Q"),
+        17 => ("KeyW", "w", "W"),
+        18 => ("KeyE", "e", "E"),
+        19 => ("KeyR", "r", "R"),
+        20 => ("KeyT", "t", "T"),
+        21 => ("KeyY", "y", "Y"),
+        22 => ("KeyU", "u", "U"),
+        23 => ("KeyI", "i", "I"),
+        24 => ("KeyO", "o", "O"),
+        25 => ("KeyP", "p", "P"),
+        26 => ("BracketLeft", "[", "{"),
+        27 => ("BracketRight", "]", "}"),
+        28 => ("Enter", "Enter", "Enter"),
+        29 => ("ControlLeft", "Control", "Control"),
+        30 => ("KeyA", "a", "A"),
+        31 => ("KeyS", "s", "S"),
+        32 => ("KeyD", "d", "D"),
+        33 => ("KeyF", "f", "F"),
+        34 => ("KeyG", "g", "G"),
+        35 => ("KeyH", "h", "H"),
+        36 => ("KeyJ", "j", "J"),
+        37 => ("KeyK", "k", "K"),
+        38 => ("KeyL", "l", "L"),
+        39 => ("Semicolon", ";", ":"),
+        40 => ("Quote", "'", "\""),
+        41 => ("Backquote", "`", "~"),
+        42 => ("ShiftLeft", "Shift", "Shift"),
+        43 => ("Backslash", "\\", "|"),
+        44 => ("KeyZ", "z", "Z"),
+        45 => ("KeyX", "x", "X"),
+        46 => ("KeyC", "c", "C"),
+        47 => ("KeyV", "v", "V"),
+        48 => ("KeyB", "b", "B"),
+        49 => ("KeyN", "n", "N"),
+        50 => ("KeyM", "m", "M"),
+        51 => ("Comma", ",", "<"),
+        52 => ("Period", ".", ">"),
+        53 => ("Slash", "/", "?"),
+        54 => ("ShiftRight", "Shift", "Shift"),
+        56 => ("AltLeft", "Alt", "Alt"),
+        57 => ("Space", " ", " "),
+        96 => ("NumpadEnter", "Enter", "Enter"),
+        97 => ("ControlRight", "Control", "Control"),
+        100 => ("AltRight", "Alt", "Alt"),
+        102 => ("Home", "Home", "Home"),
+        103 => ("ArrowUp", "ArrowUp", "ArrowUp"),
+        104 => ("PageUp", "PageUp", "PageUp"),
+        105 => ("ArrowLeft", "ArrowLeft", "ArrowLeft"),
+        106 => ("ArrowRight", "ArrowRight", "ArrowRight"),
+        107 => ("End", "End", "End"),
+        108 => ("ArrowDown", "ArrowDown", "ArrowDown"),
+        109 => ("PageDown", "PageDown", "PageDown"),
+        110 => ("Insert", "Insert", "Insert"),
+        111 => ("Delete", "Delete", "Delete"),
+        125 => ("MetaLeft", "Meta", "Meta"),
+        126 => ("MetaRight", "Meta", "Meta"),
+        _ => return None,
+    };
+    Some((code, if shift { shifted } else { plain }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn physical_press_repeat_and_release_keep_code_and_logical_key() {
+        let mut keyboard = Keyboard::default();
+        keyboard.event(42, 1, None);
+        for (value, down, repeat) in [(1, true, false), (2, true, true), (0, false, false)] {
+            assert_eq!(
+                keyboard.event(17, value, None),
+                Some(InputEvent::Key {
+                    code: 17,
+                    shift: true,
+                    down,
+                    repeat,
+                })
+            );
+        }
+        assert_eq!(keyboard.event(17, 3, None), None);
+        assert_eq!(keyboard.event(0xffff, 1, None), None);
+    }
+    #[test]
+    fn shift_sides_and_shortcuts_do_not_swallow_releases() {
+        let mut keyboard = Keyboard::default();
+        keyboard.event(42, 1, None);
+        keyboard.event(54, 1, None);
+        keyboard.event(42, 0, None);
+        assert!(matches!(
+            keyboard.event(17, 1, None),
+            Some(InputEvent::Key {
+                code: 17,
+                shift: true,
+                ..
+            })
+        ));
+        keyboard.event(54, 0, None);
+        for modifier in [29, 97, 125, 126] {
+            keyboard.event(modifier, 1, None);
+            assert_eq!(keyboard.event(17, 1, None), None);
+            assert!(matches!(
+                keyboard.event(17, 0, None),
+                Some(InputEvent::Key {
+                    code: 17,
+                    down: false,
+                    ..
+                })
+            ));
+            keyboard.event(modifier, 0, None);
+        }
+        assert!(matches!(
+            keyboard.event(17, 1, None),
+            Some(InputEvent::Key {
+                code: 17,
+                shift: false,
+                ..
+            })
+        ));
+        assert!(matches!(
+            keyboard.event(103, 1, None),
+            Some(InputEvent::Key {
+                code: 103,
+                shift: false,
+                ..
+            })
+        ));
     }
 }

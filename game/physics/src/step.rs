@@ -343,20 +343,21 @@ pub fn step(world: &mut World) {
             &collector,
         );
     }
-    let mut events = Vec::new();
-    for event in collector.0.into_inner().unwrap() {
-        let (Some(&a), Some(&b)) = (
-            live.reverse.get(&raw(event.collider1())),
-            live.reverse.get(&raw(event.collider2())),
-        ) else {
-            continue;
-        };
-        events.push(Touch {
-            a: a.min(b),
-            b: a.max(b),
-            began: event.started(),
-        });
-    }
+    let mut events: Vec<_> = collector
+        .0
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| {
+            let &a = live.reverse.get(&raw(event.collider1()))?;
+            let &b = live.reverse.get(&raw(event.collider2()))?;
+            Some(Touch {
+                a: a.min(b),
+                b: a.max(b),
+                began: event.started(),
+            })
+        })
+        .collect();
     events.sort_by_key(|e| (e.a, e.b, e.began));
     events.dedup();
     live.reverse.retain(|h, _| {
@@ -364,7 +365,6 @@ pub fn step(world: &mut World) {
             .colliders
             .contains(ColliderHandle::from_raw_parts(h[0], h[1]))
     });
-    let mut updates = Vec::new();
     for entry in live.entries.values_mut() {
         let Some(handle) = entry.bh() else {
             continue;
@@ -377,13 +377,14 @@ pub fn step(world: &mut World) {
         if b.kind == BodyKind::Dynamic {
             entry.pose = math::transform(rb.position(), entry.pose.scale);
         }
-        updates.push((entry.entity, entry.pose, b.clone()));
     }
+    // Transfer the existing entries across the resource lease for writeback.
+    let entries = std::mem::take(&mut live.entries);
     drop(saved);
     drop(physics);
-    for (e, t, b) in updates {
-        world.insert(e, t);
-        world.insert(e, b);
+    for entry in entries.values().filter(|entry| entry.body_handle.is_some()) {
+        world.insert(entry.entity, entry.pose);
+        world.insert(entry.entity, entry.body.as_ref().unwrap().clone());
     }
     for e in &events {
         if world.has::<Announce>(e.a) || world.has::<Announce>(e.b) {
@@ -401,5 +402,11 @@ pub fn step(world: &mut World) {
             ));
         }
     }
-    world.resource_mut::<Physics>().events = events;
+    let mut physics = world.resource_mut::<Physics>();
+    physics.executor.0.get_mut().live().entries = entries;
+    physics.events = events;
+    drop(physics);
+    if !crate::quiescent(world) {
+        world.busy("physics: awake dynamic bodies");
+    }
 }

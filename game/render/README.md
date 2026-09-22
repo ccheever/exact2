@@ -132,9 +132,20 @@ The environment's hemisphere approximation supplies ambient metallic reflection;
 this is not image-based lighting.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
-wins. Point-light selection is feed-only: the nearest sixteen in current state, with
-entity-order ties. It selects the same lights after restoration. Engine illuminance is lux:
-10,000 lux maps to renderer radiance 3. Missing materials/environment use defaults.
+wins. Point-light selection is feed-only: up to sixteen with positive tick-end
+intensity, ordered by squared camera distance then entity index. `Lit` contributes
+its nonnegative tick-end multiplier to eligibility. There is no incumbent advantage
+or saved selection; continuous feeds, long seeks and restores select the same order.
+At the sixteen-light boundary, two lights exchanging distance order can visibly
+pop between included and excluded; there is no hysteresis or crossfade.
+
+`Lit(Spring)` on a point light samples the saved spring at presentation seconds and
+multiplies `PointLight.intensity`; negative overshoot clamps to zero. Keep the authored
+intensity constant and retarget once with `lit.to(now, 1.0)`. Sampling changes no
+world bytes. `Glow(Tween)` independently controls material emission. The GPU regression
+in `tests/world.rs` measures a non-emissive cube illuminated by a meshless spring light.
+Engine illuminance is lux: 10,000 lux maps to renderer radiance 3.
+Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
 feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
@@ -353,3 +364,13 @@ Dated measurements and the sole module-size table are in
 [bench/README.md](../bench/README.md). Residency numbers bound retired content;
 live content is not a total GPU-memory budget. GPU tests report when no adapter
 is available; a headless proof establishes simulation evidence, not pixels.
+
+Generated `World::generated` models use the existing model preparation and
+geometry/material/winding batches. Repeated handles share one CPU model, one GPU
+upload and one draw group; preparation reuses its content digest across frames.
+`MeshData.colors` is optional linear RGBA. Both model and primitive vertex paths
+multiply the material base colour; model alpha also multiplies vertex alpha,
+including masked shadows. Primitive materials remain opaque. The packed public
+`Vertex` is 48 bytes including colour, with white in built-in shapes; skin weights
+retain their separate 32-byte stride. The asset fixture constructs a seeded coloured
+heightfield and three shared rocks in setup, with no runtime texture generator.

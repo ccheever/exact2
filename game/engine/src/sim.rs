@@ -22,8 +22,10 @@ pub trait Game: 'static {
     const NAME: &'static str = "world";
     /// Stable save identity, independent of the shared surface name.
     const ID: &'static str;
-    /// Named models required before setup and tick zero. Later mesh references load on sight.
+    /// Models and textures required before setup. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
+    /// One typed JSON value required before setup; declares its own asset name.
+    const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
     type Args: Args;
     /// Discoverable controls.
@@ -219,15 +221,18 @@ impl<G: Game> Sim<G> {
     fn build(args: &G::Args, assets: crate::asset::AssetStore) -> World {
         let mut world = World::new(G::HZ, 0);
         world.assets = assets;
-        for &name in G::ASSETS {
-            if !world.assets.declared.contains(name) {
-                world.assets.declared.insert(name.into());
-            }
-            if !world.assets.required.contains(name) {
-                world.assets.required.insert(name.into());
-            }
-            if !world.assets.models.contains_key(name) {
-                world.assets.request(name);
+        world.assets.restart_generated();
+        if !G::ASSETS.is_empty() || G::LEVEL.is_some() {
+            for name in crate::asset::level::names::<G>() {
+                if !world.assets.declared.contains(name) {
+                    world.assets.declared.insert(name.into());
+                }
+                if !world.assets.required.contains(name) {
+                    world.assets.required.insert(name.into());
+                }
+                if !world.assets.models.contains_key(name) {
+                    world.assets.request(name);
+                }
             }
         }
         if !world.assets.ready() {
@@ -275,6 +280,9 @@ impl<G: Game> Sim<G> {
                 names.iter().map(|(n, _)| n.clone()).collect();
             if self.setup_pending {
                 roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            }
+            if let Some(level) = G::LEVEL {
+                roots.insert(level.name.into());
             }
             self.world.assets.retire(&roots);
             self.textures
@@ -361,7 +369,9 @@ impl<G: Game> Sim<G> {
     /// Every retained model and dependency prepared for the current device.
     pub fn device_assets_ready(&self) -> bool {
         self.world.assets.states.iter().all(|(n, s)| {
-            *s != crate::asset::AssetState::Loaded || self.world.assets.prepared.contains(n)
+            *s != crate::asset::AssetState::Loaded
+                || n.ends_with(".level.json")
+                || self.world.assets.prepared.contains(n)
         })
     }
     /// Move texture payloads to the renderer; no CPU mip copy survives upload.
@@ -438,8 +448,14 @@ impl<G: Game> Sim<G> {
         }
         self.world.assets.requested.insert(name.into());
         self.world.assets.redelivery.remove(name);
+        let result = result.and_then(|content| match content {
+            Content::Level(text) => self.deliver_level(name, text).map(|()| None),
+            other => Ok(Some(other)),
+        });
         match result {
-            Ok(Content::Texture(texture)) => {
+            Ok(None) => {}
+            Ok(Some(Content::Level(_))) => unreachable!(),
+            Ok(Some(Content::Texture(texture))) => {
                 self.world
                     .assets
                     .states
@@ -448,7 +464,7 @@ impl<G: Game> Sim<G> {
                     self.textures.insert(name.into(), texture);
                 }
             }
-            Ok(Content::Model(model)) => {
+            Ok(Some(Content::Model(model))) => {
                 let extra = model
                     .textures
                     .iter()
@@ -482,6 +498,9 @@ impl<G: Game> Sim<G> {
     }
     fn decode_args(values: &[Value]) -> Result<G::Args, String> {
         crate::args::arity(values, G::Args::FIELDS)?;
+        if values.len() == G::Args::FIELDS.len() {
+            return G::Args::decode(values);
+        }
         let mut complete = G::Args::default().values();
         complete[..values.len()].clone_from_slice(values);
         G::Args::decode(&complete)
@@ -492,35 +511,27 @@ impl<G: Game> Sim<G> {
     }
     /// Construct a simulation from typed game arguments.
     pub fn new(args: G::Args) -> Result<Self, String> {
-        Self::with_store(args, Default::default(), QUEUE_LIMIT, None)
-    }
-    fn with_store(
-        args: G::Args,
-        assets: crate::asset::AssetStore,
-        queue_capacity: usize,
-        restored_world: Option<World>,
-    ) -> Result<Self, String> {
         if G::HZ == 0 {
             return Err("game HZ must be positive".into());
         }
-        if G::ASSETS.len() > 256 {
-            return Err(format!(
-                "asset `{}`: surface limit is 256 names",
-                G::ASSETS[256]
-            ));
-        }
-        for name in G::ASSETS {
-            if !crate::asset::asset_name(name)
-                || !(name.ends_with(".model") || name.ends_with(".tex"))
-            {
-                return Err(format!(
-                    "asset `{name}`: declaration requires a .model or .tex name"
-                ));
-            }
-        }
+        crate::asset::level::validate_declaration::<G>()?;
         args.check_scalars()?;
         G::validate(&args)?;
-        let world = restored_world.unwrap_or_else(|| Self::build(&args, assets));
+        let world = Self::build(&args, Default::default());
+        Self::from_world(
+            args,
+            world,
+            Input::new(G::actions()),
+            VecDeque::with_capacity(QUEUE_LIMIT),
+        )
+    }
+    // Both callers prepare and validate their state before installing it.
+    fn from_world(
+        args: G::Args,
+        world: World,
+        input: Input,
+        queue: VecDeque<Queued>,
+    ) -> Result<Self, String> {
         Ok(Self {
             setup_pending: !world.assets.ready(),
             world,
@@ -534,8 +545,8 @@ impl<G: Game> Sim<G> {
             last_epoch: std::cell::Cell::new(0),
             restored_from: None,
             settle_delay: std::cell::Cell::new(100),
-            input: Input::new(G::actions()),
-            queue: VecDeque::with_capacity(queue_capacity),
+            input,
+            queue,
             overflow_logged: false,
             rebase_queue: false,
             restored: false,
@@ -569,29 +580,8 @@ impl<G: Game> Sim<G> {
         let args = Self::decode_args(values)?;
         args.check_scalars()?;
         G::validate(&args)?;
-        let old_values = self.args.values();
-        let new_values = args.values();
-        let changed = crate::bin::to_vec(&self.args) != crate::bin::to_vec(&args);
-        let changes: Vec<_> = G::Args::FIELDS
-            .iter()
-            .zip(&old_values)
-            .zip(&new_values)
-            .filter(|((arg, old), new)| {
-                arg.1 != ArgumentKind::Live
-                    && match (old, new) {
-                        (Value::Number(a), Value::Number(b)) => a.to_bits() != b.to_bits(),
-                        _ => old != new,
-                    }
-            })
-            .map(|((arg, old), new)| {
-                format!(
-                    "{} {} → {}",
-                    arg.0,
-                    crate::values::value_json(old, false),
-                    crate::values::value_json(new, false)
-                )
-            })
-            .collect();
+        let args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
+        let changed = self.args_json != args_json;
         // Decoding is complete before seeking under the old arguments.
         let restart = if !self.args.setup_changed(&args) {
             None
@@ -602,6 +592,28 @@ impl<G: Game> Sim<G> {
             self.advance_with(at, Clock::Seekable, after);
         }
         if let Some(mut world) = restart {
+            let old_values = self.args.values();
+            let new_values = args.values();
+            let changes: Vec<_> = G::Args::FIELDS
+                .iter()
+                .zip(&old_values)
+                .zip(&new_values)
+                .filter(|((arg, old), new)| {
+                    arg.1 != ArgumentKind::Live
+                        && match (old, new) {
+                            (Value::Number(a), Value::Number(b)) => a.to_bits() != b.to_bits(),
+                            _ => old != new,
+                        }
+                })
+                .map(|((arg, old), new)| {
+                    format!(
+                        "{} {} → {}",
+                        arg.0,
+                        crate::values::value_json(old, false),
+                        crate::values::value_json(new, false)
+                    )
+                })
+                .collect();
             self.restarted += u64::from(
                 G::Args::FIELDS
                     .iter()
@@ -629,7 +641,7 @@ impl<G: Game> Sim<G> {
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
         }
-        self.args_json = crate::json::to_string(&args).map_err(|e| e.to_string())?;
+        self.args_json = args_json;
         self.args = args;
         if changed {
             self.invalidate();
@@ -1029,7 +1041,8 @@ impl<G: Game> Sim<G> {
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
         let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
         let host = self.last_us;
-        let queue = self.queue.clone();
+        let mut queue = std::mem::take(&mut self.queue);
+        queue.shrink_to_fit();
         let last_ms = self.last_ms;
         let live_time = self.live_time;
         let period_ms = self.period_ms;
@@ -1037,6 +1050,9 @@ impl<G: Game> Sim<G> {
         let paused_clock = self.paused_clock;
         let rebase_queue = self.rebase_queue;
         let observations = std::mem::take(&mut self.observations);
+        // Resetting sprite names must still discover removal of the last texture.
+        let assets_current = self.asset_mesh_revision == self.world.revision::<crate::Mesh>()
+            && self.asset_sprite_names.is_empty();
         let delay = self.settle_delay.get();
         let pending = self.world.published_pending.get();
         let messages = self.take_messages();
@@ -1083,6 +1099,9 @@ impl<G: Game> Sim<G> {
         self.rebase_queue = rebase_queue;
         self.queue = queue;
         self.observations = observations;
+        if assets_current {
+            self.asset_mesh_revision = self.world.revision::<crate::Mesh>();
+        }
         self.settle_delay.set(delay);
         self.last_epoch.set(self.world.mutation_epoch());
         self.world.published_pending.set(pending);
@@ -1214,7 +1233,14 @@ impl<G: Game> Sim<G> {
             }
             self.advance(at, Clock::Seekable);
         }
-        self.quiescent()
+        let settled = self.quiescent();
+        if !settled {
+            self.world.log(format!(
+                "settle exhausted: {}",
+                self.changing(false).join(", ")
+            ));
+        }
+        settled
     }
     // External leases restart back-off; ticks record their last observation epoch.
     fn check_epoch(&self) {
@@ -1279,12 +1305,15 @@ impl<G: Game> Sim<G> {
         now.saturating_add(next.saturating_sub(self.world_us)) as f64 / 1000.0
     }
     /// Device state at the host boundary, including events waiting for a tick.
-    pub(crate) fn host_input(&self) -> Input {
+    pub(crate) fn host_input(&self) -> std::borrow::Cow<'_, Input> {
+        if self.queue.is_empty() {
+            return std::borrow::Cow::Borrowed(&self.input);
+        }
         let mut input = self.input.clone();
         for queued in &self.queue {
             input.apply_paused(queued.event.clone());
         }
-        input
+        std::borrow::Cow::Owned(input)
     }
     /// Named contacts, including queued presses and releases at the host boundary.
     pub fn held_controls(&self) -> Vec<String> {
@@ -1292,45 +1321,46 @@ impl<G: Game> Sim<G> {
     }
     /// Save world time and relative pending input, independent of the host epoch.
     pub fn save(&self) -> Result<Vec<u8>, DataError> {
-        let assets = &self.world.assets;
-        let mut needed = std::collections::BTreeSet::new();
-        for (_, mesh) in self.world.query::<&crate::Mesh>().iter() {
-            if let crate::Mesh::Asset(name) = mesh {
-                needed.insert(name.clone());
+        {
+            let assets = &self.world.assets;
+            let mut meshes = self.world.query::<&crate::Mesh>();
+            let mut sprites = self.world.query::<&crate::Sprite>();
+            let mut needed = std::collections::BTreeSet::new();
+            for (_, mesh) in meshes.iter() {
+                if let crate::Mesh::Asset(name) = mesh {
+                    needed.insert(name);
+                }
             }
-        }
-        needed.extend(
-            self.world
-                .query::<&crate::Sprite>()
-                .iter()
-                .map(|(_, s)| s.texture.clone()),
-        );
-        for name in needed.clone() {
-            if matches!(
-                assets.states.get(&name),
-                Some(crate::asset::AssetState::Failed(_))
-            ) {
-                continue;
-            }
-            if let Some(deps) = assets.dependencies.get(&name) {
-                needed.extend(deps.iter().cloned());
-            }
-        }
-        let pending: Vec<_> = needed
-            .iter()
-            .filter(|name| {
-                !matches!(
+            needed.extend(sprites.iter().map(|(_, s)| &s.texture));
+            for name in needed.clone() {
+                if matches!(
                     assets.states.get(name),
-                    Some(crate::asset::AssetState::Loaded | crate::asset::AssetState::Failed(_))
-                )
-            })
-            .collect();
-        if self.is_loading() || !pending.is_empty() {
-            return Err(DataError::new(format!(
-                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
-                pending,
-                assets.state_json()
-            )));
+                    Some(crate::asset::AssetState::Failed(_))
+                ) {
+                    continue;
+                }
+                if let Some(deps) = assets.dependencies.get(name) {
+                    needed.extend(deps);
+                }
+            }
+            let pending: Vec<_> = needed
+                .iter()
+                .filter(|name| {
+                    !matches!(
+                        assets.states.get(name),
+                        Some(
+                            crate::asset::AssetState::Loaded | crate::asset::AssetState::Failed(_)
+                        )
+                    )
+                })
+                .collect();
+            if self.is_loading() || !pending.is_empty() {
+                return Err(DataError::new(format!(
+                    "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
+                    pending,
+                    assets.state_json()
+                )));
+            }
         }
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
@@ -1343,11 +1373,14 @@ impl<G: Game> Sim<G> {
             }
             e.event.set_at_ms(0.0); // the queue owns the stamp; no absolute host time in a save
         }
+        // Restore clears tick-local edges; checkpoints keep continuation state.
+        let mut input = self.input.clone();
+        input.clear_edges();
         let saved = Saved {
             game: G::ID.into(),
             world: self.world.save(),
             args: self.args_json.clone(),
-            input: self.input.clone(),
+            input,
             queue,
             world_us,
             published: self.world.publications(),
@@ -1414,8 +1447,8 @@ impl<G: Game> Sim<G> {
             return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
         input.restore_dynamic(s.input);
-        let mut next = Self::with_store(bound, self.world.assets.clone(), 0, Some(validated))
-            .map_err(DataError::new)?;
+        let mut next =
+            Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
         next.world.assets = self.world.assets.clone();
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
@@ -1423,8 +1456,6 @@ impl<G: Game> Sim<G> {
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
-        next.input = input;
-        next.queue = s.queue.into();
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);

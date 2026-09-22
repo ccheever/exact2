@@ -29,20 +29,6 @@ impl From<Value> for Stored {
     }
 }
 impl Stored {
-    fn value_allocation(&self) -> usize {
-        let overhead = 2 * std::mem::size_of::<usize>();
-        match self {
-            Self::Str(s) => s.len() + overhead,
-            Self::List(items) | Self::Record(items) => {
-                overhead
-                    + std::mem::size_of::<Vec<Value>>()
-                    + items.len() * std::mem::size_of::<Value>()
-                    + items.iter().map(Self::value_allocation).sum::<usize>()
-            }
-            Self::Option(Some(v)) => overhead + std::mem::size_of::<Value>() + v.value_allocation(),
-            _ => 0,
-        }
-    }
     pub(crate) fn value(&self) -> Option<Value> {
         Some(match self {
             Self::Unit => Value::Unit,
@@ -129,12 +115,49 @@ impl Data for Value {
         w.end_variant();
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
-        let mut stored = Stored::default();
-        stored.read(r)?;
-        r.claim(stored.value_allocation())?;
-        *self = stored
-            .value()
-            .ok_or_else(|| DataError::new("named record requires a Contract shape"))?;
+        fn payload<T: Data>(r: &mut dyn Reader) -> Result<T, DataError> {
+            let mut value = (T::default(),);
+            value.read(r)?;
+            Ok(value.0)
+        }
+        let arm = r.variant()?;
+        let overhead = 2 * std::mem::size_of::<usize>();
+        let value = match arm.as_str() {
+            "Unit" => {
+                r.begin_struct()?;
+                while let Some(field) = r.field()? {
+                    r.skip().map_err(|e| e.at(field))?;
+                }
+                Self::Unit
+            }
+            "Number" => Self::Number(payload(r)?),
+            "Bool" => Self::Bool(payload(r)?),
+            "Str" => {
+                let text: String = payload(r)?;
+                r.claim(text.len() + overhead)?;
+                Self::str(&text)
+            }
+            "Option" => Self::Option(match payload::<Option<Value>>(r)? {
+                Some(value) => {
+                    r.claim(overhead + std::mem::size_of::<Value>())?;
+                    Some(Rc::new(value))
+                }
+                None => None,
+            }),
+            "List" | "Record" => {
+                let values: Vec<Value> = payload(r)?;
+                r.claim(overhead + std::mem::size_of::<Vec<Value>>())?;
+                if arm == "List" {
+                    Self::list(values)
+                } else {
+                    Self::record(values)
+                }
+            }
+            "Object" => return Err(DataError::new("named record requires a Contract shape")),
+            _ => return Err(DataError::new(format!("unknown variant {arm}"))),
+        };
+        r.end_variant()?;
+        *self = value;
         Ok(())
     }
 }
@@ -208,33 +231,86 @@ mod tests {
         );
         assert_ne!(hash::of(&Value::Number(0.)), hash::of(&Value::Number(-0.)));
     }
+
+    #[test]
+    fn value_decode_keeps_defaults_extensions_and_refusal_atomicity() {
+        for (text, expected) in [
+            (r#"{"Unit":{"ignored":[1,2]}}"#, Value::Unit),
+            (r#"{"Number":[]}"#, Value::Number(0.)),
+            (r#"{"Bool":[]}"#, Value::Bool(false)),
+            (r#"{"Str":[]}"#, Value::str("")),
+            (r#"{"Option":[]}"#, Value::Option(None)),
+            (r#"{"List":[]}"#, Value::list(vec![])),
+            (r#"{"Record":[]}"#, Value::record(vec![])),
+            (r#"{"Number":[7,{"ignored":[1,2]}]}"#, Value::Number(7.)),
+        ] {
+            assert_eq!(json::from_str::<Value>(text).unwrap(), expected, "{text}");
+        }
+        for text in [
+            r#"{"Object":[{}]}"#,
+            r#"{"Unknown":[]}"#,
+            r#"{"List":[[{"Number":[1]},{"Bool":["wrong"]}]]}"#,
+            r#"{"Option":[[{"Str":["truncated"]}]]"#,
+        ] {
+            let mut value = Value::str("unchanged");
+            assert!(json::read_into(text, &mut value).is_err(), "{text}");
+            assert_eq!(value, Value::str("unchanged"), "{text}");
+        }
+        let bytes = bin::to_vec(&Value::list(vec![Value::str("saved"); 16]));
+        let mut reader = bin::Decoder::new(&bytes);
+        reader.claim(crate::data::MAX_LOAD_BYTES - 128).unwrap();
+        let mut value = Value::Number(42.);
+        let error = value.read(&mut reader).unwrap_err();
+        assert!(error.message.contains("load budget"), "{error}");
+        assert_eq!(value, Value::Number(42.));
+    }
 }
 
 /// A Contract value accepted by World::publish, including ordinary game scalars.
-pub struct Published(pub(crate) Stored);
-impl From<Value> for Published {
+pub struct Published<'a>(pub(crate) Incoming<'a>);
+pub(crate) enum Incoming<'a> {
+    Borrowed(&'a str),
+    Owned(Stored),
+}
+impl Incoming<'_> {
+    pub(crate) fn matches(&self, stored: &Stored) -> bool {
+        match self {
+            Self::Borrowed(value) => {
+                matches!(stored, Stored::Str(current) if current.as_str() == *value)
+            }
+            Self::Owned(value) => stored == value,
+        }
+    }
+    pub(crate) fn into_stored(self) -> Stored {
+        match self {
+            Self::Borrowed(value) => Stored::Str(value.into()),
+            Self::Owned(value) => value,
+        }
+    }
+}
+impl<'a> From<Value> for Published<'a> {
     fn from(v: Value) -> Self {
-        Self(v.into())
+        Self(Incoming::Owned(v.into()))
     }
 }
-impl From<bool> for Published {
+impl<'a> From<bool> for Published<'a> {
     fn from(v: bool) -> Self {
-        Self(Stored::Bool(v))
+        Self(Incoming::Owned(Stored::Bool(v)))
     }
 }
-impl From<&str> for Published {
-    fn from(v: &str) -> Self {
-        Self(Stored::Str(v.into()))
+impl<'a> From<&'a str> for Published<'a> {
+    fn from(v: &'a str) -> Self {
+        Self(Incoming::Borrowed(v))
     }
 }
-impl From<String> for Published {
+impl<'a> From<String> for Published<'a> {
     fn from(v: String) -> Self {
-        Self(Stored::Str(v))
+        Self(Incoming::Owned(Stored::Str(v)))
     }
 }
 macro_rules! numbers {
-    ($($ty:ty),*) => {$(impl From<$ty> for Published {
-        fn from(v: $ty) -> Self { Self(Stored::Number(v as f64)) }
+    ($($ty:ty),*) => {$(impl<'a> From<$ty> for Published<'a> {
+        fn from(v: $ty) -> Self { Self(Incoming::Owned(Stored::Number(v as f64))) }
     })*};
 }
 numbers!(u8, u16, u32, i8, i16, i32, f32, f64);
@@ -336,26 +412,18 @@ impl Writer for RecordWriter {
     fn string(&mut self, v: &str) {
         self.push(Stored::Str(v.into()));
     }
-    fn bytes(&mut self, kind: crate::data::BulkKind, bytes: &[u8]) {
-        use crate::data::BulkKind;
-        let width = match kind {
-            BulkKind::U8 => 1,
-            BulkKind::U16 => 2,
-            BulkKind::U32 | BulkKind::F32 => 4,
-        };
-        self.push(Stored::List(
-            bytes
-                .chunks_exact(width)
-                .map(|chunk| {
-                    Stored::Number(match kind {
-                        BulkKind::U8 => chunk[0] as f64,
-                        BulkKind::U16 => u16::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                        BulkKind::U32 => u32::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                        BulkKind::F32 => f32::from_le_bytes(chunk.try_into().unwrap()) as f64,
-                    })
-                })
+    fn bytes(&mut self, value: crate::data::Bulk<'_>) {
+        use crate::data::Bulk;
+        let values = match value {
+            Bulk::U8(v) => v.iter().map(|&n| Stored::Number(n as f64)).collect(),
+            Bulk::U16(v) => v.iter().map(|&n| Stored::Number(n as f64)).collect(),
+            Bulk::U32(v) => v.iter().map(|&n| Stored::Number(n as f64)).collect(),
+            Bulk::F32(v) => v
+                .iter()
+                .map(|&n| Stored::Number(f32::from_bits(crate::data::f32_bits(n)) as f64))
                 .collect(),
-        ));
+        };
+        self.push(Stored::List(values));
     }
     fn begin_seq(&mut self, len: usize) {
         self.stack.push(Stored::List(Vec::with_capacity(len)));
@@ -400,7 +468,7 @@ impl crate::World {
             panic!("publish_record expects a named record");
         };
         for (key, value) in fields {
-            self.publish_value(&key, value);
+            self.publish_value(&key, Incoming::Owned(value));
         }
     }
 }

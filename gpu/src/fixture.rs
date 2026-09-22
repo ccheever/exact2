@@ -9,6 +9,18 @@ use crate::{block_on, load_gpu, Frame, Gpu, Surface};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Skip only a classified absent adapter; device and configuration failures fail tests.
+pub fn device_or_skip<T>(result: Result<T, String>) -> Option<T> {
+    match result {
+        Ok(gpu) => Some(gpu),
+        Err(reason) if reason.starts_with("no adapter:") => {
+            eprintln!("SKIP GPU test: {reason}");
+            None
+        }
+        Err(reason) => panic!("GPU device request failed: {reason}"),
+    }
+}
+
 /// Pixels read back: `width`×`height` RGBA, four bytes each, rows top-down,
 /// tightly packed.
 #[derive(Debug, Clone, PartialEq, Eq)]

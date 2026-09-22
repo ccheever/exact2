@@ -26,15 +26,20 @@ fn find(p: &Presenter<NoData>, name: &str) -> u32 {
         .unwrap()
 }
 fn fixture() -> (Presenter<NoData>, PathBuf) {
+    fixture_with_hud_removal(false)
+}
+fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     let (path, compat) = super::tests::fixture();
-    let plan = contract::compile(
-        r#"component Controls
+    let source = r#"component Controls
   state removed = false
+  state text = ""
+  action change(value: string) writes text
+    text = value
   action remove writes removed
     removed = true
   view
     column
-      input testId="editor" width=100 height=30
+      input testId="editor" value=text change=change width=100 height=30
       canvas testId="a" width=100 height=100
         when !removed
           button testId="a-jump" action="jump" width=100 height=100
@@ -42,10 +47,18 @@ fn fixture() -> (Presenter<NoData>, PathBuf) {
       canvas testId="b" width=100 height=100
         button testId="b-jump" action="jump" width=100 height=100
       canvas testId="raw" width=100 height=100
+        button testId="hud-remove" press=remove width=100 height=30
       button testId="remove" press=remove width=100 height=30
-"#,
-    )
-    .unwrap();
+"#;
+    let source = if remove_hud {
+        source.replace(
+            "        button testId=\"hud-remove\" press=remove width=100 height=30",
+            "        when !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
+        )
+    } else {
+        source.to_owned()
+    };
+    let plan = contract::compile(&source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
         NoData,
@@ -222,7 +235,7 @@ fn r12_pressed_control_routes_space_without_stealing_editor() {
     let a = find(&p, "a");
     p.focus = Some(editor);
     assert!(p.control_input(button, "down", 0., 0., 7, 0.));
-    p.activation_key("Space", true);
+    p.hardware_key("Space", "Space", true, false);
     assert_eq!(p.focus(), Some(editor));
     assert_eq!(
         p.control_bindings
@@ -230,9 +243,9 @@ fn r12_pressed_control_routes_space_without_stealing_editor() {
             .map(|b| b.name.as_str()),
         Some("jump")
     );
-    p.activation_key("Space", false);
+    p.hardware_key("Space", "Space", false, false);
     assert!(!p.control_bindings.contains_key(&(a, u32::MAX - 1)));
-    p.type_key(button, "Space", true).unwrap();
+    p.type_key(button, "Space", "Space", true, false).unwrap();
     assert_eq!(p.focus(), Some(editor));
     done(p, path);
 }
@@ -256,9 +269,9 @@ fn r12_duplicate_restored_actions_do_not_guess_an_owner() {
     restore(&mut p, "a", json!([{"id":7,"action":"jump"}]));
     assert_eq!(p.control_bindings[&(a, 7)].view, None);
     for (key, contact) in [("Space", u32::MAX - 1), ("Enter", u32::MAX - 2)] {
-        p.activation_key(key, true);
+        p.hardware_key(key, key, true, false);
         assert_eq!(p.control_bindings[&(a, contact)].name, "jump");
-        p.activation_key(key, false);
+        p.hardware_key(key, key, false, false);
         assert!(!p.control_bindings.contains_key(&(a, contact)));
     }
     p.host.apply_test_ops(&[exact_kernel::Op::SetChildren {
@@ -338,8 +351,8 @@ fn e10_contract_button_consumes_all_activation_keys() {
         let (mut p, path) = fixture();
         let button = find(&p, "remove");
         let child = find(&p, "a-jump");
-        p.type_key(button, key, true).unwrap();
-        p.type_key(button, key, false).unwrap();
+        p.type_key(button, key, key, true, false).unwrap();
+        p.type_key(button, key, key, false, false).unwrap();
         assert!(
             p.host.kernel().node(child).is_none(),
             "{key} activates the focused Contract button"
@@ -350,21 +363,21 @@ fn e10_contract_button_consumes_all_activation_keys() {
 }
 
 #[test]
-fn r15_pointer_button_releases_focus_but_keyboard_keeps_it() {
+fn r15_pointer_hud_button_releases_focus_but_keyboard_keeps_it() {
     let (mut p, path) = fixture();
-    let button = find(&p, "remove");
+    let button = find(&p, "hud-remove");
     p.tap(button).unwrap();
-    assert_eq!(p.focus(), None);
-    p.activation_key("Space", true);
+    assert_eq!(p.focus(), Some(find(&p, "raw")));
+    p.hardware_key("Space", "Space", true, false);
     assert!(p
         .surfaces
         .canvases
         .values()
         .any(|c| c.held.contains("Space")));
-    p.activation_key("Space", false);
-    p.type_key(button, "Tab", true).unwrap();
-    p.activation_key("Space", true);
-    p.activation_key("Space", false);
+    p.hardware_key("Space", "Space", false, false);
+    p.type_key(button, "Tab", "Tab", true, false).unwrap();
+    p.hardware_key("Space", "Space", true, false);
+    p.hardware_key("Space", "Space", false, false);
     assert_eq!(p.focus(), Some(button));
     assert!(p.surfaces.canvases.values().all(|c| c.held.is_empty()));
     done(p, path);
@@ -402,13 +415,248 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
 }
 
 #[test]
-fn r15_pointer_control_releases_focus_but_keyboard_control_keeps_it() {
+fn e11_pointer_control_keeps_focus_for_keyboard_input() {
     let (mut p, path) = fixture();
     let button = find(&p, "b-jump");
     p.tap(button).unwrap();
-    assert_eq!(p.focus(), None);
-    p.type_key(button, "Space", true).unwrap();
-    p.type_key(button, "Space", false).unwrap();
+    assert_eq!(p.focus(), Some(button));
+    p.type_key(button, "Space", "Space", true, false).unwrap();
+    p.type_key(button, "Space", "Space", false, false).unwrap();
     assert_eq!(p.focus(), Some(button));
     done(p, path);
+}
+
+#[test]
+fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
+    for overlay in [false, true] {
+        let (path, _) = super::tests::fixture();
+        let plan = contract::compile(&format!(
+            r#"component Test
+  state done = false
+  action finish writes done
+    done = true
+  view
+    column
+      button press=finish testId="start" width=100 height=30
+      when done
+        button {} testId="next" width=100 height=30
+"#,
+            if overlay { "autofocus" } else { "" }
+        ))
+        .unwrap();
+        let (mut p, _) = Presenter::boot(
+            &plan.encode(),
+            NoData,
+            (100., 60.),
+            1.,
+            path.parent().unwrap().into(),
+        )
+        .unwrap();
+        let start = find(&p, "start");
+        p.tap(start).unwrap();
+        assert_eq!(
+            p.focus(),
+            Some(if overlay { find(&p, "next") } else { start })
+        );
+        done(p, path);
+    }
+}
+
+#[test]
+fn hardware_release_follows_raw_owner_after_focus_moves() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    p.focus = Some(raw);
+    p.hardware_key("KeyW", "KeyW", true, false);
+    assert!(p.surfaces.canvases[&raw].held.contains("KeyW"));
+    p.focus = Some(find(&p, "editor"));
+    p.hardware_key("KeyW", "KeyW", false, false);
+    assert!(p.surfaces.canvases[&raw].held.is_empty());
+    done(p, path);
+}
+
+#[test]
+fn letter_release_does_not_release_enter_control() {
+    let (mut p, path) = fixture();
+    let button = find(&p, "a-jump");
+    p.focus = Some(button);
+    p.hardware_key("Enter", "Enter", true, false);
+    assert_eq!(p.control_bindings.len(), 1);
+    p.hardware_key("KeyW", "KeyW", false, false);
+    assert_eq!(p.control_bindings.len(), 1);
+    p.hardware_key("Enter", "Enter", false, false);
+    assert!(p.control_bindings.is_empty());
+    done(p, path);
+}
+
+#[test]
+fn blur_clears_raw_hold_without_focus() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    p.focus = Some(raw);
+    p.hardware_key("KeyW", "KeyW", true, false);
+    p.focus = None;
+    p.blur();
+    assert!(p.surfaces.canvases[&raw].held.is_empty());
+    done(p, path);
+}
+
+fn last_input(p: &Presenter<NoData>) -> (u32, u32, Value) {
+    let abi = p.surfaces.abi.as_ref().unwrap();
+    unsafe {
+        let text = std::ffi::CStr::from_ptr(abi
+            .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(b"test_input")(
+        ))
+        .to_str()
+        .unwrap();
+        (
+            abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_input_id")(),
+            abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_input_count")(),
+            serde_json::from_str(text).unwrap(),
+        )
+    }
+}
+
+#[test]
+fn hardware_keys_reach_module_with_code_character_repeat_and_clock() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    p.focus = Some(raw);
+    p.advance(25.).unwrap_or_default();
+    for (down, repeat) in [(true, false), (true, true), (false, false)] {
+        p.hardware_key("KeyW", "W", down, repeat);
+        let (id, _, event) = last_input(&p);
+        assert_eq!(id, p.surfaces.canvases[&raw].id);
+        assert_eq!(
+            event,
+            json!({"t":"key","code":"KeyW","key":"W","down":down,"repeat":repeat,"at":25.})
+        );
+    }
+    assert!(p.surfaces.canvases[&raw].held.is_empty());
+    p.hardware_key("Escape", "Escape", true, false);
+    assert_eq!(last_input(&p).2["code"], "Escape");
+    assert!(p.surfaces.canvases[&raw].held.contains("Escape"));
+    p.hardware_key("Escape", "Escape", false, false);
+    done(p, path);
+}
+
+#[test]
+fn hardware_typing_stays_in_editor_and_repeats_but_button_repeat_does_not_activate() {
+    let (mut p, path) = fixture();
+    let editor = find(&p, "editor");
+    p.focus = Some(editor);
+    for (code, key, down, repeat) in [
+        ("KeyW", "W", true, false),
+        ("KeyW", "W", true, true),
+        ("KeyW", "w", false, false),
+        ("Backspace", "Backspace", true, false),
+        ("Space", " ", true, false),
+        ("Space", " ", false, false),
+    ] {
+        p.hardware_key(code, key, down, repeat);
+    }
+    assert_eq!(
+        p.host
+            .kernel()
+            .node(editor)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Value),
+        Some("W ")
+    );
+    assert!(p.surfaces.canvases.values().all(|c| c.held.is_empty()));
+    p.hardware_key("Escape", "Escape", true, false);
+    assert_eq!(p.focus(), None);
+    let button = find(&p, "remove");
+    let child = find(&p, "a-jump");
+    p.focus = Some(button);
+    p.hardware_key("Enter", "Enter", true, true);
+    assert!(p.host.kernel().node(child).is_some());
+    p.hardware_key("Enter", "Enter", true, false);
+    assert!(p.host.kernel().node(child).is_none());
+    done(p, path);
+}
+
+#[test]
+fn rejected_key_does_not_gain_ownership_and_duplicate_release_is_not_forwarded() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    assert!(p.type_key(raw, "RejectKey", "x", true, false).is_err());
+    assert!(p.surfaces.canvases[&raw].held.is_empty());
+    p.focus = Some(raw);
+    p.hardware_key("KeyW", "w", true, false);
+    p.hardware_key("KeyW", "w", false, false);
+    let count = last_input(&p).1;
+    p.hardware_key("KeyW", "w", false, false);
+    assert_eq!(last_input(&p).1, count);
+    p.hardware_key("Tab", "Tab", true, false);
+    assert_eq!(last_input(&p).1, count);
+    done(p, path);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn evdev_wasd_edges_reach_canvas_and_release_after_focus_moves() {
+    use crate::input::{InputEvent, Keyboard};
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let editor = find(&p, "editor");
+    let mut keyboard = Keyboard::default();
+    for physical in [17, 30, 31, 32] {
+        p.focus = Some(raw);
+        for value in [1, 2, 0] {
+            if value == 0 {
+                p.focus = Some(editor);
+            }
+            let InputEvent::Key {
+                code,
+                shift,
+                down,
+                repeat,
+            } = keyboard.event(physical, value, None).unwrap()
+            else {
+                panic!("key event");
+            };
+            let (code, key) = crate::input::key(code, shift).unwrap();
+            p.hardware_key(code, key, down, repeat);
+            assert_eq!(last_input(&p).2["down"], down);
+            assert_eq!(last_input(&p).2["code"], code);
+        }
+        assert!(p.surfaces.canvases[&raw].held.is_empty());
+    }
+    done(p, path);
+}
+
+fn removing_hud_button_returns_input_to_its_canvas(keyboard: bool) {
+    let (mut p, path) = fixture_with_hud_removal(true);
+    let button = find(&p, "hud-remove");
+    let canvas = find(&p, "raw");
+    if keyboard {
+        p.type_key(button, "Enter", "Enter", true, false).unwrap();
+        p.hardware_key("Enter", "Enter", false, false);
+    } else {
+        p.tap(button).unwrap();
+    }
+    assert!(p.host.kernel().node(button).is_none());
+    assert_eq!(p.focus(), Some(canvas));
+    p.hardware_key("KeyD", "d", true, false);
+    assert!(p.surfaces.canvases[&canvas].held.contains("KeyD"));
+    assert!(p
+        .surfaces
+        .canvases
+        .iter()
+        .all(|(id, c)| *id == canvas || c.held.is_empty()));
+    p.hardware_key("KeyD", "d", false, false);
+    assert!(p.surfaces.canvases.values().all(|c| c.held.is_empty()));
+    done(p, path);
+}
+
+#[test]
+fn removed_hud_pointer_press_returns_focus_to_its_canvas() {
+    removing_hud_button_returns_input_to_its_canvas(false);
+}
+
+#[test]
+fn removed_hud_keyboard_press_returns_focus_to_its_canvas() {
+    removing_hud_button_returns_input_to_its_canvas(true);
 }

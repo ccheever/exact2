@@ -132,9 +132,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
   if (!pageURL) await assertWebDistApp(dist, selected);
-  let gpuMs = null;
   const server = createServer((req, res) => {
-    if (req.url.startsWith('/__gpu')) { gpuMs = Number(new URL(req.url, 'http://x').searchParams.get('ms')); res.writeHead(204); res.end(); return; }
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     serveStatic(dist, req, res);
@@ -216,7 +214,6 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
-    page.searchParams.set('smoke', '1');
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
@@ -241,7 +238,11 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
       return reply;
     };
     return {
-      host: 'web', boot: Number(boot), hostLines, gpuMs: () => gpuMs,
+      host: 'web', boot: Number(boot), hostLines,
+      async gpuMs() {
+        const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
+        return ms == null ? null : Number(ms);
+      },
       async reset() {
         // Release browser-owned input while its original document still exists.
         for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
@@ -258,7 +259,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
           if (Date.now() > deadline) throw new Error('the reused page never left its old document');
           await sleep(15);
         }
-        hostLines.length = 0; gpuMs = null;
+        hostLines.length = 0;
         await call('Page.navigate', {url:page.href});
         let boot;
         while ((boot = await evaluate("document.getElementById('exact-root')?.dataset.bootMs ?? null").catch(() => null)) == null) {
@@ -449,7 +450,7 @@ export async function phoneBridge() {
 }
 
 /** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
-async function openStdio({ host, plan, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
+async function openStdio({ host, plan, world, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
@@ -463,6 +464,12 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   if (device) {
     const installed = spawnSync('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, deviceBundle], { encoding: 'utf8' });
     if (installed.status !== 0) throw new Error(`device install: ${installed.stderr || installed.stdout || installed.error?.message}`);
+    if (world) {
+      const copied = spawnSync('xcrun', ['devicectl', 'device', 'copy', 'to', '--quiet', '--device', ph.udid,
+        '--domain-type', 'appDataContainer', '--domain-identifier', a.id, '--source', resolve(world), '--destination', 'tmp/exact-agent.world'], { encoding: 'utf8', timeout: 45000 });
+      if (copied.status !== 0) throw new Error(`phone world copy: ${copied.stderr || copied.error || copied.stdout}`);
+      extra = { ...extra, EXACT_WORLD: '~/tmp/exact-agent.world' };
+    }
   }
   const env = { EXACT_ASSETS: a.dir, ...process.env, EXACT_AGENT: '1' };
   if (plan) env.EXACT_PLAN = plan;
@@ -481,7 +488,7 @@ async function openStdio({ host, plan, size, app, env: extra = {}, session, devi
   const bridge = device ? await phoneBridge() : null;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
-        '--environment-variables', JSON.stringify({ ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
+        '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
     : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
   onProcess?.(child);
   const hostLines = [];
@@ -834,9 +841,9 @@ export async function tapRefusal(session, target, error) {
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
 export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
-  if (world && (device || !['web','mac','macos','ios','linux'].includes(host))) throw new Error(`world restore unavailable on this host yet: ${host}`);
+  if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
-  if (world && host !== 'web') env = {...env, EXACT_WORLD:resolve(world)};
+  if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
   // the driver still owns the runner's clock, but UIKit's own transitions,
@@ -854,7 +861,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, env, app, device, phone: pick }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
+  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
   const s = {
     carrier,
     host: carrier.host,
@@ -867,6 +874,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** The agent's clock, milliseconds: the last `clock` value (0 at boot). */
     now: 0,
     logCursor: 0,
+    /** Await the current page's GPU load time, or null before loading/on native. */
     gpuMs: carrier.gpuMs,
     async op(req) {
       const r = await carrier.ask(req);
@@ -1016,7 +1024,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
     screenshot: async (path, target = false, form) => {
       if (form === 'save') {
-        if (!['web','macos','ios','linux'].includes(s.host) || device) throw new Error(`world save unavailable on this host yet: ${s.host}`);
+        if (!['web','macos','ios','linux'].includes(s.host)) throw new Error(`world save unavailable on this host yet: ${s.host}`);
         const reply = await s.op({op:'screenshot', ...await s.target(target), world:true, form:'save'});
         const {data, ...metadata} = reply;
         if (typeof data !== 'string') throw new Error(`canvas ${target} returned no save bytes; inspect state and state ${target}:* for the refusal reason`);
@@ -1072,7 +1080,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
     return reply('up');
   };
   try {
-    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk });
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, ...(phase === 'down' && key === 'Enter' ? {text:'\r'} : {}) });
     await frame();
   } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
   return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };

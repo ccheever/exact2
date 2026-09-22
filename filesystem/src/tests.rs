@@ -32,6 +32,17 @@ impl Drop for Fixture {
 }
 
 #[test]
+fn a_static_inventory_refuses_a_fifo() {
+    let fixture = Fixture::new();
+    let root = fixture.dir("assets");
+    let path = std::ffi::CString::new(fixture.path("assets/pipe").to_str().unwrap()).unwrap();
+    // SAFETY: path is a live, NUL-terminated name in this test's private directory.
+    assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+    let error = operate(&root, &json!({"op":"tree"}), None).unwrap_err();
+    assert!(error.to_string().contains("regular files"), "{error}");
+}
+
+#[test]
 fn retained_generation_quota_is_atomic_and_never_prunes() {
     let fixture = Fixture::new();
     let root = fixture.dir("cache");

@@ -1,5 +1,6 @@
 shape Hud
   lit: number
+  total: number
   near: string
 
 component SmallGame
@@ -23,10 +24,14 @@ component SmallGame
       when playing
         canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative"
           text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 border-radius=12 background-color="#202731cc"
-          button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") position="absolute" top=24 right=24 padding=12 border-radius=12 background-color="#202731cc"
-            text (paused ? "Resume" : "Pause")
+          row position="absolute" top=24 right=24 gap=12
+            when paused
+              button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=12 background-color="#354751"
+                text "Restart"
+            button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=12 background-color="#202731cc"
+              text (paused ? "Resume" : "Pause")
           when hud.near != ""
-            text "Tap Light to light this beacon" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
+            text "Press E or tap Light" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
             text "Move" color="#ffffff" text-align="center" padding-top=36
           row position="absolute" right=24 bottom=24 gap=12
@@ -34,13 +39,17 @@ component SmallGame
               text "Jump" color="#ffffff"
             button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
               text "Light" color="#202731"
-          when hud.lit == 2
+          when hud.total > 0 and hud.lit == hud.total
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
               button press=restart autofocus aria-label="Play again" testId="again" padding=16 background-color="#e8ad61"
                 text "Play again" color="#202731"
       else
-        column height="100%" align-items="center" justify-content="center" gap=24
+        column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=24
           text "Small game" font-size=48 color="#ffffff"
+          column width="100%" max-width=320 align-items="center" gap=8
+            text "Move with WASD or arrow keys" width="100%" text-align="center"
+            text "Space jumps · E lights" width="100%" text-align="center"
+            text "Touch controls appear during play" width="100%" text-align="center"
           button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"

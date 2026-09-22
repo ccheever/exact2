@@ -26,6 +26,7 @@ pub fn primitive(
                 | gltf::Semantic::TexCoords(0)
                 | gltf::Semantic::Joints(0)
                 | gltf::Semantic::Weights(0)
+                | gltf::Semantic::Colors(0)
         ) {
             return Err(format!("primitive {}: {semantic:?} unsupported", p.index()));
         }
@@ -70,6 +71,10 @@ pub fn primitive(
         .unwrap_or_else(|| normals(&positions, &indices));
     let mut mesh = MeshData {
         positions,
+        colors: r
+            .read_colors(0)
+            .map(|v| v.into_rgba_f32().flatten().collect())
+            .unwrap_or_default(),
         normals,
         uvs,
         joints: r
@@ -107,6 +112,17 @@ fn bounds(m: &mut MeshData) {
 }
 pub fn merge(a: &mut MeshData, b: MeshData) {
     let base = (a.positions.len() / 3) as u32;
+    if !a.colors.is_empty() || !b.colors.is_empty() {
+        if a.colors.is_empty() {
+            a.colors.resize(base as usize * 4, 1.);
+        }
+        if b.colors.is_empty() {
+            a.colors
+                .extend(std::iter::repeat_n(1., b.positions.len() / 3 * 4));
+        } else {
+            a.colors.extend(b.colors);
+        }
+    }
     a.positions.extend(b.positions);
     a.normals.extend(b.normals);
     a.uvs.extend(b.uvs);

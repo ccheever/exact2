@@ -444,7 +444,7 @@ fn bulk_vectors_are_little_endian_bounded_and_inspection_only() {
     let mut encoded = bin::Encoder::default();
     encoded.begin_seq(2);
     encoded.item();
-    encoded.bytes(exact_game::data::BulkKind::U8, &bytes);
+    encoded.bytes(exact_game::data::Bulk::U8(&bytes));
     encoded.item();
     encoded.number(exact_game::data::Number::Unsigned(42));
     encoded.end_seq();

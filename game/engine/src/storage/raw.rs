@@ -524,7 +524,7 @@ mod tests {
             n: u32,
         }
         let mut w = World::new(60, 0);
-        for n in 0..1030 {
+        for n in 0..(crate::PAGE + 6) as u32 {
             w.spawn(Aligned {
                 text: "owned".into(),
                 n,

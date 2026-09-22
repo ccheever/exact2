@@ -15,7 +15,7 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
   check('title and Play are the initial UI', !!node(title, 'play') && title?.nodes?.some(n => n.props?.text === 'Grey box'));
-  check('no world or loaded GPU module on the title', !node(title, 'world') && (host !== 'web' || s.gpuMs() === null));
+  check('no world or loaded GPU module on the title', !node(title, 'world') && (host !== 'web' || await s.gpuMs() === null));
   await screenshot(resolve(out, 'greybox-title.png'));
   await s.tap('play');
   const playing = await s.tree();

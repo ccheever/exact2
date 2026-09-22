@@ -51,13 +51,7 @@ impl Surface for Fill {
 }
 
 fn device() -> Option<Gpu> {
-    match fixture::device() {
-        Ok(gpu) => Some(gpu),
-        Err(e) => {
-            eprintln!("{e}; the readback test is skipped");
-            None
-        }
-    }
+    fixture::device_or_skip(fixture::device())
 }
 
 fn texture(gpu: &Gpu, format: wgpu::TextureFormat, layers: u32) -> wgpu::Texture {
@@ -169,4 +163,22 @@ fn save_creates_the_directory_it_is_pointed_at() {
     );
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(px.save("none"), None, "unset: nothing written");
+}
+
+#[test]
+fn only_no_adapter_is_a_skip() {
+    assert_eq!(fixture::device_or_skip(Ok(7)), Some(7));
+    assert_eq!(
+        fixture::device_or_skip::<()>(Err("no adapter: unavailable".into())),
+        None
+    );
+    for reason in [
+        "no device: unsupported limits",
+        "device lost",
+        "shader validation failed",
+    ] {
+        assert!(
+            std::panic::catch_unwind(|| fixture::device_or_skip::<()>(Err(reason.into()))).is_err()
+        );
+    }
 }

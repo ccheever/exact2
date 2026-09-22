@@ -452,3 +452,80 @@ fn fixture_grid_fog_and_bloom() {
             > 50
     );
 }
+
+struct SpringLight;
+impl Game for SpringLight {
+    const ID: &'static str = "spring-illuminates-geometry";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        use exact_game::{DirectionalLight, Environment, Lit, PointLight, Spring};
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        w.spawn((
+            Transform::default(),
+            Mesh::cube(2.),
+            Material::rgb(0.7, 0.7, 0.7),
+        ));
+        // The light has no mesh or emissive material: only reflected geometry can change.
+        w.spawn_named(
+            "lamp",
+            (
+                Transform::at(0., 1., 3.),
+                PointLight {
+                    intensity: 80.,
+                    range: 10.,
+                    ..Default::default()
+                },
+                Lit(Spring::new(0.)),
+            ),
+        );
+        w.spawn((
+            Transform::default(),
+            DirectionalLight {
+                illuminance: 0.,
+                ..Default::default()
+            },
+        ));
+        w.insert_resource(Environment {
+            ambient: 0.,
+            bloom: None,
+            fog: None,
+            background: Some([0.; 3]),
+            ..Default::default()
+        });
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        if w.tick() == 0 {
+            w.require_mut::<exact_game::Lit>("lamp")
+                .to(w.tick_end(), 1.);
+        }
+    }
+}
+#[test]
+fn saved_spring_light_changes_reflected_geometry_on_gpu() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<SpringLight>::default();
+    s.bind(&[], None).unwrap();
+    let dark = render(&gpu, &mut s, 0., "spring-light-dark");
+    let midway = render(&gpu, &mut s, 100., "spring-light-midway");
+    let bright = render(&gpu, &mut s, 2000., "spring-light-rest");
+    let rect = Rect {
+        x: 280.,
+        y: 140.,
+        w: 80.,
+        h: 80.,
+    };
+    let values = [
+        luminance(&dark, &rect),
+        luminance(&midway, &rect),
+        luminance(&bright, &rect),
+    ];
+    eprintln!("spring light, non-emissive cube luminance: {values:?}");
+    assert!(values[1] > values[0] + 5.);
+    assert!(values[2] > values[1] + 5.);
+    let bytes = s.sim().unwrap().save().unwrap();
+    s.restore(&bytes, exact_gpu::Restore::Open).unwrap();
+    assert_eq!(
+        bright.data,
+        render(&gpu, &mut s, 0., "spring-light-restored").data
+    );
+}

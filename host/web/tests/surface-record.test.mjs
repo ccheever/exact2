@@ -89,9 +89,51 @@ export async function fixture(options = {}) {
     views.set(id, el); exact.gpu.surface(id, name, []); return el;
   }
   function destroy(id) { views.delete(id); exact.gpu.destroy(id); }
-  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, mutation: () => observers.forEach(fn => fn()),
+  return { window, document, exact, records, diagnostics, create, destroy, applyBatch, events, order, gpu, nextGpu, Element, publish:(id,value)=>changed.set(id,JSON.stringify(value)), mutation: () => observers.forEach(fn => fn()),
     frame: () => frame?.(0), expectView: id => { expectedView = id; }, stale: () => { hud = 'stale'; }, hud: () => hud };
 }
+
+test('player restore flushes its public record before reporting success', async () => {
+  const f=await fixture();f.create(1);
+  f.gpu.gpu_restore=id=>{f.publish(id,{restored:true});return true;};
+  await f.exact.gpu.surfaceWork('world','restore',new Uint8Array([7]),()=>true);
+  assert.equal(f.records.at(-1),'world\0{"restored":true}');
+});
+
+test('surface work refuses missing and duplicate names without touching either world', async () => {
+  const f=await fixture();
+  let carries=0;f.gpu.gpu_carry=()=>{carries++;return new Uint8Array([1]);};
+  await assert.rejects(f.exact.gpu.surfaceWork('world','capture',null,()=>true), error=>error.kind===2&&/found 0/.test(error.message));
+  f.create(1);f.create(2);
+  await assert.rejects(f.exact.gpu.surfaceWork('world','capture',null,()=>true), error=>error.kind===2&&/found 2/.test(error.message));
+  assert.equal(carries,0);
+});
+
+test('a retired surface ticket is checked again before capture', async () => {
+  const f=await fixture();f.create(1);
+  let carries=0;f.gpu.gpu_carry=()=>{carries++;return new Uint8Array([1]);};
+  await assert.rejects(f.exact.gpu.surfaceWork('world','capture',null,()=>false),error=>error.kind===4);
+  assert.equal(carries,0);
+});
+
+test('surface replacement while host work settles retires the request before its effect', async () => {
+  let started, release;
+  const fetching=new Promise(resolve=>{started=resolve;});
+  const response=new Promise(resolve=>{release=()=>resolve({status:404,ok:false,headers:{get:()=>null}});});
+  const f=await fixture({delivery:{fetch:()=>{started();return response;}}});
+  f.create(1);
+  let first=true, restores=0;
+  f.gpu.gpu_assets=()=>{
+    const requests=first?['slow.asset']:[];first=false;
+    return JSON.stringify({requests,retired:[]});
+  };
+  f.gpu.gpu_restore=()=>{restores++;return true;};
+  const work=f.exact.gpu.surfaceWork('world','restore',new Uint8Array([7]),()=>true);
+  await fetching;
+  f.destroy(1);f.create(2);release();
+  await assert.rejects(work,error=>error.kind===4&&/retired or surface replaced/.test(error.message));
+  assert.equal(restores,0);
+});
 
 test('destroy/create publications wait for the outermost apply and drain before return', async () => {
   const f = await fixture();
@@ -301,19 +343,42 @@ test('Contract controls send named local contacts, keyboard edges and blur over 
   canvas.listeners.pointerdown(event); canvas.listeners.pointermove({...event,clientX:160}); canvas.listeners.pointerup(event);
   canvas.listeners.keydown({...event,code:'Space',key:' '}); canvas.listeners.keyup({...event,code:'Space',key:' '});
   canvas.listeners.focusout({...event,relatedTarget:null});
+  await Promise.resolve();
   assert.deepEqual(f.events.slice(0,3).map(e=>[e.t,e.name,e.phase,e.id,e.x,e.y,e.at]), [
     ['control','jump','down',7,30,40,0],['control','jump','move',7,60,40,0],['control','jump','up',7,30,40,0]]);
   assert.deepEqual(f.events.slice(3).map(e=>[e.t,e.phase]), [['control','down'],['control','up'],['blur',undefined]]);
 });
 
-test('pointer release returns focus inside its canvas without clearing world input', async () => {
+test('focusout without a destination releases only input that remains outside the live canvas', async () => {
+  const f=await fixture({input:true}),canvas=f.create(1);
+  const key=code=>({target:canvas,code,key:code,timeStamp:0,preventDefault(){}});
+  canvas.listeners.keydown(key('KeyW'));
+  f.document.activeElement=null;
+  canvas.listeners.focusout({target:canvas,relatedTarget:null,timeStamp:0});
+  f.document.activeElement=canvas;
+  await Promise.resolve();
+  canvas.listeners.keyup(key('KeyW'));
+  assert.deepEqual(f.events.map(e=>[e.t,e.down]),[['key',true],['key',false]]);
+  canvas.listeners.keydown(key('KeyD'));
+  f.document.activeElement=null;
+  canvas.listeners.focusout({target:canvas,relatedTarget:null,timeStamp:0});
+  await Promise.resolve();
+  canvas.listeners.keyup(key('KeyD'));
+  assert.deepEqual(f.events.slice(2).map(e=>[e.t,e.down]),[['key',true],['blur',undefined]]);
+  canvas.listeners.focusout({target:canvas,relatedTarget:null,timeStamp:0});
+  f.destroy(1);f.create(1);
+  await Promise.resolve();
+  assert.equal(f.events.filter(e=>e.t==='blur').length,1,'retired listener must not blur a replacement');
+});
+
+test('pointer release retains action control focus and keeps feeding world keys', async () => {
   const f=await fixture({input:true}),canvas=f.create(1),button=restoredButton(f,canvas);
   button.focus=()=>{f.document.activeElement=button;};
   button.blur=()=>{f.document.activeElement=null;canvas.listeners.focusout({target:button,relatedTarget:null});};
   canvas.focus=()=>{const target=f.document.activeElement;f.document.activeElement=canvas;canvas.listeners.focusout({target,relatedTarget:canvas});};
   const event={target:button,pointerId:7,clientX:10,clientY:20,timeStamp:0,preventDefault(){}};
   canvas.listeners.pointerdown(event);canvas.listeners.pointerup(event);
-  assert.equal(f.document.activeElement,canvas);
+  assert.equal(f.document.activeElement,button);
   assert.deepEqual(f.events.map(e=>e.phase??e.t),['down','up']);
   canvas.listeners.keydown({...event,target:canvas,code:'KeyW',key:'w'});
   canvas.listeners.focusout({target:canvas,relatedTarget:new f.Element('input')});

@@ -717,10 +717,7 @@ fn redelivered_model_rebuilds_rest_bounds_and_socket_cache() {
     w.step_clock();
     assert!(socket(&w, e, "").is_err());
     assert_eq!(w.get::<Pose>(e).unwrap().local, expected.rest);
-    assert_eq!(
-        w.derived::<Runtime>().rigs["rig.model"].bounds,
-        expected.bounds
-    );
+    assert_eq!(runtime(&w).rigs["rig.model"].bounds, expected.bounds);
     step(&mut w);
     w.step_clock();
     assert_eq!(socket(&w, e, "renamed").unwrap().position, Vec3::Y * 3.);
@@ -1220,4 +1217,77 @@ fn deleting_controller_clears_pose_and_resumes_live_bind_composition() {
     w.remove::<Animation>(owner);
     assert!(!w.has::<Pose>(owner));
     assert_eq!(w.global_position("charm"), Some(Vec3::splat(10.)));
+}
+
+#[test]
+fn motion_tracks_replaced_members_and_retained_snapshots() {
+    let mut w = world();
+    let entity = w.spawn_named(
+        "walker",
+        (
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root("").marker(0.01, "step"),
+        ),
+    );
+    let first = step(&mut w);
+    let retained = first.clone();
+    let delta = first.root_motion(entity);
+    assert!(delta.x > 0.);
+    assert!(first.crossed("walker", "step"));
+    w.step_clock();
+    w.despawn(entity);
+    let runner = w.spawn_named(
+        "runner",
+        (
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root("").speed(2.),
+        ),
+    );
+    let sidekick = w.spawn_named(
+        "sidekick",
+        (
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root(""),
+        ),
+    );
+    let second = step(&mut w);
+    assert!(second.root_motion(runner).x > delta.x);
+    assert!(second.root_motion("sidekick").x > 0.);
+    assert_eq!(second.root_motion("walker"), Vec3::ZERO);
+    drop(second);
+    w.step_clock();
+    w.despawn(runner);
+    let broken = w.spawn_named("broken", Animation::play("slow"));
+    w.despawn(sidekick);
+    let successor = w.spawn_named(
+        "successor",
+        (
+            Mesh::asset("rig.model"),
+            Animation::play("slow").motion_root(""),
+        ),
+    );
+    let third = step(&mut w);
+    assert_eq!(third.root_motion(broken), Vec3::ZERO);
+    assert_eq!(third.root_motion("runner"), Vec3::ZERO);
+    assert_eq!(third.root_motion("sidekick"), Vec3::ZERO);
+    assert!(third.root_motion("successor").x > 0.);
+    drop(third);
+    w.step_clock();
+    w.despawn(successor);
+    let unnamed = w.spawn((
+        Mesh::asset("rig.model"),
+        Animation::play("slow").motion_root(""),
+    ));
+    let fourth = step(&mut w);
+    assert_eq!(fourth.root_motion("successor"), Vec3::ZERO);
+    assert!(fourth.root_motion(unnamed).x > 0.);
+    drop(w);
+    std::thread::spawn(move || {
+        for output in [first, retained] {
+            assert_eq!(output.root_motion("walker"), delta);
+            assert!(output.crossed(entity, "step"));
+        }
+    })
+    .join()
+    .unwrap();
 }

@@ -55,6 +55,22 @@ impl Target for &str {
         world.resolve(self)
     }
 }
+impl Target for String {
+    fn label(&self) -> String {
+        self.clone()
+    }
+    fn entity(&self, world: &World) -> Option<Entity> {
+        world.resolve(self.as_str())
+    }
+}
+impl Target for &String {
+    fn label(&self) -> String {
+        self.as_str().into()
+    }
+    fn entity(&self, world: &World) -> Option<Entity> {
+        world.resolve(self.as_str())
+    }
+}
 
 /// A named kind of per-entity data. Names must be unique within a world.
 /// Semantic state has no interior mutability; derives introduce none. A manual
@@ -120,6 +136,8 @@ struct Slot {
     generation: u32,
     alive: bool,
     name: Option<String>,
+    #[data(skip)]
+    fresh: bool,
 }
 #[derive(Default)]
 struct State {
@@ -162,7 +180,7 @@ pub struct Event {
 /// Retained, opaque identity for derived caches. Moves keep it; new worlds differ.
 /// Holding a token prevents its identity from being recycled after the world drops.
 #[derive(Clone, Debug)]
-pub struct WorldId(std::rc::Rc<()>);
+pub struct WorldId(std::rc::Rc<std::cell::Cell<u64>>);
 impl PartialEq for WorldId {
     fn eq(&self, other: &Self) -> bool {
         std::rc::Rc::ptr_eq(&self.0, &other.0)
@@ -173,7 +191,6 @@ impl Eq for WorldId {}
 /// Ordered simulation state, with dynamic storage borrows and no host clock.
 pub struct World {
     pub(crate) assets: crate::asset::AssetStore,
-    id: WorldId,
     pub(crate) changing: Vec<String>,
     pub(crate) observation: ObservationState,
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
@@ -186,21 +203,23 @@ pub struct World {
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
+    // Sorted named slots, populated on first lookup; strings remain owned by State.
+    names: RefCell<Option<Vec<u32>>>,
     pub(crate) alive_mask: Vec<u64>,
     rng: storage::Singleton<Rng>,
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
-    // Executor-owned derived data, populated only by linked callers; never saved.
-    derived: RefCell<BTreeMap<TypeId, Box<dyn std::any::Any>>>,
+    // Animation-owned derived data, populated only when animation is linked and used; never saved.
+    pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<Event>>,
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
+    derived_publications: BTreeSet<String>,
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
-    pub(crate) fresh: Vec<Entity>,
-    orphans: Vec<Entity>,
+    fresh: Vec<Entity>,
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
@@ -211,15 +230,6 @@ const SINGLETON: Entity = Entity {
 const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
 
 impl World {
-    pub(crate) fn derived<T: Default + 'static>(&self) -> std::cell::RefMut<'_, T> {
-        std::cell::RefMut::map(self.derived.borrow_mut(), |caches| {
-            caches
-                .entry(TypeId::of::<T>())
-                .or_insert_with(|| Box::<T>::default())
-                .downcast_mut::<T>()
-                .expect("derived cache type")
-        })
-    }
     /// Start at tick zero. A zero tick rate is a programmer error.
     pub fn new(hz: u32, seed: u64) -> Self {
         assert!(hz > 0, "world hz must be positive");
@@ -228,7 +238,6 @@ impl World {
         rng.insert(Rng::new(seed));
         Self {
             assets: Default::default(),
-            id: WorldId(std::rc::Rc::new(())),
             epoch,
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
@@ -245,26 +254,27 @@ impl World {
                 ..State::default()
             },
             alive_mask: vec![],
+            names: RefCell::new(None),
             rng,
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
-            derived: RefCell::new(BTreeMap::new()),
+            animation_runtime: RefCell::new(None),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
+            derived_publications: BTreeSet::new(),
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
             fresh: vec![],
-            orphans: vec![],
             entities_revision: 0,
             presentation_generation: 0,
         }
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
-        self.id.clone()
+        WorldId(self.epoch.clone())
     }
     /// Replacement epoch for world-derived presentation histories and draw records.
     /// Device assets keyed by name/content digest survive it. Excluded from saves/hashes.
@@ -282,7 +292,7 @@ impl World {
         let reg = self.registration::<R>(R::NAME);
         reg.make_resource = Some(storage::make_cell::<R>);
         reg.resource_size = std::mem::size_of::<storage::Singleton<R>>();
-        reg.ambient = R::AMBIENT;
+        reg.ambient |= R::AMBIENT;
         self
     }
     fn registration<C: Data>(&mut self, name: &'static str) -> &mut Registration {
@@ -320,6 +330,7 @@ impl World {
         };
         let slot = &mut self.state.slots[index as usize];
         slot.alive = true;
+        slot.fresh = true;
         slot.name = name;
         let e = Entity {
             index,
@@ -332,6 +343,7 @@ impl World {
         self.alive_mask[word] |= 1 << (index % 64);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.fresh.push(e);
+        self.index_name(index, true);
         bundle.insert(self, e);
         self.log(format_args!("spawn #{}", e.index));
         e
@@ -353,6 +365,7 @@ impl World {
         for s in self.components.values_mut() {
             s.remove(e.index as usize);
         }
+        self.index_name(e.index, false);
         let slot = &mut self.state.slots[e.index as usize];
         slot.generation = generation;
         slot.alive = false;
@@ -363,31 +376,27 @@ impl World {
         self.log(format_args!("despawn #{}", e.index));
         true
     }
-    /// Reap dead-parent children in entity order, repeating for orphaned chains.
-    /// Sim calls this once after Game::tick and before propagate.
-    pub fn reap_orphans(&mut self) {
-        let mut orphans = std::mem::take(&mut self.orphans);
-        loop {
-            orphans.clear();
-            for (e, p) in self.query::<&Parent>().iter() {
-                if !self.contains(p.0) {
-                    orphans.push(e);
-                }
-            }
-            if orphans.is_empty() {
-                break;
-            }
-            for &e in &orphans {
-                self.despawn(e);
-            }
-        }
-        self.orphans = orphans;
-    }
     /// Entities spawned, first given a pose, or teleported since this tick began.
     /// Sim clears this list at the start of each tick.
     /// Entries retain their incarnation, so consumers can ignore entities now dead.
+    /// Each incarnation appears at most once.
     pub fn fresh(&self) -> &[Entity] {
         &self.fresh
+    }
+    /// Whether this incarnation was spawned, first posed, or teleported this tick.
+    /// Living incarnations use the slot flag; retired ones remain in the list.
+    pub fn is_fresh(&self, e: Entity) -> bool {
+        match self.state.slots.get(e.index as usize) {
+            Some(slot) if slot.alive && slot.generation == e.generation => slot.fresh,
+            _ => self.fresh.contains(&e),
+        }
+    }
+    pub(crate) fn mark_fresh(&mut self, e: Entity) {
+        let slot = &mut self.state.slots[e.index as usize];
+        if !slot.fresh {
+            slot.fresh = true;
+            self.fresh.push(e);
+        }
     }
     /// Whether this exact incarnation is alive.
     pub fn contains(&self, e: Entity) -> bool {
@@ -431,7 +440,42 @@ impl World {
     }
     /// The lowest-index living entity bearing this name.
     pub fn named(&self, name: &str) -> Option<Entity> {
-        self.entities().find(|&e| self.name(e) == Some(name))
+        let mut cached = self.names.borrow_mut();
+        let names = cached.get_or_insert_with(|| {
+            let mut names: Vec<_> = self
+                .state
+                .slots
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| s.alive && s.name.is_some())
+                .map(|(i, _)| i as u32)
+                .collect();
+            names.sort_unstable_by_key(|&i| (&self.state.slots[i as usize].name, i));
+            names
+        });
+        let at = names
+            .partition_point(|&i| self.state.slots[i as usize].name.as_deref().unwrap() < name);
+        names
+            .get(at)
+            .copied()
+            .filter(|&i| self.state.slots[i as usize].name.as_deref() == Some(name))
+            .map(|i| self.entity_at(i as usize))
+    }
+    fn index_name(&mut self, index: u32, insert: bool) {
+        let slots = &self.state.slots;
+        let Some(name) = slots[index as usize].name.as_deref() else {
+            return;
+        };
+        let Some(names) = self.names.get_mut() else {
+            return;
+        };
+        let at = names
+            .partition_point(|&i| (slots[i as usize].name.as_deref().unwrap(), i) < (name, index));
+        if insert {
+            names.insert(at, index);
+        } else {
+            names.remove(at);
+        }
     }
     /// The name of a living entity.
     pub fn name(&self, e: Entity) -> Option<&str> {
@@ -464,11 +508,8 @@ impl World {
         }
         // Acquiring a first pose is also a presentation birth, even when an
         // entity was spawned in an earlier tick without a Transform.
-        if TypeId::of::<C>() == TypeId::of::<crate::Transform>()
-            && !self.has::<C>(e)
-            && self.fresh.last() != Some(&e)
-        {
-            self.fresh.push(e);
+        if TypeId::of::<C>() == TypeId::of::<crate::Transform>() && !self.has::<C>(e) {
+            self.mark_fresh(e);
         }
         self.register::<C>();
         self.components
@@ -578,8 +619,10 @@ impl World {
         radius: f32,
         mut predicate: impl FnMut(&C) -> bool,
     ) -> Option<Entity> {
-        self.within::<C>(origin, radius, true)
-            .filter(|(e, _, _)| self.get::<C>(*e).is_some_and(|c| predicate(&c)))
+        let candidates = self.within::<C>(origin, radius, true);
+        let storage = self.storage::<C>()?;
+        candidates
+            .filter(|(e, _, _)| storage.get(e.index as usize).is_some_and(|c| predicate(&c)))
             .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
             .map(|(entity, _, _)| entity)
     }
@@ -790,15 +833,19 @@ impl World {
         self.journal.borrow().iter().cloned().collect()
     }
     /// Publish to the app and journal only changes to this key.
-    pub fn publish(&self, key: &str, value: impl Into<crate::Published>) {
+    pub fn publish<'a>(&self, key: &str, value: impl Into<crate::Published<'a>>) {
         self.publish_value(key, value.into().0);
     }
-    pub(crate) fn publish_value(&self, key: &str, value: crate::values::Stored) {
+    pub(crate) fn publish_value(&self, key: &str, value: crate::values::Incoming<'_>) {
         let mut p = self.published.borrow_mut();
         let stored = p.get_mut(key);
-        if stored.as_deref() == Some(&value) {
+        if stored
+            .as_deref()
+            .is_some_and(|stored| value.matches(stored))
+        {
             return;
         }
+        let value = value.into_stored();
         self.log(format_args!(
             "publish {key}: {}",
             crate::json::to_string(&value).unwrap_or_else(|e| e.to_string())
@@ -858,6 +905,9 @@ impl World {
             }
             w.end_struct();
         }
+        if delivery {
+            self.assets.write_identity(w);
+        }
         if delivery && !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
@@ -905,10 +955,7 @@ impl World {
     /// caches, publications and events do not. The entity table precedes storages.
     pub fn load(&mut self, bytes: &[u8]) -> Result<(), DataError> {
         let payload = Self::saved_payload(bytes)?;
-        let mut next = Self::new(self.hz(), 0);
-        next.registry = self.registry.clone();
-        next.attachments = self.attachments;
-        next.detach = self.detach;
+        let mut next = self.registered_scratch();
         let mut r = bin::Decoder::new(payload);
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
@@ -927,8 +974,10 @@ impl World {
     pub(crate) fn registered_scratch(&self) -> Self {
         let mut scratch = Self::new(self.hz(), 0);
         scratch.registry = self.registry.clone();
+        scratch.derived_publications = self.derived_publications.clone();
         scratch.attachments = self.attachments;
         scratch.detach = self.detach;
+        scratch.assets = self.assets.clone();
         scratch
     }
     pub(crate) fn validate_saved(&self, bytes: &[u8]) -> Result<Self, DataError> {
@@ -972,6 +1021,7 @@ impl World {
         Ok(())
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
+        *self.names.get_mut() = None;
         r.begin_struct()?;
         let mut seen = 0u8;
         while let Some(field) = r.field()? {
@@ -980,6 +1030,7 @@ impl World {
                 "rng" => 2,
                 "components" => 4,
                 "resources" => 8,
+                "assetIdentity" => 16,
                 _ => 0,
             };
             match field.as_str() {
@@ -995,6 +1046,7 @@ impl World {
                         }
                     }
                 }
+                "assetIdentity" => self.assets.read_identity(r)?,
                 "rng" => self.rng().read(r)?,
                 "messages" => self.messages.borrow_mut().read(r)?,
                 "components" | "resources" => {
@@ -1059,7 +1111,8 @@ impl World {
                 _ => r.skip()?,
             }
         }
-        if seen != 15 {
+        self.assets.require_identity(seen & 16 != 0)?;
+        if seen & 15 != 15 {
             return Err(DataError::new("incomplete world save"));
         }
         Ok(())
@@ -1082,6 +1135,30 @@ mod nearest_xz_mut_tests {
     #[derive(Default, crate::Component)]
     struct Beacon {
         lit: bool,
+    }
+
+    #[test]
+    fn nearest_predicates_keep_entity_order_and_observe_in_loop_pose_edits() {
+        let mut w = World::new(60, 0);
+        w.spawn_named("player", crate::Transform::default());
+        let a = w.spawn((crate::Transform::at(1., 0., 0.), Beacon { lit: true }));
+        let b = w.spawn((crate::Transform::at(4., 0., 0.), Beacon { lit: false }));
+        w.spawn((crate::Transform::at(9., 0., 0.), Beacon { lit: true }));
+        let mut visits = Vec::new();
+        let nearest = w.nearest_xz_where::<Beacon>("player", 1., |beacon| {
+            visits.push(beacon.lit);
+            w.get_mut::<crate::Transform>(b).unwrap().position.x = 1.;
+            true
+        });
+        assert_eq!(nearest, Some(a));
+        assert_eq!(visits, [true, false]);
+        let held = w.get_mut::<Beacon>(a).unwrap();
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            w.nearest_xz::<Beacon>("player", 1.);
+        }))
+        .is_err());
+        drop(held);
+        assert_eq!(w.nearest_xz::<Beacon>("player", 1.), Some(a));
     }
 
     #[test]

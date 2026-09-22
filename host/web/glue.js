@@ -1,6 +1,6 @@
 // Apply batches, forward events and tick the clock; per-frame layout and motion belong to the browser.
 // @ref LLP 1007 §3. This is host code, not app code: the app is the wasm (runner + kernel + data crate + baked plan).
-import { navigation } from "./navigation.js";
+import { navigation, focusController, inertAncestor, installShortcuts } from "./navigation.js";
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
@@ -13,7 +13,6 @@ let messageListening = false;
 let wasm = null;
 let memory = null;
 let inputReady = false;
-const autofocusProcessed = new WeakSet();
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let rustLoader = null, rustLoading = null;
@@ -36,16 +35,8 @@ async function loadRust() {
 let resolveModuleReady;
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 // Before data arrives, gate actions/editing but preserve scrolling and accessibility.
-function focusAutofocus() {
-  if (!inputReady) return;
-  for (const el of views.values()) {
-    if (autofocusProcessed.has(el) || !el.exactAutofocus || !el.getClientRects().length || inertAncestor(el) || el.matches(":disabled") || getComputedStyle(el).visibility !== "visible") continue;
-    autofocusProcessed.add(el); // Before focus handlers can re-enter apply.
-    const active = document.activeElement;
-    if (active && active !== document.body && !(active.matches("[data-gpu-input]") && active.contains(el))) return;
-    el.setAttribute("autofocus", ""); el.focus(); return;
-  }
-}
+const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor});
+const focusAutofocus = focus.autofocus;
 function setInputReady(ready) {
   inputReady = ready;
   root.setAttribute("aria-busy", String(!ready));
@@ -345,15 +336,6 @@ function refreshSymbols() {
   }
 }
 
-// A modal dialog escapes inert attributes above it; its own inert still applies.
-function inertAncestor(el) {
-  for (let node = el; node; node = node.parentElement) {
-    if (node.hasAttribute("inert")) return node;
-    if (node.localName === "dialog" && node.matches(":modal")) return null;
-  }
-  return null;
-}
-
 function applyProps(el, set, clear) {
   let sandboxChanged = false;
   for (const name of clear || []) {
@@ -505,7 +487,7 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); if (e.detail > 0 && el instanceof HTMLButtonElement && document.activeElement === el) { const canvas = el.closest("[data-gpu-input]"); if (canvas) canvas.focus({preventScroll:true}); else el.blur(); } });
+      on("click", e => focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))));
     } else if (kind === "scroll") {
       on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
@@ -604,33 +586,7 @@ function attach(el, id, handlers) {
   }
 }
 
-// App-declared ARIA shortcuts activate the same mounted buttons as a click.
-// Browsers may reserve a chord before it reaches the page (notably Meta+N).
-document.addEventListener("keydown", (event) => {
-  if (event.isComposing || !wasm || !inputReady || event.defaultPrevented) return;
-  const matches = (chord) => {
-    const parts = chord.split("+");
-    const key = parts.pop();
-    const modifiers = new Set(parts);
-    if (key === "Escape" && !parts.length) return event.key === "Escape"
-      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
-    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
-      && (modifiers.has("Meta") || modifiers.has("Control"))
-      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
-      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
-      && event.key.toLowerCase() === key.toLowerCase();
-  };
-  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-    const modal = document.activeElement.closest("dialog:modal");
-    if (modal && !modal.contains(el)) continue;
-    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
-    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (!event.repeat && !el.disabled) el.click();
-    return;
-  }
-}, true);
+installShortcuts(root, () => wasm && inputReady);
 
 function viewFor(op, id) {
   const el = views.get(id);
@@ -764,6 +720,24 @@ function apply(batch) {
         inflight.add(p);
         p.finally(() => inflight.delete(p));
         break;
+      }
+      case "surfaceWork": {
+        const requestIncarnation=incarnation;
+        const p=Promise.resolve().then(async()=>{
+          if(op.refusal)throw Object.assign(new Error(op.refusal),{kind:2});
+          if(!surfaceGranted(op))throw Object.assign(new Error(`refused by grant: surface ${op.name}`),{kind:2});
+          loadGpuIfNeeded();await gpuLoading;
+          if(!exact.gpu)throw Object.assign(new Error(`surface ${op.name}: expected one live surface, found 0`),{kind:2});
+          if(requestIncarnation!==incarnation||wasm.exact_request_active(op.ticket)!==1)throw Object.assign(new Error('surface request retired'),{kind:4});
+          let bytes;
+          if(op.mode==="restore"){
+            if((op.body??"").length>HOST_WORK_BASE64)throw Object.assign(new Error('surface restore exceeds 16 MiB'),{kind:2});
+            bytes=Uint8Array.from(atob(op.body??""),c=>c.charCodeAt(0));
+          }
+          return exact.gpu.surfaceWork(op.name,op.mode,bytes,()=>requestIncarnation===incarnation&&wasm.exact_request_active(op.ticket)===1);
+        }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,op.mode==="capture"?6:7,0,"",bytes??new Uint8Array()))
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",enc.encode(String(error.message??error))));
+        inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
@@ -936,6 +910,7 @@ const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
 const enc = new TextEncoder();
+const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
 function granted(url, scope = null) {
   // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
   // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
@@ -947,6 +922,11 @@ function granted(url, scope = null) {
     if (kind !== "net.fetch" || !granted) return false;
     try { return new URL(granted).origin === origin; } catch { return false; }
   });
+}
+function surfaceGranted(op) {
+  const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
+  const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
+  return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
 }
 function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
   // `boot` starts tickets again at one. A completion from the program that

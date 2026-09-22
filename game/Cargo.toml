@@ -19,6 +19,7 @@ exact-game-render = { path = "render" }
 exact-game-physics = { path = "physics" }
 exact-game-audio = { path = "audio" }
 exact-game-app = { path = "app" }
+exact-data-host = { path = "../data/host" }
 exact-web = { path = "../host/web" }
 exact-linux = { path = "../host/linux" }
 exact-apple = { path = "../host/apple" }
@@ -51,7 +52,6 @@ debug = true
 opt-level = 3
 
 [patch.crates-io]
-rapier3d = { path = "../vendor/rapier3d" }
 taffy = { path = "../vendor/taffy" }
 
 # Fast surface module rebuilds; dependencies stay optimized, the game links cheaply.

@@ -341,6 +341,11 @@ pub fn boot_presenter<D: DataSource + Default>(
     }
 }
 
+/// Run a Contract app without application data, sharing its compiled host.
+pub fn run_empty(baked: &[u8], compat: &str) -> i32 {
+    run::<()>(baked, compat)
+}
+
 /// Run the app: the process's exit code. `compat` is the binary's
 /// `compat.json` (LLP 1030 D3a), which the `delivery` resource answers from.
 pub fn run<D: DataSource + Default>(baked: &[u8], compat: &str) -> i32 {

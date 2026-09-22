@@ -27,7 +27,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { developmentInstallPage, installNetworkPage, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, watch } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
@@ -60,7 +60,14 @@ let changed = new Set(), timer=null, building=false, buildPending=false, rustPen
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
-if (!await builtAppMatches(dist, app) || !existsSync(graphPath) || JSON.parse(readFileSync(graphPath,'utf8')).version!==1 || JSON.parse(readFileSync(graphPath,'utf8')).trust!=='development') {
+async function currentWebBuild() {
+  if (!await builtAppMatches(dist, app)) return false;
+  try {
+    const build = JSON.parse(readFileSync(graphPath, 'utf8'));
+    return build.version === 1 && build.trust === 'development' && pendingBuildInputs(build).length === 0;
+  } catch { return false; }
+}
+if (!await currentWebBuild()) {
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
@@ -76,7 +83,8 @@ function readGpuInputs(profile = 'web') {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
     return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
   };
-  appInputs = gameRuntimeInputs(inputs('web', 'web')); gpuInputs = inputs('gpu', profile);
+  if (profile === 'web') appInputs = gameRuntimeInputs(inputs('web', 'web'));
+  gpuInputs = inputs('gpu', profile);
 }
 function gameRuntimeInputs(inputs) {
   if (!app.manifest.game || !inputs.size) return inputs;
@@ -630,7 +638,7 @@ try {
       assetChanges.set(change.targetRoot, change);
     } else if (!assetChanges.has(change.targetRoot)) assetChanges.set(change.name, change);
     clearTimeout(assetTimer);
-    assetTimer = setTimeout(pushAssets, 100);
+    assetTimer = setTimeout(pushAssets, 20);
   });
 } catch (e) { console.error(`cannot watch static trees under ${app.dir}: ${e.message}`); }
 function pushAssets() {
@@ -767,32 +775,33 @@ function classifyRebuild() {
 const watched=new Map();
 let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
 function watchCompilerInputs() {
-  // Watching source directories also catches newly added modules after their
-  // declaring file changes. Generated output and third-party caches never
-  // cause build loops; their source declarations remain in the receipt.
+  // Poll declared file metadata: saves and replacement survive directory-event
+  // coalescing. Only open-ended source discovery needs a directory watch.
   const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
   files.add(resolve(app.dir,'app.json'));
   compilerInputFiles = files;
   compilerInputTrees = builtReceipts.flatMap(r=>r.binary.directories.map(d=>d.path));
   compilerMissingInputs = builtReceipts.flatMap(r=>r.binary.missing);
   swiftSourceDirectories = new Set([...files].filter(path=>path.endsWith('.swift')).map(path=>resolve(path,'..')));
-  const directories=new Set([...files].map(path=>resolve(path,'..')));
-  for(const receipt of builtReceipts) {
-    for(const {path} of receipt.binary.directories)directories.add(path);
-    for(const missing of receipt.binary.missing) {
-      let dir=resolve(missing,'..');while(!existsSync(dir)&&resolve(dir,'..')!==dir)dir=resolve(dir,'..');
-      directories.add(dir);
-    }
-  }
-  for(const dir of directories) {
-    if(skipped.test(dir)||dir.includes('/.cargo/')||watched.has(dir)||!existsSync(dir))continue;
-    try {watched.set(dir,watch(dir,(_event,name)=>{
+  const directories=new Set([...compilerInputTrees,...swiftSourceDirectories]);
+  const targets=new Set([...files,...directories]);
+  for(const [path,handle] of watched)if(!targets.has(path)){handle.close();watched.delete(path);}
+  for(const target of targets) {
+    if(skipped.test(target)||target.includes('/.cargo/')||watched.has(target))continue;
+    const file=files.has(target),dir=file?resolve(target,'..'):target;
+    const changedPath=name=>{
+      if(file)name=target.slice(target.lastIndexOf('/')+1);
       if(!name||skipped.test(name)||/(^|\/)\./.test(name)||name.endsWith('dev.js')||assetTrees.some(([tree])=>resolve(dir,name).startsWith(tree+'/'))||resolve(dir,name)===source)return;
       // Parent-directory notifications include unrelated documents and output.
       // Only receipt inputs, declared trees/missing paths, and Swift's implicit
       // source discovery can invalidate the host. Rust additions are reached
       // when their declaring module or build input changes.
       const path = resolve(dir, name);
+      if(!file&&compilerInputFiles.has(path))return;
+      // The resident Contract compiler already watches generated game arguments.
+      // Rebuilding the host afterward would discard the carried world.
+      if (app.manifest.game && path === resolve(app.dir, '.shells/surfaces.json')) return;
       if (!compilerInputFiles.has(path) && !compilerInputTrees.some(tree=>path===tree||path.startsWith(tree+'/'))
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
@@ -800,7 +809,16 @@ function watchCompilerInputs() {
       if (portableRust && rustInputFiles.has(resolve(dir,name))) { rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return; }
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
       if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,gpuOnly([...changed]) ? 20 : 200);}
-    }));}catch(error){console.error(`cannot watch ${dir}: ${error.message}`);}
+    };
+    try {
+      if(file){
+        const listener=(now,previous)=>{
+          if(['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))changedPath();
+        };
+        watchFile(target,{bigint:true,interval:100},listener);
+        watched.set(target,{close:()=>unwatchFile(target,listener)});
+      }else if(existsSync(target))watched.set(target,watch(target,(_event,name)=>changedPath(name)));
+    }catch(error){console.error(`cannot watch ${target}: ${error.message}`);}
   }
 }
 watchCompilerInputs();
@@ -886,7 +904,7 @@ async function produceGpu(files) {
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
-    push({error:`GPU module did not build:\n${error.message}`});
+    push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
   } finally {
     building = false;
     drainBuilds();

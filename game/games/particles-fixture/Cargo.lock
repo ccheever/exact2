@@ -201,6 +201,7 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
+ "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
@@ -522,6 +523,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-filesystem"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-game"
 version = "0.1.0"
 dependencies = [
@@ -538,10 +549,6 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
- "exact-game",
- "exact-gpu",
- "exact-runner",
- "serde_json",
 ]
 
 [[package]]
@@ -1539,9 +1546,10 @@ dependencies = [
 name = "particles-fixture-gpu"
 version = "0.1.0"
 dependencies = [
- "exact-game-app",
+ "exact-game",
  "exact-game-render",
  "particles-fixture-logic",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -3150,7 +3158,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "rapier3d"
-version = "0.35.3"

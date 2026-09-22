@@ -301,7 +301,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
         if handlers.contains("press"), name == "Enter" || name == " " {
+            let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
+            finishPress(canvas: canvas, window: ownerWindow, pointer: false)
             return
         }
         super.keyDown(with: event)
@@ -1254,7 +1256,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) { presenter?.press(id); finishPointerPress() }
+        if bounds.contains(local(event.locationInWindow)) {
+            let canvas = inputCanvas, ownerWindow = window
+            presenter?.press(id)
+            finishPress(canvas: canvas, window: ownerWindow, pointer: true)
+        }
     }
     override func rightMouseDown(with event: NSEvent) {
         if canvasInput?.pointer(event, phase: "down") != true { super.rightMouseDown(with: event) }

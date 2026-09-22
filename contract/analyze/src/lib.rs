@@ -55,6 +55,86 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
     })
 }
 
+/// Check surface calls against an emitted module interface, before imports merge
+/// so each refusal still belongs to its source file. No module is constructed.
+pub fn check_surface_arguments(
+    file: &File,
+    declared: &BTreeMap<String, Vec<String>>,
+) -> Result<(), AnalyzeError> {
+    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>) -> Result<(), AnalyzeError> {
+        for node in nodes {
+            match node {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    ..
+                } => {
+                    for attr in attrs
+                        .iter()
+                        .filter(|a| tag == "canvas" && a.name == "surface")
+                    {
+                        let Expr::Call(name, args, span) = &attr.value else {
+                            continue;
+                        };
+                        let Some(fields) = declared.get(name) else {
+                            return err(
+                                "analyze-surface-arguments",
+                                format!("unknown surface `{name}`"),
+                                *span,
+                            );
+                        };
+                        for arg in args {
+                            if let Expr::NamedArg(field, _, span) = arg {
+                                if !fields.contains(field) {
+                                    return err(
+                                        "analyze-surface-arguments",
+                                        format!("unknown surface argument `{field}` for `{name}`; declared names: {}", fields.join(", ")),
+                                        *span,
+                                    );
+                                }
+                            }
+                        }
+                        if !args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
+                            && args.len() > fields.len()
+                        {
+                            return err(
+                                "analyze-surface-arguments",
+                                format!(
+                                    "surface `{name}` expected at most {} arguments ({}), got {}",
+                                    fields.len(),
+                                    fields.join(", "),
+                                    args.len()
+                                ),
+                                *span,
+                            );
+                        }
+                    }
+                    walk(children, declared)?;
+                }
+                Node::Use { children, .. } => walk(children, declared)?,
+                Node::Provide { body, .. } | Node::Each { body, .. } => walk(body, declared)?,
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, declared)?;
+                    walk(otherwise, declared)?;
+                }
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, declared)?;
+                    walk(none, declared)?;
+                }
+                Node::Children { .. } => {}
+            }
+        }
+        Ok(())
+    }
+    for component in &file.components {
+        walk(&component.view, declared)?;
+    }
+    Ok(())
+}
+
 /// What analysis established beyond the types. Every rule analysis checks
 /// is a rejection or nothing, so this carries no data yet.
 #[derive(Debug, Clone, PartialEq, Default)]

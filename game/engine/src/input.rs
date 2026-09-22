@@ -390,15 +390,17 @@ impl Input {
             .collect()
     }
     pub(crate) fn held_controls(&self) -> Vec<String> {
-        self.contacts
+        let mut names: Vec<_> = self
+            .contacts
             .iter()
             .filter(|p| !p.action.is_empty())
-            .map(|p| p.action.clone())
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect()
+            .map(|p| p.action.as_str())
+            .collect();
+        names.sort_unstable();
+        names.dedup();
+        names.into_iter().map(str::to_owned).collect()
     }
-    fn action(&self, name: &str) -> Option<&Action> {
+    fn action(&self, name: &str) -> &Action {
         let a = self.actions().entries.iter().find(|a| a.name == name);
         assert!(
             a.is_some(),
@@ -410,7 +412,7 @@ impl Input {
                 .collect::<Vec<_>>()
                 .join(", ")
         );
-        a
+        a.unwrap()
     }
     fn touching(&self, regions: &[Region]) -> bool {
         self.viewport.min_element() > 0.0
@@ -444,7 +446,7 @@ impl Input {
     }
     /// Whether the declared action is held now.
     pub fn held(&self, name: &str) -> bool {
-        self.action(name).is_some_and(|a| self.active(a))
+        self.active(self.action(name))
     }
     /// A rising edge since the last tick, even if followed immediately by release.
     pub fn pressed(&self, name: &str) -> bool {
@@ -464,7 +466,8 @@ impl Input {
     /// Read a directional action in its two-dimensional input plane.
     pub fn stick(&self, name: &str) -> Vec2 {
         self.action(name)
-            .and_then(|a| a.stick.as_ref())
+            .stick
+            .as_ref()
             .map_or(Vec2::ZERO, |s| self.direction(name, s))
     }
     /// Primary contact or hover; its delta expires after this tick.
@@ -497,6 +500,19 @@ impl Input {
         self.clear_edges();
     }
     pub(crate) fn apply(&mut self, event: InputEvent) {
+        if matches!(event, InputEvent::Wheel { .. })
+            || (matches!(
+                event,
+                InputEvent::Pointer {
+                    phase: PointerPhase::Move,
+                    ..
+                }
+            ) && self.contacts.is_empty())
+            || self.actions.is_none()
+            || matches!(&event, InputEvent::Key { code, down, .. } if self.keys.contains(code) == *down)
+        {
+            return self.apply_state(event);
+        }
         let before: Vec<_> = self
             .actions()
             .entries
@@ -763,6 +779,119 @@ mod control_tests {
         input.apply(control("missing", 1, PointerPhase::Down, 0., 0.));
         assert!(input.held_controls().is_empty());
     }
+    #[test]
+    fn wheel_preserves_action_edges_and_expires_after_the_tick() {
+        let mut input = input();
+        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
+        input.apply(control("jump", 1, PointerPhase::Up, 0., 0.));
+        input.apply(control("move", 2, PointerPhase::Down, 0., 0.));
+        input.apply(control("move", 2, PointerPhase::Move, 60., 0.));
+        for (dx, dy) in [(2.5, -3.), (-1.5, 7.), (f32::NAN, 1.)] {
+            input.apply(InputEvent::Wheel { dx, dy, at_ms: 0. });
+        }
+        assert_eq!(input.wheel(), Vec2::new(1., 4.));
+        assert!(input.pressed("jump") && input.released("jump") && !input.held("jump"));
+        assert!(input.pressed("move") && input.held("move") && !input.released("move"));
+        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
+        input.clear_edges();
+        assert_eq!(input.wheel(), Vec2::ZERO);
+        assert!(!input.pressed("jump") && !input.released("jump"));
+        assert!(input.held("move") && !input.pressed("move"));
+        input.apply_paused(InputEvent::Wheel {
+            dx: 2.,
+            dy: 3.,
+            at_ms: 0.,
+        });
+        assert_eq!(input.wheel(), Vec2::ZERO);
+        assert!(input.held("move"));
+    }
+    #[test]
+    fn hover_keeps_pointer_motion_and_key_edges_without_suppressing_drag_edges() {
+        let mut input = Input::new(
+            Actions::new()
+                .stick("move", Stick::wasd().or_touch(Region::Left))
+                .button("jump", &["Space"]),
+        );
+        input.viewport = Vec2::new(640., 480.);
+        for (code, down) in [("Space", true), ("Space", false), ("KeyD", true)] {
+            input.apply(InputEvent::Key {
+                code: code.into(),
+                down,
+                at_ms: 0.,
+            });
+        }
+        let pointer = |phase, x, y| InputEvent::Pointer {
+            id: 1,
+            phase,
+            x,
+            y,
+            at_ms: 0.,
+        };
+        for (x, y) in [(20., 40.), (50., 70.), (f32::NAN, 70.), (80., 90.)] {
+            input.apply(pointer(PointerPhase::Move, x, y));
+        }
+        let p = input.pointer().unwrap();
+        assert_eq!(p.position, Vec2::new(80., 90.));
+        assert_eq!(p.delta, Vec2::new(60., 50.));
+        assert!(!p.down);
+        assert!(input.pressed("jump") && input.released("jump") && !input.held("jump"));
+        assert!(input.pressed("move") && input.held("move") && !input.released("move"));
+        input.clear_edges();
+        assert_eq!(input.pointer().unwrap().delta, Vec2::ZERO);
+        assert!(!input.pressed("jump") && !input.released("jump"));
+        input.apply(pointer(PointerPhase::Down, 80., 90.));
+        input.apply(pointer(PointerPhase::Move, 20., 90.));
+        assert!(input.pointer().unwrap().down);
+        assert!(input.released("move") && !input.held("move"));
+        assert_eq!(input.stick_xz("move"), crate::Vec3::ZERO);
+        input.apply(pointer(PointerPhase::Move, 80., 90.));
+        assert!(input.pressed("move") && input.released("move") && input.held("move"));
+        assert_eq!(input.stick_xz("move"), crate::Vec3::X);
+        input.apply(pointer(PointerPhase::Up, 80., 90.));
+        input.apply(pointer(PointerPhase::Move, 90., 100.));
+        assert!(!input.pointer().unwrap().down);
+        assert_eq!(input.pointer().unwrap().delta, Vec2::new(10., 10.));
+        assert!(input.pressed("move") && input.released("move") && input.held("move"));
+    }
+    #[test]
+    fn repeated_keys_preserve_edges_and_independent_control_ownership() {
+        let mut input = Input::new(Actions::new().button("jump", &["Space", "KeyJ"]));
+        let key = |code: &str, down, at_ms| InputEvent::Key {
+            code: code.into(),
+            down,
+            at_ms,
+        };
+        input.apply(key("Space", true, 0.));
+        assert!(input.held("jump") && input.pressed("jump") && !input.released("jump"));
+        let saved = crate::bin::to_vec(&input);
+        for at_ms in [1., f64::NAN] {
+            input.apply(key("Space", true, at_ms));
+            assert_eq!(crate::bin::to_vec(&input), saved);
+        }
+        input.clear_edges();
+        input.apply(key("Space", true, 2.));
+        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
+        input.apply(key("KeyJ", true, 3.));
+        input.apply(key("Space", false, 4.));
+        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
+        let saved = crate::bin::to_vec(&input);
+        for code in ["Space", "KeyZ"] {
+            input.apply(key(code, false, 5.));
+            assert_eq!(crate::bin::to_vec(&input), saved);
+        }
+        input.apply(control("jump", 1, PointerPhase::Down, 0., 0.));
+        input.apply(key("KeyJ", false, 6.));
+        input.apply(key("KeyJ", false, 7.));
+        assert!(input.held("jump") && !input.pressed("jump") && !input.released("jump"));
+        input.apply(control("jump", 1, PointerPhase::Up, 0., 0.));
+        assert!(!input.held("jump") && !input.pressed("jump") && input.released("jump"));
+        let saved = crate::bin::to_vec(&input);
+        input.apply(key("KeyJ", false, 8.));
+        assert_eq!(crate::bin::to_vec(&input), saved);
+        input.clear_edges();
+        input.apply(key("Space", true, 9.));
+        assert!(input.held("jump") && input.pressed("jump") && !input.released("jump"));
+    }
     fn control(name: &str, id: u64, phase: PointerPhase, x: f32, y: f32) -> InputEvent {
         InputEvent::Control {
             name: name.into(),
@@ -832,6 +961,16 @@ mod control_tests {
         input.apply(control("light", 2, PointerPhase::Down, 0., 0.));
         input.apply(control("light", 2, PointerPhase::Up, 0., 0.));
         assert!(input.pressed("light") && input.released("light"));
+        input.apply(control("light", 3, PointerPhase::Down, 0., 0.));
+        input.apply(control("jump", 4, PointerPhase::Down, 0., 0.));
+        input.apply(control("jump", 5, PointerPhase::Down, 0., 0.));
+        assert_eq!(input.held_controls(), ["jump", "light"]);
+        input.apply(control("jump", 4, PointerPhase::Up, 0., 0.));
+        assert_eq!(input.held_controls(), ["jump", "light"]);
+        input.apply(control("jump", 5, PointerPhase::Cancel, 0., 0.));
+        assert_eq!(input.held_controls(), ["light"]);
+        input.apply(control("light", 3, PointerPhase::Up, 0., 0.));
+        assert!(input.held_controls().is_empty());
     }
     #[test]
     fn app_stick_is_local_unit_clamped_saved_and_cancelled_on_blur() {

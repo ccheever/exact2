@@ -97,7 +97,6 @@ pub(crate) struct Quads {
     particle_pipelines: Option<[wgpu::RenderPipeline; 2]>,
     sprite_pipelines: Option<[wgpu::RenderPipeline; 3]>,
     texture_layout: Option<wgpu::BindGroupLayout>,
-    textures: BTreeMap<String, (u64, wgpu::BindGroup, [u32; 2])>,
     hz: u32,
     #[cfg(not(target_arch = "wasm32"))]
     children: Vec<(u16, crate::placed::Plane)>,
@@ -123,7 +122,7 @@ impl Quads {
                 + self.draws.capacity() * size_of::<Draw>(),
             self.particle_arena
                 .as_ref()
-                .map_or(0, |a| a.buffer.capacity),
+                .map_or(0, |a| a.buffer.raw.size()),
         )
     }
     #[cfg(test)]
@@ -182,7 +181,6 @@ impl Quads {
             particle_pipelines: None,
             sprite_pipelines: None,
             texture_layout: None,
-            textures: BTreeMap::new(),
             hz: 60,
             #[cfg(not(target_arch = "wasm32"))]
             children: Vec::new(),
@@ -232,16 +230,9 @@ impl Quads {
         }
         Ok(())
     }
-    pub fn texture(&mut self, d: &wgpu::Device, name: &str, t: &crate::models::Texture) {
+    pub fn sprite_bind(&mut self, d: &wgpu::Device, t: &crate::models::Texture) -> wgpu::BindGroup {
         self.prepare_sprites(d);
-        if self
-            .textures
-            .get(name)
-            .is_some_and(|(digest, _, _)| *digest == t.digest)
-        {
-            return;
-        }
-        let bind = d.create_bind_group(&wgpu::BindGroupDescriptor {
+        d.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game sprite texture"),
             layout: self.texture_layout.as_ref().unwrap(),
             entries: &[
@@ -254,8 +245,7 @@ impl Quads {
                     resource: wgpu::BindingResource::Sampler(&t.sampler),
                 },
             ],
-        });
-        self.textures.insert(name.into(), (t.digest, bind, t.size));
+        })
     }
     #[cfg(not(target_arch = "wasm32"))]
     pub fn children(
@@ -314,15 +304,6 @@ impl Quads {
         if self.children.len() != previous_count {
             self.prepare(d, q);
         }
-    }
-    pub fn retain_textures(&mut self, mut keep: impl FnMut(&str) -> bool) {
-        self.textures.retain(|n, _| keep(n));
-    }
-    pub fn retire_texture(&mut self, name: &str) {
-        self.textures.remove(name);
-    }
-    pub fn has_texture(&self, name: &str) -> bool {
-        self.textures.contains_key(name)
     }
     fn texture_layout(&mut self, d: &wgpu::Device) {
         if self.texture_layout.is_some() {
@@ -430,7 +411,11 @@ impl Quads {
             }));
         }
     }
-    pub fn frame<const ASSETS: bool>(&mut self, f: &FrameInput<'_>) {
+    pub fn frame<const ASSETS: bool>(
+        &mut self,
+        f: &FrameInput<'_>,
+        textures: &BTreeMap<String, crate::models::Texture>,
+    ) {
         self.order.clear();
         self.draws.clear();
         self.particle_data.clear();
@@ -479,9 +464,13 @@ impl Quads {
         if ASSETS {
             for (index, item) in self.sprites.iter().enumerate() {
                 let s = &item.value;
-                let Some((_, _, size)) = self.textures.get(&s.texture) else {
+                let Some(texture) = textures
+                    .get(&s.texture)
+                    .filter(|texture| texture.active && texture.sprite_bind.is_some())
+                else {
                     continue;
                 };
+                let size = texture.size;
                 let t = f.displayed_matrix(
                     item.entity,
                     crate::world::scene::interpolate(item.poses, f.alpha),
@@ -581,13 +570,18 @@ impl Quads {
         }
         if let Some(arena) = &mut self.particle_arena {
             assert!(
-                arena.words.len() as u64 * 4 <= arena.buffer.capacity,
+                arena.words.len() as u64 * 4 <= arena.buffer.raw.size(),
                 "particles must prepare before drawing"
             );
             arena.buffer.write(q, 0, bytes(&arena.words));
         }
     }
-    pub fn draw<'a, const ASSETS: bool>(&'a self, pass: &mut wgpu::RenderPass<'a>, draw: &Draw) {
+    pub fn draw<'a, const ASSETS: bool>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        draw: &Draw,
+        textures: &'a BTreeMap<String, crate::models::Texture>,
+    ) {
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
             Kind::Particle(additive) => {
@@ -612,7 +606,7 @@ impl Quads {
                     AlphaMode::Blend => 2,
                 };
                 pass.set_pipeline(&self.sprite_pipelines.as_ref().unwrap()[variant]);
-                pass.set_bind_group(1, &self.textures[&s.texture].1, &[]);
+                pass.set_bind_group(1, textures[&s.texture].sprite_bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.sprite_arena.as_ref().unwrap().buffer.raw.slice(..));
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -829,7 +823,7 @@ mod retained_tests {
         q.children = (0..5000).map(|i| (i, plane)).collect();
         q.prepare(&gpu.device, &gpu.queue);
         let capacity = q.order.capacity();
-        q.frame::<false>(&FrameInput::default());
+        q.frame::<false>(&FrameInput::default(), &BTreeMap::new());
         assert_eq!(q.order.len(), 5000);
         assert_eq!(q.order.capacity(), capacity);
     }

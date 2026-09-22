@@ -70,9 +70,9 @@ component SmallGame
               text `Lamp ${hud.lit}` testId="hud-label"
             when reordered
               text "Moving cube" testId="name" width=140 padding=8 background-color="#174663"
-              text "The lantern path" testId="sign" display=(collapsed ? "none" : "block") width=200 padding=12 background-color="#4c3828" font-size=22
+              text "The lantern path" testId="sign" display=(collapsed ? "none" : "block") width=200 padding=12 background-color="#4c3828" font-size=22 line-height="26px"
             else
-              text "The lantern path" testId="sign" display=(collapsed ? "none" : "block") width=200 padding=12 background-color="#4c3828" font-size=22
+              text "The lantern path" testId="sign" display=(collapsed ? "none" : "block") width=200 padding=12 background-color="#4c3828" font-size=22 line-height="26px"
               text "Moving cube" testId="name" width=140 padding=8 background-color="#174663"
             button action="pull" testId="pull" aria-label="Pull" width=120 padding=12 background-color="#e8ad61"
               text "Pull" color="#202731" font-size=22

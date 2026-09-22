@@ -892,7 +892,9 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
         shaders: &[],
     };
     let mut module = Module::new(&REGISTRY);
-    let Ok(gpu) = fixture::device() else { return };
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
     module.set_gpu(gpu);
     let id = module.create_headless("retained").unwrap();
     assert!(module.bind(id, &[], None));
@@ -908,7 +910,10 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
     };
     assert!(module.readback(id, &frame).is_some());
     module.lose_device();
-    module.set_gpu(fixture::device().unwrap());
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    module.set_gpu(gpu);
     assert!(module.readback(id, &frame).is_some());
 }
 

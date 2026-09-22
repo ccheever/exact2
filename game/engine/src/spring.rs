@@ -74,6 +74,16 @@ impl Spring {
     pub fn value(&self, now: Now) -> f32 {
         (self.target + self.sample(now).displacement) as f32
     }
+    /// Sample presentation seconds, including sub-tick phase, without changing state.
+    pub fn value_at(&self, seconds: f64, hz: u32) -> f32 {
+        assert!(hz > 0 && seconds.is_finite());
+        let elapsed = (seconds - self.start_tick as f64 / hz as f64).max(0.);
+        (self.target
+            + self
+                .config
+                .sample(self.start_value - self.target, self.start_velocity, elapsed)
+                .displacement) as f32
+    }
     /// Velocity per second at now.
     pub fn velocity(&self, now: Now) -> f32 {
         self.sample(now).velocity as f32

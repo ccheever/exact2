@@ -36,9 +36,10 @@ struct BakedMaterial {
 struct ModelVarying {
     @builtin(position) clip: vec4<f32>,
     @location(0) world: vec3<f32>, @location(1) normal: vec3<f32>,
+    @location(4) color: vec4<f32>,
     @location(2) uv: vec2<f32>, @location(3) @interpolate(flat) slot: u32,
 }
-fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32, vertex:u32) -> ModelVarying {
+fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instance: u32, vertex:u32, color:vec4<f32>) -> ModelVarying {
     let draw = instances[slots[instance] - 2147483648u];
     let slot = draw.transform;
     let i = slot * 10u;
@@ -55,15 +56,15 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
         let affine=attachment_matrices[slot];
         let world=(affine*vec4(local,1.0)).xyz;
         let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
-        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,uv,slot);
+        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot);
     }
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
     let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
-    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,uv,slot);
+    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot);
 }
-@vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
-    return model_transform(position,normal,uv,instance,vertex);
+@vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color:vec4<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
+    return model_transform(position,normal,uv,instance,vertex,color);
 }
 fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
     let t=baked.uv[index*2u]; let o=baked.uv[index*2u+1u];
@@ -71,7 +72,7 @@ fn material_uv(uv: vec2<f32>, index:u32) -> vec2<f32> {
 }
 fn model_base(input:ModelVarying) -> vec4<f32> {
     let i=input.slot*12u;
-    return textureSample(base_texture,base_sampler,material_uv(input.uv,0u))*baked.base*vec4(materials[i],materials[i+1u],materials[i+2u],select(materials[i+3u],1.0,materials[i+3u]<0.0));
+    return textureSample(base_texture,base_sampler,material_uv(input.uv,0u))*baked.base*input.color*vec4(materials[i],materials[i+1u],materials[i+2u],select(materials[i+3u],1.0,materials[i+3u]<0.0));
 }
 fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     let n=normalize(input.normal)*select(-1.0,1.0,front);

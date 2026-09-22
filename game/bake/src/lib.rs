@@ -1,7 +1,10 @@
 //! Build-time glTF importer; no runtime crate depends on this crate.
 use exact_game::{asset::*, Vec3};
 use std::path::Path;
+mod files;
 mod geometry;
+use files::write_changed;
+pub use files::{bake_game_level, check_size};
 mod textures;
 
 /// Import a model into plain Data, refusing unsupported features by name.
@@ -474,41 +477,10 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     let bytes = serde_json::to_vec(&digests).unwrap();
     write_changed(&manifest, &bytes)
 }
-fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    use std::io::Write;
-    if std::fs::read(path).ok().as_deref() == Some(bytes) {
-        return Ok(());
-    }
-    let tmp = path.with_file_name(format!(
-        ".{}.{}.tmp",
-        path.file_name().unwrap().to_string_lossy(),
-        std::process::id()
-    ));
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .map_err(|e| format!("{}: {e}", tmp.display()))?;
-    let result = file
-        .write_all(bytes)
-        .and_then(|()| std::fs::rename(&tmp, path));
-    if result.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    result.map_err(|e| format!("{}: {e}", path.display()))
-}
 
 fn digest(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     format!("{:x}", Sha256::digest(bytes))
-}
-/// Refuse oversized carriers before decoding or writing them.
-pub fn check_size(name: &str, size: usize) -> Result<(), String> {
-    if size > 64 * 1024 * 1024 {
-        Err(format!("asset `{name}` exceeds 64 MiB"))
-    } else {
-        Ok(())
-    }
 }
 /// The same bounded encoding for both CLI and generated shell builds.
 pub fn encode(name: &str, value: &impl exact_game::Data) -> Result<Vec<u8>, String> {

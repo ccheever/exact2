@@ -261,6 +261,79 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
 }
 
 #[test]
+fn direct_sprite_residency_stays_feed_scoped_across_replacement_and_retirement() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut world = World::new(60, 0);
+    world.spawn((Transform::default(), Sprite::new("late.tex", [1., 1.])));
+    world.spawn((Transform::at(0., 0., 5.), Camera::orthographic(10.)));
+    world.propagate();
+    let mut renderer =
+        crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut feed = crate::Feed::default();
+    feed.feed(&world, &mut renderer).unwrap();
+
+    let first = TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![255, 0, 0, 255]],
+        ..TextureData::default()
+    };
+    renderer.add_texture("late.tex", &first).unwrap();
+    assert!(renderer.models.textures["late.tex"].sprite_bind.is_none());
+    {
+        let frame = feed.frame(&world, 1., 1.);
+        renderer
+            .quads
+            .frame::<true>(&frame, &renderer.models.textures);
+        renderer.quads.order::<true>(&gpu.device, &gpu.queue);
+    }
+    assert_eq!(renderer.quads.instances(), 0);
+
+    feed.feed(&world, &mut renderer).unwrap();
+    assert!(renderer.models.textures["late.tex"].sprite_bind.is_some());
+    {
+        let frame = feed.frame(&world, 1., 1.);
+        renderer
+            .quads
+            .frame::<true>(&frame, &renderer.models.textures);
+        renderer.quads.order::<true>(&gpu.device, &gpu.queue);
+    }
+    assert_eq!(renderer.quads.instances(), 1);
+
+    let replacement = TextureData {
+        mips: vec![vec![0, 255, 0, 255]],
+        ..first
+    };
+    renderer.add_texture("late.tex", &replacement).unwrap();
+    assert!(renderer.models.textures["late.tex"].sprite_bind.is_some());
+    {
+        let frame = feed.frame(&world, 1., 1.);
+        renderer
+            .quads
+            .frame::<true>(&frame, &renderer.models.textures);
+        renderer.quads.order::<true>(&gpu.device, &gpu.queue);
+    }
+    assert_eq!(renderer.quads.instances(), 1);
+
+    renderer.retire_texture("late.tex");
+    renderer.add_texture("late.tex", &replacement).unwrap();
+    assert!(renderer.models.textures["late.tex"].active);
+    assert!(renderer.models.textures["late.tex"].sprite_bind.is_none());
+    {
+        let frame = feed.frame(&world, 1., 1.);
+        renderer
+            .quads
+            .frame::<true>(&frame, &renderer.models.textures);
+        renderer.quads.order::<true>(&gpu.device, &gpu.queue);
+    }
+    assert_eq!(renderer.quads.instances(), 0);
+    feed.feed(&world, &mut renderer).unwrap();
+    assert!(renderer.models.textures["late.tex"].sprite_bind.is_some());
+}
+
+#[test]
 fn invalid_quads_are_journaled_without_refusing_valid_neighbors() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
@@ -346,7 +419,7 @@ fn particle_storage_and_pipelines_prepare_only_with_emitters() {
         let capacity = r.quads.reserved_bytes();
         let work = r.residency_work();
         let input = feed.frame(&w, 1., 1.);
-        r.quads.frame::<true>(&input);
+        r.quads.frame::<true>(&input, &r.models.textures);
         r.quads.order::<true>(&gpu.device, &gpu.queue);
         assert_eq!(r.quads.reserved_bytes(), capacity);
         assert_eq!(r.residency_work().since(work).pipeline_creations, 0);
@@ -458,7 +531,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     let mut feed = crate::Feed::default();
     feed.feed(w, &mut r).unwrap();
     let input = feed.frame(w, 1., 1.);
-    r.quads.frame::<true>(&input);
+    r.quads.frame::<true>(&input, &r.models.textures);
     r.quads.order::<true>(&gpu.device, &gpu.queue);
     assert_eq!(
         r.quads.draws.len(),

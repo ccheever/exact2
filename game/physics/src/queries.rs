@@ -10,7 +10,6 @@ use rapier3d::{
     prelude::*,
 };
 use std::cell::RefMut;
-use std::collections::BTreeMap;
 
 #[derive(PartialEq, Eq)]
 struct Revisions([u64; 5]);
@@ -83,12 +82,12 @@ impl Queries<'_> {
 pub(crate) struct Scene {
     pub rapier: PhysicsWorld,
     pub bvh: Bvh,
-    pub entities: BTreeMap<[u32; 2], Entity>,
+    pub entities: Vec<Entity>,
 }
 impl Scene {
     pub fn new(world: &World) -> Self {
         let mut rapier = PhysicsWorld::default();
-        let mut entities = BTreeMap::new();
+        let mut entities = Vec::new();
         for (e, (c, b)) in world.query::<(&Collider, Option<&Body>)>().iter() {
             let t = math::world_pose(world, e);
             let body = b.map(|b| {
@@ -107,18 +106,21 @@ impl Scene {
                         }),
                 )
             });
-            let h = rapier.insert_collider(
-                step::collider(c, t, b).position(if b.is_some() {
-                    Pose::IDENTITY
-                } else {
-                    math::pose(t)
-                }),
+            let entity_index = entities.len();
+            rapier.insert_collider(
+                step::collider(c, t, b)
+                    .position(if b.is_some() {
+                        Pose::IDENTITY
+                    } else {
+                        math::pose(t)
+                    })
+                    .user_data(entity_index as u128),
                 body,
             );
             if let Some(b) = body {
                 rapier.bodies[b].recompute_mass_properties_from_colliders(&rapier.colliders);
             }
-            entities.insert(crate::state::raw(h), e);
+            entities.push(e);
         }
         let bvh = Bvh::from_iter(
             BvhBuildStrategy::Binned,
@@ -143,7 +145,7 @@ impl Scene {
         }
     }
     pub fn entity(&self, h: ColliderHandle) -> Entity {
-        self.entities[&crate::state::raw(h)]
+        self.entities[self.rapier.colliders[h].user_data as usize]
     }
 }
 fn nearest(a: &Hit, b: &Hit) -> std::cmp::Ordering {

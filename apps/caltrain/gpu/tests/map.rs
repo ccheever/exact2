@@ -19,13 +19,7 @@ fn station(id: &str) -> Value {
 fn device() -> Option<Gpu> {
     // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
-    match fixture::device() {
-        Ok(gpu) => Some(gpu),
-        Err(e) => {
-            eprintln!("{e}; the readback fixture is skipped");
-            None
-        }
-    }
+    fixture::device_or_skip(fixture::device())
 }
 
 #[test]

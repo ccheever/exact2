@@ -56,7 +56,7 @@ pub(crate) fn pipeline(
     variant: usize,
     shadow: bool,
 ) -> wgpu::RenderPipeline {
-    let attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2];
+    let attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4];
     let buffers = [Some(wgpu::VertexBufferLayout {
         array_stride: size_of::<Vertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,

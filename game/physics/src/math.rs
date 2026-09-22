@@ -152,3 +152,68 @@ pub(crate) fn world_pose(world: &World, entity: Entity) -> Transform {
         scale,
     }
 }
+
+pub(crate) fn heightfield(
+    rows: u32,
+    cols: u32,
+    heights: Vec<f32>,
+    scale: Vec3,
+) -> Result<(exact_game::asset::MeshData, Shape), String> {
+    if rows < 2
+        || cols < 2
+        || u64::from(rows) * u64::from(cols) != heights.len() as u64
+        || heights.iter().any(|h| !h.is_finite())
+        || !scale.is_finite()
+        || scale.min_element() <= 0.
+    {
+        return Err("heightfield: invalid rows, cols, heights or scale".into());
+    }
+    let mut mesh = exact_game::asset::MeshData::default();
+    let dx = 1. / (cols - 1) as f32;
+    let dz = 1. / (rows - 1) as f32;
+    let mut lo = Vec3::splat(f32::INFINITY);
+    let mut hi = Vec3::splat(f32::NEG_INFINITY);
+    for r in 0..rows {
+        for c in 0..cols {
+            let p = Vec3::new(
+                -0.5 + dx * c as f32,
+                heights[(r * cols + c) as usize],
+                -0.5 + dz * r as f32,
+            ) * scale;
+            if !p.is_finite() {
+                return Err("heightfield: scaled vertex is not finite".into());
+            }
+            mesh.positions.extend(p.to_array());
+            mesh.uvs.extend([dx * c as f32, dz * r as f32]);
+            lo = lo.min(p);
+            hi = hi.max(p);
+            if r + 1 < rows && c + 1 < cols {
+                let a = r * cols + c;
+                mesh.indices
+                    .extend([a, a + cols, a + 1, a + cols, a + cols + 1, a + 1]);
+            }
+        }
+    }
+    let mut normals = vec![Vec3::ZERO; heights.len()];
+    for t in mesh.indices.chunks_exact(3) {
+        let p = |i: u32| Vec3::from_slice(&mesh.positions[i as usize * 3..][..3]);
+        let n = (p(t[1]) - p(t[0])).cross(p(t[2]) - p(t[0]));
+        for &i in t {
+            normals[i as usize] += n;
+        }
+    }
+    mesh.normals = normals
+        .into_iter()
+        .flat_map(|n| n.try_normalize().unwrap_or(Vec3::Y).to_array())
+        .collect();
+    mesh.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
+    Ok((
+        mesh,
+        Shape::Heightfield {
+            rows,
+            cols,
+            heights,
+            scale,
+        },
+    ))
+}

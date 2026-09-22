@@ -680,9 +680,9 @@ try {
   // (a canvas is on the page; headless Chrome has WebGPU).
   if (shot) console.log(JSON.stringify(await s.screenshot(shot)));
   if (host === 'web' && appHasCanvas) {
-    let g = s.gpuMs();
-    for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = s.gpuMs(); }
-    check(g != null, 'a canvas is on the page but the GPU module did not load (no beacon; WebGPU unavailable in this Chrome?)');
+    let g = await s.gpuMs();
+    for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await s.gpuMs(); }
+    check(g != null, 'a canvas is on the page but the GPU module did not load (WebGPU unavailable in this Chrome?)');
     if (g != null) console.log(`gpu: module loaded ${g} ms after injection (after a rendering opportunity)`);
   }
 
@@ -808,7 +808,7 @@ if (caltrainFixture) {
       // the CPU oracle's with the pinned font, and matches to the pixel on
       // any machine). Taken before the tap and the edit: a caret blinks on
       // the wall clock.
-      if (host === 'web') { let g = f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = f.gpuMs(); } }
+      if (host === 'web') { let g = await f.gpuMs(); for (let i = 0; i < 60 && g == null; i++) { await sleep(50); g = await f.gpuMs(); } }
       await sleep(150); // one frame of the surface after its first capture
       const shotPath = resolve(tmp, 'canvas.png');
       await f.screenshot(shotPath, true);

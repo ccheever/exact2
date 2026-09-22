@@ -15,13 +15,20 @@ use std::ops::RangeInclusive;
 pub struct Character {
     /// Current velocity in metres per second; saved and hashed with the component.
     pub velocity: Vec3,
-    speed: f32,
-    accel: f32,
-    brake: f32,
-    jump: f32,
-    gravity: f32,
-    ground: f32,
-    bounds: Option<[f32; 2]>,
+    /// Planar speed in metres per second; finite and nonnegative.
+    pub speed: f32,
+    /// Planar acceleration in metres per second squared; finite and nonnegative.
+    pub accel: f32,
+    /// Planar braking in metres per second squared; finite and nonnegative.
+    pub brake: f32,
+    /// Height of the next jump in metres; finite and nonnegative.
+    pub jump: f32,
+    /// Downward acceleration in metres per second squared; finite and positive.
+    pub gravity: f32,
+    /// Ground height of the pose's origin in metres; finite.
+    pub ground: f32,
+    /// Inclusive XZ bounds [min, max], finite and ordered; None removes them.
+    pub bounds: Option<[f32; 2]>,
     airborne: bool,
 }
 /// Events from one step. Grounded describes the end of the step.

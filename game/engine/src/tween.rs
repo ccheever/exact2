@@ -59,11 +59,15 @@ impl Tween {
 }
 impl Data for Tween {
     fn moving(&self, now: Now) -> bool {
-        self.start_value != self.target && now.tick < self.deadline(now)
+        // Presentation samples the previous tick at alpha zero. Remain moving
+        // through the endpoint tick so settle also presents the exact target.
+        self.start_value != self.target
+            && self.duration > 0.
+            && now.tick < self.deadline(now).saturating_add(1)
     }
     fn settle_tick(&self, now: Now) -> Option<u64> {
         Some(if self.moving(now) {
-            self.deadline(now)
+            self.deadline(now).saturating_add(1)
         } else {
             now.tick
         })

@@ -17,7 +17,7 @@ pub use pages::{Page, Pages, Plain};
 pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 
 /// Number of entity-indexed slots in each component page.
-pub const PAGE: usize = 1024;
+pub const PAGE: usize = 512;
 const WORDS: usize = PAGE / 64;
 
 struct Lease<'a> {

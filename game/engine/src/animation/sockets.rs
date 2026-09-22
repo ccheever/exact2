@@ -21,9 +21,10 @@ impl SocketFollow {
         self
     }
 }
-/// Owned playback output; reading it holds no world/component leases.
+type MotionEntry = (Entity, Option<String>, Playback);
+/// Owned playback snapshot; reading it holds no world/component leases.
 #[derive(Default, Clone)]
-pub struct Motion(pub(super) Vec<(Entity, Option<String>, Playback)>);
+pub struct Motion(pub(super) Option<Arc<Vec<MotionEntry>>>);
 impl Motion {
     /// Apply this tick's model-local displacement after the authored rotation.
     pub fn apply_local(&self, w: &World, name: &str) {
@@ -34,6 +35,7 @@ impl Motion {
     fn playback(&self, target: impl Into<crate::FollowTarget>) -> Option<&Playback> {
         let target = target.into();
         self.0
+            .as_ref()?
             .iter()
             .find(|(e, name, _)| match &target {
                 crate::FollowTarget::Entity(id) => e == id,
@@ -67,7 +69,7 @@ pub fn socket_node(w: &World, target: impl crate::Target, joint: &str) -> Result
         .get(name)
         .map(|asset| &asset.model)
         .ok_or_else(|| format!("socket model `{name}` not loaded"))?;
-    let mut runtime = w.derived::<Runtime>();
+    let mut runtime = runtime(w);
     let cache = &mut runtime.sockets;
     if !cache.get(name).is_some_and(|cached| {
         cached
@@ -209,7 +211,7 @@ mod apply_tests {
     fn apply_local_uses_authored_rotation_and_keeps_markers() {
         let mut w = World::new(60, 0);
         let e = w.spawn_named("fox", Transform::default());
-        let motion = Motion(vec![(
+        let motion = Motion(Some(Arc::new(vec![(
             e,
             Some("fox".into()),
             Playback {
@@ -217,7 +219,7 @@ mod apply_tests {
                 crossed: vec!["step".into()],
                 ..Default::default()
             },
-        )]);
+        )])));
         w.require_mut::<Transform>("fox").rotation = crate::Quat::from_rotation_y(1.);
         let mut expected = *w.require::<Transform>("fox");
         expected.translate_local(motion.root_motion("fox"));

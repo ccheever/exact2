@@ -184,9 +184,9 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             };
             if let Some(key) = field_str(line, "key") {
                 let phase = field_str(line, "phase");
-                let r = p.type_key(id, &key, phase.as_deref() != Some("up"));
+                let r = p.type_key(id, &key, &key, phase.as_deref() != Some("up"), false);
                 if phase.is_none() && r.is_ok() {
-                    let _ = p.type_key(id, &key, false);
+                    let _ = p.type_key(id, &key, &key, false, false);
                 }
                 return r.unwrap_or_else(|e| error(&e));
             }

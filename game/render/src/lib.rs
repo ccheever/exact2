@@ -8,6 +8,10 @@
 #![deny(missing_docs)]
 #![deny(unsafe_code)]
 
+// Shared GPU test helpers use the same renderer path inside and outside this crate.
+#[cfg(test)]
+extern crate self as exact_game_render;
+
 mod bloom;
 mod buffers;
 mod frame;
@@ -105,7 +109,7 @@ pub struct DrawInstance {
     pub skin: Option<u32>,
 }
 
-/// One tightly packed, 32-byte mesh vertex.
+/// One tightly packed, 48-byte mesh vertex.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vertex {
@@ -115,6 +119,8 @@ pub struct Vertex {
     pub normal: [f32; 3],
     /// Primitive deformation: capsule cap sign and capsule flag; zero for other meshes.
     pub uv: [f32; 2],
+    /// Linear RGBA multiplier; white preserves the material.
+    pub color: [f32; 4],
 }
 
 /// One indexed draw; the range addresses the supplied slot list, not the slots.
@@ -199,6 +205,8 @@ pub struct PointLightInput {
 }
 
 /// Retained emissive tween and material for one entity; only presentation samples it.
+/// The shoulder compresses only Glow output above both 2 and the authored channel;
+/// intensity 1 preserves authored emission, including values greater than 2.
 #[derive(Clone)]
 pub struct GlowInput {
     /// Material slot (entity index).
@@ -213,8 +221,9 @@ impl GlowInput {
         let mut material = self.material;
         for value in &mut material[6..9] {
             let emissive = *value * intensity;
-            let excess = (emissive - 2.).max(0.);
-            *value = emissive.min(2.) + excess / (1. + excess * 0.5);
+            let shoulder = value.max(2.);
+            let excess = (emissive - shoulder).max(0.);
+            *value = emissive.min(shoulder) + excess / (1. + excess * 0.5);
         }
         material
     }

@@ -320,6 +320,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         position: p.to_array(),
         normal: normal.to_array(),
         uv: [0.0; 2],
+        color: [1.; 4],
     });
     let rotation = Quat::from_rotation_y(0.3) * Quat::from_rotation_z(0.4);
     let scale = Vec3::new(1.2, 0.7, 2.5);
@@ -327,6 +328,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
         position: (rotation * (Vec3::from_array(v.position) * scale)).to_array(),
         normal: (rotation * (normal / scale)).normalize().to_array(),
         uv: v.uv,
+        color: v.color,
     });
     let source = renderer.add_mesh(&vertices, &[0, 1, 2]);
     let reference = renderer.add_mesh(&baked, &[0, 1, 2]);
@@ -407,6 +409,7 @@ fn affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly() {
             position,
             normal: [0., 0., 1.],
             uv: [0.; 2],
+            color: [1.; 4],
         });
         let indices = vec![0, 1, 2];
         let mesh = r.add_mesh(&vertices, &indices);
@@ -500,5 +503,32 @@ fn declared_storage_needs_fit_the_host_device() {
     assert!(
         exact_game_render::STORAGE_BINDINGS
             <= gpu.device.limits().max_storage_buffers_per_shader_stage
+    );
+}
+
+#[test]
+fn primitive_path_multiplies_linear_vertex_color() {
+    let Some(gpu) = gpu() else { return };
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let (mut vertices, indices) = shapes::cube();
+    for v in &mut vertices {
+        v.color = [0., 1., 0., 1.];
+    }
+    let mesh = r.add_mesh(&vertices, &indices);
+    r.write_transforms_both(0, &transform(Vec3::ZERO, Quat::IDENTITY, Vec3::ONE))
+        .unwrap();
+    r.write_materials(0, &material([1.; 3], 0.)).unwrap();
+    r.set_batches(&[Batch::new(mesh, 0..1)], &[0]).unwrap();
+    let target = target(&gpu, (64, 64), wgpu::TextureFormat::Rgba8Unorm);
+    let mut f = frame();
+    f.environment.ambient = 1.;
+    f.environment.zenith = [1.; 3];
+    f.environment.ground = [1.; 3];
+    f.environment.horizon = [1.; 3];
+    let pixel = render(&gpu, &mut r, &target, &f).at(32, 32);
+    assert!(
+        u16::from(pixel[1]) > u16::from(pixel[0]) * 2
+            && u16::from(pixel[1]) > u16::from(pixel[2]) * 2,
+        "{pixel:?}"
     );
 }

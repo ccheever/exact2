@@ -61,12 +61,8 @@ fn children(gpu: &Gpu, block: Option<(u32, u32, u32, u32)>) -> wgpu::TextureView
 
 #[test]
 fn the_aurora_composes_its_children_over_the_sky() {
-    let gpu = match fixture::device() {
-        Ok(gpu) => gpu,
-        Err(e) => {
-            eprintln!("{e}; the readback fixture is skipped");
-            return;
-        }
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
     };
     // The shaders travel as files (LLP 1030 D8): registered as a host would.
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
@@ -142,7 +138,9 @@ fn the_aurora_composes_its_children_over_the_sky() {
 #[test]
 fn glass_receives_current_and_previous_children() {
     exact_gpu::shaders::load_dir(&caltrain_gpu::shader_dir(), &caltrain_gpu::REGISTRY).unwrap();
-    let gpu = fixture::device().unwrap();
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
     let current = children(&gpu, Some((60, 40, 40, 40)));
     let previous = children(&gpu, Some((10, 10, 40, 40)));
     let frame = Frame {

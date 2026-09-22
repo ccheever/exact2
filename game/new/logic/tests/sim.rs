@@ -44,6 +44,11 @@ fn movement_and_light() {
 
 #[test]
 fn acceleration_braking_and_ballistic_jump() {
+    const GROUND_HEIGHT: f32 = 0.9;
+    const JUMP_HEIGHT: f32 = 1.2;
+    const TICK_MS: f64 = 8.334;
+    const APEX_TOLERANCE: f32 = 0.000_1;
+
     let mut game = Sim::<SmallGame>::new(Options {
         seed: 7,
         ..Options::default()
@@ -65,17 +70,48 @@ fn acceleration_braking_and_ballistic_jump() {
     let stopped = game.global_position("player").unwrap();
     game.run(100.0);
     assert_eq!(game.global_position("player").unwrap(), stopped);
+
+    let saved = game.save().unwrap();
+    let mut reference = Sim::<SmallGame>::new(Options {
+        seed: 7,
+        ..Options::default()
+    })
+    .unwrap();
+    reference.restore(&saved).unwrap();
     game.tap("Space");
-    game.run(400.0);
+    reference.tap("Space");
+    let mut maximum_height = GROUND_HEIGHT;
+    // 8.334 ms rounds to 8,334 us, advancing exactly one 120 Hz tick here.
+    // Sampling can miss the continuous apex by at most g * dt^2 / 8 = 0.085 mm.
+    for step in 0..150 {
+        if step == 20 {
+            assert!(game.global_position("player").unwrap().y > GROUND_HEIGHT);
+            game.tap("Space");
+        }
+        assert_eq!(game.run(TICK_MS), 1);
+        assert_eq!(reference.run(TICK_MS), 1);
+        let height = game.global_position("player").unwrap().y;
+        maximum_height = maximum_height.max(height);
+        assert_eq!(
+            height,
+            reference.global_position("player").unwrap().y,
+            "an airborne press must not add another jump"
+        );
+    }
     assert!(
-        game.global_position("player").unwrap().y > 1.8,
-        "jump rises toward 1.2 metres above the floor"
+        (maximum_height - (GROUND_HEIGHT + JUMP_HEIGHT)).abs() < APEX_TOLERANCE,
+        "sampled apex {maximum_height} should be {JUMP_HEIGHT} m above {GROUND_HEIGHT} m ground"
     );
-    game.run(1000.0);
     assert_eq!(
         game.global_position("player").unwrap().y,
-        0.9,
+        GROUND_HEIGHT,
         "gravity lands on the floor"
+    );
+    game.tap("Space");
+    assert_eq!(game.run(TICK_MS), 1);
+    assert!(
+        game.global_position("player").unwrap().y > GROUND_HEIGHT,
+        "a later grounded press starts another jump"
     );
 }
 
@@ -139,7 +175,10 @@ fn starter_keeps_grid_sky_fog_pads_and_saved_glow() {
     assert_eq!(env.fog.unwrap().color, env.background);
     assert!(w.count::<Material>(|m| m.grid_spacing > 0.) > 0);
     assert_eq!(w.count::<Glow>(|_| true), 2);
-    assert_eq!(w.require::<Material>("beacon-1").emissive, [3., 1.5, 0.3]);
+    assert_eq!(
+        w.require::<Material>("beacon-1").emissive,
+        [3., 0.45, 0.025]
+    );
 }
 
 #[test]

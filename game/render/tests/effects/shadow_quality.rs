@@ -65,6 +65,59 @@ pub(crate) fn scene(gpu: &Gpu) -> (Renderer, FrameInput<'static>) {
 }
 
 #[test]
+fn zero_illuminance_skips_configured_shadow_maps() {
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let (mut r, mut f, _) = shadow_scene(&gpu, 5.0);
+    let texture = target(&gpu, (128, 128), wgpu::TextureFormat::Rgba8Unorm);
+    let draw = |r: &mut Renderer, f: &FrameInput<'_>| {
+        let stats = r.draw(
+            &texture.create_view(&Default::default()),
+            (texture.width(), texture.height()),
+            f,
+        );
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+
+    let (positive, positive_pixels) = draw(&mut r, &f);
+    f.sun.as_mut().unwrap().illuminance = 0.0;
+    let (positive_zero, positive_zero_pixels) = draw(&mut r, &f);
+    f.sun.as_mut().unwrap().illuminance = -0.0;
+    let (negative_zero, negative_zero_pixels) = draw(&mut r, &f);
+
+    assert!(positive_zero.draws < positive.draws);
+    assert_eq!(positive_zero.texture_creations, positive.texture_creations);
+    assert_eq!(negative_zero.texture_creations, positive.texture_creations);
+
+    f.sun.as_mut().unwrap().illuminance = 2.0;
+    let (restored, restored_pixels) = draw(&mut r, &f);
+    assert_eq!(restored.draws, positive.draws);
+    assert_eq!(
+        restored.texture_creations,
+        negative_zero.texture_creations + 1
+    );
+    assert_eq!(restored_pixels.data, positive_pixels.data);
+
+    let sun = f.sun.as_mut().unwrap();
+    sun.illuminance = 0.0;
+    sun.shadows = None;
+    let (disabled, disabled_pixels) = draw(&mut r, &f);
+    assert_eq!(positive_zero.draws, disabled.draws);
+    assert_eq!(negative_zero.draws, disabled.draws);
+    assert_eq!(disabled.texture_creations, restored.texture_creations);
+    assert_eq!(positive_zero_pixels.data, disabled_pixels.data);
+    assert_eq!(negative_zero_pixels.data, disabled_pixels.data);
+
+    let sun = f.sun.as_mut().unwrap();
+    sun.illuminance = f32::MIN_POSITIVE;
+    sun.shadows = Some(Shadows::default());
+    let (tiny, _) = draw(&mut r, &f);
+    assert_eq!(tiny.draws, positive.draws);
+    assert_eq!(tiny.texture_creations, disabled.texture_creations + 1);
+}
+
+#[test]
 fn shadow_image_statistics_sun_camera_matrix() {
     let Some(gpu) = gpu() else {
         return;

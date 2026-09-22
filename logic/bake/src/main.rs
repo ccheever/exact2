@@ -63,7 +63,7 @@ fn bake(args: &[String]) -> Result<(), String> {
     }
     plan.app_id.clone_from(&app);
     let encoded = plan.encode();
-    let receipt = serde_json::json!({"version":1,"kind":"rust","abi":2,"appId":app,"grants":grants,"target":"wasm32-unknown-unknown","executor":"wasm","plan":card("app.plan",&encoded),"module":card("app.module.wasm",&bytes)});
+    let receipt = serde_json::json!({"version":1,"kind":"rust","abi":exact_logic::ABI,"appId":app,"grants":grants,"target":"wasm32-unknown-unknown","executor":"wasm","plan":card("app.plan",&encoded),"module":card("app.module.wasm",&bytes)});
     let mut source = exact_logic::Swappable::wasm(Admitted { app, grants })
         .replacement(&encoded, &receipt.to_string(), bytes)
         .map_err(|e| format!("module admission: {e:?}"))?;

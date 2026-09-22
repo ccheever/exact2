@@ -931,7 +931,7 @@ fn e10_glow_samples_frame_time_without_writing_saved_materials() {
     let glow = &frame.glows[0];
     assert_eq!(&glow.material_at(0.)[6..9], &[0., 0., 0.]);
     assert_eq!(&glow.material_at(0.25)[6..9], &[1.5, 1., 0.5]);
-    assert_eq!(&glow.material_at(0.5)[6..9], &[2. + 1. / 1.5, 2., 1.]);
+    assert_eq!(&glow.material_at(0.5)[6..9], &[3., 2., 1.]);
     let saved = w.hash();
     let frame = feed.frame(w, 0.5, 1.);
     let expected = w.get::<Glow>(e).unwrap().0.value_at(frame.seconds, w.hz());
@@ -950,4 +950,47 @@ fn e10_glow_samples_frame_time_without_writing_saved_materials() {
     feed.feed_to(w, &mut r).unwrap();
     assert!(feed.frame(w, 1., 1.).glows.is_empty());
     assert_eq!(&r.materials[6..9], &[3., 2., 1.]);
+}
+
+#[test]
+fn e11_glow_identity_preserves_authored_emission_and_shoulders_only_added_light() {
+    let glow = crate::GlowInput {
+        slot: 0,
+        material: [0., 0., 0., 0., 0., 0., 3., 2., 1., 0., 0., 0.],
+        tween: exact_game::Tween::new(1.),
+        hz: 60,
+    };
+    assert_eq!(&glow.material_at(0.)[6..9], &[3., 2., 1.]);
+    let hot = crate::GlowInput {
+        tween: exact_game::Tween::new(2.),
+        ..glow
+    };
+    assert_eq!(&hot.material_at(0.)[6..9], &[3. + 3. / 2.5, 3., 2.]);
+}
+
+#[test]
+fn e11_settle_immediately_presents_the_completed_glow() {
+    struct Fade;
+    impl Game for Fade {
+        const ID: &'static str = "settle-glow";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let mut tween = exact_game::Tween::new(0.);
+            tween.to(w.now(), 1., 0.5);
+            w.spawn((
+                Transform::default(),
+                Mesh::sphere(0.5),
+                Material::glow([1.; 3]),
+                exact_game::Glow(tween),
+            ));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let mut sim = Sim::<Fade>::new(()).unwrap();
+    assert!(sim.settle());
+    let mut feed = Feed::default();
+    let mut recording = Recording::default();
+    feed.feed_to(sim.world(), &mut recording).unwrap();
+    let frame = feed.frame(sim.world(), sim.alpha(), 1.);
+    assert_eq!(&frame.glows[0].material_at(frame.seconds)[6..9], &[1.; 3]);
 }

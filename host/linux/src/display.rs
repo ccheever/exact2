@@ -16,7 +16,7 @@
 #![allow(unsafe_code)]
 
 use crate::app::Config;
-use crate::input::{Input, InputEvent, Key};
+use crate::input::{key, Input, InputEvent};
 use crate::vnc::Vnc;
 use drm::buffer::{Buffer as _, DrmFourcc};
 use drm::control::{
@@ -378,13 +378,16 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     }
                 }
                 InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-                InputEvent::Activation { code, down } => {
-                    p.activation_key(if code == 57 { "Space" } else { "Enter" }, down);
+                InputEvent::Key {
+                    code,
+                    shift,
+                    down,
+                    repeat,
+                } => {
+                    if let Some((code, key)) = key(code, shift) {
+                        p.hardware_key(code, key, down, repeat);
+                    }
                 }
-                InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, wall()),
-                InputEvent::Key(Key::Backspace) => p.key(None, true, wall()),
-                InputEvent::Key(Key::Escape) => p.blur(),
-                InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, wall()),
             }
         }
         let now = wall();

@@ -61,3 +61,129 @@ fn r14_audio_source_requires_sound_definitions() {
     w.spawn_named("orphan", AudioSource::new("wind"));
     step(&mut w);
 }
+
+#[test]
+fn listener_refusals_keep_entity_order_and_do_not_repeat() {
+    let mut w = World::new(60, 0);
+    w.sounds([("wind", Synth::noise().looped())]);
+    let first = w.spawn_named("first", AudioListener);
+    w.spawn_named("second", AudioListener);
+    w.spawn_named("third", AudioListener);
+    let before = w.journal().len();
+    step(&mut w);
+    let lines: Vec<_> = w
+        .journal()
+        .iter()
+        .skip(before)
+        .map(|e| e.line.clone())
+        .collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].ends_with("refusal: second AudioListener at second"));
+    assert!(lines[1].ends_with("refusal: second AudioListener at third"));
+    assert_eq!(w.query::<&AudioListener>().iter().next().unwrap().0, first);
+    step(&mut w);
+    assert_eq!(w.journal().len(), before + lines.len());
+    w.despawn(first);
+    let replacement = w.spawn_named("replacement", AudioListener);
+    w.spawn_named("extra", AudioListener);
+    step(&mut w);
+    assert_eq!(w.query::<&AudioListener>().iter().count(), 1);
+    assert_eq!(
+        w.query::<&AudioListener>().iter().next().unwrap().0,
+        replacement
+    );
+    assert!(w
+        .journal()
+        .last()
+        .unwrap()
+        .line
+        .ends_with("AudioListener at extra"));
+}
+
+#[test]
+fn source_changes_preserve_order_across_holes_and_recycled_entities() {
+    let mut w = World::new(60, 0);
+    w.sounds([
+        ("wind", Synth::noise().looped()),
+        ("tone", Synth::sine(440.)),
+    ]);
+    let first = w.spawn_named("first", AudioSource::new("wind"));
+    let second = w.spawn_named("second", AudioSource::new("wind"));
+    let third = w.spawn_named("third", AudioSource::new("wind"));
+    step(&mut w);
+    w.remove::<AudioSource>(first);
+    w.despawn(second);
+    let replacement = w.spawn_named("replacement", AudioSource::new("tone").gain(0.5));
+    assert_eq!(replacement.index(), second.index());
+    w.get_mut::<AudioSource>(third).unwrap().gain = f32::NAN;
+    let before = w.journal().len();
+    step(&mut w);
+    let lines: Vec<_> = w
+        .journal()
+        .iter()
+        .skip(before)
+        .map(|e| e.line.clone())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "t=0 tick=0 loop wind off",
+            "t=0 tick=0 loop wind off",
+            "t=0 tick=0 loop tone on gain 0.50",
+            "t=0 tick=0 refusal: invalid AudioSource gain at third",
+            "t=0 tick=0 loop wind on gain 0.00",
+        ]
+    );
+    w.insert(first, AudioSource::new("wind").gain(0.2));
+    let before = w.journal().len();
+    step(&mut w);
+    assert_eq!(w.journal().len(), before + 1);
+    assert!(w
+        .journal()
+        .last()
+        .unwrap()
+        .line
+        .ends_with("loop wind on gain 0.20"));
+    for entity in [first, replacement, third] {
+        w.remove::<AudioSource>(entity);
+    }
+    let before = w.journal().len();
+    step(&mut w);
+    let lines: Vec<_> = w
+        .journal()
+        .iter()
+        .skip(before)
+        .map(|e| e.line.clone())
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "t=0 tick=0 loop wind off",
+            "t=0 tick=0 loop tone off",
+            "t=0 tick=0 loop wind off"
+        ]
+    );
+    let before = w.journal().len();
+    step(&mut w);
+    assert_eq!(w.journal().len(), before);
+    w.insert(third, AudioSource::new("wind").gain(f32::NAN));
+    step(&mut w);
+    assert_eq!(
+        w.journal()
+            .iter()
+            .filter(|e| e.line.contains("invalid AudioSource gain at third"))
+            .count(),
+        2
+    );
+    w.despawn(third);
+    let recycled = w.spawn_named("third", AudioSource::new("wind").gain(f32::NAN));
+    assert_eq!(recycled.index(), third.index());
+    step(&mut w);
+    assert_eq!(
+        w.journal()
+            .iter()
+            .filter(|e| e.line.contains("invalid AudioSource gain at third"))
+            .count(),
+        3
+    );
+}

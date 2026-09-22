@@ -328,7 +328,7 @@ impl Skinning {
                     (&p.previous[..], &p.local[..])
                 });
             self.pose_words[offset..offset + len].copy_from_slice(
-                if initial || t.fresh || w.fresh().contains(&e) {
+                if initial || t.fresh || w.is_fresh(e) {
                     curr
                 } else {
                     prev

@@ -1,6 +1,73 @@
 use super::*;
 
 #[test]
+fn fresh_membership_tracks_first_poses_recycling_and_tick_boundaries() {
+    let mut w = World::new(60, 0);
+    let a = w.spawn(());
+    let b = w.spawn(());
+    let c = w.spawn(());
+    w.begin_tick();
+    assert!([a, b, c].into_iter().all(|e| !w.is_fresh(e)));
+    w.insert(b, Transform::default());
+    for _ in 0..8 {
+        w.teleport(c, Transform::default());
+    }
+    assert_eq!(w.fresh(), [b, c]);
+    w.despawn(b);
+    assert!(w.is_fresh(b));
+    assert!(!w.is_fresh(Entity {
+        index: b.index,
+        generation: b.generation + 1,
+    }));
+    let replacement = w.spawn(Transform::default());
+    assert_eq!(replacement.index(), b.index());
+    w.teleport(a, Transform::default());
+    w.teleport(replacement, Transform::default());
+    assert_eq!(w.fresh(), [b, c, replacement, a]);
+    for e in [a, b, c, replacement, Entity::default()] {
+        assert_eq!(w.is_fresh(e), w.fresh().contains(&e));
+    }
+    let saved = w.save();
+    let hash = w.hash();
+    w.begin_tick();
+    assert!([a, b, c, replacement].into_iter().all(|e| !w.is_fresh(e)));
+    w.teleport(replacement, Transform::default());
+    assert_eq!(w.fresh(), [replacement]);
+    assert!(!w.is_fresh(b));
+    assert_eq!(w.save(), saved);
+    assert_eq!(w.hash(), hash);
+    w.load(&saved).unwrap();
+    assert!(w.fresh().is_empty());
+    assert!([a, b, c, replacement].into_iter().all(|e| !w.is_fresh(e)));
+    assert_eq!(w.save(), saved);
+}
+
+#[test]
+fn fresh_flag_uses_slot_padding_and_stays_out_of_saved_data() {
+    #[derive(Default, Data)]
+    struct PreviousSlot {
+        generation: u32,
+        alive: bool,
+        name: Option<String>,
+    }
+    assert_eq!(size_of::<Slot>(), size_of::<PreviousSlot>());
+    let before = PreviousSlot {
+        generation: 7,
+        alive: true,
+        name: Some("hero".into()),
+    };
+    let after = Slot {
+        generation: 7,
+        alive: true,
+        name: Some("hero".into()),
+        fresh: true,
+    };
+    let bytes = bin::to_vec(&before);
+    assert_eq!(bytes, bin::to_vec(&after));
+    assert!(!bin::from_slice::<Slot>(&bytes).unwrap().fresh);
+}
+
+#[test]
 fn registration_links_only_declared_storage_kinds() {
     #[derive(Default, crate::Component)]
     struct Both {

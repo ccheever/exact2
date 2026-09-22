@@ -1,151 +1,153 @@
 # Engine programming model
 
-- A tick calls ordinary functions; all saved state lives in components and resources.
-- `#[derive(Component)]` names per-entity data; `#[derive(Resource)]` names singleton
-  data. Resources and the RNG occupy singleton cells, not component pages; they
-  retain the same Data save/hash/JSON representation and resource ambient opt-out.
-  Register resource types for loading with `register_resource::<T>()`.
-- `despawn(e)` removes only `e`. Descendants leave at the end of the tick: after
-  `Game::tick`, `Sim` reaps dead-parent children in entity order, repeating for
-  orphaned chains, then propagates transforms.
-- Roots read their local `Transform` directly. `propagate` resolves only entities
-  with `Parent`; a runtime cycle loses its highest-index edge and journals once.
-  A save containing a cycle is refused.
-- The renderer owns interpolation. `World::fresh()` lists entities spawned or
-  teleported since the current tick began; `Sim` clears it at tick start. Entries
-  include their generation and may refer to an entity that has since died.
-- `get_mut::<T>` locks the whole column, including other entities. Use a query for
-  multiple rows. `query::<Q>().one()` keeps those leases alive for its returned row
-  and all builds refuse an ambiguous second entity. `children(e)` scans; tools
-  use it, while a tick that needs children keeps them in a component.
-- `rand(range)`, `chance(p)` and `pick(slice)` release the random lease before
-  returning. `rng()` keeps a lease for bulk draws from the same saved stream.
-- Agent component/resource JSON encodes `Option` as `[]` or `[value]`.
-- Saves are limited to 16 Mi entity slots, 64 MiB per string, and 2 GiB of input
-  and accounted decoded allocations; violations return `DataError`. Custom `Data`
-  readers must account their allocations through `Reader::claim` too.
-  The binary decoder borrows internal field/variant names from its input; values
-  returned through `Reader` remain owned, with the same allocation accounting.
-  Dynamic `Value` fields stream their existing variant tags directly to save,
-  hash and JSON writers, without constructing a second owned value tree.
+Start with the [runnable example](../README.md#the-programming-model) or the
+[starter game](../new/logic/src/lib.rs). Gameplay implements `Game::setup` and
+`Game::tick`; components and resources hold its saved state. `World` owns time
+and randomness; `Sim` owns input. The renderer interpolates completed ticks.
 
-The [small example](../README.md#the-programming-model) is this crate's
-runnable doc-test. Only rustdoc includes the guide; editing it does not rebuild
-the runtime. `Game::Args` is a struct with `#[derive(Args)]`: a canvas can bind
-`world(seed=7, paused=paused)`, with omitted fields taking Rust defaults.
-Declaration order is positional order, `#[live]` avoids rebuilding, and decoding
-refuses before mutation. Named canvas bindings resolve to this same typed path.
-Setup cannot fail. Setup, paused and tick receive typed arguments. Sim keeps one
-validated argument JSON representation for saves, bound restore and agent state.
-Restore retains assets and the decoded input queue, validates the typed world once,
-and replaces the receiver only after validation. It does not call setup.
-Register types first spawned mid-game or selected by setup arguments in
-`Game::register`. That hook receives named setup/restart arguments; live fields
-cannot shape the saved schema.
+## State and queries
 
-Seekable advances observe the final tick's components, RNG and non-ambient
-resources, excluding `Ambient` entities. `changing` names up to eight components in storage order.
-One-tick advances compare before/after; zero ticks retain the previous answer.
-Live ticks do no observation. Springs and `busy(&self, reason)` also participate.
-`Follow` is saved data. The engine places followers after setup and setup-argument
-rebuilds, and initializes new followers on restore; games call `scene::follow` in
-`tick` where following should happen. `math::ease` uses a
-portable exponential and snaps within 1e-4 so settling is finite.
+- `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
+  singleton data. Both use `Data` for saves, hashes and agent JSON.
+- Use `spawn_named`, `require::<T>("player")` and `require_mut::<T>("player")` for
+  named entities. `get::<T>` returns `Option<Ref<T>>`; dereference the borrow guard
+  for value comparisons: `*w.get::<Mesh>("player").unwrap()`. Entity handles work too. Duplicate
+  names resolve to the lowest living slot, including after recycling or loading.
+- A mutable component lease locks its whole column, including other entities.
+  Use a query to borrow several rows. `query::<Q>().one()` returns an optional row,
+  refuses a second match and retains its leases for the returned row.
+- Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton
+  state. Register types that first appear mid-game in `Game::register` so a fresh
+  process can restore them.
+- `near` and `near_xz` read global poses in entity order, including parented
+  entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+- `despawn(e)` removes that entity immediately. After the tick, the simulation
+  removes its descendants and propagates transforms. `children(e)` scans; a tick
+  that needs a child list can keep it in a component. Saved parent cycles refuse
+  to load; a runtime cycle drops its highest-index edge and journals the repair.
 
-Mesh dimensions are authored once; see `Mesh` for conventions and constructors.
-The renderer shares unit geometry per primitive kind; dimensions are instance data.
-Page write generations let unchanged transform pages skip reading/hashing their bytes. `Collider::of(&mesh)` supplies matching primitive geometry.
+`w.dt()` is one fixed step. `w.tick_end()` names the endpoint currently being
+written; use it when retargeting motion. `w.now()` names the completed boundary.
+`local_position` and `global_position` are explicit on both `World` and `Sim`.
+Use `rand(range)`, `chance(p)` or `pick(slice)` for individual random draws, or
+hold `rng()` for a batch. These all use the same saved random stream.
 
-Opaque vectors (`Vec<u8>`, `Vec<u16>`, `Vec<u32>`, `Vec<f32>`) use length-prefixed
-bytes. Numeric bulk payloads are little-endian; f32 NaNs canonicalize, negative
-zero survives. Each bulk kind has a distinct binary and hash tag, even when empty.
-JSON exposes only `{"bytes":n,"hash":"0x…"}`; summaries and numeric arrays cannot
-be loaded as data. Other vectors remain structural sequences. Bulk readers claim
-the destination byte size once, including conversion from the temporary payload;
-custom readers must preserve this accounting.
+## Arguments and restart
 
-World containers are EXGAME v3; Sim containers are EXSIM v5. Older containers are
-refused by name, without migration. Sim's encoded world is one bytes field.
-Save headers and payloads are written into the same buffer; returned vectors may
-retain spare capacity.
-Undelivered `emit` messages remain saved, in order, but are excluded from the
-simulation hash. Host draining never changes that hash. Restore retains Input's
-viewport for headless touch continuation; a later host resize replaces it.
-Input clones share immutable action declarations. Keys, contacts and action edges
-remain independently owned; empty declarations need no shared allocation. This
-does not change the author API or saved input representation.
-Agent state projects pending input once, using Input's own event handling for
-keys and contacts; inspection does not advance or consume the queue.
-Restore refuses unsorted or duplicate held keys before committing the new state;
-ordinary input updates preserve that order.
+`Game::Args` is `()` or a struct with `#[derive(Args)]`. Contract binds its names:
+`world(seed=7, paused=paused)`. Omitted arguments take Rust defaults; positional
+calls follow field order. Invalid arguments refuse before changing the world.
 
-Storage revisions/membership serve derived caches. Every mutable row lease marks
-its page; query iteration marks once per visited page and caches its backing pointer,
-including filtered, optional and owning iteration. Insert/remove/load mark writes too.
-The shared mutation epoch still invalidates quiescence on every mutable lease. There is no last-changed-tick API. `Play` is a
-must-use builder: `.start()` creates a voice. PCM generation belongs to `game/audio`.
+Ordinary argument changes rerun setup. `#[live]` fields reach each tick without
+rebuilding; `Game::paused` chooses whether to tick. A `#[restart]` boolean reruns
+setup on either edge, as the starter's Restart and Play again buttons do.
+Setup cannot fail. Register types selected by setup arguments in `Game::register`;
+live arguments must not change the saved schema.
 
-Publish a HUD with `w.publish_record(&Hud { beacons })` and a normal `Data` derive;
-Contract checks types when applying a surface record; missing fields default and
-extra names are ignored. Rust record field names are not checked at bake time.
-Unit fields publish as `null`; safe integers include ±9,007,199,254,740,991 and
-out-of-range u64/i64 values refuse before any publication. `None::<()>` is `null`;
-`Some(())` is explicitly refused because Contract JSON cannot distinguish it. Scalar
-`publish` remains available. `near`/`near_xz` return global poses in entity order,
-including translated or rotated parents. Mandatory queries use
-`query.one().expect("one player")`. Native spatial tests use
-`sim.layout("player").unwrap().screen.center()` and `sim.pick(point)`.
-`sim.load_assets(|name| std::fs::read(name))?` drains headless dependencies;
-`sim.save()?` checks current mesh roots before any request drain and returns
-named pending assets or failed declarations; failed cosmetics do not block saving. The game-save
-migration hook is gone: the format and game identity are checked before loading.
-The template uses a `#[restart]` argument to reconstruct setup.
+Restore validates and installs saved state without calling setup. `Sim::restore`
+uses saved arguments; a canvas uses `Sim::restore_bound` to retain current app
+bindings. Keep state that should travel with a save in components or resources,
+and app-owned settings in live arguments.
 
-Asset delivery state is owned only when needed. Rebuilt worlds share immutable
-asset maps; the first write detaches them. Reads remain direct, and the final
-owner releases its models. Primitive worlds borrow an empty view without linking
-model cloning or destruction. Save bytes and host delivery APIs are unchanged.
+## HUD and events
 
+Publish ordinary scalars with `w.publish("lit", count)`. For a structured HUD,
+`w.publish_record(&hud)` accepts a named `Data` record with nested records, lists,
+options and scalars. Contract reads the record through `exactSurface("world")`
+and validates it against its shape: missing fields default, extra names are
+ignored, and wrong kinds refuse by field name. Rust field names are not checked
+against the Contract shape at bake time.
 
-Erased component pages own values through typed descriptor operations: `read`/
-`write` moves, `replace` swaps, and `drop_in_place`, instantiated for the component
-at registration. Allocation and masks remain erased. Padded owned components and
-zero-sized components with destructors exercise insert, replacement, removal and
-load; these ordinary tests do not lock typed moves against byte-copy regressions
-without Miri. A non-ZST constructor-ID companion checks that replacement drops the old
-instance and removal transfers the new one. That companion is intentionally not
-a ZST: an actual ZST cannot carry an instance ID, and an external ID queue would
-merely assume the move ordering it claimed to test; the existing panic-on-drop test protects occupied-slot ownership. Loading
-an opposite-kind registration names the registered kind and the setup declaration
-required to load it. The storage tests are suitable for Miri; neither installed
-nightly on the R2 machine includes Miri, so that run remains owed.
+Publication delivers and journals only changed values. In records, unit and `None`
+publish as `null`; `Some(())` refuses because it is indistinguishable from `None` in
+Contract JSON. Record publication rejects enum variants and integers outside
+±9,007,199,254,740,991 before publishing any field. Ordinary scalar integer
+publication accepts u8/u16/u32 and i8/i16/i32; larger integers can use the checked
+record path. See the [HUD example](../README.md#publications-and-events).
 
-Reverse one-shot initialization belongs to the controller: standalone Animation
-saves an explicit `sampled` boolean (false before its first successful sample); Animator uses its own elapsed clock. Installing either on an
-existing socket pose starts at the end. Both clocks are saved, so restore does not
-restart a completed controller. Pose inspection validates both history lengths.
+`w.emit("won")` queues a string for the canvas's `message=` handler. Undelivered
+messages save in order and stay outside the simulation hash. The journal is
+telemetry; reading it does not change the world.
 
+## Movement, animation and sound
 
-Animation is explicit: `let motion = animation::step(w)` samples once; its owned
-result lets the game consume markers and call `transform.translate_local(...)`
-without holding playback leases. Controller registration never steps animation.
-SocketFollow registration installs pose resolution; worlds without attachments do
-not link it. Followers compose saved local poses with the current owner and offset,
-including skipped animation ticks. Attachments
-choose their joint with `SocketFollow::new("fox", "head").offset(t)` and never
-write simulation transforms. `animation::socket(w, target, joint)` returns the current
-world-space tick endpoint; the renderer composes displayed attachments from the
-interpolated local chain. `tick_end()` returns `Now` for the boundary being authored;
-use it for root-motion time, springs and HUD publication, retaining `now()` for the
-completed boundary. `Sim` and `World` expose explicit `local_position`/`global_position`.
-Character contact includes actual displacement; collision movement uses the separate
-physics `CapsuleController` handle so both component types coexist.
+`w.character("player").step(direction, jump)` moves a `Character` and reports its
+actual displacement and contact state. Collision movement uses the separate
+[physics](../physics/README.md) `CapsuleController`.
 
-Measurements and artifact sizes belong in the [bench README](../bench/README.md);
-working commands and the module/executor boundary are in the [game map](../README.md).
+`Follow` initializes after setup and argument rebuilds; restore initializes only
+new followers and preserves saved poses. It then steps after each tick. Call
+`scene::follow(w)` inside the tick to choose an earlier order; it will not step
+twice. Primitive dimensions belong to `Mesh`;
+`Collider::of(&mesh)` supplies matching collision geometry.
 
-Emitters form local clouds: displayed particles follow the emitter's current
-transform, so moving an emitter moves particles already born. They are not
-world-space trails. A future trail extension would save a birth transform for
-each emission and use that transform when deriving its particles; neither line
-of that extension is implemented. Random stride and consumption stay fixed.
+Retarget `Glow(Tween)` or `Lit(Spring)` once, using `w.tick_end()`. The renderer
+samples them between ticks; keep authored emission or light intensity constant.
+Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
+
+Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
+then query sockets. The result owns its markers so component writes can follow.
+Reverse one-shots start at their end; saved playback state keeps a completed
+controller from restarting after restore.
+`SocketFollow::new("fox", "head").offset(t)` attaches to a joint while preserving
+the saved local transform. `animation::socket(w, target, joint)` reads the current
+world-space tick endpoint; displayed attachments use the interpolated local chain.
+
+Emitters form local clouds: moving the emitter moves particles already born.
+For sound, `w.play("chime").start()` creates a voice; dropping the play builder
+does nothing. Call `audio::step(w)` after game logic. Playback and PCM generation
+belong to the separate [audio executor](../audio/README.md).
+
+## Saves and assets
+
+`Sim::save` captures the simulation; `Sim::restore` validates format, game identity,
+registered types and assets before replacing anything. Failed restores leave the
+receiver intact. Restore reinstates the saved input queue, held keys and touch
+viewport; a later host resize replaces the viewport. Agent inspection does not
+consume input.
+
+`sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies.
+`sim.save()?` checks current mesh roots even before requests are drained and
+reports pending or failed declarations by name. Failed cosmetics do not block saves.
+
+Declare a data-authored level with
+`const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"))`.
+`Island` uses `Data`; the bake validates the JSON and setup reads
+`w.level::<Island>("island.level.json").expect("validated level")` after delivery.
+JSON levels need no `game.assets` setting. Agent asset state includes their value;
+malformed fields report their path.
+
+`w.generated("island.model", mesh_data)` registers immutable geometry during setup.
+Clone the returned `Mesh` for repeated props. Saves store names and content identities,
+not vertices, so reconstruct from the same level and seed before restoring. Changed
+level bytes or generated output refuse restore by name. Keep other generator inputs
+in the level or saved setup arguments; identity checks cannot prove a generator is
+deterministic. See the [level example](../games/asset-fixture/logic/src/lib.rs).
+
+## Settling and data formats
+
+`Sim::settle` advances world time and reports what remains busy. Components, RNG,
+non-ambient resources, springs and explicit `busy(reason)` declarations participate.
+Physics remains busy while a dynamic body is awake; settling never forces sleep.
+A one-tick advance compares before/after; a longer seek observes its final tick
+pair. Zero ticks retain the previous answer. Live ticks do not perform observation.
+
+Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
+`derived_publication(name)` in setup/register when appropriate; these policies
+survive load and must be present in each fresh game. Ambient data still saves and
+hashes. Derived publications still deliver, journal and save, but do not hold rest
+open; ordinary publications do. Exhausted settling journals the changing reasons.
+
+Agent component/resource JSON represents `Option` as `[]` or `[value]`.
+Tuple structs are arrays: `Glow(Tween)` is `[tween]`.
+`Vec<u8>`, `Vec<u16>`, `Vec<u32>` and `Vec<f32>` use typed, little-endian bulk saves;
+NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
+summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
+Other vectors remain structural sequences.
+
+Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and
+accounted allocations. Custom `Data` readers must account allocations with
+`Reader::claim`. Violations return `DataError`; old save formats refuse by name.
+
+[Game commands and host integration](../README.md) ·
+[Renderer contract](../render/README.md) · [Measurements](../bench/README.md)

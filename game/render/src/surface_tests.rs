@@ -291,6 +291,58 @@ fn capacity_error_during_timed_bind_does_not_refuse_committed_values() {
 }
 
 #[test]
+fn replacement_device_rechecks_storage_capacity_without_changing_world() {
+    let Some(gpu) = gpu() else { return };
+    let (limited, queue) =
+        exact_gpu::block_on(gpu.adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits {
+                max_storage_buffers_per_shader_stage: 4,
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+        .unwrap();
+    fn check<const ASSETS: bool>(gpu: &Gpu, limited: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut s = WorldSurface::<Move, (), ASSETS>::default();
+        s.bind(&[Value::Bool(false), Value::Number(0.)], None)
+            .unwrap();
+        let before = fixture::render(gpu, &mut s, &frame(0.)).unwrap().0;
+        let saved = s.carry().unwrap().unwrap();
+        assert_eq!(
+            s.storage_limit,
+            gpu.device.limits().max_storage_buffers_per_shader_stage
+        );
+        s.device_lost();
+        s.device_ready();
+        s.prepare_assets(limited, queue, wgpu::TextureFormat::Rgba8Unorm);
+        let needed = if ASSETS {
+            crate::STORAGE_BINDINGS
+        } else {
+            crate::SCENE_STORAGE_BINDINGS
+        };
+        assert_eq!(
+            s.take_error().unwrap().0,
+            format!("renderer needs {needed} vertex storage buffers; device grants 4")
+        );
+        assert!(s.take_error().is_none());
+        assert_eq!(s.carry().unwrap().unwrap(), saved);
+        s.device_lost();
+        s.device_ready();
+        s.restore(&saved, Restore::Open).unwrap();
+        let after = fixture::render(gpu, &mut s, &frame(0.)).unwrap().0;
+        assert!(s.take_error().is_none());
+        assert_eq!(
+            s.storage_limit,
+            gpu.device.limits().max_storage_buffers_per_shader_stage
+        );
+        assert_eq!(before, after);
+        assert_eq!(s.carry().unwrap().unwrap(), saved);
+    }
+    check::<false>(&gpu, &limited, &queue);
+    check::<true>(&gpu, &limited, &queue);
+}
+
+#[test]
 fn teleported_parent_child_pixels_at_half_alpha_equal_only_the_new_pose() {
     use exact_game::{Material, Parent};
     struct Vehicle;
@@ -764,7 +816,7 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     // when a same-device restore has revived its CPU model.
     for retain_digest in [true, false] {
         if !retain_digest {
-            restored.model_digests.clear();
+            restored.placed.attachments.model_digests.clear();
         }
         let hashes = crate::models::model_hash_count();
         restored.device_lost();
@@ -995,4 +1047,69 @@ fn headless_named_placed_refusal_reaches_the_agent() {
     assert!(reply.contains("renderError"), "{reply}");
     assert!(reply.contains("duplicate testId"), "{reply}");
     assert!(s.take_error().unwrap().0.contains("duplicate testId"));
+}
+
+#[test]
+fn a_level_declares_its_asset_requirement_without_a_model_list() {
+    struct LevelOnly;
+    impl Game for LevelOnly {
+        const ID: &'static str = "level-only-surface";
+        const LEVEL: Option<exact_game::asset::Level> =
+            Some(exact_game::asset::Level::of::<u32>("seed.level.json"));
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let seed = w.level::<u32>("seed.level.json").unwrap();
+            w.publish("seed", seed);
+            w.spawn((Transform::default(), Mesh::cube(seed as f32 / 7.)));
+            w.spawn((Transform::at(0., 0., 8.), Camera::default()));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    fn loaded<P: Presentation, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
+        let mut surface = WorldSurface::<LevelOnly, P, A>::default();
+        surface.bind(&[], None).unwrap();
+        assert_eq!(surface.assets().requests, ["seed.level.json"]);
+        assert!(surface.assets().requests.is_empty());
+        surface.asset("seed.level.json", Ok(b"7"));
+        assert!(!surface.sim().unwrap().is_loading());
+        assert_eq!(
+            surface.sim().unwrap().world().published("seed"),
+            Some(Value::Number(7.))
+        );
+        let save = surface.carry().unwrap().unwrap();
+        let mut fresh = WorldSurface::<LevelOnly, P, A>::default();
+        fresh.bind(&[], None).unwrap();
+        fresh.restore(&save, Restore::Open).unwrap();
+        assert!(fresh.pending_restore.is_some());
+        fresh.asset("seed.level.json", Ok(b"7"));
+        assert!(fresh.pending_restore.is_none());
+        assert_eq!(fresh.carry().unwrap().unwrap(), save);
+        for bytes in [
+            Err(AssetError::Missing),
+            Ok(b"\xff".as_slice()),
+            Ok(b"\"bad\"".as_slice()),
+        ] {
+            let mut failed = WorldSurface::<LevelOnly, P, A>::default();
+            failed.bind(&[], None).unwrap();
+            failed.asset("seed.level.json", bytes);
+            assert!(failed.sim().unwrap().is_loading());
+            let state = failed.agent(r#"{"op":"state"}"#).unwrap();
+            let reasons = state.split("\"readyReasons\":").nth(1).unwrap();
+            assert!(reasons.contains("seed.level.json"), "{state}");
+        }
+        surface
+    }
+    let mut primitive = loaded::<(), false>();
+    let mut models = loaded::<crate::ModelPresentation, true>();
+    assert_eq!(primitive.carry().unwrap(), models.carry().unwrap());
+    let Some(gpu) = gpu() else { return };
+    let before = fixture::render(&gpu, &mut models, &frame(0.)).unwrap();
+    let after = fixture::render(&gpu, &mut primitive, &frame(0.)).unwrap();
+    assert_ne!(
+        after.0.at(32, 32),
+        after.0.at(0, 0),
+        "the level's cube is visible"
+    );
+    assert_eq!(before, after);
+    assert_eq!(primitive.render.as_ref().unwrap().0.asset_work(), (0, 0));
 }

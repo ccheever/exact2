@@ -225,3 +225,26 @@ fn hierarchy_and_sorted_ties_are_live_reads() {
     );
     assert!(physics::raycast(&w, Vec3::ZERO, Vec3::X, 10.0, 2).is_none());
 }
+
+#[test]
+fn recycled_collider_reports_its_current_entity_generation() {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    let retired = w.spawn((Transform::at(3.0, 0.0, 0.0), Collider::default()));
+    assert_eq!(
+        physics::raycast(&w, Vec3::ZERO, Vec3::X, 10.0, 1)
+            .unwrap()
+            .entity,
+        retired
+    );
+    w.despawn(retired);
+    let current = w.spawn((Transform::at(3.0, 0.0, 0.0), Collider::default()));
+    assert_eq!(current.index(), retired.index());
+    assert_ne!(current.generation(), retired.generation());
+    assert_eq!(
+        physics::raycast(&w, Vec3::ZERO, Vec3::X, 10.0, 1)
+            .unwrap()
+            .entity,
+        current
+    );
+}

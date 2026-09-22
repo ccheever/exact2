@@ -1,8 +1,17 @@
 fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 2 {
-        eprintln!("usage: exact-game-bake INPUT.glb OUTPUT.model | INPUT.png OUTPUT.tex");
+        eprintln!(
+            "usage: exact-game-bake --art APP_DIR | INPUT.glb OUTPUT.model | INPUT.png OUTPUT.tex"
+        );
         std::process::exit(2);
+    }
+    if args[0] == "--art" {
+        if let Err(error) = exact_game_bake::bake_art(&args[1]) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
     }
     if std::path::Path::new(&args[0])
         .extension()

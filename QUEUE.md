@@ -10,6 +10,11 @@ sits on that list carries the trade it would take.
 
 ## Next, in order (2026-08-29)
 
+- **Filesystem-only native storage size** (2026-09-21): Lanterns’ host grows
+  from 3,788,864 to 5,852,768 bytes with linked storage/UI; the game module is
+  unchanged and SQLite remains linked. Reduce the remaining cost without adding
+  capability knobs.
+
 - **Native verification gaps** (2026-09-15): Messages debug native tests can
   exceed their 100 ms data-call budget during workspace validation (105–241 ms
   on the Air); investigate without weakening the limit. Interview's new Mac
@@ -444,7 +449,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Messages native ownership: authored `inert` now reaches the compiler and real DOM attribute; iOS subtree input/focus/accessibility, preserved geometry/drafts and restoration pass. Native confirmation now escapes inert ancestors and survives its invoker becoming inert; iOS/browser cases and four Messages cases per host pass. The third/final browser candidate passes explicit focus and inspection inside escaped modal dialogs, single confirmation dispatch, basic/active-route input exclusion and four rebuilt Messages cases. Forty browser identity/frame observations remain unchanged. AppKit/Linux, wider VoiceOver/IME/drag cases and implicit modal-inertness reporting remain (LLP 1035.001 D3; `/tmp/messages-inert-ownership/verification.json`). Back lookup now stays within the selected route; native pop/sheet permission and browser Escape checks pass, including refusal with retained sheet editing (`/tmp/messages-back-owner/`, LLP 1035.001 D1). Completed-sheet cleanup now releases the old modal-navigation slot after UIKit returns; retained/replacement routes and mid-gesture permission changes pass six physical cases (`/tmp/messages-dismissal-owner/`). Revocation after native commitment re-presents the selected route with its keyboard closed; continuous editing through that outcome remains unestablished. Unmount/destruction during a physical sheet drag now retire native owners without cancelling retained Compose; offscreen route replacement and queued focus survive remount (`/tmp/messages-unmounted-owner/`). Moving to a different UIKit controller in the same window now passes, including transfer during a physical sheet drag and queued focus after offscreen route replacement (`/tmp/messages-reparent-owner/`). Fullscreen/source ownership is now implemented under the approved LLP 1035.001 Messages exception; exact motion matching remains. A fresh native recording shows details zooming from the contact photo; a public UIKit over-full-screen zoom plus nested page sheet reproduces bar y=88 / field y=416 and passes cancellation, permission, completion and missing-source Back (`/tmp/messages-presentation-ancestry/`). R4/R5 pass the Messages flow, ten physical ownership cases, source replacement, nested teardown/reload and browser Escape (`/tmp/messages-fullscreen/`); one authorized continuation attempt remains unused.
 
-- Investigate JavaScript storage unload/write ordering: the workspace run observed `cancel` where `unload_invalidates_continuations_and_configuration_survives_reload` expected `again` (`js/tests/storage.rs:210`, 2026-09-10). Its isolated six-test suite and complete `--no-fail-fast` workspace rerun passed; the cause remains unproven. Unload invalidates the continuation, but the underlying write may already be in flight; establish that ordering before changing its guarantee.
+- Native reload quiescence audit (LLP 1029.000 §4): exercise plain-plan replacement and already-running work whose runner reply ticket was forgotten. The existing module-replacement regression proves refusal for logical pending requests; it does not establish physical worker completion. JavaScript unload forgets replies without undoing already-started external effects. Reproduce those actual host paths before deciding whether a runtime change is needed.
 
 - Investigate intermittent Linux update test `a_refused_initial_layout_releases_no_network_requests`: the workspace run observed one request after refused layout; isolated and full-workspace reruns passed (Messages compose validation, 2026-09-09).
 
@@ -494,7 +499,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Worktree-contained test fixtures (2026-09-14, router chunk (c)): `exact-apple --test inherited` / `apple_artifacts_own_paths_locks_identity_and_failed_placement` creates standalone Cargo packages without their own workspace boundary. With `TMPDIR` inside this worktree, Cargo captures them into the repository workspace and refuses metadata. Three attempts stopped; make those generated packages explicitly standalone. Evidence: `target/router-test.log`, `target/router-test-retry2.log` in `exact2-wt-router`.
 
-- Storage reload assertion (2026-09-14, router verification): the workspace sweep failed `exact-js --test storage` / `unload_invalidates_continuations_and_configuration_survives_reload` with `"cancel"` instead of `"again"`; the focused seven-test storage rerun passed. Reproduce the cancelled file operation/reload interaction before claiming the full workspace sweep green. Evidence: `target/router-test.log`, `target/router-test-retry.log` in `exact2-wt-router`.
 
 - Web smoke teardown (2026-09-14, router verification): `bun scripts/smoke.mjs web` printed `web smoke: ok in 34.6 s` and all three Caltrain tests passed, but the Bun process remained alive afterward; the launched exec session was interrupted (exit 130). Identify the retained handle and make successful smoke runs exit naturally. Evidence: `target/router-smoke.log` in `exact2-wt-router`.
 
@@ -506,6 +510,13 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Web smoke/agent exit (2026-09-14): successful Messages commands can leave Bun alive after their final success line. Inspect the resident filesystem reader's idle pipe references (`scripts/filesystem.mjs`, notably stdin). Evidence: `/tmp/lane-router/s2b/smoke-messages-web.log`, `messages-web-timer.log`; the smoke also runs to completion when the caller exits after the module's completed assertions.
 
 - Root test environment (2026-09-19): `exact-apple` / `fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit` still fails at its real Keychain fixture write with “User interaction is not allowed.” Root build, Clippy and formatting pass. Caltrain's three browser assertions also pass, but its smoke fails on Chrome Keychain/encryption errors in this session. No green root test suite or Caltrain smoke is claimed. Evidence: `/Users/ccheever/projects/.exact-game-verification/named-surface-args/` (earlier refusal: `/tmp/exact-game-goal-proximity/checks/root-test-repaired.log`).
+
+- Root browser-module test intermittency (2026-09-19): the full root suite failed
+  `browser_modules_guard_their_own_builtins_and_refuse_bad_candidates` with
+  “private module grew document scroll height”; the standalone Cargo rerun passed.
+  Diagnose the height-change source before treating a retry as a fix. Evidence:
+  `../.exact-game-verification/bind-state-current/root-tests.log` and
+  `../.exact-game-verification/restart-diagnostics-current/root-browser-rerun.log`.
 
 - **World carries after E2** (2026-09-17): drive the shared save/restore path on an iOS Simulator (web and macOS proofs pass); physical-device saves are refused by the driver. Contract reload carries unique surface names; duplicate stateful surfaces need an honest identity before they can carry across reassigned view ids.
 
@@ -569,6 +580,15 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   `_dyld_start` before Rust ran; a test harness stalled similarly. Investigate
   the shared host's launch delay before treating these wall times as engine cost.
   `/tmp/exact-game-goal-render-math/probe-final.sample.txt` captures the probe.
+  A real starter Rust behavior edit later passed in 74.6 s, with 36.4 s reported
+  by Cargo and the host binary unchanged. A later trace caught a build-script
+  launch spending about 20 s with no CPU time; a nonstalled behavior edit passed
+  in 4.66 s, including 3.08 s in Cargo. The sub-3-second edit loop remains owed.
+  Evidence: `../.exact-game-verification/native-loop-trace-current/`.
+  A fresh engine test was sampled entirely at `_dyld_start`, with Gatekeeper
+  assessment logged 20.2 s after launch. Tiny C binaries also delayed on first
+  launch (0.43–3.15 s versus ~4 ms cached); explicit ad-hoc signing did not fix it.
+  Evidence: `../.exact-game-verification/launch-delay-current/`.
 
 - Sibling `next/t4` live capture checkpoint: reproduce there with a live
   `screenshot run.world world save`, reopen `--world run.world`, then continue;
@@ -578,7 +598,7 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
   regression passes all modes and byte-identical resumed continuation. Keep the
   correction in the sibling capture path (catch up before recording its hash).
 
-- Contract button defaults: restore a visible keyboard focus ring and hover feedback across hosts; the web control reset currently removes the UA focus treatment. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus passes Beacons but uses a per-element policy that differs from HTML page autofocus; Apple processes autofocus once and fails that assertion. Express victory focus through an explicit focus/dialog intent across hosts, keeping page autofocus aligned with HTML (https://html.spec.whatwg.org/multipage/interaction.html#the-autofocus-attribute).
+- Contract button defaults: native focus/hover parity remains; web keyboard focus and hover feedback are restored, with focus taking precedence. The E5 template declares accessible names and autofocus, but cannot request CSS pseudo-class styles in Contract. Web/Linux dynamic victory autofocus passes Beacons but uses a per-element policy that differs from HTML page autofocus; Apple processes autofocus once and fails that assertion. Express victory focus through an explicit focus/dialog intent across hosts, keeping page autofocus aligned with HTML (https://html.spec.whatwg.org/multipage/interaction.html#the-autofocus-attribute).
 
 - Physics pending-flag parity pin remains owed. R5 tried 256 static + 32 kinematic
   colliders moving vertically, then 512 static + 64 kinematic colliders moving
@@ -590,8 +610,18 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - R3 storage: run the padded/ZST tests under Miri when available (not installed on
   this Mac). The ID-bearing companion checks old/new ownership but is not a ZST;
   aggregate ZST drops do not prove typed moves. A true ZST has no per-instance ID.
-- Paranoid reconstruction resets `asset_mesh_revision`, causing another asset-root
-  scan each tick; evaluate preserving that driver cache.
+
+- Model texture-usage simplification exhausted three rounds and was reverted.
+  Replacing the bounded tree set with a 64-bit mask or a fixed array preserved
+  all 1,036 validation diagnostics, but sparse-model validation or decoding
+  regressed. Retain the existing implementation; a new attempt needs
+  a human tradeoff decision. Evidence: `../.exact-game-verification/texture-usage-current/`.
+
+- Socket bind-chain experiment exhausted three rounds and was reverted. Removing
+  the full-model bind-pose allocation in `animation/sockets.rs::compose_socket`
+  helped wide rigs, but every candidate regressed other measured cases. All
+  transforms, saves and pixels matched. Needs a human tradeoff decision before
+  reopening: `../.exact-game-verification/socket-core-bind-current/`.
 
 - Generated-game browser cleanup: any recorded descendant surviving the two-second
   grace fails the proof and remains in `process-cleanup.json`. The audit never kills
@@ -607,7 +637,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Game driver: consider an opt-in `world().moveTo` only after action bindings and collision boxes can identify a blocker without assuming WASD or a particular motor; E7 deliberately leaves this optional helper out.
 
-- Game bake: refuse duplicate app identities when materializing `.shells`; two apps sharing `app.id` currently collide on the generated shell key and leave one package missing. The E7 copy demo uses a distinct app identity while preserving `Game::ID` and its save contract.
 
 - I1b verification remaining: the full seven-game iOS matrix and explicit three-host save-comparison column remain owed. R9 passes Beacons and Skinned on iOS (controls, autofocus, live CPU/presentation samples and HUD counts), Asset on web/macOS and Skinned on macOS; packaging resolves hashed rustc dep-info and real web recovery retains identical model pixels. The clean Sprites bake regression also passes; Caltrain smoke’s Chrome Keychain/encryption stderr remains a separate earlier finding. See `game/diaries/002-ergonomics.md`’s archived R9 simulator receipt.
 
@@ -622,19 +651,42 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 
 - Deploy classifier (2026-09-19): `bun scripts/smoke.mjs deploy` is red on this Mac since `snapback4` joined the root workspace (2026-09-12). The classifier captures the whole root closure, which reaches the sibling repo `../snapback-sb4`; its submodules refuse the capture — at 2ac2029f `vendor/ccheever-skills` as an uncaptured submodule, after R12's submodule capture `vendor/llp`'s deliberately broken absolute fixture symlink (`fixtures/broken-ref/llp/current/abs-0000-fixture.explainer.md`). A Beacons or Caltrain bake never compiles `snapback4`: capture only the app's Cargo closure, or let a source repository declare vendored fixtures as non-source. Evidence: `receipt-R12.md` §Deployment limitation; the HEAD run in the review worktree. R13 keeps that boundary: the current smoke refuses the earlier uninitialized `snapback-sb4/vendor/ibex` gitlink with `git submodule update --init vendor/ibex`.
 
-- E9: editor-time unknown surface argument fields still need a Rust `Args` schema at Contract analysis. D6 now refuses unknown names and excess positional arguments during game bake using `.shells/surfaces.json`, emitted from `Game::NAME` and `Args::FIELDS`/defaults (including unmounted branches). Measured seam: `Expr::NamedArg` and `surface_args` already carry names; the emitted declaration supplies names/defaults to the host bake without linking gameplay, but standalone analysis still cannot distinguish `seed` from `typo`. Runtime rejects `typo` atomically. Closing the earlier editor-only seam would require exporting the same declaration into compiler analysis; do not duplicate field declarations in app.json. Existing duplicate/mixed-name checks and Sim/default/positional-byte tests remain cheap.
-
-- Placed names now reach all hosts through `gpu_child_view`; Linux/web reorder, restore and full-save proofs pass. The macOS proof reaches the same tick/continuation pins but fails the immediate pre/post-reorder complete-save comparison: it queues two `Blur` inputs while the world snapshot stays identical (2919 → 3002 bytes). Resolve native focus delivery or the explicit input-consumption boundary without dropping complete-save comparison. Evidence: `/Users/ccheever/projects/.exact-game-verification/named-placed-current/proof-macos-round2/`; this slice stopped after three correction rounds.
+- Placed names: Linux/web reorder, restore and full-save proofs pass. macOS and iOS still append two queued `Blur` inputs after Contract child reorder (2,909 → 2,992 bytes); the saved world payload, world hashes and continuation save stay identical. Resolve native focus delivery or the explicit input-consumption boundary without weakening complete-save comparison. This slice stopped after three correction rounds. Current four-host reproduction (2026-09-21): `/Users/ccheever/projects/.exact-game-verification/seven-game-current/placement-save-difference.json`. A fresh Beacons authoring run also saves one queued `Blur` after Pause/Resume on macOS/iOS (5,187 → 5,241 bytes), with the world payload and continuation bytes identical; strict four-host comparison remains FAIL (`/Users/ccheever/projects/.exact-game-verification/authoring-r9-controlled/parent/native-save-difference.json`). Earlier evidence: `.exact-game-verification/named-placed-current/proof-macos-round2/`.
 
 - `contract fmt` / `contract symbols` / `build --json` (LLP 1035.005 D1/D2, landed in 99be0e97 by the codex loop): an independent read-only review (sol, xhigh; `llp/reviews/1035.005-contract-authoring-ergonomics.sol.md`) says KEEP WITH FIXES — symbols omit `testId`/tests, provide↔inject and surface definitions; `build --json` gives every related span the primary file after imports merge; trivia is a global line list, not attached by position (`else // why` moves the comment into the branch; the corpus test clears `file.trivia` before comparing); a nonfinite number literal prints `inf` and reparses as an identifier; arity diagnostics skip injected actions; `symbols` has its own import loader that drifts from the compiler's; `fmt` refuses files with `contract` blocks the parser accepts; the diff helper drops EOF-newline-only changes. No `fmt --check` runs in the tree. The review's size note: half the lines if trivia were kept structurally and the compiler's resolution were exposed.
 
-- R14 shared-tree verification (2026-09-19): Greybox’s new `Glow` changes its tick/save pins and native tree snapshot. Linux Off/Save/FreshGame and web reproduce the stale pins; the owning gameplay change must reconcile them before the seven-game matrix is green. R14 did not repin. Evidence: `/tmp/exact-r14/proofs/greybox-linux.log`, `greybox-web-retry.log`, and `/tmp/exact-r14/hostless-retry.log`.
 - Fresh-checkout Bun instability (2026-09-19): Bun 1.3.12 intermittently segfaulted in the root TypeScript target and Rolldown during R14 validation. Targeted TypeScript retries reproduced it; later root TypeScript and clippy runs passed. The completed root test command still fails the existing Apple Keychain refusal. Evidence: `/tmp/exact-r14/typescript-retry.log`, `/tmp/exact-r14/fresh-results/root-clippy-retry.log`, and `/tmp/exact-r14/fresh-results/root-test-final.log`.
 - R14 verification inputs changed during the run (2026-09-19): sibling `ibex/crates/ibex2/Cargo.toml` now requires `ureq = 3.4.2`, while captured game locks select 3.4.0; the later Linux/web/Apple bakes correctly refuse `--locked`. Reconcile captured locks with that dependency change before rerunning the host matrix. Global Bun also changed from 1.3.12 to 1.4.2; the final scoped R14 Bun tests use a private 1.3.12. Earlier successful receipts and later refusals are separate under `/tmp/exact-r14/proofs/` and `/tmp/exact-r14/proofs-final/`.
 
 - Machine (2026-09-19, 12:30): `/tmp` holds 354k entries (347k `snapback4-*` fixtures from another project) and the user's `$TMPDIR` under `/var/folders` does not list within two minutes, so every `mkdtemp`-based test and sandboxed launch on this Mac stalls (the new-game tests, `quad-order`'s native run); a freshly built binary takes ~6 s to launch (the exec-policy daemon). Workaround that made the candidate's tests pass: `TMPDIR=/private/tmp/<own dir>` for the run. Not the repo's; the owner of those fixtures was told.
 
-- R15: Linux's physical evdev WASD keys still need the canvas key-down/key-up route used by the agent, and Tab traversal remains owed. Space/Enter already use the hardware activation route covered by R15; do not infer physical WASD parity from it (review-RE-grok.md).
+- R15: Linux evdev and VNC now use the shared canvas key-down/key-up route, including release ownership after focus moves, repeat, and VNC disconnect (2026-09-20; `.exact-game-verification/linux-keyboard-current`: 52 native Linux unit tests and Beacons' unchanged save/continuation pins pass). A physical keyboard sweep and Tab traversal remain owed; do not infer device parity from adapter tests.
 
-- D6 remaining verification (2026-09-19): declaration-only host interface discovery is implemented, but native receipt generation still watches the GPU product digest and rebuilds the host after a changed dylib. E10 supplied warm edit → Beacons PASS 9.5 s (unchanged 0.65 s); D6 measured unchanged 3.097 s and one-line edit 21.783 s (GPU Cargo 3.41 s, host Cargo 5.80 s), both failing the changed continuation pin. The under-three-second target is not met. D6 Beacons dev-reload timing is unavailable; the other author's separate starter measured 16.074 s → 1.010–1.111 s. Three pre-change frame attempts failed Page.navigate at 15 s. After-only 1280×720 samples (180 frames each): Skinned mean feed/encode 0.070/0.143 ms, Placement 0.082/0.106 ms, both 16.666 ms frame interval; no speedup claim. Sprites, Skinned, Beacons and Placement pins now agree across Linux/web modes and release. macOS readiness, Greybox's stale hostless Glow tree expectation, broad Bun deadlines and Caltrain's three focus assertions remain. Evidence and exact validation totals: `/private/tmp/exact2-d6-tmp/evidence/receipt.md`.
+- D6 remaining verification (2026-09-19): E11 now splits development Linux GPU/host receipts and authenticates the GPU through its own completed receipt; production retains exact digest binding. A logic-only input change selects the GPU graph alone; unit regressions pass. E11 complete PASS timings on pinned Bun 1.3.12 are 26.311/1.967/2.473 s for a one-line logic edit, unchanged run and QUEUE edit (one-minute load 49.3/56.5/56.5); an earlier Bun 1.4.2 sample was 9.518/2.217/0.807 s at load 40.0/38.9/38.9. Only the GPU rebuilt; host receipt bytes stayed identical and both cached runs rebuilt nothing. The edit <5 s and unchanged <1 s targets remain unmet in this sample (`/private/tmp/exact2-e11-tmp/proof-loop-timings.json`). E10 supplied warm edit → Beacons PASS 9.5 s (unchanged 0.65 s); D6 measured unchanged 3.097 s and one-line edit 21.783 s (GPU Cargo 3.41 s, host Cargo 5.80 s), both failing the changed continuation pin. A later current-engine starter binding edit measured 5.23/1.54/2.15 s across three changed-source runs, with 1.83–2.07 s restoration runs and a 0.34 s unchanged proof. Only the GPU rebuilt; host binary, receipt and declaration retained bytes and timestamps. The 5.23 s run spent 4.52 s in Cargo. Consistent sub-three-second edits remain unproven (`.exact-game-verification/native-loop-attribution-current` beside the repo). The shared empty-data host is 102,464 bytes smaller in the external starter, and its production bake no longer depends on wgpu; edit timings remain noisy, with no speedup claim (`/Users/ccheever/projects/.exact-game-verification/host-empty-source-current/`). D6 Beacons dev-reload timing is unavailable; the other author's separate starter measured 16.074 s → 1.010–1.111 s. Three pre-change frame attempts failed Page.navigate at 15 s. After-only 1280×720 samples (180 frames each): Skinned mean feed/encode 0.070/0.143 ms, Placement 0.082/0.106 ms, both 16.666 ms frame interval; no speedup claim. Sprites, Skinned, Beacons and Placement pins now agree across Linux/web modes and release. Broad Bun deadlines remain. E11's Caltrain functional smoke, including button focus, now passes; Chrome Keychain errors still fail its overall smoke. Beacons E11 repinning agrees across all Linux/web modes and release and records source inputs; macOS validation is recorded in the E11 diary. Evidence and exact validation totals: `/private/tmp/exact2-d6-tmp/evidence/receipt.md`.
 
+- GPU proof invalidation: a host-bake edit still triggers a conservative Cargo check for the GPU, but the actual module retains its bytes and timestamp; checks measured 0.06–0.13 s. Narrowing this needs to beat that cost without new work on every warm proof. The linked-binary receipt omits build dependencies, so it is insufficient by itself; authored logic may add them. Evidence: `.exact-game-verification/proof-dependency-assessment-current` beside the repo.
+
+- Game physical-phone proof: the shared driver now carries world saves and restores
+  through the existing phone connection. TinyWorld's simulator proof and sandbox
+  restore retain the web/Linux save bytes. The phone GPU compiled, but signing-key
+  access refuses user interaction (-25308); run `proof.mjs ios --device` once the
+  key is accessible. Physical-device behavior remains unverified. Evidence:
+  `.exact-game-verification/phone-world-current` beside the repo.
+
+- L0a shared-tree verification (2026-09-19): E10's `full_glow_blooms_without_clipping_the_lit_pixel_to_white` still reads `[255,255,255]` after an isolated retry. The later Asset host-less sweep and isolated retry both read a tick-60 hash differing from the fixture pin; earlier web/Linux receipts passed before that later mismatch. These are outside L0a's implementation scope; no fixture pin was changed. Evidence, including the observed and expected hashes: `/private/tmp/exact2-l0a-tmp/render-bloom-retry.log` and `asset-hostless-retry.log`.
+
+- Game Feel: the current-engine Beacons comparison passed 15/15 attempts, but all exceeded the quiet-load limit.
+  Repeat quietly with the shared jittered schedule and delivered-event phase bins. Reanalysis preserves the old metrics and exposes concentrated phases; Godot still injects after sampling.
+  The revised diagnostic passes 28 tests and reanalyzes all 15 traces; a new live run awaits an idle console and quiet load. Exact 60 Hz historical medians ranged 2.05–12.20 ms.
+  Evidence: `.exact-game-verification/{feel-current-engine,feel-phase-current}` beside the repo; keep this provisional, with no performance ranking.
+
+- Primitive shape-group ownership: three rounds exhausted and reverted. All 840 captured feed states matched, but removing the map saved only 48–80 heap bytes per feed and some cases regressed 8–11%.
+  Retain the current implementation; another attempt needs a human tradeoff decision.
+  Evidence: `../.exact-game-verification/shape-group-owner-current/`.
+
+- Investigate `exact-filesystem exited before replying` in the static-copy
+  diagnostic under Bun's test runner; the same assertion passes standalone and
+  in `scripts/caps.test.mjs`. Evidence and reproducer:
+  `../.exact-game-verification/asset-root-watch-current/round2/`.
+
+- Game full-proof edit loop (2026-09-21): full proofs after equivalent edits measured 11.57 s web and 31.94 s macOS medians. Reusing the app-owned Apple compiler module cache reduced the Swift stage from 5.85 to 3.10 s and preserved shipped sizes, SDK metadata and saves; six final macOS edited proofs pass. Total proof time remains noisy (31.40 s median), with release GPU/host work still dominant. Reduce that repeated build work while preserving artifact authentication; full proofs and live preview are separate paths. Evidence: `.exact-game-verification/apple-webarm-package-current/summary.json` beside the repo.

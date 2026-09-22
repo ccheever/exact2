@@ -6,7 +6,7 @@
 import { createServer } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -288,12 +288,44 @@ export function staticWatchChanges(watchRoot, trees, filename) {
   return changes;
 }
 
-/** Watch the stable app directory rather than only roots present at startup.
- * This observes first creation, whole-root deletion, and recreation. */
+/** Poll only static paths: recursive filesystem notifications can arrive late.
+ * Keep absent roots watched; directory changes discover new files. */
 export function watchStaticTrees(watchRoot, trees, onChange) {
-  return watch(watchRoot, { recursive: true }, (event, filename) => {
-    for (const change of staticWatchChanges(watchRoot, trees, filename)) onChange(change, event);
-  });
+  const watched = new Map();
+  const info = path => { try { return lstatSync(path, { bigint: true }); } catch { return null; } };
+  function discover(path, paths) {
+    paths.add(path);
+    const current = info(path);
+    if (!watched.has(path)) watched.set(path, current);
+    try {
+      if (current?.isDirectory()) {
+        for (const name of readdirSync(path)) discover(resolve(path, name), paths);
+      }
+    } catch { /* The validated copy reports refusals; never follow a root link. */ }
+  }
+  function scan() {
+    const paths = new Set();
+    for (const [root] of trees) discover(resolve(root), paths);
+    for (const path of watched.keys()) if (!paths.has(path)) watched.delete(path);
+  }
+  scan();
+  const timer = setInterval(() => {
+    const changes = [];
+    let directories = false;
+    for (const [path, previous] of watched) {
+      const now = info(path);
+      if (!['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs'].some(key => now?.[key] !== previous?.[key])) continue;
+      watched.set(path, now);
+      const directory = now?.isDirectory() || previous?.isDirectory();
+      directories ||= directory;
+      for (const change of staticWatchChanges(watchRoot, trees, path)) {
+        changes.push(directory ? { ...change, relative: '', name: change.targetRoot, tree: true } : change);
+      }
+    }
+    if (directories) scan();
+    for (const change of changes) onChange(change, 'change');
+  }, 100);
+  return { close() { clearInterval(timer); watched.clear(); } };
 }
 
 /** Apply one recursive-watch candidate. A missing leaf or directory removes

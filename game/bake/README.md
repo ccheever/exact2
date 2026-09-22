@@ -21,3 +21,20 @@ Generated-output ownership, collision refusal and pruning are the same as for mo
 The digest manifest protects authored files from replacement or pruning. Obsolete
 list-form manifests refuse with instructions to remove the manifest and its generated
 outputs, then rebake; there is no ownership guess based on a filename.
+
+`cargo run -p exact-game-bake --locked --offline -- --art /path/to/game` runs that
+same owned-output bake without compiling a generated GPU module. The scoped game test
+command runs it before logic tests whenever `art/` or `.baked-assets.json` exists.
+The app-directory mode bakes art only; typed levels still require the generated build
+script's concrete `Game` type.
+
+With `game.assets: true`, generated GPU build scripts also call
+`bake_game_level::<MyGame>`. `Game::LEVEL` names one `.level.json` file beside
+`app.json`, typed by the author's existing `Data` derive and listed in `ASSETS`.
+The bake refuses malformed fields by path and writes validated bytes to `assets/`;
+the executable contains the decoder, not the level value. No level schema is duplicated
+in the manifest. JSON remains readable through agent asset state after delivery.
+
+The geometry allowlist accepts glTF `COLOR_0` (RGB becomes RGBA with alpha one).
+Colours remain linear multipliers through `MeshData.colors`; an empty array means
+white. Tangents and additional UV/colour sets retain their existing refusal rules.

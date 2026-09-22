@@ -1138,7 +1138,9 @@ mod device_loss_tests {
     #[test]
     fn device_loss_guards_each_gpu_entry_before_any_other_call() {
         for operation in 0..7 {
-            let Ok(gpu) = fixture::device() else { return };
+            let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+                return;
+            };
             let mut m = Module::new(&REGISTRY);
             m.set_gpu(gpu);
             let id = m.create_headless("probe").unwrap();

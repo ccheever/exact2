@@ -154,6 +154,54 @@ fn restore_preflights_input_and_offsets_without_setup() {
 }
 
 #[test]
+fn restore_constructs_current_bindings_once_without_setup() {
+    thread_local! {
+        static VALIDATIONS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static ACTIONS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+        static SETUPS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    }
+    struct Checked;
+    impl Game for Checked {
+        const ID: &'static str = "restore-current-bindings";
+        type Args = ();
+        fn validate(_: &()) -> Result<(), String> {
+            VALIDATIONS.with(|n| n.set(n.get() + 1));
+            Ok(())
+        }
+        fn actions() -> Actions {
+            ACTIONS.with(|n| n.set(n.get() + 1));
+            Actions::new().button("jump", &["Space"])
+        }
+        fn setup(_: &mut World, _: &()) {
+            SETUPS.with(|n| n.set(n.get() + 1));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    for retain_args in [false, true] {
+        let mut sim = Sim::<Checked>::new(()).unwrap().paranoid(Paranoid::Off);
+        sim.input(InputEvent::Control {
+            name: "jump".into(),
+            id: 7,
+            phase: PointerPhase::Down,
+            x: 0.,
+            y: 0.,
+            at_ms: 0.,
+        });
+        sim.run(34.);
+        let saved = sim.save().unwrap();
+        VALIDATIONS.with(|n| n.set(0));
+        ACTIONS.with(|n| n.set(0));
+        SETUPS.with(|n| n.set(0));
+        sim.restore_into(&saved, retain_args).unwrap();
+        assert!(sim.input.held("jump"));
+        assert_eq!(sim.save().unwrap(), saved);
+        assert_eq!(SETUPS.with(|n| n.get()), 0);
+        assert_eq!(VALIDATIONS.with(|n| n.get()), 1);
+        assert_eq!(ACTIONS.with(|n| n.get()), 1);
+    }
+}
+
+#[test]
 fn proof_profiles_disable_floating_point_contraction() {
     assert!(include_str!("../../.cargo/config.toml").contains("llvm-args=-fp-contract=off"));
 }
@@ -195,4 +243,52 @@ fn restore_validates_arguments_before_registration() {
         .contains("invalid options"));
     assert_eq!(REGISTERS.with(|n| n.get()), 0);
     assert_eq!(sim.save().unwrap(), good);
+}
+
+#[cfg(test)]
+mod e11_assets_restore {
+    use super::*;
+    struct Declared;
+    impl Game for Declared {
+        const ID: &'static str = "restore-declared-assets";
+        const ASSETS: &'static [&'static str] = &["crate.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            assert!(w.model("crate.model").is_some());
+            w.spawn((
+                crate::Transform::default(),
+                crate::Mesh::asset("crate.model"),
+            ));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            assert!(w.model("crate.model").is_some());
+        }
+    }
+    #[test]
+    fn repeated_restore_keeps_declared_assets_and_pending_restore_refuses() {
+        assert!(crate::asset::AssetStore::default().ready());
+        let mut sim = Sim::<Declared>::new(()).unwrap();
+        sim.asset(
+            "crate.model",
+            Some(&crate::bin::to_vec(&crate::asset::Model::default())),
+        )
+        .unwrap();
+        let saved = sim.save().unwrap();
+        for _ in 0..2 {
+            sim.restore(&saved).unwrap();
+            assert!(!sim.is_loading());
+            assert!(sim.world().model("crate.model").is_some());
+            sim.run(100.);
+        }
+        let mut pending = Sim::<Declared>::new(()).unwrap();
+        let before = pending.world().hash();
+        assert!(pending
+            .restore(&saved)
+            .unwrap_err()
+            .to_string()
+            .contains("awaits declared assets"));
+        assert!(pending.is_loading());
+        assert_eq!(pending.world().hash(), before);
+        assert_eq!(pending.take_assets(), ["crate.model"]);
+    }
 }

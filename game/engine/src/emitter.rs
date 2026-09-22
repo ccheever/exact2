@@ -66,14 +66,8 @@ pub struct EmitterState {
 impl Clone for EmitterState {
     fn clone(&self) -> Self {
         Self {
-            age: self.age,
-            stream: self.stream,
-            fraction: self.fraction,
-            burst: self.burst,
-            bursts: self.bursts,
-            alive: self.alive,
-            dropped: self.dropped,
             births: self.births.clone(),
+            ..*self
         }
     }
     fn clone_from(&mut self, source: &Self) {
@@ -127,22 +121,8 @@ pub struct Emitter {
 impl Clone for Emitter {
     fn clone(&self) -> Self {
         Self {
-            shape: self.shape,
-            rate: self.rate,
-            lifetime: self.lifetime,
-            speed: self.speed,
-            spread: self.spread,
-            gravity: self.gravity,
-            drag: self.drag,
-            size: self.size,
-            color: self.color,
-            ease: self.ease,
-            seed: self.seed,
-            bound: self.bound,
-            layer: self.layer,
-            additive: self.additive,
-            running: self.running,
             state: self.state.clone(),
+            ..*self
         }
     }
     fn clone_from(&mut self, source: &Self) {

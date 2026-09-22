@@ -29,14 +29,7 @@ impl Clone for Sprite {
     fn clone(&self) -> Self {
         Self {
             texture: self.texture.clone(),
-            size: self.size,
-            anchor: self.anchor,
-            flip: self.flip,
-            color: self.color,
-            layer: self.layer,
-            frame: self.frame,
-            alpha: self.alpha,
-            cutoff: self.cutoff,
+            ..*self
         }
     }
     fn clone_from(&mut self, source: &Self) {

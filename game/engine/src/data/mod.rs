@@ -172,6 +172,59 @@ impl BulkKind {
     }
 }
 
+/// A borrowed numeric slice; each codec chooses its representation.
+#[derive(Clone, Copy)]
+pub enum Bulk<'a> {
+    /// Bytes.
+    U8(&'a [u8]),
+    /// Unsigned 16-bit integers.
+    U16(&'a [u16]),
+    /// Unsigned 32-bit integers.
+    U32(&'a [u32]),
+    /// IEEE binary32 values, with canonical NaNs when encoded.
+    F32(&'a [f32]),
+}
+impl Bulk<'_> {
+    /// The kind retained in the binary and hash framing.
+    pub fn kind(self) -> BulkKind {
+        match self {
+            Self::U8(_) => BulkKind::U8,
+            Self::U16(_) => BulkKind::U16,
+            Self::U32(_) => BulkKind::U32,
+            Self::F32(_) => BulkKind::F32,
+        }
+    }
+    /// The size of the encoded payload, excluding framing.
+    pub fn byte_len(self) -> usize {
+        match self {
+            Self::U8(v) => std::mem::size_of_val(v),
+            Self::U16(v) => std::mem::size_of_val(v),
+            Self::U32(v) => std::mem::size_of_val(v),
+            Self::F32(v) => std::mem::size_of_val(v),
+        }
+    }
+    /// Emit canonical little-endian bytes using bounded conversion storage.
+    pub fn write_bytes(self, mut write: impl FnMut(&[u8])) {
+        macro_rules! encode {
+            ($values:expr, $width:expr, $encode:expr) => {{
+                let mut bytes = [0u8; 128];
+                for chunk in $values.chunks(bytes.len() / $width) {
+                    for (value, slot) in chunk.iter().zip(bytes.chunks_exact_mut($width)) {
+                        slot.copy_from_slice(&($encode)(value));
+                    }
+                    write(&bytes[..chunk.len() * $width]);
+                }
+            }};
+        }
+        match self {
+            Self::U8(v) => write(v),
+            Self::U16(v) => encode!(v, 2, |n: &u16| n.to_le_bytes()),
+            Self::U32(v) => encode!(v, 4, |n: &u32| n.to_le_bytes()),
+            Self::F32(v) => encode!(v, 4, |n: &f32| f32_bits(*n).to_le_bytes()),
+        }
+    }
+}
+
 /// An object-safe sink. Fallible sinks remember their first failure until finish.
 pub trait Writer {
     /// Unit has the existing empty-sequence save/hash representation. Value sinks
@@ -184,8 +237,8 @@ pub trait Writer {
     fn boolean(&mut self, value: bool);
     /// Write a number, canonicalizing NaNs in binary representations.
     fn number(&mut self, value: Number);
-    /// Write a typed length-prefixed byte payload; JSON emits an inspection summary.
-    fn bytes(&mut self, kind: BulkKind, value: &[u8]);
+    /// Write a typed numeric payload; JSON emits an inspection summary.
+    fn bytes(&mut self, value: Bulk<'_>);
     /// Write a UTF-8 value (as opposed to a field name).
     fn string(&mut self, value: &str);
     /// Begin a sequence of exactly `len` elements.
@@ -252,9 +305,9 @@ pub trait Reader {
             Number::F64(n) => n,
         })
     }
-    /// Read a matching typed payload, claiming its byte size before reserving.
-    /// This claim also covers conversion into a same-sized numeric destination.
-    fn bytes(&mut self, kind: BulkKind) -> Result<Vec<u8>, DataError>;
+    /// Borrow a matching typed payload, claiming its destination byte size.
+    /// Return None without consuming a structural sequence, to read its elements.
+    fn bytes(&mut self, kind: BulkKind) -> Result<Option<&[u8]>, DataError>;
     /// Read UTF-8 text.
     fn string(&mut self) -> Result<String, DataError>;
     /// Enter a sequence.

@@ -5,7 +5,7 @@ import CryptoKit
 @testable import ExactKit
 
 final class SurfaceRecordTests: XCTestCase {
-    private func fixture() throws -> ExactSession {
+    private func fixture(plan: ((Data) -> Void)? = nil) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -18,9 +18,11 @@ final class SurfaceRecordTests: XCTestCase {
         compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
         try compiler.run(); compiler.waitUntilExit()
         XCTAssertEqual(compiler.terminationStatus, 0)
+        let bytes = try Data(contentsOf: dir.appendingPathComponent("app.plan"))
+        plan?(bytes)
         let session = ExactApp.shared.makeSession(label: "surface-record")
         session.canvases.loadRequested = true // No GPU is needed to exercise publication ownership.
-        let batch = session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 300, height: 100))
+        let batch = session.boot(plan: bytes, size: CGSize(width: 300, height: 100))
         XCTAssertNil(batch.error)
         return session
     }
@@ -38,6 +40,21 @@ final class SurfaceRecordTests: XCTestCase {
             ["op": "props", "id": Int(text.id), "set": ["text": "stale"], "clear": []],
         ], timers: false, motion: false, clock: nil, error: nil))
         XCTAssertEqual(text.props["text"], "Count 7")
+    }
+
+    func testOldSurfaceCompletionDoesNotEnterAReplacementRuntime() throws {
+        var plan = Data()
+        let session = try fixture { plan = $0 }
+        defer { session.destroy() }
+        let view = ExactView(session: session)
+        view.frame = NSRect(x: 0, y: 0, width: 300, height: 100)
+        view.layoutSubtreeIfNeeded()
+        let owner = session.generation
+        XCTAssertTrue(session.apply(plan, label: "replacement"))
+        XCTAssertGreaterThan(session.generation, owner)
+        let before = session.agent(#"{"op":"logs","since":0}"#)
+        session.completeSurface(1, generation: owner, kind: 7)
+        XCTAssertEqual(session.agent(#"{"op":"logs","since":0}"#), before)
     }
 
     func testOnlyTheFirstLivePublisherCanClearTheRecord() throws {
@@ -67,6 +84,19 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertEqual(result.error, WorldCarrier.refusal)
         XCTAssertThrowsError(try WorldCarrier.check(WorldCarrier.limit + 1))
         XCTAssertNoThrow(try WorldCarrier.check(WorldCarrier.limit))
+    }
+
+    func testWorldCarrierReadsFromApplicationHome() throws {
+        let name = ".exact-world-\(UUID().uuidString)"
+        let path = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(name)
+        let bytes = Data([0, 1, 127, 255])
+        try bytes.write(to: path)
+        defer { try? FileManager.default.removeItem(at: path) }
+        for source in [path.path, "~/\(name)"] {
+            let result = WorldCarrier.read(source)
+            XCTAssertNil(result.error)
+            XCTAssertEqual(result.bytes, bytes)
+        }
     }
 
     func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {

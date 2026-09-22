@@ -22,6 +22,7 @@ pub fn cube() -> (Vec<Vertex>, Vec<u32>) {
                 position: (n * 0.5 + u * (x - 0.5) + v * (y - 0.5)).to_array(),
                 normal: n.to_array(),
                 uv: [0.0; 2],
+                color: [1.; 4],
             });
         }
         indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
@@ -43,6 +44,7 @@ pub fn plane() -> (Vec<Vertex>, Vec<u32>) {
         position,
         normal: [0.0, 1.0, 0.0],
         uv: [0.0; 2],
+        color: [1.; 4],
     })
     .collect();
     (vertices, vec![0, 1, 2, 0, 2, 3])
@@ -176,6 +178,7 @@ fn revolve(profile: &[Ring], segments: u32) -> (Vec<Vertex>, Vec<u32>) {
                     ring.radial_normal * s,
                 ],
                 uv: [0.0; 2],
+                color: [1.; 4],
             });
         }
         if i == 0 {

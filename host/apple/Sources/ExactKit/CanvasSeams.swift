@@ -16,15 +16,36 @@ struct SurfaceControl {
 }
 
 extension NodeView {
+    var returnsPointerFocusToCanvas: Bool {
+        kind == "button" && props["action"] == nil && props["accessibilityRole"] != "slider" && inputCanvas != nil
+    }
     /// Pointer-completed HUD presses return the keyboard to the enclosing world.
     func finishPointerPress() {
-        guard kind == "button" else { return }
+        guard returnsPointerFocusToCanvas, let canvas = inputCanvas else { return }
         #if os(macOS)
-        if window?.firstResponder === self { _ = window?.makeFirstResponder(nil); _ = inputCanvas?.focusCanvas() }
+        finishPress(canvas: canvas, window: window, pointer: true)
         #else
-        if isFirstResponder { _ = resignFirstResponder(); _ = inputCanvas?.becomeFirstResponder() }
+        if isFirstResponder { _ = canvas.becomeFirstResponder(); presenter?.syncAccessibility() }
         #endif
     }
+
+    #if os(macOS)
+    /// Complete an activation with the input owner captured before dispatch.
+    func finishPress(canvas: NodeView?, window ownerWindow: NSWindow?, pointer: Bool) {
+        guard kind == "button", props["action"] == nil, props["accessibilityRole"] != "slider",
+              let canvas, let ownerWindow else { return }
+        let current = ownerWindow.firstResponder
+        let presenter = canvas.presenter
+        let unclaimed = current == nil || current === ownerWindow || current === ownerWindow.contentView
+            || current === presenter?.viewport || current === presenter?.session?.view
+        let vacated = window == nil && (current === self || unclaimed)
+        guard (pointer && current === self) || vacated,
+              canvas.window === ownerWindow, canvas.canvasInput != nil,
+              presenter?.views[canvas.id] === canvas else { return }
+        _ = canvas.focusCanvas()
+        presenter?.syncAccessibility()
+    }
+    #endif
 
     var inputCanvas: NodeView? {
         #if os(macOS)
@@ -116,7 +137,7 @@ struct WorldCarrier {
     static func read(_ path: String?) -> (bytes: Data?, error: String?) {
         guard let path else { return (nil, nil) }
         do {
-            let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+            let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: (path as NSString).expandingTildeInPath))
             defer { try? file.close() }
             let length = try file.seekToEnd()
             guard length <= UInt64(limit) else { return (nil, refusal) }
@@ -129,6 +150,49 @@ struct WorldCarrier {
 }
 
 extension Canvases {
+    func surfaceWork(_ op: [String: Any], generation owner: Int) {
+        guard let s = session, owner == s.generation,
+              let number = op["ticket"] as? NSNumber else { return }
+        let ticket = number.uint64Value
+        guard s.runtime.requestActive(ticket) else { return }
+        func fail(_ kind: UInt32, _ message: String) {
+            s.completeSurface(ticket, generation: owner, kind: kind, body: Data(message.utf8))
+        }
+        if let refusal = op["refusal"] as? String { fail(2, refusal); return }
+        guard let name = op["name"] as? String, let mode = op["mode"] as? String else {
+            fail(2, "invalid surface request"); return
+        }
+        let matches = entries.values.filter { $0.name == name && live($0.view.id) === $0 }
+        guard matches.count == 1 else { fail(2, "surface \(name): expected one live surface, found \(matches.count)"); return }
+        let e = matches[0]
+        guard let m = module, e.id != 0 else { fail(3, "surface \(name): unavailable"); return }
+        messages(e)
+        guard owner == s.generation, s.runtime.requestActive(ticket) else { return }
+        guard live(e.view.id) === e else {
+            fail(4, "surface \(name): request retired or surface replaced"); return
+        }
+        if mode == "capture" {
+            guard let carry = m.carry else { fail(3, "surface \(name): capture unsupported"); return }
+            let length = carry(e.id)
+            guard length != UInt32.max else { fail(3, "surface \(name): carries no state"); return }
+            guard length != UInt32.max - 1 else { fail(2, m.error()); return }
+            guard length <= 16 * 1024 * 1024, let bytes = length == 0 ? Data() : m.output(length) else {
+                fail(2, "surface \(name): carried state exceeds 16 MiB"); return
+            }
+            s.completeSurface(ticket, generation: owner, kind: 6, body: bytes); return
+        }
+        guard mode == "restore", let encoded = op["body"] as? String,
+              encoded.utf8.count <= 4 * ((16 * 1024 * 1024 + 2) / 3),
+              let bytes = Data(base64Encoded: encoded), bytes.count <= 16 * 1024 * 1024 else {
+            fail(2, "surface \(name): invalid or oversized restore"); return
+        }
+        guard let restore = m.restore else { fail(3, "surface \(name): restore unsupported"); return }
+        let ok = bytes.withUnsafeBytes { restore(e.id, $0.bindMemory(to: UInt8.self).baseAddress, bytes.count, 0) }
+        guard ok else { fail(2, m.error()); return }
+        messages(e)
+        s.completeSurface(ticket, generation: owner, kind: 7)
+    }
+
     func cancelControls(_ e: Entry) {
         guard let m = module else { e.controls.removeAll(); return }
         let owners=e.controls; e.controls.removeAll()

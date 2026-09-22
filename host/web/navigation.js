@@ -218,3 +218,75 @@ export const navigation = {
     };
   },
 };
+
+// Focus belongs to the activated control unless an enclosing input canvas owns
+// the pointer press. The same transaction gives newly mounted route autofocus
+// a chance, while preserving explicit focus chosen by a press handler.
+export function focusController({ready, elements, inert}) {
+  const processed = new WeakSet();
+  let pointerTarget = null;
+  const autofocus = () => {
+    if (!ready()) return;
+    for (const el of elements()) {
+      if (processed.has(el) || !el.exactAutofocus || !el.getClientRects().length || inert(el) || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;
+      processed.add(el); // Once per mount, including a refused autofocus.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== pointerTarget && !(active.matches('[data-gpu-input]') && active.contains(el))) return;
+      el.setAttribute('autofocus', ''); el.focus(); return;
+    }
+  };
+  return {autofocus, press(event, el, dispatch) {
+    event.stopPropagation();
+    const canvas = el.closest('[data-gpu-input]');
+    const previous = pointerTarget;
+    pointerTarget = event.detail > 0 ? el : null;
+    try {
+      dispatch(); // Blur handlers must not retire the press target before dispatch.
+      const removed = !el.isConnected && document.activeElement === document.body;
+      if (el instanceof HTMLButtonElement && ((pointerTarget && document.activeElement === el) || removed) && el.getAttribute('role') !== 'slider' && !el.hasAttribute('data-action')) {
+        if (canvas?.isConnected) {event.preventDefault();canvas.focus({preventScroll:true});pointerTarget=canvas;}
+      }
+      autofocus();
+    } finally {pointerTarget = previous;}
+  }};
+}
+
+// A modal dialog escapes inert attributes above it; its own inert still applies.
+export function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
+
+export function installShortcuts(root, ready) {
+// App-declared ARIA shortcuts activate the same mounted buttons as a click.
+// Browsers may reserve a chord before it reaches the page (notably Meta+N).
+document.addEventListener("keydown", (event) => {
+  if (event.isComposing || !ready() || event.defaultPrevented) return;
+  const matches = (chord) => {
+    const parts = chord.split("+");
+    const key = parts.pop();
+    const modifiers = new Set(parts);
+    if (key === "Escape" && !parts.length) return event.key === "Escape"
+      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
+      && (modifiers.has("Meta") || modifiers.has("Control"))
+      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
+      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
+      && event.key.toLowerCase() === key.toLowerCase();
+  };
+  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
+    const modal = document.activeElement.closest("dialog:modal");
+    if (modal && !modal.contains(el)) continue;
+    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
+    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat && !el.disabled) el.click();
+    return;
+  }
+}, true);
+
+}

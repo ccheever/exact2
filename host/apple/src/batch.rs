@@ -150,6 +150,49 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Presenter-owned capture or restore work for one named surface.
+    pub fn surface_work(&mut self, request: &exact_runner::RequestOut, refusal: Option<&str>) {
+        let Some(work) = request.request.surface.as_deref() else {
+            return;
+        };
+        let (mode, name, bytes) = match work {
+            exact_runner::SurfaceRequest::Capture { name } => ("capture", name, None),
+            exact_runner::SurfaceRequest::Restore { name, bytes } => {
+                ("restore", name, Some(bytes.as_slice()))
+            }
+        };
+        let mut s = format!(
+            "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{mode}\",\"name\":",
+            request.ticket
+        );
+        quote(name, &mut s);
+        if let Some(bytes) = bytes.filter(|_| refusal.is_none()) {
+            s.push_str(",\"body\":\"");
+            s.push_str(&exact_runner::agent::base64(bytes));
+            s.push('"');
+        }
+        if let Some(refusal) = refusal {
+            s.push_str(",\"refusal\":");
+            quote(refusal, &mut s);
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// Prepend these ops to an already finished batch from the same writer.
+    pub fn prepend_to(self, finished: &mut String) {
+        if self.ops.is_empty() {
+            return;
+        }
+        let at = "{\"ops\":[".len();
+        debug_assert!(finished.starts_with("{\"ops\":["));
+        let mut text = self.ops.join(",");
+        if finished.as_bytes().get(at) != Some(&b']') {
+            text.push(',');
+        }
+        finished.insert_str(at, &text);
+    }
+
     /// `{"op":"command","name":…,"args":[…]}` — a capability an action
     /// called (LLP 1005 §3), for the presenter to execute after the commit.
     pub fn command(&mut self, name: &str, args: &[exact_plan::Value]) {
@@ -248,5 +291,42 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
             }
             out.push(']');
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_runner::{Request, RequestOut};
+
+    #[test]
+    fn surface_work_prepends_typed_bytes_or_a_refusal() {
+        let mut extra = Batch::new();
+        extra.surface_work(
+            &RequestOut {
+                ticket: 7,
+                target: "continue".into(),
+                request: Request::restore_surface("world", vec![0, 128, 255]),
+                forced: false,
+            },
+            None,
+        );
+        let mut finished = Batch::new().finish(false, false, 0., None);
+        extra.prepend_to(&mut finished);
+        assert!(finished.contains(r#""mode":"restore","name":"world","body":"AID/""#));
+
+        let mut refused = Batch::new();
+        refused.surface_work(
+            &RequestOut {
+                ticket: 8,
+                target: "save".into(),
+                request: Request::restore_surface("world", vec![1, 2, 3]),
+                forced: false,
+            },
+            Some("outside the app's grants"),
+        );
+        let wire = refused.finish(false, false, 0., None);
+        assert!(wire.contains(r#""refusal":"outside the app's grants""#));
+        assert!(!wire.contains("body"));
     }
 }
