@@ -75,7 +75,11 @@ each host:
   reruns after. A marked (composing) range is never restyled and the `value`
   write-back never happens while it exists.
 - **Undo.** The system's undo; a `format` command's replacements are one
-  group, and Return's list continuation is one group with the newline.
+  group, and Return's list continuation is one group with the newline. On
+  Apple, a genuinely different external value resets only that editor's undo
+  history, because its old native ranges cannot be safely reused; an ordinary
+  controlled echo retains history. CodeMirror maps its history through external
+  replacements.
 - **Accessibility.** VoiceOver reads the styled text with hidden markers
   omitted and traits (heading, link, code) set; revealed markers read as text.
 - **Bidirectional text.** Markers are ASCII punctuation; hiding them removes
