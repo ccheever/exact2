@@ -135,6 +135,7 @@ impl<D: DataSource> Runner<D> {
                     let result = {
                         let env = Env {
                             plan: &self.plan,
+                            strings: &self.strings,
                             router: self.router.as_ref(),
                             slots: &self.slots,
                             derives: &derives,
@@ -177,6 +178,7 @@ impl<D: DataSource> Runner<D> {
                         let result = {
                             let env = Env {
                                 plan: &self.plan,
+                                strings: &self.strings,
                                 router: self.router.as_ref(),
                                 slots: &self.slots,
                                 derives: &derives,

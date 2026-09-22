@@ -197,6 +197,8 @@ struct Timer {
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
     plan: Plan,
+    /// The plan's string pool, interned once (`vm::intern`).
+    strings: Vec<std::rc::Rc<str>>,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
@@ -466,6 +468,7 @@ impl<D: DataSource> Runner<D> {
         let router = router::RouterContext::from_plan(&plan)?;
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::new(&plan),
+            strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
@@ -1215,6 +1218,7 @@ impl<D: DataSource> Runner<D> {
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
+            strings: &self.strings,
             router: self.router.as_ref(),
             slots: &self.slots,
             derives: &self.derives,

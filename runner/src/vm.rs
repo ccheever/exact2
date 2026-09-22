@@ -50,6 +50,10 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
+    /// The plan's string pool, interned once per runner ([`intern`]): a
+    /// string literal is a shared `Rc`, never a fresh allocation, and two
+    /// evaluations of one literal are the same object.
+    pub strings: &'a [Rc<str>],
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a crate::runner::router::RouterContext>,
@@ -145,6 +149,11 @@ pub struct Outcome {
     pub store_dependent: bool,
 }
 
+/// The plan's string pool as shared strings, for [`Env::strings`].
+pub fn intern(plan: &Plan) -> Vec<Rc<str>> {
+    plan.strings.iter().map(|s| Rc::from(s.as_str())).collect()
+}
+
 /// Whether `code` is a literal — pushes of values and `Return`, nothing
 /// read — so a binding can be told from an expression without running it
 /// (LLP 1035.002 D5: a row bound by an expression is `dynamic`). Malformed
@@ -226,9 +235,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
         match op {
             Opcode::Number => stack.push(Value::Number(f64_arg)),
             Opcode::Bool => stack.push(Value::Bool(args[0] != 0)),
-            Opcode::Str => stack.push(Value::Str(Rc::from(
-                env.plan.str(exact_plan::StrId(args[0] as u32)),
-            ))),
+            Opcode::Str => stack.push(Value::Str(
+                env.strings
+                    .get(args[0] as usize)
+                    .ok_or(malformed(pc))?
+                    .clone(),
+            )),
             Opcode::None => stack.push(Value::NONE),
             Opcode::Unit => stack.push(Value::Unit),
             Opcode::Some => {
