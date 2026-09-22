@@ -463,7 +463,7 @@ fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair
     // A successful frame's unchanged delivery facts must leave presentation idle.
     // Repeated reads still check first pixel and must not request another paint.
     assert!(!presenter.dirty());
-    let tree = presenter.host().agent(r#"{"op":"tree"}"#);
+    let tree = exact_linux::agent::handle(&mut presenter, r#"{"op":"tree"}"#);
     let record_after = std::fs::read(&record).unwrap();
     for _ in 0..3 {
         presenter.first_pixel();
