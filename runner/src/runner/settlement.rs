@@ -158,7 +158,14 @@ impl<D: DataSource> Runner<D> {
                                 });
                             }
                             derive_store_dependent[i] = o.store_dependent;
-                            derives[i] = Some(o.value);
+                            // An equivalent result keeps the previous object,
+                            // so identity survives for every memo downstream.
+                            derives[i] = Some(match &self.derives[i] {
+                                Some(old) if crate::compare::equivalent(old, &o.value) => {
+                                    old.clone()
+                                }
+                                _ => o.value,
+                            });
                             progress = true;
                         }
                         Err(Trap::Pending { .. }) => all = false,
@@ -328,9 +335,18 @@ impl<D: DataSource> Runner<D> {
                             }
                         }
                     };
-                    if !reused {
+                    let value = if reused {
+                        value
+                    } else {
                         self.check_shape(i, &value)?;
-                    }
+                        // A fresh answer equal to the last keeps its object.
+                        match &states[i] {
+                            Some(s) if crate::compare::equivalent(&s.value, &value) => {
+                                s.value.clone()
+                            }
+                            _ => value,
+                        }
+                    };
                     resources[i] = Some(value.clone());
                     states[i] = Some(ResourceState {
                         args,

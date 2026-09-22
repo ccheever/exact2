@@ -36,6 +36,18 @@ pub struct RouterContext {
     committed: Option<Value>,
     pending: Option<RouterChange>,
     refusals: RefCell<Vec<String>>,
+    /// The last router value a call read, checked and converted once, with
+    /// the reads made of it: a binding that calls `stack(nav)` or `top(nav)`
+    /// on an unchanged router gets the same object back, not a rebuilt one.
+    reads: RefCell<Option<Reads>>,
+}
+
+/// One router value, validated, and what has been read of it.
+struct Reads {
+    value: Value,
+    router: Router,
+    stack: Option<Value>,
+    top: Option<Value>,
 }
 
 fn invalid(message: impl Into<String>) -> RunnerError {
@@ -94,6 +106,7 @@ impl RouterContext {
             committed: None,
             pending: None,
             refusals: RefCell::new(Vec::new()),
+            reads: RefCell::new(None),
         }))
     }
 
@@ -240,11 +253,56 @@ impl RouterContext {
                 args.get(1)?.as_str()?,
             )));
         }
-        if !first.conforms(plan, self.router_ty) {
-            return None;
-        }
-        let r = self.router(first)?;
+        let mut reads = self.reads.borrow_mut();
+        let reads = match &mut *reads {
+            Some(reads) if crate::compare::same(&reads.value, first) => reads,
+            slot => {
+                if !first.conforms(plan, self.router_ty) {
+                    return None;
+                }
+                slot.insert(Reads {
+                    value: first.clone(),
+                    router: self.router(first)?,
+                    stack: None,
+                    top: None,
+                })
+            }
+        };
         let arg = || args.get(1)?.as_str();
+        match f {
+            Stdlib::Stack => {
+                return Some(
+                    reads
+                        .stack
+                        .get_or_insert_with(|| {
+                            Value::list(
+                                exact_route::stack(&reads.router)
+                                    .iter()
+                                    .map(|e| self.entry_value(e))
+                                    .collect(),
+                            )
+                        })
+                        .clone(),
+                )
+            }
+            Stdlib::Top => {
+                if reads.top.is_none() {
+                    reads.top = Some(self.entry_value(exact_route::top(&reads.router)?));
+                }
+                return reads.top.clone();
+            }
+            Stdlib::Depth => return Some(Value::Number(exact_route::depth(&reads.router) as f64)),
+            Stdlib::Params => {
+                return Some(Value::list(
+                    exact_route::params(&reads.router, arg()?)
+                        .into_iter()
+                        .map(Value::str)
+                        .collect(),
+                ))
+            }
+            _ => {}
+        }
+        let r = reads.router.clone();
         let (after, refusal) = match f {
             Stdlib::Open => exact_route::open(&self.table, r, arg()?),
             Stdlib::Push => exact_route::push(&self.table, r, arg()?),
@@ -252,24 +310,6 @@ impl RouterContext {
             Stdlib::Back => exact_route::back(&self.table, r),
             Stdlib::Select => exact_route::select(&self.table, r, arg()?),
             Stdlib::Go => exact_route::go(&self.table, r, arg()?),
-            Stdlib::Stack => {
-                return Some(Value::list(
-                    exact_route::stack(&r)
-                        .iter()
-                        .map(|e| self.entry_value(e))
-                        .collect(),
-                ))
-            }
-            Stdlib::Top => return Some(self.entry_value(exact_route::top(&r)?)),
-            Stdlib::Depth => return Some(Value::Number(exact_route::depth(&r) as f64)),
-            Stdlib::Params => {
-                return Some(Value::list(
-                    exact_route::params(&r, arg()?)
-                        .into_iter()
-                        .map(Value::str)
-                        .collect(),
-                ))
-            }
             _ => return None,
         };
         if let Some(reason) = refusal {
@@ -417,7 +457,13 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         };
         let value = &self.slots[context.slot.0 as usize];
-        if context.committed.as_ref() == Some(value) {
+        // A committed value was validated, so it holds no NaN: the same
+        // object is an equal one.
+        if context
+            .committed
+            .as_ref()
+            .is_some_and(|c| crate::compare::same(c, value) || c == value)
+        {
             return Ok(None);
         }
         let r = context
