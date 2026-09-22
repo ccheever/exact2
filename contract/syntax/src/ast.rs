@@ -675,6 +675,20 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// `value` evaluated once and bound to `name` in `body`. Compiler-only:
+    /// no surface syntax spells it. Expansion introduces it so a child's
+    /// derive read twice, or a `fn` call repeated, is computed and emitted
+    /// once rather than copied into every place it is read.
+    Let {
+        /// The bound name.
+        name: String,
+        /// Evaluated first, once.
+        value: Box<Expr>,
+        /// Where `name` is in scope.
+        body: Box<Expr>,
+        /// Where.
+        span: Span,
+    },
 }
 
 /// One part of a template string.
@@ -703,7 +717,8 @@ impl Expr {
             | Expr::Unary(_, _, s)
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)
-            | Expr::Match { span: s, .. } => *s,
+            | Expr::Match { span: s, .. }
+            | Expr::Let { span: s, .. } => *s,
         }
     }
 }

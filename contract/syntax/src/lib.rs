@@ -23,12 +23,14 @@ pub mod fmt;
 pub mod inline;
 pub mod lexer;
 pub mod parser;
+mod share;
 mod spans;
 
 pub use ast::*;
 pub use inline::{expand, expand_mapped, inline, Expanded, Instance};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, parse_source, SyntaxError};
+pub use share::share_calls;
 pub use spans::VisitSpans;
 
 /// A token range in one source file. Lines and byte columns are 1-based.

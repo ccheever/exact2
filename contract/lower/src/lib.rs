@@ -98,8 +98,8 @@ pub(crate) struct Lowerer<'a> {
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
-    /// (LLP 1017 P5).
-    pub fns: BTreeMap<&'a str, &'a FnDecl>,
+    /// (LLP 1017 P5), each with its body's repeated calls bound once.
+    pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
     /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
     pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
     /// The item/binding scope at each expanded `each`, for row-slot initializers.
@@ -166,6 +166,12 @@ fn lower_with_sites(
     } = checked;
     let root = &ex.root;
     let root_types = &types.components[0];
+    let is_fn = |name: &str| file.fns.iter().any(|f| f.name == name);
+    let shared: Vec<Expr> = file
+        .fns
+        .iter()
+        .map(|f| contract_syntax::share_calls(&f.body, &is_fn))
+        .collect();
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
@@ -179,7 +185,12 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
-        fns: file.fns.iter().map(|f| (f.name.as_str(), f)).collect(),
+        fns: file
+            .fns
+            .iter()
+            .zip(&shared)
+            .map(|(f, body)| (f.name.as_str(), (f, body)))
+            .collect(),
         fn_depth: 0,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),

@@ -11,14 +11,17 @@
 //! `children` node is replaced by the nodes indented under its use, inlined
 //! in the *use site's* scope.
 
-use crate::ast::{
-    Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TemplatePart, TypeExpr,
-};
+use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, TypeExpr};
 use crate::parser::SyntaxError;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
+mod derives;
+mod subst;
 #[cfg(test)]
 mod tests;
+
+use derives::resolved_derives;
+use subst::{subst_expr, subst_stmts, substituted, Subst};
 
 fn err<T>(
     id: &'static str,
@@ -145,7 +148,8 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, Synta
             Vec::new()
         },
     };
-    let view = inline_nodes(&file.components[0].view, &BTreeMap::new(), &mut ctx)?;
+    let none = BTreeMap::new();
+    let view = inline_nodes(&file.components[0].view, &mut Subst::new(&none), &mut ctx)?;
     root.view = view;
     let mut owners = vec![None; root.states.len()];
     let mut state_instances = if capture_sites {
@@ -209,7 +213,7 @@ struct Ctx<'a> {
 
 fn inline_nodes(
     nodes: &[Node],
-    subst: &BTreeMap<String, Expr>,
+    subst: &mut Subst<'_, Expr>,
     ctx: &mut Ctx<'_>,
 ) -> Result<Vec<Node>, SyntaxError> {
     let mut out = Vec::with_capacity(nodes.len());
@@ -340,15 +344,25 @@ fn inline_nodes(
                 // parent expressions for props. That distinction is what
                 // keeps a parent `a` passed through a prop from being mistaken
                 // for the child's derive `a`.
+                // A resolved derive reads no other derive by name, so every
+                // one is substituted against the same props, states and actions.
                 let derives = resolved_derives(c)?;
-                for (derive, expr) in &derives {
-                    child_subst.insert(derive.name.clone(), subst_expr(expr, &child_subst));
+                let resolved: Vec<Expr> = {
+                    let mut base = Subst::new(&child_subst);
+                    derives
+                        .iter()
+                        .map(|(_, expr)| subst_expr(expr, &mut base))
+                        .collect()
+                };
+                for ((derive, _), expr) in derives.iter().zip(resolved) {
+                    child_subst.insert(derive.name.clone(), expr);
                 }
+                let mut child = Subst::new(&child_subst);
                 for st in &c.states {
                     ctx.extra_states.push((
                         Binding {
                             name: names[&st.name].clone(),
-                            expr: subst_expr(&st.expr, &child_subst),
+                            expr: subst_expr(&st.expr, &mut child),
                             span: st.span,
                         },
                         owner,
@@ -369,8 +383,15 @@ fn inline_nodes(
                             Expr::Ident(names[&st.name].clone(), st.span),
                         );
                     }
-                    for (derive, expr) in &derives {
-                        action_subst.insert(derive.name.clone(), subst_expr(expr, &action_subst));
+                    let resolved: Vec<Expr> = {
+                        let mut base = Subst::new(&action_subst);
+                        derives
+                            .iter()
+                            .map(|(_, expr)| subst_expr(expr, &mut base))
+                            .collect()
+                    };
+                    for ((derive, _), expr) in derives.iter().zip(resolved) {
+                        action_subst.insert(derive.name.clone(), expr);
                     }
                     // An action's declared parameters are still the
                     // innermost binders and shadow same-named captures.
@@ -392,7 +413,7 @@ fn inline_nodes(
                                     (names.get(w).cloned().unwrap_or_else(|| w.clone()), *sp)
                                 })
                                 .collect(),
-                            body: subst_stmts(&a.body, &action_subst, &names),
+                            body: subst_stmts(&a.body, &mut Subst::new(&action_subst), &names),
                             span: a.span,
                         },
                         instance,
@@ -418,7 +439,7 @@ fn inline_nodes(
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
                 let outer_instance = std::mem::replace(&mut ctx.instance, instance);
                 ctx.depth += 1;
-                let body = inline_nodes(&renamed, &child_subst, ctx);
+                let body = inline_nodes(&renamed, &mut child, ctx);
                 ctx.depth -= 1;
                 ctx.fill = outer_fill;
                 ctx.instance = outer_instance;
@@ -513,334 +534,6 @@ fn inline_nodes(
     Ok(out)
 }
 
-/// Expand a component's derives through one another in dependency order.
-/// Type inference admits either declaration order, so inlining must too; a
-/// replacement is complete before it enters the substitution map.
-fn resolved_derives(c: &Component) -> Result<Vec<(&Binding, Expr)>, SyntaxError> {
-    let mut indices = BTreeMap::new();
-    for (i, derive) in c.derives.iter().enumerate() {
-        if indices.insert(derive.name.as_str(), i).is_some() {
-            return err(
-                "type-duplicate-name",
-                format!("`{}` declared twice", derive.name),
-                derive.span,
-            );
-        }
-    }
-    let mut resolved = vec![None; c.derives.len()];
-    let mut visiting = BTreeSet::new();
-    for i in 0..c.derives.len() {
-        resolve_derive(i, c, &indices, &mut resolved, &mut visiting)?;
-    }
-    Ok(c.derives
-        .iter()
-        .zip(resolved.into_iter().map(Option::unwrap))
-        .collect())
-}
-
-fn resolve_derive(
-    i: usize,
-    c: &Component,
-    indices: &BTreeMap<&str, usize>,
-    resolved: &mut [Option<Expr>],
-    visiting: &mut BTreeSet<usize>,
-) -> Result<(), SyntaxError> {
-    if resolved[i].is_some() {
-        return Ok(());
-    }
-    if !visiting.insert(i) {
-        return err(
-            "type-derive-cycle",
-            format!(
-                "cannot resolve `{}`: it depends on itself through other derives",
-                c.derives[i].name
-            ),
-            c.derives[i].span,
-        );
-    }
-    let mut dependencies = BTreeSet::new();
-    derive_dependencies(
-        &c.derives[i].expr,
-        indices,
-        &BTreeSet::new(),
-        &mut dependencies,
-    );
-    let mut substitutions = BTreeMap::new();
-    for dependency in dependencies {
-        resolve_derive(dependency, c, indices, resolved, visiting)?;
-        substitutions.insert(
-            c.derives[dependency].name.clone(),
-            resolved[dependency].as_ref().unwrap().clone(),
-        );
-    }
-    let expr = subst_expr(&c.derives[i].expr, &substitutions);
-    visiting.remove(&i);
-    resolved[i] = Some(expr);
-    Ok(())
-}
-
-fn derive_dependencies(
-    expr: &Expr,
-    indices: &BTreeMap<&str, usize>,
-    bound: &BTreeSet<String>,
-    out: &mut BTreeSet<usize>,
-) {
-    match expr {
-        Expr::Ident(name, _) => {
-            if !bound.contains(name) {
-                if let Some(i) = indices.get(name.as_str()) {
-                    out.insert(*i);
-                }
-            }
-        }
-        Expr::Call(name, args, _) => {
-            if !bound.contains(name) {
-                if let Some(i) = indices.get(name.as_str()) {
-                    out.insert(*i);
-                }
-            }
-            for arg in args {
-                derive_dependencies(arg, indices, bound, out);
-            }
-        }
-        Expr::Member(object, _, _)
-        | Expr::Some(object, _)
-        | Expr::Unary(_, object, _)
-        | Expr::NamedArg(_, object, _) => {
-            derive_dependencies(object, indices, bound, out);
-        }
-        Expr::Binary(_, left, right, _) => {
-            derive_dependencies(left, indices, bound, out);
-            derive_dependencies(right, indices, bound, out);
-        }
-        Expr::Ternary(cond, then, otherwise, _) => {
-            derive_dependencies(cond, indices, bound, out);
-            derive_dependencies(then, indices, bound, out);
-            derive_dependencies(otherwise, indices, bound, out);
-        }
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => {
-            derive_dependencies(subject, indices, bound, out);
-            let mut inner = bound.clone();
-            inner.insert(var.clone());
-            derive_dependencies(some, indices, &inner, out);
-            derive_dependencies(none, indices, bound, out);
-        }
-        Expr::Template(parts, _) => {
-            for part in parts {
-                if let TemplatePart::Expr(expr) = part {
-                    derive_dependencies(expr, indices, bound, out);
-                }
-            }
-        }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
-    }
-}
-
-enum Replacement<'a> {
-    Name(&'a str),
-    Expr(&'a Expr),
-}
-
-trait SubstitutionValue: Clone {
-    fn replacement(&self) -> Replacement<'_>;
-    /// The replacement that renames a binder to `name`.
-    fn renamed(name: String, span: crate::Span) -> Self;
-    /// Whether `name` occurs free in the replacement.
-    fn mentions(&self, name: &str) -> bool;
-}
-
-impl SubstitutionValue for String {
-    fn replacement(&self) -> Replacement<'_> {
-        Replacement::Name(self)
-    }
-    fn renamed(name: String, _: crate::Span) -> Self {
-        name
-    }
-    fn mentions(&self, name: &str) -> bool {
-        self == name
-    }
-}
-
-impl SubstitutionValue for Expr {
-    fn replacement(&self) -> Replacement<'_> {
-        match self {
-            Expr::Ident(name, _) => Replacement::Name(name),
-            expr => Replacement::Expr(expr),
-        }
-    }
-    fn renamed(name: String, span: crate::Span) -> Self {
-        Expr::Ident(name, span)
-    }
-    fn mentions(&self, name: &str) -> bool {
-        free_in(self, name)
-    }
-}
-
-/// Whether `name` occurs free in `e`: as a name, or as a call's head (which
-/// substitution also replaces).
-pub(crate) fn free_in(e: &Expr, name: &str) -> bool {
-    match e {
-        Expr::Ident(n, _) => n == name,
-        Expr::Call(n, args, _) => n == name || args.iter().any(|a| free_in(a, name)),
-        Expr::Member(o, _, _)
-        | Expr::NamedArg(_, o, _)
-        | Expr::Some(o, _)
-        | Expr::Unary(_, o, _) => free_in(o, name),
-        Expr::Binary(_, a, b, _) => free_in(a, name) || free_in(b, name),
-        Expr::Ternary(a, b, c, _) => free_in(a, name) || free_in(b, name) || free_in(c, name),
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            ..
-        } => free_in(subject, name) || free_in(none, name) || (var != name && free_in(some, name)),
-        Expr::Template(parts, _) => parts
-            .iter()
-            .any(|p| matches!(p, TemplatePart::Expr(x) if free_in(x, name))),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
-    }
-}
-
-fn free_in_stmts(stmts: &[Stmt], name: &str) -> bool {
-    stmts.iter().any(|st| match st {
-        Stmt::Assign { expr, .. } => free_in(expr, name),
-        Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
-            args.iter().any(|a| free_in(a, name))
-        }
-        Stmt::Refresh { .. } => false,
-        Stmt::If {
-            cond,
-            then,
-            otherwise,
-            ..
-        } => free_in(cond, name) || free_in_stmts(then, name) || free_in_stmts(otherwise, name),
-        Stmt::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            free_in(subject, name)
-                || free_in_stmts(none, name)
-                || (some.0 != name && free_in_stmts(&some.1, name))
-        }
-    })
-}
-
-/// The substitution under a binder `var` whose scope is described by
-/// `free` (whether a name occurs free there): the binder shadows its own
-/// name, and is renamed apart — to a spelling no author can write — when a
-/// replacement for a name free in its scope mentions it, so a parent's
-/// expression passed in can never be captured by a child's binder.
-fn under_binder<'m, T: SubstitutionValue>(
-    var: &str,
-    free: impl Fn(&str) -> bool,
-    subst: &'m BTreeMap<String, T>,
-    span: crate::Span,
-) -> (String, std::borrow::Cow<'m, BTreeMap<String, T>>) {
-    use std::borrow::Cow;
-    let captures = subst
-        .iter()
-        .any(|(name, value)| name != var && value.mentions(var) && free(name));
-    if !captures {
-        if !subst.contains_key(var) {
-            return (var.to_owned(), Cow::Borrowed(subst));
-        }
-        let mut inner = subst.clone();
-        inner.remove(var);
-        return (var.to_owned(), Cow::Owned(inner));
-    }
-    let fresh = (1u32..)
-        .map(|k| format!("{var}@{k}"))
-        .find(|candidate| !free(candidate) && !subst.values().any(|v| v.mentions(candidate)))
-        .expect("an unused binder name");
-    let mut inner = subst.clone();
-    inner.insert(var.to_owned(), T::renamed(fresh.clone(), span));
-    (fresh, Cow::Owned(inner))
-}
-
-/// Substitute prop names by argument expressions. A curried handler
-/// `prop(args)` where the prop's argument is an action `f` or `f(a…)`
-/// becomes `f(a…, args)`. Capture-avoiding: see [`under_binder`].
-fn subst_expr<T: SubstitutionValue>(e: &Expr, subst: &BTreeMap<String, T>) -> Expr {
-    if subst.is_empty() {
-        return e.clone();
-    }
-    match e {
-        Expr::Ident(n, span) => match subst.get(n).map(SubstitutionValue::replacement) {
-            // Renaming a child state does not move its reference to the use
-            // site. Keep the expression's source span for diagnostics.
-            Some(Replacement::Name(name)) => Expr::Ident(name.to_owned(), *span),
-            Some(Replacement::Expr(r)) => r.clone(),
-            None => e.clone(),
-        },
-        Expr::Call(n, args, span) => {
-            let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, subst)).collect();
-            match subst.get(n).map(SubstitutionValue::replacement) {
-                Some(Replacement::Name(f)) => Expr::Call(f.to_owned(), args, *span),
-                Some(Replacement::Expr(Expr::Call(f, first, _))) => {
-                    let mut all = first.clone();
-                    all.extend(args);
-                    Expr::Call(f.clone(), all, *span)
-                }
-                _ => Expr::Call(n.clone(), args, *span),
-            }
-        }
-        Expr::Member(o, f, span) => Expr::Member(Box::new(subst_expr(o, subst)), f.clone(), *span),
-        Expr::NamedArg(n, value, span) => {
-            Expr::NamedArg(n.clone(), Box::new(subst_expr(value, subst)), *span)
-        }
-        Expr::Some(x, span) => Expr::Some(Box::new(subst_expr(x, subst)), *span),
-        Expr::Unary(op, x, span) => Expr::Unary(*op, Box::new(subst_expr(x, subst)), *span),
-        Expr::Binary(op, a, b, span) => Expr::Binary(
-            *op,
-            Box::new(subst_expr(a, subst)),
-            Box::new(subst_expr(b, subst)),
-            *span,
-        ),
-        Expr::Ternary(a, b, c, span) => Expr::Ternary(
-            Box::new(subst_expr(a, subst)),
-            Box::new(subst_expr(b, subst)),
-            Box::new(subst_expr(c, subst)),
-            *span,
-        ),
-        Expr::Match {
-            subject,
-            var,
-            some,
-            none,
-            span,
-        } => {
-            let (var, inner) = under_binder(var, |name| free_in(some, name), subst, *span);
-            Expr::Match {
-                subject: Box::new(subst_expr(subject, subst)),
-                var,
-                some: Box::new(subst_expr(some, &inner)),
-                none: Box::new(subst_expr(none, subst)),
-                span: *span,
-            }
-        }
-        Expr::Template(parts, span) => Expr::Template(
-            parts
-                .iter()
-                .map(|p| match p {
-                    TemplatePart::Text(t) => TemplatePart::Text(t.clone()),
-                    TemplatePart::Expr(x) => TemplatePart::Expr(subst_expr(x, subst)),
-                })
-                .collect(),
-            *span,
-        ),
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => e.clone(),
-    }
-}
-
 // Rename every name the view binds with a unique suffix so inlined bodies
 // cannot capture parent names.
 // Borrow renamed strings directly; subst_expr retains each reference's span.
@@ -857,12 +550,12 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 instance,
             } => Node::Element {
                 tag: tag.clone(),
-                positional: positional.iter().map(|e| subst_expr(e, map)).collect(),
+                positional: positional.iter().map(|e| substituted(e, map)).collect(),
                 attrs: attrs
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: subst_expr(&a.value, map),
+                        value: substituted(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -881,7 +574,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: subst_expr(&a.value, map),
+                        value: substituted(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -895,7 +588,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span,
             } => Node::Provide {
                 name: name.clone(),
-                expr: subst_expr(expr, map),
+                expr: substituted(expr, map),
                 body: rename_nodes(body, map, n),
                 span: *span,
             },
@@ -906,7 +599,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 otherwise,
                 span,
             } => Node::When {
-                cond: subst_expr(cond, map),
+                cond: substituted(cond, map),
                 then: rename_nodes(then, map, n),
                 otherwise: rename_nodes(otherwise, map, n),
                 span: *span,
@@ -925,8 +618,8 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 Node::Each {
                     tag: *tag,
                     var: fresh,
-                    list: subst_expr(list, map),
-                    key: subst_expr(key, &inner),
+                    list: substituted(list, map),
+                    key: substituted(key, &inner),
                     body: rename_nodes(body, &inner, n),
                     span: *span,
                 }
@@ -941,75 +634,9 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let fresh = lifted(&some.0, n);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
-                    subject: subst_expr(subject, map),
+                    subject: substituted(subject, map),
                     some: (fresh, rename_nodes(&some.1, &inner, n)),
                     none: rename_nodes(none, map, n),
-                    span: *span,
-                }
-            }
-        })
-        .collect()
-}
-
-/// A child action's body, its names substituted: assignment targets renamed
-/// with `names`, expressions through `subst` (props, injects, renamed states
-/// and actions, derives as expressions).
-fn subst_stmts(
-    stmts: &[Stmt],
-    subst: &BTreeMap<String, Expr>,
-    names: &BTreeMap<String, String>,
-) -> Vec<Stmt> {
-    stmts
-        .iter()
-        .map(|st| match st {
-            Stmt::Assign { target, expr, span } => Stmt::Assign {
-                target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
-                expr: subst_expr(expr, subst),
-                span: *span,
-            },
-            Stmt::Command { name, args, span } => Stmt::Command {
-                name: name.clone(),
-                args: args.iter().map(|a| subst_expr(a, subst)).collect(),
-                span: *span,
-            },
-            Stmt::Send {
-                target,
-                source,
-                args,
-                span,
-            } => Stmt::Send {
-                target: target.clone(),
-                source: source.clone(),
-                args: args.iter().map(|a| subst_expr(a, subst)).collect(),
-                span: *span,
-            },
-            Stmt::Refresh { target, span } => Stmt::Refresh {
-                target: target.clone(),
-                span: *span,
-            },
-            Stmt::If {
-                cond,
-                then,
-                otherwise,
-                span,
-            } => Stmt::If {
-                cond: subst_expr(cond, subst),
-                then: subst_stmts(then, subst, names),
-                otherwise: subst_stmts(otherwise, subst, names),
-                span: *span,
-            },
-            Stmt::Match {
-                subject,
-                some,
-                none,
-                span,
-            } => {
-                let (var, inner) =
-                    under_binder(&some.0, |name| free_in_stmts(&some.1, name), subst, *span);
-                Stmt::Match {
-                    subject: subst_expr(subject, subst),
-                    some: (var, subst_stmts(&some.1, &inner, names)),
-                    none: subst_stmts(none, subst, names),
                     span: *span,
                 }
             }

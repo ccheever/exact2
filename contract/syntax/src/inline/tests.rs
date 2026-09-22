@@ -2,7 +2,7 @@
 //! and free names share a small pool, substituting then evaluating agrees
 //! with evaluating each replacement first and binding its value.
 
-use super::subst_expr;
+use super::substituted;
 use crate::ast::{BinOp, Expr};
 use crate::Span;
 use std::collections::BTreeMap;
@@ -140,12 +140,12 @@ fn substitution_never_captures_a_replacements_free_name() {
         for (name, replacement) in &subst {
             bound.insert(name.clone(), eval(replacement, &env));
         }
-        let substituted = subst_expr(&e, &subst);
-        renamed += format!("{substituted:?}").contains('@') as u32;
+        let result = substituted(&e, &subst);
+        renamed += format!("{result:?}").contains('@') as u32;
         assert_eq!(
-            eval(&substituted, &env),
+            eval(&result, &env),
             eval(&e, &bound),
-            "\n{e:?}\nunder {subst:?}\nbecame {substituted:?}"
+            "\n{e:?}\nunder {subst:?}\nbecame {result:?}"
         );
     }
     // The generator does produce captures for the renaming to avoid.

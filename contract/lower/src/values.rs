@@ -75,6 +75,7 @@ impl Lowerer<'_> {
                     pending.push((none, none.span()));
                     pending.push((some, some.span()));
                 }
+                Expr::Let { body, .. } => pending.push((body, body.span())),
                 _ => {}
             }
             // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.

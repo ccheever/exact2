@@ -1,0 +1,408 @@
+//! Capture-avoiding substitution of names by expressions (or by other
+//! names), the one operation inlining is built from.
+//!
+//! A [`Subst`] holds its replacements by reference and the binders in force
+//! where it is being applied. A binder hides a replacement of its own name;
+//! when some replacement mentions the binder's name, the binder is renamed
+//! apart — to `x@1`, a spelling no author can write — so an expression a
+//! parent passes in can never be captured by a child's `match` or `let`.
+
+use crate::ast::{Expr, Stmt, TemplatePart};
+use std::cell::OnceCell;
+use std::collections::{BTreeMap, BTreeSet};
+
+pub(super) enum Replacement<'a> {
+    Name(&'a str),
+    Expr(&'a Expr),
+}
+
+pub(super) trait SubstitutionValue: Clone {
+    fn replacement(&self) -> Replacement<'_>;
+    /// Add the names that occur free in the replacement.
+    fn free_names(&self, out: &mut BTreeSet<String>);
+}
+
+impl SubstitutionValue for String {
+    fn replacement(&self) -> Replacement<'_> {
+        Replacement::Name(self)
+    }
+    fn free_names(&self, out: &mut BTreeSet<String>) {
+        out.insert(self.clone());
+    }
+}
+
+impl SubstitutionValue for Expr {
+    fn replacement(&self) -> Replacement<'_> {
+        match self {
+            Expr::Ident(name, _) => Replacement::Name(name),
+            expr => Replacement::Expr(expr),
+        }
+    }
+    fn free_names(&self, out: &mut BTreeSet<String>) {
+        free_names(self, &mut Vec::new(), out)
+    }
+}
+
+/// Replacements by name, applied under the binders in force.
+pub(super) struct Subst<'m, T> {
+    map: &'m BTreeMap<String, T>,
+    /// Every name free in some replacement, computed at the first binder.
+    free: OnceCell<BTreeSet<String>>,
+    /// Binders in force, innermost last: each hides its name's replacement,
+    /// and a renamed one replaces its name by the new spelling.
+    binders: Vec<(String, Option<String>)>,
+}
+
+impl<'m, T: SubstitutionValue> Subst<'m, T> {
+    pub(super) fn new(map: &'m BTreeMap<String, T>) -> Self {
+        Subst {
+            map,
+            free: OnceCell::new(),
+            binders: Vec::new(),
+        }
+    }
+
+    fn get(&self, name: &str) -> Option<Replacement<'_>> {
+        for (bound, spelled) in self.binders.iter().rev() {
+            if bound == name {
+                return spelled.as_deref().map(Replacement::Name);
+            }
+        }
+        self.map.get(name).map(SubstitutionValue::replacement)
+    }
+
+    fn free(&self) -> &BTreeSet<String> {
+        self.free.get_or_init(|| {
+            let mut out = BTreeSet::new();
+            for value in self.map.values() {
+                value.free_names(&mut out);
+            }
+            out
+        })
+    }
+
+    fn introduced(&self, name: &str) -> bool {
+        self.binders
+            .iter()
+            .any(|(_, spelled)| spelled.as_deref() == Some(name))
+    }
+
+    /// Enter a binder `var` whose scope mentions a name when `occurs` says
+    /// so; returns the binder's spelling in the result. Renaming whenever a
+    /// replacement mentions `var` is conservative and always correct.
+    fn enter(&mut self, var: &str, occurs: &dyn Fn(&str) -> bool) -> String {
+        let spelled = if self.free().contains(var) || self.introduced(var) {
+            (1u32..)
+                .map(|k| format!("{var}@{k}"))
+                .find(|c| !occurs(c) && !self.free().contains(c) && !self.introduced(c))
+                .expect("an unused binder name")
+        } else {
+            var.to_owned()
+        };
+        let renamed = (spelled != var).then(|| spelled.clone());
+        self.binders.push((var.to_owned(), renamed));
+        spelled
+    }
+
+    fn leave(&mut self) {
+        self.binders.pop();
+    }
+}
+
+/// `e` with `map` substituted, for a one-off substitution.
+pub(super) fn substituted<T: SubstitutionValue>(e: &Expr, map: &BTreeMap<String, T>) -> Expr {
+    subst_expr(e, &mut Subst::new(map))
+}
+
+/// Substitute prop names by argument expressions. A curried handler
+/// `prop(args)` where the prop's argument is an action `f` or `f(a…)`
+/// becomes `f(a…, args)`.
+pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -> Expr {
+    if s.map.is_empty() && s.binders.is_empty() {
+        return e.clone();
+    }
+    match e {
+        Expr::Ident(n, span) => match s.get(n) {
+            // Renaming a child state does not move its reference to the use
+            // site. Keep the expression's source span for diagnostics.
+            Some(Replacement::Name(name)) => Expr::Ident(name.to_owned(), *span),
+            Some(Replacement::Expr(r)) => r.clone(),
+            None => e.clone(),
+        },
+        Expr::Call(n, args, span) => {
+            let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, s)).collect();
+            match s.get(n) {
+                Some(Replacement::Name(f)) => Expr::Call(f.to_owned(), args, *span),
+                Some(Replacement::Expr(Expr::Call(f, first, _))) => {
+                    let mut all = first.clone();
+                    all.extend(args);
+                    Expr::Call(f.clone(), all, *span)
+                }
+                _ => Expr::Call(n.clone(), args, *span),
+            }
+        }
+        Expr::Member(o, f, span) => Expr::Member(Box::new(subst_expr(o, s)), f.clone(), *span),
+        Expr::NamedArg(n, value, span) => {
+            Expr::NamedArg(n.clone(), Box::new(subst_expr(value, s)), *span)
+        }
+        Expr::Some(x, span) => Expr::Some(Box::new(subst_expr(x, s)), *span),
+        Expr::Unary(op, x, span) => Expr::Unary(*op, Box::new(subst_expr(x, s)), *span),
+        Expr::Binary(op, a, b, span) => Expr::Binary(
+            *op,
+            Box::new(subst_expr(a, s)),
+            Box::new(subst_expr(b, s)),
+            *span,
+        ),
+        Expr::Ternary(a, b, c, span) => Expr::Ternary(
+            Box::new(subst_expr(a, s)),
+            Box::new(subst_expr(b, s)),
+            Box::new(subst_expr(c, s)),
+            *span,
+        ),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => {
+            let subject = Box::new(subst_expr(subject, s));
+            let none = Box::new(subst_expr(none, s));
+            let var = s.enter(var, &|name| occurs(some, name));
+            let some = Box::new(subst_expr(some, s));
+            s.leave();
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                span: *span,
+            }
+        }
+        Expr::Let {
+            name,
+            value,
+            body,
+            span,
+        } => {
+            let value = Box::new(subst_expr(value, s));
+            let name = s.enter(name, &|n| occurs(body, n));
+            let body = Box::new(subst_expr(body, s));
+            s.leave();
+            Expr::Let {
+                name,
+                value,
+                body,
+                span: *span,
+            }
+        }
+        Expr::Template(parts, span) => Expr::Template(
+            parts
+                .iter()
+                .map(|p| match p {
+                    TemplatePart::Text(t) => TemplatePart::Text(t.clone()),
+                    TemplatePart::Expr(x) => TemplatePart::Expr(subst_expr(x, s)),
+                })
+                .collect(),
+            *span,
+        ),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => e.clone(),
+    }
+}
+
+/// A child action's body, its names substituted: assignment targets renamed
+/// with `names`, expressions through `s` (props, injects, renamed states
+/// and actions, derives as expressions).
+pub(super) fn subst_stmts(
+    stmts: &[Stmt],
+    s: &mut Subst<'_, Expr>,
+    names: &BTreeMap<String, String>,
+) -> Vec<Stmt> {
+    stmts
+        .iter()
+        .map(|st| match st {
+            Stmt::Assign { target, expr, span } => Stmt::Assign {
+                target: names.get(target).cloned().unwrap_or_else(|| target.clone()),
+                expr: subst_expr(expr, s),
+                span: *span,
+            },
+            Stmt::Command { name, args, span } => Stmt::Command {
+                name: name.clone(),
+                args: args.iter().map(|a| subst_expr(a, s)).collect(),
+                span: *span,
+            },
+            Stmt::Send {
+                target,
+                source,
+                args,
+                span,
+            } => Stmt::Send {
+                target: target.clone(),
+                source: source.clone(),
+                args: args.iter().map(|a| subst_expr(a, s)).collect(),
+                span: *span,
+            },
+            Stmt::Refresh { target, span } => Stmt::Refresh {
+                target: target.clone(),
+                span: *span,
+            },
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+                span,
+            } => Stmt::If {
+                cond: subst_expr(cond, s),
+                then: subst_stmts(then, s, names),
+                otherwise: subst_stmts(otherwise, s, names),
+                span: *span,
+            },
+            Stmt::Match {
+                subject,
+                some,
+                none,
+                span,
+            } => {
+                let subject = subst_expr(subject, s);
+                let none = subst_stmts(none, s, names);
+                let var = s.enter(&some.0, &|name| {
+                    some.1.iter().any(|st| stmt_occurs(st, name))
+                });
+                let body = subst_stmts(&some.1, s, names);
+                s.leave();
+                Stmt::Match {
+                    subject,
+                    some: (var, body),
+                    none,
+                    span: *span,
+                }
+            }
+        })
+        .collect()
+}
+
+/// Add the names free in `e` (a call's head included: substitution
+/// replaces it too), skipping those `bound` holds.
+fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
+    let mut name = |n: &str, bound: &Vec<String>| {
+        if !bound.iter().any(|b| b == n) {
+            out.insert(n.to_owned());
+        }
+    };
+    match e {
+        Expr::Ident(n, _) => name(n, bound),
+        Expr::Call(n, args, _) => {
+            name(n, bound);
+            for a in args {
+                free_names(a, bound, out);
+            }
+        }
+        Expr::Member(o, _, _)
+        | Expr::NamedArg(_, o, _)
+        | Expr::Some(o, _)
+        | Expr::Unary(_, o, _) => free_names(o, bound, out),
+        Expr::Binary(_, a, b, _) => {
+            free_names(a, bound, out);
+            free_names(b, bound, out);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            free_names(a, bound, out);
+            free_names(b, bound, out);
+            free_names(c, bound, out);
+        }
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            free_names(subject, bound, out);
+            free_names(none, bound, out);
+            bound.push(var.clone());
+            free_names(some, bound, out);
+            bound.pop();
+        }
+        Expr::Let {
+            name: n,
+            value,
+            body,
+            ..
+        } => {
+            free_names(value, bound, out);
+            bound.push(n.clone());
+            free_names(body, bound, out);
+            bound.pop();
+        }
+        Expr::Template(parts, _) => {
+            for p in parts {
+                if let TemplatePart::Expr(x) = p {
+                    free_names(x, bound, out);
+                }
+            }
+        }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+    }
+}
+
+/// Whether `name` is written anywhere in `e`, free or bound.
+fn occurs(e: &Expr, name: &str) -> bool {
+    match e {
+        Expr::Ident(n, _) => n == name,
+        Expr::Call(n, args, _) => n == name || args.iter().any(|a| occurs(a, name)),
+        Expr::Member(o, _, _)
+        | Expr::NamedArg(_, o, _)
+        | Expr::Some(o, _)
+        | Expr::Unary(_, o, _) => occurs(o, name),
+        Expr::Binary(_, a, b, _) => occurs(a, name) || occurs(b, name),
+        Expr::Ternary(a, b, c, _) => occurs(a, name) || occurs(b, name) || occurs(c, name),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => var == name || occurs(subject, name) || occurs(some, name) || occurs(none, name),
+        Expr::Let {
+            name: n,
+            value,
+            body,
+            ..
+        } => n == name || occurs(value, name) || occurs(body, name),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .any(|p| matches!(p, TemplatePart::Expr(x) if occurs(x, name))),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => false,
+    }
+}
+
+fn stmt_occurs(st: &Stmt, name: &str) -> bool {
+    match st {
+        Stmt::Assign { target, expr, .. } => target == name || occurs(expr, name),
+        Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+            args.iter().any(|a| occurs(a, name))
+        }
+        Stmt::Refresh { .. } => false,
+        Stmt::If {
+            cond,
+            then,
+            otherwise,
+            ..
+        } => {
+            occurs(cond, name)
+                || then.iter().any(|s| stmt_occurs(s, name))
+                || otherwise.iter().any(|s| stmt_occurs(s, name))
+        }
+        Stmt::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            some.0 == name
+                || occurs(subject, name)
+                || some.1.iter().any(|s| stmt_occurs(s, name))
+                || none.iter().any(|s| stmt_occurs(s, name))
+        }
+    }
+}

@@ -201,6 +201,16 @@ impl VisitSpans for Expr {
                 none.visit_spans(visit);
                 visit(span);
             }
+            Self::Let {
+                name: _,
+                value,
+                body,
+                span,
+            } => {
+                value.visit_spans(visit);
+                body.visit_spans(visit);
+                visit(span);
+            }
         }
     }
 }

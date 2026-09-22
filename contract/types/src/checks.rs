@@ -103,6 +103,10 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
             calls_in(some, indices, out);
             calls_in(none, indices, out);
         }
+        Expr::Let { value, body, .. } => {
+            calls_in(value, indices, out);
+            calls_in(body, indices, out);
+        }
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

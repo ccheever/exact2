@@ -792,6 +792,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
             }
         }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let t = infer(value, scope, shapes)?;
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(0), t)]);
+            infer(body, &inner, shapes)?
+        }
     })
 }
 

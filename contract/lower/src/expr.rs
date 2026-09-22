@@ -178,7 +178,7 @@ pub(crate) fn compile(
                 };
                 return Ok(());
             }
-            if let Some(f) = l.fns.get(name.as_str()).copied() {
+            if let Some((f, shared)) = l.fns.get(name.as_str()).copied() {
                 // A `fn` (LLP 1017 P5), expanded here: each argument bound
                 // as a local, the body compiled in a scope of the parameters
                 // only, the locals dropped after — no new opcode, no table,
@@ -212,7 +212,7 @@ pub(crate) fn compile(
                         .collect(),
                 );
                 l.fn_depth += 1;
-                let body = compile(l, asm, &f.body, &inner, locals);
+                let body = compile(l, asm, shared, &inner, locals);
                 l.fn_depth -= 1;
                 body?;
                 for _ in &f.params {
@@ -327,6 +327,22 @@ pub(crate) fn compile(
             asm.simple(Opcode::Pop);
             compile(l, asm, none, scope, locals)?;
             asm.place(end);
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            // Evaluated once, then read from the locals stack, as an inline
+            // `match` binds its value.
+            let ty = infer(value, scope, &l.types.shapes).unwrap_or(Ty::Unknown);
+            compile(l, asm, value, scope, locals)?;
+            asm.bind_local();
+            let index = *locals;
+            *locals += 1;
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(index as u32), ty)]);
+            compile(l, asm, body, &inner, locals)?;
+            *locals -= 1;
+            asm.drop_local();
         }
     }
     Ok(())

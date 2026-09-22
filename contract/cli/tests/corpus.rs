@@ -839,3 +839,52 @@ fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
         assert_eq!(text_of(&r, "out").as_deref(), Some(shown), "{expr}");
     }
 }
+
+#[test]
+fn chains_of_derives_and_functions_compile_in_linear_size() {
+    let derives = |n: usize| {
+        let mut src = String::from("component App\n  state a3 = 100\n  view\n    main\n      Child(x=1, y=a3)\ncomponent Child\n  props\n    x: number\n    y: number\n  derive a0 = x + x\n");
+        for i in 1..n {
+            src.push_str(&format!("  derive a{i} = a{} + a{}\n", i - 1, i - 1));
+        }
+        src + &format!(
+            "  derive last = a{} + y\n  view\n    text `${{last}}` testId=\"out\"\n",
+            n - 1
+        )
+    };
+    let fns = |n: usize| {
+        let mut src = String::from("fn f0(x: number): number = x + x\n");
+        for i in 1..n {
+            src.push_str(&format!(
+                "fn f{i}(x: number): number = f{}(x) + f{}(x)\n",
+                i - 1,
+                i - 1
+            ));
+        }
+        src + &format!("component App\n  state v = 1\n  view\n    main\n      text `${{f{}(v)}}` testId=\"out\"\n", n - 1)
+    };
+    for (source, n, shown) in [
+        (derives(16), 16, "65636"),
+        (derives(32), 32, "4294967396"),
+        (fns(16), 16, "65536"),
+        (fns(32), 32, "4294967296"),
+    ] {
+        let plan = contract::compile(&source).unwrap();
+        // Each link adds a bounded number of bytes; a copy would double them.
+        assert!(
+            plan.code.len() < 40 * n,
+            "{n}: {} code bytes",
+            plan.code.len()
+        );
+        let r = Runner::boot(
+            plan,
+            Schedule,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        // The parent's `a3` (100) reaches `last` through `y`, past the child's own `a3`.
+        assert_eq!(text_of(&r, "out").as_deref(), Some(shown));
+    }
+}

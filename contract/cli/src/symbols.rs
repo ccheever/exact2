@@ -761,6 +761,11 @@ impl<'a> Resolver<'a> {
                 self.pop_local();
                 self.expr(none);
             }
+            // Only expansion writes a `let`; an authored tree holds none.
+            Expr::Let { value, body, .. } => {
+                self.expr(value);
+                self.expr(body);
+            }
         }
     }
 }
