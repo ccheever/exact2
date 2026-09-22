@@ -630,23 +630,50 @@ fn derive_dependencies(
     }
 }
 
+enum Replacement<'a> {
+    Name(&'a str),
+    Expr(&'a Expr),
+}
+
+trait SubstitutionValue: Clone {
+    fn replacement(&self) -> Replacement<'_>;
+}
+
+impl SubstitutionValue for String {
+    fn replacement(&self) -> Replacement<'_> {
+        Replacement::Name(self)
+    }
+}
+
+impl SubstitutionValue for Expr {
+    fn replacement(&self) -> Replacement<'_> {
+        match self {
+            Expr::Ident(name, _) => Replacement::Name(name),
+            expr => Replacement::Expr(expr),
+        }
+    }
+}
+
 /// Substitute prop names by argument expressions. A curried handler
 /// `prop(args)` where the prop's argument is an action `f` or `f(a…)`
 /// becomes `f(a…, args)`.
-fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
+fn subst_expr<T: SubstitutionValue>(e: &Expr, subst: &BTreeMap<String, T>) -> Expr {
+    if subst.is_empty() {
+        return e.clone();
+    }
     match e {
-        Expr::Ident(n, span) => match subst.get(n) {
+        Expr::Ident(n, span) => match subst.get(n).map(SubstitutionValue::replacement) {
             // Renaming a child state does not move its reference to the use
             // site. Keep the expression's source span for diagnostics.
-            Some(Expr::Ident(name, _)) => Expr::Ident(name.clone(), *span),
-            Some(r) => r.clone(),
+            Some(Replacement::Name(name)) => Expr::Ident(name.to_owned(), *span),
+            Some(Replacement::Expr(r)) => r.clone(),
             None => e.clone(),
         },
         Expr::Call(n, args, span) => {
             let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, subst)).collect();
-            match subst.get(n) {
-                Some(Expr::Ident(f, _)) => Expr::Call(f.clone(), args, *span),
-                Some(Expr::Call(f, first, _)) => {
+            match subst.get(n).map(SubstitutionValue::replacement) {
+                Some(Replacement::Name(f)) => Expr::Call(f.to_owned(), args, *span),
+                Some(Replacement::Expr(Expr::Call(f, first, _))) => {
                     let mut all = first.clone();
                     all.extend(args);
                     Expr::Call(f.clone(), all, *span)
@@ -702,6 +729,7 @@ fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
 
 // Rename every name the view binds with a unique suffix so inlined bodies
 // cannot capture parent names.
+// Borrow renamed strings directly; subst_expr retains each reference's span.
 fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<Node> {
     nodes
         .iter()
@@ -715,12 +743,12 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 instance,
             } => Node::Element {
                 tag: tag.clone(),
-                positional: positional.iter().map(|e| rename_expr(e, map)).collect(),
+                positional: positional.iter().map(|e| subst_expr(e, map)).collect(),
                 attrs: attrs
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: rename_expr(&a.value, map),
+                        value: subst_expr(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -739,7 +767,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: rename_expr(&a.value, map),
+                        value: subst_expr(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -753,7 +781,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span,
             } => Node::Provide {
                 name: name.clone(),
-                expr: rename_expr(expr, map),
+                expr: subst_expr(expr, map),
                 body: rename_nodes(body, map, n),
                 span: *span,
             },
@@ -764,7 +792,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 otherwise,
                 span,
             } => Node::When {
-                cond: rename_expr(cond, map),
+                cond: subst_expr(cond, map),
                 then: rename_nodes(then, map, n),
                 otherwise: rename_nodes(otherwise, map, n),
                 span: *span,
@@ -783,8 +811,8 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 Node::Each {
                     tag: *tag,
                     var: fresh,
-                    list: rename_expr(list, map),
-                    key: rename_expr(key, &inner),
+                    list: subst_expr(list, map),
+                    key: subst_expr(key, &inner),
                     body: rename_nodes(body, &inner, n),
                     span: *span,
                 }
@@ -799,7 +827,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let fresh = format!("{}__{n}", some.0);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
-                    subject: rename_expr(subject, map),
+                    subject: subst_expr(subject, map),
                     some: (fresh, rename_nodes(&some.1, &inner, n)),
                     none: rename_nodes(none, map, n),
                     span: *span,
@@ -807,14 +835,6 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
             }
         })
         .collect()
-}
-
-fn rename_expr(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
-    let subst: BTreeMap<String, Expr> = map
-        .iter()
-        .map(|(k, v)| (k.clone(), Expr::Ident(v.clone(), e.span())))
-        .collect();
-    subst_expr(e, &subst)
 }
 
 /// A child action's body, its names substituted: assignment targets renamed

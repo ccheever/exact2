@@ -346,6 +346,10 @@ Component expansion copies the root declarations and constructs its expanded vie
 directly, avoiding a discarded copy of the original view. Each child use renames
 only its view; its declarations are already lifted separately. The same rename
 and substitution walks preserve capture avoidance, instance order, and source sites.
+Renaming borrows names from its existing string map through the same expression
+substitution walk, avoiding reconstruction of the map for every expression.
+`each` and `match` retain their lexical scopes; references keep their authored spans.
+An empty substitution map copies the expression without performing name lookups.
 Child derive dependencies are resolved once per use, then substituted separately
 for the view and each action's captured parameters. Resolution fills its existing
 result table without returning expression copies that discovery would discard.
