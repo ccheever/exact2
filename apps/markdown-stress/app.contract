@@ -355,6 +355,34 @@ component DocumentBody
     wide: bool
     editorText: string
     editMarkdown: action
+  state formats = ""
+  state mixed = false
+  state currentLink = ""
+  state unavailable = ""
+  state linkOpen = false
+  state linkUrl = ""
+  action selected(s) writes formats, mixed, currentLink, unavailable
+    formats = s.formats
+    mixed = s.mixed
+    currentLink = s.link
+    unavailable = s.unavailable
+  action applyFormat(name: string)
+    format("markup-editor", name)
+  action heading
+    format("markup-editor", "heading", "2")
+  action openLink writes linkOpen, linkUrl
+    linkOpen = true
+    linkUrl = currentLink
+    focus("markup-link-url")
+  action linkChanged(value) writes linkUrl
+    linkUrl = value
+  action applyLink writes linkOpen
+    format("markup-editor", "link", linkUrl)
+    linkOpen = false
+    focus("markup-editor")
+  action cancelLink writes linkOpen
+    linkOpen = false
+    focus("markup-editor")
   view
     when single
       scroll testId="document" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain"
@@ -362,7 +390,25 @@ component DocumentBody
           column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" testId="reading-column" gap=16
             // The WYSIWYG editor prototype (LLP 1045 D5): the same source
             // string the one-node reader below it draws.
-            textarea markup="markdown" value=editorText change=editMarkdown testId="markup-editor" aria-label="Markdown editor" width="100%" height=260 box-sizing="border-box" padding=12 border-width=1 border-color=theme.fieldEdge border-radius=8 background-color=theme.field color=theme.ink font-size=16 line-height="26px"
+            row role="toolbar" aria-label="Markdown formatting" gap=6 flex-wrap="wrap"
+              MarkdownTool(name="bold", label="Bold", formats=formats, unavailable=unavailable, apply=applyFormat)
+              MarkdownTool(name="italic", label="Italic", formats=formats, unavailable=unavailable, apply=applyFormat)
+              MarkdownTool(name="code", label="Code", formats=formats, unavailable=unavailable, apply=applyFormat)
+              MarkdownTool(name="bullet", label="List", formats=formats, unavailable=unavailable, apply=applyFormat)
+              MarkdownTool(name="quote", label="Quote", formats=formats, unavailable=unavailable, apply=applyFormat)
+              button press=heading retainFocus=true testId="format-heading" disabled=(unavailable != "") min-height=40 padding=8 background-color=theme.control border-radius=6
+                text "H2" font-size=13 color=theme.ink
+              button press=openLink retainFocus=true testId="format-link" disabled=(unavailable != "") min-height=40 padding=8 background-color=theme.control border-radius=6
+                text "Link" font-size=13 color=theme.ink
+            when linkOpen
+              row gap=6 align-items="center" width="100%"
+                input id="markup-link-url" value=linkUrl change=linkChanged aria-label="Link URL" placeholder="https://example.com" testId="markup-link-url" flex=1 min-width=0 padding=8
+                button press=applyLink retainFocus=true testId="apply-link" min-height=40 padding=8
+                  text (linkUrl == "" ? "Remove link" : "Apply") font-size=13 color=theme.ink
+                button press=cancelLink testId="cancel-link" min-height=40 padding=8
+                  text "Cancel" font-size=13 color=theme.ink
+            text `${mixed ? "Mixed · " : ""}${formats}` testId="markup-selection" font-size=12 color=theme.softInk
+            textarea id="markup-editor" markup="markdown" value=editorText change=editMarkdown select=selected testId="markup-editor" aria-label="Markdown editor" width="100%" height=260 box-sizing="border-box" padding=12 border-width=1 border-color=theme.fieldEdge border-radius=8 background-color=theme.field color=theme.ink font-size=16 line-height="26px"
             text editorText markup="markdown" testId="markup-preview" width="100%" font-size=16 line-height="26px" color=theme.ink
             text doc.source markup="markdown" testId="markup-node" width="100%" font-size=16 line-height="26px" color=theme.ink
     else
@@ -378,3 +424,16 @@ component DocumentBody
             column width="100%" max-width=(wide ? 1200 : 640) padding-left=20 padding-right=20 box-sizing="border-box" gap=2 testId="reading-column"
               each b in doc.blocks key=b.id
                 Blocks(block=b)
+
+component MarkdownTool
+  inject
+    theme: Theme
+  props
+    name: string
+    label: string
+    formats: string
+    unavailable: string
+    apply: action
+  view
+    button press=apply(name) retainFocus=true testId=`format-${name}` disabled=(unavailable != "") min-height=40 padding=8 background-color=theme.control border-radius=6
+      text label font-size=13 color=theme.ink
