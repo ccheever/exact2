@@ -2,9 +2,14 @@
   "name": "exact2",
   "private": true,
   "packageManager": "bun@1.4.2",
-  "engines": { "bun": ">=1.4.2" },
+  "engines": {
+    "bun": ">=1.4.2"
+  },
   "description": "The bake's TypeScript toolchain (LLP 1027 D5, ruled 2026-09-03): Rolldown bundles and strips an app's `app.ts` to one script for hermesc. SQLite WASM is shipped as a lazy browser storage artifact.",
   "devDependencies": {
+    "@codemirror/commands": "6.11.1",
+    "@codemirror/state": "6.7.5",
+    "@codemirror/view": "6.43.12",
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
     "rolldown": "1.2.9",
     "snapback4": "0.2.30",

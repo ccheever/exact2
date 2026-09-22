@@ -40,7 +40,7 @@
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */
-  #exact-root * { position: relative; }
+  #exact-root *:not(.cm-editor, .cm-editor *) { position: relative; }
   img, video { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope

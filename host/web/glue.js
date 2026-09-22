@@ -377,11 +377,32 @@ function inertAncestor(el) {
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap();
 function writeValue(el, value) {
+  if (el.exactMarkup) { el.exactMarkup.setValue(value); return; }
+  if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
   if (typeof el.setRangeText !== "function" || old === "" || document.activeElement !== el) { el.value = value; return; }
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
   const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
   el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
+let markupModule;
+const markupPending = new WeakSet();
+function syncMarkup(el) {
+  if (el.exactMarkup) { el.exactMarkup.sync(); return; }
+  if (!(el instanceof HTMLTextAreaElement) || el.getAttribute('markup') !== 'markdown' || markupPending.has(el)) return;
+  markupPending.add(el);
+  markupModule ??= moduleReady.then(() => loadAfterPaint('./markup-editor.js', 'installMarkupEditor'));
+  markupModule.then(install => {
+    const id = Number(el.dataset.view), live = node => views.get(id) === node && node.isConnected && !retiredViews.has(node);
+    if (!live(el) || el.getAttribute('markup') !== 'markdown') return;
+    install(el, { live, replace(node) { views.set(id, node); attach(node, id, el.exactHandlers); },
+      select(node, payload) { if (live(node) && inputReady && node.exactHandlers.includes('select')) send(wasm.exact_dispatch(id, 21, writeIn(payload), now())); },
+      call(kind, source, a = 0, b = 0, command = '', argument = '') {
+        const prefix = kind === 'edit' ? command + argument : '', n = writeIn(prefix + source);
+        const len = kind === 'edit' ? wasm.exact_markup_edit(a, b, enc.encode(command).length, enc.encode(argument).length, n) : kind === 'plain' ? wasm.exact_markup_plain(n) : wasm['exact_markup_' + kind](a, b, n);
+        const output = readOut(len); return kind === 'plain' ? output : JSON.parse(output);
+      } });
+  }).catch(error => console.error('exact: Markdown editor:', error));
+}
 function applyProps(el, set, clear) {
   syncMedia(el, set, clear);
   let sandboxChanged = false;
@@ -393,7 +414,7 @@ function applyProps(el, set, clear) {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
     else if (name === "text") el.textContent = "";
-    else if (name === "value") el.value = "";
+    else if (name === "value") writeValue(el, "");
     else if (name === "checked") el.checked = false;
     else if (name === "inert") { el.authoredInert = false; el.inert = false; }
     else el.removeAttribute(name);
@@ -438,6 +459,7 @@ function applyProps(el, set, clear) {
     if (source === null) el.removeAttribute("src");
   }
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
+  syncMarkup(el);
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 function ensureMessageListener() {
@@ -492,6 +514,7 @@ function environment() {
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id);
+  el.exactHandlers = handlers;
   el.exactFlowEvents = handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"] }[k] ?? []));
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   // Teardown can synchronously blur the old input after the new runner is
@@ -514,7 +537,7 @@ function attach(el, id, handlers) {
   // A node with focus, blur, or key handlers can take the focus (an input
   // or a button does by itself): the web's rule that only a focusable
   // element hears these.
-  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.hasAttribute("tabindex")) el.tabIndex = 0;
+  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
       on("click", (e) => { e.stopPropagation(); send(wasm.exact_dispatch(id, 0, 0, now())); });
@@ -561,7 +584,7 @@ function attach(el, id, handlers) {
       // keydown, the key's name as the web spells it (`e.key`).
       on("keydown", (e) => { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); });
     }
-    if (kind === "submit" && el.tagName !== "TEXTAREA") {
+    if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
       // to the node's `submit` handler, no form needed (and no reload).
       on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
@@ -740,6 +763,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
         else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
+        else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
             console.error("exact: openURL requires one string");
@@ -771,7 +795,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -819,13 +843,13 @@ function apply(batch) {
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
     // A focus that cannot be delivered is a journal line with its reason,
     // never silence (LLP 1035.001 D6); the reasons are the iOS host's.
-    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled") ? "disabled"
+    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
       : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
       : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
     if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
     if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
     el.focus();
-    if (selectText && document.activeElement === el) el.select();
+    if (selectText && (document.activeElement === el || el.exactMarkup?.view.hasFocus)) el.select();
   }
   positionContexts();
   return batch.timers;
@@ -1139,9 +1163,9 @@ function agent(request) {
         const st = ask(request);
         if (st.error) return st;
         const r2 = (x) => Math.round(x * 100) / 100;
-        const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
+        const idOf = (e) => { for (const [i, v] of views) if (v === e || (v.exactMarkup && v.contains(e))) return i; return null; };
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
-        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement ? idOf(active) : null;
+        const editor = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active?.closest('.exact-markdown-editor') ? idOf(active) : null;
         st.media = [...views].filter(([, el]) => el instanceof HTMLVideoElement).map(([id, el]) => ({ id, state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: "HTMLVideoElement" } }));
         st.focus = { logical: active ? idOf(active) : null, editor, responder: active ? active.localName : null, pending: null };
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
@@ -1178,7 +1202,7 @@ function agent(request) {
       case "focus": {
         const el = views.get(request.id);
         if (!el) return { error: `no view ${request.id}` };
-        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return { error: `view ${request.id} is not an input` };
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el.exactMarkup)) return { error: `view ${request.id} is not an input` };
         el.focus();
         if (request.select !== false) el.select();
         return { ok: true };
@@ -1213,6 +1237,7 @@ function agent(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
+  if (markupModule) await markupModule;
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
@@ -1334,7 +1359,7 @@ async function boot(bytes, assets = devAssets, current = () => true, module = nu
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  views.clear();
+  for (const el of views.values()) el.exactMarkup?.destroy(); views.clear();
   messageFrames.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
