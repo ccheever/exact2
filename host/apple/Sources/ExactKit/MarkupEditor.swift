@@ -144,10 +144,11 @@ final class MarkupEditor: NSObject {
 /// without a text-change delegate callback; completion publishes the source
 /// once, after the complete native undo/redo transaction and its selection.
 final class NativeTextUndo {
-    let manager = UndoManager()
+    let manager: UndoManager
     private var observers: [NSObjectProtocol] = []
 
-    init(before: @escaping () -> Void, after: @escaping () -> Void) {
+    init(manager: UndoManager = UndoManager(), before: @escaping () -> Void, after: @escaping () -> Void) {
+        self.manager = manager
         let center = NotificationCenter.default
         for name in [Notification.Name.NSUndoManagerWillUndoChange, .NSUndoManagerWillRedoChange] {
             observers.append(center.addObserver(forName: name, object: manager, queue: nil) { _ in before() })

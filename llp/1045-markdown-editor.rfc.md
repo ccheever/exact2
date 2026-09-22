@@ -235,6 +235,17 @@ and the row is kept only if the numbers say so.
   transformed through it, so an app's own edit to `value` does not throw the
   caret to the end.
 
+**Native validation status, 2026-09-22:** UIKit must retain its specialized
+per-editor undo manager; replacing it with a plain `UndoManager` can leave
+source unchanged on Undo. Source undo/redo across natural run-loop turns and
+editor-history isolation are verified in the simulator with the native manager.
+The one-command-one-undo requirement remains incomplete when another source
+edit and a format share an automatic native event group: Undo can restore the
+source preceding both edits. A manual automatic-group repair was reverted
+after a scheduled run-loop close raised an exception on iOS and macOS. It is
+not part of the editing baseline. Phone interaction and intrinsic editor sizing
+remain separate, unproven work.
+
 ### D6 — Commands and toolbar state
 
 `format(id, command, argument?)` joins `focus(id)` and `selectText(id)` as a capability

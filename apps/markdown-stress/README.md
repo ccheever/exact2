@@ -480,3 +480,21 @@ document out; it is not windowed, which is what segments are for. macOS taps
 in this app were ignored on the measuring machine at the unmodified base, so
 there is no macOS row. The driver is a scratch script over
 `scripts/agent.mjs` (`open`, `tap`, `clock('settle')`, `tree`).
+
+## Native editing baseline — 2026-09-22
+
+The one-node mode now includes a fixed-height source editor and formatting
+toolbar on iOS and macOS. Markdown syntax remains visible at full advance and
+is dimmed around styled text. UIKit retains its native per-editor undo manager;
+simulator probes verify source undo/redo across natural run-loop turns,
+composition, replacement, paste/cut, and independent editor histories. The
+packaged iOS app also passes list Return, empty-item exit, link-field focus,
+and subsequent native input checks. These are simulator proofs, not physical
+phone gesture or accessibility evaluation.
+
+Native command history is still incomplete: a source replacement and a format
+inside the same automatic event group can undo together. For example, replacing
+the buffer with `- item`, then applying list Return, can undo past `- item` to
+the earlier buffer. A manual-group repair was reverted after a scheduled native
+run-loop close crashed; no such repair is retained. Do not treat the native
+one-command-one-undo requirement or intrinsic editor-height parity as complete.
