@@ -362,12 +362,16 @@ opportunity; the 100 ms save-to-present p50 target is not demonstrated.
 
 ```sh
 export EXACT_UPDATE_TRUST=development                                   # local development artifacts
-cargo build --workspace                                                 # build
-cargo test --workspace                                                  # test
-cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check   # lint
+cargo build --all-targets                                               # build
+cargo test --lib --bins --tests                                         # test
+cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check # lint
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
 ```
+
+Cargo's checks cover the root `default-members`: the deterministic, in-process
+crates. The async lane runs the same commands with `--workspace` (hosts, GPU,
+Hermes, platform shells, stress fixtures).
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development

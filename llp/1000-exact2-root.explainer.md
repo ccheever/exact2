@@ -122,12 +122,15 @@ per host, and the smoke as a script of its operations.)
 `build` · `test` · `lint` · `caps` · `boot`
 
 ```sh
-cargo build --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings && cargo fmt --all -- --check
+cargo build --all-targets
+cargo test --lib --bins --tests
+cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
 bun scripts/caps.mjs
 bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
 ```
+
+Cargo's three cover the root `default-members` (deterministic, in-process
+crates); the async lane runs them with `--workspace`.
 
 ## Durable constraints (from the rules, restated for orientation)
 

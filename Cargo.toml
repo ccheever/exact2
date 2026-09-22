@@ -1,5 +1,18 @@
 [workspace]
 members = ["apps/video-player/data", "apps/video-player/apple", "apps/video-player/web", "data/host", "apps/fieldnotes/data", "data", "apps/update-lab/logic", "logic/bake", "apps/caltrain/logic", "logic", "logic/abi", "apps/update-lab/data", "apps/update-lab/web", "apps/update-lab/apple", "snapback4", "apps/messages/linux", "kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/weatherlight/web", "apps/weatherlight/apple", "apps/weatherlight/gpu", "apps/messages/apple", "apps/messages/web", "apps/typetour/data", "apps/typetour/apple", "apps/typetour/web", "apps/interaction-gallery/data", "apps/interaction-gallery/web", "apps/interaction-gallery/apple", "apps/interaction-gallery/linux", "apps/markdown-stress/data", "apps/markdown-stress/web", "apps/markdown-stress/apple", "apps/markdown-stress/linux", "apps/messages-stress/linux", "apps/completion-storm/apple", "apps/completion-storm/linux", "apps/messages-stress/data", "apps/messages-stress/web", "apps/messages-stress/apple", "apps/completion-storm/data", "apps/completion-storm/web", "route", "host/raster", "apps/exact-live/data", "apps/exact-live/web", "apps/exact-live/apple", "apps/exact-live/linux", "apps/textflow/data", "apps/textflow/web", "apps/textflow/apple", "apps/textflow/linux", "textflow", "markdown", "markdown/editor", "apps/reflow/data", "apps/reflow/web", "apps/reflow/apple", "apps/reflow/linux"]
+# The blocking gate (rules/RULES.md): deterministic, in-process crates. Hosts,
+# GPU, Hermes, platform shells and stress fixtures run in the async lane,
+# which adds `--workspace` to the same commands.
+default-members = [
+    "kernel", "motion", "plan", "runner", "route",
+    "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli",
+    "markdown", "markdown/editor", "textflow", "update", "data", "logic", "logic/abi",
+    "filesystem", "host/raster", "js/value",
+    "apps/caltrain", "apps/caltrain/data", "apps/completion-storm/data", "apps/exact-live/data",
+    "apps/fieldnotes/data", "apps/interaction-gallery/data", "apps/llp/data", "apps/markdown/data",
+    "apps/markdown/parse", "apps/markdown-stress/data", "apps/textflow/data", "apps/typetour/data",
+    "apps/update-lab/data", "apps/video-player/data",
+]
 resolver = "2"
 
 # Snapback4 0.2.30 release source: a397218e2332964ebe29aa1d30918c436713cc8a.
