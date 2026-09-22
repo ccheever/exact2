@@ -181,17 +181,27 @@ and the row is kept only if the numbers say so.
 ### D5 — The editor is the platform's text view with the styler attached
 
 - **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
-  on **TextKit 1, chosen explicitly** (`UITextView(usingTextLayoutManager:
-  false)`; the Mac view is TextKit 1 already). TextKit 1 has the one mechanism
-  that removes a glyph *and its advance*: `NSLayoutManagerDelegate`'s glyph
-  generation with `.null` glyph properties. TextKit 2 has no equivalent and
-  switches back irreversibly the moment `layoutManager` is touched, so it is
-  not a choice for this editor; a later TextKit 2 design would be its own
-  document. The host restyles from the edited block to the end (D2) in place —
-  attributes, never `attributedText` — so selection and marked text survive;
-  caret rectangles, hit testing and selection highlights are TextKit's over
-  the same glyph stream, and D1's behaviours are verified over it. The shared
-  Swift lives in `host/apple/swift`.
+  on **TextKit 2** (Charlie, 2026-09-21: "I worry about being on an older less
+  supported train"; r2 had chosen TextKit 1 for its glyph-generation delegate).
+  TextKit 2 needs no glyph delegate: a marker the selection does not touch is
+  hidden by attributes alone — a near-zero font removes its advance, a clear
+  colour its ink — which survives autocorrect, dictation and IME, works
+  under either layout manager, and never touches `layoutManager` (the
+  irreversible switch back). Typing attributes are reset to the base after
+  every restyle, so text typed beside a hidden marker does not inherit its
+  look. The host restyles the whole storage in place from
+  `exact_markup_style` (attributes, never `attributedText`) after each change
+  and selection move, so selection and marked text survive; caret rectangles,
+  hit testing and selection are TextKit's over the same characters, and
+  D1's behaviours are verified over it. **Landed 2026-09-21 on iOS** as the
+  slice-3 prototype (`MarkupEditorIOS.swift`, `textarea markup="markdown"` in
+  `apps/markdown-stress`'s one-node mode): headings, emphasis, code, links,
+  quotes, hidden and revealed markers, on the simulator. Owed: bullets and
+  boxes drawn in place of list markers (an `NSTextList` indented but drew no
+  marker in `UITextView`; a layout-fragment delegate on its text layout
+  manager was not consulted; markers show dimmed meanwhile), `format` and
+  `select`, D1's caret and copy rules, the phone proofs of slice 3, macOS.
+  The shared Swift will live in `host/apple/swift`.
 - **Web:** a `contenteditable` element whose text content is the source; spans
   are rebuilt from the edited block to the end with the selection restored by
   offset, never during composition; hidden markers are `display: none`. The

@@ -147,6 +147,10 @@ typedef struct ExactMarkupPiece {
 } ExactMarkupPiece;
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
+/* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
+ * ranges and replacements over the source in UTF-16 units; the selection reveals markers it touches
+ * (sel_start UINT32_MAX for none). Valid until exact_markup_free(handle). */
+uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 void exact_markup_free(uint64_t handle);
 
 typedef struct ExactMetrics {

@@ -25,6 +25,8 @@ final class TextField: UITextField {
 
 final class TextArea: UITextView {
     weak var owner: NodeView?
+    /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
+    var markup: MarkupEditor?
     override func resignFirstResponder() -> Bool {
         let wasFirst = isFirstResponder
         let resigned = super.resignFirstResponder()
@@ -95,6 +97,9 @@ extension NodeView {
     }
 
     func makeTextArea() {
+        // A Markdown editor stays on TextKit 2 (LLP 1045 D5): markers hide
+        // by attributes and marker glyphs draw from a layout fragment, so
+        // `layoutManager` is never touched.
         let f = TextArea(frame: .zero)
         f.owner = self
         f.backgroundColor = .clear
@@ -124,10 +129,24 @@ extension NodeView {
         f.textColor = color("text_color", .black)
         f.tintColor = caretColor
         (f as? TextArea)?.applyLineHeight(usedLineHeight)
+        restyleMarkup()
         f.setNeedsDisplay()
         layoutTextArea()
     }
     func layoutTextArea() { textArea?.frame = contentBox() }
+    /// Restyle a Markdown editor's storage for its text and selection.
+    func restyleMarkup() {
+        guard let f = textArea as? TextArea, let t = text else { return }
+        // The props arrive after the view; the styler attaches on the first
+        // apply that names Markdown and stays for the view's life.
+        if f.markup == nil, props["markup"] == "markdown" { f.markup = MarkupEditor() }
+        guard let editor = f.markup else { return }
+        let look = MarkupEditor.Look(
+            font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
+            size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
+            italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", .black))
+        editor.restyle(f, look: look)
+    }
     /// The app's value into the editor: nothing while text is being composed
     /// (held until the composition ends), else the changed middle only, with
     /// the selection carried through (LLP 1045 D5).
@@ -142,11 +161,17 @@ extension NodeView {
             f.textStorage.replaceCharacters(in: edit.range, with: NSAttributedString(string: edit.text, attributes: f.typingAttributes))
         }
         f.selectedRange = carrySelection(selection, through: edit)
+        restyleMarkup()
     }
     func textViewDidChange(_ textView: UITextView) {
         textView.setNeedsDisplay()
         if !disabled, handlers.contains("change") { presenter?.change(id, textView.text ?? "") }
         if textView.markedTextRange == nil, let held = pendingValue { writeValue(held, into: textView) }
+        restyleMarkup()
+    }
+    func textViewDidChangeSelection(_ textView: UITextView) {
+        // The caret reveals the markers of what it touches (LLP 1045 D1).
+        if (textView as? TextArea)?.markup != nil { restyleMarkup() }
     }
     func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()
