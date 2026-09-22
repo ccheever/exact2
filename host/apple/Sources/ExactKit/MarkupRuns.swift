@@ -14,6 +14,14 @@ enum MarkupRuns {
     /// The monospace system family, as the kernel's font table numbers it.
     static let monospaceFamily = 5
 
+    /// Native readers have no document base for relative destinations. Parse
+    /// absolute targets and gate their scheme at the navigation boundary.
+    static func navigationURL(_ href: String) -> URL? {
+        guard let url = URL(string: href), let scheme = url.scheme?.lowercased(),
+              ["http", "https", "mailto", "tel"].contains(scheme) else { return nil }
+        return url.absoluteURL
+    }
+
     /// Expand `source` into runs over `base` (the node's own run style).
     /// `color` is the node's ink; nil keeps the paragraph colour.
     static func expand(_ source: String, base: Run, color: [Double]?) -> [Run] {
@@ -34,10 +42,11 @@ enum MarkupRuns {
                 if p.italic != 0 { run.italic = true }
                 if p.mono != 0 { run.family = monospaceFamily }
                 if let href = p.href, p.href_len > 0 {
-                    run.href = String(decoding: UnsafeBufferPointer(start: href, count: p.href_len), as: UTF8.self)
+                    let target = String(decoding: UnsafeBufferPointer(start: href, count: p.href_len), as: UTF8.self)
+                    run.href = navigationURL(target)?.absoluteString ?? ""
                 }
                 var decoration = p.strike != 0 ? "line-through" : ""
-                if p.role == 2 { decoration = decoration.isEmpty ? "underline" : decoration + " underline" }
+                if p.role == 2, !run.href.isEmpty { decoration = decoration.isEmpty ? "underline" : decoration + " underline" }
                 run.decoration = decoration
                 // A short line between blocks keeps the node's line height
                 // from stretching it back to a full line.

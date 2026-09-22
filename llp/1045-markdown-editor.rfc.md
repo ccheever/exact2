@@ -163,6 +163,12 @@ Images, videos, embeds and tables are their own segments; a huge document is
 segmented by `limit` and windowed by the existing measured list. A feed card
 is `excerpt`, one plain node.
 
+Reader navigation accepts parsed `http`, `https`, `mailto`, and `tel` targets.
+Other schemes render as inert labels; their canonical source and editable
+destination stay intact. The web resolves relative links against the document
+base before checking the protocol. Native readers have no document base, so
+relative destinations remain inert there.
+
 **Landed 2026-09-21 (slice 2, first form).** The kernel carries `markup` and
 `Paragraph.markup`; `exact-markdown::pieces` flattens a source into display
 runs (headings as bigger bold runs, bullets, boxes, rules, quote bars and

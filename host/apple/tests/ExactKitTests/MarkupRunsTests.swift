@@ -4,6 +4,25 @@ import XCTest
 @testable import ExactKit
 
 final class MarkupRunsTests: XCTestCase {
+    func testNavigationTargetsUseSupportedParsedAbsoluteSchemes() {
+        let unsafe = ["javascript:probe", "JaVaScRiPt:probe", "\u{0}\u{1f} javascript:probe",
+                      "java\tscript:probe", "java\nscript:probe", "java\rscript:probe",
+                      "data:text/html,probe", "vbscript:probe", "file:///tmp/probe", "custom:probe",
+                      "blob:https://example.test/id", "about:blank", "ftp://example.test/file",
+                      "http://[invalid", "/relative/path", "../sibling", "//example.test/path", "#local"]
+        for href in unsafe { XCTAssertNil(MarkupRuns.navigationURL(href), href) }
+        for href in ["https://example.test/x", "HTTP://example.test/x", "mailto:test@example.test", "tel:+15551234567"] {
+            XCTAssertNotNil(MarkupRuns.navigationURL(href), href)
+        }
+        let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "/relative"] {
+            let runs = MarkupRuns.expand("[visible](\(href))", base: base, color: nil)
+            XCTAssertEqual(runs.map(\.text).joined(), "visible", href)
+            XCTAssertTrue(runs.allSatisfy { $0.href.isEmpty }, href)
+            XCTAssertTrue(runs.allSatisfy { !$0.decoration.contains("underline") }, href)
+        }
+    }
+
     func testASourceExpandsIntoStyledRunsAgainstTheNodesFont() {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
         let runs = MarkupRuns.expand("# Title\n\nSome **bold** and `code` and [a link](https://e.dev).", base: base, color: [10, 20, 30, 255])

@@ -112,7 +112,7 @@ final class MarkupEditor: NSObject {
             if flags & 16 != 0 {
                 attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
                 attributes[.foregroundColor] = look.ink
-                if !href.isEmpty, let url = URL(string: href) { attributes[.link] = url }
+                if let url = MarkupRuns.navigationURL(href) { attributes[.link] = url }
             }
             storage.addAttributes(attributes, range: range)
         }

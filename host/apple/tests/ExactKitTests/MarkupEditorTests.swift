@@ -46,6 +46,25 @@ final class MarkupEditorTests: XCTestCase {
         XCTAssertNotNil(f.textLayoutManager)
     }
 
+    func testLinkAttributesGateNavigationWithoutChangingSource() {
+        let storage = NSTextStorage(string: "")
+        let editor = MarkupEditor()
+        let look = MarkupEditor.Look(font: { size, _, _, _ in NSFont.systemFont(ofSize: size) },
+                                     size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, ink: .textColor)
+        for href in ["https://example.test/path", "javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "/relative"] {
+            let source = "[visible](\(href))"
+            storage.mutableString.setString(source)
+            editor.restyle(storage, selection: NSRange(location: 0, length: 0), look: look)
+            XCTAssertEqual(storage.string, source)
+            var links: [URL] = []
+            storage.enumerateAttribute(.link, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+                if let url = value as? URL { links.append(url) }
+            }
+            XCTAssertEqual(links.isEmpty, !href.hasPrefix("https:"), href)
+            XCTAssertTrue(links.allSatisfy { $0.absoluteString == href })
+        }
+    }
+
     func testControlledValueAndRestylingKeepTheNativeUndoTransaction() {
         let (node, f, window, presenter) = editor("hello", selection: NSRange(location: 0, length: 5))
         let session = ExactApp.shared.makeSession(label: "markup-undo")
