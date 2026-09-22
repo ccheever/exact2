@@ -751,49 +751,6 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
     })
 }
 
-/// Every function name an expression calls, for the `fn` cycle check.
-fn calls_in(e: &Expr, out: &mut Vec<String>) {
-    match e {
-        Expr::Call(n, args, _) => {
-            out.push(n.clone());
-            for a in args {
-                calls_in(a, out);
-            }
-        }
-        Expr::Some(x, _)
-        | Expr::Unary(_, x, _)
-        | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => calls_in(x, out),
-        Expr::Binary(_, a, b, _) => {
-            calls_in(a, out);
-            calls_in(b, out);
-        }
-        Expr::Ternary(a, b, c, _) => {
-            calls_in(a, out);
-            calls_in(b, out);
-            calls_in(c, out);
-        }
-        Expr::Match {
-            subject,
-            some,
-            none,
-            ..
-        } => {
-            calls_in(subject, out);
-            calls_in(some, out);
-            calls_in(none, out);
-        }
-        Expr::Template(parts, _) => {
-            for p in parts {
-                if let TemplatePart::Expr(x) = p {
-                    calls_in(x, out);
-                }
-            }
-        }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
-    }
-}
-
 /// Check shared shapes and functions, including a module without a root component.
 /// Navigation uses the same declaration rules as executable compilation.
 pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
@@ -872,62 +829,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             );
         }
     }
-    {
-        // Acyclic: depth-first over the calls each body makes to other fns.
-        let graph: BTreeMap<&str, Vec<String>> = file
-            .fns
-            .iter()
-            .map(|f| {
-                let mut out = Vec::new();
-                calls_in(&f.body, &mut out);
-                (f.name.as_str(), out)
-            })
-            .collect();
-        fn visit(
-            name: &str,
-            graph: &BTreeMap<&str, Vec<String>>,
-            states: &mut BTreeMap<String, u8>,
-            path: &mut Vec<String>,
-        ) -> Option<Vec<String>> {
-            match states.get(name) {
-                Some(2) => return None,
-                Some(1) => {
-                    path.push(name.to_string());
-                    return Some(path.clone());
-                }
-                _ => {}
-            }
-            states.insert(name.to_string(), 1);
-            path.push(name.to_string());
-            for callee in graph.get(name).into_iter().flatten() {
-                if graph.contains_key(callee.as_str()) {
-                    if let Some(cycle) = visit(callee, graph, states, path) {
-                        return Some(cycle);
-                    }
-                }
-            }
-            path.pop();
-            *states.get_mut(name).expect("visited function") = 2;
-            None
-        }
-        // Completed subgraphs are shared across roots and call sites. Without
-        // this memo, N helpers that each call the preceding helper twice take
-        // exponential work even when no helper is used by the app.
-        let mut states = BTreeMap::new();
-        for f in &file.fns {
-            if let Some(cycle) = visit(&f.name, &graph, &mut states, &mut Vec::new()) {
-                return err(
-                    "type-fn-recursive",
-                    format!(
-                        "`fn {}` calls itself ({}): a fn is expanded where it is called, so it cannot recurse — a traversal is the data crate's",
-                        f.name,
-                        cycle.join(" → ")
-                    ),
-                    f.span,
-                );
-            }
-        }
-    }
+    checks::check_function_cycles(file)?;
     Ok(shapes)
 }
 

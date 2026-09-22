@@ -1,8 +1,118 @@
 //! Type diagnostics and component checks that require recursive traversal.
 
 use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
-use contract_syntax::{one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TypeExpr};
+use contract_syntax::{
+    one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart, TypeExpr,
+};
 use std::collections::{BTreeMap, BTreeSet};
+
+/// Reject recursive functions without revisiting completed subgraphs.
+pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
+    let indices: BTreeMap<&str, usize> = file
+        .fns
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.name.as_str(), i))
+        .collect();
+    let graph: Vec<Vec<usize>> = file
+        .fns
+        .iter()
+        .map(|f| {
+            let mut out = Vec::new();
+            calls_in(&f.body, &indices, &mut out);
+            out
+        })
+        .collect();
+    fn visit(
+        index: usize,
+        graph: &[Vec<usize>],
+        states: &mut [u8],
+        path: &mut Vec<usize>,
+    ) -> Option<Vec<usize>> {
+        match states[index] {
+            2 => return None,
+            1 => {
+                path.push(index);
+                return Some(path.clone());
+            }
+            _ => {}
+        }
+        states[index] = 1;
+        path.push(index);
+        for &callee in &graph[index] {
+            if let Some(cycle) = visit(callee, graph, states, path) {
+                return Some(cycle);
+            }
+        }
+        path.pop();
+        states[index] = 2;
+        None
+    }
+    // Keep completed subgraphs across roots: repeated shared helpers otherwise
+    // take exponential work even when no helper is expanded into the app.
+    let mut states = vec![0; file.fns.len()];
+    let mut path = Vec::new();
+    for (i, f) in file.fns.iter().enumerate() {
+        if let Some(cycle) = visit(i, &graph, &mut states, &mut path) {
+            let names: Vec<_> = cycle.iter().map(|&i| file.fns[i].name.as_str()).collect();
+            return err(
+                "type-fn-recursive",
+                format!(
+                    "`fn {}` calls itself ({}): a fn is expanded where it is called, so it cannot recurse — a traversal is the data crate's",
+                    f.name,
+                    names.join(" → ")
+                ),
+                f.span,
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Function calls in expression order, excluding calls outside the authored graph.
+fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
+    match e {
+        Expr::Call(n, args, _) => {
+            if let Some(&index) = indices.get(n.as_str()) {
+                out.push(index);
+            }
+            for a in args {
+                calls_in(a, indices, out);
+            }
+        }
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _) => calls_in(x, indices, out),
+        Expr::Binary(_, a, b, _) => {
+            calls_in(a, indices, out);
+            calls_in(b, indices, out);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            calls_in(a, indices, out);
+            calls_in(b, indices, out);
+            calls_in(c, indices, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            calls_in(subject, indices, out);
+            calls_in(some, indices, out);
+            calls_in(none, indices, out);
+        }
+        Expr::Template(parts, _) => {
+            for p in parts {
+                if let TemplatePart::Expr(x) = p {
+                    calls_in(x, indices, out);
+                }
+            }
+        }
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+    }
+}
 
 /// Check compatibility without constructing a discarded merged type.
 pub(super) fn can_unify(a: &Ty, b: &Ty) -> bool {

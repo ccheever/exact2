@@ -35,6 +35,7 @@ fn shared_completed_subgraphs_do_not_hide_a_later_cycle() {
         "fn leaf(x: number): number = x\nfn twice(x: number): number = leaf(x) + leaf(x)\nfn bad(x: number): number = twice(x) + bad(x)\n",
         "fn leaf(x: number): number = x\nfn first(x: number): number = leaf(x) + second(x)\nfn second(x: number): number = leaf(x) + first(x)\n",
         "fn first(x: number): number = second(x)\nfn second(x: number): number = third(x)\nfn third(x: number): number = second(x)\n",
+        "fn leaf(x: number): number = x\nfn first(x: number): number = floor(second(x))\nfn second(x: number): number = floor(first(x))\n",
     ] {
         let error = contract::compile(&app(declarations)).unwrap_err();
         assert_eq!(error.id, "type-fn-recursive", "{error}");
