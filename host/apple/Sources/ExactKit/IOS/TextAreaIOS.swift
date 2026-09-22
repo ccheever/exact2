@@ -27,8 +27,15 @@ final class TextArea: UITextView {
     // Each editor owns its native undo history. An authoritative external
     // source update can reset this editor without clearing another field's
     // actions from a window-wide manager.
-    private let textUndo = UndoManager()
-    override var undoManager: UndoManager? { textUndo }
+    private lazy var textUndo = NativeTextUndo(before: { [weak self] in
+        self?.markup?.applying = true
+    }, after: { [weak self] in
+        guard let self, let editor = markup else { return }
+        editor.applying = false
+        editor.bookmark = selectedRange
+        owner?.textViewDidChange(self)
+    })
+    override var undoManager: UndoManager? { textUndo.manager }
 
     weak var owner: NodeView?
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).

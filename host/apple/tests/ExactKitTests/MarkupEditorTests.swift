@@ -51,7 +51,9 @@ final class MarkupEditorTests: XCTestCase {
         let session = ExactApp.shared.makeSession(label: "markup-undo")
         presenter.session = session
         defer { window.close(); session.destroy() }
+        var reported: [String] = []
         presenter.onChange = { _, value in
+            reported.append(value)
             node.props["value"] = value
             node.applyTextArea()
             node.styleTextArea()
@@ -67,6 +69,7 @@ final class MarkupEditorTests: XCTestCase {
                                     windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6)!
         XCTAssertTrue(f.performKeyEquivalent(with: redo))
         XCTAssertEqual(f.string, "**hello**")
+        XCTAssertEqual(reported, ["**hello**", "hello", "**hello**"], "undo and redo each publish one source change")
     }
 
     func testExternalSourceWriteResetsOnlyItsEditorsNativeHistory() {
