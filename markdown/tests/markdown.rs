@@ -884,3 +884,76 @@ fn autolink_search_boundaries_preserve_nested_starts_and_labels() {
     assert_eq!(styled.spans[0].range, Range::new(2051, 2058));
     assert_eq!(plain(&source), format!("{prefix}aa:tail"));
 }
+
+#[test]
+fn code_search_preserves_escapes_skipped_openers_and_label_boundaries() {
+    type ExpectedSpan<'a> = (&'a str, u8, &'a str);
+    let cases: &[(&str, &[ExpectedSpan<'_>])] = &[
+        ("\\``x`", &[("x", CODE, "")]),
+        ("``x\\``", &[("x\\", CODE, "")]),
+        (
+            "a `x` \\``b` ``c`d``",
+            &[("x", CODE, ""), ("b", CODE, ""), ("c`d", CODE, "")],
+        ),
+        (
+            "> \\``é`\n> <aa:`x> rest `😀`",
+            &[("é", CODE, ""), ("aa:`x", LINK, "aa:`x"), ("😀", CODE, "")],
+        ),
+        (
+            "<aa:`x> rest `y`",
+            &[("aa:`x", LINK, "aa:`x"), ("y", CODE, "")],
+        ),
+        (
+            "[x](target`x) rest `y`",
+            &[("x", LINK, "target`x"), ("y", CODE, "")],
+        ),
+        ("<aa:`x> rest `", &[("aa:`x", LINK, "aa:`x")]),
+        (
+            "[`a`](/`target) `b`",
+            &[("a", CODE | LINK, "/`target"), ("b", CODE, "")],
+        ),
+        (
+            "<aa:`a> ``b` c``",
+            &[("aa:`a", LINK, "aa:`a"), ("b` c", CODE, "")],
+        ),
+        ("\\\\``x`", &[]),
+        ("[`a](u) b`", &[("a](u) b", CODE, "")]),
+        ("[`a`](u) `b`", &[("a", CODE | LINK, "u"), ("b", CODE, "")]),
+    ];
+    for (source, expected) in cases {
+        let actual: Vec<_> = style(source, None)
+            .spans
+            .into_iter()
+            .map(|span| (utf16(source, span.range), span.style, span.href))
+            .collect();
+        let expected: Vec<_> = expected
+            .iter()
+            .map(|(text, flags, href)| ((*text).to_owned(), *flags, (*href).to_owned()))
+            .collect();
+        assert_eq!(actual, expected, "{source}");
+    }
+    let bounded = "[<aa:`x> rest `y](u) z`";
+    assert!(style(bounded, None)
+        .spans
+        .iter()
+        .all(|span| span.style & CODE == 0));
+}
+
+#[test]
+fn indexed_unmatched_code_runs_preserve_later_partial_runs_and_links() {
+    let mut source = String::from("start ");
+    for len in 4..68 {
+        source.push_str(&"`".repeat(len));
+        source.push_str("x ");
+    }
+    source.push_str("\\``é` [label](u) <aa:`x> ``b`c``");
+    assert_eq!(
+        spans(&source, None),
+        [
+            ("é".into(), CODE),
+            ("label".into(), LINK),
+            ("aa:`x".into(), LINK),
+            ("b`c".into(), CODE),
+        ]
+    );
+}

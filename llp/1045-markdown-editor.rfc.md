@@ -122,7 +122,10 @@ leaves unread delimiters in place, preserving partial runs and opener-search
 boundaries without repeatedly compacting the tail. Autolink searches reuse
 the next terminator and last `@` within each inline range; scheme validation
 stops at the first invalid prefix byte. Rejected starts therefore do not
-repeatedly search the same suffix.
+repeatedly search the same suffix. Code spans reuse closers found by the
+bracket pass; a failed search with later runs builds a temporary length index
+in the same lookup buffer. Ordinary matched spans and a final unclosed run
+need no such index.
 
 ### D3 — One kernel row: `markup`
 
