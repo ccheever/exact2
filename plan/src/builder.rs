@@ -16,6 +16,10 @@ use std::collections::HashMap;
 pub struct PlanBuilder {
     plan: Plan,
     interned: HashMap<String, StrId>,
+    /// Every code body appended so far, by content: an identical body is
+    /// shared. Each reference is validated on its own (`check_code`), so a
+    /// shared body is indistinguishable from a copy to every reader.
+    bodies: HashMap<Vec<u8>, Code>,
 }
 
 impl PlanBuilder {
@@ -28,6 +32,7 @@ impl PlanBuilder {
                 ..Plan::default()
             },
             interned: HashMap::new(),
+            bodies: HashMap::new(),
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -55,7 +60,11 @@ impl PlanBuilder {
             .enumerate()
             .map(|(i, s)| (s.clone(), StrId(i as u32)))
             .collect();
-        PlanBuilder { plan, interned }
+        PlanBuilder {
+            plan,
+            interned,
+            bodies: HashMap::new(),
+        }
     }
 
     /// Intern a string.
@@ -69,15 +78,20 @@ impl PlanBuilder {
         id
     }
 
-    /// Append an assembled code body.
+    /// Append an assembled code body, or return the identical one already
+    /// in the pool.
     pub fn code(&mut self, asm: Asm) -> Code {
         let bytes = asm.finish();
-        let offset = self.plan.code.len() as u32;
-        self.plan.code.extend_from_slice(&bytes);
-        Code {
-            offset,
-            len: bytes.len() as u32,
+        if let Some(code) = self.bodies.get(&bytes) {
+            return *code;
         }
+        let code = Code {
+            offset: self.plan.code.len() as u32,
+            len: bytes.len() as u32,
+        };
+        self.plan.code.extend_from_slice(&bytes);
+        self.bodies.insert(bytes, code);
+        code
     }
 
     /// A one-value code body: the value's literal, then `Return`.
