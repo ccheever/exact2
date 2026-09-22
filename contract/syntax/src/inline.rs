@@ -84,7 +84,22 @@ pub fn expand_mapped(file: &File) -> Result<Expanded, SyntaxError> {
 }
 
 fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, SyntaxError> {
-    let mut root = file.components[0].clone();
+    let source = &file.components[0];
+    // Expansion replaces the view; retain only the root declarations here.
+    let mut root = Component {
+        name: source.name.clone(),
+        props: source.props.clone(),
+        injects: source.injects.clone(),
+        slot: source.slot,
+        states: source.states.clone(),
+        derives: source.derives.clone(),
+        resources: source.resources.clone(),
+        mutations: source.mutations.clone(),
+        actions: source.actions.clone(),
+        tasks: source.tasks.clone(),
+        view: Vec::new(),
+        span: source.span,
+    };
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and
     // before the per-use states are lifted. `none` is only an AST placeholder;
     // types supplies Router and lowering leaves its initialization to launch.
@@ -386,11 +401,12 @@ fn inline_nodes(
                 } else {
                     None
                 };
-                let renamed = rename_component(c, n);
+                // Rename only the view: declarations were lifted above.
+                let renamed = rename_nodes(&c.view, &BTreeMap::new(), n);
                 let outer_fill = std::mem::replace(&mut ctx.fill, fill);
                 let outer_instance = std::mem::replace(&mut ctx.instance, instance);
                 ctx.depth += 1;
-                let body = inline_nodes(&renamed.view, &child_subst, ctx);
+                let body = inline_nodes(&renamed, &child_subst, ctx);
                 ctx.depth -= 1;
                 ctx.fill = outer_fill;
                 ctx.instance = outer_instance;
@@ -678,14 +694,8 @@ fn subst_expr(e: &Expr, subst: &BTreeMap<String, Expr>) -> Expr {
     }
 }
 
-/// Rename every name a component's view binds (`each` vars, `match` vars)
-/// with a unique suffix, so inlined bodies never capture parent names.
-fn rename_component(c: &Component, n: u32) -> Component {
-    let mut renamed = c.clone();
-    renamed.view = rename_nodes(&c.view, &BTreeMap::new(), n);
-    renamed
-}
-
+// Rename every name the view binds with a unique suffix so inlined bodies
+// cannot capture parent names.
 fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<Node> {
     nodes
         .iter()

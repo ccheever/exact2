@@ -337,6 +337,11 @@ location (related for forwarded arguments) to produce valid, byte-identical plan
 The 18-app plan comparison is unchanged. Successful builds do not walk authored
 scopes or construct this diagnostic provenance; no compiled-plan metadata is added.
 
+Component expansion copies the root declarations and constructs its expanded view
+directly, avoiding a discarded copy of the original view. Each child use renames
+only its view; its declarations are already lifted separately. The same rename
+and substitution walks preserve capture avoidance, instance order, and source sites.
+
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and
 `Item`/`Bound` region depths follow the same innermost-first walk. Atomic shared
