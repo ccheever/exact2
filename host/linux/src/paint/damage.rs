@@ -47,6 +47,7 @@ pub(super) struct Retained {
     pub last: Vec<Rect4>,
     pub dark: bool,
     pub unsupported: bool,
+    pub caret: bool,
 }
 impl Painter {
     /// Current accepted paragraph, shared with pixels, hit metadata and the agent.
@@ -80,7 +81,10 @@ impl Painter {
             || page != (0., 0.)
             || !scroll.is_empty()
             || pointer.is_some()
-            || focus.is_some()
+            // Button focus has no ink; only an input caret invalidates this
+            // optimization. Also retire a caret painted in the previous frame.
+            || self.damage.caret
+            || focus.is_some_and(|id| host.kernel().node(id).is_some_and(|n| n.node_type == NodeType::TextInput))
             || host.content_region().is_some()
             || pixels.width() != (viewport.0 * self.scale).round() as u32
             || pixels.height() != (viewport.1 * self.scale).round() as u32
