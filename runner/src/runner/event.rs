@@ -2,7 +2,6 @@
 
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, NodeKey, ViewId};
-use exact_plan::bytes::Reader;
 use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKind, Value};
 use std::fmt::Write as _;
 use std::rc::Rc;
@@ -103,12 +102,14 @@ impl BindingScalar {
     }
 }
 
-fn binding_read<T>(value: Result<T, exact_plan::PlanError>) -> Result<T, ActionBindingRefusal> {
-    value.map_err(|_| ActionBindingRefusal::Unsupported)
-}
-
-fn binding_op(reader: &mut Reader<'_>) -> Result<Opcode, ActionBindingRefusal> {
-    Opcode::from_wire(binding_read(reader.u8())?).ok_or(ActionBindingRefusal::Unsupported)
+/// The next instruction of a retained binding's code, through the one
+/// decoder; running out or malformed code is outside the grammar.
+fn binding_step(
+    code: &mut impl Iterator<Item = Result<crate::vm::Instruction, crate::vm::Trap>>,
+) -> Result<crate::vm::Instruction, ActionBindingRefusal> {
+    code.next()
+        .and_then(Result::ok)
+        .ok_or(ActionBindingRefusal::Unsupported)
 }
 
 fn scalar_kind(kind: TypeKind) -> bool {
@@ -472,21 +473,22 @@ impl<D: DataSource> Runner<D> {
         if code.len > 128 {
             return Err(Limit);
         }
-        let mut r = Reader::new(self.plan.code(code));
-        let op = binding_op(&mut r)?;
+        let mut r = crate::vm::instructions(self.plan.code(code)).peekable();
+        let first = binding_step(&mut r)?;
+        let op = first.op;
         let mut value = match op {
-            Opcode::Number => Value::Number(binding_read(r.f64())?),
-            Opcode::Bool => Value::Bool(binding_read(r.u8())? != 0),
+            Opcode::Number => Value::Number(first.number),
+            Opcode::Bool => Value::Bool(first.args[0] != 0),
             Opcode::Unit => Value::Unit,
             Opcode::Str => {
-                let id = exact_plan::StrId(binding_read(r.u32())?);
-                if binding_op(&mut r)? != Opcode::Return || !r.is_empty() {
+                let id = exact_plan::StrId(first.args[0] as u32);
+                if binding_step(&mut r)?.op != Opcode::Return || r.peek().is_some() {
                     return Err(Unsupported);
                 }
                 return BindingScalar::string(self.plan.str(id), string_bytes);
             }
             Opcode::LoadSlot => {
-                let id = binding_read(r.u32())?;
+                let id = first.args[0] as u32;
                 let row = self.plan.slots.get(id as usize).ok_or(Unsupported)?;
                 match row.owner {
                     Some(owner) => super::Frame::row_of(frames, owner.0)
@@ -496,7 +498,7 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             Opcode::LoadItem | Opcode::LoadBound => {
-                let depth = binding_read(r.u16())? as usize;
+                let depth = first.args[0] as usize;
                 let frame = frames
                     .len()
                     .checked_sub(depth + 1)
@@ -514,8 +516,9 @@ impl<D: DataSource> Runner<D> {
         };
         let mut fields = 0;
         loop {
-            match binding_op(&mut r)? {
-                Opcode::Return if r.is_empty() => {
+            let step = binding_step(&mut r)?;
+            match step.op {
+                Opcode::Return if r.peek().is_none() => {
                     return BindingScalar::capture(&value, string_bytes)
                 }
                 Opcode::Field => {
@@ -523,7 +526,7 @@ impl<D: DataSource> Runner<D> {
                     if fields > 8 {
                         return Err(Limit);
                     }
-                    let index = binding_read(r.u16())? as usize;
+                    let index = step.args[0] as usize;
                     let Value::Record(record) = &value else {
                         return Err(Unsupported);
                     };
@@ -566,41 +569,37 @@ impl<D: DataSource> Runner<D> {
                 return Err(Unsupported);
             }
         }
-        let mut r = Reader::new(self.plan.code(action.body));
+        let mut r = crate::vm::instructions(self.plan.code(action.body)).peekable();
         let mut stack = Vec::with_capacity(BINDING_ARGS);
         let (mut instructions, mut stores, mut literal_bytes) = (0, 0, 0usize);
-        while !r.is_empty() {
+        while r.peek().is_some() {
             instructions += 1;
             if instructions > 128 {
                 return Err(Limit);
             }
-            let kind = match binding_op(&mut r)? {
+            let step = binding_step(&mut r)?;
+            let kind = match step.op {
                 Opcode::Number => {
-                    if !binding_read(r.f64())?.is_finite() {
+                    if !step.number.is_finite() {
                         return Err(Unsupported);
                     }
                     Some(TypeKind::Number)
                 }
-                Opcode::Bool => {
-                    binding_read(r.u8())?;
-                    Some(TypeKind::Bool)
-                }
+                Opcode::Bool => Some(TypeKind::Bool),
                 Opcode::Unit => Some(TypeKind::Unit),
                 Opcode::Str => {
-                    let s = self.plan.str(exact_plan::StrId(binding_read(r.u32())?));
+                    let s = self.plan.str(exact_plan::StrId(step.args[0] as u32));
                     literal_bytes += s.len();
                     if s.len() > BINDING_STRING || literal_bytes > BINDING_STRING_TOTAL {
                         return Err(Limit);
                     }
                     Some(TypeKind::String)
                 }
-                Opcode::LoadParam => Some(
-                    args.get(binding_read(r.u16())? as usize)
-                        .ok_or(Unsupported)?
-                        .kind(),
-                ),
+                Opcode::LoadParam => {
+                    Some(args.get(step.args[0] as usize).ok_or(Unsupported)?.kind())
+                }
                 Opcode::StoreSlot => {
-                    let id = exact_plan::SlotsId(binding_read(r.u32())?);
+                    let id = exact_plan::SlotsId(step.args[0] as u32);
                     stores += 1;
                     if stores > 8 {
                         return Err(Limit);
@@ -614,7 +613,7 @@ impl<D: DataSource> Runner<D> {
                     }
                     None
                 }
-                Opcode::Return if r.is_empty() && stack.len() <= 1 => return Ok(()),
+                Opcode::Return if r.peek().is_none() && stack.len() <= 1 => return Ok(()),
                 _ => return Err(Unsupported),
             };
             if let Some(kind) = kind {
