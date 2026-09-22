@@ -6,6 +6,26 @@ use crate::vm::{self, Env, Trap};
 use exact_kernel::CommitReceipt;
 use exact_plan::Value;
 
+/// What the published derives were computed against: an input equal to
+/// its value here has not changed since the last successful settlement.
+pub(super) struct Settled {
+    slots: Vec<Value>,
+    now_ms: f64,
+    pending_res: Vec<bool>,
+    pending_mut: Vec<bool>,
+    store_readers: Vec<bool>,
+}
+
+/// Which derives and resources this pass has settled, and which of them
+/// took a value other than the one published last.
+struct Progress<'a> {
+    derives: &'a [Option<Value>],
+    derive_changed: &'a [bool],
+    resources: &'a [bool],
+    resource_changed: &'a [bool],
+    pending_res: &'a [bool],
+}
+
 #[derive(Clone)]
 enum RequestEffect {
     None,
@@ -93,11 +113,40 @@ impl<D: DataSource> Runner<D> {
         result
     }
 
+    /// Whether every input `reads` names has settled in this pass to the
+    /// value it had when the published values were computed.
+    fn unchanged(&self, reads: &crate::instance::DepReads, now: &Progress<'_>) -> bool {
+        use crate::instance::Input;
+        let Some(base) = self
+            .settled
+            .as_ref()
+            .filter(|_| !self.full && !reads.opaque)
+        else {
+            return false;
+        };
+        self.sites.deps().inputs(reads).all(|input| match input {
+            Input::Slot(k) => crate::compare::equivalent(&base.slots[k], &self.slots[k]),
+            Input::Derive(j) => now.derives[j].is_some() && !now.derive_changed[j],
+            Input::Resource(r) => {
+                now.resources[r]
+                    && !now.resource_changed[r]
+                    && base.store_readers[r] == self.store_readers[r]
+            }
+            Input::PendingResource(r) => {
+                now.resources[r] && base.pending_res[r] == now.pending_res[r]
+            }
+            Input::PendingMutation(m) => base.pending_mut[m] == self.pending_mut[m],
+            Input::Clock => base.now_ms.to_bits() == self.now_ms.to_bits(),
+        })
+    }
+
     fn settle_pass(
         &mut self,
         boot: bool,
         effects: &mut Vec<RequestEffect>,
     ) -> Result<(), RunnerError> {
+        // Store provenance as the derives below will see it.
+        let store_readers = self.store_readers.clone();
         // LLP 1016: what an action asked to re-request, the requests this
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
@@ -124,11 +173,29 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             let mut settled_res = vec![false; states.len()];
+            let mut derive_changed = vec![false; self.plan.derives.len()];
+            let mut resource_changed = vec![false; states.len()];
             loop {
                 let mut progress = false;
                 let mut all = true;
                 for i in 0..self.plan.derives.len() {
                     if derives[i].is_some() {
+                        continue;
+                    }
+                    // Unchanged inputs, unchanged value: no evaluation.
+                    let now = Progress {
+                        derives: &derives,
+                        derive_changed: &derive_changed,
+                        resources: &settled_res,
+                        resource_changed: &resource_changed,
+                        pending_res: &pending_res,
+                    };
+                    if self.derives[i].is_some()
+                        && self.unchanged(&self.sites.deps().derives[i], &now)
+                    {
+                        derives[i] = self.derives[i].clone();
+                        derive_store_dependent[i] = self.derive_store_dependent[i];
+                        progress = true;
                         continue;
                     }
                     let code = self.plan.derives[i].body;
@@ -164,7 +231,10 @@ impl<D: DataSource> Runner<D> {
                                 Some(old) if crate::compare::equivalent(old, &o.value) => {
                                     old.clone()
                                 }
-                                _ => o.value,
+                                _ => {
+                                    derive_changed[i] = true;
+                                    o.value
+                                }
                             });
                             progress = true;
                         }
@@ -180,7 +250,18 @@ impl<D: DataSource> Runner<D> {
                     let mut args = Vec::with_capacity(row.args.len as usize);
                     let mut pending = false;
                     let mut store_dependent = false;
-                    for a in row.args.iter() {
+                    let now = Progress {
+                        derives: &derives,
+                        derive_changed: &derive_changed,
+                        resources: &settled_res,
+                        resource_changed: &resource_changed,
+                        pending_res: &pending_res,
+                    };
+                    let kept_args = states[i]
+                        .as_ref()
+                        .filter(|_| self.unchanged(&self.sites.deps().resource_args[i], &now))
+                        .map(|s| s.args.clone());
+                    for a in row.args.iter().filter(|_| kept_args.is_none()) {
                         let code = self.plan.arg(a).expr;
                         let result = {
                             let env = Env {
@@ -215,6 +296,9 @@ impl<D: DataSource> Runner<D> {
                     if pending {
                         all = false;
                         continue;
+                    }
+                    if let Some(kept) = kept_args {
+                        args = kept;
                     }
                     // Store provenance follows the values used to form a
                     // resource query, including through derives. Such a
@@ -347,6 +431,10 @@ impl<D: DataSource> Runner<D> {
                             _ => value,
                         }
                     };
+                    resource_changed[i] = !matches!(
+                        &self.resource_values[i],
+                        Some(old) if crate::compare::same(old, &value)
+                    );
                     resources[i] = Some(value.clone());
                     states[i] = Some(ResourceState {
                         args,
@@ -379,6 +467,14 @@ impl<D: DataSource> Runner<D> {
                 continue;
             }
 
+            self.settled = Some(Settled {
+                slots: self.slots.clone(),
+                now_ms: self.now_ms,
+                pending_res,
+                pending_mut: self.pending_mut.clone(),
+                store_readers,
+            });
+            self.derive_store_dependent = derive_store_dependent;
             self.derives = derives;
             self.resource_values = resources;
             self.resources = states;

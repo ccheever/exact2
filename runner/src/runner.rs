@@ -248,6 +248,10 @@ pub struct Runner<D: DataSource> {
     full: bool,
     /// Row slots actions wrote, for the next update.
     row_writes: crate::instance::RowWrites,
+    /// The inputs the published derives were computed against.
+    settled: Option<settlement::Settled>,
+    /// Per derive: its value depends on the durable store (bake provenance).
+    derive_store_dependent: Vec<bool>,
     /// What this binary and its update store know about delivery (LLP 1030
     /// D4, D7): the embedded answer until a host says otherwise.
     delivery: crate::delivery::Delivery,
@@ -511,6 +515,8 @@ impl<D: DataSource> Runner<D> {
             poisoned: false,
             full: false,
             row_writes: Default::default(),
+            settled: None,
+            derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
             flow_warned: Default::default(),

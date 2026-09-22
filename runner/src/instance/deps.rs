@@ -1,5 +1,5 @@
-//! The dependency table: what every binding and site reads, scanned once
-//! from the plan when a runner boots.
+//! The dependency table: what every binding, site, derive and resource
+//! argument reads, scanned once from the plan when a runner boots.
 //!
 //! @ref LLP 1005 §8 (the Deps table and dirty-set sweep)
 //!
@@ -125,7 +125,7 @@ pub(crate) fn into_scope(frames: u64, dirty: bool) -> u64 {
     (frames << 1) | (frames & (1 << 63)) | u64::from(dirty)
 }
 
-/// Per binding, surface argument and site.
+/// Per binding, surface argument, site, derive and resource argument list.
 #[derive(Debug, Default)]
 pub struct Deps {
     layout: Option<Layout>,
@@ -141,6 +141,21 @@ pub struct Deps {
     pub(crate) bodies: Vec<Reads>,
     /// Subject, key and body, relative to the region.
     pub(crate) regions: Vec<Reads>,
+    /// Each derive's body.
+    pub(crate) derives: Vec<Reads>,
+    /// Each resource's arguments together.
+    pub(crate) resource_args: Vec<Reads>,
+}
+
+/// One input a settlement body reads, decoded from [`Reads::bits`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Input {
+    Slot(usize),
+    Derive(usize),
+    Resource(usize),
+    PendingResource(usize),
+    PendingMutation(usize),
+    Clock,
 }
 
 impl Deps {
@@ -162,6 +177,18 @@ impl Deps {
             keys: plan.regions.iter().map(|r| scan(r.key)).collect(),
             bodies: vec![Reads::default(); plan.regions.len()],
             regions: vec![Reads::default(); plan.regions.len()],
+            derives: plan.derives.iter().map(|d| scan(d.body)).collect(),
+            resource_args: plan
+                .resources
+                .iter()
+                .map(|r| {
+                    let mut reads = empty(layout);
+                    for a in r.args.iter() {
+                        reads.union(&scan(plan.arg(a).expr), 0);
+                    }
+                    reads
+                })
+                .collect(),
         };
         // Post-order over the site tree without recursing to the plan's depth.
         let mut stack: Vec<(super::Site, bool)> = children
@@ -216,6 +243,23 @@ impl Deps {
             }
         }
         deps
+    }
+
+    /// The inputs `reads` names, in bit order.
+    pub(crate) fn inputs<'a>(&self, reads: &'a Reads) -> impl Iterator<Item = Input> + 'a {
+        let l = self.layout.expect("built from a plan");
+        (0..l.width()).filter(|i| reads.bits.get(*i)).map(move |i| {
+            let (d, r, m) = (l.derive(0), l.resource(0), l.pending_resource(0));
+            let (pm, clock) = (l.pending_mutation(0), l.clock());
+            match i {
+                _ if i < d => Input::Slot(i),
+                _ if i < r => Input::Derive(i - d),
+                _ if i < m => Input::Resource(i - r),
+                _ if i < pm => Input::PendingResource(i - m),
+                _ if i < clock => Input::PendingMutation(i - pm),
+                _ => Input::Clock,
+            }
+        })
     }
 
     fn site(&self, site: super::Site) -> &Reads {

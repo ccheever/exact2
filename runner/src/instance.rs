@@ -26,7 +26,8 @@ mod window;
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 pub use deps::RowWrites;
-use deps::{Bits, Deps, Reads, Seen};
+use deps::{Bits, Reads, Seen};
+pub(crate) use deps::{Deps, Input, Reads as DepReads};
 use exact_kernel::{NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, NodesId, Plan, RegionKind, RegionsId, Value};
 use std::cell::RefCell;
@@ -373,6 +374,11 @@ impl SiteIndex {
         };
         index.deps = Deps::new(plan, &index);
         index
+    }
+
+    /// What every binding, site, derive and resource argument reads.
+    pub(crate) fn deps(&self) -> &Deps {
+        &self.deps
     }
 
     fn children(&self, parent: Option<NodesId>, arm: Option<ArmsId>) -> &[(u32, Site)] {
