@@ -854,7 +854,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
         shapes.fns.insert(f.name.clone(), (params, ret));
     }
     for f in &file.fns {
-        let (params, ret) = shapes.fns[&f.name].clone();
+        let (params, ret) = &shapes.fns[&f.name];
         let mut scope = Scope::default();
         scope.push(
             f.params
@@ -864,7 +864,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::can_unify(&ret, &t) {
+        if !checks::can_unify(ret, &t) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),

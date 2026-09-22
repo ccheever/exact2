@@ -292,7 +292,8 @@ site — behind a child's prop — types the action's parameters; children are
 checked standalone. Roster calls are checked against the table's `params`/
 `returns`. Compatibility-only checks evaluate the unifier's success conditions
 without constructing a merged type. Type inference uses `Ty::unify` wherever
-it needs the merged value.
+it needs the merged value. Function body checking borrows the resolved signature;
+only the parameter types entering the body's owned scope are cloned.
 
 Unknown written types retain `type-unknown` and their original token span. The
 message lists known named types: primitives and bare `action`, then declared
