@@ -62,6 +62,8 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         tokens,
         pos: 0,
         names: NameSpans::default(),
+        depth: 0,
+        last: 0,
     };
     let file = p.file()?;
     Ok((file, p.tokens))
@@ -71,7 +73,21 @@ struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     names: NameSpans,
+    /// Expressions (and prefix operators) open around the current token.
+    depth: u32,
+    /// The tree depth of the expression last parsed.
+    last: usize,
 }
+
+/// How deeply expressions may nest in the source (parentheses, prefix
+/// operators, arguments, branches), and how deep one expression's tree may
+/// be (a long `+` chain is a deep tree). Every later pass recurses over the
+/// tree; these bounds keep a compile inside a 2 MB thread's stack even
+/// unoptimized (a release build has room for ten times as much), and past
+/// them is a refusal, never a stack overflow. No app's deepest expression
+/// is a third of either (21 levels, 2026-09-22).
+const MAX_NESTING: u32 = 64;
+const MAX_TREE_DEPTH: usize = 100;
 
 type R<T> = Result<T, SyntaxError>;
 
@@ -1075,7 +1091,7 @@ impl Parser {
     }
 
     fn call_args(&mut self) -> R<Vec<Expr>> {
-        let mut out = Vec::new();
+        let (mut out, mut deepest) = (Vec::new(), 0);
         while !self.at_punct(")") {
             let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
@@ -1089,32 +1105,69 @@ impl Parser {
                 }
                 self.expect_punct("=")?;
                 let value = self.expr()?;
+                self.last += 1;
                 Expr::NamedArg(name, Box::new(value), span)
             } else {
                 self.expr()?
             };
+            deepest = deepest.max(self.last);
             out.push(arg);
             if !self.eat_punct(",") {
                 break;
             }
         }
         self.expect_punct(")")?;
+        self.last = deepest;
         Ok(out)
     }
 
     // ---- expressions ------------------------------------------------------
 
     fn expr(&mut self) -> R<Expr> {
-        self.ternary()
+        self.nest()?;
+        let e = self.ternary();
+        self.depth -= 1;
+        e
+    }
+
+    /// Record the depth of a node just built over children `below` deep,
+    /// refusing it past the bound before anything deeper exists.
+    fn built(&mut self, below: usize, span: Span) -> R<()> {
+        self.last = below + 1;
+        if self.last > MAX_TREE_DEPTH {
+            return Err(SyntaxError {
+                id: "syntax-expression-depth",
+                message: format!(
+                    "this expression is more than {MAX_TREE_DEPTH} operations deep: split it into `derive`s"
+                ),
+                span,
+            });
+        }
+        Ok(())
+    }
+
+    fn nest(&mut self) -> R<()> {
+        self.depth += 1;
+        if self.depth > MAX_NESTING {
+            self.depth -= 1;
+            return self.err(
+                "syntax-expression-depth",
+                format!("expressions nest more than {MAX_NESTING} deep here: name the inner ones with `derive`"),
+            );
+        }
+        Ok(())
     }
 
     fn ternary(&mut self) -> R<Expr> {
         let cond = self.binary(0)?;
         if self.eat_punct("?") {
+            let below = self.last;
             let a = self.expr()?;
+            let below = below.max(self.last);
             self.expect_punct(":")?;
             let b = self.expr()?;
             let span = cond.span();
+            self.built(below.max(self.last), span)?;
             return Ok(Expr::Ternary(
                 Box::new(cond),
                 Box::new(a),
@@ -1127,6 +1180,7 @@ impl Parser {
 
     fn binary(&mut self, min_prec: u8) -> R<Expr> {
         let mut left = self.unary()?;
+        let mut depth = self.last;
         loop {
             let (op, prec) = match self.peek_kind() {
                 TokenKind::Punct("||") => (BinOp::Or, 1),
@@ -1152,23 +1206,29 @@ impl Parser {
             self.next();
             let right = self.binary(prec + 1)?;
             let span = left.span();
+            self.built(depth.max(self.last), span)?;
+            depth = self.last;
             left = Expr::Binary(op, Box::new(left), Box::new(right), span);
         }
+        self.last = depth;
         Ok(left)
     }
 
     fn unary(&mut self) -> R<Expr> {
-        if self.at_punct("-") {
-            let span = self.next().span;
-            let e = self.unary()?;
-            return Ok(Expr::Unary(UnOp::Neg, Box::new(e), span));
-        }
-        if self.at_punct("!") || self.at_ident("not") {
-            let span = self.next().span;
-            let e = self.unary()?;
-            return Ok(Expr::Unary(UnOp::Not, Box::new(e), span));
-        }
-        self.postfix()
+        let op = if self.at_punct("-") {
+            UnOp::Neg
+        } else if self.at_punct("!") || self.at_ident("not") {
+            UnOp::Not
+        } else {
+            return self.postfix();
+        };
+        let span = self.next().span;
+        self.nest()?;
+        let e = self.unary();
+        self.depth -= 1;
+        let e = e?;
+        self.built(self.last, span)?;
+        Ok(Expr::Unary(op, Box::new(e), span))
     }
 
     fn postfix(&mut self) -> R<Expr> {
@@ -1176,6 +1236,7 @@ impl Parser {
         while self.at_punct(".") {
             self.next();
             let (field, span) = self.ident()?;
+            self.built(self.last, span)?;
             e = Expr::Member(Box::new(e), field, span);
         }
         Ok(e)
@@ -1184,6 +1245,8 @@ impl Parser {
     fn primary(&mut self) -> R<Expr> {
         let t = self.next();
         let span = t.span;
+        // A leaf's depth; a composite records its own below.
+        self.last = 1;
         match t.kind {
             TokenKind::Number(n) => Ok(Expr::Number(n, span)),
             TokenKind::Str(s) => Ok(Expr::Str(s, span)),
@@ -1201,10 +1264,12 @@ impl Parser {
                     self.expect_punct("(")?;
                     let e = self.expr()?;
                     self.expect_punct(")")?;
+                    self.built(self.last, span)?;
                     Ok(Expr::Some(Box::new(e), span))
                 }
                 "match" => {
                     let subject = self.expr()?;
+                    let below = self.last;
                     self.expect_punct("{")?;
                     self.expect_word("case")?;
                     self.expect_word("some")?;
@@ -1213,11 +1278,13 @@ impl Parser {
                     self.expect_punct(")")?;
                     self.expect_punct("=>")?;
                     let some = self.expr()?;
+                    let below = below.max(self.last);
                     self.expect_punct(",")?;
                     self.expect_word("case")?;
                     self.expect_word("none")?;
                     self.expect_punct("=>")?;
                     let none = self.expr()?;
+                    self.built(below.max(self.last), span)?;
                     self.eat_punct(",");
                     self.expect_punct("}")?;
                     Ok(Expr::Match {
@@ -1236,6 +1303,7 @@ impl Parser {
                 _ => {
                     if self.eat_punct("(") {
                         let args = self.call_args()?;
+                        self.built(self.last, span)?;
                         Ok(Expr::Call(w, args, span))
                     } else {
                         Ok(Expr::Ident(w, span))
@@ -1251,7 +1319,7 @@ impl Parser {
     }
 
     fn template(&mut self, raw: &str, span: Span) -> R<Expr> {
-        let mut parts = Vec::new();
+        let (mut parts, mut deepest) = (Vec::new(), 0);
         let mut text = String::new();
         let mut rest = raw;
         while let Some(i) = rest.find("${") {
@@ -1286,8 +1354,11 @@ impl Parser {
                 tokens,
                 pos: 0,
                 names: NameSpans::default(),
+                depth: self.depth,
+                last: 0,
             };
             let e = sub.expr()?;
+            deepest = deepest.max(sub.last);
             if !matches!(sub.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
                 return sub.err("syntax-template-expr", "unexpected token in `${…}`");
             }
@@ -1300,6 +1371,7 @@ impl Parser {
         if !text.is_empty() {
             parts.push(TemplatePart::Text(text));
         }
+        self.built(deepest, span)?;
         Ok(Expr::Template(parts, span))
     }
 }

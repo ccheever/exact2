@@ -888,3 +888,46 @@ fn chains_of_derives_and_functions_compile_in_linear_size() {
         assert_eq!(text_of(&r, "out").as_deref(), Some(shown));
     }
 }
+
+#[test]
+fn deep_expressions_are_refused_by_name_on_a_small_stack() {
+    let app = |derive: String| {
+        format!("component App\n  state n = 1\n  derive d = {derive}\n  view\n    main\n      text `${{d}}` testId=\"out\"\n")
+    };
+    let chain = |terms: usize| vec!["n"; terms].join(" + ");
+    let nested = |depth: usize| format!("{}1{}", "(".repeat(depth), ")".repeat(depth));
+    let cases = [
+        (app(chain(100)), None),
+        (app(nested(60)), None),
+        (app(chain(101)), Some("more than 100 operations deep")),
+        (app(chain(200_000)), Some("more than 100 operations deep")),
+        (app(nested(100_000)), Some("nest more than 64")),
+        (
+            app(format!("{}n", "-".repeat(100_000))),
+            Some("nest more than 64"),
+        ),
+        (
+            app(format!("some({})", nested(70))),
+            Some("nest more than 64"),
+        ),
+    ];
+    // Every pass recurses over the tree; all of it fits a 2 MB thread, as
+    // the test harness gives, even unoptimized.
+    std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(move || {
+            for (source, refused) in cases {
+                match (contract::compile(&source), refused) {
+                    (Ok(_), None) => {}
+                    (Err(e), Some(message)) => {
+                        assert_eq!(e.id, "syntax-expression-depth");
+                        assert!(e.message.contains(message), "{e}");
+                    }
+                    (result, _) => panic!("{:?}", result.map(|_| ()).map_err(|e| e.to_string())),
+                }
+            }
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}

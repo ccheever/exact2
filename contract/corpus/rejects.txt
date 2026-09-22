@@ -82,6 +82,12 @@ component A
       case none
         text "b"
 ---
+== syntax-expression-depth
+component A
+  derive d = (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+  view
+    text "a"
+---
 == syntax-unquoted-length
 component A
   view
