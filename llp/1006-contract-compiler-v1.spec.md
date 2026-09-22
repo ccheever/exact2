@@ -439,6 +439,8 @@ all literal strings after component expansion emits one interned string, so a
 literal prefix passed to a component adds no runtime concatenation. Dynamic
 parts and non-string conversions retain their ordinary evaluation. Row order is source
 order, so compilation is byte-identical (`the_app_compiles_deterministically…`).
+Tag defaults and attribute style targets borrow static slices of kernel-generated
+identifiers; lookup constructs no temporary row vectors.
 
 **Driver** (`contract`): `compile(src) → Plan`; `bake(plan, data) → Plan`
 boots the runner once against the app's data source and writes every

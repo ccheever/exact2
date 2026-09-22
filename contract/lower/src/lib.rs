@@ -649,7 +649,7 @@ impl<'a> Lowerer<'a> {
                 let mut bindings: Vec<BindingsRow> = Vec::new();
                 let mut handlers: Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)> = Vec::new();
                 let mut surface: Option<exact_plan::SurfacesId> = None;
-                for (style, value) in &t.fixed_styles {
+                for (style, value) in t.fixed_styles {
                     // A fixed row is an enum's name or a number in points.
                     let v = match value.parse::<f64>() {
                         Ok(n) => Value::Number(n),
@@ -662,7 +662,7 @@ impl<'a> Lowerer<'a> {
                         expr: code,
                     });
                 }
-                for (prop, value) in &t.fixed_props {
+                for (prop, value) in t.fixed_props {
                     let code = self.b.constant(&Value::str(value));
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
@@ -1310,7 +1310,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
             tags::AttrTarget::Styles(rows) => {
-                if rows.as_slice() == [StyleId::FontFamily] {
+                if rows == [StyleId::FontFamily] {
                     let Expr::Str(name, _) = &a.value else {
                         return err(
                             "lower-font-family-literal",
@@ -1333,9 +1333,9 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                self.check_style_value(a, &rows, scope, font)?;
+                self.check_style_value(a, rows, scope, font)?;
                 let code = self.expr_code(&a.value, scope, locals)?;
-                for row in rows {
+                for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: row as u16,
