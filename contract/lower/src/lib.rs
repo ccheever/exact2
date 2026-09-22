@@ -556,7 +556,7 @@ impl<'a> Lowerer<'a> {
                             c.span,
                         );
                     };
-                    let Some(style) = self.styles.get(name).cloned() else {
+                    let Some(style) = self.styles.get(name) else {
                         return err(
                             "lower-unknown-class",
                             format!("`class={name}`: no `style {name}` in this file"),
@@ -566,8 +566,9 @@ impl<'a> Lowerer<'a> {
                     class_name = Some(name);
                     expanded.extend(
                         style
-                            .into_iter()
-                            .filter(|s| !attrs.iter().any(|a| a.name == s.name)),
+                            .iter()
+                            .filter(|s| !attrs.iter().any(|a| a.name == s.name))
+                            .cloned(),
                     );
                 }
                 let class_len = expanded.len();
