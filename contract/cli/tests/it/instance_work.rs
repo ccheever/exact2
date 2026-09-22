@@ -77,7 +77,10 @@ fn unrelated_input_skips_all_row_keying_but_global_and_resource_changes_do_not()
     assert_eq!(r.kernel().find_by_test_id("row-999"), [key]);
     r.act("rename", vec![]).unwrap();
     assert_eq!(text(&r, "row-999"), "row 999 revision 0 b");
-    assert_eq!(r.last_instance_work().rows_keyed, 1000);
+    // Every row body reads the suffix, so every row is revisited; the keys
+    // read nothing that changed, so none is evaluated again.
+    assert_eq!(r.last_instance_work().rows_keyed, 0);
+    assert_eq!(r.last_instance_work().rows_reused, 0);
     r.act("revise", vec![]).unwrap();
     assert_eq!(text(&r, "row-999"), "row 999 revision 1 b");
     assert_eq!(r.kernel().find_by_test_id("row-999"), [key]);
