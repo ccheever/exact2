@@ -907,6 +907,11 @@
         "string"
       ],
       "returns": "string"
+    },
+    {
+      "name": "contains",
+      "params": ["string", "string"],
+      "returns": "bool"
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

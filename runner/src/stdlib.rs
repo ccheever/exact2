@@ -46,6 +46,7 @@ pub fn call(
                 }
             }
         }
+        Stdlib::Contains => Value::Bool(args.first()?.as_str()?.contains(args.get(1)?.as_str()?)),
         Stdlib::Now => Value::Number(now_ms),
         Stdlib::FormatClockTime => Value::str(&format_clock_time(num(0)?)),
         Stdlib::FormatCountdownMinutes => {

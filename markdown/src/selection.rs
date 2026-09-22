@@ -63,6 +63,9 @@ pub fn selection(source: &str, selection: Range) -> Selection {
             for c in &a.constructs {
                 if c.inner.start <= sel.start && sel.start <= c.inner.end {
                     flags |= c.kind;
+                    if c.kind == LINK {
+                        href = c.href.clone().unwrap_or_default();
+                    }
                 }
             }
             for (r, style, target) in &a.spans {

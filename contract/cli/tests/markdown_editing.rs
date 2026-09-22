@@ -15,11 +15,13 @@ const SOURCE: &str = r#"component App
   state mixed = false
   state link = ""
   state unavailable = ""
-  action selected(s) writes formats, mixed, link, unavailable
+  state boldActive = false
+  action selected(s) writes formats, mixed, link, unavailable, boldActive
     formats = s.formats
     mixed = s.mixed
     link = s.link
     unavailable = s.unavailable
+    boldActive = contains(` ${s.formats} `, " bold ")
   action bold()
     format("editor", "bold")
   action setLink()
@@ -63,6 +65,13 @@ fn toolbar_commands_and_select_record_roundtrip_and_run() {
         Some(&Value::str("https://example.com\npath"))
     );
     assert_eq!(r.slot("unavailable"), Some(&Value::str("code")));
+    assert_eq!(r.slot("boldActive"), Some(&Value::Bool(true)));
+    r.dispatch(
+        editor,
+        Event::selection_payload("boldly italic\n0\n\n").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(r.slot("boldActive"), Some(&Value::Bool(false)));
     r.dispatch(id(&r, "bold"), Event::Press).unwrap();
     r.dispatch(id(&r, "link"), Event::Press).unwrap();
     let commands = r.take_commands();

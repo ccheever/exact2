@@ -868,3 +868,16 @@ fn link_commands_escape_destination_syntax_on_insert_and_update() {
     );
     assert_eq!(changed.apply("<https://old>"), "[https://old](https://new)");
 }
+
+#[test]
+fn an_empty_link_caption_keeps_its_toolbar_target() {
+    let change = edit(
+        "",
+        Range::caret(0),
+        Command::Link("https://example.com/a)b".into()),
+    );
+    let source = change.apply("");
+    let state = selection(&source, change.selection);
+    assert_eq!(state.formats, "link");
+    assert_eq!(state.link, "https://example.com/a)b");
+}

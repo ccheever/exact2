@@ -232,6 +232,12 @@ none`. **Expressions.** Numbers, strings, templates with `${…}`, `true`/
 < <= > >=`, `and`/`or`/`not` (or `&& || !`), `c ? a : b`, and inline `match s
 { case some(x) => a, case none => b }`.
 
+`contains(text, substring) -> bool` performs a case-sensitive literal substring
+search (the empty substring matches). The Markdown toolbar uses it with spaces
+around both the token list and the requested token, so `code` never matches
+`codeblock`. The declared roster and the runner provide this operation to every
+host; it does not execute app JavaScript.
+
 **Types** come from initializers, shapes, props, and the roster; `none` alone
 is `option<?>` and the `?` is filled by the first write that says what it
 holds (`state stationId = none` … `stationId = some(id)`); an unfilled `?` is

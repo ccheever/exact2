@@ -17,6 +17,7 @@ pub(crate) struct Construct {
     pub kind: u8,
     pub outer: B,
     pub inner: B,
+    pub href: Option<String>,
 }
 
 #[derive(Default)]
@@ -143,9 +144,14 @@ impl Scanner<'_> {
         self.out.marks.push(Mark {
             range: inner.clone(),
             flags: kind,
+            href: href.clone(),
+        });
+        self.out.constructs.push(Construct {
+            kind,
+            outer,
+            inner,
             href,
         });
-        self.out.constructs.push(Construct { kind, outer, inner });
     }
 
     fn scan(&mut self, lo: usize, hi: usize) {
