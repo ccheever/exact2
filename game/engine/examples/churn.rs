@@ -333,6 +333,71 @@ fn asset_restore() {
         }
     }
 }
+// Row leases: one lease per get/get_mut call, and the chase every game writes,
+// reading the player's row inside the loop over the enemies' rows.
+// @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+fn leases() {
+    #[derive(Default, Component)]
+    struct Enemy;
+    const N: usize = 100_000;
+    let mut w = world(N);
+    let entities: Vec<_> = w.entities().collect();
+    w.spawn_named("player", Transform::default());
+    for &e in &entities {
+        w.insert(e, Enemy);
+    }
+    fn median(mut run: impl FnMut() -> f64) -> f64 {
+        let mut samples: Vec<f64> = (0..7).map(|_| run()).collect();
+        samples.sort_by(f64::total_cmp);
+        samples[3]
+    }
+    let per = |start: Instant, n: usize| start.elapsed().as_secs_f64() * 1e9 / n as f64;
+    let get = median(|| {
+        let start = Instant::now();
+        let mut sum = 0.0;
+        for &e in black_box(&entities) {
+            sum += black_box(&w).get::<Transform>(e).unwrap().position.x;
+        }
+        black_box(sum);
+        per(start, N)
+    });
+    println!("get / 100,000 rows: {get:.2} ns/call (median of 7)");
+    let get_mut = median(|| {
+        let start = Instant::now();
+        for &e in black_box(&entities) {
+            black_box(&w).get_mut::<Transform>(e).unwrap().position.y += 1.0;
+        }
+        per(start, N)
+    });
+    println!("get_mut / 100,000 rows: {get_mut:.2} ns/call (median of 7)");
+    let guarded = median(|| {
+        let start = Instant::now();
+        for (mut t, s) in black_box(&w).query::<(&mut Transform, &Spin)>() {
+            t.rotation = (s.step * t.rotation).normalize();
+        }
+        per(start, N)
+    });
+    println!("rotation through row guards / 100,000: {guarded:.2} ns/entity (median of 7)");
+    let step = |t: &mut Transform, player: Vec3| t.position += (player - t.position) * 0.01;
+    let before = median(|| {
+        let start = Instant::now();
+        let player = black_box(&w).require::<Transform>("player").position;
+        for (_, (t, _)) in black_box(&w).query::<(&mut Transform, &Enemy)>().iter() {
+            step(t, player);
+        }
+        per(start, N)
+    });
+    println!("chase, player read before the loop / 100,000: {before:.2} ns/entity");
+    let inside = median(|| {
+        let start = Instant::now();
+        for (_, (t, _)) in black_box(&w).query::<(&mut Transform, &Enemy)>().iter() {
+            step(t, black_box(&w).require::<Transform>("player").position);
+        }
+        per(start, N)
+    });
+    println!("chase, player read inside the loop / 100,000: {inside:.2} ns/entity");
+    println!("leases hash: {:016x}", w.hash());
+}
 fn main() {
     println!(
         "{} / {}; release={}",
@@ -350,6 +415,10 @@ fn main() {
     }
     if std::env::args().any(|arg| arg == "--texture-delivery") {
         texture_delivery();
+        return;
+    }
+    if std::env::args().any(|arg| arg == "--leases") {
+        leases();
         return;
     }
     if std::env::args().any(|arg| arg == "--asset-restore") {
