@@ -86,6 +86,10 @@ pub(crate) struct Mirror {
 /// One runner, one presenter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
+    /// Whether the plan declares a `head`, and the title the presenter was
+    /// last told (LLP 1048.003 D1): the window or scene title.
+    has_heads: bool,
+    head_title: Option<String>,
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
@@ -318,7 +322,14 @@ impl<D: DataSource> Host<D> {
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
         prepare(runner.plan());
+        let has_heads = runner
+            .plan()
+            .nodes
+            .iter()
+            .any(|n| n.node_type == NodeType::Head as u8);
         let mut host = Host {
+            has_heads,
+            head_title: None,
             runner,
             mirror: IdMap::default(),
             keys: IdMap::default(),
@@ -366,6 +377,7 @@ impl<D: DataSource> Host<D> {
         host.emit_paragraphs(&mut batch);
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
+        host.emit_title(&mut batch);
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
@@ -909,6 +921,19 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// The active head's title, when a plan with a head may have moved it
+    /// (LLP 1048.003 D1). The app owning the window or scene shows it.
+    fn emit_title(&mut self, batch: &mut Batch) {
+        if !self.has_heads {
+            return;
+        }
+        let title = self.runner.head().title;
+        if title != self.head_title {
+            batch.title(title.as_deref());
+            self.head_title = title;
+        }
+    }
+
     fn finish(&self, batch: Batch, error: Option<String>) -> String {
         batch.finish(
             self.runner.timer_due_ms(),
@@ -983,6 +1008,9 @@ impl<D: DataSource> Host<D> {
         if roots != self.roots {
             self.roots = roots.clone();
             batch.roots(&roots);
+        }
+        if !receipts.is_empty() {
+            self.emit_title(&mut batch);
         }
         let mut height_target_error = None;
         // Runner receipts retain due-time order. Unobserved motion starts at

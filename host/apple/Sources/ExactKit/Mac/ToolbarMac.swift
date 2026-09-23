@@ -17,6 +17,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private var syncing = false
     private var savedTitle = ""
     private var appliedTitle = ""
+    /// The active head's title (LLP 1048.003 D1) and the window's own title
+    /// before one arrived: the head's is the window's title, under a
+    /// projected toolbar heading, and its absence gives the app's back.
+    private var headTitle: String?
+    private var ownTitle: String?
     private var refusal: String?
     var onChange: (() -> Void)?
 
@@ -30,7 +35,27 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         detach()
         self.window = window
         sync()
+        if headTitle != nil { applyTitle() }
         return true
+    }
+
+    func headTitle(_ title: String?) {
+        guard title != headTitle else { return }
+        headTitle = title
+        applyTitle()
+    }
+
+    private func applyTitle() {
+        guard let window else { return }
+        if ownTitle == nil { ownTitle = toolbar == nil ? window.title : savedTitle }
+        let base = headTitle ?? ownTitle ?? ""
+        if toolbar == nil {
+            if window.title != base { window.title = base }
+            return
+        }
+        savedTitle = base
+        appliedTitle = heading.map(text) ?? base
+        if window.title != appliedTitle { window.title = appliedTitle }
     }
 
     func detach() { reset(); window = nil }

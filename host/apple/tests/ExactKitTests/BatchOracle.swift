@@ -53,7 +53,7 @@ typealias OracleNodeStyle = [String: OracleBatchValue]
 struct OracleBatchOp: Decodable {
     enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
-        case flow, surface, command, hold, collections, region, router, unknown
+        case flow, surface, command, hold, collections, region, router, title, unknown
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
     let op: Kind

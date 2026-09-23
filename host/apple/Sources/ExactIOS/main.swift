@@ -225,6 +225,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         exactView = ExactView(session: ExactIOS.session)
         // The root's background into the safe areas (`Presenter.paintCanvas`).
         exactView.onCanvasColor = { [weak w] color in w?.backgroundColor = color; w?.rootViewController?.view.backgroundColor = color }
+        // The head's title is the scene's (LLP 1048.003 D1): the app switcher's name for it.
+        exactView.onTitle = { [weak ws] title in ws?.title = title }
         watchPlan()
         // EXACT_PLAN=<file> boots that plan instead of the one baked into the
         // library — any compiled contract, no rebuild (smokes, fixtures).

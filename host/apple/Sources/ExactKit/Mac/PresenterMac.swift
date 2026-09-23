@@ -168,6 +168,9 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
+    /// The head's title goes to the window the app attached, through the
+    /// toolbar host that already owns its title (LLP 1048.003 D1).
+    func headTitle(_ title: String?) { toolbar.headTitle(title) }
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;

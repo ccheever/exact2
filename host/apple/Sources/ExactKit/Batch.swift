@@ -51,7 +51,7 @@ typealias NodeStyle = [String: BatchValue]
 public struct BatchOp {
     enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
-        case flow, surface, surfaceWork, command, hold, collections, region, router, unknown
+        case flow, surface, surfaceWork, command, hold, collections, region, router, title, unknown
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
     let op: Kind

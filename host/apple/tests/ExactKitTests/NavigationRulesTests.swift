@@ -386,6 +386,29 @@ final class MacToolbarTests: XCTestCase {
         return (p, w, bar, heading, action)
     }
 
+    /// The head's title (LLP 1048.003 D1) is the window's own title: held
+    /// until the app attaches its window, shown without a toolbar, under a
+    /// projected toolbar heading, and the app's again when no head sets one.
+    func testTheHeadTitleIsTheWindowsOwnTitle() {
+        let (p, w, bar, _, _) = fixture()
+        defer { p.toolbar.detach(); w.close() }
+        bar.props.removeValue(forKey: "toolbarPlacement")
+        p.headTitle("Before attach")
+        XCTAssertEqual(w.title, "Original", "an embedded view never claims the window")
+        XCTAssertTrue(p.toolbar.attach(to: w))
+        XCTAssertEqual(w.title, "Before attach")
+        p.headTitle("A question")
+        XCTAssertEqual(w.title, "A question")
+        bar.props["toolbarPlacement"] = "window"; p.toolbar.sync()
+        XCTAssertEqual(w.title, "Home", "the toolbar's heading shows over the head's title")
+        p.headTitle("Another question")
+        XCTAssertEqual(w.title, "Home")
+        bar.props.removeValue(forKey: "toolbarPlacement"); p.toolbar.sync()
+        XCTAssertEqual(w.title, "Another question")
+        p.headTitle(nil)
+        XCTAssertEqual(w.title, "Original")
+    }
+
     func testRequiresBothExplicitDeclarationAndWindowOwnerAttachment() {
         let (p, w, bar, _, _) = fixture()
         defer { p.toolbar.detach(); w.close() }

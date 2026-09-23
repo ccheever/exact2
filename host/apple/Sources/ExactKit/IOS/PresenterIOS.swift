@@ -837,6 +837,15 @@ final class Presenter {
     /// Safari paints the root element's background under the status bar
     /// and the home indicator; white when the root sets none.
     var onCanvasColor: ((UIColor) -> Void)?
+    /// The head's title (LLP 1048.003 D1), for the app adapter that owns the
+    /// scene; an embedded view never claims it.
+    private(set) var title: String?
+    var onTitle: ((String?) -> Void)?
+    func headTitle(_ title: String?) {
+        guard title != self.title else { return }
+        self.title = title
+        onTitle?(title)
+    }
     func paintCanvas() {
         let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }

@@ -119,7 +119,9 @@ extension Agent {
         }
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation]
+        // The window's title as AppKit shows it (LLP 1048.003 D1).
+        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull()]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll

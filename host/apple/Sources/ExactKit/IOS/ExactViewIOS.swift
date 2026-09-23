@@ -22,6 +22,9 @@ public final class ExactView: UIView {
     /// window's business).
     public var onViewportFit: (() -> Void)?
     public var onCanvasColor: ((UIColor) -> Void)?
+    /// The adapter's hook for the head's title (LLP 1048.003 D1): the scene
+    /// title is the app's to set. It hears the current title when set.
+    public var onTitle: ((String?) -> Void)? { didSet { onTitle?(session.presenter.title) } }
 
     public init(session: ExactSession) {
         self.session = session
@@ -42,6 +45,7 @@ public final class ExactView: UIView {
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
         session.presenter.observeKeyboard()
     }
