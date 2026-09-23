@@ -96,7 +96,11 @@ fn boot_source(source: &str) -> (Host<NoData>, Packet, String) {
 fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
     use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, SlotsId, StrId};
     let plan = contract::compile(source).unwrap();
-    let x = plan.slots.iter().position(|s| plan.str(s.name) == "x").unwrap();
+    let x = plan
+        .slots
+        .iter()
+        .position(|s| plan.str(s.name) == "x")
+        .unwrap();
     let handle = plan
         .bindings
         .iter()
