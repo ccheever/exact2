@@ -1,11 +1,11 @@
 //! Browser WebAssembly owns app execution; this host only copies encoded calls.
 use crate::Executor;
-use exact_logic_abi::MAX_MESSAGE;
+use exact_logic_abi::{ABI, MAX_MESSAGE};
 
 #[link(wasm_import_module = "exact_rust")]
 extern "C" {
     #[link_name = "load"]
-    fn module_load(ptr: *const u8, len: u32) -> u32;
+    fn module_load(ptr: *const u8, len: u32, abi: u32) -> u32;
     #[link_name = "call"]
     fn module_call(handle: u32, ptr: *const u8, len: u32) -> u32;
     #[link_name = "read"]
@@ -15,7 +15,8 @@ extern "C" {
 }
 struct Browser(u32);
 pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
-    let handle = unsafe { module_load(bytes.as_ptr(), bytes.len() as u32) };
+    // The loader checks the module's `exact_logic_abi` against this crate's.
+    let handle = unsafe { module_load(bytes.as_ptr(), bytes.len() as u32, ABI) };
     if handle == 0 {
         return Err("browser refused Rust wasm module".into());
     }

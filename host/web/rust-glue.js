@@ -9,12 +9,12 @@ export function rustRuntime(memory) {
     return new Uint8Array(memory().buffer, ptr >>> 0, len >>> 0);
   };
   return {
-    load(ptr, len) {
+    load(ptr, len, abi) {
       try {
         const compiled = new WebAssembly.Module(bytes(ptr, len));
         if (WebAssembly.Module.imports(compiled).length) throw new Error('Rust module must be importless');
         const exports = new WebAssembly.Instance(compiled, {}).exports;
-        if (!(exports.memory instanceof WebAssembly.Memory) || exports.exact_logic_abi?.() !== 2) throw new Error('Rust module ABI mismatch');
+        if (!(exports.memory instanceof WebAssembly.Memory) || exports.exact_logic_abi?.() !== abi) throw new Error(`Rust module ABI ${exports.exact_logic_abi?.()} is not the host's ${abi}`);
         for (const name of ['create', 'destroy', 'alloc', 'dealloc', 'call', 'output', 'output_len']) {
           if (typeof exports['exact_logic_' + name] !== 'function') throw new Error('Rust module export missing: ' + name);
         }

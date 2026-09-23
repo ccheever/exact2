@@ -19,11 +19,12 @@ test('trapping module cleanup cannot throw through the resident Wasm import', ()
         exact_logic_output_len:()=>1};}},
     };
     console.error=()=>{};
-    const runtime=rustRuntime(()=>memory),handle=runtime.load(0,1);
+    const runtime=rustRuntime(()=>memory),handle=runtime.load(0,1,2);
     assert.ok(handle);
+    assert.equal(runtime.load(0,1,3),0,'a module of another ABI than the host passes is refused');
     assert.equal(runtime.call(handle,0,1),0xffffffff);
     assert.doesNotThrow(()=>runtime.drop(handle));
-    assert.ok(runtime.load(0,1),'another module can still be instantiated');
+    assert.ok(runtime.load(0,1,2),'another module can still be instantiated');
   } finally {globalThis.WebAssembly=original;console.error=log;}
 });
 
