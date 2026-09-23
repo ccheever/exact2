@@ -2,7 +2,7 @@
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import {residencyProbe, checkResidency} from '../../render/tests/residency.mjs';
+import {residencyProbe, checkResidency, checkTextureFamily} from '../../render/tests/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -83,6 +83,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   check('clip root motion advances the fox', at120.entities.find(e=>e.name==='fox').components.Transform.position[2] > -1.8);
   const afterTicks = (await s.state()).world[0];
   checkSteadyResidency(afterTicks, check, say, host);
+  checkTextureFamily(afterTicks, check, say);
   if (host !== 'linux') {
     writeFileSync(resolve(out, `perf-${host}.json`), JSON.stringify({unsampled:true, perf:afterTicks.perf, gpu:afterTicks.gpu}, null, 2)+'\n');
     say(`PERF ${host} seekable counters (timing rings are unsampled, not zero-cost frames): ${JSON.stringify(afterTicks.perf)}`);

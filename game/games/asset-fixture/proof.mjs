@@ -2,7 +2,7 @@
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import {residencyProbe, checkResidency} from '../../render/tests/residency.mjs';
+import {residencyProbe, checkResidency, checkTextureFamily} from '../../render/tests/residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -125,6 +125,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     await s.world('world').key_down('KeyW');
     const saved=resolve(out,'crate.world'); await s.screenshot(saved,'world','save');
     checkSteadyResidency(at30, check, say, host);
+    checkTextureFamily(at30, check, say);
     await s.close();
     const restored=await start(saved);
     const loaded=(await restored.state()).world[0];

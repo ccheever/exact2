@@ -37,15 +37,9 @@ pub(crate) struct Uploaded {
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
 }
-pub(crate) struct Texture {
-    bytes: u64,
-    pub(crate) active: bool,
-    pub digest: u64,
-    pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
-    pub size: [u32; 2],
-    pub(crate) sprite_bind: Option<wgpu::BindGroup>,
-}
+mod textures;
+use textures::upload_texture;
+pub(crate) use textures::Texture;
 struct PoseHistory {
     entity: exact_game::Entity,
     saved: Option<(u64, u64, [exact_game::Transform; 2])>,
@@ -573,7 +567,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .get(name)
             .is_some_and(|texture| texture.sprite_bind.is_some());
         let mut texture =
-            upload_texture(&self.device, &self.queue, data, &mut self.models.samplers);
+            upload_texture(&self.device, &self.queue, data, &mut self.models.samplers)?;
         texture.digest = digest;
         if sprite {
             texture.sprite_bind = Some(self.quads.sprite_bind(&self.device, &texture));
@@ -610,6 +604,10 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }),
             self.models.uploads,
         )
+    }
+    /// Resident texture bytes and formats, as JSON for the world state.
+    pub(crate) fn texture_summary(&self) -> String {
+        textures::summary(&self.models.textures)
     }
     pub(crate) fn residency_work(&self) -> crate::world::assets::Work {
         let (pipelines, textures) = self.asset_work();
@@ -778,102 +776,6 @@ fn texture_names(m: &MaterialData, names: &[String]) -> [Option<String>; 5] {
     ]
     .map(|i| i.map(|i| names[i as usize].clone()))
 }
-fn upload_texture(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    data: &TextureData,
-    samplers: &mut BTreeMap<([Wrap; 2], [Filter; 3]), wgpu::Sampler>,
-) -> Texture {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("game baked texture"),
-        size: wgpu::Extent3d {
-            width: data.width,
-            height: data.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: data.mips.len() as u32,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: if data.srgb {
-            wgpu::TextureFormat::Rgba8UnormSrgb
-        } else {
-            wgpu::TextureFormat::Rgba8Unorm
-        },
-        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    for (level, mip) in data.mips.iter().enumerate() {
-        let (w, h) = ((data.width >> level).max(1), (data.height >> level).max(1));
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: level as u32,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            mip,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: None,
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-
-    let sampler = samplers.entry((data.wrap, data.filter)).or_insert_with(|| {
-        let wrap = |w| match w {
-            Wrap::Repeat => wgpu::AddressMode::Repeat,
-            Wrap::Clamp => wgpu::AddressMode::ClampToEdge,
-            Wrap::Mirror => wgpu::AddressMode::MirrorRepeat,
-        };
-        let filters = data.filter.map(|f| {
-            if f == Filter::Nearest {
-                wgpu::FilterMode::Nearest
-            } else {
-                wgpu::FilterMode::Linear
-            }
-        });
-        device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("game shared sampler"),
-            address_mode_u: wrap(data.wrap[0]),
-            address_mode_v: wrap(data.wrap[1]),
-            mag_filter: filters[0],
-            min_filter: filters[1],
-            mipmap_filter: if data.filter[2] == Filter::Nearest {
-                wgpu::MipmapFilterMode::Nearest
-            } else {
-                wgpu::MipmapFilterMode::Linear
-            },
-            anisotropy_clamp: if data.filter.iter().all(|f| *f == Filter::Linear) {
-                4
-            } else {
-                1
-            },
-            ..Default::default()
-        })
-    });
-    Texture {
-        active: true,
-        size: [data.width, data.height],
-        bytes: (0..texture.mip_level_count())
-            .map(|level| {
-                u64::from((texture.width() >> level).max(1))
-                    * u64::from((texture.height() >> level).max(1))
-                    * 4
-            })
-            .sum(),
-        digest: 0,
-        view: texture.create_view(&Default::default()),
-        sampler: sampler.clone(),
-        sprite_bind: None,
-    }
-}
-
 #[cfg(test)]
 mod arrival_tests {
     use super::*;

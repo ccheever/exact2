@@ -1,5 +1,6 @@
 mod args;
 mod render;
+mod textures;
 
 use crate::{
     perf::{Perf, Stamp},
@@ -61,6 +62,7 @@ pub struct WorldSurface<
     hook_gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
+    payloads: textures::Payloads,
     device: bool,
     device_assets_invalidated: bool,
     storage_limit: u32,
@@ -94,6 +96,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
             hook_gpu_timing: None,
             render: None,
             format: None,
+            payloads: Default::default(),
             device: false,
             device_assets_invalidated: false,
             storage_limit: 0,
@@ -320,10 +323,22 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
             self.assets_dirty = true;
             self.dirty = true;
         }
-        exact_gpu::AssetChanges { requests, retired }
+        if !ASSETS {
+            return exact_gpu::AssetChanges { requests, retired };
+        }
+        exact_gpu::AssetChanges {
+            retired: self.payloads.retire(retired),
+            requests: self.payloads.request(requests),
+        }
     }
-    fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
+    fn asset(&mut self, file: &str, bytes: Result<&[u8], AssetError>) {
         if ASSETS || G::LEVEL.is_some() {
+            let name = if ASSETS {
+                self.payloads.authored(file).to_owned()
+            } else {
+                file.to_owned()
+            };
+            let name = name.as_str();
             if let Some(sim) = &mut self.sim {
                 match bytes {
                     Ok(bytes) => {
@@ -345,6 +360,8 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                             }
                         }
                     }
+                    // A game without a bake's family payloads still has its RGBA8 file.
+                    Err(AssetError::Missing) if ASSETS && self.payloads.missing(file) => {}
                     Err(AssetError::Missing) => sim.asset_failed(name, "missing file"),
                     Err(AssetError::Failed(reason)) => sim.asset_failed(name, &reason),
                 }
@@ -463,13 +480,18 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
     fn preparing(&self) -> bool {
         self.hooks.needs().contains(crate::Needs::PENDING)
     }
-    fn device_ready(&mut self) {
+    fn device_ready(&mut self, features: wgpu::Features) {
         if ASSETS {
+            let family_changed = self.payloads.choose(features);
             if let Some(sim) = &mut self.sim {
                 sim.defer_assets(true);
                 // Loss already invalidated residency. Bytes delivered during adapter
-                // backoff belong to the replacement and must survive its attachment.
-                if !self.device && !self.device_assets_invalidated {
+                // backoff belong to the replacement and must survive its attachment,
+                // unless the replacement fetches another texture family.
+                if family_changed {
+                    sim.take_textures();
+                }
+                if family_changed || (!self.device && !self.device_assets_invalidated) {
                     sim.invalidate_device_assets();
                 }
             }
@@ -785,7 +807,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 reasons.push(format!("render hook: {error}"));
             }
             let ready = reasons.is_empty();
-            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"storageBindings\":{},\"requiredStorageBindings\":{},\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
+            // Which payload family this device fetches, and what is resident.
+            let textures = if ASSETS {
+                let resident = self
+                    .render
+                    .as_ref()
+                    .map_or_else(|| "null".into(), |(r, _)| r.texture_summary());
+                format!(
+                    ",\"textureFamily\":\"{}\",\"textures\":{resident}",
+                    self.payloads.family.label()
+                )
+            } else {
+                String::new()
+            };
+            reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"storageBindings\":{},\"requiredStorageBindings\":{},\"beforeReady\":{},\"afterReady\":{}{textures},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
                 exact_game::json::to_string(&reasons).unwrap(), self.storage_limit, if ASSETS { crate::STORAGE_BINDINGS } else { crate::SCENE_STORAGE_BINDINGS },
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
@@ -966,7 +1001,7 @@ mod residency_tests {
             return;
         };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let model = model();
         let bytes = exact_game::bin::to_vec(&model);
@@ -987,7 +1022,7 @@ mod residency_tests {
         else {
             return;
         };
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.prepare_assets(
             &replacement.device,
             &replacement.queue,
@@ -998,7 +1033,7 @@ mod residency_tests {
         assert!(changes.retired.contains(&model.textures[0]));
         assert!(changes.requests.contains(&model.textures[0]));
         s.asset(&model.textures[0], Ok(tex));
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.prepare_assets(
             &replacement.device,
             &replacement.queue,
@@ -1019,7 +1054,7 @@ mod residency_tests {
             return;
         };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
         let texture = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
@@ -1073,7 +1108,7 @@ mod residency_tests {
             return;
         };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
         // Character-sized resident, already retired when the oversized cache enters preparation.
@@ -1177,7 +1212,7 @@ mod residency_tests {
             return;
         };
         let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
         let texture = exact_game::asset::TextureData {
@@ -1225,7 +1260,7 @@ mod residency_tests {
     #[test]
     fn ready_reasons_name_declaration_and_render_failures() {
         let mut s = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         s.asset("fox.model", Err(AssetError::Missing));
         let state = s.agent(r#"{"op":"state"}"#).unwrap();
@@ -1261,7 +1296,7 @@ mod residency_tests {
             return;
         };
         let mut surface = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
-        surface.device_ready();
+        surface.device_ready(wgpu::Features::empty());
         surface.bind(&[], None).unwrap();
         surface.asset(
             "fox.model",

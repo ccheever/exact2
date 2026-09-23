@@ -21,11 +21,7 @@ pub async fn load_gpu(
         .request_device(&wgpu::DeviceDescriptor {
             label: Some("exact"),
             required_limits,
-            // Optional diagnostics: no queries or buffers until a surface arms them.
-            required_features: adapter.features()
-                & (wgpu::Features::TIMESTAMP_QUERY
-                    | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
-                    | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES),
+            required_features: adapter.features() & requested_features(),
             ..Default::default()
         })
         .await
@@ -36,6 +32,18 @@ pub async fn load_gpu(
         device,
         queue,
     })
+}
+
+/// Optional features, each granted only where the adapter has it: timestamp
+/// diagnostics (no queries or buffers until a surface arms them) and the two
+/// block-compressed texture families a surface may choose its payloads from.
+/// @ref llp/1046.003-game-engine-as-built.explainer.md#compressed-textures-2026-09-23
+pub fn requested_features() -> wgpu::Features {
+    wgpu::Features::TIMESTAMP_QUERY
+        | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS
+        | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
+        | wgpu::Features::TEXTURE_COMPRESSION_BC
+        | wgpu::Features::TEXTURE_COMPRESSION_ASTC
 }
 
 /// Request each optional capacity independently; a low inter-stage limit must

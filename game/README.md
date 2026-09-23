@@ -333,7 +333,9 @@ five core checks.
 ### Assets, animation and placed UI
 
 Put models and sprite PNGs under `art/`; [the baker](bake/README.md) produces
-validated `.model` and `.tex` assets. Declare simulation dependencies in
+validated `.model` and `.tex` assets, each texture as RGBA8, BC and ASTC files of
+which a device fetches one ([texture payloads](bake/README.md#texture-payloads)).
+Name the authored `x.tex` everywhere. Declare simulation dependencies in
 `Game::ASSETS`; setup waits for them. Models and sprites need the asset-capable
 module. Untextured emitters remain available to primitive games.
 

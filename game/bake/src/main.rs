@@ -17,16 +17,20 @@ fn main() {
         .extension()
         .is_some_and(|v| v == "png")
     {
-        let result = exact_game_bake::sprite(&args[0]).and_then(|texture| {
-            let name = args[1].to_string_lossy();
-            let bytes = exact_game_bake::encode(&name, &texture)?;
+        // OUTPUT.tex is the RGBA8 name; its .bc.tex/.astc.tex payloads sit beside it.
+        let name = args[1].to_string_lossy();
+        let result = exact_game_bake::sprite_variants(&name, &args[0]).and_then(|variants| {
             if let Some(parent) = std::path::Path::new(&args[1])
                 .parent()
                 .filter(|p| !p.as_os_str().is_empty())
             {
                 std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            std::fs::write(&args[1], bytes).map_err(|e| e.to_string())
+            for (name, texture) in variants {
+                let bytes = exact_game_bake::encode(&name, &texture)?;
+                std::fs::write(&name, bytes).map_err(|e| e.to_string())?;
+            }
+            Ok(())
         });
         if let Err(error) = result {
             eprintln!("{error}");

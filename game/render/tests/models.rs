@@ -54,7 +54,7 @@ impl Game for ModelGame {
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
     let mut surface =
         WorldSurface::<ModelGame, exact_game_render::ModelPresentation, true>::default();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["sample.model"]);
     surface.asset("sample.model", Ok(&bin::to_vec(model)));

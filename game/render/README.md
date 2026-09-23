@@ -164,7 +164,28 @@ linear. Mips arrive baked with authored nearest/linear filters and wrap modes; f
 samplers use 4× anisotropy. Only MASK/BLEND base-colour filtering weights RGB by
 alpha; opaque and emissive maps average straight RGB. MASK mip coverage is
 retained to the nearest texel. Normal mapping derives a cotangent frame from screen-space world/UV
-derivatives; baked models contain no tangent arrays. Material UV transforms apply separately to every texture.
+derivatives; baked models contain no tangent arrays. The shader reads a normal
+map's XY and rebuilds Z (`sqrt(1 − x² − y²)`), so RGBA8, BC5 and two-channel ASTC
+draw alike. Material UV transforms apply separately to every texture.
+
+### Texture families
+
+A `.tex` record is RGBA8, BC4, BC5, BC7 or ASTC 4×4 (`TextureData.format`,
+[the bake](../bake/README.md#texture-payloads)); the renderer uploads its levels as
+delivered, whole blocks per level, and never transcodes. The device requests every
+available block family (`exact_gpu::requested_features`); `Surface::device_ready`
+passes the granted features, and the surface chooses **BC** when granted, else
+**ASTC**, else **RGBA8**. Worlds and models name the authored `x.tex`; the surface asks
+the host for `x.bc.tex`, `x.astc.tex` or `x.tex` and maps the delivered file back,
+so hosts fetch by name and the simulation never sees a family. A headless surface
+has no device and fetches RGBA8, which validates and hashes like any delivery
+(texture bytes are outside world hashes). A missing family file (an authored `.tex`
+without a bake) falls back to the authored file once. A replacement device with a
+different family retires the old files and re-requests every texture. A record
+whose format the device did not enable, or whose edge exceeds its limit, is a named
+delivery failure, not a wgpu error. `state.world.gpu` reports `textureFamily` and
+`textures: {bytes, <format>: count}` for the active delivered textures (device bytes
+are the delivered level bytes).
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
@@ -217,6 +238,8 @@ input viewport, while a finite seekable clock can still advance.
 Equal name/content retains GPU handles and prepared pipelines. Changed content
 under the same name uploads the replacement and updates its bindings. The hash
 is the engine's noncryptographic content hash, not an authentication digest.
+Textures are resident under their authored name, whatever family file delivered
+them; the digest covers that delivered record.
 
 `presentation_generation` invalidates world-derived transform histories, material
 pages, draw records, instance lists and skin pose histories. It does not invalidate
@@ -226,7 +249,7 @@ content without resetting unrelated entities' histories. Re-requested Pending na
 remain retired until their bytes are digest-accepted. Device loss, format change
 or full module replacement still requires a new renderer.
 
-The 64 MiB retired budget charges texture mip dimensions and allocated buffer sizes,
+The 64 MiB retired budget charges delivered texture level bytes and allocated buffer sizes,
 including unused mesh-arena capacity. Compaction drops retired loaded entries and
 orphan material/skin slots while keeping live pipelines, meshes and pose histories.
 Same-name replacement reuses the old slots after digest acceptance. Only shared

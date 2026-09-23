@@ -1,5 +1,12 @@
+use crate::compress::Channels;
 use exact_game::asset::*;
 use std::collections::BTreeMap;
+
+/// Full-resolution RGBA8 chains by authored name, and the material slots
+/// (0 base, 1 normal, 2 metallic-roughness, 3 emission, 4 occlusion) sampling
+/// each; bit 5 marks base colour whose alpha a MASK/BLEND material reads.
+/// MASK colour also carries its cut as an alpha byte.
+pub type Sources = BTreeMap<String, (TextureData, u8, Option<u8>)>;
 
 pub fn materials(
     doc: &gltf::Document,
@@ -7,10 +14,10 @@ pub fn materials(
     out: &mut Model,
     stem: &str,
     used: &std::collections::BTreeSet<usize>,
-) -> Result<BTreeMap<String, TextureData>, String> {
+) -> Result<Sources, String> {
     let json = serde_json::to_value(doc.as_json()).map_err(|e| e.to_string())?;
     let mut cache = BTreeMap::new();
-    let mut payloads = BTreeMap::new();
+    let mut payloads: Sources = BTreeMap::new();
     for material in doc.materials() {
         if !used.contains(&material.index().unwrap()) {
             out.materials.push(MaterialData::default());
@@ -80,7 +87,9 @@ pub fn materials(
                 .then_some(m.alpha_cutoff / m.base_color[3].max(f32::MIN_POSITIVE));
             let uses_alpha = slot == 0 && m.alpha_mode != AlphaMode::Opaque;
             let key = (texture.index(), srgb, uses_alpha, cutoff.map(f32::to_bits));
-            let index = if let Some(&i) = cache.get(&key) {
+            let bits = 1 << slot | u8::from(uses_alpha) << 5;
+            let index = if let Some(&(i, ref name)) = cache.get(&key) {
+                payloads.get_mut::<String>(name).unwrap().1 |= bits;
                 i
             } else {
                 let image = &images[texture.source().index()];
@@ -94,9 +103,9 @@ pub fn materials(
                 if !asset_name(&name) {
                     return Err(format!("texture `{name}`: invalid asset name"));
                 }
-                if image.width > 2048 || image.height > 2048 {
+                if image.width > BLOCK_TEXTURE_LIMIT || image.height > BLOCK_TEXTURE_LIMIT {
                     return Err(format!(
-                        "texture `{name}`: {}x{} exceeds 2048x2048",
+                        "texture `{name}`: {}x{} exceeds {BLOCK_TEXTURE_LIMIT}x{BLOCK_TEXTURE_LIMIT}",
                         image.width, image.height
                     ));
                 }
@@ -144,12 +153,13 @@ pub fn materials(
                             Filter::Linear
                         },
                     ],
+                    format: TextureFormat::Rgba8,
                 };
-                data.validate()
-                    .map_err(|e| format!("texture `{name}`: {e}"))?;
                 out.textures.push(name.clone());
-                payloads.insert(name, data);
-                cache.insert(key, index);
+                // The same byte the coverage-preserving mips cut at.
+                let cut = cutoff.map(|c| (c * 255.).ceil().clamp(1., 255.) as u8);
+                payloads.insert(name.clone(), (data, bits, cut));
+                cache.insert(key, (index, name));
                 index
             };
             match slot {
@@ -164,6 +174,19 @@ pub fn materials(
     }
     out.materials.push(MaterialData::default());
     Ok(payloads)
+}
+/// What the sampling slots read, for choosing block formats. Colour slots
+/// (sRGB) never share a payload with data slots (linear): srgb is in its key.
+pub fn channels(slots: u8, cut: Option<u8>) -> Channels {
+    if let Some(cut) = cut {
+        return Channels::Mask(cut);
+    }
+    match slots {
+        _ if slots & 1 << 5 != 0 => Channels::ColorAlpha,
+        0b0_0010 => Channels::Normal,
+        0b1_0000 => Channels::R,
+        _ => Channels::Rgb,
+    }
 }
 fn rgba(data: &gltf::image::Data) -> Result<Vec<u8>, String> {
     use gltf::image::Format;
@@ -220,6 +243,8 @@ pub fn mips(
             .count() as f32
             / (w * h) as f32
     });
+    // Every sample is a byte: one table replaces a power per texel and channel.
+    let table: Vec<f32> = (0..=255u8).map(|v| linear(f32::from(v) / 255.)).collect();
     let mut out = vec![rgba];
     while w > 1 || h > 1 {
         let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
@@ -234,11 +259,12 @@ pub fn mips(
                     let mut weight = 0.;
                     for sy in y0..y1 {
                         for sx in x0..x1 {
-                            let v = previous[((sy * w + sx) * 4 + c) as usize] as f32 / 255.;
+                            let byte = previous[((sy * w + sx) * 4 + c) as usize];
+                            let v = byte as f32 / 255.;
                             let alpha = previous[((sy * w + sx) * 4 + 3) as usize] as f32 / 255.;
                             if color && c < 3 {
                                 let weight_here = if uses_alpha { alpha } else { 1. };
-                                sum += linear(v) * weight_here;
+                                sum += table[usize::from(byte)] * weight_here;
                                 weight += weight_here;
                             } else {
                                 sum += v;

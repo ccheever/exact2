@@ -10,3 +10,8 @@ gltf = { version = "1.4.1", features = ["import", "KHR_materials_emissive_streng
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 serde_json = "1"
 sha2 = "0.10"
+# Bake-time block encoders and decoders (never linked into a game):
+# Intel ISPC kernels (prebuilt) for BC4/5/7, ARM astcenc (vendored C++) for ASTC.
+ctt-intel-texture-compressor = "0.5"
+ctt-astcenc = "0.5"
+bcdec_rs = "0.2"

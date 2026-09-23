@@ -37,6 +37,15 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
+# The art bake runs in each GPU crate's build script, which release builds
+# compile at build-override's opt-level 0; its texture encoders need 3.
+[profile.release.package.exact-game-bake]
+opt-level = 3
+[profile.release.package.ctt-astcenc]
+opt-level = 3
+[profile.release.package.bcdec_rs]
+opt-level = 3
+
 [profile.web]
 inherits = "release"
 opt-level = "z"

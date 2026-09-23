@@ -109,10 +109,12 @@ fn loaded_content_reprepares_after_device_loss() {
         return;
     };
     let mut surface = fresh();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
-    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
+    // The authored RGBA8 names: what a device without block families fetches.
+    textures.retain(|name, _| model.textures.contains(name));
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
@@ -130,7 +132,7 @@ fn loaded_content_reprepares_after_device_loss() {
         surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()
     );
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -145,10 +147,10 @@ fn loaded_content_reprepares_after_device_loss() {
 #[test]
 fn loss_during_loading_reissues_unanswered_names() {
     let mut surface = fresh();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert_eq!(surface.assets().requests, ["crate.model"]);
     surface.device_lost();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert_eq!(surface.assets().requests, ["crate.model"]);
 }
 
@@ -157,12 +159,14 @@ fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
     let mut surface = fresh();
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
-    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
+    // The authored RGBA8 names: what a device without block families fetches.
+    textures.retain(|name, _| model.textures.contains(name));
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert_eq!(
         surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()
@@ -176,7 +180,9 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     };
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
-    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
+    // The authored RGBA8 names: what a device without block families fetches.
+    textures.retain(|name, _| model.textures.contains(name));
     let mut source = Sim::<Art>::new(()).unwrap();
     source
         .asset("crate.model", Some(&bin::to_vec(&model)))
@@ -186,7 +192,7 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     }
     let save = source.save().unwrap();
     let mut surface = fresh();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.restore(&save, exact_gpu::Restore::Open).unwrap();
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
@@ -221,11 +227,13 @@ fn replacement_device_draws_identical_pixels() {
     };
     let mut surface =
         WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let path =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../bake/tests/fixtures/crate.gltf");
-    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
+    // The authored RGBA8 names: what a device without block families fetches.
+    textures.retain(|name, _| model.textures.contains(name));
     surface.asset("crate.model", Ok(&bin::to_vec(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
@@ -245,7 +253,7 @@ fn replacement_device_draws_identical_pixels() {
     let Some(replacement) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert_eq!(
         surface.assets().requests,
         textures.keys().cloned().collect::<Vec<_>>()

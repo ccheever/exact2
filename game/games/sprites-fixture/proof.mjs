@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { proof } from '../../proof.mjs';
-import { checkSteadyResidency } from '../../render/tests/residency.mjs';
+import { checkSteadyResidency, checkTextureFamily } from '../../render/tests/residency.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -31,7 +31,9 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
       check(`leaf ${z>0?'in front of':'behind'} character at ${px},${py}`,z>0?rgb[0]>rgb[2]:(rgb[2]>100&&rgb[0]<80),rgb);
     }
   }
-  checkSteadyResidency((await s.state()).world[0],check,say,host);
+  const steady=(await s.state()).world[0];
+  checkSteadyResidency(steady,check,say,host);
+  checkTextureFamily(steady,check,say);
   const endSave=resolve(out,'leaves-300.world');await w.save(endSave);pinSave('continuation',endSave);await s.close();
   const r=await start(save),rw=r.world('world');check('restore mid-fall snapshot',equal(await rw.snapshot(),mid));
   await rw.run(2500);check('restore continues animation, camera and leaves',equal(await rw.snapshot(),end));

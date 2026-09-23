@@ -86,17 +86,122 @@ fn authored_collision_and_invalid_stems_refuse_by_name() {
 
 #[test]
 fn sixteen_pixel_crate_pins_model_and_texture_bytes() {
+    use exact_game::asset::TextureFormat;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crate.gltf");
     let (model, textures) = exact_game_bake::assets(&path).unwrap();
     assert_eq!(
         exact_game::bin::to_vec(&model),
         include_bytes!("fixtures/crate.model")
     );
-    assert_eq!(textures.len(), 1);
+    assert_eq!(model.textures, ["crate/0-srgb-straight.tex"]);
+    let rgba = &textures["crate/0-srgb-straight.tex"];
     assert_eq!(
-        exact_game::bin::to_vec(&textures["crate/0-srgb-straight.tex"]),
+        exact_game::bin::to_vec(rgba),
         include_bytes!("fixtures/crate/0-srgb-straight.tex")
     );
+    // Encoders may differ bit-wise across SIMD variants: pin structure and quality.
+    for (name, format) in [
+        ("crate/0-srgb-straight.bc.tex", TextureFormat::Bc7),
+        ("crate/0-srgb-straight.astc.tex", TextureFormat::Astc4x4),
+    ] {
+        let t = &textures[name];
+        assert_eq!(
+            (t.format, t.width, t.height, t.srgb),
+            (format, 16, 16, true)
+        );
+        assert_eq!((t.wrap, t.filter), (rgba.wrap, rgba.filter));
+        t.validate().unwrap();
+        let decoded = exact_game_bake::compress::decode(t, 0);
+        let db = exact_game_bake::compress::psnr(&rgba.mips[0], &decoded, &[0, 1, 2]);
+        assert!(db > 40., "{name}: {db:.1} dB");
+    }
+    assert_eq!(textures.len(), 3);
+}
+
+#[test]
+fn block_textures_reach_4096_and_rgba8_payloads_stop_at_2048() {
+    use exact_game::asset::TextureFormat;
+    let app = temp();
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    source["images"][0]["uri"] = serde_json::json!("wide.png");
+    let path = app.join("art/wide.gltf");
+    image::RgbaImage::from_fn(4096, 4, |x, y| {
+        image::Rgba([(x / 16) as u8, (y * 60) as u8, 200, 255])
+    })
+    .save(app.join("art/wide.png"))
+    .unwrap();
+    fs::write(&path, source.to_string()).unwrap();
+    let (_, textures) = exact_game_bake::assets(&path).unwrap();
+    let rgba = &textures["wide/0-srgb-straight.tex"];
+    assert_eq!(
+        (rgba.format, rgba.width, rgba.height),
+        (TextureFormat::Rgba8, 2048, 2)
+    );
+    assert_eq!(rgba.mips.len(), 12);
+    for name in [
+        "wide/0-srgb-straight.bc.tex",
+        "wide/0-srgb-straight.astc.tex",
+    ] {
+        let t = &textures[name];
+        assert_ne!(t.format, TextureFormat::Rgba8, "{name}");
+        assert_eq!((t.width, t.height, t.mips.len()), (4096, 4, 13), "{name}");
+        // The fallback's levels are the block chain's tail.
+        let decoded = exact_game_bake::compress::decode(t, 1);
+        let db = exact_game_bake::compress::psnr(&decoded, &rgba.mips[0], &[0, 1, 2]);
+        assert!(db > 40., "{name}: {db:.1} dB");
+    }
+    // Whole blocks are WebGPU's rule: other sizes ship RGBA8 in every file.
+    image::RgbaImage::from_pixel(4094, 6, image::Rgba([90, 140, 200, 255]))
+        .save(app.join("art/wide.png"))
+        .unwrap();
+    let (_, textures) = exact_game_bake::assets(&path).unwrap();
+    for t in textures.values() {
+        assert_eq!(
+            (t.format, t.width, t.height),
+            (TextureFormat::Rgba8, 2047, 3)
+        );
+    }
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn sprites_use_blocks_only_where_they_decode_exactly() {
+    use exact_game::asset::TextureFormat;
+    let app = temp();
+    let tiles = image::RgbaImage::from_pixel(8, 8, image::Rgba([200, 30, 90, 255]));
+    let noisy = image::RgbaImage::from_fn(8, 8, |x, y| {
+        image::Rgba([
+            (x * 37) as u8,
+            (y * 53) as u8,
+            ((x * y * 91) % 256) as u8,
+            200,
+        ])
+    });
+    for (stem, image) in [("tiles", &tiles), ("noisy", &noisy)] {
+        image.save(app.join(format!("art/{stem}.png"))).unwrap();
+    }
+    exact_game_bake::bake_art(&app).unwrap();
+    let read = |name: &str| -> exact_game::asset::TextureData {
+        exact_game::bin::from_slice(&fs::read(app.join("assets").join(name)).unwrap()).unwrap()
+    };
+    // A solid colour is ASTC's void-extent block at every level: exact, so compressed.
+    assert_eq!(read("tiles.astc.tex").format, TextureFormat::Astc4x4);
+    for stem in ["tiles", "noisy"] {
+        let authored = read(&format!("{stem}.tex"));
+        for family in ["bc", "astc"] {
+            let t = read(&format!("{stem}.{family}.tex"));
+            for level in 0..t.mips.len() {
+                assert_eq!(
+                    exact_game_bake::compress::decode(&t, level),
+                    authored.mips[level],
+                    "{stem}.{family}.tex level {level} keeps the palette"
+                );
+            }
+        }
+    }
+    assert_eq!(read("noisy.astc.tex").format, TextureFormat::Rgba8);
+    assert_eq!(read("noisy.bc.tex").format, TextureFormat::Rgba8);
+    fs::remove_dir_all(app).unwrap();
 }
 
 #[test]
@@ -104,14 +209,14 @@ fn oversize_texture_refuses_by_name_and_nearest_filters_survive() {
     let app = temp();
     let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
     source["images"][0]["uri"] = serde_json::json!("wide.png");
-    image::RgbaImage::new(2049, 1)
+    image::RgbaImage::new(4097, 1)
         .save(app.join("art/wide.png"))
         .unwrap();
     let path = app.join("art/oversize.gltf");
     fs::write(&path, source.to_string()).unwrap();
     let error = exact_game_bake::assets(&path).unwrap_err();
     assert!(
-        error.contains("oversize/0-srgb-straight.tex") && error.contains("2048"),
+        error.contains("oversize/0-srgb-straight.tex") && error.contains("4096"),
         "{error}"
     );
     let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
@@ -267,5 +372,48 @@ fn source_units_normalize_geometry_and_real_test_payloads() {
     assert!(exact_game_bake::model(&path)
         .unwrap_err()
         .contains("metersPerUnit"));
+    fs::remove_dir_all(app).unwrap();
+}
+
+#[test]
+fn masked_coverage_survives_block_encoding() {
+    let app = temp();
+    let mut source: serde_json::Value = serde_json::from_str(CRATE).unwrap();
+    source["images"][0]["uri"] = serde_json::json!("leaf.png");
+    source["materials"][0]["alphaMode"] = serde_json::json!("MASK");
+    // A soft-edged disc: the kind of foliage cut-out whose mips thin without care.
+    image::RgbaImage::from_fn(64, 64, |x, y| {
+        let d = ((x as f32 - 31.5).powi(2) + (y as f32 - 31.5).powi(2)).sqrt();
+        image::Rgba([
+            60,
+            140,
+            40,
+            (255. * (1. - (d - 20.) / 12.).clamp(0., 1.)) as u8,
+        ])
+    })
+    .save(app.join("art/leaf.png"))
+    .unwrap();
+    let path = app.join("art/leaf.gltf");
+    fs::write(&path, source.to_string()).unwrap();
+    let (model, textures) = exact_game_bake::assets(&path).unwrap();
+    let name = &model.textures[0];
+    let stem = name.strip_suffix(".tex").unwrap();
+    let rgba = &textures[name];
+    let covered = |texels: &[u8]| {
+        let n = texels.chunks_exact(4).filter(|p| p[3] >= 128).count();
+        n as f64 / (texels.len() / 4) as f64
+    };
+    for family in ["bc", "astc"] {
+        let t = &textures[&format!("{stem}.{family}.tex")];
+        for level in 0..t.mips.len() - 2 {
+            let expected = covered(&rgba.mips[level]);
+            let actual = covered(&exact_game_bake::compress::decode(t, level));
+            eprintln!("{family} level {level}: {actual:.3} vs {expected:.3}");
+            assert!(
+                (actual - expected).abs() <= 1. / 16.,
+                "{family} level {level}: coverage {actual:.3} vs {expected:.3}"
+            );
+        }
+    }
     fs::remove_dir_all(app).unwrap();
 }

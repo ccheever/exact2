@@ -8,15 +8,49 @@ host adapters from `game/app`, with `app.json` selecting assets and audio suppor
 Run the crate tests from `game/` with `cargo test -p exact-game-bake` using the
 repository's documented Cargo environment.
 
+## Texture payloads
+
+Every texture bakes to three files, and a device fetches exactly one:
+
+| File | Contents | Fetched by |
+|---|---|---|
+| `x.tex` (the authored name) | RGBA8, at most 2048², every level | devices with neither family, and the GPU-less host |
+| `x.bc.tex` | BC7 colour/data, BC5 normal XY, BC4 occlusion | devices granting `texture-compression-bc` |
+| `x.astc.tex` | ASTC 4×4 | devices granting only `texture-compression-astc` |
+
+Each is the same `.tex` `Data` record (`TextureData`), digest-addressed like any
+asset; its `format` says how the levels are encoded. Models and `Sprite`s name only
+`x.tex`; the renderer maps that name to its device's file (see
+[the renderer](../render/README.md#texture-families)). The module carries no
+transcoder. A block record's base dimensions are whole 4×4 blocks (WebGPU's rule);
+any other texture ships RGBA8 in all three files. Block textures reach 4096²; their
+RGBA8 fallback drops levels above 2048², which costs the same device memory.
+
+Formats follow what the material samples: base colour and emission are BC7 sRGB
+(alpha-sampled only for MASK/BLEND), metallic-roughness BC7 linear, a texture
+sampled only as a normal map BC5 (the shader rebuilds Z from XY), one sampled only
+as occlusion BC4. ASTC is 4×4 for all of them, with the unsampled channels constant.
+Mips are filtered once in RGBA8 (linear-light colour, alpha coverage preserved for
+MASK) and each level is then encoded. Encoders: Intel's ISPC kernels (prebuilt, via
+`ctt-intel-texture-compressor`) for BC and ARM's `astcenc` (via `ctt-astcenc`) for
+ASTC, both only in this crate. Their bytes can differ bit-wise between SIMD
+variants of one machine family and another; tests pin quality (top level above
+40 dB PSNR against RGBA8 on the sampled channels), not encoded bytes.
+
+## Sprites
 
 Put a sprite strip at `art/strip.png`; the ordinary app bake produces
-`assets/strip.tex`. Standalone PNG defaults are explicit: sRGB colour, straight alpha,
-clamp-to-edge on both axes, nearest minification/magnification/mip filtering, and a
-nearest-sampled mip chain that retains the pixel palette. Use `Sprite::new("strip.tex", Vec2::new(16., 16.))`
-with frames in source pixels. The CLI also accepts `cargo run -p exact-game-bake --
-art/strip.png assets/strip.tex`. Dimensions must be 1..=2048. The sprite fixture keeps
-its original `.tex` only as a test golden; production bytes come from its PNG.
-Generated-output ownership, collision refusal and pruning are the same as for models.
+`assets/strip.tex` and its two family files. Standalone PNG defaults are explicit:
+sRGB colour, straight alpha, clamp-to-edge on both axes, nearest
+minification/magnification/mip filtering, and a nearest-sampled mip chain that
+retains the pixel palette: a family file holds BC7 or ASTC only where every level
+decodes to exactly the authored texels, and RGBA8 otherwise. Use
+`Sprite::new("strip.tex", Vec2::new(16., 16.))` with frames in source pixels. The
+CLI also accepts `cargo run -p exact-game-bake -- art/strip.png assets/strip.tex`,
+which writes the family files beside it. Dimensions must be 1..=2048. The sprite
+fixture keeps its original `.tex` only as a test golden; production bytes come from
+its PNG. Generated-output ownership, collision refusal and pruning are the same as
+for models.
 
 The digest manifest protects authored files from replacement or pruning. Obsolete
 list-form manifests refuse with instructions to remove the manifest and its generated

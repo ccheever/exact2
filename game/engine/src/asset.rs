@@ -1,5 +1,6 @@
 //! Baked, renderer-neutral assets. Runtime reads only the engine's binary codec.
-//! Geometry and RGBA8 mip chains are ready to upload; skins/clips are data, not playback.
+//! Geometry and mip chains (RGBA8 or GPU block formats) are ready to upload;
+//! skins/clips are data, not playback.
 #![allow(missing_docs)]
 use crate::Data;
 #[path = "../../../gpu/src/asset_name.rs"]
@@ -84,6 +85,8 @@ pub enum AlphaMode {
     Mask,
     Blend,
 }
+/// A complete mip chain in one texel encoding. Block formats are uploaded
+/// as baked: the module carries no transcoder.
 #[derive(Data, Default, Clone, Debug)]
 pub struct TextureData {
     pub width: u32,
@@ -92,6 +95,92 @@ pub struct TextureData {
     pub srgb: bool,
     pub wrap: [Wrap; 2],
     pub filter: [Filter; 3],
+    pub format: TextureFormat,
+}
+/// How every mip of a `.tex` record is encoded. Block formats use 4×4 blocks;
+/// a record's base dimensions are whole blocks (WebGPU's rule).
+/// @ref llp/1046.003-game-engine-as-built.explainer.md#compressed-textures-2026-09-23
+#[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TextureFormat {
+    /// Four bytes per texel; every device samples it.
+    #[default]
+    Rgba8,
+    /// One linear channel (R), 8 bytes per block.
+    Bc4,
+    /// Two linear channels (RG), 16 bytes per block.
+    Bc5,
+    /// RGBA, sRGB or linear, 16 bytes per block.
+    Bc7,
+    /// RGBA, sRGB or linear, 16 bytes per 4×4 block.
+    Astc4x4,
+}
+/// Which per-device payload a texture request names. The baker writes one
+/// file per family beside the authored `.tex` name; a device fetches one.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextureFamily {
+    /// The authored name: RGBA8, the fallback every device and host reads.
+    #[default]
+    Rgba8,
+    /// `name.bc.tex`: BC4/BC5/BC7 (WebGPU `texture-compression-bc`).
+    Bc,
+    /// `name.astc.tex`: ASTC 4×4 (WebGPU `texture-compression-astc`).
+    Astc,
+}
+/// RGBA8 payloads stop at 2048²; block formats reach 4096² in the same bytes.
+pub const RGBA8_TEXTURE_LIMIT: u32 = 2048;
+/// The largest block-compressed texture edge.
+pub const BLOCK_TEXTURE_LIMIT: u32 = 4096;
+impl TextureFormat {
+    /// Every format, in declaration order (`format as usize` indexes it).
+    pub const ALL: [Self; 5] = [Self::Rgba8, Self::Bc4, Self::Bc5, Self::Bc7, Self::Astc4x4];
+    /// The format's name, as errors and `state.world.gpu.textures` report it.
+    pub fn name(self) -> &'static str {
+        ["Rgba8", "Bc4", "Bc5", "Bc7", "Astc4x4"][self as usize]
+    }
+    /// Texel edge of one block and its bytes (RGBA8 is a one-texel block).
+    pub fn block(self) -> (u32, usize) {
+        match self {
+            Self::Rgba8 => (1, 4),
+            Self::Bc4 => (4, 8),
+            Self::Bc5 | Self::Bc7 | Self::Astc4x4 => (4, 16),
+        }
+    }
+    /// The payload family that carries this format.
+    pub fn family(self) -> TextureFamily {
+        match self {
+            Self::Rgba8 => TextureFamily::Rgba8,
+            Self::Bc4 | Self::Bc5 | Self::Bc7 => TextureFamily::Bc,
+            Self::Astc4x4 => TextureFamily::Astc,
+        }
+    }
+    /// Bytes of one mip level of `width` × `height` texels.
+    pub fn level_bytes(self, width: u32, height: u32) -> u64 {
+        let (edge, bytes) = self.block();
+        u64::from(width.div_ceil(edge)) * u64::from(height.div_ceil(edge)) * bytes as u64
+    }
+    /// The largest base edge a record of this format may carry.
+    pub fn limit(self) -> u32 {
+        if self == Self::Rgba8 {
+            RGBA8_TEXTURE_LIMIT
+        } else {
+            BLOCK_TEXTURE_LIMIT
+        }
+    }
+}
+impl TextureFamily {
+    /// The family's name, as `state.world.gpu.textureFamily` reports it.
+    pub fn label(self) -> &'static str {
+        ["Rgba8", "Bc", "Astc"][self as usize]
+    }
+    /// The file a device of this family requests for the authored `.tex`
+    /// name; RGBA8 is the authored name itself. Other names have no variants.
+    pub fn name(self, texture: &str) -> String {
+        match (self, texture.strip_suffix(".tex")) {
+            (Self::Bc, Some(stem)) => format!("{stem}.bc.tex"),
+            (Self::Astc, Some(stem)) => format!("{stem}.astc.tex"),
+            _ => texture.into(),
+        }
+    }
 }
 #[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Wrap {
@@ -602,15 +691,31 @@ fn valid_bounds(b: &[f32; 6]) -> bool {
 }
 impl TextureData {
     pub fn validate(&self) -> Result<(), String> {
-        if self.width == 0 || self.height == 0 || self.width > 2048 || self.height > 2048 {
-            return Err("texture dimensions must be 1..=2048".into());
+        let (format, limit) = (self.format, self.format.limit());
+        if self.width == 0 || self.height == 0 || self.width > limit || self.height > limit {
+            return Err(format!(
+                "{} texture dimensions must be 1..={limit}",
+                format.name()
+            ));
+        }
+        let (edge, _) = format.block();
+        if !self.width.is_multiple_of(edge) || !self.height.is_multiple_of(edge) {
+            return Err(format!(
+                "{} texture {}x{} is not whole {edge}x{edge} blocks",
+                format.name(),
+                self.width,
+                self.height
+            ));
+        }
+        if self.srgb && matches!(format, TextureFormat::Bc4 | TextureFormat::Bc5) {
+            return Err(format!("{} textures are linear", format.name()));
         }
         let (mut w, mut h) = (self.width, self.height);
         if self.mips.len() != (32 - w.max(h).leading_zeros()) as usize {
             return Err("incomplete mip chain".into());
         }
         for mip in &self.mips {
-            if mip.len() as u64 != u64::from(w) * u64::from(h) * 4 {
+            if mip.len() as u64 != format.level_bytes(w, h) {
                 return Err("invalid mip byte count".into());
             }
             w = (w / 2).max(1);
@@ -677,5 +782,53 @@ impl<G: crate::Game> crate::Sim<G> {
                 .ok_or_else(|| "missing file".to_owned())
                 .and_then(|b| Content::decode::<true>(name, b)),
         )
+    }
+}
+
+#[cfg(test)]
+mod texture_tests {
+    use super::*;
+    fn chain(format: TextureFormat, width: u32, height: u32) -> TextureData {
+        let (mut w, mut h, mut mips) = (width, height, Vec::new());
+        loop {
+            mips.push(vec![0; format.level_bytes(w, h) as usize]);
+            if w == 1 && h == 1 {
+                break;
+            }
+            (w, h) = ((w / 2).max(1), (h / 2).max(1));
+        }
+        TextureData {
+            width,
+            height,
+            mips,
+            format,
+            ..Default::default()
+        }
+    }
+    #[test]
+    fn block_records_are_whole_blocks_linear_where_single_purpose_and_4096_at_most() {
+        chain(TextureFormat::Bc7, 4096, 8).validate().unwrap();
+        chain(TextureFormat::Astc4x4, 12, 4).validate().unwrap();
+        // Levels below one block still occupy a whole block.
+        assert_eq!(chain(TextureFormat::Bc4, 8, 4).mips[3].len(), 8);
+        let refused = |t: TextureData| t.validate().unwrap_err();
+        assert!(refused(chain(TextureFormat::Rgba8, 4096, 4)).contains("1..=2048"));
+        assert!(refused(chain(TextureFormat::Bc7, 8192, 4)).contains("1..=4096"));
+        assert!(refused(chain(TextureFormat::Bc5, 6, 4)).contains("4x4 blocks"));
+        let mut srgb = chain(TextureFormat::Bc5, 4, 4);
+        srgb.srgb = true;
+        assert!(refused(srgb).contains("linear"));
+        let mut short = chain(TextureFormat::Astc4x4, 8, 8);
+        short.mips[1].pop();
+        assert!(refused(short).contains("byte count"));
+    }
+    #[test]
+    fn families_name_their_files_beside_the_authored_texture() {
+        assert_eq!(TextureFamily::Rgba8.name("fox/0.tex"), "fox/0.tex");
+        assert_eq!(TextureFamily::Bc.name("fox/0.tex"), "fox/0.bc.tex");
+        assert_eq!(TextureFamily::Astc.name("fox/0.tex"), "fox/0.astc.tex");
+        assert_eq!(TextureFamily::Bc.name("fox.model"), "fox.model");
+        assert_eq!(TextureFormat::Bc4.family(), TextureFamily::Bc);
+        assert_eq!(TextureFormat::Astc4x4.family(), TextureFamily::Astc);
     }
 }
