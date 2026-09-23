@@ -2,71 +2,119 @@
 // runtime (LLP 1048.003 D1). Loaded after paint, only by a page that carries
 // a checkpoint or a runtime that sends a `head` op.
 //
-// The document is the page until the runtime has its own settled tree: the
-// runtime starts when the page is idle (requestIdleCallback after `load`, or
-// a short timeout) or at the first pointer or key interaction, whichever
-// comes first, booting from the page's checkpoint; its batches are held while
-// the document stays on screen. When its data is ready it adopts the document
-// if its first tree is the document (the wasm matched the renderer's digest):
-// the first batch binds the elements already there by `data-view`. Otherwise
-// it replaces the document once, and journals where the two differ. Either
-// way the reader never sees less than the server sent. A press on the
-// document before then is recorded against its view ids and replayed once,
-// after, on the element that would have taken it — only if that element is
-// still the one the reader pressed. Links are real links the whole time;
-// nothing is disabled while it loads.
+// The document remains visible while its runtime loads and adopts it. Idle
+// pages start after load or on input; interaction pages start on a handler's
+// intent or when a device has kept sign-in state. Real links work immediately.
+// Discrete edits and actions replay once, in order, on matching controls. An
+// active IME composition keeps the document in place through compositionend.
 
 const IDLE_FALLBACK_MS = 200;
 
-function documentBoot({ root, views, dispatch, log, early = [] }) {
-  let holding = true, adopted, adopting = null;
-  const held = [], presses = [];
+function documentBoot(options) {
+  const root = options.root;
+  let { views, dispatch, log = console.warn } = options;
+  let holding = true, adopted, adopting = null, releaseAfterComposition = null, restoringFocus = false;
+  const held = [], events = [], composing = new Set();
   const script = document.querySelector('script[type="application/vnd.exact.checkpoint"]');
-  const record = (event) => {
-    if (!holding || event.button > 0 || !(event.target instanceof Element)) return;
-    // A link keeps its own default: it navigates as a document's link does.
-    if (event.target.closest("a[href]")) return;
-    const chain = [];
-    for (let el = event.target.closest("[data-view]"); el && root.contains(el); el = el.parentElement?.closest("[data-view]")) {
-      chain.push({ id: Number(el.dataset.view), tag: el.localName, text: el.textContent });
+  const interaction = script?.dataset.activate === "interaction";
+  let start;
+  const started = new Promise(resolve => { start = resolve; });
+  const hears = (el, kind) => (el?.dataset.exactOn ?? "").split(" ").includes(kind);
+  const identity = el => ({ id: Number(el.dataset.view), tag: el.localName,
+    name: el.getAttribute("name"), test: el.getAttribute("data-testid"), type: el.getAttribute("type"),
+    text: /^(input|textarea)$/.test(el.localName) ? null : el.textContent });
+  const chain = target => {
+    const out = [];
+    for (let el = target.closest("[data-view]"); el && root.contains(el); el = el.parentElement?.closest("[data-view]")) out.push(el);
+    return out;
+  };
+  const matches = (el, at) => el && el.localName === at.tag && el.getAttribute("name") === at.name
+    && el.getAttribute("data-testid") === at.test && el.getAttribute("type") === at.type
+    && (at.text === null || el.textContent === at.text);
+  const usable = target => target instanceof Element && root.contains(target)
+    && !target.closest("[inert],:disabled,[disabled='true']");
+  const enqueue = (el, kind, value = "") => {
+    const event = { at: identity(el), kind, value };
+    const previous = events.at(-1);
+    // Consecutive edits carry their latest value; action ordering is preserved.
+    if (kind === "change" && previous?.kind === kind && previous.at.id === event.at.id) events.pop();
+    events.push(event); start();
+  };
+  const record = event => {
+    if (!holding || !usable(event.target)) return;
+    const els = chain(event.target);
+    if (event.type === "click") {
+      // Real links navigate before activation, including modified clicks.
+      if (event.button > 0 || event.target.closest("a[href]")) return;
+      const el = els.find(el => hears(el, "press"));
+      if (el) enqueue(el, "press");
+    } else if (event.type === "input") {
+      const el = els.find(el => hears(el, "change"));
+      if (el) enqueue(el, "change", el.value);
+    } else if (event.type === "focusin" || event.type === "focusout") {
+      const kind = event.type === "focusin" ? "focus" : "blur";
+      if (hears(event.target, kind)) enqueue(event.target, kind);
+    } else if (event.type === "keydown") {
+      for (const el of els) {
+        if (hears(el, "key")) enqueue(el, "key", event.key);
+        if (hears(el, "submit") && el.localName !== "textarea" && event.key === "Enter" && !event.isComposing) {
+          event.preventDefault(); enqueue(el, "submit");
+        }
+      }
+    } else if (event.type === "compositionstart") {
+      composing.add(event.target); start();
+    } else if (event.type === "compositionend") {
+      composing.delete(event.target);
+      // The final input event follows compositionend in the same task.
+      setTimeout(() => { if (!composing.size && releaseAfterComposition) page.release(releaseAfterComposition); }, 0);
     }
-    if (chain.length) presses.push(chain);
   };
-  root.addEventListener("click", record, true);
-  // Clicks the glue kept while this module loaded count as if heard here.
-  for (const event of early.splice(0)) record(event);
-  const replay = (chain) => {
-    // The innermost element that takes a press, as a click's bubbling finds it.
-    const at = chain.find(({ id }) => views.get(id)?.exactHandlers?.includes("press"));
-    const el = at && views.get(at.id);
-    if (el && el.localName === at.tag && el.textContent === at.text) dispatch(at.id);
-    else log(`document: a press before the runtime started was dropped (view ${chain[0].id} is not what was pressed)`);
+  const intent = event => {
+    if (!holding || !usable(event.target) || event.target.closest("a[href]")) return;
+    if (chain(event.target).some(el => ["press", "change", "focus", "blur", "key", "submit"].some(kind => hears(el, kind)))) start();
   };
-  const started = new Promise((resolve) => {
-    const kinds = ["pointerdown", "keydown"];
-    const go = () => { for (const kind of kinds) removeEventListener(kind, go, true); resolve(); };
-    for (const kind of kinds) addEventListener(kind, go, true);
-    const idle = () => (globalThis.requestIdleCallback ?? ((f) => setTimeout(f, IDLE_FALLBACK_MS)))(go);
+  const kinds = ["click", "input", "focusin", "focusout", "keydown", "compositionstart", "compositionend"];
+  for (const kind of kinds) root.addEventListener(kind, record, true);
+  for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
+  for (const event of options.early?.splice(0) ?? []) record(event);
+  if (!interaction) {
+    const go = () => { removeEventListener("pointerdown", go, true); removeEventListener("keydown", go, true); start(); };
+    addEventListener("pointerdown", go, true); addEventListener("keydown", go, true);
+    const idle = () => (globalThis.requestIdleCallback ?? (f => setTimeout(f, IDLE_FALLBACK_MS)))(go);
     if (document.readyState === "complete") idle(); else addEventListener("load", idle, { once: true });
-  });
-  return {
+  } else {
+    // The server is anonymous. Kept device state must still restore without a click.
+    try { for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith("exact.secret.")) { start(); break; } } catch {}
+  }
+  const replay = event => {
+    const at = event.at;
+    const el = at && views.get(at.id);
+    if (matches(el, at) && el.exactHandlers?.includes(event.kind) && usable(el)) {
+      dispatch(at.id, { press: 0, change: 1, focus: 4, blur: 5, key: 6, submit: 7 }[event.kind], event.value ?? "");
+    } else log(`document: an early ${event.kind} was dropped (view ${at.id} is not what received it)`);
+  };
+  const page = {
     started,
-    /** What the wasm boots from: the renderer's digest, a newline, and the
-     * checkpoint as the page carries it. */
+    connect(next) { ({ views, dispatch, log } = next); return page; },
     checkpoint: `${script?.dataset.digest ?? ""}\n${script?.textContent ?? ""}`,
     get holding() { return holding; },
     get adopted() { return adopted; },
-    /** While the first batch binds the document: its elements by view id. */
     get adopting() { return adopting; },
-    /** Hold a batch while the document is the page; false once released. */
+    get restoringFocus() { return restoringFocus; },
     hold(batch) { if (holding) held.push(batch); return holding; },
-    /** Adopt the document, or replace it with the runtime's tree, once;
-     * replay its presses a task later, after the caller's readiness. */
     release(apply) {
       if (!holding) return;
+      if (composing.size) { releaseAfterComposition = apply; return; }
+      releaseAfterComposition = null;
       holding = false;
-      root.removeEventListener("click", record, true);
-      const verdict = held[0]?.ops?.find((op) => op.op === "adopt");
+      for (const kind of kinds) root.removeEventListener(kind, record, true);
+      for (const kind of ["pointerdown", "keydown", "focusin"]) root.removeEventListener(kind, intent, true);
+      // Preserve edits and selection even when a digest mismatch replaces the DOM.
+      const edits = [...root.querySelectorAll("input[data-view],textarea[data-view]")].map(el => ({
+        at: identity(el), value: el.value, start: el.selectionStart, end: el.selectionEnd,
+        direction: el.selectionDirection, focused: el === document.activeElement,
+      }));
+      const verdict = held[0]?.ops?.find(op => op.op === "adopt");
       adopted = verdict?.adopted === true;
       if (adopted) {
         adopting = new Map();
@@ -77,9 +125,26 @@ function documentBoot({ root, views, dispatch, log, early = [] }) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
-      setTimeout(() => { for (const chain of presses.splice(0)) replay(chain); }, 0);
+      setTimeout(() => {
+        for (const edit of edits) {
+          const el = views.get(edit.at.id);
+          if (matches(el, edit.at) && events.some(event => event.kind === "change" && event.at.id === edit.at.id)) el.value = edit.value;
+        }
+        for (const event of events.splice(0)) replay(event);
+        for (const edit of edits) {
+          const el = views.get(edit.at.id);
+          if (!matches(el, edit.at)) continue;
+          if (edit.focused) {
+            restoringFocus = true;
+            try { el.focus({ preventScroll: true }); } finally { restoringFocus = false; }
+          }
+          // A handler can intentionally replace the value; never undo that result.
+          if (el.value === edit.value && edit.start !== null) el.setSelectionRange(edit.start, edit.end, edit.direction);
+        }
+      }, 0);
     },
   };
+  return page;
 }
 
 // Where the document and the runtime's first tree first differ, for the
@@ -125,5 +190,26 @@ function documentHead(op) {
   }
 }
 
+globalThis.exact ??= {};
 globalThis.exact.documentBoot = documentBoot;
 globalThis.exact.documentHead = documentHead;
+
+// On interaction pages this is the only initial script. It records intent before
+// loading the ordinary host; no app code or runtime is fetched just for reading.
+const checkpoint = document.querySelector('script[type="application/vnd.exact.checkpoint"]');
+if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.documentPage) {
+  const root = document.getElementById("exact-root");
+  const page = globalThis.exact.documentPage = documentBoot({ root });
+  page.started.then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    // The same parallel downloads as a client page, started only by intent.
+    for (const [file, rel] of [["./app.wasm", "preload"], ["./navigation.js", "modulepreload"]]) {
+      const link = document.createElement("link"); link.rel = rel; link.href = new URL(file, import.meta.url).href;
+      if (rel === "preload") { link.as = "fetch"; link.crossOrigin = ""; }
+      document.head.append(link);
+    }
+    const script = document.createElement("script");
+    script.type = "module"; script.src = new URL("./glue.js", import.meta.url).href;
+    script.onerror = () => { root.dataset.error = "The runtime could not load. Reload to retry; page links still work."; };
+    document.head.append(script);
+  })));
+}

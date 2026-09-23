@@ -2,14 +2,16 @@
 //! renders a page per request, on loopback, from the built web app.
 //!
 //! A route declared `render=build`, `cached` or `request`, and any location
-//! the router sends to its not-found route, is rendered fresh — a new
-//! runner and a new module realm per request (D10) — and composed over the
+//! the router sends to its not-found route, is rendered with a new
+//! runner and module realm (D10), then composed over the
 //! built shell ([`crate::page`]). A `client` route gets the shell. Files
 //! under `dist/` are served as they are; `/.exact/health` answers `ok`.
 //! Renders run on a fixed set of workers behind a bounded queue: a request
 //! that finds the queue full is a 503 at once. A failed render, or one that
 //! panics, is a 500 and the server keeps serving. Each render prints one
 //! line: location, status, time, answers, pending and bytes.
+//! Successful `cached` pages are also kept at the origin for their public
+//! lifetime, bounded to 64 locations and 32 MiB. Other routes render fresh.
 
 use crate::{page, render, Rendered, Settled};
 use exact_plan::{Plan, RenderPolicy};
@@ -25,6 +27,8 @@ use std::time::{Duration, Instant};
 
 /// The largest page the server sends (D10's bound on output bytes).
 const MAX_PAGE: usize = 16 << 20;
+const MAX_CACHED_PAGES: usize = 64;
+const MAX_CACHE_BYTES: usize = 32 << 20;
 
 /// How the server runs.
 pub struct Serve {
@@ -61,6 +65,13 @@ struct Shared {
     plan: Plan,
     shell: String,
     csp: String,
+    pages: Mutex<VecDeque<CachedPage>>,
+}
+
+struct CachedPage {
+    target: String,
+    created: Instant,
+    response: Response,
 }
 
 impl Server {
@@ -72,7 +83,7 @@ impl Server {
             .find_map(|name| std::fs::read_to_string(serve.dist.join(name)).ok())
             .ok_or_else(|| std::io::Error::other("the dist has no shell"))?;
         let listener = TcpListener::bind(("127.0.0.1", serve.port))?;
-        let csp = csp(grants);
+        let csp = csp(grants, &serve.dist);
         // The transport's first start in a process is slow (Apple's takes
         // seconds); pay it here, not in the first request.
         drop(crate::Executor::start(grants));
@@ -83,6 +94,7 @@ impl Server {
                 plan,
                 shell,
                 csp,
+                pages: Mutex::new(VecDeque::new()),
             },
         })
     }
@@ -150,13 +162,16 @@ impl Server {
     }
 }
 
-/// A request: its method, target, and the one header the server reads.
+/// The request fields that affect a response.
 struct Request {
     method: String,
     target: String,
     if_none_match: Option<String>,
+    revalidate: bool,
+    no_store: bool,
 }
 
+#[derive(Clone)]
 struct Response {
     status: u16,
     headers: Vec<(&'static str, String)>,
@@ -261,15 +276,35 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
     if !version.starts_with("HTTP/1.") || !target.starts_with('/') {
         return Err(());
     }
-    let if_none_match = lines
+    let headers: Vec<_> = lines
         .take_while(|line| !line.is_empty())
         .filter_map(|line| line.split_once(':'))
+        .collect();
+    let if_none_match = headers
+        .iter()
         .find(|(name, _)| name.trim().eq_ignore_ascii_case("if-none-match"))
         .map(|(_, value)| value.trim().to_string());
+    let revalidate = headers.iter().any(|(name, value)| {
+        name.trim().eq_ignore_ascii_case("cache-control")
+            && value.split(',').any(|part| {
+                matches!(
+                    part.trim().to_ascii_lowercase().as_str(),
+                    "no-cache" | "no-store" | "max-age=0"
+                )
+            })
+    });
+    let no_store = headers.iter().any(|(name, value)| {
+        name.trim().eq_ignore_ascii_case("cache-control")
+            && value
+                .split(',')
+                .any(|part| part.trim().eq_ignore_ascii_case("no-store"))
+    });
     Ok(Request {
         method: method.to_string(),
         target: target.to_string(),
         if_none_match,
+        revalidate,
+        no_store,
     })
 }
 
@@ -317,7 +352,65 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
             body: shared.shell.clone().into_bytes(),
         };
     }
-    document::<D>(request, policy, notfound, shared)
+    if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
+        return document::<D>(request, policy, notfound, shared);
+    }
+    {
+        let mut pages = shared.pages.lock().unwrap();
+        pages.retain(|page| page.created.elapsed() < shared.serve.lifetime);
+        if !request.revalidate {
+            if let Some(page) = pages.iter().find(|page| page.target == request.target) {
+                let mut response = page
+                    .response
+                    .clone()
+                    .header("Age", page.created.elapsed().as_secs().to_string());
+                if response.headers.iter().any(|(name, value)| {
+                    *name == "ETag" && request.if_none_match.as_ref() == Some(value)
+                }) {
+                    response.status = 304;
+                }
+                return response;
+            }
+        }
+    }
+    // Render without holding the cache lock. A concurrent miss may render too;
+    // it never delays an unrelated route or holds a module realm in the cache.
+    let unconditional = Request {
+        method: request.method.clone(),
+        target: request.target.clone(),
+        if_none_match: None,
+        revalidate: true,
+        no_store: false,
+    };
+    let mut response = document::<D>(&unconditional, policy, notfound, shared);
+    if response.status == 200 && response.body.len() <= MAX_CACHE_BYTES {
+        let mut pages = shared.pages.lock().unwrap();
+        pages.retain(|page| page.target != request.target);
+        while pages.len() >= MAX_CACHED_PAGES
+            || pages
+                .iter()
+                .map(|page| page.response.body.len())
+                .sum::<usize>()
+                + response.body.len()
+                > MAX_CACHE_BYTES
+        {
+            pages.pop_front();
+        }
+        pages.push_back(CachedPage {
+            target: request.target.clone(),
+            created: Instant::now(),
+            response: response.clone(),
+        });
+    }
+    if response.status == 200
+        && response
+            .headers
+            .iter()
+            .any(|(name, value)| *name == "ETag" && request.if_none_match.as_ref() == Some(value))
+    {
+        response.status = 304;
+    }
+    response
 }
 
 fn document<D: DataSource + Default>(
@@ -534,7 +627,7 @@ fn content_type(extension: &str) -> &'static str {
 /// The pages' Content-Security-Policy (D11): scripts only from the app's
 /// origin (the only inline scripts are inert data), the wasm, and fetches
 /// to the origins the app's grants name.
-fn csp(grants: &str) -> String {
+fn csp(grants: &str, dist: &Path) -> String {
     let mut connect = String::from("'self'");
     for line in grants.lines() {
         let mut words = line.split_whitespace();
@@ -552,7 +645,17 @@ fn csp(grants: &str) -> String {
             }
         }
     }
+    // The admitted TypeScript module and its host prelude run in a private
+    // same-origin realm. Admit their exact baked bytes, never arbitrary inline JS.
+    let mut scripts = String::from("'self' 'wasm-unsafe-eval'");
+    for file in ["module-prelude.js", "app.js"] {
+        if let Ok(bytes) = std::fs::read(dist.join(file)) {
+            use sha2::{Digest, Sha256};
+            let hash = exact_data::envelope::base64(&Sha256::digest(bytes));
+            let _ = write!(scripts, " 'sha256-{hash}'");
+        }
+    }
     format!(
-        "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src {connect}; worker-src 'self' blob:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+        "default-src 'self'; script-src {scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src {connect}; worker-src 'self' blob:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
     )
 }

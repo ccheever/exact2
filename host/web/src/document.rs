@@ -221,6 +221,18 @@ impl<D: DataSource> Walk<'_, D> {
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
         attrs.push(("data-view".into(), Some(id.to_string())));
+        if let Some(kinds) = self.handlers.get(&id).filter(|kinds| !kinds.is_empty()) {
+            attrs.push((
+                "data-exact-on".into(),
+                Some(
+                    kinds
+                        .iter()
+                        .map(|kind| kind.name())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                ),
+            ));
+        }
         let hears = self.handlers.get(&id).is_some_and(|kinds| {
             kinds
                 .iter()

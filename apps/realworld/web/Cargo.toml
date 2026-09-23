@@ -14,5 +14,9 @@ exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
 exact-js-web = { path = "../../../js/web" }
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+exact-js = { path = "../../../js" }
+exact-render = { path = "../../../host/render" }
+
 [build-dependencies]
 exact-js-bake = { path = "../../../js/bake" }

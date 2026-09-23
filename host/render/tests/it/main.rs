@@ -131,7 +131,15 @@ const SITE: Site<'static> = Site {
     origin: None,
 };
 
+fn warm_transport() {
+    // Server::bind prepares the platform transport before accepting requests.
+    // The per-render deadlines below exercise that same running-server path.
+    static WARM: std::sync::Once = std::sync::Once::new();
+    WARM.call_once(|| drop(exact_render::Executor::start("")));
+}
+
 fn at(post: Post, deadline: Duration) -> Rendered {
+    warm_transport();
     render(
         &plan(),
         Blog::new(post),
@@ -159,7 +167,41 @@ fn a_render_waits_for_its_answers() {
 }
 
 #[test]
+fn an_async_branch_is_adopted_from_the_same_checkpoint() {
+    warm_transport();
+    let src = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/corpus/placeholder.contract"),
+    )
+    .unwrap();
+    let src = src.replace("      text post.title testId=\"title\"", "      when pending(post)\n        text \"Loading\"\n      else\n        column\n          text post.title testId=\"title\"");
+    let plan = contract::compile(&src).unwrap();
+    let rendered = render(
+        &plan,
+        Blog::new(Post::Soon),
+        Default::default(),
+        "/post/7",
+        &SITE,
+        Duration::from_secs(5),
+    )
+    .unwrap();
+    assert_eq!(rendered.settled, Settled::Complete);
+    let (_, batch) = exact_web::Host::boot_checkpoint(
+        &plan.encode(),
+        Blog::new(Post::Soon),
+        &rendered.checkpoint,
+        &rendered.digest,
+        Vec::new(),
+        None,
+        Default::default(),
+        "/post/7",
+    )
+    .unwrap();
+    assert!(batch.contains("\"adopted\":true"), "{batch}");
+}
+
+#[test]
 fn at_the_deadline_the_placeholder_stays_and_the_checkpoint_lists_it() {
+    warm_transport();
     let started = Instant::now();
     let r = at(Post::Never, Duration::from_millis(100));
     assert!(
@@ -196,10 +238,26 @@ fn what_the_environment_does_not_hold_keeps_its_placeholder() {
 
 #[test]
 fn a_fetch_runs_through_the_native_executor() {
+    warm_transport();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        let until = Instant::now() + Duration::from_secs(30);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < until =>
+                {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+                Err(error) => panic!("the renderer made no request: {error}"),
+            }
+        };
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let mut request = [0u8; 4096];
         let n = stream.read(&mut request).unwrap();
         let line = String::from_utf8_lossy(&request[..n])
@@ -242,12 +300,19 @@ fn a_page_is_the_shell_around_the_document() {
     let html = exact_render::page(&shell, &r).unwrap();
     assert!(html.contains(&format!("<div id=\"exact-root\">{}</div>", r.document.root)));
     assert!(html.contains(&format!(
-        "data-digest=\"{}\">{}</script>\n<script type=\"module\" src=\"./glue.js\"></script>",
-        r.digest, r.checkpoint
+        "data-digest=\"{}\" data-activate=\"{}\">{}</script>\n<script type=\"module\" src=\"./glue.js\"></script>",
+        r.digest, r.activate.name(), r.checkpoint
     )));
     assert!(html.contains(&r.head));
     assert_eq!(html.matches("<meta name=\"viewport\"").count(), 1);
     assert!(!html.contains("preload\" href=\"./app.wasm\""));
     assert!(!html.contains("<title>Exact</title>"));
     assert!(exact_render::page("<!doctype html><title>x</title>\n", &r).is_err());
+    let mut interaction = r;
+    interaction.activate = exact_plan::ActivatePolicy::Interaction;
+    let html = exact_render::page(&shell, &interaction).unwrap();
+    assert!(html.contains("data-activate=\"interaction\""));
+    assert!(html.contains("src=\"./document-glue.js\""));
+    assert!(!html.contains("src=\"./glue.js\""));
+    assert!(!html.contains("app.wasm"));
 }

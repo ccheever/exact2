@@ -70,6 +70,8 @@ pub struct Rendered {
     pub state: exact_runner::Checkpoint,
     /// How the render ended.
     pub settled: Settled,
+    /// When the document asks for its client runtime.
+    pub activate: exact_plan::ActivatePolicy,
 }
 
 /// Render `plan` at `location` with `data`, waiting at most `deadline` for
@@ -85,6 +87,7 @@ pub fn render<D: DataSource>(
 ) -> Result<Rendered, String> {
     let until = Instant::now() + deadline;
     let data = Anonymous::new(data);
+    let initially_ready = data.ready();
     let watchdog = Watchdog::arm(data.interrupt(), until);
     let executor = Executor::start(exact_runner::DataSource::grants(&data));
     let mut runner = Runner::boot_with_delivery(
@@ -110,13 +113,53 @@ pub fn render<D: DataSource>(
     drop(watchdog);
     // Whatever is still in flight is abandoned with the render.
     drop(executor);
-    let document = project(&runner).map_err(|e| e.to_string())?;
+    let checkpoint = checkpoint(&runner, location);
+    let state = runner.document_checkpoint(location);
+    // Async completion order allocates view ids along the way. The browser
+    // starts with these answers already present, so project that same first
+    // tree rather than the history of placeholder replacement on the server.
+    let document = if state.pending.is_empty() {
+        let canonical = Runner::boot_checkpoint(
+            plan.clone(),
+            source::Projection(runner.data(), initially_ready),
+            Kernel::with_monospace(),
+            &state,
+            Vec::new(),
+            Default::default(),
+            viewport,
+            location,
+        )
+        .map_err(|e| format!("checkpoint projection: {e:?}"))?;
+        project(&canonical).map_err(|e| e.to_string())?
+    } else {
+        project(&runner).map_err(|e| e.to_string())?
+    };
     let head = document
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
-    let checkpoint = checkpoint(&runner, location);
     let digest = digest(plan, location, &checkpoint, &document.root);
-    let state = runner.document_checkpoint(location);
+    let mut activation = route_at(plan, location)
+        .map_or(exact_plan::ActivatePolicy::Inferred, |route| route.activate);
+    // A partial document needs to finish without waiting for an action. Gesture,
+    // media and other continuous handlers likewise need the ordinary idle boot;
+    // interaction activation only replays discrete form and press semantics.
+    if activation == exact_plan::ActivatePolicy::Interaction
+        && (!state.pending.is_empty()
+            || runner.handlers().values().flatten().any(|kind| {
+                !matches!(
+                    kind,
+                    exact_plan::EventKind::Press
+                        | exact_plan::EventKind::Change
+                        | exact_plan::EventKind::Focus
+                        | exact_plan::EventKind::Blur
+                        | exact_plan::EventKind::Key
+                        | exact_plan::EventKind::Submit
+                        | exact_plan::EventKind::Navigate
+                )
+            }))
+    {
+        activation = exact_plan::ActivatePolicy::Idle;
+    }
     Ok(Rendered {
         document,
         head,
@@ -124,6 +167,7 @@ pub fn render<D: DataSource>(
         digest,
         state,
         settled,
+        activate: activation,
     })
 }
 

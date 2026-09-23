@@ -169,17 +169,29 @@ function run() {
       if (next) queue.push(next);
     }
   }
+  // Interaction documents replace the ordinary entry with one independent
+  // host module. Check that entry too: it may not import a runtime or app graph.
+  const documentEntry = 'host/web/document-glue.js';
+  let documentBytes = 0;
+  try {
+    const source = readFileSync(resolve(root, documentEntry), 'utf8');
+    documentBytes = Buffer.byteLength(source);
+    const imports = new vm.SourceTextModule(source).dependencySpecifiers;
+    if (imports.length || /\bimport\s*\(/.test(codeOnly(source))) problems.push(`${documentEntry} must have no imports before first pixel`);
+  } catch (error) { problems.push(`invalid document entry: ${error.message}`); }
   const wasm = (html.match(/\.wasm/g) ?? []).length + [...sources.values()].reduce((n, source) => n + (source.match(/\.wasm/g) ?? []).length, 0);
   const modules = [...sources].map(([file, source]) => ({
     path: file.slice(root.length + 1), bytes: Buffer.byteLength(source),
     sha256: createHash('sha256').update(source).digest('hex'),
   }));
   const report = { modules: seen.size, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
-    html_bytes: Buffer.byteLength(html), files: modules, wasm_references: wasm, problems };
+    html_bytes: Buffer.byteLength(html), files: modules, wasm_references: wasm,
+    document_entry: { modules: 1, javascript_bytes: documentBytes }, problems };
   if (process.argv.includes('--json')) console.log(JSON.stringify(report));
   else {
     console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
     console.log(`  reachable JavaScript: ${report.javascript_bytes} B; page: ${report.html_bytes} B (diagnostic sizes, no byte budget)`);
+    console.log(`  interaction document: 1 host module (${documentBytes} B), no imports`);
     for (const m of modules) console.log(`  ${m.path}: ${m.bytes} B; sha256 ${m.sha256}`);
     for (const problem of problems) console.log('  ' + problem);
     console.log(problems.length ? `${problems.length} violation(s).` : 'Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.');

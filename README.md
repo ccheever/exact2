@@ -53,6 +53,23 @@ never to block. Its design documents are imported under `llp/research/`.
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
 
+## Serve RealWorld
+
+RealWorld's public pages can be served by the native renderer:
+
+```sh
+EXACT_WEB_DIST=target/realworld-dist bun host/web/build.mjs realworld-web
+cargo run --release -p realworld-web --bin realworld-render -- --serve target/realworld-dist --port 8080 --name Conduit
+```
+
+The home feed, articles and profiles arrive as anonymous HTML. Their public
+responses are cached for 60 seconds by default (`--lifetime` changes this).
+Links work without the runtime; buttons and inputs load it on interaction,
+and a kept sign-in starts it to restore the account. Login and editing routes
+start the client normally. Serve behind a compressing HTTP proxy for production;
+the loopback renderer serves identity bytes. Reading-page transfer and the
+later runtime download are separate costs.
+
 ## Inspect and format Contract
 
 ```sh

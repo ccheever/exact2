@@ -493,12 +493,12 @@ function environment() {
   };
 }
 function attach(el, id, handlers) {
-  el.dataset.view = String(id); el.exactHandlers = handlers;
+  el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
   el.exactFlowEvents = handlers.flatMap(k => ({ press: ["click"], hover: ["pointerenter", "pointerleave"], focus: ["focus"], blur: ["blur"], key: ["keydown"] }[k] ?? []));
   if (el.exactMedia) el.exactMedia.handlers = handlers;
   if (handlers.includes("message")) messageViews.add(id);
   const on = (event, handle) => el.addEventListener(event, (e) => {
-    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load")) handle(e);
+    if (views.get(id) === el && !retiredViews.has(el) && (inputReady || event === "load") && !(page?.restoringFocus && (event === "focus" || event === "blur"))) handle(e);
   });
   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) { on("compositionstart", () => { clearTimeout(compositionFlush.get(el)); composing.add(el); });
     on("compositionend", () => { compositionFlush.set(el, setTimeout(() => { composing.delete(el); if (views.get(id) !== el || retiredViews.has(el)) return; if (heldValues.has(el)) writeValue(el, heldValues.get(el)); markupPending.delete(el); syncMarkup(el); }, 0)); }); }
@@ -1389,7 +1389,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
 // `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
-globalThis.exact = { mutate, devFirst: () => devFirst(),
+globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
@@ -1441,7 +1441,7 @@ function loadGpuIfNeeded() {
   gpuLoading = loadAfterPaint('./gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
 }
 async function main() {
-  if (page) { page = (await loadAfterPaint('./document-glue.js', 'documentBoot'))({ root, views, log, early: page.early, dispatch: id => send(wasm.exact_dispatch(id, 0, 0, now())) }); await page.started; }
+  if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "") => send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())) }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
   const url = new URL("./app.wasm", import.meta.url);
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall }, exact_rust: rustImports });
   wasm = instance.exports;

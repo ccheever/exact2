@@ -103,12 +103,13 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page, origin = null } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
-    const page = tamper(renderedPage(location));
+    const page = tamper(html ?? renderedPage(location));
     server = createServer(async (req, res) => {
       if (req.url === location || req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page); return; }
+      if (files[req.url]) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(files[req.url]); return; }
       // A slow network, where a test needs the runtime to still be loading.
       if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
       serveStatic(dist, req, res);
@@ -266,3 +267,56 @@ check(`the render server's page is the document, and the runtime adopts it${unav
     server.stop();
   }
 }, 240000);
+
+
+// The small entry can be exercised without a compiled application. Its runtime
+// consumer here records semantic dispatches, including the first edit and IME.
+test('interaction documents stay readable, then replay edits and actions once', async () => {
+  const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
+    <div data-view="1" data-exact-on="navigate">
+      <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>
+      <input data-view="2" data-exact-on="change submit" name="title">
+      <button data-view="3" data-exact-on="press">Save</button>
+    </div></div>
+    <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
+    <script type="module" src="./document-glue.js"></script>`;
+  const files = {
+    '/document-glue.js': readFileSync(resolve(ROOT, 'host/web/document-glue.js'), 'utf8'),
+    '/glue.js': `globalThis.__loads = (globalThis.__loads ?? 0) + 1;
+      globalThis.__events = []; globalThis.__logs = [];
+      const views = new Map([...document.querySelectorAll('[data-view]')].map(el => {
+        el.exactHandlers = el.dataset.exactOn.split(' '); return [Number(el.dataset.view), el];
+      }));
+      const page = exact.documentPage.connect({ views, log: line => __logs.push(line),
+        dispatch: (id, kind, value) => __events.push([id, kind, value]) });
+      globalThis.__release = () => { page.hold({ops:[{op:'adopt',adopted:true}]}); page.release(() => {}); };`,
+  };
+  await withDocument('/', async tab => {
+    const live = await tab(true);
+    await live.until('!!globalThis.exact?.documentPage', 'document entry');
+    await live("document.getElementById('link').click()");
+    await live(settled);
+    expect(await live('globalThis.__loads ?? 0')).toBe(0);
+    // An ordinary reading click must not start because the root hears navigate.
+    await live("document.getElementById('reading').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true}))");
+    await live(settled);
+    expect(await live('globalThis.__loads ?? 0')).toBe(0);
+    await live(`(() => { const el = document.querySelector('input'); el.focus();
+      el.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true}));
+      el.value = '東'; el.dispatchEvent(new InputEvent('input',{bubbles:true,isComposing:true})); })()`);
+    await live.until('globalThis.__loads === 1', 'interaction runtime');
+    await live('__release()');
+    expect(await live('exact.documentPage.holding')).toBe(true);
+    await live(`(() => { const el = document.querySelector('input'); el.value = '東京';
+      el.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true}));
+      el.dispatchEvent(new InputEvent('input',{bubbles:true})); el.setSelectionRange(1,1);
+      el.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+      document.querySelector('button').click(); })()`);
+    await live.until('!exact.documentPage.holding && __events.length === 3', 'semantic replay');
+    expect(await live('__events')).toEqual([[2,1,'東京'],[2,7,''],[3,0,'']]);
+    expect(await live('__logs')).toEqual([]);
+    expect(await live("[document.querySelector('input').value,document.querySelector('input').selectionStart,document.activeElement.localName]")).toEqual(['東京',1,'input']);
+    expect(await live('__loads')).toBe(1);
+    expect(await live("document.getElementById('reading').textContent")).toBe('Public content');
+  }, { html, files });
+}, 60000);

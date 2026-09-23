@@ -268,6 +268,11 @@ fn routes_declare_their_render_and_activation_policies() {
         contract::compile("routes nav\n  tab home \"/\"\ncomponent A\n  view\n    text \"a\"\n")
             .unwrap();
     assert_eq!(plain.routes[0].render, RenderPolicy::Client);
+    let interaction = contract::compile("routes nav\n  tab home \"/\" render=cached activate=interaction\ncomponent A\n  view\n    text \"Run\"\n");
+    // A policy is encoded in the plan, not interpreted by an app's JavaScript.
+    let interaction = interaction.unwrap();
+    let decoded = exact_plan::Plan::decode(&interaction.encode()).unwrap();
+    assert_eq!(decoded.routes[0].activate, ActivatePolicy::Interaction);
     // The formatter keeps a field's spelling.
     let src = "routes nav\n  tab home \"/\" render=build activate=never\ncomponent A\n  view\n    text \"a\"\n";
     assert_eq!(contract_syntax::fmt::format(src).unwrap(), src);
@@ -286,7 +291,7 @@ fn routes_declare_their_render_and_activation_policies() {
         ),
         (
             "routes nav\n  tab home \"/\" activate=eager\n",
-            "`activate` is a word: idle or never",
+            "`activate` is a word: idle, never or interaction",
         ),
         (
             "routes nav\n  tab home \"/\"\n    post \"/post/:post\" render=build\n",

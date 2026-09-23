@@ -1,18 +1,18 @@
 // RealWorld ("Conduit", docs.realworld.show): the Medium clone every frontend
 // framework implements, against the hosted API. The templates' markup and
 // Conduit Minimal CSS v4 are transcribed into rows and styles below. The data
-// is app.ts, loaded after first pixel; every page shows its placeholder until
-// the API answers.
+// is app.ts. Public routes arrive as anonymous HTML; their runtime loads for
+// an action or a kept sign-in. Client routes show placeholders while loading.
 routes nav
-  tab home "/"
+  tab home "/" render=cached activate=interaction
     login "/login"
     register "/register"
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
-    article "/article/:slug"
-    profile "/profile/:username"
-    favorites "/profile/:username/favorites"
+    article "/article/:slug" render=cached activate=interaction
+    profile "/profile/:username" render=cached activate=interaction
+    favorites "/profile/:username/favorites" render=cached activate=interaction
   notfound
 
 shape User
@@ -314,7 +314,7 @@ component Header
   view
     nav padding-top=8 padding-bottom=8 padding-left=16 padding-right=16
       row class=Container align-items="center"
-        link press=go("/")
+        link href="/" press=go("/")
           testId="brand"
           padding-bottom=4
           margin-right=32
@@ -323,23 +323,23 @@ component Header
           color="#222222"
           text "conduit"
         row margin-left="auto" align-items="center" flex-wrap="wrap"
-          link press=go("/")
+          link href="/" press=go("/")
             class=NavLink
             color=(current.name == "home" ? "#000000cc": "#0000004d")
             testId="nav-home"
             text "Home"
           when me.signedIn
-            link press=go("/editor")
+            link href="/editor" press=go("/editor")
               class=NavLink
               color=(current.name == "editor" ? "#000000cc": "#0000004d")
               testId="nav-editor"
               text "✎ New Article"
-            link press=go("/settings")
+            link href="/settings" press=go("/settings")
               class=NavLink
               color=(current.name == "settings" ? "#000000cc": "#0000004d")
               testId="nav-settings"
               text "⚙ Settings"
-            link press=go(`/profile/${encodeURIComponent(me.username)}`)
+            link href=`/profile/${encodeURIComponent(me.username)}` press=go(`/profile/${encodeURIComponent(me.username)}`)
               class=NavLink
               color=((current.name == "profile" and current.params.username == me.username) ? "#000000cc": "#0000004d")
               testId="nav-profile"
@@ -347,12 +347,12 @@ component Header
                 image me.avatar width=26 height=26 border-radius=50 object-fit="cover" aria-label=""
                 text me.username
           else
-            link press=go("/login")
+            link href="/login" press=go("/login")
               class=NavLink
               color=(current.name == "login" ? "#000000cc": "#0000004d")
               testId="nav-login"
               text "Sign in"
-            link press=go("/register")
+            link href="/register" press=go("/register")
               class=NavLink
               color=(current.name == "register" ? "#000000cc": "#0000004d")
               testId="nav-register"
@@ -369,7 +369,7 @@ component Footer
       border-top-width=1
       border-color="#eeeeee"
       row class=Container align-items="baseline"
-        link press=go("/") font-family="serif" color="#222222"
+        link href="/" press=go("/") font-family="serif" color="#222222"
           text "conduit"
         text "An interactive learning project. Code & design licensed under MIT." margin-left=10
           font-size=12.8
@@ -383,10 +383,10 @@ component Meta
     go: action
   view
     row align-items="center"
-      link press=go(`/profile/${encodeURIComponent(author.username)}`) aria-label=author.username
+      link href=`/profile/${encodeURIComponent(author.username)}` press=go(`/profile/${encodeURIComponent(author.username)}`) aria-label=author.username
         image author.image class=Avatar aria-label=""
       column margin-left=8 margin-right=24 line-height=1
-        link press=go(`/profile/${encodeURIComponent(author.username)}`)
+        link href=`/profile/${encodeURIComponent(author.username)}` press=go(`/profile/${encodeURIComponent(author.username)}`)
           font-weight=500
           color="#33aa44"
           text author.username
@@ -435,13 +435,13 @@ component Previews
               background-color=(a.favorited ? "#33aa44": "#ffffff")
               testId=`favorite-${a.slug}`
               text `♥ ${a.favoritesCount}`
-          link press=go(`/article/${encodeURIComponent(a.slug)}`)
+          link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
             color="#373a3c"
             testId=`open-${a.slug}`
             text a.title font-size=24 font-weight=600 line-height=1.1 margin-bottom=3
             text a.description font-weight=300 color="#999999" margin-bottom=15 line-height="20.8px"
           row align-items="center" justify-content="space-between" flex-wrap="wrap"
-            link press=go(`/article/${encodeURIComponent(a.slug)}`)
+            link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
               font-size=12.8
               font-weight=300
               color="#bbbbbb"
@@ -595,7 +595,7 @@ component AuthPage
           line-height=1.1
           margin-bottom=8
           text-align="center"
-        link press=go(signup ? "/login": "/register")
+        link href=(signup ? "/login": "/register") press=go(signup ? "/login": "/register")
           color="#33aa44"
           align-self="center"
           margin-bottom=16
@@ -971,10 +971,10 @@ component ArticlePage
                       text "Post Comment"
               else
                 row flex-wrap="wrap" gap=4 margin-bottom=16
-                  link press=go("/login") color="#33aa44"
+                  link href="/login" press=go("/login") color="#33aa44"
                     text "Sign in"
                   text "or"
-                  link press=go("/register") color="#33aa44"
+                  link href="/register" press=go("/register") color="#33aa44"
                     text "sign up"
                   text "to add comments on this article."
               each c in thread key = c.id
@@ -1002,7 +1002,7 @@ component ArticlePage
                       border-radius=30
                       object-fit="cover"
                       aria-label=""
-                    link press=go(`/profile/${encodeURIComponent(c.author.username)}`)
+                    link href=`/profile/${encodeURIComponent(c.author.username)}` press=go(`/profile/${encodeURIComponent(c.author.username)}`)
                       color="#33aa44"
                       text c.author.username
                     text c.date color="#bbbbbb"

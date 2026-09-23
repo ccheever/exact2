@@ -34,9 +34,14 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let document = format!("<div id=\"exact-root\">{}</div>", rendered.document.root);
     cut(&mut html, root, root, &document)?;
     let glue = "<script type=\"module\" src=\"./glue.js\"></script>";
+    let entry = if rendered.activate == exact_plan::ActivatePolicy::Interaction {
+        "<script type=\"module\" src=\"./document-glue.js\"></script>"
+    } else {
+        glue
+    };
     let checkpoint = format!(
-        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\">{}</script>\n{glue}",
-        rendered.digest, rendered.checkpoint
+        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>\n{entry}",
+        rendered.digest, rendered.activate.name(), rendered.checkpoint
     );
     cut(&mut html, glue, glue, &checkpoint)?;
     let viewports = html.matches("<meta name=\"viewport\"").count();

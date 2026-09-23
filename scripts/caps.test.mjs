@@ -129,7 +129,7 @@ async function rejects(action, matches) {
 // The boot check's parser must see every valid spelling that can execute.
 const BOOT_RULES = GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| Cold start to interactive | 100ms |\n| App JS executed before first pixel | none |');
 function boot(html, files = {}) {
-  const dir = repo({ 'rules/RULES.md': BOOT_RULES, 'host/web/index.html': html, 'host/web/glue.js': '', ...files });
+  const dir = repo({ 'rules/RULES.md': BOOT_RULES, 'host/web/index.html': html, 'host/web/glue.js': '', 'host/web/document-glue.js': '', ...files });
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   const fixtureBoot = join(dir, 'scripts/boot.mjs');
   copyFileSync(BOOT, fixtureBoot);
@@ -145,6 +145,8 @@ for (const [name, html, files, expectCode, expect] of [
   ['boot rejects malformed JavaScript', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'export const =' }, 1, 'invalid module syntax'],
   ['boot retains unused static imports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': "import unused from '../../apps/app.js';", 'apps/app.js': 'export default 1;' }, 1, 'app JS before first pixel'],
   ['boot rejects computed dynamic imports', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'import(globalThis.modulePath);' }, 1, 'dynamic import before first pixel'],
+  ['document entry rejects an imported runtime', '<script type=module src=./glue.js></script>', { 'host/web/document-glue.js': "import './glue.js';" }, 1, 'document-glue.js must have no imports'],
+  ['document entry rejects a dynamic app import', '<script type=module src=./glue.js></script>', { 'host/web/document-glue.js': 'import(globalThis.modulePath);' }, 1, 'document-glue.js must have no imports'],
   ['boot rejects top-level return', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'return;' }, 1, 'invalid module syntax'],
   ['boot enforces module strict mode', '<script type=module src=./glue.js></script>', { 'host/web/glue.js': 'with ({}) {}' }, 1, 'invalid module syntax'],
   ['boot fails closed on malformed tags', '<script type=module src="./glue.js></script>', {}, 1, 'malformed HTML'],

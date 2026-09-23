@@ -2429,9 +2429,11 @@ dependencies = [
 name = "realworld-web"
 version = "0.1.0"
 dependencies = [
+ "exact-js",
  "exact-js-bake",
  "exact-js-web",
  "exact-logic",
+ "exact-render",
  "exact-web",
 ]
 

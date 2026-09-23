@@ -8,6 +8,7 @@ use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Response, St
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 const SRC: &str = r#"
@@ -39,6 +40,7 @@ component Blog
 /// refuses (a render that fails), `down` shows its failure (503).
 #[derive(Default)]
 struct Posts;
+static CACHE_READS: AtomicUsize = AtomicUsize::new(0);
 
 fn post(title: &str) -> Value {
     Value::record(vec![Value::str(title)])
@@ -62,6 +64,10 @@ impl DataSource for Posts {
             ("emptyPost", _) => Ok(Answer::Now(post(""))),
             ("post", "slow") => Ok(Answer::Later(Request::continuation(1))),
             ("post", "boom") => Err(DataError::Unavailable("boom".into())),
+            ("post", "cache-probe") => Ok(Answer::Now(post(&format!(
+                "Read {}",
+                CACHE_READS.fetch_add(1, Ordering::SeqCst) + 1
+            )))),
             ("post", id) => Ok(Answer::Now(post(&format!("Post {id}")))),
             (other, _) => Err(DataError::UnknownSource(other.into())),
         }
@@ -102,6 +108,8 @@ fn dist(name: &str) -> PathBuf {
     let shell = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html");
     std::fs::copy(shell, dir.join("shell.html")).unwrap();
     std::fs::write(dir.join("glue.js"), "// the glue\n").unwrap();
+    std::fs::write(dir.join("module-prelude.js"), "prelude").unwrap();
+    std::fs::write(dir.join("app.js"), "module").unwrap();
     std::fs::write(dir.join("assets/dot.png"), [0x89, b'P', b'N', b'G']).unwrap();
     dir
 }
@@ -187,6 +195,11 @@ fn each_route_answers_by_its_policy() {
         csp.contains("connect-src 'self' https://api.blog.test;"),
         "{csp}"
     );
+    for source in ["prelude", "module"] {
+        use sha2::{Digest, Sha256};
+        let hash = exact_data::envelope::base64(&Sha256::digest(source.as_bytes()));
+        assert!(csp.contains(&format!("'sha256-{hash}'")), "{csp}");
+    }
     assert_eq!(header(&headers, "x-content-type-options"), Some("nosniff"));
     assert!(header(&headers, "vary").is_none());
     // Canonical URLs come from the configured origin, not the request's Host.
@@ -285,4 +298,36 @@ fn a_full_queue_answers_503_at_once() {
     assert_eq!(status, 503);
     assert!(body.contains("\"pending\":[\"post\"]"), "{body}");
     assert_eq!(get(addr, "/post/7").0, 200);
+}
+
+#[test]
+fn cached_pages_reuse_public_answers_and_honor_request_cache_controls() {
+    let addr = start("origin-cache", 1, 8, 1000);
+    let (status, _, first) = get(addr, "/post/cache-probe");
+    assert_eq!(status, 200);
+    assert!(first.contains("Read 1"));
+    let (_, headers, second) = get(addr, "/post/cache-probe");
+    assert_eq!(second, first);
+    assert!(header(&headers, "age").is_some());
+    assert_eq!(CACHE_READS.load(Ordering::SeqCst), 1);
+    let etag = header(&headers, "etag").unwrap();
+    let (status, _, _) = fetch(
+        addr,
+        &format!("GET /post/cache-probe HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert_eq!(CACHE_READS.load(Ordering::SeqCst), 1);
+    let (_, _, refreshed) = fetch(
+        addr,
+        "GET /post/cache-probe HTTP/1.1\r\nCache-Control: no-cache\r\n\r\n",
+    );
+    assert!(refreshed.contains("Read 2"));
+    let (_, _, unstored) = fetch(
+        addr,
+        "GET /post/cache-probe HTTP/1.1\r\nCache-Control: no-store\r\n\r\n",
+    );
+    assert!(unstored.contains("Read 3"));
+    assert_eq!(get(addr, "/post/cache-probe").2, refreshed);
+    assert!(get(addr, "/live/cache-probe").2.contains("Read 4"));
+    assert!(get(addr, "/live/cache-probe").2.contains("Read 5"));
 }

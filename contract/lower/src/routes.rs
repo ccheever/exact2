@@ -39,7 +39,7 @@ impl Lowerer<'_> {
 }
 
 /// A route's policy fields (LLP 1048.003 D5): `render=client|build|cached|
-/// request`, undeclared `client`; `activate=idle|never`, inferred when
+/// request`, undeclared `client`; `activate=idle|never|interaction`, inferred when
 /// undeclared. Each value is a word, read by its spelling.
 fn route_policy(
     row: &contract_syntax::RouteDecl,
@@ -77,8 +77,12 @@ fn route_policy(
                 activate = ActivatePolicy::Never;
                 continue;
             }
+            ("activate", "interaction") => {
+                activate = ActivatePolicy::Interaction;
+                continue;
+            }
             ("render", _) => "`render` is a word: client, build, cached or request".to_owned(),
-            ("activate", _) => "`activate` is a word: idle or never".to_owned(),
+            ("activate", _) => "`activate` is a word: idle, never or interaction".to_owned(),
             (other, _) => {
                 format!("a route has no field `{other}`: it takes `render=` and `activate=`")
             }
