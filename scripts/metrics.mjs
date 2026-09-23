@@ -272,6 +272,8 @@ if (process.argv.includes('--scaling')) {
 // timeout). Every server here sends no-store, so nothing is cached.
 const profile = resolve(ROOT, 'target/exact-chrome-profile', app.id.replace(/[^a-zA-Z0-9._-]/g, '_'));
 mkdirSync(profile, { recursive: true });
+/** The last lines a failed child printed, for a row that says why. */
+const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter(Boolean).slice(-3).join(' / ').slice(0, 400);
 const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).
@@ -674,17 +676,19 @@ if (long) {
       const t = Date.now();
       const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple')], { cwd: ROOT, encoding: 'utf8' });
       const m = /cargo ([\d.]+) s, swift ([\d.]+) s/.exec(r.stdout ?? '');
-      return { ok: r.status === 0, total_s: (Date.now() - t) / 1000, cargo_s: m ? Number(m[1]) : NaN, swift_s: m ? Number(m[2]) : NaN };
+      // A build that did not finish is a finding, never a blank: its last words.
+      const failed = r.status === 0 ? null : `${r.error?.message ?? `exit ${r.status}`}: ${failure(r)}`;
+      return { ok: r.status === 0, failed, total_s: (Date.now() - t) / 1000, cargo_s: m ? Number(m[1]) : NaN, swift_s: m ? Number(m[2]) : NaN };
     };
     const warm = build();
-    out.macos_build_s = warm.ok ? warm.total_s : NaN;
+    out.macos_build_s = warm.ok ? warm.total_s : NaN; out.macos_build_failed = warm.failed;
     out.macos_build_cargo_s = warm.cargo_s;
     out.macos_build_swift_s = warm.swift_s;
     const src = resolve(ROOT, 'host/apple/src/host.rs');
     const now = new Date();
     utimesSync(src, now, now);
     const touched = build();
-    out.macos_touch_s = touched.ok ? touched.total_s : NaN;
+    out.macos_touch_s = touched.ok ? touched.total_s : NaN; out.macos_touch_failed = touched.failed;
     if (touched.ok && macBuiltApp() === app.id) {
       macRun();
       macParse(macRun().stdout ?? '');
@@ -697,7 +701,11 @@ if (long) {
   // (the GPU module, the web arm) reported beside it, never folded in.
   await step('macos-link-delta', () => {
     const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--host'], { cwd: ROOT, encoding: 'utf8' });
-    if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) { out.link_delta_bytes = NaN; return; }
+    if (r.status !== 0 || !existsSync(macHostBinary) || !existsSync(floorBin)) {
+      out.link_delta_bytes = NaN;
+      if (r.status !== 0) out.link_delta_failed = `exit ${r.status}: ${failure(r)}`;
+      return;
+    }
     assertAppleIdentity(app, macHostBinary);
     const size = (f) => statSync(f).size;
     const gz = (f) => gzipSync(readFileSync(f), { level: 9 }).length;
@@ -773,14 +781,14 @@ if (long) {
   rows.push(['blocking gate (the five checks, warm)', s(out.gate_s), `${out.gate_failed?.length ? `failing: ${out.gate_failed.join(', ')}; ` : ''}first pass ${s(out.gate_first_s)}; budget ${budget('Blocking gate')}`]);
   rows.push(['kernel: touch one line, rebuild', s(out.touch_kernel_s), `kernel/src/lib.rs; budget ${budget('Touch one line')}`]);
   rows.push(['kernel: test what you changed', s(out.test_kernel_s), `cargo test -p exact-kernel${out.test_kernel_ok === false ? ' (failing)' : ''}; budget ${budget('Test what you changed')}`]);
-  rows.push(['macOS: initial captured build', s(out.macos_build_s), `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
+  rows.push(['macOS: initial captured build', out.macos_build_failed ? 'FAILED' : s(out.macos_build_s), out.macos_build_failed ?? `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
   const mib = (v) => (Number.isFinite(v) ? `${(v / 1048576).toFixed(2)} MB` : 'n/a');
   rows.push(
-    ['macOS: link delta (sample host − floor)', mib(out.link_delta_bytes), Number.isFinite(out.link_delta_bytes) ? `${mib(out.link_delta_gzip_bytes)} gzip; host ${mib(out.host_bytes)}, floor ${mib(out.floor_bytes)}; the archive + ExactKit, nothing optional (LLP 1031 D7)` : 'not measured (the sample host or the floor did not build)'],
+    ['macOS: link delta (sample host − floor)', out.link_delta_failed ? 'FAILED' : mib(out.link_delta_bytes), out.link_delta_failed ?? Number.isFinite(out.link_delta_bytes) ? `${mib(out.link_delta_gzip_bytes)} gzip; host ${mib(out.host_bytes)}, floor ${mib(out.floor_bytes)}; the archive + ExactKit, nothing optional (LLP 1031 D7)` : 'not measured (the sample host or the floor did not build)'],
     ['  optional: GPU module (dlopen)', mib(out.gpu_module_bytes), Number.isFinite(out.gpu_module_bytes) ? `${mib(out.gpu_module_gzip_bytes)} gzip; paid at the first canvas` : 'no GPU crate'],
     ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
   );
-  rows.push(['macOS: touch one line, rebuild', s(out.macos_touch_s), `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
+  rows.push(['macOS: touch one line, rebuild', out.macos_touch_failed ? 'FAILED' : s(out.macos_touch_s), out.macos_touch_failed ?? `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
 }
 console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
 console.log(`exact2 metrics (${app.id}, captured source) — ${new Date().toISOString().slice(0, 19)}Z, private build cache, p50 where repeated`);
