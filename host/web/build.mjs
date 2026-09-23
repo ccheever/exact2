@@ -205,7 +205,10 @@ if (buildLocations.error) throw new Error(`the plan's render=build routes: ${bui
 const renderEntry = existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`));
 let documentNote = buildLocations.length ? `${buildLocations.length} declared, but no ${renderBin} entry in ${renderCrate}` : 'none declared';
 if (buildLocations.length && renderEntry) {
-  const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
+  // A build-time tool, never shipped: it renders the plan it is handed, so
+  // its own Linux bake takes development trust (a production bake would
+  // demand a publisher receipt for an updater nothing publishes).
+  const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'development' };
   delete renderEnv.EXACT_BAKE_OUTPUT;
   const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,
     '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--shell', resolve(stage, 'index.html'), '--build'],
