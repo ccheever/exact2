@@ -636,18 +636,17 @@ try {
     }
   }
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
-  // goes down on Change station, leaves it, and comes up — a press AppKit
-  // cancels, so nothing navigates; down and up in place navigates. AppKit
-  // has no cancel for a mouse, and the reply says so instead of faking one.
-  // Any refusal here is recorded and the rest of the smoke still runs: one
-  // pointer error must not throw away every other finding.
+  // goes down on Change station, leaves it, and is cancelled — on a mouse a
+  // release where the pointer is (de13a93f), outside the button, so nothing
+  // navigates; down and up in place navigates. Any refusal here is recorded
+  // and the rest of the smoke still runs: one pointer error must not throw
+  // away every other finding.
   if (host === 'macos') try {
     const down = await s.tap('change-station', { down: true });
     if (check(down.delivery === 'platform' && s.contact, `a contact went down as ${down.delivery}${down.reason ? `: ${down.reason}` : ''}`)) {
       await s.pointer('move', { dx: 0, dy: 300, ms: 50 });
       const cancel = await s.pointer('cancel');
-      check(cancel.delivery === 'unsupported' && s.contact, 'AppKit claimed a cancel it cannot do');
-      await s.pointer('up');
+      check(cancel.delivery === 'platform' && !s.contact, `the AppKit cancel did not release the contact (delivery ${cancel.delivery})`);
       tree = await s.tree();
       check(!byTestId(tree, 'stations-screen') && !s.contact, 'a press released outside its button still opened the stations screen');
       await s.tap('change-station', { down: true });
@@ -985,8 +984,8 @@ if (deckFixture) {
 // says `viewport-fit="cover"` is laid out to the whole screen, its content
 // kept out of the safe areas by `env(safe-area-inset-*)` lengths — on a
 // phone the viewport is the app's (step 2, the safe area) plus the insets.
-// A macOS full-size-content window is already the cover viewport and reports
-// its titlebar as the top safe area; web and Linux report zero. Focusing the input
+// A macOS cover plan's full-size-content window reports its titlebar as the
+// top safe area; web and Linux report zero. Focusing the input
 // at the bottom: on iOS the software keyboard rises, the viewport insets
 // itself by the keyboard's height and reveals the field above it, the layout
 // viewport untouched — a browser's visual viewport; a tap on the dismiss
@@ -1014,7 +1013,13 @@ if (deckFixture) {
         check(appViewport && Math.abs(l.viewport.h - (appViewport.h + extraH)) < 0.01 && Math.abs(l.viewport.w - (appViewport.w + extraW)) < 0.01, `a phone cover viewport matches the app's viewport-fit: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)}, cover=${appCoversViewport}, insets ${top}/${right}/${bottom}/${left}`);
         check(top > 0 && bottom > 0, `a phone reports its status bar and home indicator: ${top}, ${bottom}`);
       } else if (host === 'macos') {
-        check(appViewport && l.viewport.w === appViewport.w && l.viewport.h === appViewport.h, `a macOS cover viewport is already the full-size-content app viewport: ${JSON.stringify(l.viewport)} vs ${JSON.stringify(appViewport)}`);
+        // A cover plan's content is its window's whole frame, the titlebar its
+        // top inset. Read in this window (a resize to its own size reports the
+        // frame): agent windows are spread by pid and AppKit fits each to the
+        // screen, so the app's window is not this one's size.
+        const w = await f.op({ op: 'tap', resize: [l.viewport.w, l.viewport.h] });
+        const [fw, fh] = w.windowFrame ?? [], lh = w.contentLayout?.[1];
+        check(Math.abs(l.viewport.w - fw) < 0.01 && Math.abs(l.viewport.h - fh) < 0.01 && Math.abs(top - (fh - lh)) < 0.01, `a macOS cover viewport is its window's frame, the titlebar its top inset: viewport ${JSON.stringify(l.viewport)}, frame ${fw}×${fh}, content layout height ${lh}, top ${top}`);
         check(top > 0 && right === 0 && bottom === 0 && left === 0, `macOS reports only its titlebar safe area: ${JSON.stringify(env)}`);
       } else {
         check(top === 0 && right === 0 && bottom === 0 && left === 0, `no safe area here: ${JSON.stringify(env)}`);
