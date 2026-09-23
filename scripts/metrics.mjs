@@ -529,13 +529,13 @@ await step('boot', () => {
           const timer = setTimeout(() => { observer.disconnect(); reject(Error('edited text did not arrive')); }, 10000);
           observer.observe(document.body, { subtree: true, childList: true, characterData: true });
         }); void 0;`);
-        const planReady = until(/^(?:edit → plan ready|module generation ready in) (\d+) ms/, 10000);
+        const planReady = until(/^(?:(?:edit → plan ready|module generation ready in) (\d+) ms|Rust generation \w+ ready)/, 10000);
         const saved = Date.now();
         writeFileSync(source, edited);
         const result = await evaluate('__exactReloadMetric');
         const ready = await planReady;
         samples.push({ dom_ms: result.dom - saved, frame_opportunity_ms: result.frame - saved,
-          producer_and_publish_ms: ready ? Number(ready[1]) : null });
+          producer_and_publish_ms: ready?.[1] ? Number(ready[1]) : null });
       }
       const percentile = (key, fraction) => {
         const values = samples.map(sample => sample[key]).filter(Number.isFinite).sort((a, b) => a - b);
