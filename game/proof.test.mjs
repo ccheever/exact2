@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
@@ -483,8 +483,8 @@ test('stale-build repair command names the rejected web dist', async () => {
   try { await expect(assertWebDistApp(dist,{id:'com.test',dir:'/app',crate:()=> 'test-web'})).rejects.toThrow(`EXACT_WEB_DIST='${dist}'`); }
   finally { rmSync(dist,{recursive:true,force:true}); }
 });
-test('repin refuses manifest normalization before writing authored files', async () => {
-  const {gameDefaults}=await import('./app/shells.mjs');
+test('repin derives manifests and shells without writing an authored file', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'r8b-manifest-'));
   const before=process.env.EXACT_PROOF_REPIN;
   try {
@@ -492,8 +492,10 @@ test('repin refuses manifest normalization before writing authored files', async
     writeFileSync(resolve(dir,'logic/src/lib.rs'),`impl Game for Test { const ID: &'static str = "fixture"; }`);
     writeFileSync(resolve(dir,'app.json'),'{}');
     process.env.EXACT_PROOF_REPIN='1';
-    expect(()=>gameDefaults(dir)).toThrow('repin refused: manifest normalization would write');
+    gameShells(dir,gameDefaults(dir).game,import.meta.dir);
     expect(readFileSync(resolve(dir,'app.json'),'utf8')).toBe('{}');
+    expect(readdirSync(dir).sort()).toEqual(['.shells','app.json','logic']);
+    expect(readdirSync(resolve(dir,'logic'))).toEqual(['src']);
   } finally { if(before===undefined) delete process.env.EXACT_PROOF_REPIN; else process.env.EXACT_PROOF_REPIN=before; rmSync(dir,{recursive:true,force:true}); }
 });
 
@@ -646,7 +648,7 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
 
 function pinLiterals(path, text) {
   const evidence=/(^|\/)(artifacts|diaries)\/|^game\/bench\/results\/|^(llp|issues|vendor)\//;
-  if(/(^|\/)(Cargo\.lock|bun\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
+  if(/(^|\/)(Cargo\.lock|bun\.lock|shells\.lock)$/.test(path) || path.endsWith('/pins.json') || evidence.test(path) || path==='scripts/fixtures/fonts/SOURCE.md') return [];
   const generated = path === '.llp/skills-receipt.json' || path.endsWith('/.baked-assets.json') || ['update/tests/it/fixtures/publisher/canonical.bin','update/tests/it/fixtures/publisher/exact.json'].includes(path);
   if (generated) return [];
   const samples = new Set(['b510eca2e2ef33f62f9ed57d6e7ce2d10'+'ebb2bdebc4a8e59d347719ba81abdf4', 'a1e3b04de97b11de564ce6e53b95f02954'+'a297f0008183ac63a4f5974f6b32d8', 'd97044e701822bac5a62696459b27d7b3'+'75aada5de8574ed4362edbba94771f7']);

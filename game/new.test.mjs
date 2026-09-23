@@ -30,9 +30,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','Cargo.lock','README.md','app.contract','app.json','logic','pins.json','proof.mjs']);
-    const authoredManifest = readFileSync(resolve(app, 'app.json'), 'utf8');
-    rmSync(resolve(app, 'logic/Cargo.toml'));
+    // A game is the files its author writes; no manifest, lock or app.json.
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
     for (const file of ['web','apple','gpu']) assert.ok(!existsSync(resolve(app, file)), file);
@@ -75,7 +75,8 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /victory waits for every beacon \(3\/3\)/);
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
-    assert.equal(readFileSync(resolve(app, 'app.json'), 'utf8'), authoredManifest);
+    assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
+      ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -173,7 +174,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
   try {
     for (const dir of ['app', '.cargo', 'games', 'bench']) mkdirSync(resolve(sdk, dir), {recursive:true});
     mkdirSync(bin);
-    for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs'])
+    for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
@@ -251,7 +252,7 @@ test('changing app identity keeps adapter paths and the Cargo cache', async () =
   } finally { rmSync(parent, {recursive:true, force:true}); }
 });
 
-test('default manifests derive the directory and literal Game ID; authored overrides win', async () => {
+test('default manifests derive the crate from Game::ID and the title from the directory; authored overrides win', async () => {
   const {gameDefaults} = await import('./app/shells.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'e5-defaults-')), dir = resolve(root,'runner-game');
   try {
@@ -259,61 +260,48 @@ test('default manifests derive the directory and literal Game ID; authored overr
     writeFileSync(resolve(dir,'logic/src/lib.rs'), `pub struct MyGame; impl Game for MyGame { const ID: &'static str = "stable-save-id"; }`);
     const defaults = gameDefaults(dir);
     assert.equal(defaults.app.id, 'com.exact.stable-save-id');
-    assert.equal(defaults.game.crate, 'runner-game-logic');
+    assert.equal(defaults.name, 'Runner Game');
+    assert.equal(defaults.game.crate, 'stable-save-id-logic');
     assert.equal(defaults.game.type, 'MyGame');
-    assert.match(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'), /name = "runner-game-logic"/);
-    const cargo = readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8');
+    assert.deepEqual(readdirSync(dir), ['logic'], 'deriving writes nothing');
+    // A clone under another directory name keeps its crate, so its tests still link.
     const renamed = resolve(root, 'renamed-game');
     renameSync(dir, renamed);
+    assert.equal(gameDefaults(renamed).game.crate, 'stable-save-id-logic');
     writeFileSync(resolve(renamed,'logic/src/lib.rs'), `pub struct NewGame; impl Game for NewGame { const HZ: u32 = 120; const ID: &'static str = "new-save-id"; }`);
     const refreshed = gameDefaults(renamed);
-    assert.equal(refreshed.game.crate, 'runner-game-logic');
     assert.equal(refreshed.game.type, 'NewGame');
     assert.equal(refreshed.app.id, 'com.exact.new-save-id');
-    assert.equal(readFileSync(resolve(renamed,'logic/Cargo.toml'),'utf8'), cargo);
     renameSync(renamed, dir);
-    const override = {...defaults, app:{id:'org.custom.game',name:'Custom'}};
-    delete override._generated;
+    const override = {app:{id:'org.custom.game',name:'Custom'}};
     writeFileSync(resolve(dir,'app.json'),JSON.stringify(override));
-    writeFileSync(resolve(dir,'logic/Cargo.toml'),'authored dependencies\n');
-    assert.deepEqual(gameDefaults(dir), override);
-    assert.equal(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'),'authored dependencies\n');
+    writeFileSync(resolve(dir,'logic/Cargo.toml'),'[package]\nname = "authored-logic"\n');
+    assert.equal(gameDefaults(dir).app.id, 'org.custom.game');
+    assert.equal(gameDefaults(dir).game.crate, 'authored-logic', 'an authored package names the crate');
+    assert.equal(readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8'),'[package]\nname = "authored-logic"\n');
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
-test('legacy generated marker does not surrender authored Cargo dependencies', async () => {
+test('an authored logic manifest is the member and is never rewritten', async () => {
   const {gameDefaults, gameShells} = await import('./app/shells.mjs');
   const root=realpathSync(mkdtempSync(resolve(tmpdir(),'manifest-owner-'))), app=resolve(root,'my-game');
   try {
     createGame(app);
     const path=resolve(app,'logic/Cargo.toml');
-    const authored=readFileSync(path,'utf8')
-      .replace(/^.*\n/, '# Generated by the game bake; an authored manifest overrides these defaults.\n')
-      .replace(/(exact-game = .*\n)/, `$1exact-game-physics = { path = ${JSON.stringify(resolve(import.meta.dir,'physics'))} }\n`);
+    const authored='[package]\nname = "my-game-logic"\nversion = "0.1.0"\nedition = "2021"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game.workspace = true\nexact-game-physics.workspace = true\n';
     writeFileSync(path,authored);
     for(let i=0;i<2;i++) {
-      const manifest=gameDefaults(app);
-      gameShells(app,manifest.game,import.meta.dir);
+      gameShells(app,gameDefaults(app).game,import.meta.dir);
       assert.equal(readFileSync(path,'utf8'),authored);
-      assert.ok(Bun.TOML.parse(authored).dependencies['exact-game-physics']);
+      assert.ok(Bun.TOML.parse(readFileSync(resolve(app,'.shells/Cargo.toml'),'utf8')).workspace.members.includes('../logic'));
+      assert.ok(!existsSync(resolve(app,'.shells/logic')), 'no generated member beside an authored one');
     }
+    writeFileSync(path,authored.replace('workspace = "../.shells"\n',''));
+    assert.throws(()=>gameShells(app,gameDefaults(app).game,import.meta.dir),/set package.workspace = "..\/.shells"/);
   } finally {rmSync(root,{recursive:true,force:true});}
 });
 
- test('authored Cargo package survives a generated app directory rename', async () => {
-  const {gameDefaults} = await import('./app/shells.mjs');
-  const root=mkdtempSync(resolve(tmpdir(),'r6-rename-')), before=resolve(root,'before'), after=resolve(root,'after');
-  try {
-    mkdirSync(resolve(before,'logic/src'),{recursive:true});
-    writeFileSync(resolve(before,'logic/src/lib.rs'), `impl Game for Demo { const ID: &'static str = "demo"; }`);
-    gameDefaults(before);
-    const cargo='[package]\nname = "authored-logic"\n';
-    writeFileSync(resolve(before,'logic/Cargo.toml'),cargo);
-    renameSync(before,after);
-    assert.equal(gameDefaults(after).game.crate,'authored-logic');
-    assert.equal(readFileSync(resolve(after,'logic/Cargo.toml'),'utf8'),cargo);
-  } finally {rmSync(root,{recursive:true,force:true});}
-});
+
 
 
 test('title-only and audio-only overrides retain derived defaults', async () => {
@@ -354,13 +342,13 @@ test.skipIf(process.platform !== 'darwin')('generation inside an empty author di
     assert.equal(status,0,stderr);
     assert.equal(treeHash(parent, app), before);
     assert.ok(!existsSync(resolve(app,'.shells')));
-    assert.ok(!existsSync(resolve(app,'Cargo.toml')),'workspace scaffolding is generated and ignored');
-    assert.ok(existsSync(resolve(app,'Cargo.lock')), 'the template source lock is copied inside the author directory');
+    for (const file of ['Cargo.toml','Cargo.lock','app.json','logic/Cargo.toml'])
+      assert.ok(!existsSync(resolve(app,file)),`${file}: derived, never written into the author directory`);
   } finally { rmSync(parent,{recursive:true,force:true}); }
 },60000);
 
 
-test('R12 copied workspace owns its logic as a member', async () => {
+test('a game without logic/Cargo.toml owns a generated member over its own sources', async () => {
   const {gameDefaults, gameShells} = await import('./app/shells.mjs');
   const dir=mkdtempSync(resolve(tmpdir(),'r12-copy-'));
   try {
@@ -368,12 +356,18 @@ test('R12 copied workspace owns its logic as a member', async () => {
     cpSync(resolve(import.meta.dir,'Cargo.toml'),resolve(dir,'Cargo.toml'));
     createGame('added',dir);
     const app=resolve(dir,'games/added');
-    const logic=Bun.TOML.parse(readFileSync(resolve(app,'logic/Cargo.toml'),'utf8'));
-    assert.equal(resolve(app,'logic',logic.dependencies['exact-game'].path),resolve(dir,'engine'));
-    gameShells(app,gameDefaults(app,dir).game,dir);
+    mkdirSync(resolve(app,'logic/examples/tour'),{recursive:true});
+    writeFileSync(resolve(app,'logic/examples/tour/main.rs'),'fn main() {}\n');
+    gameShells(app,gameDefaults(app).game,dir);
     const workspace=Bun.TOML.parse(readFileSync(resolve(app,'.shells/Cargo.toml'),'utf8'));
-    assert.ok(workspace.workspace.members.includes('../logic'));
-    assert.equal(Bun.TOML.parse(readFileSync(resolve(app,'logic/Cargo.toml'),'utf8')).package.workspace,'../.shells');
+    assert.ok(workspace.workspace.members.includes('logic'));
+    const logic=Bun.TOML.parse(readFileSync(resolve(app,'.shells/logic/Cargo.toml'),'utf8'));
+    assert.equal(logic.package.name,'added-logic');
+    assert.equal(resolve(app,'.shells/logic',logic.lib.path),resolve(app,'logic/src/lib.rs'));
+    assert.deepEqual(logic.test.map(t=>[t.name,resolve(app,'.shells/logic',t.path)]),[['sim',resolve(app,'logic/tests/sim.rs')]]);
+    assert.deepEqual(logic.example.map(t=>t.name),['tour']);
+    assert.deepEqual(logic.dependencies,{'exact-game':{workspace:true}});
+    assert.equal(resolve(app,'.shells',workspace.workspace.dependencies['exact-game'].path),resolve(dir,'engine'));
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -421,17 +415,32 @@ test('R13 generation hash ignores touch but sees modes and symlink targets; writ
 });
 
 
-test('R13 two copies of a new game bake offline locked with byte-identical captured locks',async()=>{
+test('two copies of a new game derive byte-identical shell locks from the SDK lock and write none', async () => {
   const {prepareGame,gameDefaults}=await import('./app/shells.mjs');
   const root=realpathSync(mkdtempSync(resolve(tmpdir(),'r13-lock-copies-')));
   try {
     const a=resolve(root,'a/same-game'), b=resolve(root,'b/same-game');
     createGame(a);createGame(b);
-    const before=readFileSync(resolve(a,'Cargo.lock'),'utf8');
-    for(const dir of [a,b]) prepareGame(dir,gameDefaults(dir).game);
-    assert.equal(readFileSync(resolve(a,'Cargo.lock'),'utf8'),before);
-    assert.equal(readFileSync(resolve(b,'Cargo.lock'),'utf8'),before);
+    for(const dir of [a,b]) for (let i=0;i<2;i++) prepareGame(dir,gameDefaults(dir).game);
+    const derived=readFileSync(resolve(a,'.shells/Cargo.lock'),'utf8');
+    assert.equal(readFileSync(resolve(b,'.shells/Cargo.lock'),'utf8'),derived);
+    assert.ok(!existsSync(resolve(a,'Cargo.lock')) && !existsSync(resolve(b,'Cargo.lock')));
+    assert.notEqual(derived,readFileSync(resolve(import.meta.dir,'app/shells.lock'),'utf8'),'the SDK union is pruned to the game');
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('the SDK lock decides every version; a game that adds packages captures its own lock', async () => {
+  const {outsideSdkLock,sdkLock}=await import('./app/shells.mjs');
+  const lock=packages=>`version = 4\n\n${packages.map(([name,version,source,deps])=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${source?`source = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "${source}"\n`:''}${deps?`dependencies = [\n${deps.map(d=>` "${d}",\n`).join('')}]\n`:''}`).join('\n')}`;
+  const sdk=lock([['glam','0.33.7','aa',['approx','libm']],['approx','0.5.1','bb'],['libm','0.2.16','cc'],['exact-game','0.1.0',null,['glam']]]);
+  const members=new Set(['x-logic','x-gpu']);
+  // Fewer activated features drop edges, never versions.
+  assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','aa',['libm']],['libm','0.2.16','cc'],['x-logic','0.1.0',null,['exact-game']],['exact-game','0.1.0',null,['glam']]]),sdk,members),[]);
+  const added=lock([['glam','0.33.7','aa'],['itoa','1.0.15','dd'],['libm','0.2.9','ee']]);
+  assert.deepEqual(outsideSdkLock(added,sdk,members),['itoa 1.0.15 registry+https://github.com/rust-lang/crates.io-index','libm 0.2.9 registry+https://github.com/rust-lang/crates.io-index']);
+  assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','changed']]),sdk,members),['glam 0.33.7 registry+https://github.com/rust-lang/crates.io-index'],'a checksum is part of the identity');
+  // The checked-in SDK lock is current for the union of every shell's dependencies.
+  sdkLock();
 });
 
 
@@ -441,13 +450,13 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
   const previous=process.env.CARGO_HOME;
   try {
     createGame(dir);mkdirSync(resolve(root,'cargo-home'));process.env.CARGO_HOME=resolve(root,'cargo-home');
-    const lock=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
     const generated=spawnSync(process.execPath,[resolve(import.meta.dir,'app/shells.mjs'),dir],{env:{...process.env},encoding:'utf8'});
     assert.equal(generated.status,0,generated.stderr);
-    assert.equal(readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8'),lock);
-    for (const host of ['gpu','web','apple','linux']) assert.ok(existsSync(resolve(dir,`.shells/${host}/Cargo.toml`)));
-    assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/offline/.test(error.message)&&/cargo fetch --locked --manifest-path/.test(error.message));
-    assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),lock);
+    // The shell starts from the SDK lock, so `cargo fetch` downloads the SDK's versions.
+    assert.equal(readFileSync(resolve(dir,'.shells/Cargo.lock'),'utf8'),readFileSync(resolve(import.meta.dir,'app/shells.lock'),'utf8'));
+    for (const host of ['gpu','web','apple','linux','logic']) assert.ok(existsSync(resolve(dir,`.shells/${host}/Cargo.toml`)));
+    assert.throws(()=>prepareGame(dir,gameDefaults(dir).game),error=>/offline/.test(error.message)&&/cargo fetch --manifest-path/.test(error.message));
+    assert.ok(!existsSync(resolve(dir,'Cargo.lock')));
   } finally {if(previous===undefined) delete process.env.CARGO_HOME;else process.env.CARGO_HOME=previous;rmSync(root,{recursive:true,force:true});}
 });
 
@@ -480,7 +489,7 @@ test('D6 host shells discover arguments without an engine build dependency', () 
     createGame(app);
     // As in the new-game build above, use a file for subprocess output under bun test.
     const graph = resolve(parent, 'graph.json');
-    const child = spawnSync(process.execPath, ['-e', `import {prepareGame,gameDefaults} from ${JSON.stringify(resolve(import.meta.dir,'app/shells.mjs'))}; import {writeFileSync} from 'node:fs'; const dir=${JSON.stringify(app)}; writeFileSync(${JSON.stringify(graph)},JSON.stringify(prepareGame(dir,gameDefaults(dir).game,${JSON.stringify(import.meta.dir)},{updateLock:true})));`], {encoding:'utf8'});
+    const child = spawnSync(process.execPath, ['-e', `import {prepareGame,gameDefaults} from ${JSON.stringify(resolve(import.meta.dir,'app/shells.mjs'))}; import {writeFileSync} from 'node:fs'; const dir=${JSON.stringify(app)}; writeFileSync(${JSON.stringify(graph)},JSON.stringify(prepareGame(dir,gameDefaults(dir).game,${JSON.stringify(import.meta.dir)})));`], {encoding:'utf8'});
     assert.equal(child.status, 0, child.stderr);
     const metadata = JSON.parse(readFileSync(graph, 'utf8'));
     const packages = new Map(metadata.packages.map(pkg => [pkg.id, pkg.name]));
@@ -500,16 +509,16 @@ test('D6 host shells discover arguments without an engine build dependency', () 
   } finally {rmSync(parent,{recursive:true,force:true});}
 });
 
-test('R15 Beacons compact manifest survives two shell bakes', async () => {
+test('Beacons is the files its author writes and survives two shell bakes', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
-  const app=resolve(import.meta.dir,'games/beacons'), path=resolve(app,'app.json');
-  const authored=readFileSync(path,'utf8');
-  assert.ok(!authored.includes('_generated'));
-  assert.ok(Object.keys(JSON.parse(authored)).length <= 2);
+  const app=resolve(import.meta.dir,'games/beacons');
+  const tracked=spawnSync('git',['ls-files'],{cwd:app,encoding:'utf8'}).stdout.trim().split('\n').sort();
+  assert.deepEqual(tracked,['README.md','app.contract','logic/src/lib.rs','logic/tests/sim.rs','pins.json','proof.mjs']);
   for(let i=0;i<2;i++) {
     const manifest=gameDefaults(app);gameShells(app,manifest.game,import.meta.dir);
-    assert.equal(readFileSync(path,'utf8'),authored);
     assert.equal(JSON.parse(readFileSync(resolve(app,'.shells/app.json'),'utf8')).app.id,'com.exact.beacons');
+    const untracked=spawnSync('git',['status','--porcelain','--untracked-files=all','--','.'],{cwd:app,encoding:'utf8'}).stdout.split('\n').filter(line=>line.startsWith('??'));
+    assert.deepEqual(untracked,[],'bakes write only ignored files');
   }
 });
 test('R15 explicit crate and type without an inferred declaration require identity',async()=>{

@@ -1,6 +1,7 @@
 // Host adapters belong to the bake, never to a game author.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,7 +24,7 @@ const writeChanged = (path, text, authored = true) => {
 };
 // Only the literal Game declaration used by the template is inferred; unusual
 // Rust exports/IDs use app.json. Rust remains responsible for checking the type.
-export function gameDefaults(dir, workspace = gameRoot) {
+export function gameDefaults(dir) {
   const source = resolve(dir, 'logic/src/lib.rs'), path = resolve(dir, 'app.json');
   if (!existsSync(source)) return null;
   const authored = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : {};
@@ -36,7 +37,8 @@ export function gameDefaults(dir, workspace = gameRoot) {
   const [, type, gameId] = declaration ?? [], name = basename(dir);
   const cargoPath = resolve(dir, 'logic/Cargo.toml');
   const cargo = existsSync(cargoPath) ? readFileSync(cargoPath, 'utf8') : null;
-  const crate = overrides.game?.crate ?? (cargo ? Bun.TOML.parse(cargo).package.name : `${name}-logic`);
+  // The crate follows Game::ID, not the directory: a clone under another name still builds.
+  const crate = overrides.game?.crate ?? (cargo ? Bun.TOML.parse(cargo).package.name : `${gameId ?? name}-logic`);
   const title = overrides.name ?? overrides.app?.name ?? name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
   const id = overrides.id ?? overrides.app?.id ?? `com.exact.${gameId}`;
   const app = merge({
@@ -47,20 +49,34 @@ export function gameDefaults(dir, workspace = gameRoot) {
     game:{crate, type}, rust:false,
     deploy:{store:{web:'0',macos:'0',ios:'0',linux:'0'}},
   }, overrides);
-  const manifest = resolve(dir, 'logic/Cargo.toml');
-  if (app.game && !existsSync(manifest)) writeChanged(manifest,
-    `# Author-owned game logic manifest; the bake never rewrites this file.\n[package]\nname = "${app.game.crate}"\nversion = "0.1.0"\nedition = "2021"\nlicense = "MIT"\nworkspace = "../.shells"\n\n[dependencies]\nexact-game = { path = ${JSON.stringify(relative(resolve(dir, 'logic'), resolve(workspace, 'engine')))} }\n`);
   return app;
+}
+
+// A game without logic/Cargo.toml gets this generated member: its sources stay
+// where the author wrote them. @ref llp/1046.003-game-engine-as-built.explainer.md#one-sdk-lock-2026-09-23
+function logicManifest(dir, crate) {
+  const logic = resolve(dir, 'logic'), targets = [];
+  for (const [kind, table] of [['tests', 'test'], ['examples', 'example'], ['benches', 'bench']]) {
+    const folder = resolve(logic, kind);
+    if (!existsSync(folder)) continue;
+    for (const entry of readdirSync(folder, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : 1)) {
+      const file = entry.isFile() && entry.name.endsWith('.rs') ? entry.name
+        : entry.isDirectory() && existsSync(resolve(folder, entry.name, 'main.rs')) ? `${entry.name}/main.rs` : null;
+      if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(`../../logic/${kind}/${file}`)}\n`);
+    }
+  }
+  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n`;
 }
 
 export function gameShells(dir, game, workspace) {
   // Only this app is materialized. Each bake owns a generated Cargo workspace.
-  const app = {game, ...gameDefaults(dir, workspace)};
+  const app = {game, ...gameDefaults(dir)};
   const {crate, type, data} = app.game, name = crate.slice(0, -'-logic'.length);
   const root = resolve(dir, '.shells');
   const source = existsSync(resolve(workspace, 'Cargo.toml')) ? workspace : gameRoot;
   const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
-  cargo.workspace.members = ['gpu','web','apple','linux','../logic', ...(data ? ['../data'] : [])];
+  const authoredLogic = existsSync(resolve(dir, 'logic/Cargo.toml'));
+  cargo.workspace.members = ['gpu','web','apple','linux', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : [])];
   delete cargo.workspace.exclude;
   // Engine crates are dependencies here: the wildcard already optimizes them.
   // Retain member overrides and any settings distinct from that wildcard.
@@ -87,16 +103,22 @@ export function gameShells(dir, game, workspace) {
   writeChanged(resolve(root, 'app.json'), JSON.stringify(app, null, 2) + '\n', false);
   writeChanged(resolve(root,'Cargo.toml'), '# Generated by the game bake.\n' + Object.entries(cargo)
     .map(([key,value])=>`[${key}]\n${Object.entries(value).map(([key,value])=>`${JSON.stringify(key)} = ${toml(value)}\n`).join('')}`).join('\n'), false);
-  const lock = resolve(dir, 'Cargo.lock');
-  if (existsSync(lock)) writeChanged(resolve(root, 'Cargo.lock'), readFileSync(lock, 'utf8'), false);
+  // A game's own lock is captured only when it adds dependencies; otherwise
+  // the SDK lock seeds the shell and prepareGame derives the game's subset.
+  const lock = resolve(dir, 'Cargo.lock'), shellLock = resolve(root, 'Cargo.lock');
+  if (existsSync(lock)) writeChanged(shellLock, readFileSync(lock, 'utf8'), false);
+  else if (!existsSync(shellLock) && sdkLockFile(source)) writeFileSync(shellLock, readFileSync(sdkLockFile(source), 'utf8'));
   const appDir = dir;
-  const logicDir = resolve(appDir, 'logic');
+  if (!existsSync(resolve(appDir, 'logic/src/lib.rs'))) throw new Error(`${appDir}/logic/src/lib.rs: a game's logic is required`);
+  const logicDir = authoredLogic ? resolve(appDir, 'logic') : resolve(root, 'logic');
   const manifest = resolve(logicDir, 'Cargo.toml');
-  if (!existsSync(manifest) || Bun.TOML.parse(readFileSync(manifest, 'utf8')).package?.name !== crate) {
-    throw new Error(`game.crate ${crate} must name the package in ${appDir}/logic`);
-  }
-  if (Bun.TOML.parse(readFileSync(manifest, 'utf8')).package.workspace !== '../.shells') {
-    throw new Error(`${manifest}: set package.workspace = "../.shells" so the app owns its logic`);
+  if (authoredLogic) {
+    const declared = Bun.TOML.parse(readFileSync(manifest, 'utf8')).package;
+    if (declared?.name !== crate) throw new Error(`game.crate ${crate} must name the package in ${appDir}/logic`);
+    if (declared.workspace !== '../.shells') throw new Error(`${manifest}: set package.workspace = "../.shells" so the app owns its logic`);
+  } else {
+    mkdirSync(logicDir, {recursive:true});
+    writeChanged(manifest, logicManifest(appDir, crate), false);
   }
   let dataDir;
   if (data !== undefined) {
@@ -198,40 +220,92 @@ ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appD
   return game.crate.slice(0, -'-logic'.length);
 }
 
-// The template supplies the source lock. Every ordinary bake is locked;
-// dependency edits require an explicit update, never a publisher's cache choice.
+// One SDK lock (@ref llp/1046.003-game-engine-as-built.explainer.md#one-sdk-lock-2026-09-23):
+// every generated game workspace whose code adds no packages resolves against
+// game/app/shells.lock, the lock of the union of every shell's dependencies.
+// A game that adds packages captures its own Cargo.lock with --update-lock.
+const sdkLockFile = source => [resolve(source, 'app/shells.lock'), resolve(gameRoot, 'app/shells.lock')].find(path => existsSync(path));
+const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
+// A lock's packages by identity. Dependency edges follow from the versions
+// and the activated features, so a game's subset keeps every version but may
+// drop edges; the versions and checksums are what the SDK lock decides.
+const lockIds = text => new Map((Bun.TOML.parse(text).package ?? []).map(pkg => [`${pkg.name} ${pkg.version} ${pkg.source ?? ''}`.trim(), pkg.checksum ?? null]));
+/** Packages of `derived` (members excepted) whose version the SDK lock does not hold. */
+export function outsideSdkLock(derived, sdk, members) {
+  const known = lockIds(sdk);
+  return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
+}
+const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
+
+// Every ordinary bake is locked; dependency edits require an explicit update,
+// never a publisher's cache choice.
 export function prepareGame(dir, game, source = gameRoot, {updateLock = false, target, env = process.env} = {}) {
-  const root = resolve(dir, '.shells'), lock = resolve(dir, 'Cargo.lock');
-  const captured = existsSync(lock), cached = resolve(root, 'Cargo.lock');
-  if (!captured && existsSync(cached)) {
-    rmSync(cached);
-    throw new Error(`${cached}: stale shell lock without a captured source Cargo.lock; removed it. Restore the source lock or explicitly --update-lock`);
+  const root = resolve(dir, '.shells'), own = resolve(dir, 'Cargo.lock'), shell = resolve(root, 'Cargo.lock');
+  const name = gameShells(dir, game, source), members = shellMembers(gameDefaults(dir).game, name);
+  const metadata = locked => cargoMetadata(root, ['--offline', ...(locked ? ['--locked'] : []), ...(target ? ['--filter-platform', target] : [])], env);
+  const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nOffline resolution requires a populated Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nTo capture this game's own dependencies: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
+  if (updateLock || existsSync(own)) {
+    const result = metadata(!updateLock);
+    if (result.status !== 0) throw refused(result);
+    if (updateLock) writeChanged(own, readFileSync(shell, 'utf8'), existsSync(own));
+    return JSON.parse(result.stdout);
   }
-  gameShells(dir, game, source);
-  if (!captured && !updateLock) {
-    const seed = resolve(source, 'new/Cargo.lock');
-    if (!existsSync(seed)) throw new Error(`${lock}: missing captured lock and template seed; create the game with game/new.mjs or explicitly --update-lock`);
-    const name = game.crate.replace(/-logic$/, '');
-    writeChanged(cached, readFileSync(seed, 'utf8').replaceAll('small-game', name), false);
+  const lockFile = sdkLockFile(source);
+  if (!lockFile) throw new Error(`${own}: no captured lock and no SDK lock (game/app/shells.lock)`);
+  const sdk = readFileSync(lockFile, 'utf8');
+  // The shell's derived lock stands while it is the SDK lock's subset and exact.
+  const derived = existsSync(shell) ? readFileSync(shell, 'utf8') : sdk;
+  let result = derived !== sdk && !outsideSdkLock(derived, sdk, members).length ? metadata(true) : null;
+  if (result?.status !== 0) {
+    writeFileSync(shell, sdk);
+    result = metadata(false);
+    const outside = result.status === 0 ? outsideSdkLock(readFileSync(shell, 'utf8'), sdk, members) : [];
+    if (result.status !== 0 || outside.length) writeFileSync(shell, sdk);
+    if (result.status !== 0) throw refused(result);
+    if (outside.length) throw new Error(`${dir}: resolves packages outside the SDK lock ${lockFile}: ${outside.slice(0, 8).join(', ')}${outside.length > 8 ? ', …' : ''}.
+A game that adds dependencies captures its own lock: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock
+A changed SDK refreshes the SDK lock: bun game/app/shells.mjs --update-lock
+A partial offline Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}`);
   }
-  const result = spawnSync('cargo', ['metadata', '--offline', ...(!updateLock ? ['--locked'] : []), '--format-version', '1', ...(target ? ['--filter-platform', target] : [])], {
-    cwd:root, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024,
-  });
-  if (result.status !== 0) throw new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nOffline resolution requires a populated Cargo cache: cargo fetch --locked --manifest-path ${JSON.stringify(resolve(root, "Cargo.toml"))}\nTo capture dependency changes: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
-  if (!captured || updateLock) writeChanged(lock, readFileSync(resolve(root, 'Cargo.lock'), 'utf8'), captured);
   return JSON.parse(result.stdout);
 }
 
+/** Check the SDK lock against the union of every generated shell's
+ * dependencies, or (`update`) rewrite it from that union. */
+export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
+  const path = resolve(source, 'app/shells.lock'), stage = mkdtempSync(resolve(tmpdir(), 'exact-game-lock-'));
+  try {
+    const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
+    for (const deps of [cargo.workspace.dependencies, ...Object.values(cargo.patch ?? {})])
+      for (const dep of Object.values(deps ?? {})) if (dep.path) dep.path = relative(stage, resolve(source, dep.path));
+    const toml = value => value && typeof value === 'object' && !Array.isArray(value)
+      ? `{ ${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)} = ${toml(item)}`).join(', ')} }`
+      : Array.isArray(value) ? `[${value.map(toml).join(', ')}]` : JSON.stringify(value);
+    const tables = {workspace:{members:['union'], resolver:cargo.workspace.resolver ?? '2'}, 'workspace.package':cargo.workspace.package,
+      'workspace.dependencies':cargo.workspace.dependencies, ...Object.fromEntries(Object.entries(cargo.patch ?? {}).map(([key, value]) => [`patch.${JSON.stringify(key)}`, value]))};
+    writeFileSync(resolve(stage, 'Cargo.toml'), Object.entries(tables).map(([key, value]) => `[${key}]\n${Object.entries(value).map(([k, v]) => `${JSON.stringify(k)} = ${toml(v)}\n`).join('')}`).join('\n'));
+    mkdirSync(resolve(stage, 'union'));
+    writeFileSync(resolve(stage, 'union/lib.rs'), '');
+    writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}serde_json = "1"\n`);
+    if (existsSync(path)) copyFileSync(path, resolve(stage, 'Cargo.lock'));
+    const result = cargoMetadata(stage, update ? [] : ['--locked', '--offline'], env);
+    if (result.status !== 0) throw new Error(`${update ? 'SDK lock update' : `${path} is stale for the SDK's shell dependencies; refresh it: bun game/app/shells.mjs --update-lock`}\n${result.stderr || result.error?.message}`);
+    if (update) writeChanged(path, readFileSync(resolve(stage, 'Cargo.lock'), 'utf8'), false);
+  } finally { rmSync(stage, {recursive:true, force:true}); }
+}
+
 if (import.meta.main) {
-  if (process.argv.includes('--test')) {
+  const args = process.argv.slice(2), requested = args.find(arg => !arg.startsWith('--'));
+  if (args.includes('--test')) {
     let failed=false;
-    const requested = process.argv.slice(2).find(arg => !arg.startsWith('--'));
     const dirs = requested ? [resolve(requested)] : ['games','bench'].flatMap(group =>
       readdirSync(resolve(gameRoot, group)).map(name => resolve(gameRoot, group, name)))
       .filter(dir => existsSync(resolve(dir, 'logic/src/lib.rs')));
+    if (!requested) try { sdkLock(); } catch (error) { console.error(error.message); failed = true; }
     for (const dir of dirs) {
       try {
-        prepareGame(dir, gameDefaults(dir).game);
+        const game = gameDefaults(dir).game;
+        prepareGame(dir, game);
         const env = {...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(gameRoot,'target')};
         if (hasArt(dir)) {
           const result=spawnSync('cargo',['run','--manifest-path',resolve(gameRoot,'Cargo.toml'),'-p','exact-game-bake','--locked','--offline','--','--art',dir], {
@@ -239,17 +313,19 @@ if (import.meta.main) {
           });
           if (result.error || result.status !== 0) throw new Error(`game art bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
         }
-        const result=spawnSync('cargo',['test','--workspace','--locked','--offline','--no-fail-fast'], {
+        // The author's crates only: generated adapters are products, built by bakes.
+        const result=spawnSync('cargo',['test',...[game.crate, game.data?.crate].filter(Boolean).flatMap(crate => ['-p', crate]),'--locked','--offline','--no-fail-fast'], {
           cwd:resolve(dir,'.shells'),env,stdio:'inherit',
         });
         failed ||= result.status !== 0;
       } catch(error) {console.error(error);failed=true;}
     }
     process.exitCode=failed?1:0;
-  } else {
-    const dir = resolve(process.argv[2]);
+  } else if (!requested && args.includes('--update-lock')) sdkLock(gameRoot, {update:true});
+  else {
+    const dir = resolve(requested);
     const game = gameDefaults(dir).game;
-    if (process.argv.includes('--update-lock')) prepareGame(dir, game, gameRoot, {updateLock:true});
+    if (args.includes('--update-lock')) prepareGame(dir, game, gameRoot, {updateLock:true});
     else gameShells(dir, game, gameRoot);
   }
 }

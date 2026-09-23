@@ -29,15 +29,13 @@ export function createGame(destination, directory = import.meta.dir, options = {
   writeFileSync(resolve(destination, '.gitignore'), '/target/\n/dist/\n/dist.previous/\n/artifacts/\n/.shells/\n/app.contract.d.ts\n');
   const proofPath = resolve(destination,'proof.mjs');
   if (existsSync(proofPath)) writeFileSync(proofPath,readFileSync(proofPath,'utf8').replace("'../../proof.mjs'",JSON.stringify(relative(destination,resolve(directory,'proof.mjs')))));
-  const manifest = gameDefaults(destination, directory);
-  writeFileSync(resolve(destination, 'app.json'), JSON.stringify({
-    app:{id:manifest.app.id, name:manifest.app.name},
-    game:{...manifest.game, ...(options.assets === true ? {assets:true} : {})},
-  }, null, 2) + "\n");
+  // Identity derives from the directory and Game::ID; app.json holds authored keys only.
+  if (!gameDefaults(destination)) throw new Error(`${destination}/logic/src/lib.rs: the template's Game declaration was not found`);
+  if (options.assets === true) writeFileSync(resolve(destination, 'app.json'), JSON.stringify({game:{assets:true}}, null, 2) + "\n");
 
   const argument = local ? quote(destination === process.cwd() ? '.' : destination) : name;
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
-  return `The template supplies Cargo.lock beside app.json; first bake resolves it offline and locked in .shells/.\nCreated ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
+  return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
 }
 

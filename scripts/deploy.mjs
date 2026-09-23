@@ -614,11 +614,9 @@ export function materializeSnapshot(snapshot, run, app) {
   // giving this materialized generation its own cache.
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
   const manifest = readManifest(dir, app.name);
-  if (manifest.game) {
-    gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
-    if (!existsSync(resolve(dir, 'Cargo.lock'))) refuse(`${dir}: bake the game once and capture Cargo.lock before deployment`);
-
-  }
+  // A game without its own Cargo.lock resolves against the captured SDK lock
+  // (game/app/shells.lock), still locked and offline.
+  if (manifest.game) gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
   assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
   return {
     exactRoot, sourceRoot,
