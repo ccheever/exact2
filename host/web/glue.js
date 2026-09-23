@@ -191,10 +191,11 @@ function assetNamespace(cards) {
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 const lists = new Map();
 let listSelection, listSelectionLoading;
-function listView(el, id) {
+// A list with logical rows; a virtualized list's (`collection`) feedback is navigation.js's.
+function listView(el, id, collection) {
   const measured = el.hasAttribute('data-estimateditemheight');
-  if (!measured && !el.hasAttribute('data-itemheight')) return;
-  lists.set(el, { id, measured });
+  if (!collection && !measured && !el.hasAttribute('data-itemheight')) return;
+  lists.set(el, { id, measured, window: !collection });
   listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
     .then(install => { listSelection = install({ root, lists, views,
       report: (id, geometry, measurements, limit) => {
@@ -608,7 +609,7 @@ function apply(batch) {
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
         // Shared collections own geometry feedback, including authored estimates.
-        if (!collectionOp?.items.some(item => item.view === op.id)) listView(el, op.id);
+        listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
       }
       case "props": {

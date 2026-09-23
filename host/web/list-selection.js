@@ -1,5 +1,7 @@
-// Windowed-list feedback and logical text selection share row lifetime. Loaded
-// after paint only for these lists; ordinary browser selection stays native.
+// Logical text selection over a list's rows, mounted or not, and a windowed
+// list's geometry feedback, which shares row lifetime with it. A virtualized
+// list (`window: false`) takes only the selection; navigation.js reports its
+// geometry. Loaded after paint only for lists; ordinary selection stays native.
 globalThis.exact.installListSelection = function ({ root, lists, views, report, index, text }) {
   // @ref LLP 1044.000 S7 — one read phase, then bounded fills, per frame.
   // ResizeObserver owns row measurements; scrolling never measures a row.
@@ -12,7 +14,7 @@ globalThis.exact.installListSelection = function ({ root, lists, views, report, 
     frame = null;
     const reports = [];
     for (const [el, s] of lists) {
-      if (!el.isConnected || views.get(s.id) !== el) continue;
+      if (!s.window || !el.isConnected || views.get(s.id) !== el) continue;
       const content = el.firstElementChild;
       const origin = content ? content.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop : 0;
       const focus = el.contains(document.activeElement) ? Number(document.activeElement.closest('[data-view]')?.dataset.view ?? 0) : 0;
@@ -35,6 +37,7 @@ globalThis.exact.installListSelection = function ({ root, lists, views, report, 
   }
   function sync() {
     for (const [el, s] of lists) {
+      if (!s.window) continue;
       if (!s.observer) {
         s.observed = new Map(); s.pointer = 0; s.last = null; s.pending = false;
         s.observer = new ResizeObserver(entries => {

@@ -719,7 +719,7 @@ function listFixture() {
       addEventListener: (name, fn) => handlers.set(name, fn),
     };
     row.closest = () => row;
-    lists.set(el, { id, measured: true }); views.set(id, el); controller.sync();
+    lists.set(el, { id, measured: true, window: true }); views.set(id, el); controller.sync();
     const observer = observers.at(-1);
     const measure = (target = row, width = el.width, height = 31.5) => observer.callback([
       { target, borderBoxSize: [{ inlineSize: width, blockSize: height }] },
@@ -778,4 +778,13 @@ test('list measurements discard retired elements and old widths while retaining 
   a.measure(replacement, 200, 80); f.frame();
   expect(a.observer.watched.size).toBe(0);
   expect(f.reports).toHaveLength(count);
+});
+
+test('a virtualized list takes logical selection but never windowed feedback', () => {
+  const f = listFixture(), el = { isConnected: true, firstElementChild: { children: [] }, addEventListener() { throw new Error('navigation.js owns its events'); } };
+  f.lists.set(el, { id: 3, measured: false, window: false }); f.views.set(3, el);
+  f.controller.sync(); f.controller.before(); f.controller.after(); f.frame();
+  expect(f.reports).toHaveLength(0);
+  expect(f.lists.get(el).observer).toBeUndefined();
+  expect(f.listeners.has('copy')).toBe(true);
 });
