@@ -318,7 +318,7 @@ test('deploy excludes generated shells and regenerates them from captured game s
     assert.ok(gpu.manifest_path.startsWith(staged.sourceRoot));
     assert.ok(readFileSync(resolve(dirname(gpu.manifest_path),'src/lib.rs'),'utf8').includes('SmallGame'));
   } finally { disposeSnapshot(snapshot); }
-}));
+}), 30000); // three lockfiles, a commit, a capture and cargo metadata: 1.8 s at load 35, past five seconds on a loaded Mac
 
 
 test('rendered tree includes focus and the computed accessible name', async () => {
@@ -601,7 +601,7 @@ test('R12 deploy captures initialized dependency submodules as source', () => fi
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.exactRoot,'vendor/fixture-source/data.txt'),'utf8'),'captured submodule');
   } finally {disposeSnapshot(snapshot);}
-}));
+}), 30000); // two lockfiles, a submodule, three commits and two captures: 2.6 s at load 35, past five seconds on a loaded Mac
 
 
 test('R13 capture refuses tracked files under inferred game output roots',()=>fixture(({app,root,write,run})=>{
