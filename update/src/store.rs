@@ -370,7 +370,8 @@ impl Record {
 
 /// What was on disk where the record lives.
 enum RecordFile {
-    /// No record, or one this client cannot read as JSON at all: start fresh.
+    /// No record, or one that is not a record of any codec (unreadable, not
+    /// JSON, or with no integer codec): start fresh.
     Fresh,
     /// An older codec from this pre-1.0 crate. Its selections are not read;
     /// open replaces it with this binary's clean entry-zero record.
@@ -391,10 +392,14 @@ fn read_record(path: &Path) -> RecordFile {
     let Some(object) = value.as_object() else {
         return RecordFile::Fresh;
     };
+    // Only an integer codec above ours is another binary's (LLP 1030 D9). A
+    // record with no such codec is damaged, not foreign: freezing on it would
+    // stop this updater for good.
     match object.get("codec").and_then(|v| v.as_u64()) {
         Some(codec) if codec == crate::STORE_CODEC => {}
         Some(codec) if codec < crate::STORE_CODEC => return RecordFile::Obsolete,
-        _ => return RecordFile::Foreign,
+        Some(_) => return RecordFile::Foreign,
+        None => return RecordFile::Fresh,
     }
     let stream = object.get("stream").and_then(|v| v.as_object());
     RecordFile::Ours(Record {
