@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 /**
  * metrics — startup and speed numbers from one captured-source run.
- * Builds start with a private cache. Diagnostic, never blocking (rules/RULES.md §Loop shape:
- * run everything, block on almost nothing).
+ * Builds use a private cache kept warm per checkout and app. Diagnostic,
+ * never blocking (rules/RULES.md §Loop shape: run everything, block on almost
+ * nothing).
  *
  *   bun scripts/metrics.mjs            table
  *   bun scripts/metrics.mjs --json     one JSON object
@@ -99,7 +100,7 @@ if (!process.argv.includes('--scaling') && !process.argv.includes('--list-memory
     const child = spawn(process.execPath, [resolve(exactRoot, 'scripts/metrics.mjs'), ...process.argv.slice(2)],
       { cwd: exactRoot, env, stdio: 'inherit' });
     return await new Promise((done, fail) => { child.once('error', fail); child.once('exit', (code) => done(code ?? 1)); });
-  });
+  }, { warm: true });
   process.exit(code);
 }
 const json = process.argv.includes('--json');
@@ -479,7 +480,7 @@ await step('boot', () => {
   const original = readFileSync(source, 'utf8');
   let page = null;
   try {
-    const ready = await until(/^(?:plan ready|module generation ready)/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
+    const ready = await until(/^(?:plan ready|module generation ready|Rust generation \w+ ready)/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
     if (ready && existsSync(chrome)) {
       page = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
         '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',

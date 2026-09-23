@@ -49,7 +49,7 @@
 // head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -464,12 +464,15 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   // Keep even the pre-run capture outside every live repository. Cargo walks
   // ancestor directories for configuration, so a stage beneath `target/`
   // would still let a mutable checkout influence the supposedly frozen bake.
-  const captureRoot = privateCaptureRoot(sourceList);
+  const captureRoot = opts.captureRoot ? stableCaptureRoot(sourceList, opts.captureRoot) : privateCaptureRoot(sourceList);
   const stagedSourceRoot = resolve(captureRoot, 'source');
   mkdirSync(stagedSourceRoot);
   try {
     const captured = sourceList.map((source) => captureRepository(source, sourceList, captureRoot,
       stagedSourceRoot, common, app, exactRoot));
+    // At a stable path, staged files keep their live mtimes: Cargo's mtime
+    // checks (rerun-if-changed) then see only real edits between runs.
+    if (opts.captureRoot) for (const source of sourceList) keepLiveMtimes(source.repo, resolve(stagedSourceRoot, relative(common, source.repo)));
     const changes = captured.flatMap((source) => source.changes.map((change) => `${source.roles.join('+')} ${change}`));
     if (changes.length && !opts.dirty) refuse(`the source repository${captured.length === 1 ? '' : 'ies'} this bake reads ${captured.length === 1 ? 'has' : 'have'} uncommitted or ignored source files:\n  ${changes.join('\n  ')}\ncommit them, or pass --dirty to publish those captured bytes (the table says so loudly)`);
     const id = captured.length === 1 && changes.length === 0 ? captured[0].commit
@@ -510,6 +513,35 @@ function privateCaptureRoot(sources) {
     rmSync(candidate, { recursive: true, force: true });
   }
   refuse(`could not allocate a source capture outside the live repositories${problem ? `: ${problem}` : ''}`);
+}
+
+/** A caller-chosen capture root at a stable path (warm diagnostics keep Cargo's
+ * path-keyed cache valid across runs), under the same rule as a private one:
+ * never beneath a captured source repository. Emptied and recreated. */
+function stableCaptureRoot(sources, at) {
+  if (existsSync(at)) removePrivateTree(at);
+  mkdirSync(at, { recursive: true });
+  const root = canonicalPath(at);
+  if (sources.some((source) => inside(source.repo, root))) {
+    removePrivateTree(root);
+    refuse(`${root} is inside a captured source repository`);
+  }
+  return root;
+}
+
+function keepLiveMtimes(repo, staged) {
+  if (!existsSync(staged)) return;
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.isFile()) {
+        try { const live = statSync(resolve(repo, relative(staged, path))); if (live.isFile()) utimesSync(path, live.atime, live.mtime); }
+        catch { /* staged only */ }
+      }
+    }
+  };
+  walk(staged);
 }
 
 /** Child tools may ask Git about their source directory. Keep discovery and

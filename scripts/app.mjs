@@ -678,14 +678,29 @@ export function removePrivateTree(path) {
 }
 
 /** Diagnostics that edit inputs run on the deploy snapshot's closed source
- * graph. Build outputs and child process state belong to this invocation. */
-export async function withAppFixture(app, use) {
+ * graph. Build outputs and child process state belong to this invocation.
+ * `warm` keeps one Cargo target per checkout and app between runs: the capture
+ * and run directories sit at stable paths (Cargo keys path crates by path),
+ * staged files keep the live files' mtimes (so only real edits rebuild), and
+ * a lock refuses a concurrent run on the same directories. */
+export async function withAppFixture(app, use, { warm = false } = {}) {
   const started = Date.now();
   const { snapshotOf, materializeSnapshot, disposeSnapshot } = await import('./deploy.mjs');
-  const run = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-')));
+  const key = createHash('sha256').update(`${realpathSync(ROOT)}\0${app.dir}`).digest('hex').slice(0, 16);
+  const run = warm ? resolve(realpathSync(tmpdir()), `exact-diagnostic-${key}`)
+    : realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-')));
+  const lock = resolve(run, 'lock');
+  if (warm) {
+    mkdirSync(run, { recursive: true });
+    const holder = existsSync(lock) ? Number(readFileSync(lock, 'utf8')) : 0;
+    let alive = false;
+    try { if (holder) { process.kill(holder, 0); alive = true; } } catch { alive = false; }
+    if (alive) throw new Error(`a diagnostic run (pid ${holder}) is using ${run}; wait for it`);
+    writeFileSync(lock, String(process.pid));
+  }
   let snapshot;
   try {
-    snapshot = snapshotOf(app, { dirty: true }, ROOT);
+    snapshot = snapshotOf(app, { dirty: true, ...(warm ? { captureRoot: resolve(realpathSync(tmpdir()), `exact-capture-${key}`) } : {}) }, ROOT);
     // materializeSnapshot honors the caller's target override. Scope this
     // synchronous call to the diagnostic's private target, then restore it.
     const previousTarget = process.env.CARGO_TARGET_DIR;
@@ -726,6 +741,12 @@ export async function withAppFixture(app, use) {
       origin: manifest.app.origin ?? null } });
   } finally {
     try { if (snapshot) disposeSnapshot(snapshot); }
-    finally { removePrivateTree(run); }
+    finally {
+      if (!warm) removePrivateTree(run);
+      else {
+        for (const entry of readdirSync(run)) if (entry !== 'target' && entry !== 'lock') removePrivateTree(resolve(run, entry));
+        rmSync(lock, { force: true });
+      }
+    }
   }
 }
