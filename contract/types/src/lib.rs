@@ -18,18 +18,17 @@
 #![deny(missing_docs)]
 
 mod checks;
+mod component;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod routes;
 mod selection;
 mod uses;
 
-use contract_syntax::{BinOp, Component, Expr, File, Node, Span, TemplatePart, TypeExpr, UnOp};
+use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
 use std::{collections::BTreeMap, sync::Arc};
 
-use checks::{
-    check_injects, check_shape_cycles, check_stmts, check_view, infer_owned_state_initializers,
-};
+use checks::{check_injects, check_shape_cycles};
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,6 +166,56 @@ pub struct TypeError {
 impl std::fmt::Display for TypeError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} [{}] {}", self.span, self.id, self.message)
+    }
+}
+
+/// At most this many refusals from one check: enough to repair a file in
+/// one pass, few enough to read.
+pub const MAX_REFUSALS: usize = 20;
+
+/// Refusals from one check, in the order they were found. A refusal that
+/// mentions `?` after another is a consequence of it, and a repeat is not
+/// news: neither is kept.
+#[derive(Debug, Default)]
+pub(crate) struct Sink {
+    pub(crate) errors: Vec<TypeError>,
+}
+
+impl Sink {
+    pub(crate) fn push(&mut self, e: TypeError) {
+        // The use checks' refusal of a missing prop or an unknown component
+        // repeats expansion's at the same use.
+        fn same(id: &'static str) -> &'static str {
+            match id {
+                "type-missing-prop" => "syntax-missing-prop",
+                "type-unknown-component" => "syntax-unknown-component",
+                id => id,
+            }
+        }
+        if self.errors.len() >= MAX_REFUSALS
+            || (!self.errors.is_empty() && e.message.contains("`?`"))
+            || self
+                .errors
+                .iter()
+                .any(|x| same(x.id) == same(e.id) && x.span == e.span)
+        {
+            return;
+        }
+        self.errors.push(e);
+    }
+
+    /// The type, or `?` once the refusal is recorded.
+    pub(crate) fn keep(&mut self, result: Result<Ty, TypeError>) -> Ty {
+        result.unwrap_or_else(|e| {
+            self.push(e);
+            Ty::Unknown
+        })
+    }
+
+    pub(crate) fn keep_unit(&mut self, result: Result<(), TypeError>) {
+        if let Err(e) = result {
+            self.push(e);
+        }
     }
 }
 
@@ -886,25 +935,32 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     Ok(shapes)
 }
 
-/// Check a file: shared declarations, then every component.
+/// Check a file: shared declarations, then every component. The first
+/// refusal, as [`check_all`] orders them.
 pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, false)
+    check_with_sites(file, false).map_err(|mut all| all.swap_remove(0))
 }
 
 /// Check with development source provenance retained for mapped lowering.
 pub fn check_mapped(file: &File) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, true)
+    check_with_sites(file, true).map_err(|mut all| all.swap_remove(0))
 }
 
-fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, TypeError> {
+/// Check a file and report every independent refusal (at most
+/// [`MAX_REFUSALS`]), call sites first; `mapped` retains source provenance.
+pub fn check_all(file: &File, mapped: bool) -> Result<Checked<'_>, Vec<TypeError>> {
+    check_with_sites(file, mapped)
+}
+
+fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Vec<TypeError>> {
     if file.components.is_empty() {
-        return err(
-            "analyze-no-component",
-            "a file needs a component",
-            Span::point(1, 1),
-        );
+        return Err(vec![TypeError {
+            id: "analyze-no-component",
+            message: "a file needs a component".into(),
+            span: Span::point(1, 1),
+        }]);
     }
-    let shapes = check_declarations(file)?;
+    let shapes = check_declarations(file).map_err(|e| vec![e])?;
     let mut types = Types {
         shapes,
         components: Vec::new(),
@@ -925,42 +981,44 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Typ
             .collect(),
         ..ComponentTypes::default()
     });
-    if let Err(e) = check_children(file, &mut types) {
-        return Err(prefer_call_sites(e, file, &types, None));
-    }
+    let mut sink = Sink::default();
+    check_children(file, &mut types, &mut sink);
+    let children = sink.errors.len();
     // The root is checked against its inlined view, so a handler's real call
     // site (behind a child's prop) types the action's parameters.
     // The expanded root (LLP 1017 P4c): the inlined view plus every stateful
     // child's own declarations, lifted in — what lowering will lower.
-    let expanded = if capture_sites {
-        contract_syntax::expand_mapped(file)
-    } else {
-        contract_syntax::expand(file)
-    };
-    let expanded = match expanded {
-        Ok(expanded) => expanded,
-        Err(e) => {
-            let e = TypeError {
-                id: e.id,
-                message: e.message,
-                span: e.span,
-            };
-            return Err(prefer_call_sites(e, file, &types, None));
-        }
-    };
-    if let Err(e) = check_root(file, &mut types, &expanded) {
-        return Err(prefer_call_sites(e, file, &types, Some(&expanded)));
+    // A use that cannot be expanded is refused and left out; the rest of the
+    // root is still checked, what it lacked reading as `?`.
+    let (expanded, refused) = contract_syntax::expand_all(file, capture_sites);
+    for e in refused {
+        sink.push(TypeError {
+            id: e.id,
+            message: e.message,
+            span: e.span,
+        });
     }
-    Ok(Checked {
-        file,
-        types,
-        expanded,
-    })
+    check_root(file, &mut types, &expanded, &mut sink);
+    if sink.errors.is_empty() {
+        Ok(Checked {
+            file,
+            types,
+            expanded,
+        })
+    } else {
+        Err(prefer_call_sites(
+            sink.errors,
+            children,
+            file,
+            &types,
+            &expanded,
+        ))
+    }
 }
 
 /// Children are views over their props, checked standalone before the
 /// root inlines them, so an error in a child is reported in its own terms.
-fn check_children(file: &File, types: &mut Types) -> Result<(), TypeError> {
+fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
     // must not open N requests, and only the root has a clock.
@@ -973,18 +1031,17 @@ fn check_children(file: &File, types: &mut Types) -> Result<(), TypeError> {
                 .or(c.mutations.first().map(|m| m.span))
                 .or(c.tasks.first().map(|t| t.span))
                 .unwrap_or(c.span);
-            return err(
-                "type-child-resource",
-                format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
+            sink.push(TypeError {
+                id: "type-child-resource",
+                message: format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
                 span,
-            );
+            });
         }
     }
     for c in file.components.iter().skip(1) {
-        let ct = check_component(c, types, None)?;
+        let ct = component::check_component(c, types, None, sink);
         types.components.push(ct);
     }
-    Ok(())
 }
 
 /// Call sites before the views they expand into: the children's uses, then
@@ -993,414 +1050,63 @@ fn check_root(
     file: &File,
     types: &mut Types,
     expanded: &contract_syntax::Expanded,
-) -> Result<(), TypeError> {
+    sink: &mut Sink,
+) {
     for (c, ct) in file.components.iter().zip(&types.components).skip(1) {
-        uses::check_uses(&c.view, &types.component_scope(c, ct), types, file)?;
+        uses::check_uses(&c.view, &types.component_scope(c, ct), types, file, sink);
     }
-    types.components[0] = check_component(&expanded.root, types, Some(&expanded.owners))?;
+    types.components[0] =
+        component::check_component(&expanded.root, types, Some(&expanded.owners), sink);
     let scope = types.component_scope(&expanded.root, &types.components[0]);
     let root = &file.components[0];
-    uses::check_uses(&root.view, &scope, types, file)?;
-    check_injects(&root.view, &scope, types, file)
+    uses::check_uses(&root.view, &scope, types, file, sink);
+    sink.keep_unit(check_injects(&root.view, &scope, types, file));
 }
 
-/// A refusal is first checked against the call sites that lead to it: a
+/// Refusals are first checked against the call sites that lead to them: a
 /// misspelled prop is named where it is written (never reported as the prop
 /// it left missing), then a mistyped data argument at the root's uses (never
-/// as what the substituted value broke inside the callee). Only a refusal
-/// pays for this.
+/// as what the substituted value broke inside the callee). When a call site
+/// is at fault, what the expanded root found inside a child's lines is its
+/// consequence and is left out; the root's own refusals and a child's own
+/// (the first `children`) are independent and stay. Only a refusal pays for
+/// this.
 fn prefer_call_sites(
-    e: TypeError,
+    errors: Vec<TypeError>,
+    children: usize,
     file: &File,
     types: &Types,
-    expanded: Option<&contract_syntax::Expanded>,
-) -> TypeError {
+    expanded: &contract_syntax::Expanded,
+) -> Vec<TypeError> {
+    let mut sites = Sink::default();
+    // Uses whose missing prop is the one a misspelling there was meant as.
+    let mut explained = Vec::new();
     for c in &file.components {
-        if let Err(named) = uses::check_prop_names(&c.view, file) {
-            return named;
+        uses::check_prop_names(&c.view, file, &mut sites, &mut explained);
+    }
+    uses::check_root_uses(&file.components[0], &expanded.root, types, file, &mut sites);
+    if sites.errors.is_empty() {
+        return errors;
+    }
+    for (i, e) in errors.into_iter().enumerate() {
+        if i < children || !in_child(file, e.span) {
+            sites.push(e);
         }
     }
-    if let Some(expanded) = expanded {
-        if let Err(typed) = uses::check_root_uses(&file.components[0], &expanded.root, types, file)
-        {
-            return typed;
-        }
-    }
-    e
+    sites.errors.retain(|e| {
+        !(matches!(e.id, "syntax-missing-prop" | "type-missing-prop")
+            && explained.contains(&e.span))
+    });
+    sites.errors
 }
 
-fn check_component(
-    c: &Component,
-    types: &Types,
-    owners: Option<&[Option<u32>]>,
-) -> Result<ComponentTypes, TypeError> {
-    let shapes = &types.shapes;
-    let mut ct = ComponentTypes {
-        name: c.name.clone(),
-        ..ComponentTypes::default()
-    };
-    // Duplicate names across all declarations.
-    let mut seen = BTreeMap::new();
-    for (name, span) in c
-        .props
+/// Whether `span` lies in a child component's own lines: each component runs
+/// from its header to the next component's header in the same file.
+fn in_child(file: &File, span: Span) -> bool {
+    file.components
         .iter()
-        .map(|p| (&p.name, p.span))
-        .chain(c.injects.iter().map(|p| (&p.name, p.span)))
-        .chain(c.states.iter().map(|s| (&s.name, s.span)))
-        .chain(c.derives.iter().map(|d| (&d.name, d.span)))
-        .chain(c.resources.iter().map(|r| (&r.name, r.span)))
-        .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
-        .chain(c.actions.iter().map(|a| (&a.name, a.span)))
-    {
-        if seen.insert(name.clone(), span).is_some() {
-            return err(
-                "type-duplicate-name",
-                format!("`{name}` declared twice"),
-                span,
-            );
-        }
-    }
-    for p in &c.props {
-        let ty = match &p.ty {
-            Some(t) => shapes.resolve(t)?,
-            None => {
-                return err(
-                    "type-prop-untyped",
-                    format!("prop `{}` needs a type", p.name),
-                    p.span,
-                )
-            }
-        };
-        ct.props.push(ty);
-    }
-    for p in &c.injects {
-        let Some(t) = &p.ty else {
-            return err(
-                "type-inject-untyped",
-                format!("inject `{}` needs a type", p.name),
-                p.span,
-            );
-        };
-        ct.props.push(shapes.resolve(t)?);
-    }
-    for r in &c.resources {
-        ct.resources.push(shapes.resolve(&r.shape)?);
-    }
-    for m in &c.mutations {
-        ct.mutations.push(shapes.resolve(&m.shape)?);
-    }
-    // Slots from initializers (may hold `?` inside an option).
-    if !c.states.is_empty() {
-        let mut scope = Scope::default();
-        let mut names: Vec<(String, Ref, Ty)> = c
-            .props
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()))
-            .collect();
-        for (j, p) in c.injects.iter().enumerate() {
-            let i = c.props.len() + j;
-            names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
-        }
-        scope.push(names);
-        for (i, s) in c.states.iter().enumerate() {
-            let t = if i == 0 && owners.is_some() && shapes.routes.is_some() {
-                Ty::Record("Router".into())
-            } else if owners
-                .and_then(|owners| owners.get(i))
-                .is_some_and(Option::is_some)
-            {
-                Ty::Unknown
-            } else {
-                infer(&s.expr, &scope, shapes)?
-            };
-            // Duplicate declarations were refused above. Each initializer sees
-            // only earlier slots, without copying their names and types again.
-            scope.push_name((s.name.clone(), Ref::Slot(i as u32), t.clone()));
-            ct.slots.push(t);
-        }
-    }
-    // Actions: parameters (declared or `?`), then refine slots from writes.
-    for a in &c.actions {
-        let mut params = Vec::new();
-        for p in &a.params {
-            params.push(match &p.ty {
-                Some(t) => shapes.resolve(t)?,
-                None => Ty::Unknown,
-            });
-        }
-        ct.actions.push(params);
-    }
-    // Derives: iterate to a fixpoint so order does not matter and `?` fills.
-    ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // Every declaration now has a type entry before constructing a full scope.
-    for _round in 0..(c.derives.len() + 2) {
-        let scope = types.component_scope(c, &ct);
-        let mut changed = false;
-        for (i, d) in c.derives.iter().enumerate() {
-            match infer(&d.expr, &scope, shapes) {
-                Ok(t) => {
-                    if t != ct.derives[i] {
-                        ct.derives[i] = t;
-                        changed = true;
-                    }
-                }
-                Err(e)
-                    if e.id == "type-unknown-name"
-                        && c.derives
-                            .iter()
-                            .any(|x| e.message.contains(&format!("`{}`", x.name))) => {}
-                // An expression over a derive this round has not typed yet
-                // (`current.ok` while `current` is still `?`): the next round
-                // has it, and the strict pass below reports what never types.
-                Err(e) if e.message.contains("`?`") => {}
-                Err(e) => return Err(e),
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-    // Everything must now type; re-infer derives strictly to surface errors.
-    let scope = types.component_scope(c, &ct);
-    for (i, d) in c.derives.iter().enumerate() {
-        ct.derives[i] = infer(&d.expr, &scope, shapes)?;
-        if !ct.derives[i].is_complete() {
-            return err(
-                "type-derive-cycle",
-                format!(
-                    "cannot infer the type of `{}`: it depends on itself through other derives",
-                    d.name
-                ),
-                d.span,
-            );
-        }
-    }
-    for r in &c.resources {
-        for arg in &r.args {
-            infer(arg, &scope, shapes)?;
-        }
-    }
-    infer_owned_state_initializers(c, &mut ct, types, owners)?;
-    // Handler call sites give untyped parameters their types.
-    // Row initializers have just resolved the lifted child slots. Curried
-    // action-prop arguments must see those types too, not the earlier scope.
-    let scope = types.component_scope(c, &ct);
-    refine_params_from_view(&c.view, &scope, c, &mut ct, shapes)?;
-    // Action bodies: writes refine slots; assignments must unify.
-    for (ai, a) in c.actions.iter().enumerate() {
-        let mut scope = types.component_scope(c, &ct);
-        scope.push(
-            a.params
-                .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    (
-                        p.name.clone(),
-                        Ref::Param(i as u32),
-                        ct.actions[ai][i].clone(),
-                    )
-                })
-                .collect(),
-        );
-        check_stmts(&a.body, &scope, c, &mut ct, shapes)?;
-    }
-    // The seam's signatures (LLP 1027 D2): every resource's arguments against
-    // the final scope, unified with the sends' (recorded as their bodies were
-    // checked). One source, one signature.
-    {
-        let scope = types.component_scope(c, &ct);
-        for (i, r) in c.resources.iter().enumerate() {
-            let mut params = Vec::with_capacity(r.args.len());
-            for arg in &r.args {
-                params.push(infer(arg, &scope, shapes)?);
-            }
-            let result = ct.resources[i].clone();
-            record_source(&mut ct, &r.source, params, result, r.span)?;
-        }
-    }
-    for (i, s) in c.states.iter().enumerate() {
-        if !ct.slots[i].is_complete() {
-            return err(
-                "type-cannot-infer",
-                format!(
-                    "cannot infer the type of `{}`: nothing writes a value into it",
-                    s.name
-                ),
-                s.span,
-            );
-        }
-    }
-    for (ai, a) in c.actions.iter().enumerate() {
-        for (i, p) in a.params.iter().enumerate() {
-            if !ct.actions[ai][i].is_complete() {
-                return err("type-cannot-infer", format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), p.span);
-            }
-        }
-    }
-    // The view types.
-    let scope = types.component_scope(c, &ct);
-    check_view(&c.view, &scope, shapes)?;
-    for t in &c.tasks {
-        if infer(&t.every.0, &scope, shapes)? != Ty::Number {
-            return err(
-                "type-timer",
-                "`every` needs a number of milliseconds",
-                t.every.2,
-            );
-        }
-    }
-    Ok(ct)
-}
-
-impl Scope {
-    fn push_name(&mut self, name: (String, Ref, Ty)) {
-        Arc::make_mut(self.frames.last_mut().expect("initializer scope frame"))
-            .names
-            .push(name);
-    }
-
-    fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
-        self.frames.clear();
-        self.push(names.to_vec());
-    }
-}
-
-fn refine_params_from_view(
-    nodes: &[Node],
-    scope: &Scope,
-    c: &Component,
-    ct: &mut ComponentTypes,
-    shapes: &Shapes,
-) -> Result<(), TypeError> {
-    for n in nodes {
-        match n {
-            Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
-            Node::Children { .. } => {}
-            Node::Element {
-                attrs, children, ..
-            } => {
-                for a in attrs {
-                    if matches!(
-                        a.name.as_str(),
-                        "press"
-                            | "change"
-                            | "select"
-                            | "hover"
-                            | "focus"
-                            | "blur"
-                            | "key"
-                            | "submit"
-                            | "load"
-                            | "message"
-                            | "contextmenu"
-                            | "dblclick"
-                            | "swiperight"
-                            | "reachstart"
-                            | "reachend"
-                            | "scroll"
-                            | "loadedmetadata"
-                            | "durationchange"
-                            | "timeupdate"
-                            | "play"
-                            | "playing"
-                            | "pause"
-                            | "ended"
-                            | "waiting"
-                            | "seeking"
-                            | "seeked"
-                            | "ratechange"
-                            | "volumechange"
-                            | "error"
-                            | "canplay"
-                            | "navigate"
-                    ) {
-                        let (name, args): (&str, &[Expr]) = match &a.value {
-                            Expr::Ident(n, _) => (n, &[]),
-                            Expr::Call(n, args, _) => (n, args),
-                            _ => continue,
-                        };
-                        if let Some(ai) = c.actions.iter().position(|x| x.name == name) {
-                            for (i, arg) in args.iter().enumerate() {
-                                if i < ct.actions[ai].len() {
-                                    let t = infer(arg, scope, shapes)?;
-                                    if let Some(u) = ct.actions[ai][i].unify(&t) {
-                                        ct.actions[ai][i] = u;
-                                    }
-                                }
-                            }
-                            // Event payloads: change/key/message are strings;
-                            // hover is whether the pointer is over.
-                            let payload = match a.name.as_str() {
-                                "change" | "key" | "message" | "navigate" | "error" => {
-                                    vec![Ty::String]
-                                }
-                                "timeupdate" | "durationchange" => vec![Ty::Number],
-                                "hover" => vec![Ty::Bool],
-                                "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" => vec![Ty::Number, Ty::Number],
-                                _ => vec![],
-                            };
-                            let start = ct.actions[ai].len().saturating_sub(payload.len());
-                            for (offset, ty) in payload.into_iter().enumerate() {
-                                let last = start + offset;
-                                if args.len() < ct.actions[ai].len() {
-                                    let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
-                                        return err(
-                                            "type-handler-payload",
-                                            format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
-                                            ),
-                                            a.span,
-                                        );
-                                    };
-                                    ct.actions[ai][last] = unified;
-                                }
-                            }
-                        }
-                    }
-                }
-                refine_params_from_view(children, scope, c, ct, shapes)?;
-            }
-            Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes)?;
-                for a in args {
-                    let _ = a;
-                }
-            }
-            Node::When {
-                then, otherwise, ..
-            } => {
-                refine_params_from_view(then, scope, c, ct, shapes)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes)?;
-            }
-            Node::Each {
-                var, list, body, ..
-            } => {
-                if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
-                    let mut inner = scope.clone();
-                    inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
-                    refine_params_from_view(body, &inner, c, ct, shapes)?;
-                }
-            }
-            Node::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
-                    let mut inner = scope.clone();
-                    inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes)?;
-                }
-                let mut none_scope = scope.clone();
-                none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes)?;
-            }
-        }
-    }
-    Ok(())
+        .enumerate()
+        .filter(|(_, c)| c.span.source_id == span.source_id && c.span.line <= span.line)
+        .max_by_key(|(_, c)| c.span.line)
+        .is_some_and(|(i, _)| i > 0)
 }

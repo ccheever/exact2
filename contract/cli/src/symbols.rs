@@ -213,7 +213,7 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
             file: Some(path.into()),
             related: Box::new([]),
         })?;
-    let (file, sources) = sources::load(path, &src, &root)?;
+    let (file, sources) = sources::load(path, &src, &root).map_err(|mut all| all.swap_remove(0))?;
     let (types, expanded) = if file.components.is_empty() {
         (
             Types {

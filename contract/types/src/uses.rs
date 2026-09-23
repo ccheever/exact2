@@ -2,47 +2,66 @@
 //! root, so a misspelled or mistyped argument is reported at its call site
 //! rather than inside the component it was substituted into.
 
-use super::{checks, err, infer, ComponentTypes, Ref, Scope, Ty, TypeError, Types};
+use super::{checks, err, infer, ComponentTypes, Ref, Scope, Sink, Ty, TypeError, Types};
 use contract_syntax::{Component, File, Node};
 
 /// Every use names only the used component's props (before expansion, which
 /// would otherwise report the prop a misspelling left missing).
-pub(crate) fn check_prop_names(nodes: &[Node], file: &File) -> Result<(), TypeError> {
+pub(crate) fn check_prop_names(
+    nodes: &[Node],
+    file: &File,
+    sink: &mut Sink,
+    explained: &mut Vec<contract_syntax::Span>,
+) {
     for n in nodes {
         match n {
             Node::Use {
                 name,
                 args,
                 children,
-                ..
+                span,
             } => {
                 if let Some(target) = file.components.iter().find(|c| &c.name == name) {
                     if let Some(a) = args
                         .iter()
                         .find(|a| !target.props.iter().any(|p| p.name == a.name))
                     {
-                        return Err(checks::unknown_props(target, args, a.span));
+                        sink.push(checks::unknown_props(target, args, a.span));
+                        let unknown: Vec<_> = args
+                            .iter()
+                            .filter(|a| !target.props.iter().any(|p| p.name == a.name))
+                            .collect();
+                        let missing: Vec<&str> = target
+                            .props
+                            .iter()
+                            .filter(|p| !args.iter().any(|a| a.name == p.name))
+                            .map(|p| p.name.as_str())
+                            .collect();
+                        if let ([given], [meant]) = (unknown.as_slice(), missing.as_slice()) {
+                            if contract_syntax::suggestion(&given.name, [*meant]) == Some(*meant) {
+                                explained.push(*span);
+                            }
+                        }
                     }
                 }
-                check_prop_names(children, file)?;
+                check_prop_names(children, file, sink, explained);
             }
-            Node::Element { children, .. } => check_prop_names(children, file)?,
-            Node::Provide { body, .. } => check_prop_names(body, file)?,
+            Node::Element { children, .. } => check_prop_names(children, file, sink, explained),
+            Node::Provide { body, .. } => check_prop_names(body, file, sink, explained),
             Node::When {
                 then, otherwise, ..
             } => {
-                check_prop_names(then, file)?;
-                check_prop_names(otherwise, file)?;
+                check_prop_names(then, file, sink, explained);
+                check_prop_names(otherwise, file, sink, explained);
             }
-            Node::Each { body, .. } => check_prop_names(body, file)?,
+            Node::Each { body, .. } => check_prop_names(body, file, sink, explained),
             Node::Match { some, none, .. } => {
-                check_prop_names(&some.1, file)?;
-                check_prop_names(none, file)?;
+                check_prop_names(&some.1, file, sink, explained);
+                check_prop_names(none, file, sink, explained);
             }
             Node::Children { .. } => {}
         }
     }
-    Ok(())
 }
 
 /// The root's scope as far as its declarations alone type it, for checking
@@ -111,11 +130,15 @@ pub(crate) fn check_root_uses(
     expanded: &Component,
     types: &Types,
     file: &File,
-) -> Result<(), TypeError> {
+    sink: &mut Sink,
+) {
     let scope = provisional_scope(expanded, types, file.routes.is_some());
-    match walk_uses(&root.view, &scope, types, file, false) {
-        Err(e) if e.message.contains("`?`") => Ok(()),
-        result => result,
+    let mut found = Sink::default();
+    walk_uses(&root.view, &scope, types, file, false, &mut found);
+    for e in found.errors {
+        if !e.message.contains("`?`") {
+            sink.push(e);
+        }
     }
 }
 
@@ -124,8 +147,9 @@ pub(crate) fn check_uses(
     scope: &Scope,
     types: &Types,
     file: &File,
-) -> Result<(), TypeError> {
-    walk_uses(nodes, scope, types, file, true)
+    sink: &mut Sink,
+) {
+    walk_uses(nodes, scope, types, file, true, sink)
 }
 
 /// `actions: false` checks only data arguments: an action argument (or a
@@ -137,8 +161,24 @@ fn walk_uses(
     types: &Types,
     file: &File,
     actions: bool,
-) -> Result<(), TypeError> {
+    sink: &mut Sink,
+) {
     for n in nodes {
+        let checked = walk_use(n, scope, types, file, actions, sink);
+        sink.keep_unit(checked);
+    }
+}
+
+/// One node's uses; a refusal ends only this node's walk.
+fn walk_use(
+    n: &Node,
+    scope: &Scope,
+    types: &Types,
+    file: &File,
+    actions: bool,
+    sink: &mut Sink,
+) -> Result<(), TypeError> {
+    {
         match n {
             Node::Use {
                 name,
@@ -146,7 +186,7 @@ fn walk_uses(
                 children,
                 span,
             } => {
-                walk_uses(children, scope, types, file, actions)?;
+                walk_uses(children, scope, types, file, actions, sink);
                 let Some(target) = file.components.iter().position(|c| &c.name == name) else {
                     return err(
                         "type-unknown-component",
@@ -158,6 +198,10 @@ fn walk_uses(
                 let target_t = &types.components[target];
                 for (i, p) in target_c.props.iter().enumerate() {
                     let Some(arg) = args.iter().find(|a| a.name == p.name) else {
+                        // At a use the root expands, a missing prop is expansion's refusal.
+                        if !actions {
+                            continue;
+                        }
                         return err(
                             "type-missing-prop",
                             target_c.missing_props_message(args),
@@ -182,19 +226,21 @@ fn walk_uses(
                     }
                 }
             }
-            Node::Element { children, .. } => walk_uses(children, scope, types, file, actions)?,
+            Node::Element { children, .. } => {
+                walk_uses(children, scope, types, file, actions, sink)
+            }
             Node::Provide { expr, body, .. } => {
                 if actions {
                     infer(expr, scope, &types.shapes)?;
                 }
-                walk_uses(body, scope, types, file, actions)?;
+                walk_uses(body, scope, types, file, actions, sink);
             }
             Node::Children { .. } => {}
             Node::When {
                 then, otherwise, ..
             } => {
-                walk_uses(then, scope, types, file, actions)?;
-                walk_uses(otherwise, scope, types, file, actions)?;
+                walk_uses(then, scope, types, file, actions, sink);
+                walk_uses(otherwise, scope, types, file, actions, sink);
             }
             Node::Each {
                 var, list, body, ..
@@ -209,7 +255,7 @@ fn walk_uses(
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
-                walk_uses(body, &inner, types, file, actions)?;
+                walk_uses(body, &inner, types, file, actions, sink);
             }
             Node::Match {
                 subject,
@@ -227,10 +273,10 @@ fn walk_uses(
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                walk_uses(&some.1, &inner, types, file, actions)?;
+                walk_uses(&some.1, &inner, types, file, actions, sink);
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                walk_uses(none, &none_scope, types, file, actions)?;
+                walk_uses(none, &none_scope, types, file, actions, sink);
             }
         }
     }

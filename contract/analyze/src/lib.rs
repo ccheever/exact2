@@ -162,25 +162,36 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
 
 /// Analyze the authored file using its type-checked expansion.
 pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
+    check_all(checked).map_err(|mut all| all.swap_remove(0))
+}
+
+/// Every independent refusal: each component's actions, tasks and view are
+/// checked whatever the others found.
+pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
     let Checked {
         file,
         types,
         expanded,
     } = checked;
-    check_routes_root(file, true)?;
+    let mut errors = Vec::new();
+    if let Err(e) = check_routes_root(file, true) {
+        errors.push(e);
+    }
     let Some(root) = file.components.first() else {
-        return err(
-            "analyze-no-component",
-            "a file needs a component",
-            Span::point(1, 1),
-        );
+        return Err(vec![AnalyzeError {
+            id: "analyze-no-component",
+            message: "a file needs a component".into(),
+            span: Span::point(1, 1),
+            related: Vec::new(),
+        }]);
     };
     if !root.props.is_empty() {
-        return err(
-            "analyze-root-props",
-            "the root component (the first in the file) takes no props",
-            root.span,
-        );
+        errors.push(AnalyzeError {
+            id: "analyze-root-props",
+            message: "the root component (the first in the file) takes no props".into(),
+            span: root.span,
+            related: Vec::new(),
+        });
     }
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c); that it
     // owns no `resource`, `mutation`, or `task` is the type pass's refusal
@@ -196,21 +207,39 @@ pub fn check(checked: &Checked<'_>) -> Result<Analysis, AnalyzeError> {
             .as_ref()
             .filter(|_| ci == 0)
             .map(|r| r.slot.as_str());
-        check_actions(c, scoped, router)?;
-        check_tasks(c)?;
-        check_view(&c.view, &scope, file)?;
+        check_actions(c, scoped, router, &mut errors);
+        errors.extend(check_tasks(c).err());
+        errors.extend(check_view(&c.view, &scope, file).err());
     }
-    check_controls(&expanded.root.view, false)?;
-    arity::check(file, types, &expanded.root)?;
-    Ok(Analysis {})
+    errors.extend(check_controls(&expanded.root.view, false).err());
+    errors.extend(arity::check(file, types, &expanded.root).err());
+    if errors.is_empty() {
+        Ok(Analysis {})
+    } else {
+        Err(errors)
+    }
 }
 
 fn check_actions(
     component: &Component,
     slots: &Component,
     router: Option<&str>,
-) -> Result<(), AnalyzeError> {
+    errors: &mut Vec<AnalyzeError>,
+) {
     for a in &component.actions {
+        if let Err(e) = check_action(a, component, slots, router) {
+            errors.push(e);
+        }
+    }
+}
+
+fn check_action(
+    a: &Action,
+    component: &Component,
+    slots: &Component,
+    router: Option<&str>,
+) -> Result<(), AnalyzeError> {
+    {
         let mut declared = BTreeSet::new();
         for (w, span) in &a.writes {
             if !writable(slots, w) {

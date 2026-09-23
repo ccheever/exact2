@@ -246,3 +246,122 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");
     }
 }
+
+#[test]
+fn the_element_lint_finds_nothing_in_any_app() {
+    let apps = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(apps).unwrap() {
+        let path = entry.unwrap().path().join("app.contract");
+        let Ok(src) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let file = contract_syntax::parse(&src).unwrap();
+        let found = contract_lower::lint(&file);
+        assert!(found.is_empty(), "{}: {found:?}", path.display());
+        checked += 1;
+    }
+    assert!(checked >= 16, "{checked} apps");
+}
+
+/// A file of its own, so `use`, fonts and the manifest resolve as for an app.
+fn compile_all(name: &str, source: &str) -> Vec<(String, u32, String)> {
+    let dir = std::env::temp_dir().join(format!("exact-plural-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(&path, source).unwrap();
+    let Err(errors) = contract::compile_path_all(&path, false) else {
+        panic!("{name} compiled");
+    };
+    std::fs::remove_dir_all(&dir).unwrap();
+    errors
+        .into_iter()
+        .map(|e| (e.id, e.span.line, e.message))
+        .collect()
+}
+
+const TODOS: &str = r#"shape Todo
+  id: string
+  title: string
+component App
+  state draft = ""
+  state count = 0
+  resource todos = items(3) as shape list<Todo>
+  action add writes count
+    count = count + 1
+  view
+    main padding=16 gap=8 className="x"
+      input value=drat
+      buton press=add
+        text "Add" color="bleu"
+      each t in todos key=t.id
+        Row(todo=t, onPik=add)
+component Row
+  props
+    todo: Todo
+    onPick: action
+  view
+    button press=onPick
+      text todo.titel
+"#;
+
+#[test]
+fn one_run_reports_every_independent_mistake_call_sites_first() {
+    let found = compile_all("mistakes", TODOS);
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("type-unknown-prop", 16),
+            ("type-unknown-field", 23),
+            ("type-unknown-name", 12),
+            ("lower-unknown-attr", 11),
+            ("lower-unknown-tag", 13),
+            ("lower-attr-value", 14),
+        ],
+        "{found:#?}"
+    );
+    for (id, _, message) in &found {
+        assert!(
+            id == "lower-attr-value"
+                || message.contains("did you mean")
+                || message.contains("`class`"),
+            "{message}"
+        );
+    }
+    // The singular entry points report the first of them.
+    assert_eq!(
+        contract::compile(TODOS).unwrap_err().id,
+        "type-unknown-prop"
+    );
+    // Syntax: every line the lexer refuses, and every declaration that does not parse.
+    let broken = TODOS
+        .replace("  id: string", "  id string")
+        .replace("    count = count + 1", "    count = = 1")
+        .replace("text \"Add\"", "text \"Add");
+    let found = compile_all("syntax", &broken);
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("syntax-expected", 2),
+            ("syntax-expected-expression", 9),
+            ("syntax-unterminated-string", 14),
+        ],
+        "{found:#?}"
+    );
+    // At most twenty.
+    let many = format!(
+        "component App\n  view\n    column\n{}",
+        (0..30)
+            .map(|i| format!("      text missing{i}\n"))
+            .collect::<String>()
+    );
+    assert_eq!(compile_all("cap", &many).len(), contract::MAX_DIAGNOSTICS);
+}

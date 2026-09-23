@@ -242,7 +242,30 @@ fn read_source(path: &Path) -> Result<String, CompileError> {
 /// resolution. Unlike [`compile_path`], this never re-reads the root file;
 /// callers that watch a file can compile the exact snapshot they observed.
 pub fn compile_path_source(path: &Path, src: &str) -> Result<Plan, CompileError> {
-    compile_path_output(path, src, false).map(|(plan, _)| plan)
+    compile_path_output(path, src, false)
+        .map(|(plan, _)| plan)
+        .map_err(first)
+}
+
+/// At most this many diagnostics from one compile.
+pub const MAX_DIAGNOSTICS: usize = 20;
+
+/// Compile a file by path, as [`compile_path`] does, and report every
+/// independent refusal rather than the first: within a pass each
+/// declaration, statement, element and attribute is checked whatever its
+/// neighbours' fate, a misspelled or mistyped call site comes before what
+/// it broke, and a pass runs only when the ones before it succeeded. At
+/// most [`MAX_DIAGNOSTICS`]. `mapped` also returns the development map.
+pub fn compile_path_all(
+    path: &Path,
+    mapped: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    compile_path_output(path, &src, mapped)
+}
+
+fn first(mut all: Vec<CompileError>) -> CompileError {
+    all.swap_remove(0)
 }
 
 /// Compile the exact observed root source snapshot and retain its source map.
@@ -251,14 +274,16 @@ pub fn compile_path_source_mapped(
     path: &Path,
     src: &str,
 ) -> Result<(Plan, SourceMap), CompileError> {
-    compile_path_output(path, src, true).map(|(plan, map)| (plan, map.expect("map requested")))
+    compile_path_output(path, src, true)
+        .map(|(plan, map)| (plan, map.expect("map requested")))
+        .map_err(first)
 }
 
 fn compile_path_output(
     path: &Path,
     src: &str,
     mapped: bool,
-) -> Result<(Plan, Option<SourceMap>), CompileError> {
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
     let source_root = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -276,8 +301,11 @@ fn compile_path_output(
         contract_analyze::check_surface_arguments(&file, &declared)
             .map_err(|e| sources.resolve(e.into()))?;
     }
-    let (mut plan, sites) =
-        compile_file_output(&file, Some(&app_root), mapped).map_err(|e| sources.resolve(e))?;
+    let (mut plan, sites) = compile_file_output(&file, Some(&app_root), mapped).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
@@ -288,7 +316,7 @@ fn compile_path_output(
             related: Box::new([]),
         })?;
         if !plan.app_id.is_empty() && plan.app_id != manifest.id {
-            return Err(CompileError {
+            return Err(vec![CompileError {
                 pass: "app",
                 id: "app-identity".into(),
                 message: format!(
@@ -298,7 +326,7 @@ fn compile_path_output(
                 span: Span::default(),
                 file: Some(path.to_path_buf()),
                 related: Box::new([]),
-            });
+            }]);
         }
         plan.app_id = manifest.id;
     }
@@ -413,32 +441,53 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
-    compile_file_output(&file, asset_root, false).map(|(plan, _)| plan)
+    compile_file_output(&file, asset_root, false)
+        .map(|(plan, _)| plan)
+        .map_err(first)
+}
+
+impl From<CompileError> for Vec<CompileError> {
+    fn from(e: CompileError) -> Self {
+        vec![e]
+    }
 }
 
 fn compile_file_output(
     file: &File,
     asset_root: Option<&Path>,
     mapped: bool,
-) -> Result<(Plan, Option<contract_lower::Sites>), CompileError> {
-    contract_analyze::check_routes_root(file, true)?;
-    let checked = if mapped {
-        contract_types::check_mapped(file)
-    } else {
-        contract_types::check(file)
+) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
+    // Each pass runs on what the one before it accepted, and reports all of
+    // its own refusals.
+    fn each<E: Into<CompileError>>(
+        all: Vec<E>,
+        hint: impl Fn(CompileError) -> CompileError,
+    ) -> Vec<CompileError> {
+        all.into_iter()
+            .take(MAX_DIAGNOSTICS)
+            .map(|e| hint(e.into()))
+            .collect()
     }
-    .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
-    let analysis = contract_analyze::check(&checked)
-        .map_err(|error| symbols::authored_action_hint(file, error.into()))?;
-    if mapped {
-        let (plan, sites) = contract_lower::lower_mapped(&checked, &analysis, asset_root)?;
-        Ok((plan, Some(sites)))
-    } else {
-        Ok((
-            contract_lower::lower(&checked, &analysis, asset_root)?,
-            None,
-        ))
-    }
+    let hint = |error| symbols::authored_action_hint(file, error);
+    // Lowering needs what types and analysis establish; when either refuses,
+    // what it would find without them (tags, attribute names, literal values)
+    // is reported in the same run.
+    let with_lint = |mut all: Vec<CompileError>| {
+        all.extend(
+            contract_lower::lint(file)
+                .into_iter()
+                .map(CompileError::from),
+        );
+        all.truncate(MAX_DIAGNOSTICS);
+        all
+    };
+    contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
+    let checked =
+        contract_types::check_all(file, mapped).map_err(|all| with_lint(each(all, hint)))?;
+    let analysis =
+        contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
+    contract_lower::lower_all(&checked, &analysis, asset_root, mapped)
+        .map_err(|all| each(all, |e| e))
 }
 
 /// Boot the plan once against `data` and write every resource's boot value

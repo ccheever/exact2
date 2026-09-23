@@ -52,7 +52,7 @@ pub(crate) fn load(
     path: &Path,
     src: &str,
     app_root: &Path,
-) -> Result<(File, Sources), CompileError> {
+) -> Result<(File, Sources), Vec<CompileError>> {
     let root_key = path.canonicalize().unwrap_or_else(|_| {
         path.file_name()
             .map(|name| app_root.join(name))
@@ -68,9 +68,11 @@ pub(crate) fn load(
         files: Vec::new(),
         cache: HashMap::new(),
     };
-    let exports = loader
-        .load_source(path, src, 0)
-        .map_err(|e| loader.sources.resolve(e))?;
+    let exports = loader.load_source(path, src, 0).map_err(|all| {
+        all.into_iter()
+            .map(|e| loader.sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
     let file = loader.materialize(&exports);
     Ok((file, loader.sources))
 }
@@ -90,9 +92,12 @@ impl Loader<'_> {
         path: &Path,
         src: &str,
         source_id: u32,
-    ) -> Result<Rc<Exports>, CompileError> {
-        let file = contract_syntax::parse_source(src, source_id)?;
-        contract_analyze::check_routes_root(&file, self.active.len() == 1)?;
+    ) -> Result<Rc<Exports>, Vec<CompileError>> {
+        // Every syntax refusal in this file, not only its first.
+        let file = contract_syntax::parse_source_all(src, source_id)
+            .map_err(|all| all.into_iter().map(CompileError::from).collect::<Vec<_>>())?;
+        contract_analyze::check_routes_root(&file, self.active.len() == 1)
+            .map_err(CompileError::from)?;
         self.sources.imports.extend(file.uses.iter().cloned());
         let mut exports = Exports::new(&file, source_id as usize);
         let uses = file.uses.clone();
@@ -115,34 +120,34 @@ impl Loader<'_> {
                 )
             })?;
             if !key.starts_with(self.app_root) {
-                return Err(use_error(
+                return Err(vec![use_error(
                     "contract-use-path",
                     format!(
                         "`use {} from \"{}\"` leaves the app directory",
                         u.name, u.path
                     ),
                     u,
-                ));
+                )]);
             }
             if key.extension().and_then(|extension| extension.to_str()) != Some("contract") {
-                return Err(use_error(
+                return Err(vec![use_error(
                     "contract-use-path",
                     format!(
                         "`use {} from \"{}\"` resolves to a file that is not `.contract`",
                         u.name, u.path
                     ),
                     u,
-                ));
+                )]);
             }
             if self.active.contains(&key) {
-                return Err(use_error(
+                return Err(vec![use_error(
                     "contract-use-cycle",
                     format!(
                         "`use {} from \"{}\"` returns to a file already being loaded",
                         u.name, u.path
                     ),
                     u,
-                ));
+                )]);
             }
             let used = if let Some(cached) = self.cache.get(&key) {
                 Rc::clone(cached)

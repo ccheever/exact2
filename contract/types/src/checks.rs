@@ -1,6 +1,6 @@
 //! Type diagnostics and component checks that require recursive traversal.
 
-use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Ty, TypeError, Types};
+use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types};
 use contract_syntax::{
     one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart, TypeExpr,
 };
@@ -536,11 +536,14 @@ fn check_inject_nodes(
                 span,
                 ..
             } => {
-                let target = file
+                // A use of an unknown component was refused and never expanded.
+                let Some(target) = file
                     .components
                     .iter()
                     .position(|component| &component.name == name)
-                    .expect("component uses were checked before injects");
+                else {
+                    continue;
+                };
                 let target_c = &file.components[target];
                 let target_t = &types.components[target];
                 for (j, inject) in target_c.injects.iter().enumerate() {
@@ -656,14 +659,30 @@ fn check_inject_nodes(
 }
 
 /// Check an action body's statements through every branch (LLP 1017 P2).
+/// Check each statement, recording a refusal and moving on to the next.
 pub(super) fn check_stmts(
     stmts: &[Stmt],
     scope: &Scope,
     c: &Component,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
-) -> Result<(), TypeError> {
+    sink: &mut Sink,
+) {
     for stmt in stmts {
+        let checked = check_stmt(stmt, scope, c, ct, shapes, sink);
+        sink.keep_unit(checked);
+    }
+}
+
+fn check_stmt(
+    stmt: &Stmt,
+    scope: &Scope,
+    c: &Component,
+    ct: &mut ComponentTypes,
+    shapes: &Shapes,
+    sink: &mut Sink,
+) -> Result<(), TypeError> {
+    {
         match stmt {
             Stmt::Assign { target, expr, span } => {
                 let Some(si) = c.states.iter().position(|s| &s.name == target) else {
@@ -679,7 +698,7 @@ pub(super) fn check_stmts(
                                 *span,
                             );
                         }
-                        continue;
+                        return Ok(());
                     }
                     return err(
                         "type-assign-not-state",
@@ -747,11 +766,17 @@ pub(super) fn check_stmts(
                 otherwise,
                 ..
             } => {
-                if infer(cond, scope, shapes)? != Ty::Bool {
-                    return err("type-condition", "`if` needs a bool", cond.span());
+                match infer(cond, scope, shapes) {
+                    Ok(Ty::Bool) => {}
+                    Ok(_) => sink.push(TypeError {
+                        id: "type-condition",
+                        message: "`if` needs a bool".into(),
+                        span: cond.span(),
+                    }),
+                    Err(e) => sink.push(e),
                 }
-                check_stmts(then, scope, c, ct, shapes)?;
-                check_stmts(otherwise, scope, c, ct, shapes)?;
+                check_stmts(then, scope, c, ct, shapes, sink);
+                check_stmts(otherwise, scope, c, ct, shapes, sink);
             }
             Stmt::Match {
                 subject,
@@ -769,20 +794,23 @@ pub(super) fn check_stmts(
                 };
                 let mut inner_scope = scope.clone();
                 inner_scope.push(vec![(some.0.clone(), Ref::Local(0), (*inner).clone())]);
-                check_stmts(&some.1, &inner_scope, c, ct, shapes)?;
-                check_stmts(none, scope, c, ct, shapes)?;
+                check_stmts(&some.1, &inner_scope, c, ct, shapes, sink);
+                check_stmts(none, scope, c, ct, shapes, sink);
             }
         }
     }
     Ok(())
 }
 
-pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
+/// Check a view, recording each attribute's refusal and moving on. A
+/// region whose subject does not type has no scope for its body, which is
+/// then left to the next run.
+pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &mut Sink) {
     for n in nodes {
         match n {
             Node::Provide { expr, body, .. } => {
-                infer(expr, scope, shapes)?;
-                check_view(body, scope, shapes)?;
+                sink.keep(infer(expr, scope, shapes));
+                check_view(body, scope, shapes, sink);
             }
             Node::Children { .. } => {}
             Node::Element {
@@ -792,60 +820,17 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                 ..
             } => {
                 for p in positional {
-                    infer(p, scope, shapes)?;
+                    sink.keep(infer(p, scope, shapes));
                 }
                 for a in attrs {
-                    if a.name == "class" {
-                        // `class=Name` names a `style`, resolved at lowering.
-                        if !matches!(a.value, Expr::Ident(..)) {
-                            return err(
-                                "type-class-name",
-                                "`class=` names a style declared with `style Name`",
-                                a.span,
-                            );
-                        }
-                        continue;
-                    }
-                    if a.name == "surface" {
-                        // `surface=name(args)`: the name is the GPU module's,
-                        // not a function; the arguments are expressions.
-                        if let Expr::Call(_, args, _) = &a.value {
-                            let named = args.iter().any(|arg| matches!(arg, Expr::NamedArg(..)));
-                            let mut names = std::collections::BTreeSet::new();
-                            for arg in args {
-                                let value = match arg {
-                                    Expr::NamedArg(name, value, span) => {
-                                        if !names.insert(name) {
-                                            return err(
-                                                "type-surface-argument",
-                                                format!("duplicate surface argument `{name}`"),
-                                                *span,
-                                            );
-                                        }
-                                        value.as_ref()
-                                    }
-                                    _ if named => {
-                                        return err(
-                                            "type-surface-argument",
-                                            format!("use either named or positional surface arguments (`{}` is named)", args.iter().find_map(|arg| match arg { Expr::NamedArg(name, _, _) => Some(name), _ => None }).unwrap()),
-                                            arg.span(),
-                                        )
-                                    }
-                                    _ => arg,
-                                };
-                                infer(value, scope, shapes)?;
-                            }
-                        }
-                        continue;
-                    }
-                    infer(&a.value, scope, shapes)?;
+                    sink.keep_unit(check_attr(a, scope, shapes));
                 }
-                check_view(children, scope, shapes)?;
+                check_view(children, scope, shapes, sink);
             }
             Node::Use { args, children, .. } => {
-                check_view(children, scope, shapes)?;
+                check_view(children, scope, shapes, sink);
                 for a in args {
-                    infer(&a.value, scope, shapes)?;
+                    sink.keep(infer(&a.value, scope, shapes));
                 }
             }
             Node::When {
@@ -854,11 +839,17 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                 otherwise,
                 ..
             } => {
-                if infer(cond, scope, shapes)? != Ty::Bool {
-                    return err("type-condition", "`when` needs a bool", cond.span());
+                match infer(cond, scope, shapes) {
+                    Ok(Ty::Bool) => {}
+                    Ok(_) => sink.push(TypeError {
+                        id: "type-condition",
+                        message: "`when` needs a bool".into(),
+                        span: cond.span(),
+                    }),
+                    Err(e) => sink.push(e),
                 }
-                check_view(then, scope, shapes)?;
-                check_view(otherwise, scope, shapes)?;
+                check_view(then, scope, shapes, sink);
+                check_view(otherwise, scope, shapes, sink);
             }
             Node::Each {
                 var,
@@ -867,25 +858,33 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                 body,
                 ..
             } => {
-                let lt = infer(list, scope, shapes)?;
-                let Ty::List(item) = lt else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{lt}`"),
-                        list.span(),
-                    );
+                let item = match infer(list, scope, shapes) {
+                    Ok(Ty::List(item)) => *item,
+                    Ok(lt) => {
+                        sink.push(TypeError {
+                            id: "type-each-list",
+                            message: format!("`each` needs a list, given `{lt}`"),
+                            span: list.span(),
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        sink.push(e);
+                        continue;
+                    }
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
-                let kt = infer(key, &inner, shapes)?;
-                if !matches!(kt, Ty::String | Ty::Number | Ty::Bool) {
-                    return err(
-                        "type-each-key",
-                        format!("a key must be a string, number, or bool, not `{kt}`"),
-                        key.span(),
-                    );
+                inner.push_region(Some((var.clone(), Ref::Item(0), item)));
+                match infer(key, &inner, shapes) {
+                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(kt) => sink.push(TypeError {
+                        id: "type-each-key",
+                        message: format!("a key must be a string, number, or bool, not `{kt}`"),
+                        span: key.span(),
+                    }),
+                    Err(e) => sink.push(e),
                 }
-                check_view(body, &inner, shapes)?;
+                check_view(body, &inner, shapes, sink);
             }
             Node::Match {
                 subject,
@@ -893,24 +892,88 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes) -> Resu
                 none,
                 ..
             } => {
-                let st = infer(subject, scope, shapes)?;
-                let Ty::Option(item) = st else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{st}`"),
-                        subject.span(),
-                    );
+                let item = match infer(subject, scope, shapes) {
+                    Ok(Ty::Option(item)) => Some(*item),
+                    Ok(st) => {
+                        sink.push(TypeError {
+                            id: "type-match-subject",
+                            message: format!("`match` needs an option, given `{st}`"),
+                            span: subject.span(),
+                        });
+                        None
+                    }
+                    Err(e) => {
+                        sink.push(e);
+                        None
+                    }
                 };
-                let mut inner = scope.clone();
-                inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                check_view(&some.1, &inner, shapes)?;
+                if let Some(item) = item {
+                    let mut inner = scope.clone();
+                    inner.push_region(Some((some.0.clone(), Ref::Bound(0), item)));
+                    check_view(&some.1, &inner, shapes, sink);
+                }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, shapes)?;
+                check_view(none, &none_scope, shapes, sink);
             }
         }
     }
-    Ok(())
+}
+
+/// One element attribute's value.
+fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
+    if a.name == "class" {
+        // `class=Name` names a `style`, resolved at lowering.
+        if !matches!(a.value, Expr::Ident(..)) {
+            return err(
+                "type-class-name",
+                "`class=` names a style declared with `style Name`",
+                a.span,
+            );
+        }
+        return Ok(());
+    }
+    if a.name == "surface" {
+        // `surface=name(args)`: the name is the GPU module's,
+        // not a function; the arguments are expressions.
+        if let Expr::Call(_, args, _) = &a.value {
+            let named = args.iter().any(|arg| matches!(arg, Expr::NamedArg(..)));
+            let mut names = std::collections::BTreeSet::new();
+            for arg in args {
+                let value = match arg {
+                    Expr::NamedArg(name, value, span) => {
+                        if !names.insert(name) {
+                            return err(
+                                "type-surface-argument",
+                                format!("duplicate surface argument `{name}`"),
+                                *span,
+                            );
+                        }
+                        value.as_ref()
+                    }
+                    _ if named => {
+                        return err(
+                            "type-surface-argument",
+                            format!(
+                                "use either named or positional surface arguments (`{}` is named)",
+                                args.iter()
+                                    .find_map(|arg| match arg {
+                                        Expr::NamedArg(name, _, _) => Some(name),
+                                        _ => None,
+                                    })
+                                    .unwrap()
+                            ),
+                            arg.span(),
+                        )
+                    }
+                    _ => arg,
+                };
+                infer(value, scope, shapes)?;
+            }
+        }
+        return Ok(());
+    }
+    infer(&a.value, scope, shapes).map(|_| ())
 }
 
 #[cfg(test)]

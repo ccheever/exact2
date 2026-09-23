@@ -52,10 +52,18 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
 }
 
 fn report(error: &contract::CompileError, json: bool, code: u8) -> ExitCode {
+    report_all(std::slice::from_ref(error), json, code)
+}
+
+/// Every diagnostic: one JSON array, or each on its own lines.
+fn report_all(errors: &[contract::CompileError], json: bool, code: u8) -> ExitCode {
     if json {
-        println!("[{}]", error.to_json());
+        let all: Vec<String> = errors.iter().map(|e| e.to_json()).collect();
+        println!("[{}]", all.join(","));
     } else {
-        eprintln!("{error}");
+        for error in errors {
+            eprintln!("{error}");
+        }
     }
     ExitCode::from(code)
 }
@@ -78,14 +86,9 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             2,
         );
     };
-    let compiled = if map {
-        contract::compile_path_mapped(Path::new(input)).map(|(plan, map)| (plan, Some(map)))
-    } else {
-        contract::compile_path(Path::new(input)).map(|plan| (plan, None))
-    };
-    let (plan, map) = match compiled {
+    let (plan, map) = match contract::compile_path_all(Path::new(input), map) {
         Ok(compiled) => compiled,
-        Err(error) => return report(&error, json, 1),
+        Err(errors) => return report_all(&errors, json, 1),
     };
     let bytes = plan.encode();
     if let Some(output) = output {

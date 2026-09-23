@@ -59,6 +59,116 @@ impl std::fmt::Display for LowerError {
     }
 }
 
+fn unknown_tag(tag: &str, span: Span) -> LowerError {
+    let hint = tags::html_tag(tag)
+        .map(|spelled| format!("; {spelled}"))
+        .or_else(|| tags::similar_tag(tag).map(|n| format!("; did you mean `{n}`?")))
+        .unwrap_or_default();
+    LowerError {
+        id: "lower-unknown-tag",
+        message: format!("unknown tag `{tag}`{hint}"),
+        span,
+    }
+}
+
+fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
+    let hint = match tags::renamed(&a.name) {
+        Some(new @ ("press" | "change")) => format!(
+            "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
+            a.name
+        ),
+        Some(new) => format!(
+            "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
+            a.name
+        ),
+        None if a.name == "className" => {
+            "; `class` names a `style` declared in this file, as in `class=Card`".into()
+        }
+        None => tags::similar_attr(&a.name, false)
+            .map(|n| format!("; did you mean `{n}`?"))
+            .unwrap_or_default(),
+    };
+    LowerError {
+        id: "lower-unknown-attr",
+        message: format!("`{tag}` has no attribute `{}`{hint}", a.name),
+        span: a.span,
+    }
+}
+
+/// What an authored element can be refused for without any types: its
+/// tag, its attributes' names, and its literal style values against their
+/// rows. The driver runs this when an earlier pass refused, so a misspelled
+/// tag or a bad colour is reported in the same run as a type error.
+pub fn lint(file: &File) -> Vec<LowerError> {
+    fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
+        for n in nodes {
+            match n {
+                Node::Element {
+                    tag,
+                    attrs,
+                    children,
+                    span,
+                    ..
+                } => {
+                    if tags::tag(tag).is_none() {
+                        errors.push(unknown_tag(tag, *span));
+                    } else {
+                        for a in attrs.iter().filter(|a| a.name != "class") {
+                            let checked = match tags::attr(&a.name) {
+                                None => Err(unknown_attr(tag, a)),
+                                // A family is resolved against declared fonts.
+                                Some(tags::AttrTarget::Styles(rows))
+                                    if rows != [StyleId::FontFamily] =>
+                                {
+                                    values::check_style_value(a, rows, &Ty::Unknown, None)
+                                }
+                                Some(tags::AttrTarget::Flex) => values::check_style_value(
+                                    a,
+                                    &[StyleId::FlexGrow],
+                                    &Ty::Unknown,
+                                    None,
+                                ),
+                                Some(_) => Ok(()),
+                            };
+                            errors.extend(checked.err());
+                        }
+                    }
+                    walk(children, errors);
+                }
+                Node::Use { children, .. } => walk(children, errors),
+                Node::Provide { body, .. } => walk(body, errors),
+                Node::When {
+                    then, otherwise, ..
+                } => {
+                    walk(then, errors);
+                    walk(otherwise, errors);
+                }
+                Node::Each { body, .. } => walk(body, errors),
+                Node::Match { some, none, .. } => {
+                    walk(&some.1, errors);
+                    walk(none, errors);
+                }
+                Node::Children { .. } => {}
+            }
+        }
+    }
+    let mut errors = Vec::new();
+    for c in &file.components {
+        walk(&c.view, &mut errors);
+    }
+    errors.truncate(MAX_REFUSALS);
+    errors
+}
+
+/// One refusal, as the plural result lowering returns.
+fn err_one(id: &'static str, message: impl Into<String>, span: Span) -> Vec<LowerError> {
+    vec![LowerError {
+        id,
+        message: message.into(),
+        span,
+    }]
+}
+
 pub(crate) fn err<T>(
     id: &'static str,
     message: impl Into<String>,
@@ -113,6 +223,9 @@ pub(crate) struct Lowerer<'a> {
     pub fn_depth: u32,
     /// Tags' fixed row values already built (`Lowerer::fixed`).
     fixed: BTreeMap<(bool, &'static str), Code>,
+    /// Refusals so far: an element or attribute that fails is recorded and
+    /// its siblings are lowered anyway.
+    errors: Vec<LowerError>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,13 +241,43 @@ struct FontUse {
     italic: Option<bool>,
 }
 
+/// At most this many refusals from one lowering.
+pub const MAX_REFUSALS: usize = 20;
+
+impl From<LowerError> for Vec<LowerError> {
+    fn from(e: LowerError) -> Self {
+        vec![e]
+    }
+}
+
 /// Lower a checked file to a plan.
 pub fn lower(
     checked: &Checked<'_>,
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    lower_with_sites(checked, _analysis, asset_root, false).map(|(plan, _)| plan)
+    lower_with_sites(checked, _analysis, asset_root, false)
+        .map(|(plan, _)| plan)
+        .map_err(|mut all| all.swap_remove(0))
+}
+
+/// Lower, reporting every independent refusal: each element and each of its
+/// attributes is lowered whatever its siblings' fate (at most
+/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites.
+pub fn lower_all(
+    checked: &Checked<'_>,
+    analysis: &Analysis,
+    asset_root: Option<&Path>,
+    mapped: bool,
+) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
+    if mapped && checked.expanded.instances.is_empty() {
+        return Err(vec![LowerError {
+            id: "lower-source-sites",
+            message: "mapped lowering needs check_mapped source provenance".into(),
+            span: checked.expanded.root.span,
+        }]);
+    }
+    lower_with_sites(checked, analysis, asset_root, mapped)
 }
 
 /// Lower with development-only source sites, separate from the plan bytes.
@@ -152,6 +295,7 @@ pub fn lower_mapped(
     }
     lower_with_sites(checked, analysis, asset_root, true)
         .map(|(plan, sites)| (plan, sites.expect("sites requested")))
+        .map_err(|mut all| all.swap_remove(0))
 }
 
 fn lower_with_sites(
@@ -159,7 +303,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
-) -> Result<(Plan, Option<Sites>), LowerError> {
+) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
         file,
@@ -199,6 +343,7 @@ fn lower_with_sites(
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
         fixed: BTreeMap::new(),
+        errors: Vec::new(),
     };
     l.declare_fonts(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
@@ -206,35 +351,33 @@ fn lower_with_sites(
         for a in &s.attrs {
             match tags::attr(&a.name) {
                 Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
-                Some(_) => {
-                    return err(
-                        "lower-style-attr",
-                        format!(
-                            "`{}` cannot be in `style {}`: a style holds style rows only — no `testId`, no handlers, no props",
-                            a.name, s.name
-                        ),
-                        a.span,
-                    )
-                }
+                Some(_) => l.errors.push(LowerError {
+                    id: "lower-style-attr",
+                    message: format!(
+                        "`{}` cannot be in `style {}`: a style holds style rows only — no `testId`, no handlers, no props",
+                        a.name, s.name
+                    ),
+                    span: a.span,
+                }),
                 None => {
                     let hint = tags::renamed(&a.name)
                         .map(|n| format!("; `{}` is spelled `{n}` here", a.name))
                         .or_else(|| tags::similar_attr(&a.name, true).map(|n| format!("; did you mean `{n}`?")))
                         .unwrap_or_default();
-                    return err(
-                        "lower-unknown-attr",
-                        format!("`style {}` has no attribute `{}`{hint}", s.name, a.name),
-                        a.span,
-                    );
+                    l.errors.push(LowerError {
+                        id: "lower-unknown-attr",
+                        message: format!("`style {}` has no attribute `{}`{hint}", s.name, a.name),
+                        span: a.span,
+                    });
                 }
             }
         }
         if l.styles.insert(s.name.clone(), s.attrs.clone()).is_some() {
-            return err(
-                "lower-style-duplicate",
-                format!("`style {}` is declared twice", s.name),
-                s.span,
-            );
+            l.errors.push(LowerError {
+                id: "lower-style-duplicate",
+                message: format!("`style {}` is declared twice", s.name),
+                span: s.span,
+            });
         }
     }
     // Shapes first, in declaration order, so type ids are stable.
@@ -348,18 +491,18 @@ fn lower_with_sites(
     }
     for t in &root.tasks {
         let Expr::Number(ms, _) = &t.every.0 else {
-            return err(
+            return Err(err_one(
                 "lower-timer-literal",
                 "`every` needs a literal number of milliseconds",
                 t.every.2,
-            );
+            ));
         };
         if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return err(
+            return Err(err_one(
                 "lower-timer-interval",
                 format!("`every` needs a whole number of milliseconds, at least 1; given {ms}"),
                 t.every.2,
-            );
+            ));
         }
         let action = l.actions[root
             .actions
@@ -371,23 +514,28 @@ fn lower_with_sites(
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {
-        return err(
+        return Err(err_one(
             "lower-one-root",
             format!(
                 "the root view must be exactly one node; found {}",
                 view.len()
             ),
             root.span,
-        );
+        ));
     }
     if !matches!(view[0], Node::Element { .. }) {
-        return err(
+        return Err(err_one(
             "lower-root-region",
             "the root of a view is a node; a `when`, `each`, or `match` cannot be the root (LLP 1010 §1: a keyed root could not reorder) — put it inside a `column` or a `main`",
             view[0].span(),
-        );
+        ));
     }
     l.nodes(view, None, None, &scope, 0, None)?;
+    if !l.errors.is_empty() {
+        // Row slots name regions a refused element may not have lowered.
+        l.errors.truncate(MAX_REFUSALS);
+        return Err(l.errors);
+    }
     // Row slots: each lifted state owned by an `each` names its region now
     // that the regions exist (LLP 1017 P4c).
     for (i, owner) in ex.owners.iter().enumerate() {
@@ -512,7 +660,9 @@ impl<'a> Lowerer<'a> {
         parent_tag: Option<&str>,
     ) -> Result<(), LowerError> {
         for (order, n) in nodes.iter().enumerate() {
-            self.node(n, parent, arm, order as u32, scope, locals, parent_tag)?;
+            if let Err(e) = self.node(n, parent, arm, order as u32, scope, locals, parent_tag) {
+                self.errors.push(e);
+            }
         }
         Ok(())
     }
@@ -538,17 +688,7 @@ impl<'a> Lowerer<'a> {
                 instance,
             } => {
                 let Some(t) = tags::tag(tag) else {
-                    let hint = tags::html_tag(tag)
-                        .map(|spelled| format!("; {spelled}"))
-                        .or_else(|| {
-                            tags::similar_tag(tag).map(|n| format!("; did you mean `{n}`?"))
-                        })
-                        .unwrap_or_default();
-                    return err(
-                        "lower-unknown-tag",
-                        format!("unknown tag `{tag}`{hint}"),
-                        *span,
-                    );
+                    return Err(unknown_tag(tag, *span));
                 };
                 // Two layout refusals the compiler can make without measuring
                 // (LLP 1017 P1c; the measured ones are bake's). Conservative:
@@ -683,7 +823,7 @@ impl<'a> Lowerer<'a> {
                         );
                     };
                     let (code, ty) = self.typed_code(first, scope, locals)?;
-                    self.check_prop_value(tag, first, first.span(), prop, &ty)?;
+                    values::check_prop_value(tag, first, first.span(), prop, &ty)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Prop,
                         id: prop as u16,
@@ -703,7 +843,7 @@ impl<'a> Lowerer<'a> {
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
                 for (index, a) in expanded.iter().enumerate() {
-                    self.attr(
+                    if let Err(e) = self.attr(
                         tag,
                         a,
                         scope,
@@ -712,7 +852,9 @@ impl<'a> Lowerer<'a> {
                         &mut handlers,
                         &mut surface,
                         font.as_ref(),
-                    )?;
+                    ) {
+                        self.errors.push(e);
+                    }
                     if let Some(origins) = &mut origins {
                         let origin = if index < class_len {
                             Origin::Class(class_name.expect("class attribute").clone())
@@ -1012,27 +1154,7 @@ impl<'a> Lowerer<'a> {
         font: Option<&FontUse>,
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
-            let hint = match tags::renamed(&a.name) {
-                Some(new @ ("press" | "change")) => format!(
-                    "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
-                    a.name
-                ),
-                Some(new) => format!(
-                    "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
-                    a.name
-                ),
-                None if a.name == "className" => {
-                    "; `class` names a `style` declared in this file, as in `class=Card`".into()
-                }
-                None => tags::similar_attr(&a.name, false)
-                    .map(|n| format!("; did you mean `{n}`?"))
-                    .unwrap_or_default(),
-            };
-            return err(
-                "lower-unknown-attr",
-                format!("`{tag}` has no attribute `{}`{hint}", a.name),
-                a.span,
-            );
+            return Err(unknown_attr(tag, a));
         };
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
@@ -1064,7 +1186,7 @@ impl<'a> Lowerer<'a> {
             tags::AttrTarget::Flex => {
                 // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
                 let (grow, ty) = self.typed_code(&a.value, scope, locals)?;
-                self.check_style_value(a, &[StyleId::from_name("flex_grow").unwrap()], &ty, font)?;
+                values::check_style_value(a, &[StyleId::FlexGrow], &ty, font)?;
                 let one = self.b.constant(&Value::Number(1.0));
                 let zero_basis = self.b.constant(&Value::str("0%"));
                 for (row, code) in [
@@ -1104,7 +1226,7 @@ impl<'a> Lowerer<'a> {
                     return Ok(());
                 }
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                self.check_style_value(a, rows, &ty, font)?;
+                values::check_style_value(a, rows, &ty, font)?;
                 for &row in rows {
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
@@ -1119,7 +1241,7 @@ impl<'a> Lowerer<'a> {
                 let ty = expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
                 asm.simple(exact_plan::Opcode::Not);
                 let code = self.b.code(asm);
-                self.check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
+                values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,
@@ -1128,7 +1250,7 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Prop(prop) => {
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                self.check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
+                values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,
