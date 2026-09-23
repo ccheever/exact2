@@ -664,6 +664,13 @@ try {
     if (byTestId(tree, 'stations-screen')) await s.tap('station-paloalto');
   }
 
+  // 5a. A command (LLP 1005 §3): `setScheme` reaches the host as an op and
+  // sets its colour scheme; the journal records it and the host reports no
+  // error (step 7 reads both). Back to light for the pictures below. Before
+  // the scroll below: a platform tap needs its button on screen.
+  await s.tap('scheme-dark');
+  await s.tap('scheme-light');
+
   // 5. Scrolling (LLP 1010): a wheel over the content moves it, and exactly
   // one scroll container takes it — the node when it can, else the page.
   layout = await s.layout();
@@ -677,11 +684,6 @@ try {
   check(moved === 300, `a wheel of 300 over the content scrolled it by ${moved}`);
   check(innerMoved !== pageMoved, `one scroll container takes a wheel: inner moved ${innerMoved}, page moved ${pageMoved}`);
 
-  // 5a. A command (LLP 1005 §3): `setScheme` reaches the host as an op and
-  // sets its colour scheme; the journal records it and the host reports no
-  // error (step 7 reads both). Back to light for the pictures below.
-    await s.tap('scheme-dark');
-    await s.tap('scheme-light');
   }
 
   // 6. The pixels when asked, and the GPU module where the host renders it
@@ -718,6 +720,9 @@ try {
   const hostBad = [...journal.host, ...logs.host].filter((l) => /exact:|error|exception/i.test(l));
   check(hostBad.length === 0, 'the host reported errors:\n    ' + hostBad.join('\n    '));
   console.log(`${host}: boot ${s.boot.toFixed(1)} ms; ${tree.nodes.length} nodes; ${lines.length} journal lines`);
+} catch (error) {
+  // A driver refusal is one finding; the rest of the smoke still runs.
+  failures.push(`the ${app.name} drive stopped: ${error.message}`);
 } finally {
   await s.close();
 }
@@ -766,6 +771,9 @@ else {
     check(box(l, 'root').y < 0, `a scroll node at its edge (${limit}) did not chain to the page (root at ${box(l, 'root').y})`);
     check(box(l, 'rows').sy === limit, 'the scroll node moved past its edge');
     console.log(`${host} fixture: the scroll node stops at ${limit}, then the page scrolls (root at ${box(l, 'root').y})`);
+  } catch (error) {
+    // A driver refusal is one finding; the rest of the smoke still runs.
+    failures.push(`the scroll fixture stopped: ${error.message}`);
   } finally {
     await f.close();
   }
@@ -903,6 +911,9 @@ if (deckFixture) {
     st = await d.state();
     check(st.slots.material === 'crt', `the material is ${JSON.stringify(st.slots.material)}`);
     console.log(`${host} deck: ${cards.length} cards, ${cards[0].testId} focused by a tap; material crt`);
+  } catch (error) {
+    // A driver refusal is one finding; the rest of the smoke still runs.
+    failures.push(`the deck fixture stopped: ${error.message}`);
   } finally {
     await d.close();
   }
