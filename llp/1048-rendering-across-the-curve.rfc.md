@@ -425,7 +425,9 @@ answers them after it takes over.
   - malformed URLs;
   - empty regions;
   - edits before activation.
-- **Measurements**, at 150 ms RTT and 6 Mbit/s:
+- **Measurements**, at 150 ms RTT and 6 Mbit/s. Add the latency with a loopback
+  delay proxy: in Chrome 153, CDP's latency emulation doesn't apply to requests
+  and only throughput is throttled (the Interview lane, 2026-09-23).
   - server work and time to first byte, with the module graph and source calls
     per render;
   - meaningful content paint;
