@@ -50,6 +50,10 @@ fn browser_session_history_and_published_deep_locations() {
             "  state scriptURL = \"java\\tscript:parent.scriptProbe++\"\n  state initialUrl",
         )
         .replace(
+            "          when e.name == \"home\"\n",
+            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
+        )
+        .replace(
             "          when e.name == \"home\"\n            text \"Home\"\n",
             "          when e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
         )

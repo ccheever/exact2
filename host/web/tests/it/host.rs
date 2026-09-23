@@ -1162,6 +1162,54 @@ component App
     assert_eq!(batch.matches("\"op\":\"props\"").count(), 0);
 }
 
+/// A same-origin link is followed in place only when a declared pattern
+/// matches its location; notfound absorbs everything else and must not
+/// capture a file's or another app's path (LLP 1038 §7).
+#[test]
+fn only_declared_routes_are_followed_in_place() {
+    let plan = contract::compile(
+        r#"routes nav
+  tab home "/"
+    post "/post/:post"
+  notfound
+component App
+  view
+    main navigationKey=`${top(nav).id}`
+      text "Home"
+"#,
+    )
+    .unwrap();
+    let (host, _) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for (location, declared) in [
+        ("/", true),
+        ("/post/42", true),
+        ("/post/42?tab=replies", true),
+        ("/post", false),
+        ("/nowhere/file.txt", false),
+        ("/assets/caltrain.png", false),
+    ] {
+        assert_eq!(host.route_matches(location), declared, "{location}");
+    }
+    let plain = contract::compile("component App\n  view\n    text \"x\"\n").unwrap();
+    let (host, _) = Host::boot(
+        &plain.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        !host.route_matches("/"),
+        "an app without routes follows no link"
+    );
+}
+
 /// A text block with a heading level is HTML's heading element — Chrome's
 /// accessibility tree ignores `aria-level` on a role-less div (review,
 /// 2026-09-22) — unless the author gave it another role. Past h6 it is a div

@@ -342,6 +342,17 @@ impl<D: DataSource> Bridge<D> {
             .is_some_and(|status| status.pending)
     }
 
+    /// Whether the location in the input buffer names a declared route
+    /// (LLP 1038 §7): the page then follows a same-origin link in place.
+    pub fn route_matches(&self, len: usize) -> u32 {
+        let location = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        u32::from(
+            self.host
+                .as_ref()
+                .is_some_and(|host| host.route_matches(&location)),
+        )
+    }
+
     /// Resolve an opaque list key, or return the absent-index sentinel.
     pub fn list_index(&self, view: u32, len: usize) -> u32 {
         let key = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
@@ -822,6 +833,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_list(view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, len: u32, limit: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().list_viewport(view, top, height, width, origin, focus, interaction, len as usize, limit as usize))
+        }
+
+        /// Whether a location (the input buffer) names a declared route.
+        #[no_mangle]
+        pub extern "C" fn exact_route_match(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().route_matches(len as usize))
         }
 
         /// Continue a budgeted window on the next animation frame.

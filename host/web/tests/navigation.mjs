@@ -216,6 +216,34 @@ try {
     const program = await record('programmatic Back echo', '/', n + 1, 1, 3);
     assert.deepEqual(program.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1]);
   });
+  await run('same-origin links to routes are followed in place', async () => {
+    const n = await fresh(), boot = await evaluate('fixtureBoot');
+    await tap('link-post'); await until(`location.pathname==='/post/42'`);
+    followed(await record('link to /post/42', '/post/42', n + 1, 2, 0));
+    await tap('link-person'); await until(`location.pathname==='/people/7'`);
+    assert.equal((await record('inline run to /people/7', '/people/7', n + 2, 3, 0)).navigatePresses, 2);
+    await historyTap(-1); await until(`location.pathname==='/post/42'`);
+    await record('Back after links', '/post/42', n + 2, 2, 1);
+    await historyTap(1); await until(`location.pathname==='/people/7'`);
+    await record('Forward after links', '/people/7', n + 2, 3, 1);
+    await tap('link-press'); await until(`location.pathname==='/prompts'`);
+    const pressed = await record('a pressing link navigates by its press', '/prompts', n + 3, 1, 1);
+    assert.equal(pressed.navigatePresses, 3, 'no navigate dispatch beside the press');
+    // New-tab and middle clicks stay the browser's: this page does not move.
+    const key = (await state()).navigation.route;
+    const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="link-post-${key}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+    for (const [button, modifiers] of [['left', process.platform === 'darwin' ? 4 : 2], ['middle', 0]]) {
+      for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button, clickCount: 1, modifiers, ...at });
+    }
+    await evaluate('new Promise(r => setTimeout(r, 250))');
+    const stayed = await record('modified and middle clicks stay native', '/prompts', n + 3, 1, 1);
+    assert.equal(stayed.navigatePresses, 3);
+    assert.equal(await evaluate('fixtureBoot'), boot, 'one document across every in-place link');
+    const row = { name: 'links in place', documents: 1, clicks: 3, traversals: 2 }; rows.push(row); console.log(JSON.stringify(row));
+    // A same-origin path no pattern declares (a file) is the browser's: a new document.
+    await tap('link-file'); await until(`location.pathname==='/manifest.json'`);
+    assert.notEqual(await evaluate('globalThis.fixtureBoot ?? null'), boot);
+  });
   await run('in-document reboot retains the carried history mirror', async () => {
     const n = await fresh(); await tap('push-post');
     const pushed = await record('reload prelude', '/post/42', n + 1, 2, 0);

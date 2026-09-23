@@ -653,8 +653,14 @@ Each with the trigger that would earn it back:
   but for now I don't think it's important") — so the launch-location seam
   stays the one place it would plug in, and nothing in D5 or D7 assumes the
   stack is never restored.
-- Same-origin `link href` interception on the web. The first app that
-  authors links to its own routes.
+- ~~Same-origin `link href` interception on the web.~~ Built 2026-09-23 (the
+  2026-09-22 review): a plain primary click (no modifier, no `target` or
+  `download`) on a same-origin `a[href]` whose location a declared pattern
+  matches — never only `notfound` — stays in the document. A link with its
+  own `press` navigates by it; any other goes to the root's `navigate`
+  handler, as a popstate does, and a refusal journals once. Other clicks,
+  origins, fragments of this page and undeclared paths (a file) are the
+  browser's. The match is the plan's table in the host (`exact_route_match`).
 - A `navigationTitle`: 1035.001 D9 stays the path.
 
 One line goes onto `rules/NOT-DOING.md` under Features at acceptance, so §7

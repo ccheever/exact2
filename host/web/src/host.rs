@@ -126,6 +126,27 @@ impl<D: DataSource> Host<D> {
         Host::boot_delivered(plan_bytes, data, None, Vec::new(), None, viewport, launch)
     }
 
+    /// Whether `location` names a pattern the plan's route table declares —
+    /// never only its notfound fallback. The page follows a same-origin link
+    /// to one in place (LLP 1038 §7) instead of loading a document.
+    pub fn route_matches(&self, location: &str) -> bool {
+        let plan = self.runner.plan();
+        let table = exact_route::Table {
+            routes: plan
+                .routes
+                .iter()
+                .map(|r| exact_route::Route {
+                    name: plan.str(r.name).into(),
+                    pattern: plan.str(r.pattern).into(),
+                    parent: r.parent.map(|p| p.0 as usize),
+                    tab: r.tab,
+                    notfound: r.notfound,
+                })
+                .collect(),
+        };
+        plan.router.is_some() && table.matches_pattern(location).is_some()
+    }
+
     /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
     /// D6): what `localStorage` holds under `exact.secret.<name>`, read by
     /// the glue before boot; the runner keeps the granted names.
