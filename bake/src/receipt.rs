@@ -125,10 +125,8 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
-        println!(
-            "cargo:rerun-if-changed={}",
-            destination.join(format!("{stem}.json")).display()
-        );
+        // Never watched: the builder rewrites these from OUT_DIR after every
+        // Cargo run, so a watch here would rerun this bake on every next build.
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())
             .map_err(|e| e.to_string())?;
         std::fs::write(destination.join(format!("{stem}.plan")), &plan_bytes)
