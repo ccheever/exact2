@@ -13,7 +13,7 @@ use exact_runner::{
     Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Reply, Request, Store,
     Target, Work,
 };
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{channel, Sender};
 
 fn unavailable(message: impl Into<String>) -> DataError {
@@ -41,6 +41,9 @@ enum Job {
         snapshot: Vec<(String, String)>,
         reply: Reply,
     },
+    /// What is still in flight, after a commit that let requests go: the
+    /// instance drops the calls it parked for the rest, in turn order.
+    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>),
 }
 
 fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {
@@ -90,6 +93,22 @@ fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
         bytes.extend(a.to_bytes());
     }
     (target, source.to_string(), bytes)
+}
+
+fn recorded_key(recorded: &Recorded) -> Key {
+    match recorded {
+        Recorded::Answer {
+            target,
+            source,
+            args,
+        }
+        | Recorded::Resume {
+            target,
+            source,
+            args,
+            ..
+        } => key(*target, source, args),
+    }
 }
 
 /// How a worker instance comes to exist on its thread.
@@ -268,6 +287,12 @@ impl<D: DataSource + 'static> Placed<D> {
                 let mut source = obtain();
                 for job in rx {
                     let (target, name, args, outcome, snapshot, reply) = match job {
+                        Job::Forgotten(in_flight) => {
+                            if let Ok(source) = &mut source {
+                                forget(source, &in_flight);
+                            }
+                            continue;
+                        }
                         Job::Answer {
                             target,
                             source,
@@ -300,6 +325,20 @@ impl<D: DataSource + 'static> Placed<D> {
         self.owner = Some(jobs);
         Ok(())
     }
+}
+
+/// Tell the instance on its owner what is still in flight; an argument that
+/// doesn't cross leaves its request out, which only lets its call go too.
+fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u8>>)]) {
+    let decoded: Vec<(Target, &str, Vec<Value>)> = in_flight
+        .iter()
+        .filter_map(|(target, name, args)| Some((*target, name.as_str(), decode_args(args).ok()?)))
+        .collect();
+    let borrowed: Vec<(Target, &str, &[Value])> = decoded
+        .iter()
+        .map(|(target, name, args)| (*target, *name, args.as_slice()))
+        .collect();
+    source.forgotten(&borrowed);
 }
 
 /// One turn (LLP 1027.002 D3, change 3): begin or resume; stay on the owner
@@ -470,6 +509,29 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         self.parse_with(Some(target), store, source, args, outcome)
+    }
+
+    /// Stages and recorded calls for requests the runner let go are dropped,
+    /// and the source hears the same, on its owner in turn order (LLP 1016
+    /// D5). A turn already running there ends; the runner drops its reply.
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        let keep: HashSet<Key> = in_flight
+            .iter()
+            .map(|(target, source, args)| key(Some(*target), source, args))
+            .collect();
+        let gone = |k: &Key| k.0.is_some() && !keep.contains(k);
+        self.stages.retain(|k, _| !gone(k));
+        self.recorded
+            .retain(|_, recorded| !gone(&recorded_key(recorded)));
+        if let Some(owner) = &self.owner {
+            let in_flight = in_flight
+                .iter()
+                .map(|(target, source, args)| (*target, source.to_string(), encode_args(args)))
+                .collect();
+            let _ = owner.send(Job::Forgotten(in_flight));
+        } else if let Some(inner) = self.inner.as_mut() {
+            inner.forgotten(in_flight);
+        }
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {

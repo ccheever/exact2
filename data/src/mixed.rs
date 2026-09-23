@@ -11,7 +11,7 @@ use exact_runner::{
     Work,
 };
 use serde_json::Value as Json;
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 type Retain<R> = fn(&R) -> Result<R, DataError>;
 
@@ -53,11 +53,32 @@ fn key(rust: bool, target: Option<Target>, source: &str, args: &[Value]) -> Key 
     (rust, target, source.to_string(), bytes)
 }
 
+fn recorded_key(recorded: &Recorded) -> Key {
+    match recorded {
+        Recorded::Answer {
+            rust,
+            target,
+            source,
+            args,
+        }
+        | Recorded::Resume {
+            rust,
+            target,
+            source,
+            args,
+            ..
+        } => key(*rust, *target, source, args),
+    }
+}
+
 /// One ordered set (LLP 1027.002 D3, change 2): its members, the turn it
 /// has reserved, and the calls waiting behind it, in order.
 struct Set {
     busy: bool,
     held: VecDeque<u64>,
+    /// The call whose turn `busy` reserves: a reply the runner drops (its
+    /// request let go) would otherwise leave the set waiting forever.
+    running: Option<Key>,
 }
 
 /// Two data executors with disjoint, declared source names and one app identity.
@@ -178,6 +199,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                 sets.push(Set {
                     busy: false,
                     held: VecDeque::new(),
+                    running: None,
                 });
                 set_of = [Some(0), Some(0)];
             } else {
@@ -187,6 +209,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                         sets.push(Set {
                             busy: false,
                             held: VecDeque::new(),
+                            running: None,
                         });
                     }
                 }
@@ -286,6 +309,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             Recorded::Answer { rust, .. } | Recorded::Resume { rust, .. } => *rust,
         };
         self.sets[set].busy = true;
+        self.sets[set].running = Some(recorded_key(&recorded));
         let grants = self.child_grants(rust);
         if self.child_placement(rust) == Placement::Worker {
             let mut scratch = Store::new(&grants, []);
@@ -314,6 +338,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                     };
                     if matches!(dispatch, Dispatch::Missing | Dispatch::Held) {
                         self.sets[set].busy = false;
+                        self.sets[set].running = None;
                     }
                     dispatch
                 }
@@ -424,6 +449,7 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
                 Some(Stage::Turn) => {
                     // The reserved turn ended, however it ended.
                     self.sets[set].busy = false;
+                    self.sets[set].running = None;
                     let answer = if self.child_placement(rust) == Placement::Worker {
                         store.with_grants(&grants, |store| {
                             self.child_parse(rust, target, store, source, args, outcome)
@@ -593,25 +619,43 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         released
     }
 
+    /// Stages, recorded calls and held turns for requests the runner let go
+    /// are dropped, and a set whose reserved turn was one of them is free: the
+    /// runner drops that turn's reply, so nothing else would end it (LLP 1016
+    /// D5). Each child hears the same.
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        let keep: HashSet<Key> = in_flight
+            .iter()
+            .filter_map(|(target, source, args)| {
+                Some(key(self.owner(source).ok()?, Some(*target), source, args))
+            })
+            .collect();
+        let gone = |k: &Key| k.1.is_some() && !keep.contains(k);
+        self.stages.retain(|k, _| !gone(k));
+        let dead: Vec<u64> = self
+            .recorded
+            .iter()
+            .filter(|(_, (_, recorded))| gone(&recorded_key(recorded)))
+            .map(|(token, _)| *token)
+            .collect();
+        for token in &dead {
+            self.recorded.remove(token);
+        }
+        for set in &mut self.sets {
+            set.held.retain(|token| !dead.contains(token));
+            if set.running.as_ref().is_some_and(gone) {
+                set.busy = false;
+                set.running = None;
+            }
+        }
+        self.javascript.forgotten(in_flight);
+        self.rust.forgotten(in_flight);
+    }
+
     fn discard(&mut self, token: u64) {
         match self.recorded.remove(&token) {
-            Some((
-                _,
-                Recorded::Answer {
-                    rust,
-                    target,
-                    source,
-                    args,
-                }
-                | Recorded::Resume {
-                    rust,
-                    target,
-                    source,
-                    args,
-                    ..
-                },
-            )) => {
-                let k = key(rust, target, &source, &args);
+            Some((_, recorded)) => {
+                let k = recorded_key(&recorded);
                 if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
                     if stages.is_empty() {

@@ -1052,3 +1052,145 @@ fn two_targets_asking_an_ordered_member_with_equal_arguments_keep_their_own_stag
     assert!(!r.has_pending());
     assert_eq!(r.data().staged_keys(), 0);
 }
+
+// A request replaced by newer arguments is forgotten (LLP 1016 D5): the
+// composer keeps stages only for what is still in flight.
+
+fn retyped<D: DataSource>(data: D) -> Runner<D> {
+    use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind};
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let text = b.primitive(TypeKind::String);
+    let empty = b.constant(&Value::str(""));
+    let query = b.slot("query", text, empty);
+    let mut arg = Asm::new();
+    arg.load_slot(query);
+    let arg = b.code(arg);
+    let found = b.resource("found", "yield", &[arg], text, Some(&Value::str("baked")));
+    b.set_resource_initial_args(found, &[Value::str("")]);
+    let mut body = Asm::new();
+    body.load_param(0).store_slot(query);
+    let body = b.code(body);
+    b.action("typed", &[("value", text)], &[query], body);
+    b.node(
+        exact_kernel::NodeType::View as u8,
+        None,
+        None,
+        0,
+        &[],
+        &[],
+        None,
+    );
+    Runner::boot(
+        b.finish().unwrap(),
+        data,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_placed_source_lets_go_of_a_call_newer_arguments_replaced() {
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut r = retyped(placed);
+    r.act("typed", vec![Value::str("a")]).unwrap();
+    r.act("typed", vec![Value::str("ab")]).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(names(&asked), ["found", "found"]);
+    assert_eq!(r.pending().len(), 1);
+    assert_eq!(r.data().staged_keys(), 1, "only the newest call is staged");
+    // The forgotten call's turn is let go too; the newest runs to its answer.
+    assert!(matches!(
+        r.dispatch_work(turn_token(&asked[0])),
+        Dispatch::Missing
+    ));
+    let outcome = run(r.dispatch_work(turn_token(&asked[1])));
+    r.fulfill(asked[1].ticket, outcome).unwrap();
+    let storage = r.take_requests();
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"ab".to_vec()))
+        .unwrap();
+    let resumed = r.take_requests();
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    assert_eq!(resource(&r, "found"), "ab");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn a_mixed_set_lets_go_of_a_call_newer_arguments_replaced() {
+    let mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Threaded {
+            calls: Default::default(),
+        },
+        &["js"],
+        &["yield"],
+    )
+    .unwrap();
+    let mut r = retyped(mixed);
+    r.act("typed", vec![Value::str("a")]).unwrap();
+    r.act("typed", vec![Value::str("ab")]).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(names(&asked), ["found", "found"]);
+    assert_eq!(r.data().staged_keys(), 1, "only the newest call is staged");
+    assert!(matches!(
+        r.dispatch_work(turn_token(&asked[0])),
+        Dispatch::Missing
+    ));
+    let outcome = run(r.dispatch_work(turn_token(&asked[1])));
+    r.fulfill(asked[1].ticket, outcome).unwrap();
+    let storage = r.take_requests();
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"ab".to_vec()))
+        .unwrap();
+    let resumed = r.take_requests();
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    assert_eq!(resource(&r, "found"), "ab");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn a_forgotten_running_turn_frees_its_mixed_set() {
+    let mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Threaded {
+            calls: Default::default(),
+        },
+        &["js"],
+        &["yield"],
+    )
+    .unwrap();
+    let mut r = retyped(mixed);
+    r.act("typed", vec![Value::str("a")]).unwrap();
+    let first = r.take_requests();
+    // Its turn runs; newer arguments replace its request before the reply.
+    let envelope = run(r.dispatch_work(turn_token(&first[0])));
+    r.act("typed", vec![Value::str("ab")]).unwrap();
+    let second = r.take_requests();
+    // The runner drops that reply, so the set must not wait for it.
+    let dispatch = r.dispatch_work(turn_token(&second[0]));
+    assert!(
+        matches!(dispatch, Dispatch::Run(_)),
+        "the set still waits for a turn whose reply is dropped"
+    );
+    assert!(r.fulfill(first[0].ticket, envelope).unwrap().is_none());
+    r.fulfill(second[0].ticket, run(dispatch)).unwrap();
+    let storage = r.take_requests();
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"ab".to_vec()))
+        .unwrap();
+    let resumed = r.take_requests();
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    assert_eq!(resource(&r, "found"), "ab");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
