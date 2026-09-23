@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, installShortcuts, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
+import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -568,8 +568,6 @@ function attach(el, id, handlers) {
     }
   }
 }
-
-installShortcuts(root, () => wasm && inputReady);
 
 function viewFor(op, id) {
   const el = views.get(id);

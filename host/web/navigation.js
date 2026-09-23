@@ -1456,34 +1456,3 @@ export function focusController({ready, elements, inert}) {
   }};
 }
 
-
-export function installShortcuts(root, ready) {
-// App-declared ARIA shortcuts activate the same mounted buttons as a click.
-// Browsers may reserve a chord before it reaches the page (notably Meta+N).
-document.addEventListener("keydown", (event) => {
-  if (event.isComposing || !ready() || event.defaultPrevented) return;
-  const matches = (chord) => {
-    const parts = chord.split("+");
-    const key = parts.pop();
-    const modifiers = new Set(parts);
-    if (key === "Escape" && !parts.length) return event.key === "Escape"
-      && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
-    return key?.length === 1 && [...modifiers].every(m => ["Meta", "Control", "Alt", "Shift"].includes(m))
-      && (modifiers.has("Meta") || modifiers.has("Control"))
-      && event.metaKey === modifiers.has("Meta") && event.ctrlKey === modifiers.has("Control")
-      && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
-      && event.key.toLowerCase() === key.toLowerCase();
-  };
-  for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-    const modal = document.activeElement.closest("dialog:modal");
-    if (modal && !modal.contains(el)) continue;
-    if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
-    if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (!event.repeat && !el.disabled) el.click();
-    return;
-  }
-}, true);
-
-}

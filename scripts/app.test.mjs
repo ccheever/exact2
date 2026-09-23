@@ -332,7 +332,8 @@ test('autofocus is deferred and consumed per mounted control, preserving other U
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
   const source = readFileSync(new URL('../host/web/navigation.js', import.meta.url), 'utf8');
-  const fn = source.slice(source.indexOf('export function focusController'),source.indexOf('export function installShortcuts')).replace('export ', '');
+  const start = source.indexOf('export function focusController');
+  const fn = source.slice(start, source.indexOf('\n}\n', start) + 2).replace('export ', '');
   const element = () => ({exactAutofocus:true, getClientRects:()=>[{}], matches:()=>false,
     setAttribute() {}, focus() { document.activeElement = this; }});
   const document = {body:{}, activeElement:null};
