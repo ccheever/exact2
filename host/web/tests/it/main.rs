@@ -4,6 +4,7 @@ mod agent;
 mod canvas;
 mod collection;
 mod dev;
+mod document;
 mod height;
 mod height_drag;
 mod holds;

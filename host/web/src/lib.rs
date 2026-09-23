@@ -22,6 +22,8 @@
 //!   by the same engine every native host runs, once per release.
 //! - [`host`] — the runner wrapped for a DOM: receipts → batches, events,
 //!   timers.
+//! - [`document`] — the same DOM as HTML, before browser layout: what a
+//!   page is before its runtime starts (LLP 1048.000 D1).
 //! - [`parity`] — the browser-driven parity harness: cases a real browser
 //!   runs, and the check that holds the engine to what it recorded.
 //! - [`dev`] — the resident dev driver: a source change observed → the
@@ -42,4 +44,4 @@ pub mod motion;
 pub mod parity;
 pub mod textflow;
 
-pub use host::{Host, HostError};
+pub use host::{document, Host, HostError};

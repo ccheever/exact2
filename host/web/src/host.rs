@@ -20,6 +20,8 @@ use exact_runner::{
     RunnerError, SurfaceOutcome, Timed, Work,
 };
 
+#[path = "document.rs"]
+pub mod document;
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
