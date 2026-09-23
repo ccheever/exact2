@@ -343,6 +343,9 @@ The type implements `DataSource + Default`; the generated hosts supply the exist
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
 Games without `game.data` add no data-source dependency.
+[Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
+question, `resource plan = jev(hud.ask)` posts it, and the answer returns as a
+`#[live]` string argument that the tick applies only when its id matches.
 
 `Request::capture_surface("world")` returns complete carried bytes through
 `Outcome::Surface(SurfaceOutcome::Captured(bytes))`. Chain an ordinary atomic file
