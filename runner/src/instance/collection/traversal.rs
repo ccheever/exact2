@@ -6,6 +6,27 @@ impl Collection {
             stack.extend(row.row.roots.iter());
         }
     }
+    /// How many rows the list has, mounted or not.
+    pub(in crate::instance) fn logical_len(&self) -> usize {
+        self.index.len()
+    }
+    /// A row's position by its identity (a wrapper's `listItemKey`).
+    pub(in crate::instance) fn logical_index(&self, key: &str) -> Option<usize> {
+        self.index.position(key)
+    }
+    /// The mounted rows by position.
+    pub(in crate::instance) fn mounted_rows(&self) -> impl Iterator<Item = (usize, &Row)> {
+        self.mounted.iter().map(|m| (m.position, &m.row))
+    }
+    /// Row `position`, realized for reading only.
+    pub(in crate::instance) fn logical_row(
+        &self,
+        u: &mut Update<'_>,
+        position: usize,
+        frames: &[Frame],
+    ) -> Result<Row, InstanceError> {
+        self.create_row(u, position, frames)
+    }
     /// Whether `view` belongs to a mounted row.
     pub(in crate::instance) fn contains(&self, view: ViewId) -> bool {
         self.mounted

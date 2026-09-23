@@ -18,9 +18,12 @@ pub(super) fn style(
     });
     Ok(())
 }
+/// A row's wrapper: its identity (`listItemKey`) and `listitem` role, so a
+/// host can select and copy text across rows it has not mounted.
 pub(super) fn row_wrapper(
     u: &mut Update<'_>,
     children: Vec<ViewId>,
+    key: &str,
 ) -> Result<ViewId, InstanceError> {
     let view = u.ids.fresh();
     u.ops.push(Op::CreateView {
@@ -42,7 +45,31 @@ pub(super) fn row_wrapper(
         ],
     )?;
     u.ops.push(Op::SetChildren { id: view, children });
+    u.ops.push(Op::SetProp {
+        id: view,
+        prop: PropId::AccessibilityRole,
+        value: PropValue::Str("listitem".into()),
+    });
+    u.ops.push(Op::SetProp {
+        id: view,
+        prop: PropId::ListItemKey,
+        value: PropValue::Str(key.into()),
+    });
     Ok(view)
+}
+
+/// A mounted row's place in the whole list, which moves as rows come and go.
+pub(super) fn publish_position(u: &mut Update<'_>, wrapper: ViewId, position: usize, count: usize) {
+    u.ops.push(Op::SetProp {
+        id: wrapper,
+        prop: PropId::AccessibilityPosInSet,
+        value: PropValue::Int(position as i64 + 1),
+    });
+    u.ops.push(Op::SetProp {
+        id: wrapper,
+        prop: PropId::AccessibilitySetSize,
+        value: PropValue::Int(count as i64),
+    });
 }
 fn spacer(u: &mut Update<'_>, height: f64) -> Result<ViewId, InstanceError> {
     let view = u.ids.fresh();

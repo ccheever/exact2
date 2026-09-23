@@ -4,22 +4,70 @@ use super::*;
 use crate::ListTextPosition;
 use exact_kernel::{PropId, StyleId};
 
+/// A list's rows as logical text sees them: every row, mounted or not.
+enum Engine<'a> {
+    /// A windowed (`item-height`/`estimated-item-height`) list's region.
+    Window(&'a RegionInst),
+    /// A virtualized list.
+    Collection(&'a collection::Collection),
+}
+
+impl Engine<'_> {
+    fn len(&self) -> usize {
+        match self {
+            Engine::Window(r) => r.window.as_ref().unwrap().len(),
+            Engine::Collection(c) => c.logical_len(),
+        }
+    }
+    fn index(&self, key: &str) -> Option<usize> {
+        match self {
+            Engine::Window(r) => r.window.as_ref().unwrap().index(key),
+            Engine::Collection(c) => c.logical_index(key),
+        }
+    }
+    /// Mounted rows by position.
+    fn mounted(&self) -> BTreeMap<usize, &Row> {
+        match self {
+            Engine::Window(r) => {
+                let window = r.window.as_ref().unwrap();
+                let Active::Rows { rows } = &r.active else {
+                    unreachable!()
+                };
+                rows.iter()
+                    .map(|row| (window.index(&key_text(&row.key).unwrap()).unwrap(), row))
+                    .collect()
+            }
+            Engine::Collection(c) => c.mounted_rows().collect(),
+        }
+    }
+    /// Row `i`, realized for reading only: its ops are the caller's to drop.
+    fn row(&self, u: &mut Update<'_>, i: usize, frames: &[Frame]) -> Result<Row, InstanceError> {
+        match self {
+            Engine::Window(r) => r.window.as_ref().unwrap().row(u, r.region, i, frames),
+            Engine::Collection(c) => c.logical_row(u, i, frames),
+        }
+    }
+}
+
 fn list_region<'a>(
     children: &'a [Child],
     view: ViewId,
     frames: &mut Vec<Frame>,
-) -> Option<&'a RegionInst> {
+) -> Option<Engine<'a>> {
     fn walk<'a>(
         children: &'a [Child],
         view: ViewId,
         frames: &mut Vec<Frame>,
-    ) -> Option<&'a RegionInst> {
+    ) -> Option<Engine<'a>> {
         for child in children {
             match child {
                 Child::Node(n) => {
                     if n.view == view {
+                        if let Some(c) = &n.collection {
+                            return Some(Engine::Collection(c));
+                        }
                         return match n.children.as_slice() {
-                            [Child::Region(r)] if r.window.is_some() => Some(r),
+                            [Child::Region(r)] if r.window.is_some() => Some(Engine::Window(r)),
                             _ => None,
                         };
                     }
@@ -127,20 +175,15 @@ fn collect(
 impl Tree {
     /// Resolve a row key without creating its views.
     pub fn list_index(&self, view: ViewId, key: &str) -> Option<usize> {
-        list_region(&self.children, view, &mut Vec::new())?
-            .window
-            .as_ref()?
-            .index(key)
+        list_region(&self.children, view, &mut Vec::new())?.index(key)
     }
 
     /// A windowed list's held offset and the state of its last report.
     pub fn list_status(&self, view: ViewId) -> Option<crate::ListStatus> {
-        Some(
-            list_region(&self.children, view, &mut Vec::new())?
-                .window
-                .as_ref()?
-                .status(),
-        )
+        match list_region(&self.children, view, &mut Vec::new())? {
+            Engine::Window(r) => Some(r.window.as_ref()?.status()),
+            Engine::Collection(_) => None,
+        }
     }
 
     /// Text for all rows, or two stable UTF-16 endpoints, without mutation.
@@ -151,15 +194,13 @@ impl Tree {
         range: Option<(ListTextPosition<'_>, ListTextPosition<'_>)>,
     ) -> Result<String, InstanceError> {
         let mut frames = Vec::new();
-        let r = list_region(&self.children, view, &mut frames)
+        let list = list_region(&self.children, view, &mut frames)
             .ok_or(InstanceError::List("unknown list"))?;
-        let window = r.window.as_ref().unwrap();
         let mut start = (0, 0, 0);
-        let mut end = (window.len().saturating_sub(1), usize::MAX, usize::MAX);
+        let mut end = (list.len().saturating_sub(1), usize::MAX, usize::MAX);
         if let Some((a, b)) = range {
             let position = |p: ListTextPosition<'_>| {
-                window
-                    .index(p.key)
+                list.index(p.key)
                     .map(|i| (i, p.paragraph, p.offset))
                     .ok_or(InstanceError::List("selection row no longer exists"))
             };
@@ -169,20 +210,14 @@ impl Tree {
                 std::mem::swap(&mut start, &mut end);
             }
         }
-        let Active::Rows { rows } = &r.active else {
-            unreachable!()
-        };
-        let mounted: BTreeMap<_, _> = rows
-            .iter()
-            .map(|row| (window.index(&key_text(&row.key).unwrap()).unwrap(), row))
-            .collect();
+        let mounted = list.mounted();
         let mut result = String::new();
-        for i in start.0..window.len().min(end.0.saturating_add(1)) {
+        for i in start.0..list.len().min(end.0.saturating_add(1)) {
             let temporary;
             let row = if let Some(row) = mounted.get(&i) {
                 *row
             } else {
-                temporary = window.row(u, r.region, i, &frames)?;
+                temporary = list.row(u, i, &frames)?;
                 &temporary
             };
             let mut inner = frames.clone();

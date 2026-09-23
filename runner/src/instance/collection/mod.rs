@@ -33,6 +33,9 @@ struct Mounted {
     epoch: u64,
     token: MeasurementToken,
     preview_target: Option<f64>,
+    /// The position and count the wrapper last published (`aria-posinset`,
+    /// `aria-setsize`), for hosts that select and copy across rows.
+    published: (usize, usize),
     row: Row,
 }
 #[derive(Debug)]
@@ -445,18 +448,24 @@ impl Collection {
                 None => {
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
                     let row = self.create_row(u, position, frames)?;
-                    let wrapper = views::row_wrapper(u, roots_of(&row.roots))?;
+                    let wrapper = views::row_wrapper(u, roots_of(&row.roots), &text)?;
                     Mounted {
                         position,
                         wrapper,
                         epoch: advance(&mut self.next_epoch)?,
                         token,
                         preview_target: None,
+                        published: (usize::MAX, usize::MAX),
                         row,
                     }
                 }
             };
             views::validate_row(u.env.plan, &mounted.row.roots)?;
+            let count = self.index.len();
+            if mounted.published != (position, count) {
+                views::publish_position(u, mounted.wrapper, position, count);
+                mounted.published = (position, count);
+            }
             let token = self.index.measurement_token(&text).unwrap();
             if token != mounted.token {
                 mounted.token = token;

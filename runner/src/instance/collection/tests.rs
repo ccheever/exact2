@@ -1357,3 +1357,54 @@ fn bounded_snapshots_equal_ordinary_and_refuse_before_owned_rows() {
     );
     assert_ne!(current, ordinary);
 }
+
+#[test]
+fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
+    let mut h = key_reuse_harness(false);
+    let mut items = key_reuse_items(&h);
+    for (i, item) in items.iter_mut().enumerate() {
+        *item = key_reuse_row(i as f64, &format!("row {i}"));
+    }
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    let view = h.snapshot().view;
+    let mounted = h.snapshot().rows.len();
+    assert!(mounted < 128, "most rows are not mounted");
+    let first = h.snapshot().rows[0].clone();
+    let wrapper = h.kernel.node(first.view).unwrap();
+    assert_eq!(wrapper.props.str(PropId::ListItemKey), Some("n:0"));
+    assert_eq!(
+        wrapper.props.get(PropId::AccessibilityPosInSet),
+        Some(&exact_kernel::PropValue::Int(1))
+    );
+    assert_eq!(
+        wrapper.props.get(PropId::AccessibilitySetSize),
+        Some(&exact_kernel::PropValue::Int(128))
+    );
+    assert_eq!(h.tree.list_index(view, "n:127"), Some(127));
+    assert_eq!(h.tree.list_index(view, "n:128"), None);
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut ids = Ids::default();
+    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let all = h.tree.list_text(&mut u, view, None).unwrap();
+    assert!(all.starts_with("row 0\n\nrow 1\n\n"), "{}", &all[..40]);
+    assert!(all.ends_with("row 127"));
+    let position = |key, offset| crate::ListTextPosition {
+        key,
+        paragraph: 0,
+        offset,
+    };
+    let range = h
+        .tree
+        .list_text(
+            &mut u,
+            view,
+            Some((position("n:126", 2), position("n:1", 3))),
+        )
+        .unwrap();
+    // UTF-16 offsets within the first and last paragraphs, in either order.
+    assert!(range.starts_with(" 1\n\nrow 2"), "{range}");
+    assert!(range.ends_with("row 125\n\nro"), "{range}");
+    assert!(u.ops.is_empty(), "reading commits nothing");
+    assert_eq!(h.snapshot().rows.len(), mounted);
+}
