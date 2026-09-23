@@ -51,8 +51,9 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // inside the aurora canvas at all — a phone's frame-rate switch);
     // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
-    // iframe fixture, @ref LLP 1020 M1).
-    assert_eq!(a.slots.len(), 15);
+    // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
+    // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
+    assert_eq!(a.slots.len(), 16);
     // Seven data-crate resources, and `delivery` — the runner's own
     // `exactDelivery` (LLP 1030 D7), read by the update banner.
     assert_eq!(a.resources.len(), 8);
@@ -248,7 +249,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 15);
+    assert_eq!(carried.slots.len(), 16);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.
