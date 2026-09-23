@@ -622,10 +622,25 @@ function main(args) {
   } else {
     webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
   }
-  runApple('xcrun', webArgs);
+  // Each arm is one Swift file: compile it once per source, arguments and
+  // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
+  // two cost 93 s of every build at load 120.
+  const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
+  const arm = (args, source, built) => {
+    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), readFileSync(source, 'utf8'), swiftc])).digest('hex').slice(0, 16);
+    const dir = resolve(swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
+    if (!existsSync(cached)) {
+      mkdirSync(dir, { recursive: true });
+      runApple('xcrun', args.map(a => a === built ? `${cached}.tmp` : a));
+      renameSync(`${cached}.tmp`, cached);
+      for (const old of readdirSync(dir)) if (old.endsWith(`-${basename(built)}`) && resolve(dir, old) !== cached) rmSync(resolve(dir, old), { force: true });
+    }
+    copyFileSync(cached, built);
+  };
+  arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt);
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  runApple('xcrun', videoArgs);
+  arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt);
   const t2 = Date.now();
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
