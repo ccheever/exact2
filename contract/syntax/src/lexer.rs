@@ -101,6 +101,34 @@ impl Lexer {
                 return Ok(());
             }
             let indent = line.len() - trimmed.len();
+            // A declaration keyword in the first column cannot continue an
+            // expression (it is never a value): a bracket left open above
+            // ends here, so what follows lexes as its own declaration.
+            let word = trimmed.split(|c: char| !c.is_ascii_alphanumeric()).next();
+            if *depth > 0
+                && indent == 0
+                && matches!(
+                    word,
+                    Some("component" | "font" | "shape" | "style" | "fn" | "test")
+                )
+            {
+                *depth = 0;
+                // The open line ends just after its last token.
+                let span = out.last().map_or(
+                    Span {
+                        source_id: origin.source_id,
+                        ..Span::point(line_no, first_col)
+                    },
+                    |last| Span {
+                        col: last.span.end_col,
+                        ..last.span
+                    },
+                );
+                out.push(Token {
+                    kind: TokenKind::Newline,
+                    span,
+                });
+            }
             if *depth == 0 {
                 if line[..indent].contains('\t') {
                     return Err(LexError {

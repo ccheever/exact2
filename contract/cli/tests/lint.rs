@@ -365,3 +365,30 @@ fn one_run_reports_every_independent_mistake_call_sites_first() {
     );
     assert_eq!(compile_all("cap", &many).len(), contract::MAX_DIAGNOSTICS);
 }
+
+#[test]
+fn an_unclosed_bracket_or_a_stray_line_does_not_hide_the_declarations_after_it() {
+    let ids = |name: &str, source: &str| -> Vec<(String, u32)> {
+        compile_all(name, source)
+            .into_iter()
+            .map(|(id, line, _)| (id, line))
+            .collect()
+    };
+    let unclosed = "component App\n  state n = 0\n  view\n    main\n      Row(label=f(n)\ncomponent Row\n  props\n    label: string\n  derive d = = 1\n  view\n    text label\nshape S\n  a number\n";
+    assert_eq!(
+        ids("unclosed", unclosed),
+        [
+            ("syntax-expected".to_owned(), 5),
+            ("syntax-expected-expression".to_owned(), 9),
+            ("syntax-expected".to_owned(), 13),
+        ]
+    );
+    let stray = "else\ncomponent App\n  view\n    text \"a\" =\n";
+    assert_eq!(
+        ids("stray", stray),
+        [
+            ("syntax-expected-declaration".to_owned(), 1),
+            ("syntax-expected-expression".to_owned(), 4),
+        ]
+    );
+}

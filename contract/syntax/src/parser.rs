@@ -291,6 +291,7 @@ impl Parser {
         let mut file = File::default();
         let mut errors = Vec::new();
         loop {
+            let start = self.pos;
             match self.declaration(&mut file) {
                 Ok(true) => {}
                 Ok(false) if errors.is_empty() => {
@@ -303,6 +304,10 @@ impl Parser {
                     if !recover || errors.len() >= MAX_REFUSALS {
                         return Err(errors);
                     }
+                    // A declaration refused where it began is stepped past.
+                    if self.pos == start {
+                        self.next();
+                    }
                     self.skip_to_declaration();
                 }
             }
@@ -310,11 +315,11 @@ impl Parser {
     }
 
     /// Past a refused declaration: to the next token that begins a line in
-    /// the first column, where every declaration begins, or the end.
+    /// the first column, where every declaration begins (possibly the token
+    /// the refusal stopped at), or the end.
     fn skip_to_declaration(&mut self) {
-        let start = self.pos;
         while !matches!(self.peek_kind(), TokenKind::Eof) {
-            let at_line_start = self.pos > start
+            let at_line_start = self.pos > 0
                 && matches!(
                     self.tokens[self.pos - 1].kind,
                     TokenKind::Newline | TokenKind::Dedent
