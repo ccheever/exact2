@@ -69,6 +69,33 @@ export function webHostFiles(...groups) {
           : 'host/web/' + name]));
 }
 
+/** The checkout containing `dir` and its repository's common git directory. */
+function checkoutOf(dir) {
+  for (let at = dir; ; at = dirname(at)) {
+    const git = resolve(at, '.git');
+    if (existsSync(git)) {
+      if (statSync(git).isDirectory()) return { top: at, common: realpathSync(git) };
+      const own = resolve(at, /^gitdir: (.+)$/m.exec(readFileSync(git, 'utf8'))?.[1].trim() ?? '.');
+      const common = existsSync(resolve(own, 'commondir')) ? resolve(own, readFileSync(resolve(own, 'commondir'), 'utf8').trim()) : own;
+      return { top: at, common: existsSync(common) ? realpathSync(common) : common };
+    }
+    if (dirname(at) === at) return null;
+  }
+}
+
+/** Refuse a target directory inside another checkout of the same repository:
+ * worktrees sharing one target/ have failed with inputs that have no captured
+ * source identity and with stale generated files. A private CARGO_TARGET_DIR
+ * outside any checkout, or another repository's (an app consuming exact2 by
+ * path), is fine. */
+export function assertOwnTarget(target, workspace) {
+  if (!existsSync(target)) return;
+  const real = realpathSync(target), mine = checkoutOf(realpathSync(workspace)), theirs = checkoutOf(real);
+  if (mine && theirs && theirs.common === mine.common && theirs.top !== mine.top) {
+    throw new Error(`target directory ${target} resolves to ${real}, inside ${theirs.top}, another checkout of this repository. Give ${mine.top} its own target/ (remove the symlink), or set CARGO_TARGET_DIR to a directory outside every checkout.`);
+  }
+}
+
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
@@ -94,6 +121,7 @@ export function resolveApp(nameOrCrate) {
     workspace = resolve(dir, '.shells');
   }
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(manifest.game ? dir : workspace, 'target');
+  assertOwnTarget(target, manifest.game ? dir : workspace);
   let packages;
   const prepare = (refresh = false, options) => {
     if (manifest.game && (refresh || !packages)) {

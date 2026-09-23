@@ -746,3 +746,22 @@ test('E11 partial bakes select only their graph and production retains GPU bindi
   assert.equal(bindGpuProduct('gpu-dev','production'),true);
   assert.equal(bindGpuProduct('release','development'),true);
 });
+
+test('a worktree whose target resolves into another checkout is refused', async () => {
+  const { mkdtempSync, mkdirSync, symlinkSync, rmSync, writeFileSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { spawnSync } = await import('node:child_process');
+  const { assertOwnTarget } = await import('./app.mjs');
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-target-')), main = resolve(root, 'main'), lane = resolve(root, 'lane');
+  try {
+    const git = (...args) => assert.equal(spawnSync('git', args, { cwd: main }).status, 0, args.join(' '));
+    mkdirSync(main); git('init', '-q'); writeFileSync(resolve(main, 'a'), 'a'); git('add', 'a');
+    git('-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'a'); git('worktree', 'add', '-q', lane);
+    mkdirSync(resolve(main, 'target')); symlinkSync(resolve(main, 'target'), resolve(lane, 'target'));
+    assertOwnTarget(resolve(main, 'target'), main);
+    assert.throws(() => assertOwnTarget(resolve(lane, 'target'), lane), /another checkout of this repository/);
+    mkdirSync(resolve(root, 'private'));
+    assertOwnTarget(resolve(root, 'private'), lane);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
