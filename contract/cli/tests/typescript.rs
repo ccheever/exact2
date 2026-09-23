@@ -123,6 +123,7 @@ impl Drop for Fixture {
 }
 
 #[test]
+#[ignore = "async lane: typechecks generated signatures with tsc; bun scripts/async.mjs runs it"]
 fn generated_signatures_check_real_sync_and_async_providers_and_the_dispatcher() {
     let plan = contract::compile(CONTRACT).unwrap();
     let declarations = contract::typescript(&plan).unwrap();
@@ -161,6 +162,7 @@ fn generated_signatures_check_real_sync_and_async_providers_and_the_dispatcher()
 }
 
 #[test]
+#[ignore = "async lane: typechecks Caltrain with tsc; bun scripts/async.mjs runs it"]
 fn caltrain_types_follow_its_real_plan_without_requiring_the_host_owned_source() {
     let plan = contract::compile_path(
         &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/caltrain/app.contract"),
