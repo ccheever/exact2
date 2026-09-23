@@ -1,1 +1,0 @@
-../1042-video.spec.md
