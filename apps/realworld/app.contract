@@ -124,7 +124,7 @@ component RealWorld
   derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser(authStamp) as shape User else anonymous()
-  resource tags = popularTags(0) as shape list<string>
+  resource tags = popularTags(current.name == "home") as shape list<string>
   resource feed = articles(listKind, homeTag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
   resource post = article(slug, me.username, changeStamp) as shape Article else emptyArticle()
   resource thread = comments(slug, me.username, changeStamp) as shape list<Comment>

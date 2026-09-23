@@ -143,7 +143,8 @@ const sources: Sources = {
   emptyArticle: () => emptyArticle,
   emptyProfile: () => emptyProfile,
   currentUser: (_, store) => currentUser(store),
-  popularTags: async (_, store) => {
+  popularTags: async ([home], store) => {
+    if (!home) return [];
     try { const t = (await api(store, '/tags')).tags; return Array.isArray(t) ? t.map(String) : []; } catch { return []; }
   },
   articles: ([kind, tag, name, page], store) => articles(store, kind, tag, name, page),
