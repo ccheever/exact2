@@ -18,6 +18,7 @@
 
 #![deny(missing_docs)]
 
+mod encode;
 mod executor;
 mod page;
 mod pages;
@@ -27,7 +28,7 @@ mod source;
 pub use executor::Executor;
 pub use page::page;
 pub use pages::pages;
-pub use serve::{Serve, Server};
+pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;
 
 use exact_kernel::Kernel;
@@ -519,8 +520,12 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         };
         println!("serving http://{}/", server.addr());
         let _ = std::io::Write::flush(&mut std::io::stdout());
+        drain_on_signal(server.stopper());
         return match server.run(data) {
-            Ok(()) => ExitCode::SUCCESS,
+            Ok(()) => {
+                println!("drained");
+                ExitCode::SUCCESS
+            }
             Err(e) => {
                 eprintln!("render: serve: {e}");
                 ExitCode::FAILURE
@@ -608,6 +613,31 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// SIGTERM or SIGINT drains the server (D10): a restart loses no render
+/// in flight.
+fn drain_on_signal(stopper: Stopper) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SIGNALLED: AtomicBool = AtomicBool::new(false);
+    extern "C" fn signalled(_: libc::c_int) {
+        SIGNALLED.store(true, Ordering::SeqCst);
+    }
+    // SAFETY: the handler only stores to an atomic, which is signal-safe.
+    unsafe {
+        libc::signal(libc::SIGTERM, signalled as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, signalled as *const () as libc::sighandler_t);
+    }
+    let _ = std::thread::Builder::new()
+        .name("exact-render-drain".into())
+        .spawn(move || {
+            while !SIGNALLED.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            println!("draining");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            stopper.stop();
+        });
 }
 
 fn json(text: &str) -> String {

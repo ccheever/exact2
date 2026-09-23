@@ -114,6 +114,11 @@ fn dist(name: &str) -> PathBuf {
     std::fs::write(dir.join("glue.js"), "// the glue\n").unwrap();
     std::fs::write(dir.join("module-prelude.js"), "prelude").unwrap();
     std::fs::write(dir.join("app.js"), "module").unwrap();
+    std::fs::write(
+        dir.join("big.js"),
+        "export const words = ['the same words, again'];\n".repeat(200),
+    )
+    .unwrap();
     std::fs::write(dir.join("assets/dot.png"), [0x89, b'P', b'N', b'G']).unwrap();
     dir
 }
@@ -140,12 +145,19 @@ fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> SocketAddr 
 
 /// Status, headers (lowercased names) and body of one request.
 fn fetch(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, String) {
+    let (status, headers, body) = fetch_bytes(addr, request);
+    (status, headers, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// The same, the body as bytes.
+fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
     let mut stream = TcpStream::connect(addr).unwrap();
     stream.write_all(request.as_bytes()).unwrap();
     let mut bytes = Vec::new();
     stream.read_to_end(&mut bytes).unwrap();
-    let raw = String::from_utf8_lossy(&bytes).into_owned();
-    let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+    let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
+    let head = String::from_utf8_lossy(&bytes[..at]).into_owned();
+    let body = bytes[at + 4..].to_vec();
     let mut lines = head.split("\r\n");
     let status = lines
         .next()
@@ -159,7 +171,7 @@ fn fetch(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, String
         .filter_map(|l| l.split_once(": "))
         .map(|(k, v)| (k.to_ascii_lowercase(), v.to_string()))
         .collect();
-    (status, headers, body.to_string())
+    (status, headers, body)
 }
 
 fn get(addr: SocketAddr, target: &str) -> (u16, Vec<(String, String)>, String) {
@@ -206,7 +218,8 @@ fn each_route_answers_by_its_policy() {
         assert!(csp.contains(&format!("'sha256-{hash}'")), "{csp}");
     }
     assert_eq!(header(&headers, "x-content-type-options"), Some("nosniff"));
-    assert!(header(&headers, "vary").is_none());
+    // Only its encoding varies; nothing else of the request shapes a page.
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
     // Canonical URLs come from the configured origin, not the request's Host.
     assert!(!body.contains("evil.test"));
     // An unchanged page is a 304 to a cache that has it.
@@ -280,13 +293,27 @@ fn files_health_and_the_edges_of_http() {
     let (status, _, body) = fetch(addr, "GET /../Cargo.toml HTTP/1.1\r\n\r\n");
     assert!(!body.contains("[package]"));
     assert_ne!(status, 200);
-    assert_eq!(get(addr, "/%2e%2e/%2e%2e/etc/hosts").0, 404);
-    // One URL per page.
-    let (status, headers, _) = get(addr, "/post//7/?x=1");
+    // An encoded climb is a location like any other: it resolves inside
+    // the site, to a page that isn't there.
+    let (status, headers, _) = get(addr, "/%2e%2e/%2e%2e/etc/hosts");
     assert_eq!(
         (status, header(&headers, "location")),
-        (301, Some("/post/7?x=1"))
+        (301, Some("/etc/hosts"))
     );
+    assert_eq!(get(addr, "/etc/hosts").0, 404);
+    // One URL per page: the router's canonical form.
+    for (target, canonical) in [
+        ("/post//7/?x=1", "/post/7?x=1"),
+        ("/post/./7", "/post/7"),
+        ("/post/7?a='b'", "/post/7?a=%27b%27"),
+    ] {
+        let (status, headers, _) = get(addr, target);
+        assert_eq!(
+            (status, header(&headers, "location")),
+            (301, Some(canonical)),
+            "{target}"
+        );
+    }
     assert_eq!(fetch(addr, "POST /post/7 HTTP/1.1\r\n\r\n").0, 405);
     assert_eq!(fetch(addr, "nonsense\r\n\r\n").0, 400);
 }
@@ -495,4 +522,151 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
         batch.contains("{\"op\":\"adopt\",\"adopted\":true}"),
         "{batch}"
     );
+}
+
+/// A body as it was before its `Content-Encoding`.
+fn decoded(headers: &[(String, String)], body: &[u8]) -> String {
+    let mut out = Vec::new();
+    match header(headers, "content-encoding") {
+        Some("br") => brotli::Decompressor::new(body, 4096)
+            .read_to_end(&mut out)
+            .map(drop)
+            .unwrap(),
+        Some("gzip") => flate2::read::GzDecoder::new(body)
+            .read_to_end(&mut out)
+            .map(drop)
+            .unwrap(),
+        None => out.extend_from_slice(body),
+        Some(other) => panic!("{other}"),
+    }
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn pages_and_files_go_compressed_as_the_client_accepts() {
+    let addr = start("encoding", 1, 8, 300);
+    let page = |accept: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET /live/7 HTTP/1.1\r\nAccept-Encoding: {accept}\r\n\r\n"),
+        )
+    };
+    // Brotli first; gzip when brotli is refused; none when neither is taken.
+    for (accept, encoding) in [
+        ("gzip, deflate, br", Some("br")),
+        ("br;q=0, gzip", Some("gzip")),
+        ("identity", None),
+    ] {
+        let (status, headers, body) = page(accept);
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "content-encoding"), encoding, "{accept}");
+        assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+        let text = decoded(&headers, &body);
+        assert!(text.contains(">Post 7<"), "{text}");
+        if let Some(encoding) = encoding {
+            assert!(body.len() < text.len() / 2, "{encoding}: {}", body.len());
+        }
+    }
+    // A cache holding the brotli page revalidates it by its own ETag.
+    let (_, headers, _) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+    let etag = header(&headers, "etag").unwrap().to_string();
+    assert!(etag.ends_with("-br\""), "{etag}");
+    let (status, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert_eq!(header(&headers, "etag"), Some(etag.as_str()));
+    // A dist file goes as it is until its variant is made, off the request
+    // path; then brotli's best.
+    let script = "export const words = ['the same words, again'];\n".repeat(200);
+    let started = std::time::Instant::now();
+    let (headers, body) = loop {
+        let (status, headers, body) = fetch_bytes(
+            addr,
+            "GET /big.js HTTP/1.1\r\nAccept-Encoding: br, gzip\r\n\r\n",
+        );
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+        assert_eq!(decoded(&headers, &body), script);
+        if header(&headers, "content-encoding").is_some() {
+            break (headers, body);
+        }
+        assert!(started.elapsed() < Duration::from_secs(60), "no variant");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert!(body.len() < script.len() / 10, "{}", body.len());
+    // An image is sent as it is, and says nothing of encodings.
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        "GET /assets/dot.png HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(header(&headers, "content-encoding"), None);
+    assert_eq!(header(&headers, "vary"), None);
+}
+
+#[test]
+fn a_file_the_dist_lacks_is_a_plain_404() {
+    let addr = start("favicon", 1, 8, 300);
+    // A browser's icon request doesn't render the not-found document…
+    let (status, headers, body) = get(addr, "/favicon.ico");
+    assert_eq!((status, body.as_str()), (404, "not found\n"));
+    assert_eq!(
+        header(&headers, "cache-control"),
+        Some("public, max-age=0, s-maxage=60")
+    );
+    assert_eq!(get(addr, "/old/app.js").0, 404);
+    // …but an unknown page does, dots and all.
+    for target in ["/no/such/page", "/v1.2", "/notes/readme.md"] {
+        let (status, _, body) = get(addr, target);
+        assert_eq!(status, 404, "{target}");
+        assert!(body.contains(">Nothing here<"), "{target}: {body}");
+    }
+}
+
+#[test]
+fn a_drained_server_answers_what_it_took_and_stops() {
+    super::warm_transport();
+    let serve = Serve {
+        dist: dist("drain"),
+        port: 0,
+        name: "Blog".into(),
+        origin: None,
+        deadline: Duration::from_millis(1000),
+        renders: 1,
+        queue: 0,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+    };
+    let server = Server::bind(serve, contract::compile(SRC).unwrap(), Posts.grants()).unwrap();
+    let (addr, stopper) = (server.addr(), server.stopper());
+    let running = std::thread::spawn(move || server.run(|| Posts));
+    // The worker is up (before it is, every request finds the queue full)…
+    while get(addr, "/.exact/health").0 != 200 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // …then the slow render holds it, and a probe finds it busy.
+    let slow = std::thread::spawn(move || loop {
+        let answer = get(addr, "/post/slow");
+        if answer.2 != "busy\n" {
+            break answer;
+        }
+    });
+    while !slow.is_finished() && get(addr, "/.exact/health").0 != 503 {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    stopper.stop();
+    // What it took is answered: the render in flight ends at its deadline.
+    let (status, _, body) = slow.join().unwrap();
+    assert_eq!(status, 503);
+    assert!(body.contains("\"pending\":[\"post\"]"), "{body}");
+    // It takes nothing new, and returns.
+    let started = std::time::Instant::now();
+    while !running.is_finished() {
+        assert!(started.elapsed() < Duration::from_secs(30), "still running");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    running.join().unwrap().unwrap();
+    assert!(TcpStream::connect(addr).is_err());
 }
