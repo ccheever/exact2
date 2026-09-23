@@ -244,6 +244,26 @@ holds (`state stationId = none` … `stationId = some(id)`); an unfilled `?` is
 `type-cannot-infer`, never a guess. Derives are inferred to a fixpoint in any
 order; a cycle is `type-derive-cycle`. Every rejection carries a stable id and
 a line:column (`CompileError`).
+
+**Every independent refusal in one run** (2026-09-22). `contract build` and
+`--json` (an array) report each independent mistake, at most 20;
+`compile_path_all` returns them and the other entry points return the first.
+The lexer refuses per line and the parser per top-level declaration, resuming
+at the next line that starts in column 1. Expansion records a use it cannot
+expand and continues, a missing value reading as `?`. Types records per state,
+derive, statement, view attribute and use, analysis per component and action,
+lowering per element and attribute. A later refusal that mentions `?` is a
+consequence and is dropped, as are repeats. A misspelled or mistyped call site
+is reported first, and what it broke inside a child is left out. A pass runs
+only on what the one before accepted, except that when types or analysis
+refuse, the authored elements are still linted for what needs no types: tags,
+attribute names and literal values. Refusals name the author's attribute,
+not the kernel row, and suggest the one spelling a slip most plausibly meant,
+for names, fields, props, tags and attributes. An expression may nest 64
+deep and its tree be 100 deep, which fits a 2 MB thread's stack even
+unoptimized; past either is `syntax-expression-depth`, never a stack overflow.
+`length` and `isEmpty` take a string or list and `toString` a number, string
+or bool; the roster's `any` is the checker's, so the table is unchanged.
 Authored-function and roster arity refusals include the ordered parameter types
 as a signature, including empty parameter lists and nested types. Their type
 mismatches name the one-based argument position. The existing signature tables
@@ -328,8 +348,8 @@ For ASCII misspellings of 3–64 bytes, it suggests a single insertion, deletion
 substitution or adjacent transposition only when one available global name fits:
 a declared `fn`, an admitted roster call, or the compiler calls `pending` and
 `path`. Router-only calls, including intrinsic `path`, require `routes`. Scoped action names, including conservative stems of lifted instance
-names, veto ambiguous suggestions; action names themselves and names containing
-`__` are not offered. This avoids exposing generated names or treating the
+names, veto ambiguous suggestions; action names themselves are not offered, and
+a generated name (spelled with `#`, which no author can write) never is. This avoids exposing generated names or treating the
 expanded root as the child's authored scope. Existing arity/type refusals and
 valid calls do no suggestion work. Suggested replacements still undergo normal
 compilation; no typo is accepted as an alias.
@@ -340,7 +360,7 @@ action references and timers retain those legal action spellings. This follows t
 refused expression kind even when a bare prop is called downstream.
 Handlers, action props and timers offer one unambiguous action spelling under the
 same ASCII edit rule. Candidates come from that component's actions and action
-props/injections, excluding local `each`/`match` shadows and names containing `__`.
+props/injections, excluding local `each`/`match` shadows.
 A global function is not a handler correction; timers offer declared actions only.
 When prop/provider substitution obscures the caller, an error-only mapped expansion
 traces the argument through instance parents and adds the original supplied
@@ -359,11 +379,25 @@ Renaming borrows names from its existing string map through the same expression
 substitution walk, avoiding reconstruction of the map for every expression.
 `each` and `match` retain their lexical scopes; references keep their authored spans.
 An empty substitution map copies the expression without performing name lookups.
-Child derive dependencies are resolved once per use, then substituted separately
-for the view and each action's captured parameters. Resolution fills its existing
-result table without returning expression copies that discovery would discard.
-The per-use results are released before expanding nested children; there is no
-cross-use or cross-compilation cache.
+
+**Expansion identity** (2026-09-22). A child's lifted states, actions and view
+binders are `name#N` for use `N`. `#` cannot appear in an authored identifier,
+so a root `count__1` and a child's lifted `count` are two slots. Substitution
+avoids capture: a binder a replacement would capture is renamed `x@k`, and a
+property test checks it against an evaluator. A child derive the view, a state
+or an action reads resolves once per use to its body with its dependencies in
+scope. A dependency read more than once is bound once, as the compiler-only
+`Expr::Let` (lowered with BindLocal/LoadLocal/DropLocal, like an inline
+`match`), at the smallest part of the body that evaluates it on every path,
+counting reads through other derives. It is never bound ahead of a condition,
+`match` arm or `and`/`or` that would skip it. One no path always evaluates is
+written where it is read. A `fn` body's repeated identical calls are bound the
+same way. A chain of 64 derives, each reading the one before twice, expands to
+257 expression nodes (was 2^n); a 32-deep `fn` chain is 897 plan bytes.
+`corpus/lazy-derive.contract` and a generated property test hold that each
+value is computed exactly where its readers computed it. Lowering takes each
+expression's type from what it compiles (no re-inference), and the plan
+builder shares identical code bodies.
 
 Scope clones share immutable name/type frames while retaining independent frame
 stacks. Entering or leaving a branch changes only its own stack; shadowing and
