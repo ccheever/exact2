@@ -1031,11 +1031,12 @@ final class Presenter {
                         } else { container.addSubview(child) }
                     }
                     let siblings = container.subviews
-                    if i >= siblings.count || siblings[i] !== child {
+                    if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
                 }
+                if collections.owns(id) { collections.orderChildren(want, in: container) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:

@@ -536,6 +536,50 @@ final class CollectionMacTests: XCTestCase {
         }
     }
 
+    func testCollectionSpacerReorderPreservesParagraphFocusAndSelection() throws {
+        let (p, list) = fixture()
+        defer { p.reset() }
+        let container = MountObservedView()
+        try XCTUnwrap(list.scroll).documentView = container
+        p.apply(batch([
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "A retained selection"]],
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "props", "id": 2, "set": ["listItemKey": "s:row", "accessibilityPosInSet": "1"]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 5]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 280.0, "h": 20.0]
+        ]))
+        let paragraph = try XCTUnwrap(p.views[4])
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.makeFirstResponder(nil); window.close() }
+        XCTAssertTrue(window.makeFirstResponder(paragraph))
+        p.onListIndex = { _, key in key == "s:row" ? 0 : nil }
+        p.onListText = { _, _, _ in "A retained selection" }
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: paragraph.convert(.zero, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        p.selection.begin(paragraph, event: down)
+        p.selection.selectAll()
+        container.added.removeAll(); container.removed.removeAll()
+        // The same spacer moves from after the pinned row to before it as
+        // scrolling changes the window. The paragraph remains a live pin.
+        for ids in [[5, 2, 6], [2, 5, 6], [5, 6, 2]] {
+            p.apply(batch([["op": "children", "id": 1, "ids": ids]]))
+            XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, ids.map(UInt32.init))
+            XCTAssertTrue(window.firstResponder === paragraph)
+            XCTAssertEqual(p.collections.focusedView(), paragraph.id)
+            XCTAssertEqual(p.selection.selectedText(), "A retained selection")
+        }
+        XCTAssertEqual(container.added, [6], "only the new row mounts")
+        XCTAssertEqual(container.removed, [], "reordering retained rows cannot detach their responders")
+        p.apply(batch([["op": "children", "id": 1, "ids": [5, 6]]]))
+        XCTAssertEqual(container.removed, [2], "a retired row must still detach")
+        XCTAssertFalse(window.firstResponder === paragraph)
+    }
+
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {
         for decorated in [false, true] {
             _ = NSApplication.shared

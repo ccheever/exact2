@@ -3,6 +3,22 @@
 import AppKit
 
 extension CollectionHost {
+    func orderChildren(_ children: [NodeView], in container: NSView) {
+        // Spacer reuse can move a pinned row within the same parent. Detaching
+        // it to reorder clears AppKit's first responder, even when its logical
+        // selection and the row itself survive the collection commit.
+        let ordered = container.subviews.filter { !($0 is NodeView) } + children
+        guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
+        var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            container.sortSubviews({ left, right, raw in
+                let order = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = order[ObjectIdentifier(left)]!, b = order[ObjectIdentifier(right)]!
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
+    }
+
     func pointerDown(_ view: UInt32?, event: NSEvent) {
         guard contactEvent !== event else { return }
         contactEvent = event
