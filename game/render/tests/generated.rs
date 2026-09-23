@@ -57,7 +57,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
     surface
         .bind(&[Value::Number(0.), Value::Bool(false)], None)
         .unwrap();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     assert!(surface.assets().requests.is_empty());
     surface.prepare_assets(
         &gpu.device,

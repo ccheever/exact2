@@ -93,7 +93,7 @@ fn rendered_atlas_and_mid_fall_restore() {
         return;
     };
     let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
-    s.device_ready();
+    s.device_ready(wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
         for n in s.assets().requests {

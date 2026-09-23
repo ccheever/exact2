@@ -83,7 +83,9 @@ fn mapped_normal(input:ModelVarying, front:bool) -> vec3<f32> {
     let p2=cross(dp2,n); let p1=cross(n,dp1);
     let t=p2*duv1.x+p1*duv2.x; let b=p2*duv1.y+p1*duv2.y;
     let length2=max(dot(t,t),dot(b,b));
-    let sampled=textureSample(normal_texture,normal_sampler,uv).xyz*2.0-1.0;
+    // XY only, Z rebuilt: BC5 and two-channel ASTC carry no Z, and RGBA8 reads alike.
+    let xy=textureSample(normal_texture,normal_sampler,uv).xy*2.0-1.0;
+    let sampled=vec3(xy,sqrt(max(1.0-dot(xy,xy),0.0)));
     if length2 < 1e-16 { return n; }
     return normalize((t*sampled.x+b*sampled.y)*baked.surface.z*inverseSqrt(length2)+n*sampled.z);
 }

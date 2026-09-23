@@ -74,7 +74,7 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
     fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
         let data = assets();
         let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelPresentation, true>::default();
-        s.device_ready();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         for _ in 0..16 {
             for n in s.assets().requests {
@@ -111,7 +111,7 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
                 }
                 "model arrival" => {
                     s.device_lost();
-                    s.device_ready();
+                    s.device_ready(exact_gpu::wgpu::Features::empty());
                     for _ in 0..16 {
                         for n in s.assets().requests {
                             s.asset(&n, Ok(&data[&n]));

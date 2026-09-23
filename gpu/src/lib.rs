@@ -222,8 +222,9 @@ pub trait Surface {
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool;
-    /// A presentation target acquired a device, before its first draw.
-    fn device_ready(&mut self) {}
+    /// A presentation target acquired a device, before its first draw. Its
+    /// granted features (e.g. block-compressed textures) choose what to fetch.
+    fn device_ready(&mut self, _features: wgpu::Features) {}
     /// Presentation was lost; release device resources without discarding owned state.
     fn device_lost(&mut self) {}
     /// Drain an error discovered while rendering or advancing committed state.
@@ -437,7 +438,7 @@ impl Module {
                 #[cfg(not(target_arch = "wasm32"))]
                 wgpu::TextureFormat::Rgba8Unorm
             };
-            inst.surface.device_ready();
+            inst.surface.device_ready(gpu.device.features());
             inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
             inst.dirty = true;
         }
@@ -585,8 +586,8 @@ impl Module {
         let id = self.next;
         let mut surface = factory();
         surface.clock(self.seekable);
-        if presentation.is_some() {
-            surface.device_ready();
+        if let (Some(_), Some(gpu)) = (&presentation, &self.gpu) {
+            surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
             (Some(target), Some(config))
@@ -1441,7 +1442,7 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 }
 
 mod device;
-pub use device::{load_gpu, requested_limits};
+pub use device::{load_gpu, requested_features, requested_limits};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fixture;

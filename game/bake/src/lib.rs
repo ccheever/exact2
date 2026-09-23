@@ -1,6 +1,7 @@
 //! Build-time glTF importer; no runtime crate depends on this crate.
 use exact_game::{asset::*, Vec3};
 use std::path::Path;
+pub mod compress;
 mod files;
 mod geometry;
 use files::write_changed;
@@ -16,7 +17,9 @@ pub fn model(path: impl AsRef<Path>) -> Result<Model, String> {
         .map(|(model, _)| model)
         .map_err(|e| format!("{}: {e}", path.display()))
 }
-/// Bake the model metadata and independently deliverable texture payloads.
+/// Bake the model metadata and independently deliverable texture payloads:
+/// each texture's authored RGBA8 name plus its `.bc.tex` and `.astc.tex`
+/// payloads (`TextureFamily::name`), of which a device fetches one.
 pub fn assets(
     path: &Path,
 ) -> Result<(Model, std::collections::BTreeMap<String, TextureData>), String> {
@@ -87,7 +90,12 @@ pub fn assets(
                 .collect::<Vec<_>>()
         })
         .collect();
-    let textures = textures::materials(&doc, &images, &mut model, stem, &used_materials)?;
+    let sources = textures::materials(&doc, &images, &mut model, stem, &used_materials)?;
+    let mut textures = std::collections::BTreeMap::new();
+    for (name, (full, slots, cut)) in sources {
+        let channels = textures::channels(slots, cut);
+        textures.extend(compress::variants(&name, &full, channels, false)?);
+    }
     let skin_map: std::collections::BTreeMap<_, _> = doc
         .nodes()
         .filter(|n| reached.contains(&n.index()))
@@ -328,6 +336,15 @@ pub fn assets(
     Ok((model, textures))
 }
 
+/// A sprite's authored RGBA8 name and its per-family payloads. Block formats
+/// are used only where they decode to exactly the authored texels.
+pub fn sprite_variants(
+    name: &str,
+    path: impl AsRef<Path>,
+) -> Result<Vec<(String, TextureData)>, String> {
+    compress::variants(name, &sprite(path)?, compress::Channels::ColorAlpha, true)
+}
+
 /// Bake a standalone PNG sprite: sRGB, straight alpha, nearest min/mag/mips,
 /// clamp-to-edge on both axes. Nearest mip levels preserve the authored palette.
 pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
@@ -351,6 +368,7 @@ pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
         wrap: [Wrap::Clamp; 2],
         filter: [Filter::Nearest; 3],
         mips: vec![image.into_raw()],
+        format: TextureFormat::Rgba8,
     };
     let (mut w, mut h) = (width, height);
     while w > 1 || h > 1 {
@@ -434,12 +452,13 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             if !asset_name(&name) {
                 return Err(format!("invalid sprite asset name `{name}`"));
             }
-            let texture = sprite(&path)?;
-            if outputs
-                .insert(name.clone(), encode(&name, &texture)?)
-                .is_some()
-            {
-                return Err(format!("duplicate art stem {name}"));
+            for (name, texture) in sprite_variants(&name, &path)? {
+                if outputs
+                    .insert(name.clone(), encode(&name, &texture)?)
+                    .is_some()
+                {
+                    return Err(format!("duplicate art stem {name}"));
+                }
             }
             continue;
         }

@@ -8,6 +8,22 @@ export function checkSteadyResidency(world, check, say, host) {
     world.device === true && world.ready && Object.values(world.gpu.afterReady).every(n => n === 0), world.gpu);
 }
 
+// A device fetches textures in its own block family (BC, else ASTC, else RGBA8);
+// a GPU-less host fetches the RGBA8 fallback. A family file may hold RGBA8 where
+// blocks cannot represent the texture (a sprite's exact palette).
+export function checkTextureFamily(world, check, say) {
+  const gpu = world.gpu ?? {};
+  say(`texture family ${gpu.textureFamily}: ${JSON.stringify(gpu.textures)}`);
+  if (world.device !== true) {
+    check('GPU-less host fetches the RGBA8 fallback', gpu.textureFamily === 'Rgba8', gpu);
+    return;
+  }
+  const family = {Bc: /^Bc\d$/, Astc: /^Astc/, Rgba8: /^Rgba8$/}[gpu.textureFamily];
+  const formats = Object.keys(gpu.textures ?? {}).filter(key => key !== 'bytes');
+  check(`device textures are resident in the ${gpu.textureFamily} family it fetched`,
+    !!family && formats.length > 0 && formats.every(f => family.test(f) || f === 'Rgba8'), gpu);
+}
+
 // Fixture-only instrumentation of the real Surface ABI; no production agent verbs.
 export function residencyProbe(model, texture, popName) {
   let receive, changedTexture = false;
@@ -61,7 +77,10 @@ export function residencyProbe(model, texture, popName) {
     source,
     assetPath: path => path === `/assets/${popName}` ? `/assets/${model}` : path,
     async textureResponse(path, file) {
-      if(!changedTexture || path !== `/assets/${texture}`) return null;
+      // The device fetches one family's file for the authored name (x.tex,
+      // x.bc.tex or x.astc.tex); change whichever it asked for.
+      const stem = texture.replace(/\.tex$/, '');
+      if(!changedTexture || !['.tex','.bc.tex','.astc.tex'].some(suffix => path === `/assets/${stem}${suffix}`)) return null;
       const bytes = new Uint8Array(await file.arrayBuffer());
       const marker=[109,105,112,115];
       let p=bytes.findIndex((_,i)=>marker.every((b,j)=>bytes[i+j]===b))+4;

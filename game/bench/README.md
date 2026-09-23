@@ -1469,3 +1469,13 @@ All 2,508 compared target results and 8,467 save bytes are identical, including
 literal `#` names, duplicate names, absent targets and recycled entities. The 39
 focused ECS, argument/agent and ergonomics tests, engine Clippy and formatting
 checks pass. Evidence: `/Users/ccheever/projects/.exact-game-verification/target-resolution-current/`.
+
+### Compressed textures — 2026-09-23
+
+`bun game/bench/size.mjs baseline|textures --app skinned-fixture` (and `--app
+beacons`), before and after BC/ASTC texture payloads (LLP 1046.003, "Compressed
+textures"), on this Mac without `wasm-opt`: the asset-capable module 1,578,268 →
+1,585,931 raw and 473,576 → 476,096 gzip bytes (the family choice, block uploads
+and the state report); the primitive module 1,128,865 → 1,127,207 raw and 349,087
+→ 348,992 gzip. The module carries no transcoder. Texture bytes, quality, device
+memory and load times are in the LLP section.

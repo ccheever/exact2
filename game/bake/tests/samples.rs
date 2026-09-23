@@ -62,11 +62,25 @@ pub fn sample(name: &str) -> Model {
         let out = cache.join(name);
         std::fs::create_dir_all(out.parent().unwrap()).unwrap();
         std::fs::write(&out, &bytes).unwrap();
-        eprintln!("{name}: {} bytes", bytes.len());
-        assert_eq!(t.mips.last().unwrap().len(), 4);
+        let gzip = Command::new("gzip")
+            .args(["-9", "-c"])
+            .arg(&out)
+            .output()
+            .unwrap();
+        assert!(gzip.status.success());
+        t.validate().unwrap();
         assert_eq!(
             t.mips.len(),
             (32 - t.width.max(t.height).leading_zeros()) as usize
+        );
+        let quality = quality(name, t, &textures);
+        eprintln!(
+            "{name}: {:?} {}x{} raw={} gzip={}{quality}",
+            t.format,
+            t.width,
+            t.height,
+            bytes.len(),
+            gzip.stdout.len()
         );
     }
     if name == "DamagedHelmet" {
@@ -85,6 +99,39 @@ pub fn sample(name: &str) -> Model {
     eprintln!("{name}: meshes={} materials={} textures={} nodes={} skins={} clips={} bounds={:?}; raw={} gzip={}",model.meshes.len(),model.materials.len(),model.textures.len(),model.nodes.len(),model.skins.len(),model.clips.len(),model.bounds,bytes.len(),gzip.stdout.len());
     model
 }
+/// A family payload's PSNR against its RGBA8 fallback, over the channels its
+/// material reads, at the top level (which must exceed 40 dB) and the worst level.
+fn quality(
+    name: &str,
+    t: &exact_game::asset::TextureData,
+    all: &std::collections::BTreeMap<String, exact_game::asset::TextureData>,
+) -> String {
+    use exact_game::asset::TextureFormat;
+    use exact_game_bake::compress::{decode, psnr};
+    let Some(stem) = name
+        .strip_suffix(".bc.tex")
+        .or_else(|| name.strip_suffix(".astc.tex"))
+    else {
+        return String::new();
+    };
+    let rgba = &all[&format!("{stem}.tex")];
+    let channels: &[usize] = match all[&format!("{stem}.bc.tex")].format {
+        TextureFormat::Bc4 => &[0],
+        TextureFormat::Bc5 => &[0, 1],
+        _ if name.contains("-alpha") => &[0, 1, 2, 3],
+        _ => &[0, 1, 2],
+    };
+    let skip = t.mips.len() - rgba.mips.len();
+    let levels: Vec<f64> = (0..rgba.mips.len())
+        .map(|level| psnr(&rgba.mips[level], &decode(t, level + skip), channels))
+        .collect();
+    let worst = levels.iter().copied().fold(f64::INFINITY, f64::min);
+    // Small levels hold the most detail per block; 4×4 codecs measure ~30 dB
+    // there in both families, which the gate reports rather than bounds.
+    assert!(levels[0] > 40., "{name}: {levels:?} dB");
+    format!(" psnr={:.1}dB worst-level={worst:.1}dB", levels[0])
+}
+
 #[test]
 fn khronos_samples_bake_round_trip_and_have_complete_mips() {
     let bounds = |model: &Model, expected: [f32; 6]| {

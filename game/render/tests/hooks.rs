@@ -622,7 +622,7 @@ fn custom_material_uses_engine_instances_and_paired_shadow() {
         true,
         MaterialHooks,
     >::default();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let hash = surface.sim().unwrap().world().hash();
     let save = surface.sim().unwrap().world().save();

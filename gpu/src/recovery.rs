@@ -42,7 +42,7 @@ impl Module {
             }
             .map_err(|e| e.to_string())?;
             target.configure(&gpu.device, config);
-            inst.surface.device_ready();
+            inst.surface.device_ready(gpu.device.features());
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, config.format);
             inst.presentation = Some(target);

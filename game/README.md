@@ -383,11 +383,13 @@ five core checks.
 ### Assets, animation and placed UI
 
 Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
-[the baker](bake/README.md) produces validated `.model`, `.tex` and `.sound` assets.
-Declare simulation dependencies in `Game::ASSETS`; setup waits for them. Models and
-sprites need the asset-capable module; sounds and untextured emitters do not. See
-[the audio executor](audio/README.md) and [the audio fixture](games/audio-fixture/logic/src/lib.rs)
-for sampled sounds.
+[the baker](bake/README.md) produces validated `.model`, `.tex` and `.sound` assets,
+each texture as RGBA8, BC and ASTC files of which a device fetches one
+([texture payloads](bake/README.md#texture-payloads)). Name the authored `x.tex`
+everywhere. Declare simulation dependencies in `Game::ASSETS`; setup waits for them.
+Models and sprites need the asset-capable module; sounds and untextured emitters do
+not. See [the audio executor](audio/README.md) and
+[the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
 
 For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.
 JSON levels work in the primitive module and need no `game.assets` setting or art importer.

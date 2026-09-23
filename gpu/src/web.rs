@@ -104,7 +104,7 @@ pub async fn recover(
         for (id, target) in targets {
             let inst = module.instances.get_mut(&id).unwrap();
             let config = inst.config.as_ref().unwrap();
-            inst.surface.device_ready();
+            inst.surface.device_ready(gpu.device.features());
             inst.surface
                 .prepare_assets(&gpu.device, &gpu.queue, config.format);
             inst.presentation = Some(target);
