@@ -509,7 +509,9 @@ await step('boot', () => {
       })`);
       const visible = await evaluate('exact.root.innerText');
       const literals = [...original.matchAll(/\btext ("(?:[^"\\]|\\.)*")/g)];
-      const match = literals.find(m => { try { const value = JSON.parse(m[1]); return value.trim() && visible.includes(value); } catch { return false; } });
+      // Edit a literal that occurs once, so the occurrence edited is the one on
+      // screen (Caltrain's first "Web deck" is on a screen that is not shown).
+      const match = literals.find(m => { try { const value = JSON.parse(m[1]); return value.trim() && visible.includes(value) && literals.filter(o => o[1] === m[1]).length === 1; } catch { return false; } });
       if (!match) throw new Error('no visible literal text in app.contract to edit; no edit timing claimed');
       const samples = [];
       for (let index = 0; index < 20; index++) {
