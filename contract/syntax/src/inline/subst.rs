@@ -111,6 +111,9 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
 
 /// `e` with `map` substituted, for a one-off substitution.
 pub(super) fn substituted<T: SubstitutionValue>(e: &Expr, map: &BTreeMap<String, T>) -> Expr {
+    if map.is_empty() {
+        return e.clone();
+    }
     subst_expr(e, &mut Subst::new(map))
 }
 
