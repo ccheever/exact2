@@ -855,5 +855,53 @@ async function rejects(action, matches) {
     && signingRefused && !inspected.usable && /differ only by case/.test(inspected.problem), JSON.stringify({ refused, accepted, signingRefused, inspected: inspected.problem }));
 }
 
+// The next seq sits above everything the stream has authenticated: the head
+// and every signed immutable release record. A head rolled back on the
+// origin (a restored backup, a stale replica) must not hand out a seq
+// clients already hold for another bundle.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'exact-seq-floor-'));
+  const compatibilityId = 'b'.repeat(32);
+  const stream = { channel: 'prod', compatibilityId };
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const publicRaw = publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64');
+  const app = { id: 'com.exact.seqfloor', displayName: 'Seq Floor', dir,
+    manifest: { deploy: { signing: { key: 'test', keys: { test: publicRaw } } } } };
+  const bundleOf = (text) => {
+    const plan = Buffer.from(text);
+    return { plan: { bytes: plan, sha256: sha256(plan), formatVersion: 4, kernelSchema: '0'.repeat(16) }, assets: [] };
+  };
+  const published = bundleOf('published plan'), next = bundleOf('next plan');
+  const signedAt = (seq) => {
+    const head = streamHead({ app, bundle: published, stream, seq, release: `r${seq}` });
+    head.cohort = cohortReceipt(fixtureBuild(compatibilityId, published));
+    head.signature = { keyId: 'test', ed25519: cryptoSign(null, canonicalBytes(head), privateKey).toString('base64') };
+    return head;
+  };
+  const head = signedAt(7);
+  const headBytes = Buffer.from(JSON.stringify(head) + '\n');
+  const records = { 'r7.json': signedAt(7), 'r9.json': signedAt(9) };
+  const tableWith = (names) => classify({ app, opts: { platform: [] },
+    origin: {
+      kind: 'directory', describe: () => dir,
+      get: async (name) => {
+        const leaf = name.split('/').at(-1);
+        return names.includes(leaf) ? Buffer.from(JSON.stringify({ envelope: records[leaf] })) : null;
+      },
+      head: async () => ({ json: head, bytes: headBytes, sha256: sha256(headBytes) }),
+      list: async (name) => name.endsWith('/releases') ? names : [],
+    },
+    channel: stream.channel, snapshot: { commit: '0'.repeat(40), dirty: false, changes: [], repo: dir },
+    release: 'next', web: dir, bundle: next, builds: { linux: fixtureBuild(compatibilityId, next) },
+    compat: { linux: { id: compatibilityId, inputs: { store: { L: 'A' }, executors: [] } } },
+    platforms: ['linux'], wantOrigin: false });
+  const rolledBack = await tableWith(['r7.json', 'r9.json']);
+  const inStep = await tableWith(['r7.json']);
+  rmSync(dir, { recursive: true, force: true });
+  result('a rolled-back head allocates above the authenticated release history',
+    rolledBack.rows[0].action === 'bundle' && rolledBack.rows[0].seq === 10 && inStep.rows[0].seq === 8,
+    JSON.stringify({ rolledBack: rolledBack.rows[0], inStep: inStep.rows[0] }));
+}
+
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

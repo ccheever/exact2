@@ -898,14 +898,17 @@ async function authenticatedReleaseFloor(origin, app, stream) {
   return { known: true, empty: false, floor };
 }
 
-/** Allocate after an admitted head. Repairing an unusable head instead uses
- * the maximum signed immutable history; if none exists, overwriting would
- * guess at the clients' rollback floor and is refused. */
+/** Allocate above everything the stream has authenticated: an admitted head
+ * and the maximum signed immutable history. A head rolled back on the origin
+ * (a restored backup, a stale replica) would otherwise hand out a seq that
+ * clients already hold for another bundle. Repairing an unusable head uses
+ * the history alone; if none exists, overwriting would guess at the clients'
+ * rollback floor and is refused. */
 async function nextSeq(origin, app, stream, admission, at) {
+  const history = await authenticatedReleaseFloor(origin, app, stream);
   let floor;
-  if (admission?.usable) floor = admission.seq;
+  if (admission?.usable) floor = Math.max(admission.seq, history.floor ?? 0);
   else {
-    const history = await authenticatedReleaseFloor(origin, app, stream);
     if (!history.known) throw new OriginUnavailable(`${at} ${admission ? `is unusable (${admission.problem})` : 'is missing'}, but ${origin.describe()} cannot enumerate its authenticated release history; a rollback-safe sequence cannot be allocated`);
     floor = history.floor;
     if (floor === null && !admission && history.empty) return 1;
