@@ -473,8 +473,12 @@ extension Agent {
         // Put this click's release in the queue before entering that loop.
         NSApp.postEvent(up, atStart: true)
         win.sendEvent(down)
-        if let queued = release.takeQueued(from: NSApp) {
-            win.sendEvent(queued)
+        // The queue's wrapper identifies the release, but its window location
+        // is re-derived from the window server's and lands elsewhere by the
+        // window's screen offset: a pointer tap pressed down and released
+        // outside its button. Send this click's own release.
+        if release.takeQueued(from: NSApp) != nil {
+            win.sendEvent(up)
         }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
