@@ -33,7 +33,7 @@ import { developmentGate, developmentInstallPage, installBrowserOrigins, install
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
-import { shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
+import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
@@ -77,16 +77,25 @@ if (!await currentWebBuild()) {
 let gpuInputs = new Set(), appInputs = new Set();
 const gpuSideRoot = resolve(app.target, 'dev-gpu', app.name);
 // A server epoch pairs function-scoped glue with its Wasm bytes.
-let gpuSide = null, gpuVersion = Date.now(), gpuBuildChild = null;
-const gpuTimings = new Map(), gpuVersions = new Map();
-function readGpuInputs(profile = 'web') {
+let gpuVersion = Date.now(), gpuBuildChild = null;
+// Side builds by version: which artifact, and where. `gpuSides` is each
+// artifact's newest, which a page connecting later loads first.
+const gpuTimings = new Map(), gpuVersions = new Map(), gpuSides = new Map();
+function readGpuInputs(profile = 'web', stems = null) {
   const inputs = (kind, profile) => {
     const path = resolve(app.target, 'wasm32-unknown-unknown', profile, app.crate(kind).replaceAll('-', '_') + '.d');
     return existsSync(path) ? new Set(compilerPaths(readFileSync(path, 'utf8'), app.workspace)) : new Set();
   };
   if (profile === 'web') appInputs = gameRuntimeInputs(inputs('web', 'web'));
-  gpuInputs = inputs('gpu', profile);
+  if (!stems) gpuArtifactInputs = new Map();
+  for (const { stem, kind } of gpuArtifacts()) if (!stems || stems.includes(stem)) gpuArtifactInputs.set(stem, inputs(kind, profile));
+  gpuInputs = new Set([...gpuArtifactInputs.values()].flatMap(set => [...set]));
 }
+// Every GPU artifact the web serves (LLP 1009 D6): the primary `gpu`, then
+// each declared module `gpu/<name>`, with the inputs its last link named.
+const gpuArtifacts = () => [{ stem: 'gpu', kind: 'gpu' },
+  ...gpuModules(app.manifest).map(({ name }) => ({ stem: `gpu/${name}`, kind: `gpu-${name}`, module: name }))];
+let gpuArtifactInputs = new Map();
 function gameRuntimeInputs(inputs) {
   if (!app.manifest.game || !inputs.size) return inputs;
   // A generated game's bake reads Game::NAME/Args::FIELDS; its logic is not
@@ -253,7 +262,7 @@ let assetsNeedRebuild = false;
 // This names the actual programs already served, including optional GPU code.
 // A changed program stays terminal even when its compatibility metadata agrees.
 const programIdentity = () => {
-  const files = ['app.wasm', 'gpu_bg.wasm', 'markup-editor.wasm'].map((name) => {
+  const files = ['app.wasm', 'gpu_bg.wasm', ...gpuModules(app.manifest).map(({ name }) => `gpu/${name}_bg.wasm`), 'markup-editor.wasm'].map((name) => {
     const encoded = filesystem({ op: 'get', root: dist, path: name });
     if (encoded === null && name === 'app.wasm') throw new Error('the app wasm is missing');
     return { name, sha256: encoded === null ? null : createHash('sha256').update(Buffer.from(encoded, 'base64')).digest('hex') };
@@ -890,7 +899,7 @@ function rebuildNow(files) {
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
       for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
-      gpuVersions.clear(); gpuSide = null; readGpuInputs(); watchCompilerInputs();
+      gpuVersions.clear(); gpuSides.clear(); readGpuInputs(); watchCompilerInputs();
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
       // their rebuild there. Do not re-arm a third build below on that success.
@@ -907,8 +916,17 @@ function rebuildNow(files) {
   });
 }
 
+// Only the artifacts whose inputs an edit touched are rebuilt and swapped.
 async function produceGpu(files) {
   building = true;
+  try {
+    for (const artifact of gpuArtifacts().filter(({ stem }) => files.some(path => gpuArtifactInputs.get(stem)?.has(path)))) await produceGpuArtifact(files, artifact);
+  } finally {
+    building = false;
+    drainBuilds();
+  }
+}
+async function produceGpuArtifact(files, { stem, kind, module }) {
   const start = Date.now();
   const profile = Bun.TOML.parse(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')).profile?.['gpu-dev'] ? 'gpu-dev' : 'web';
   if (profile === 'web') console.log('gpu: add [profile.gpu-dev] inheriting dev, opt-level=1, no LTO, and optimized dependencies for fast module rebuilds');
@@ -923,26 +941,25 @@ async function produceGpu(files) {
     child.on('exit', code => { gpuBuildChild = null; code === 0 ? ok() : fail(new Error(output.trim())); });
   });
   try {
-    console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate('gpu')} (${profile})`);
-    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate('gpu'),'--target','wasm32-unknown-unknown','--profile',profile]);
+    console.log(`gpu: ${files.length} source file(s) changed; building ${app.crate(kind)} (${profile})`);
+    await run('cargo', ['build',...cargoReproducibilityFlags(app),'-p',app.crate(kind),'--target','wasm32-unknown-unknown','--profile',profile]);
     const compiled = Date.now();
-    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',stage,'--out-name','gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate('gpu').replaceAll('-','_')+'.wasm')]);
-    gpuSide = stage; gpuVersion++; gpuVersions.set(gpuVersion, stage);
+    // The side directory mirrors dist: `gpu.js`, or a module's `gpu/<name>.js`.
+    await run('wasm-bindgen', ['--target','no-modules','--no-typescript','--out-dir',module ? resolve(stage, 'gpu') : stage,'--out-name',module ?? 'gpu',resolve(app.target,'wasm32-unknown-unknown',profile,app.crate(kind).replaceAll('-','_')+'.wasm')]);
+    gpuVersion++; gpuVersions.set(gpuVersion, { stem, directory: stage }); gpuSides.set(stem, gpuVersion);
     // Query versions pin JS and wasm together. A lagging fetch gets 404 rather
     // than silently pairing exports from one build with another build's wasm.
-    while (gpuVersions.size > 3) { const [version, directory] = gpuVersions.entries().next().value; rmSync(directory, {recursive:true,force:true}); gpuVersions.delete(version); }
-    readGpuInputs(profile); watchCompilerInputs();
+    const own = [...gpuVersions].filter(([, side]) => side.stem === stem);
+    for (const [version, side] of own.slice(0, Math.max(0, own.length - 3))) { rmSync(side.directory, {recursive:true,force:true}); gpuVersions.delete(version); }
+    readGpuInputs(profile, [stem]); watchCompilerInputs();
     const ms = Date.now() - start;
     gpuTimings.set(gpuVersion, { ms, start });
     console.log(`gpu: rebuilt in ${ms} ms (cargo ${compiled-start} ms, bindgen ${Date.now()-compiled} ms); swap pushed`);
-    push({gpu:gpuVersion});
+    push({gpu:gpuVersion, ...(module ? {module} : {})});
   } catch (error) {
     rmSync(stage, {recursive:true,force:true});
     console.error(`gpu: build failed in ${Date.now()-start} ms\n${error.message}`);
     push({error:`GPU module did not build:\n${error.message}`,source:'gpu'});
-  } finally {
-    building = false;
-    drainBuilds();
   }
 }
 
@@ -959,9 +976,9 @@ const server = createServer(async (req, res) => {
     if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);
     res.writeHead(204); res.end(); return;
   }
-  if (gpuSide && url.searchParams.has('g') && ['/gpu.js','/gpu_bg.wasm'].includes(url.pathname)) {
-    const directory = url.searchParams.has('g') ? gpuVersions.get(Number(url.searchParams.get('g'))) : gpuSide;
-    if (!directory) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
+  if (gpuVersions.size && url.searchParams.has('g') && /^\/gpu(?:\/[a-z0-9-]+)?(?:\.js|_bg\.wasm)$/.test(url.pathname)) {
+    const directory = gpuVersions.get(Number(url.searchParams.get('g')))?.directory;
+    if (!directory || !existsSync(resolve(directory, url.pathname.slice(1)))) { res.writeHead(404, {'cache-control':'no-store'}); res.end(); return; }
     res.writeHead(200, {'content-type':webContentType(url.pathname),'cache-control':'no-store'});
     res.end(req.method === 'HEAD' ? undefined : readFileSync(resolve(directory,url.pathname.slice(1)))); return;
   }
@@ -1021,7 +1038,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
     res.write(':\n\n');
     res.write(`data: ${hello()}\n\n`);
-    if (gpuSide) res.write(`data: ${JSON.stringify({gpu:gpuVersion})}\n\n`);
+    for (const [stem, version] of gpuSides) res.write(`data: ${JSON.stringify({gpu:version, ...(stem === 'gpu' ? {} : {module:stem.slice(4)})})}\n\n`);
     clients.add(res);
     console.log(`page connected (${clients.size})`);
     req.on('close', () => clients.delete(res));

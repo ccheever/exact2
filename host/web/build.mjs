@@ -9,7 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpat
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
+import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -214,20 +214,26 @@ if (ios.associatedDomains && ios.team) {
 // The app's GPU module (LLP 1009 D2): a second wasm the page fetches on
 // demand, built with wasm-bindgen's glue (its exports are the module's ABI on
 // the web) and wasm-opt. Only when the app has a GPU crate.
-const gpuCrate = crate.replace(/-web$/, '-gpu');
-let gpuNote = 'no GPU crate';
-if (app.hasGpu) {
+// Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
+// the first time a canvas of one of its surfaces mounts.
+const gpuArtifacts = [...(app.hasGpu ? [{ crate: crate.replace(/-web$/, '-gpu'), stem: 'gpu' }] : []),
+  ...gpuModules(app.manifest).map(({ name }) => ({ crate: app.crate(`gpu-${name}`), stem: `gpu/${name}` }))];
+let gpuNote = gpuArtifacts.length ? '' : 'no GPU crate';
+for (const { crate: gpuCrate, stem } of gpuArtifacts) {
   const gpuWasm = resolve(app.target, 'wasm32-unknown-unknown/web', gpuCrate.replace(/-/g, '_') + '.wasm');
-  const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', stage, '--out-name', 'gpu', gpuWasm], { stdio: 'inherit' });
-  if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; }
+  const [dir, name] = stem.includes('/') ? [resolve(stage, 'gpu'), stem.slice(4)] : [stage, stem];
+  const wb = spawnSync('wasm-bindgen', ['--target', 'web', '--no-typescript', '--out-dir', dir, '--out-name', name, gpuWasm], { stdio: 'inherit' });
+  if (wb.error?.code === 'ENOENT') { gpuNote = 'wasm-bindgen not on PATH (cargo install wasm-bindgen-cli): GPU module not built'; break; }
   else if (wb.status !== 0) process.exit(wb.status ?? 1);
-  else {
-    const bg = resolve(stage, 'gpu_bg.wasm');
-    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
-    copyHostFiles('gpu');
-    const gw = readFileSync(bg);
-    gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
-  }
+  const bg = resolve(stage, `${stem}_bg.wasm`);
+  const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
+  const gw = readFileSync(bg);
+  gpuNote += `${gpuNote ? '; ' : ''}${stem}_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), ${stem}.js ${kib(readFileSync(resolve(stage, `${stem}.js`)).length)}`;
+}
+if (gpuArtifacts.length && !gpuNote.startsWith('wasm-bindgen')) {
+  copyHostFiles('gpu');
+  if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
+  gpuNote += ', on demand';
 }
 // Written last inside the private stage. Dev startup trusts a dist only when
 // this marker and the public plan card agree, so a partial/corrupt directory

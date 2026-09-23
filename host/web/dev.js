@@ -254,10 +254,12 @@ if (es) {
     if (message.gpu !== undefined) {
       // A drive owns its clock and code. Do not change either behind the driver.
       if (new URLSearchParams(location.search).get('agent') === '1') return;
-      globalThis.exact.gpuVersion = message.gpu;
+      // A declared module's rebuild names it (LLP 1009 D6); the primary's does not.
+      const versions = message.module ? (globalThis.exact.gpuVersions ??= {}) : globalThis.exact, key = message.module ? `gpu/${message.module}` : 'gpuVersion';
+      versions[key] = message.gpu;
       if (globalThis.exact.gpu) (async () => {
-        if (message.gpu !== globalThis.exact.gpuVersion) return;
-        const result = await globalThis.exact.gpu.swap(message.gpu);
+        if (message.gpu !== versions[key]) return;
+        const result = await globalThis.exact.gpu.swap(message.gpu, message.module);
         show(result.errors.join('\n') || null, "gpu");
         navigator.sendBeacon(`/__dev/gpu?g=${message.gpu}&swap=${result.ms.toFixed(1)}`);
       })().catch(error => { show(String(error), "gpu"); console.error('exact dev:', error); });

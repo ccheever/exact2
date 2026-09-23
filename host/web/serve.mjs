@@ -26,7 +26,8 @@ const PUBLIC_FILES = new Set([
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',
 ]);
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/'];
+// `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -477,7 +478,7 @@ export function listPublicFiles(dist) {
     }
     out.push(asset.name);
   }
-  if (existsSync(resolve(root, 'rust'))) for (const name of listStaticFiles(resolve(root, 'rust'))) out.push('rust/' + name);
+  for (const tree of ['rust', 'gpu']) if (existsSync(resolve(root, tree))) for (const name of listStaticFiles(resolve(root, tree))) out.push(`${tree}/${name}`);
   return out.sort();
 }
 
