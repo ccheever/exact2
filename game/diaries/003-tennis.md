@@ -125,6 +125,16 @@ earlier and is not in the totals.
   load; with a longer timeout it lists ~2,000 literals under `experiments/` and
   `apps/`, none under `game/games/tennis`).
 
+- **18:24–18:47** `bun game/games/tennis/proof.mjs macos` (cold Apple build:
+  Rust 4 min 7 s, Swift 4 min 8 s, at load 160–340): **41 of 42 checks pass** —
+  the macOS host reproduces every pin (tick 0, tick 1420, the continuation save),
+  restores the rally in a fresh process, carries the scripted Jev over real HTTP
+  (App Transport Security allows the local proxy), and falls back when late. The
+  one failure is a host parity gap, not the game's: the `button action="move"
+  role="slider" aria-label="Move"` stick has `accessibleName: "Move"` in the web
+  and Linux trees and none on macOS (its `accessibilityLabel` prop is there).
+  Left failing on purpose; it is friction 12.
+
 **Totals.** Brief to a playable game with all tests green: 16:03 → 16:32 (29 min).
 To the first passing real-host proof: 16:49:46 (**46 min 31 s**, including the
 engine-side diagnosis and fix). To pinned, verified PASS on Linux and web:
@@ -256,7 +266,10 @@ ball, bounce, net, scoring or opponent — all of it is game code, which is righ
 11. **The data source has no clock on wasm** (`std::time::Instant` panics), so
    latency is measured in world time by the tick that applies the answer. Under
    the live check the world clock is paced to the wall clock (ratio 1.000).
-12. **Machine friction, not the engine's:** Homebrew Bun 1.4.0 below the 1.4.2 pin;
+12. **macOS drops the accessible name of a `role="slider"` control.** The
+    starter's and Beacons' Move stick has the same markup; neither proof checks
+    its name, so the gap was invisible until this proof did.
+13. **Machine friction, not the engine's:** Homebrew Bun 1.4.0 below the 1.4.2 pin;
     the key file is `AI Gateway:` then an indented `AI_GATEWAY_API_KEY=…`, not
     shell-sourceable (`sed -n 's/^[[:space:]]*AI_GATEWAY_API_KEY=//p'`); Jev's
     `score` is a label index (0–4), not 0–1.
