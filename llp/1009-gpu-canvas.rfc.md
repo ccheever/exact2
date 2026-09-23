@@ -214,6 +214,12 @@ The spec (1009.000) transcribes the landing.
   cost nothing — measured against the five checks' budgets in step 1.
 - **Time:** adapter + device + one pipeline from WGSL + one draw on Metal
   is 11–13 ms warm, 115 ms cold; by D4 both land after the first pixel.
+- **D6, measured 2026-09-23** (LLP 1046.003): Weird Castle's title
+  module is 360 KiB (180 KiB gzip, `wasm-opt -Oz`) once its 751 KiB
+  (321 KiB gzip) engine module is separate — from 883 KiB (398) for the
+  one module; the title fetches half the bytes after first pixel.
+  Natively each artifact carries its own wgpu: 3.34 + 3.92 MB stripped
+  against 4.06 MB for one.
 - **A dependency:** wgpu (v30, ~100 crates), pinned; the wasm-bindgen CLI
   in the web module's build. Reached through one module, so replacing
   either is one crate's change.
