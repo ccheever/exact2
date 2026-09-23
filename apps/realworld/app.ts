@@ -1,0 +1,179 @@
+import type { Answer, Sources, Result } from './app.contract.d.ts';
+
+// RealWorld's hosted API (docs.realworld.show). The token is a store secret
+// (LLP 1018): localStorage on the web, the Keychain on Apple.
+export const appId = 'com.exact.realworld';
+export const grants = 'net.fetch https://api.realworld.show\nsecret.keep jwtToken';
+const API = 'https://api.realworld.show/api';
+const AVATAR = '/assets/default-avatar.svg';
+const PAGE = 10;
+
+type Store = Parameters<Answer>[2];
+type Json = Record<string, any>;
+type User = Result<'currentUser'>;
+type Feed = Result<'articles'>;
+type Article = Result<'article'>;
+type Profile = Result<'profile'>;
+type Author = Profile;
+
+// Every mutation's answer carries a fresh stamp; the resources that a
+// mutation could change take the stamp as an argument, so they refetch.
+let stamp = 0;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function date(iso: unknown): string {
+  const d = new Date(String(iso));
+  return Number.isNaN(d.getTime()) ? '' : `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+}
+const text = (v: unknown) => (typeof v === 'string' ? v : '');
+const avatar = (v: unknown) => text(v) || AVATAR;
+
+class Failure extends Error {
+  constructor(readonly status: number, readonly errors: string[]) { super(errors.join('; ')); }
+}
+function errorList(body: Json | null, status: number): string[] {
+  const errors = body?.errors;
+  if (errors && typeof errors === 'object') {
+    const list = Object.entries(errors).flatMap(([field, v]) =>
+      (Array.isArray(v) ? v : [v]).map(m => (field === 'body' ? String(m) : `${field} ${m}`)));
+    if (list.length) return list;
+  }
+  return [status === 401 ? 'You need to sign in first.' : `The server answered ${status || 'nothing'}.`];
+}
+async function api(store: Store, path: string, method = 'GET', body?: unknown): Promise<Json> {
+  const headers: Record<string, string> = {};
+  const token = store.get('jwtToken');
+  if (token) headers.Authorization = `Token ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  let response: Response;
+  try {
+    response = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new Failure(0, ['The server could not be reached.']);
+  }
+  const json = response.status === 204 ? {} : await response.json().catch(() => null);
+  if (!response.ok) throw new Failure(response.status, errorList(json, response.status));
+  return json ?? {};
+}
+const failed = (e: unknown) => (e instanceof Failure ? e.errors : [String(e)]);
+
+function author(a: Json | undefined): Author {
+  return { found: true, username: text(a?.username), bio: text(a?.bio), image: avatar(a?.image), following: !!a?.following };
+}
+function preview(a: Json) {
+  return {
+    slug: text(a.slug), title: text(a.title), description: text(a.description),
+    tags: Array.isArray(a.tagList) ? a.tagList.map(String) : [], date: date(a.createdAt),
+    favorited: !!a.favorited, favoritesCount: Number(a.favoritesCount) || 0, author: author(a.author),
+  };
+}
+const anonymous: User = { signedIn: false, username: '', email: '', bio: '', image: '', avatar: AVATAR };
+function user(u: Json | undefined): User {
+  return { signedIn: true, username: text(u?.username), email: text(u?.email), bio: text(u?.bio), image: text(u?.image), avatar: avatar(u?.image) };
+}
+const emptyFeed: Feed = { ready: false, message: '', articles: [], pages: [] };
+const emptyArticle: Article = { found: false, slug: '', title: '', description: '', body: '', tags: [], date: '', favorited: false, favoritesCount: 0, author: author(undefined) };
+const emptyProfile: Profile = { found: false, username: '', bio: '', image: AVATAR, following: false };
+
+async function currentUser(store: Store): Promise<User> {
+  if (!store.get('jwtToken')) return anonymous;
+  try { return user((await api(store, '/user')).user); } catch (e) {
+    if (e instanceof Failure && e.status === 401) store.forget('jwtToken');
+    return anonymous;
+  }
+}
+async function articles(store: Store, kind: string, tag: string, name: string, page: number): Promise<Feed> {
+  if (!kind) return emptyFeed;
+  const q = `limit=${PAGE}&offset=${(page - 1) * PAGE}`;
+  const path = kind === 'feed' ? `/articles/feed?${q}`
+    : kind === 'tag' ? `/articles?tag=${encodeURIComponent(tag)}&${q}`
+    : kind === 'author' ? `/articles?author=${encodeURIComponent(name)}&${q}`
+    : kind === 'favorited' ? `/articles?favorited=${encodeURIComponent(name)}&${q}`
+    : `/articles?${q}`;
+  try {
+    const data = await api(store, path);
+    const list = Array.isArray(data.articles) ? data.articles.map(preview) : [];
+    const count = Math.ceil((Number(data.articlesCount) || 0) / PAGE);
+    return {
+      ready: true, message: list.length ? '' : 'No articles are here... yet.', articles: list,
+      pages: count > 1 ? Array.from({ length: count }, (_, i) => ({ n: i + 1 })) : [],
+    };
+  } catch (e) { return { ...emptyFeed, ready: true, message: failed(e).join(' ') }; }
+}
+async function article(store: Store, slug: string): Promise<Article> {
+  if (!slug) return emptyArticle;
+  try {
+    const a = (await api(store, `/articles/${encodeURIComponent(slug)}`)).article;
+    return { ...preview(a), found: true, body: text(a.body) };
+  } catch { return emptyArticle; }
+}
+async function comments(store: Store, slug: string, viewer: string) {
+  if (!slug) return [];
+  try {
+    const list = (await api(store, `/articles/${encodeURIComponent(slug)}/comments`)).comments;
+    return (Array.isArray(list) ? list : []).map((c: Json) => ({
+      id: String(c.id), body: text(c.body), date: date(c.createdAt), author: author(c.author),
+      mine: viewer !== '' && c.author?.username === viewer,
+    }));
+  } catch { return []; }
+}
+async function profile(store: Store, name: string): Promise<Profile> {
+  if (!name) return emptyProfile;
+  try { return author((await api(store, `/profiles/${encodeURIComponent(name)}`)).profile); } catch { return emptyProfile; }
+}
+
+type Auth = Result<'login'>;
+async function signIn(store: Store, path: string, body: Json, method = 'POST'): Promise<Auth> {
+  try {
+    const u = (await api(store, path, method, { user: body })).user;
+    if (u?.token) store.set('jwtToken', String(u.token));
+    return { stamp: ++stamp, ok: true, errors: [] };
+  } catch (e) { return { stamp: ++stamp, ok: false, errors: failed(e) }; }
+}
+type Change = Result<'favorite'>;
+async function change(kind: string, work: () => Promise<string>): Promise<Change> {
+  try { return { stamp: ++stamp, kind, ok: true, slug: await work(), errors: [] }; } catch (e) {
+    return { stamp: ++stamp, kind, ok: false, slug: '', errors: failed(e) };
+  }
+}
+const slugPath = (slug: string) => `/articles/${encodeURIComponent(slug)}`;
+
+const sources: Sources = {
+  anonymous: () => anonymous,
+  emptyFeed: () => emptyFeed,
+  emptyArticle: () => emptyArticle,
+  emptyProfile: () => emptyProfile,
+  currentUser: (_, store) => currentUser(store),
+  popularTags: async (_, store) => {
+    try { const t = (await api(store, '/tags')).tags; return Array.isArray(t) ? t.map(String) : []; } catch { return []; }
+  },
+  articles: ([kind, tag, name, page], store) => articles(store, kind, tag, name, page),
+  article: ([slug], store) => article(store, slug),
+  comments: ([slug, viewer], store) => comments(store, slug, viewer),
+  profile: ([name], store) => profile(store, name),
+  login: ([email, password], store) => signIn(store, '/users/login', { email, password }),
+  register: ([username, email, password], store) => signIn(store, '/users', { username, email, password }),
+  saveSettings: ([image, username, bio, email, password], store) =>
+    signIn(store, '/user', { image, username, bio, email, ...(password ? { password } : {}) }, 'PUT'),
+  logout: (_, store) => { store.forget('jwtToken'); return { stamp: ++stamp, ok: true, errors: [] }; },
+  favorite: ([slug, on], store) => change('favorite', async () => {
+    await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE'); return slug;
+  }),
+  follow: ([name, on], store) => change('follow', async () => {
+    await api(store, `/profiles/${encodeURIComponent(name)}/follow`, on ? 'POST' : 'DELETE'); return name;
+  }),
+  publish: ([slug, title, description, body, tagList], store) => change('publish', async () => {
+    const a = { title, description, body, tagList };
+    const saved = await api(store, slug ? slugPath(slug) : '/articles', slug ? 'PUT' : 'POST', { article: a });
+    return text(saved.article?.slug);
+  }),
+  deleteArticle: ([slug], store) => change('delete', async () => { await api(store, slugPath(slug), 'DELETE'); return slug; }),
+  addComment: ([slug, body], store) => change('comment', async () => {
+    await api(store, `${slugPath(slug)}/comments`, 'POST', { comment: { body } }); return slug;
+  }),
+  deleteComment: ([slug, id], store) => change('uncomment', async () => {
+    await api(store, `${slugPath(slug)}/comments/${encodeURIComponent(id)}`, 'DELETE'); return slug;
+  }),
+  addTag: ([session, tags, tag]) => { const t = tag.trim(); return { session, items: t && !tags.includes(t) ? [...tags, t] : tags }; },
+  removeTag: ([session, tags, tag]) => ({ session, items: tags.filter(t => t !== tag) }),
+};
+export const answer: Answer = (source, args, store, storage) => sources[source](args, store, storage);

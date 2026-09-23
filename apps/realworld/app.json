@@ -1,0 +1,9 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Conduit", "short_name": "Conduit", "id": "com.exact.realworld",
+  "start_url": "/", "display": "standalone",
+  "theme_color": "#33aa44", "background_color": "#ffffff",
+  "app": { "id": "com.exact.realworld", "name": "Conduit" },
+  "host": { "web": {} },
+  "deploy": { "store": { "web": "0" } }
+}

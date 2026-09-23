@@ -133,6 +133,15 @@ the runtime loads. Take: Messages as the Snapback4 consumer (above). Still
 refused: progressive forms (server actions without the runtime) and
 server-driven UI; no Node on the render path.
 
+**Expanded (Charlie, 2026-09-23: "let's build it in exact2 and see how we
+stack up"; "do both but start with realworld"):** RealWorld/Conduit
+(`apps/realworld`), the spec'd Medium clone, against its hosted API, measured
+for browser load against a React 19 build of the same spec. An exact2 entry in
+js-framework-benchmark follows. Unblocks comparing exact2 with React on an app
+we didn't design. Take: no measurement harness, script or check in this repo.
+The React build, the benchmark entry and the numbers live outside it. Other
+benchmark and showcase apps wait behind this one.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

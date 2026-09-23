@@ -1,0 +1,1110 @@
+// RealWorld ("Conduit", docs.realworld.show): the Medium clone every frontend
+// framework implements, against the hosted API. The templates' markup and
+// Conduit Minimal CSS v4 are transcribed into rows and styles below. The data
+// is app.ts, loaded after first pixel; every page shows its placeholder until
+// the API answers.
+routes nav
+  tab home "/"
+    login "/login"
+    register "/register"
+    settings "/settings"
+    editor "/editor"
+    edit "/editor/:slug"
+    article "/article/:slug"
+    profile "/profile/:username"
+    favorites "/profile/:username/favorites"
+  notfound
+
+shape User
+  signedIn: bool
+  username: string
+  email: string
+  bio: string
+  image: string
+  avatar: string
+shape Profile
+  found: bool
+  username: string
+  bio: string
+  image: string
+  following: bool
+shape Preview
+  slug: string
+  title: string
+  description: string
+  tags: list<string>
+  date: string
+  favorited: bool
+  favoritesCount: number
+  author: Profile
+shape Page
+  n: number
+shape Feed
+  ready: bool
+  message: string
+  articles: list<Preview>
+  pages: list<Page>
+shape Article
+  found: bool
+  slug: string
+  title: string
+  description: string
+  body: string
+  tags: list<string>
+  date: string
+  favorited: bool
+  favoritesCount: number
+  author: Profile
+shape Comment
+  id: string
+  body: string
+  date: string
+  author: Profile
+  mine: bool
+shape Auth
+  stamp: number
+  ok: bool
+  errors: list<string>
+shape Change
+  stamp: number
+  kind: string
+  ok: bool
+  slug: string
+  errors: list<string>
+shape Tags
+  session: number
+  items: list<string>
+
+style Container
+  width="100%" max-width=1140 margin-left="auto" margin-right="auto" padding-left=15 padding-right=15 box-sizing="border-box"
+style NavLink
+  padding-top=7 padding-bottom=7 margin-left=16
+style Btn
+  padding-top=8 padding-bottom=8 padding-left=16 padding-right=16 border-radius=8 border-style="solid" border-width=1 font-size=16 line-height=1.25
+style BtnSm
+  padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 border-radius=6 border-style="solid" border-width=1 font-size=14 line-height=1.25
+style BtnLg
+  padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 border-radius=10 border-style="solid" border-width=1 font-size=20 line-height=1.25 background-color="#33aa44" border-color="#33aa44" color="#ffffff" align-self="flex-end"
+style Field
+  width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 padding-left=12 padding-right=12 font-size=16 line-height=1.25 color="#55595c" background-color="#ffffff" border-style="solid" border-width=1 border-color="#eeeeee" border-radius=8 margin-bottom=16
+style FieldLg
+  width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=24 padding-right=24 font-size=20 line-height=1.25 color="#55595c" background-color="#ffffff" border-style="solid" border-width=1 border-color="#eeeeee" border-radius=10 margin-bottom=16
+style Tag
+  padding-top=5.6 padding-bottom=5.6 padding-left=12 padding-right=12 margin-right=8 margin-bottom=8 border-radius=100 border-style="solid" border-width=1 border-color="#eeeeee" font-size=12.8 line-height=1.1
+style Banner
+  border-top-style="solid" border-bottom-style="solid" border-top-width=1 border-bottom-width=1 border-color="#eeeeee" padding=32 margin-bottom=32 box-sizing="border-box"
+style Avatar
+  width=32 height=32 border-radius=30 object-fit="cover"
+style Tabs
+  display="flex" flex-direction="row" flex-wrap="wrap" border-bottom-style="solid" border-bottom-width=1 border-color="#eeeeee"
+style Error
+  color="#b85c5c" font-weight=700 padding-left=40 margin-bottom=16
+
+component RealWorld
+  derive current = top(nav)
+  derive slug = ((current.name == "article" or current.name == "edit") ? current.params.slug: "")
+  derive listName = ((current.name == "profile" or current.name == "favorites") ? current.params.username: "")
+  derive listKind = (current.name == "home" ? homeFeed: current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
+  state homeFeed = "global"
+  state homeTag = ""
+  state page = 1
+  state seenAuth = 0
+  state seenChange = 0
+  state editorSession = 0
+  state tagInput = ""
+  state commentDraft = ""
+  mutation auth as shape Auth
+  mutation change as shape Change
+  mutation tagEdit as shape Tags
+  derive authStamp = match auth { case some(a) => a.stamp, case none => 0 }
+  derive authOk = match auth { case some(a) => a.ok, case none => false }
+  derive changeStamp = match change { case some(c) => c.stamp, case none => 0 }
+  derive changeOk = match change { case some(c) => c.ok, case none => false }
+  derive changeKind = match change { case some(c) => c.kind, case none => "" }
+  derive changeSlug = match change { case some(c) => c.slug, case none => "" }
+  derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
+  resource me = currentUser(authStamp) as shape User else anonymous()
+  resource tags = popularTags(0) as shape list<string>
+  resource feed = articles(listKind, homeTag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
+  resource post = article(slug, me.username, changeStamp) as shape Article else emptyArticle()
+  resource thread = comments(slug, me.username, changeStamp) as shape list<Comment>
+  resource person = profile(listName, me.username, changeStamp) as shape Profile else emptyProfile()
+
+  action go(url: string) writes nav, page, editorSession, tagInput, commentDraft
+    page = 1
+    tagInput = ""
+    commentDraft = ""
+    if contains(url, "/editor")
+      editorSession = editorSession + 1
+    nav = push(nav, url)
+  action back writes nav
+    nav = back(nav)
+  action followLink(url: string) writes nav, page
+    page = 1
+    nav = go(nav, url)
+  action showFeed(kind: string) writes homeFeed, page
+    homeFeed = kind
+    page = 1
+  action showTag(t: string) writes homeFeed, homeTag, page, nav
+    homeFeed = "tag"
+    homeTag = t
+    page = 1
+    if current.name != "home"
+      nav = push(nav, "/")
+  action showPage(n: number) writes page
+    page = n
+  action login(email: string, password: string) writes auth
+    send auth = login(email, password)
+  action register(username: string, email: string, password: string) writes auth
+    send auth = register(username, email, password)
+  action saveSettings(image: string, username: string, bio: string, email: string, password: string) writes auth
+    send auth = saveSettings(image, username, bio, email, password)
+  action logout writes auth, homeFeed
+    homeFeed = "global"
+    send auth = logout()
+  action favorite(target: string, on: bool) writes change, nav
+    if me.signedIn
+      send change = favorite(target, on)
+    else
+      nav = push(nav, "/register")
+  action follow(name: string, on: bool) writes change, nav
+    if me.signedIn
+      send change = follow(name, on)
+    else
+      nav = push(nav, "/register")
+  action publish(target: string, title: string, description: string, body: string, tagList: list<string>) writes change
+    send change = publish(target, title, description, body, tagList)
+  action deleteArticle(target: string) writes change
+    send change = deleteArticle(target)
+  action setComment(v: string) writes commentDraft
+    commentDraft = v
+  action postComment(target: string) writes change, commentDraft
+    if commentDraft != ""
+      send change = addComment(target, commentDraft)
+      commentDraft = ""
+  action setTagInput(v: string) writes tagInput
+    tagInput = v
+  action tagKey(k: string) writes tagEdit, tagInput
+    if k == "Enter"
+      send tagEdit = addTag(editorSession, editorTags, tagInput)
+      tagInput = ""
+  action uncomment(target: string, id: string) writes change
+    send change = deleteComment(target, id)
+  action removeTag(tag: string) writes tagEdit
+    send tagEdit = removeTag(editorSession, editorTags, tag)
+  // A mutation's answer arrives after the action that sent it, and nothing
+  // runs when it lands, so a tick looks for an unseen answer and redirects
+  // the way the spec asks (signed in → home; published → the article;
+  // deleted → home). LLP 1038 §7: "an action checks … and applies replace".
+  action settle writes nav, seenAuth, seenChange, homeFeed
+    if authStamp != seenAuth
+      seenAuth = authStamp
+      if authOk and (current.name == "login" or current.name == "register" or current.name == "settings")
+        homeFeed = (me.signedIn ? homeFeed: "global")
+        nav = open(nav, "/")
+    if changeStamp != seenChange
+      seenChange = changeStamp
+      if changeOk and changeKind == "publish"
+        nav = open(nav, path("article", changeSlug))
+      if changeOk and changeKind == "delete"
+        nav = open(nav, "/")
+  task settling mount
+    every(100, settle)
+
+  view
+    main navigationKey=`${current.id}`
+      navigationBack="back"
+      navigate=followLink
+      width="100%"
+      min-height="100%"
+      display="flex"
+      flex-direction="column"
+      font-family="sans-serif"
+      font-size=16
+      line-height=1.5
+      color="#373a3c"
+      background-color="#ffffff"
+      head title="Conduit" description="A place to share your knowledge."
+      Header(me=me, current=current, go=go)
+      each e in stack(nav) key = e.id
+        when e.id == current.id
+          column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
+            when e.name == "home"
+              head title="Home — Conduit"
+              HomePage(
+                me=me,
+                feed=feed,
+                loading=pending(feed),
+                tags=tags,
+                tagsLoading=pending(tags),
+                homeFeed=homeFeed,
+                homeTag=homeTag,
+                page=page,
+                go=go,
+                showFeed=showFeed,
+                showTag=showTag,
+                showPage=showPage,
+                favorite=favorite
+              )
+            when e.name == "login"
+              head title="Sign in — Conduit"
+              AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
+            when e.name == "register"
+              head title="Sign up — Conduit"
+              AuthPage(signup=true, auth=auth, go=go, login=login, register=register)
+            when e.name == "settings"
+              head title="Settings — Conduit"
+              SettingsPage(me=me, auth=auth, save=saveSettings, logout=logout)
+            when e.name == "editor" or e.name == "edit"
+              head title="Editor — Conduit"
+              EditorPage(
+                post=post,
+                editing=(e.name == "edit"),
+                change=change,
+                tags=editorTags,
+                tagInput=tagInput,
+                setTagInput=setTagInput,
+                tagKey=tagKey,
+                removeTag=removeTag,
+                publish=publish
+              )
+            when e.name == "article"
+              head title=`${post.title} — Conduit`
+              ArticlePage(
+                me=me,
+                post=post,
+                loading=pending(post),
+                thread=thread,
+                go=go,
+                showTag=showTag,
+                favorite=favorite,
+                follow=follow,
+                remove=deleteArticle,
+                draft=commentDraft,
+                setDraft=setComment,
+                postComment=postComment,
+                uncomment=uncomment
+              )
+            when e.name == "profile" or e.name == "favorites"
+              head title=`${e.params.username} — Conduit`
+              ProfilePage(
+                me=me,
+                person=person,
+                feed=feed,
+                loading=pending(feed),
+                favorites=(e.name == "favorites"),
+                page=page,
+                go=go,
+                showTag=showTag,
+                showPage=showPage,
+                favorite=favorite,
+                follow=follow
+              )
+            when e.name == "notfound"
+              head title="Not found — Conduit" status=404
+              column class=Container padding-top=24
+                text "This page doesn't exist." font-size=24
+      Footer(go=go)
+
+component Header
+  props
+    me: User
+    current: Entry
+    go: action
+  view
+    nav padding-top=8 padding-bottom=8 padding-left=16 padding-right=16
+      row class=Container align-items="center"
+        link press=go("/")
+          testId="brand"
+          padding-bottom=4
+          margin-right=32
+          font-family="serif"
+          font-size=24
+          color="#222222"
+          text "conduit"
+        row margin-left="auto" align-items="center" flex-wrap="wrap"
+          link press=go("/")
+            class=NavLink
+            color=(current.name == "home" ? "#000000cc": "#0000004d")
+            testId="nav-home"
+            text "Home"
+          when me.signedIn
+            link press=go("/editor")
+              class=NavLink
+              color=(current.name == "editor" ? "#000000cc": "#0000004d")
+              testId="nav-editor"
+              text "✎ New Article"
+            link press=go("/settings")
+              class=NavLink
+              color=(current.name == "settings" ? "#000000cc": "#0000004d")
+              testId="nav-settings"
+              text "⚙ Settings"
+            link press=go(`/profile/${encodeURIComponent(me.username)}`)
+              class=NavLink
+              color=((current.name == "profile" and current.params.username == me.username) ? "#000000cc": "#0000004d")
+              testId="nav-profile"
+              row align-items="center" gap=5
+                image me.avatar width=26 height=26 border-radius=50 object-fit="cover" aria-label=""
+                text me.username
+          else
+            link press=go("/login")
+              class=NavLink
+              color=(current.name == "login" ? "#000000cc": "#0000004d")
+              testId="nav-login"
+              text "Sign in"
+            link press=go("/register")
+              class=NavLink
+              color=(current.name == "register" ? "#000000cc": "#0000004d")
+              testId="nav-register"
+              text "Sign up"
+
+component Footer
+  props
+    go: action
+  view
+    footer margin-top=42
+      padding-top=16
+      padding-bottom=16
+      border-top-style="solid"
+      border-top-width=1
+      border-color="#eeeeee"
+      row class=Container align-items="baseline"
+        link press=go("/") font-family="serif" color="#222222"
+          text "conduit"
+        text "An interactive learning project. Code & design licensed under MIT." margin-left=10
+          font-size=12.8
+          color="#bbbbbb"
+          font-weight=300
+
+component Meta
+  props
+    author: Profile
+    date: string
+    go: action
+  view
+    row align-items="center"
+      link press=go(`/profile/${encodeURIComponent(author.username)}`) aria-label=author.username
+        image author.image class=Avatar aria-label=""
+      column margin-left=8 margin-right=24 line-height=1
+        link press=go(`/profile/${encodeURIComponent(author.username)}`)
+          font-weight=500
+          color="#33aa44"
+          text author.username
+        text date font-size=12.8 color="#bbbbbb" margin-top=2
+
+component Previews
+  props
+    feed: Feed
+    loading: bool
+    page: number
+    go: action
+    showTag: action
+    showPage: action
+    favorite: action
+  view
+    column
+      when loading and not feed.ready
+        text "Loading articles..." padding-top=24
+          padding-bottom=24
+          border-top-style="solid"
+          border-top-width=1
+          border-color="#eeeeee"
+          testId="feed-loading"
+      else
+        when feed.message != ""
+          text feed.message padding-top=24
+            padding-bottom=24
+            border-top-style="solid"
+            border-top-width=1
+            border-color="#eeeeee"
+            testId="feed-empty"
+      each a in feed.articles key = a.slug
+        article padding-top=24
+          padding-bottom=24
+          border-top-style="solid"
+          border-top-width=1
+          border-color="#eeeeee"
+          testId=`preview-${a.slug}`
+          row align-items="center" margin-bottom=16
+            Meta(author=a.author, date=a.date, go=go)
+            button press=favorite(a.slug, not a.favorited)
+              class=BtnSm
+              margin-left="auto"
+              border-color="#33aa44"
+              color=(a.favorited ? "#ffffff": "#33aa44")
+              background-color=(a.favorited ? "#33aa44": "#ffffff")
+              testId=`favorite-${a.slug}`
+              text `♥ ${a.favoritesCount}`
+          link press=go(`/article/${encodeURIComponent(a.slug)}`)
+            color="#373a3c"
+            testId=`open-${a.slug}`
+            text a.title font-size=24 font-weight=600 line-height=1.1 margin-bottom=3
+            text a.description font-weight=300 color="#999999" margin-bottom=15 line-height="20.8px"
+          row align-items="center" justify-content="space-between" flex-wrap="wrap"
+            link press=go(`/article/${encodeURIComponent(a.slug)}`)
+              font-size=12.8
+              font-weight=300
+              color="#bbbbbb"
+              text "Read more..."
+            row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
+              each t in a.tags key = t
+                button press=showTag(t)
+                  class=Tag
+                  color="#aaaaaa"
+                  font-weight=300
+                  background-color="#ffffff"
+                  text t
+      when length(feed.pages) > 0
+        row flex-wrap="wrap" margin-top=16 margin-bottom=16 testId="pagination"
+          each p in feed.pages key = p.n
+            button press=showPage(p.n)
+              padding-top=8
+              padding-bottom=8
+              padding-left=12
+              padding-right=12
+              margin-left=- 1
+              border-style="solid"
+              border-width=1
+              border-color="#eeeeee"
+              color=(p.n == page ? "#222222": "#33aa44")
+              background-color=(p.n == page ? "#eeeeee": "#ffffff")
+              testId=`page-${p.n}`
+              text `${p.n}`
+
+component HomePage
+  props
+    me: User
+    feed: Feed
+    loading: bool
+    tags: list<string>
+    tagsLoading: bool
+    homeFeed: string
+    homeTag: string
+    page: number
+    go: action
+    showFeed: action
+    showTag: action
+    showPage: action
+    favorite: action
+  view
+    column
+      column class=Banner align-items="center"
+        text "conduit" font-family="serif"
+          font-size=56
+          font-weight=700
+          line-height=1.1
+          padding-bottom=8
+          text-align="center"
+        text "A place to share your knowledge." font-weight=300 color="#999999" text-align="center"
+      row class=Container flex-wrap="wrap" gap=30
+        column flex=3 min-width=300
+          row class=Tabs
+            when me.signedIn
+              button press=showFeed("feed")
+                padding-top=8
+                padding-bottom=8
+                padding-left=16
+                padding-right=16
+                border-bottom-style="solid"
+                border-bottom-width=2
+                border-color=(homeFeed == "feed" ? "#33aa44": "#ffffff")
+                color=(homeFeed == "feed" ? "#33aa44": "#aaaaaa")
+                background-color="#ffffff"
+                testId="tab-feed"
+                text "Your Feed"
+            button press=showFeed("global")
+              padding-top=8
+              padding-bottom=8
+              padding-left=16
+              padding-right=16
+              border-bottom-style="solid"
+              border-bottom-width=2
+              border-color=(homeFeed == "global" ? "#33aa44": "#ffffff")
+              color=(homeFeed == "global" ? "#33aa44": "#aaaaaa")
+              background-color="#ffffff"
+              testId="tab-global"
+              text "Global Feed"
+            when homeFeed == "tag"
+              button padding-top=8
+                padding-bottom=8
+                padding-left=16
+                padding-right=16
+                border-bottom-style="solid"
+                border-bottom-width=2
+                border-color="#33aa44"
+                color="#33aa44"
+                background-color="#ffffff"
+                testId="tab-tag"
+                text `# ${homeTag}`
+          Previews(
+            feed=feed,
+            loading=loading,
+            page=page,
+            go=go,
+            showTag=showTag,
+            showPage=showPage,
+            favorite=favorite
+          )
+        column flex=1 min-width=200
+          column padding-left=20
+            border-left-style="solid"
+            border-left-width=1
+            border-color="#eeeeee"
+            testId="sidebar"
+            text "Popular Tags" margin-bottom=3
+            when tagsLoading and length(tags) == 0
+              text "Loading tags..." color="#999999"
+            row flex-wrap="wrap"
+              each t in tags key = t
+                button press=showTag(t)
+                  class=Tag
+                  color="#222222"
+                  background-color="#ffffff"
+                  testId=`tag-${t}`
+                  text t
+
+component Errors
+  props
+    errors: list<string>
+  view
+    column class=Error testId="errors"
+      each m in errors key = m
+        text `• ${m}`
+
+component AuthPage
+  props
+    signup: bool
+    auth: option<Auth>
+    go: action
+    login: action
+    register: action
+  state username = ""
+  state email = ""
+  state password = ""
+  action setUsername(v: string) writes username
+    username = v
+  action setEmail(v: string) writes email
+    email = v
+  action setPassword(v: string) writes password
+    password = v
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=540
+        text(signup ? "Sign up": "Sign in") font-size=40
+          font-weight=500
+          line-height=1.1
+          margin-bottom=8
+          text-align="center"
+        link press=go(signup ? "/login": "/register")
+          color="#33aa44"
+          align-self="center"
+          margin-bottom=16
+          text(signup ? "Have an account?": "Need an account?")
+        match auth
+          case some(a)
+            when not a.ok
+              Errors(errors=a.errors)
+          case none
+            box
+        column
+          when signup
+            input value=username
+              change=setUsername
+              placeholder="Username"
+              aria-label="Username"
+              class=FieldLg
+              testId="username"
+          input value=email
+            change=setEmail
+            placeholder="Email"
+            aria-label="Email"
+            class=FieldLg
+            testId="email"
+          input value=password
+            change=setPassword
+            type="password"
+            placeholder="Password"
+            aria-label="Password"
+            class=FieldLg
+            testId="password"
+          when signup
+            button press=register(username, email, password) class=BtnLg testId="submit"
+              text "Sign up"
+          else
+            button press=login(email, password) class=BtnLg testId="submit"
+              text "Sign in"
+
+component SettingsPage
+  props
+    me: User
+    auth: option<Auth>
+    save: action
+    logout: action
+  // A field shows the account's value until it is edited.
+  state image = ""
+  state name = ""
+  state bio = ""
+  state email = ""
+  state password = ""
+  state imageSet = false
+  state nameSet = false
+  state bioSet = false
+  state emailSet = false
+  derive shownImage = (imageSet ? image: me.image)
+  derive shownName = (nameSet ? name: me.username)
+  derive shownBio = (bioSet ? bio: me.bio)
+  derive shownEmail = (emailSet ? email: me.email)
+  action setImage(v: string) writes image, imageSet
+    imageSet = true
+    image = v
+  action setName(v: string) writes name, nameSet
+    nameSet = true
+    name = v
+  action setBio(v: string) writes bio, bioSet
+    bioSet = true
+    bio = v
+  action setEmail(v: string) writes email, emailSet
+    emailSet = true
+    email = v
+  action setPassword(v: string) writes password
+    password = v
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=540
+        text "Your Settings" font-size=40
+          font-weight=500
+          line-height=1.1
+          margin-bottom=16
+          text-align="center"
+        match auth
+          case some(a)
+            when not a.ok
+              Errors(errors=a.errors)
+          case none
+            box
+        input value=shownImage
+          change=setImage
+          placeholder="URL of profile picture"
+          aria-label="URL of profile picture"
+          class=Field
+          testId="image"
+        input value=shownName
+          change=setName
+          placeholder="Your Name"
+          aria-label="Your Name"
+          class=FieldLg
+          testId="username"
+        textarea value=shownBio
+          change=setBio
+          placeholder="Short bio about you"
+          aria-label="Short bio about you"
+          class=FieldLg
+          height=200
+          testId="bio"
+        input value=shownEmail
+          change=setEmail
+          placeholder="Email"
+          aria-label="Email"
+          class=FieldLg
+          testId="email"
+        input value=password
+          change=setPassword
+          type="password"
+          placeholder="New Password"
+          aria-label="New Password"
+          class=FieldLg
+          testId="password"
+        button press=save(shownImage, shownName, shownBio, shownEmail, password)
+          class=BtnLg
+          testId="save-settings"
+          text "Update Settings"
+        box margin-top=16
+          margin-bottom=16
+          border-top-style="solid"
+          border-top-width=1
+          border-color="#eeeeee"
+        button press=logout
+          class=Btn
+          align-self="flex-start"
+          border-color="#b85c5c"
+          color="#b85c5c"
+          background-color="#ffffff"
+          testId="logout"
+          text "Or click here to logout."
+
+component EditorPage
+  props
+    post: Article
+    editing: bool
+    change: option<Change>
+    tags: list<string>
+    tagInput: string
+    setTagInput: action
+    tagKey: action
+    removeTag: action
+    publish: action
+  // A field shows the article's value (or nothing, for a new one) until it is edited.
+  state title = ""
+  state description = ""
+  state body = ""
+  state titleSet = false
+  state descriptionSet = false
+  state bodySet = false
+  derive shownTitle = (titleSet ? title: post.title)
+  derive shownDescription = (descriptionSet ? description: post.description)
+  derive shownBody = (bodySet ? body: post.body)
+  action setTitle(v: string) writes title, titleSet
+    titleSet = true
+    title = v
+  action setDescription(v: string) writes description, descriptionSet
+    descriptionSet = true
+    description = v
+  action setBody(v: string) writes body, bodySet
+    bodySet = true
+    body = v
+  view
+    column class=Container padding-top=24 align-items="center"
+      column width="100%" max-width=950
+        match change
+          case some(c)
+            when not c.ok and c.kind == "publish"
+              Errors(errors=c.errors)
+          case none
+            box
+        input value=shownTitle
+          change=setTitle
+          placeholder="Article Title"
+          aria-label="Article Title"
+          class=FieldLg
+          testId="title"
+        input value=shownDescription
+          change=setDescription
+          placeholder="What's this article about?"
+          aria-label="What's this article about?"
+          class=Field
+          testId="description"
+        textarea value=shownBody
+          change=setBody
+          placeholder="Write your article (in markdown)"
+          aria-label="Write your article (in markdown)"
+          class=Field
+          height=200
+          testId="body"
+        input value=tagInput
+          change=setTagInput
+          key=tagKey
+          placeholder="Enter tags"
+          aria-label="Enter tags"
+          class=Field
+          margin-bottom=4
+          testId="tags"
+        row flex-wrap="wrap" margin-bottom=16
+          each t in tags key = t
+            row class=Tag
+              align-items="center"
+              gap=4
+              background-color="#818a91"
+              border-color="#818a91"
+              color="#ffffff"
+              button press=removeTag(t)
+                aria-label=`Remove ${t}`
+                color="#ffffff"
+                testId=`remove-tag-${t}`
+                text "×"
+              text t
+        button press=publish((editing ? post.slug: ""), shownTitle, shownDescription, shownBody, tags)
+          class=BtnLg
+          testId="publish"
+          text "Publish Article"
+
+component ArticleActions
+  props
+    me: User
+    post: Article
+    go: action
+    favorite: action
+    follow: action
+    remove: action
+    light: bool
+  view
+    row align-items="center" flex-wrap="wrap" gap=8
+      Meta(author=post.author, date=post.date, go=go)
+      when me.signedIn and me.username == post.author.username
+        button press=go(`/editor/${encodeURIComponent(post.slug)}`)
+          class=BtnSm
+          border-color="#cccccc"
+          color="#cccccc"
+          background-color="#ffffff"
+          testId="edit-article"
+          text "✎ Edit Article"
+        button press=remove(post.slug)
+          class=BtnSm
+          border-color="#b85c5c"
+          color="#b85c5c"
+          background-color="#ffffff"
+          testId="delete-article"
+          text "🗑 Delete Article"
+      else
+        button press=follow(post.author.username, not post.author.following)
+          class=BtnSm
+          border-color="#cccccc"
+          color=(post.author.following ? "#ffffff": "#cccccc")
+          background-color=(post.author.following ? "#cccccc": "#ffffff")
+          testId="follow"
+          text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
+        button press=favorite(post.slug, not post.favorited)
+          class=BtnSm
+          border-color="#33aa44"
+          color=(post.favorited ? "#ffffff": "#33aa44")
+          background-color=(post.favorited ? "#33aa44": "#ffffff")
+          testId="favorite"
+          text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+
+component ArticlePage
+  props
+    me: User
+    post: Article
+    loading: bool
+    thread: list<Comment>
+    go: action
+    showTag: action
+    favorite: action
+    follow: action
+    remove: action
+    draft: string
+    setDraft: action
+    postComment: action
+    uncomment: action
+  view
+    column
+      when not post.found
+        column class=Container padding-top=24
+          text(loading ? "Loading article...": "This article doesn't exist.") testId="article-loading"
+      else
+        column class=Banner padding-left=0 padding-right=0
+          column class=Container
+            text post.title font-size=44.8
+              font-weight=600
+              color="#222222"
+              line-height=1.1
+              margin-bottom=8
+              testId="article-title"
+            ArticleActions(
+              me=me,
+              post=post,
+              go=go,
+              favorite=favorite,
+              follow=follow,
+              remove=remove,
+              light=true
+            )
+        column class=Container
+          column width="100%" max-width=720 margin-left="auto" margin-right="auto"
+            text post.body markup="markdown"
+              font-family="serif"
+              font-size=19.2
+              line-height="28.8px"
+              testId="article-body"
+            row flex-wrap="wrap" margin-top=16
+              each t in post.tags key = t
+                button press=showTag(t)
+                  class=Tag
+                  color="#aaaaaa"
+                  font-weight=300
+                  background-color="#ffffff"
+                  text t
+            box margin-top=16
+              margin-bottom=16
+              border-top-style="solid"
+              border-top-width=1
+              border-color="#eeeeee"
+            row justify-content="center" margin-bottom=24
+              ArticleActions(
+                me=me,
+                post=post,
+                go=go,
+                favorite=favorite,
+                follow=follow,
+                remove=remove,
+                light=false
+              )
+            column width="100%" max-width=620 margin-left="auto" margin-right="auto"
+              when me.signedIn
+                column border-style="solid"
+                  border-width=1
+                  border-color="#eeeeee"
+                  border-radius=12
+                  margin-bottom=12
+                  overflow="hidden"
+                  textarea value=draft
+                    change=setDraft
+                    placeholder="Write a comment..."
+                    aria-label="Write a comment"
+                    height=90
+                    box-sizing="border-box"
+                    padding=20
+                    border-width=0
+                    font-size=16
+                    testId="comment-body"
+                  row align-items="center"
+                    justify-content="space-between"
+                    padding-top=12
+                    padding-bottom=12
+                    padding-left=20
+                    padding-right=20
+                    background-color="#f5f5f5"
+                    border-top-style="solid"
+                    border-top-width=1
+                    border-color="#eeeeee"
+                    image me.avatar width=30
+                      height=30
+                      border-radius=30
+                      object-fit="cover"
+                      aria-label=""
+                    button press=postComment(post.slug)
+                      class=BtnSm
+                      border-color="#33aa44"
+                      background-color="#33aa44"
+                      color="#ffffff"
+                      font-weight=700
+                      testId="post-comment"
+                      text "Post Comment"
+              else
+                row flex-wrap="wrap" gap=4 margin-bottom=16
+                  link press=go("/login") color="#33aa44"
+                    text "Sign in"
+                  text "or"
+                  link press=go("/register") color="#33aa44"
+                    text "sign up"
+                  text "to add comments on this article."
+              each c in thread key = c.id
+                column border-style="solid"
+                  border-width=1
+                  border-color="#eeeeee"
+                  border-radius=12
+                  margin-bottom=12
+                  overflow="hidden"
+                  testId=`comment-${c.id}`
+                  text c.body padding=20
+                  row align-items="center"
+                    padding-top=12
+                    padding-bottom=12
+                    padding-left=20
+                    padding-right=20
+                    background-color="#f5f5f5"
+                    border-top-style="solid"
+                    border-top-width=1
+                    border-color="#eeeeee"
+                    gap=6
+                    font-size=12.8
+                    image c.author.image width=20
+                      height=20
+                      border-radius=30
+                      object-fit="cover"
+                      aria-label=""
+                    link press=go(`/profile/${encodeURIComponent(c.author.username)}`)
+                      color="#33aa44"
+                      text c.author.username
+                    text c.date color="#bbbbbb"
+                    when c.mine
+                      button press=uncomment(post.slug, c.id)
+                        margin-left="auto"
+                        color="#333333"
+                        background-color="#f5f5f5"
+                        aria-label="Delete comment"
+                        testId=`delete-comment-${c.id}`
+                        text "🗑"
+
+component ProfilePage
+  props
+    me: User
+    person: Profile
+    feed: Feed
+    loading: bool
+    favorites: bool
+    page: number
+    go: action
+    showTag: action
+    showPage: action
+    favorite: action
+    follow: action
+  view
+    column
+      column padding-top=32
+        padding-bottom=16
+        border-bottom-style="solid"
+        border-bottom-width=1
+        border-color="#eeeeee"
+        border-top-style="solid"
+        border-top-width=1
+        column class=Container align-items="center"
+          image person.image width=100
+            height=100
+            border-radius=100
+            object-fit="cover"
+            margin-bottom=16
+            aria-label=""
+          text person.username font-size=24
+            font-weight=700
+            line-height=1.1
+            margin-bottom=8
+            testId="profile-name"
+          text person.bio color="#aaaaaa"
+            font-weight=300
+            max-width=450
+            text-align="center"
+            margin-bottom=8
+          when person.found
+            when me.signedIn and me.username == person.username
+              button press=go("/settings")
+                class=BtnSm
+                align-self="flex-end"
+                border-color="#999999"
+                color="#999999"
+                background-color="#ffffff"
+                testId="edit-settings"
+                text "⚙ Edit Profile Settings"
+            else
+              button press=follow(person.username, not person.following)
+                class=BtnSm
+                align-self="flex-end"
+                border-color="#999999"
+                color=(person.following ? "#ffffff": "#999999")
+                background-color=(person.following ? "#999999": "#ffffff")
+                testId="follow-profile"
+                text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+      column class=Container max-width=950
+        row class=Tabs margin-top=24
+          button press=go(`/profile/${encodeURIComponent(person.username)}`)
+            padding-top=8
+            padding-bottom=8
+            padding-left=16
+            padding-right=16
+            border-bottom-style="solid"
+            border-bottom-width=2
+            border-color=(favorites ? "#ffffff": "#33aa44")
+            color=(favorites ? "#aaaaaa": "#33aa44")
+            background-color="#ffffff"
+            testId="tab-mine"
+            text "My Articles"
+          button press=go(`/profile/${encodeURIComponent(person.username)}/favorites`)
+            padding-top=8
+            padding-bottom=8
+            padding-left=16
+            padding-right=16
+            border-bottom-style="solid"
+            border-bottom-width=2
+            border-color=(favorites ? "#33aa44": "#ffffff")
+            color=(favorites ? "#33aa44": "#aaaaaa")
+            background-color="#ffffff"
+            testId="tab-favorites"
+            text "Favorited Articles"
+        Previews(
+          feed=feed,
+          loading=loading,
+          page=page,
+          go=go,
+          showTag=showTag,
+          showPage=showPage,
+          favorite=favorite
+        )
