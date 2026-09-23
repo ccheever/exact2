@@ -583,6 +583,9 @@ function produceRustNow() {
           if(reply.id!==rustRun||!rustActive||typeof reply.ok!=='boolean')throw new Error('invalid Rust producer reply');
           rustActive=false;clearInterval(rustHeartbeat);rustHeartbeat=null;
           if(!reply.ok){console.error(reply.error);push({error:reply.error});}
+          // The reply follows the pointer's rename; the directory watch would
+          // see it a filesystem event later and then finds it current.
+          else try{readRustGeneration();}catch(error){console.error(error.message);push({error:error.message});}
           if(rustDirty && rebuildOn.rust==='save') rustPending = true;
           drainBuilds();
         } catch(error){failed(error);return;}
@@ -602,19 +605,23 @@ function startRustCompiler() {
     if (name !== 'current') return;
     try { readRustGeneration(); } catch (error) { console.error(error.message); push({error:error.message}); }
   });
-  rustSourceWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
-    || /\.(ts|json)$/.test(name) || gpuOnly([resolve(app.dir, name)])
-    || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/')), error => {
+  rustSourceWatch = watchModuleSources(app.dir, rustWatchIgnores, error => {
     if (error) { push({error:error.message}); return; }
     // The TS producer owns mixed Contract edits. If a Contract changes
     // during a Rust bake, its before/after guard will refuse that bake;
     // remember to build the latest snapshot once the in-flight job ends.
     if (typescript) { if (rustActive) rustDirty = true; return; }
+    // The watcher already coalesces a save's events; the producer serializes
+    // builds and reruns once for edits that arrive during one.
     rustSaved = Date.now(); rustDirty = true;
-    if (rebuildOn.rust === 'save') { clearTimeout(timer); timer=setTimeout(produceRust,200); }
+    if (rebuildOn.rust === 'save') { clearTimeout(timer); timer=setTimeout(produceRust,0); }
   });
   produceRust();
 }
+// App-relative names the Rust source watcher leaves to other producers.
+const rustWatchIgnores = name => skipped.test(name) || /(^|\/)\./.test(name)
+  || /\.(ts|json)$/.test(name) || gpuOnly([resolve(app.dir, name)])
+  || assetTrees.some(([tree]) => resolve(app.dir,name).startsWith(tree+'/'));
 const killCompiler = () => {
   const gpuChild = gpuBuildChild; gpuBuildChild = null;
   if (gpuChild) { try { process.kill(-gpuChild.pid, 'SIGKILL'); } catch {} }
@@ -629,10 +636,12 @@ const killCompiler = () => {
 };
 startCompiler();
 const stop = async () => {
-  const children = [dev, rustChild, gpuBuildChild, localInstallChild].filter(Boolean);
+  const children = [dev, rustChild, gpuBuildChild, localInstallChild, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   killCompiler();
   localInstallChild?.kill('SIGTERM');
+  // A rebuild in flight would otherwise swap dist under the next dev server.
+  hostBuildChild?.kill('SIGTERM');
   await Promise.all(exits); process.exit(0);
 };
 
@@ -822,7 +831,12 @@ function watchCompilerInputs() {
         && !compilerMissingInputs.some(missing=>path===missing||missing.startsWith(path+'/'))
         && !(name.endsWith('.swift') && swiftSourceDirectories.has(dir))) return;
       if (typescript && resolve(dir, name).startsWith(app.dir + '/') && /\.(ts|contract)$/.test(name)) return;
-      if (portableRust && rustInputFiles.has(resolve(dir,name))) { rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return; }
+      if (portableRust && rustInputFiles.has(path)) {
+        // A Contract source the Rust source watcher sees has already started
+        // its build (that watcher tracks .contract names, never .rs).
+        if (rustSourceWatch && path.endsWith('.contract') && path.startsWith(app.dir + '/') && !rustWatchIgnores(path.slice(app.dir.length + 1))) return;
+        rustSaved=Date.now();rustDirty=true;if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(produceRust,200);}return;
+      }
       changed.add(resolve(dir,name));console.log(`edit ${resolve(dir,name)} → build pending; classification follows its receipt`);
       if(rebuildOn.rust==='save'){clearTimeout(timer);timer=setTimeout(rebuild,gpuOnly([...changed]) ? 20 : 200);}
     };
@@ -848,17 +862,18 @@ process.stdin.on('data', input => {
 });
 console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript, f + Enter starts a fresh page`);
 
+let hostBuildChild = null;
 function rebuild() { buildPending = true; drainBuilds(); }
 function rebuildNow(files) {
   building = true;
   const t = Date.now();
   console.log(`rust: ${files.length} file${files.length === 1 ? '' : 's'} changed (${files.slice(0, 3).join(', ')}${files.length > 3 ? ', …' : ''}) — rebuilding the wasm`);
-  const b = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+  const b = hostBuildChild = spawn(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   b.stdout.on('data', (d) => { out += d; });
   b.stderr.on('data', (d) => { out += d; });
   b.on('exit', (code) => {
-    building = false;
+    building = false; hostBuildChild = null;
     const ms = Date.now() - t;
     if (code === 0) {
       builds += 1;
