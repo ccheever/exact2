@@ -822,6 +822,56 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
 }
 
 #[test]
+fn dispatch_names_every_kind_and_refuses_unknown_ones() {
+    let bytes = contract::compile(
+        r#"component App
+  state text = "hello"
+  action edit(value: string) writes text
+    text = value
+  view
+    box
+      input testId="field" value=text change=edit
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("field")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let slots = |bridge: &Bridge<StorageModule>| bridge.host.as_ref().unwrap().carry().slots;
+    let hello = vec![("text".into(), Value::Str("hello".into()))];
+    // A collection move (kind 18, include/exact.h) is never the text of a change.
+    let packet = Event::ReorderDrop {
+        item: "row".into(),
+        before: None,
+    }
+    .reorder_drop_bytes()
+    .unwrap();
+    let len = bridge.input_write(&packet);
+    bridge.dispatch(view, 18, len, 0.);
+    assert_eq!(slots(&bridge), hello);
+    let len = bridge.input_write(b"\x07\0\0\0");
+    let n = bridge.dispatch(view, 18, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("invalid reorder event"), "{out}");
+    for kind in [22, 99, u32::MAX] {
+        let len = bridge.input_write(b"typed");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains(&format!("unknown event kind {kind}")), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    let len = bridge.input_write(b"typed");
+    bridge.dispatch(view, 1, len, 0.);
+    assert_eq!(
+        slots(&bridge),
+        vec![("text".into(), Value::Str("typed".into()))]
+    );
+}
+
+#[test]
 fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
     let plan = contract::compile("shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.beacons}`\n").unwrap();
     let mut bridge = Bridge::new();

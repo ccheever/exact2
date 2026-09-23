@@ -254,7 +254,8 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 18 = reorder (collection move payload),
  * 20 = pan (UTF-8 dx,dy; incremental viewport CSS pixels, LLP 1043.000 D8),
  * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds),
- * 21 = select (formats + newline + mixed 0/1 + newline + unavailable + newline + link).
+ * 21 = select (formats + newline + mixed 0/1 + newline + unavailable + newline + link);
+ * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */

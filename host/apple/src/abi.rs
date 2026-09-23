@@ -758,6 +758,7 @@ impl<D: DataSource> Bridge<D> {
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
             0 => Event::Press,
+            1 => Event::Change(payload),
             2 => Event::Hover(true),
             3 => Event::Hover(false),
             4 => Event::Focus,
@@ -802,6 +803,14 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
+            // The header's collection move: never the text of a change.
+            18 => {
+                let Some(event) = self.input.get(..len).and_then(Event::reorder_drop_payload)
+                else {
+                    return self.emit(r#"{"ops":[],"error":"invalid reorder event"}"#.into());
+                };
+                event
+            }
             19 => {
                 let Some(event) = Event::media_payload(&payload) else {
                     return self.emit(r#"{"ops":[],"error":"invalid media event"}"#.into());
@@ -820,7 +829,11 @@ impl<D: DataSource> Bridge<D> {
                 };
                 event
             }
-            _ => Event::Change(payload),
+            _ => {
+                return self.emit(format!(
+                    r#"{{"ops":[],"error":"unknown event kind {kind}"}}"#
+                ))
+            }
         };
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),

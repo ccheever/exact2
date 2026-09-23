@@ -255,7 +255,11 @@ returns the output buffer's; `exact_boot(measure, ctx, width, height)`,
 `exact_advance(now_ms)`, `exact_resize(width, height)`, `exact_insets(top,
 right, bottom, left)` (the safe-area insets under `viewport-fit=cover`, §9;
 2026-08-30), and `exact_tick(now_ms)` each return the output's length, a
-UTF-8 JSON batch. The app never hands the
+UTF-8 JSON batch. `exact_dispatch` gives every kind `include/exact.h` lists
+its own arm — 18 is a collection move, decoded as the web decodes it — and
+refuses any other kind with an error batch, where it once read every
+unlisted kind as a change and overwrote a text value with reorder bytes
+(2026-09-23). The app never hands the
 host a pointer the host did not give out; the one call the other way is the
 measure function. All calls on one thread; the bridge is thread-local.
 `exact_apple::host!(DataType, PLAN)` instantiates the exports for one app;
