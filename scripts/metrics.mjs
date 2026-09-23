@@ -636,6 +636,39 @@ await step('macos-boot', () => {
 // swift), then the budget row "touch one line, rebuild that crate" for the
 // host crate — and the startup again on the fresh binary.
 if (long) {
+  // The loop's own budgets, in this captured checkout's warm cache: the five
+  // checks exactly as AGENTS.md states them (the second pass is the warm
+  // one), then one kernel source touched and its tests rebuilt and run.
+  await step('loop', () => {
+    // A developer's environment: none of this fixture's EXACT_* overrides.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('EXACT_')));
+    const timed = (command, args, name = args[0]) => {
+      const t = Date.now();
+      const r = spawnSync(command, args, { cwd: ROOT, env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+      return { name, s: (Date.now() - t) / 1000, ok: r.status === 0 };
+    };
+    const gate = () => {
+      const checks = [
+        timed('cargo', ['build', '--all-targets', '--keep-going']),
+        timed('cargo', ['test', '--lib', '--bins', '--tests', '--no-fail-fast']),
+        timed('cargo', ['clippy', '--all-targets', '--keep-going', '--', '-D', 'warnings']),
+        timed('cargo', ['fmt', '--all', '--', '--check']),
+        timed(process.execPath, ['scripts/caps.mjs'], 'caps'),
+        timed(process.execPath, ['scripts/boot.mjs'], 'boot'),
+      ];
+      return { s: checks.reduce((sum, c) => sum + c.s, 0), failed: checks.filter(c => !c.ok).map(c => c.name) };
+    };
+    out.gate_first_s = gate().s;
+    const warm = gate();
+    out.gate_s = warm.s; out.gate_failed = warm.failed;
+    const source = resolve(ROOT, 'kernel/src/lib.rs'), now = new Date();
+    utimesSync(source, now, now);
+    const built = timed('cargo', ['build', '-p', 'exact-kernel']);
+    out.touch_kernel_s = built.ok ? built.s : NaN;
+    utimesSync(source, now, new Date(now.getTime() + 1000));
+    const tested = timed('cargo', ['test', '-p', 'exact-kernel', '--no-fail-fast']);
+    out.test_kernel_s = tested.s; out.test_kernel_ok = tested.ok;
+  });
   await step('macos', () => {
     const build = () => {
       const t = Date.now();
@@ -737,6 +770,9 @@ if (Number.isFinite(out.macos_paint_ms)) rows.push(
 if (rebuild) rows.push(['edit → wasm rebuilt (no driver)', ms(out.rebuild_ms), out.rebuild_note ?? 'the cold path: cargo build of the app crate']);
 if (long) {
   const s = (v) => (Number.isFinite(v) ? `${v.toFixed(1)} s` : 'n/a');
+  rows.push(['blocking gate (the five checks, warm)', s(out.gate_s), `${out.gate_failed?.length ? `failing: ${out.gate_failed.join(', ')}; ` : ''}first pass ${s(out.gate_first_s)}; budget ${budget('Blocking gate')}`]);
+  rows.push(['kernel: touch one line, rebuild', s(out.touch_kernel_s), `kernel/src/lib.rs; budget ${budget('Touch one line')}`]);
+  rows.push(['kernel: test what you changed', s(out.test_kernel_s), `cargo test -p exact-kernel${out.test_kernel_ok === false ? ' (failing)' : ''}; budget ${budget('Test what you changed')}`]);
   rows.push(['macOS: initial captured build', s(out.macos_build_s), `cargo ${s(out.macos_build_cargo_s)} · swift ${s(out.macos_build_swift_s)}; budget ${budget('Full build')}`]);
   const mib = (v) => (Number.isFinite(v) ? `${(v / 1048576).toFixed(2)} MB` : 'n/a');
   rows.push(
@@ -749,4 +785,4 @@ if (long) {
 console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
 console.log(`exact2 metrics (${app.id}, captured source) — ${new Date().toISOString().slice(0, 19)}Z, private build cache, p50 where repeated`);
 for (const [k, v, note] of rows) console.log(`  ${k.padEnd(34)} ${v.padStart(11)}   ${note}`);
-console.log(`  ${'total'.padEnd(34)} ${`${out.total_s.toFixed(1)} s`.padStart(11)}   capture ${(out.source_capture_s ?? 0).toFixed(1)} s · native ${out._native_s.toFixed(1)} s · wasm ${out._wasm_s.toFixed(1)} s · browser ${out._browser_s.toFixed(1)} s · dev loop ${out._reload_s.toFixed(1)} s · macOS boot ${out['_macos-boot_s'].toFixed(1)} s${rebuild ? ` · rebuild ${out._rebuild_s.toFixed(1)} s` : ''}${long ? ` · macOS ${out._macos_s.toFixed(1)} s` : ''}`);
+console.log(`  ${'total'.padEnd(34)} ${`${out.total_s.toFixed(1)} s`.padStart(11)}   capture ${(out.source_capture_s ?? 0).toFixed(1)} s · native ${out._native_s.toFixed(1)} s · wasm ${out._wasm_s.toFixed(1)} s · browser ${out._browser_s.toFixed(1)} s · dev loop ${out._reload_s.toFixed(1)} s · macOS boot ${out['_macos-boot_s'].toFixed(1)} s${rebuild ? ` · rebuild ${out._rebuild_s.toFixed(1)} s` : ''}${long ? ` · loop ${out._loop_s.toFixed(1)} s · macOS ${out._macos_s.toFixed(1)} s` : ''}`);
