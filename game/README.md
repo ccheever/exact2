@@ -391,7 +391,7 @@ Layout, accessibility and ordinary controls stay with the app host. See
 | Measurements and history | [bench](bench/README.md), [diaries](diaries/README.md) |
 | Architecture | [as built](../llp/1046.003-game-engine-as-built.explainer.md), [agent contract](../llp/1046.001-agent-interface-to-a-game.rfc.md) |
 
-From `game/`, with `EXACT_UPDATE_TRUST=development` set:
+From `game/` (an unset `EXACT_UPDATE_TRUST` bakes development trust):
 
 ```sh
 cargo build --workspace

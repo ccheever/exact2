@@ -1,6 +1,6 @@
 // Host adapters belong to the bake, never to a game author.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -239,6 +239,25 @@ export function outsideSdkLock(derived, sdk, members) {
   const known = lockIds(sdk);
   return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
 }
+// Every gpu-dev bake re-resolves the same graph. Reuse the last locked
+// metadata while every manifest, lock and config it read is unchanged, keyed by
+// stat as the proof's inputs are; production trust always asks Cargo.
+const statKey = path => { try { const s = statSync(path); return `${s.ino}:${s.size}:${s.mtimeMs}`; } catch { return null; } };
+function lockedMetadata(root, flags, env) {
+  const cache = resolve(root, 'metadata.json'), fixed = ['Cargo.toml', 'Cargo.lock', '.cargo/config.toml'].map(file => resolve(root, file));
+  const key = metadata => JSON.stringify([flags, ...['CARGO_TARGET_DIR', 'CARGO_BUILD_BUILD_DIR', 'CARGO_HOME', 'RUSTUP_TOOLCHAIN', 'PATH'].map(name => env[name] ?? null),
+    ...[...fixed, resolve(gameRoot, '.cargo/config.toml'), resolve(gameRoot, '../rust-toolchain.toml'),
+      // A package directory's own stat changes when a target file (build.rs, src/bin) is added.
+      ...metadata.packages.filter(pkg => !pkg.source).flatMap(pkg => [pkg.manifest_path, dirname(pkg.manifest_path), resolve(dirname(pkg.manifest_path), 'src')])]
+      .map(path => [path, statKey(path)])]);
+  if (env.EXACT_UPDATE_TRUST !== 'production') try {
+    const stored = JSON.parse(readFileSync(cache, 'utf8'));
+    if (stored.key === key(JSON.parse(stored.text))) return {status:0, stdout:stored.text};
+  } catch { /* No reusable resolution. */ }
+  const result = cargoMetadata(root, flags, env);
+  if (result.status === 0) writeFileSync(cache, JSON.stringify({key:key(JSON.parse(result.stdout)), text:result.stdout}));
+  return result;
+}
 const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
@@ -246,7 +265,7 @@ const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...[
 export function prepareGame(dir, game, source = gameRoot, {updateLock = false, target, env = process.env} = {}) {
   const root = resolve(dir, '.shells'), own = resolve(dir, 'Cargo.lock'), shell = resolve(root, 'Cargo.lock');
   const name = gameShells(dir, game, source), members = shellMembers(gameDefaults(dir).game, name);
-  const metadata = locked => cargoMetadata(root, ['--offline', ...(locked ? ['--locked'] : []), ...(target ? ['--filter-platform', target] : [])], env);
+  const metadata = locked => (locked ? lockedMetadata : cargoMetadata)(root, ['--offline', ...(locked ? ['--locked'] : []), ...(target ? ['--filter-platform', target] : [])], env);
   const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nOffline resolution requires a populated Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nTo capture this game's own dependencies: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
   if (updateLock || existsSync(own)) {
     const result = metadata(!updateLock);
