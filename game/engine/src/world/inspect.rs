@@ -50,7 +50,9 @@ impl World {
         self.state.busy.borrow_mut().push(reason.into());
     }
     /// Whether the observed tick changed no countable component, springs rest and no work was reported.
+    #[track_caller]
     pub fn quiescent(&self) -> bool {
+        self.check_reads(std::panic::Location::caller());
         self.observed()
             && self.observation == ObservationState::Still
             && self.state.busy.borrow().is_empty()
@@ -70,7 +72,9 @@ impl World {
         self.observation = ObservationState::Unknown;
         self.changing.clear();
     }
+    #[track_caller]
     pub(crate) fn changing(&self) -> Vec<String> {
+        self.check_reads(std::panic::Location::caller());
         let mut reasons = if self.observed() {
             self.changing.clone()
         } else {
@@ -120,7 +124,9 @@ impl World {
         }
         reasons
     }
+    #[track_caller]
     pub(crate) fn settle_tick(&self) -> Option<u64> {
+        self.check_reads(std::panic::Location::caller());
         if !self.state.busy.borrow().is_empty() {
             return None;
         }
@@ -207,11 +213,13 @@ impl World {
     pub(crate) fn resources_json(&self) -> Result<String, DataError> {
         self.storages_json(&self.resources, 0)
     }
+    #[track_caller]
     fn storages_json(
         &self,
         storages: &BTreeMap<&str, Box<dyn Erased>>,
         index: usize,
     ) -> Result<String, DataError> {
+        self.check_reads(std::panic::Location::caller());
         let mut w = crate::json::Encoder::default(); // State round-trips; only layout is rounded.
         w.begin_struct();
         for (name, s) in storages {
@@ -243,7 +251,10 @@ impl World {
     pub(crate) fn observe(&self, out: &mut Observation) {
         self.observe_with_hash(out, false);
     }
+    #[track_caller]
     pub(crate) fn observe_with_hash(&self, out: &mut Observation, full: bool) {
+        let at = std::panic::Location::caller();
+        self.check_reads(at);
         let mut full = full.then(crate::hash::Hasher::default);
         if let Some(w) = &mut full {
             w.begin_struct();
@@ -251,7 +262,7 @@ impl World {
             self.state.write(w);
             w.field("rng");
         }
-        let rng = self.rng.get().unwrap();
+        let rng = self.rng.get(at).unwrap();
         let rng_hash = match &mut full {
             Some(w) => w.with_observation(&*rng),
             None => crate::hash::of(&*rng),

@@ -50,13 +50,15 @@ pub fn queries(world: &World) -> Queries<'_> {
 impl Queries<'_> {
     pub(crate) fn scene(&self) -> RefMut<'_, Scene> {
         // Even an unchanged revision cannot authorize reading a live mutable lease.
-        // Acquire the relevant shared leases before consulting the derived cache.
-        let _leases = self.world.query::<(
-            Option<&Body>,
-            Option<&Collider>,
-            Option<&Transform>,
-            Option<&Parent>,
-        )>();
+        // Hold every row of the relevant columns before consulting the derived cache;
+        // a query leases nothing until iterated.
+        // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+        let _leases = (
+            self.world.pages::<Body>(),
+            self.world.pages::<Collider>(),
+            self.world.pages::<Transform>(),
+            self.world.pages::<Parent>(),
+        );
         let revisions = Revisions::of(self.world);
         let mut cache = self.physics.executor.1.borrow_mut();
         if cache

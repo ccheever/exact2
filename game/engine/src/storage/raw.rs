@@ -1,6 +1,7 @@
 //! Layout and Data operations are fixed once per type. Typed wrappers never cast
-//! between descriptors. Presence bits own values; all access holds a column lease.
-use super::{Lease, Storage, PAGE, WORDS};
+//! between descriptors. Presence bits own values; every access holds a row lease,
+//! or checks that no exclusive lease is live before reading every row.
+use super::{At, Conflict, Holds, Lease, Leases, Party, Storage, Via, EVERY, PAGE, WORDS};
 use crate::{Data, DataError, Entity, Now, Reader, Writer};
 use std::{
     alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout},
@@ -95,7 +96,7 @@ pub(crate) struct RawStorage {
     pub(super) generations: Vec<Cell<u64>>,
     pub(super) mask: Vec<u64>,
     len: usize,
-    borrowed: Cell<isize>,
+    pub(super) holds: Holds,
     revision: Cell<u64>,
     membership: u64,
     epoch: Rc<Cell<u64>>,
@@ -111,7 +112,7 @@ impl RawStorage {
             generations: vec![],
             mask: vec![],
             len: 0,
-            borrowed: Cell::new(0),
+            holds: Holds::default(),
             revision: Cell::new(0),
             membership: 0,
             epoch,
@@ -165,16 +166,96 @@ impl RawStorage {
             generation.set(self.revision.get());
         }
     }
-    fn edited(&self) {
+    pub(super) fn edited(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
         self.revision.set(self.revision.get().wrapping_add(1));
     }
-    pub(super) fn lease(&self, mutable: bool) -> Lease<'_> {
-        let lease = Lease::new(self.name, &self.borrowed, mutable);
-        if mutable {
-            self.edited();
+    /// Lease one present row unless a live query or hold on the same row refuses.
+    #[inline]
+    pub(super) fn lease_row(
+        &self,
+        index: usize,
+        mutable: bool,
+        leases: &Leases,
+        at: At,
+    ) -> Option<Lease<'_>> {
+        if !leases.admits(self, index, mutable) {
+            return None;
         }
-        lease
+        let slot = self.holds.acquire(index as u32, mutable, at)?;
+        Some(Lease::Hold {
+            holds: &self.holds,
+            slot,
+        })
+    }
+    /// Whether a shared read of this row would alias no exclusive lease.
+    pub(super) fn readable(&self, index: usize, leases: &Leases) -> bool {
+        leases.admits(self, index, false) && self.holds.conflict(index as u32, false).is_none()
+    }
+    /// Why lease_row refused, re-derived off the hot path.
+    #[cold]
+    pub(crate) fn row_conflict(
+        &self,
+        index: usize,
+        mutable: bool,
+        leases: &Leases,
+        at: At,
+    ) -> Conflict {
+        let held = leases
+            .holder(self, index, mutable)
+            .or_else(|| self.holds.conflict(index as u32, mutable))
+            .expect("a refused row lease has a holder");
+        let requested = Party {
+            mutable,
+            via: Via::Row,
+            at,
+        };
+        Conflict::row(self.name, index as u32, held, requested)
+    }
+    /// A shared hold on every row, for page views.
+    pub(super) fn lease_column(&self, leases: &Leases, at: At) -> Result<Lease<'_>, Conflict> {
+        if let Some(conflict) = self.read_conflict(leases, Via::Column, at) {
+            return Err(conflict);
+        }
+        let slot = self
+            .holds
+            .acquire(EVERY, false, at)
+            .expect("no exclusive hold is live");
+        Ok(Lease::Hold {
+            holds: &self.holds,
+            slot,
+        })
+    }
+    /// The exclusive lease a shared read of every row would alias, if any.
+    pub(super) fn read_conflict(&self, leases: &Leases, via: Via, at: At) -> Option<Conflict> {
+        if self.holds.unwritten() {
+            return None;
+        }
+        let (row, held) = match self.holds.writer() {
+            Some((row, held)) => (Some(row), held),
+            None => (
+                None,
+                leases.writer(self).expect("writers are counted holds"),
+            ),
+        };
+        Some(Conflict {
+            component: self.name,
+            row,
+            held,
+            requested: Party {
+                mutable: false,
+                via,
+                at,
+            },
+        })
+    }
+    // Engine walks run no author code; the World refuses by name before them.
+    fn reading(&self) {
+        assert!(
+            self.holds.unwritten(),
+            "{} is borrowed exclusively during an engine read of every row",
+            self.name
+        );
     }
     // Consumes a matching initialized value. Its source becomes uninitialized.
     pub(super) unsafe fn insert(&mut self, index: usize, value: *mut u8) {
@@ -245,8 +326,8 @@ impl RawStorage {
         if !self.has(index) {
             return false;
         }
-        let _lease = self.lease(false);
-        // SAFETY: presence and shared lease protect the value.
+        self.reading();
+        // SAFETY: presence proves initialization; no exclusive lease is live.
         unsafe { (self.desc.write)(self.ptr(index), w) };
         true
     }
@@ -257,7 +338,7 @@ impl RawStorage {
         mut full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
     ) {
-        let _lease = self.lease(false);
+        self.reading();
         if let Some(w) = &mut full {
             w.begin_seq(self.len);
         }
@@ -266,7 +347,7 @@ impl RawStorage {
             if !observe && full.is_none() {
                 continue;
             }
-            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            // SAFETY: presence proves initialization; no exclusive lease is live.
             let value = self.ptr(i);
             if let Some(w) = &mut full {
                 w.item();
@@ -295,9 +376,9 @@ impl RawStorage {
     }
 
     pub(super) fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
-        let _lease = self.lease(false);
+        self.reading();
         self.indices(skip.map(|s| &s.raw)).any(|i| {
-            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            // SAFETY: presence proves initialization; no exclusive lease is live.
             unsafe { (self.desc.moving)(self.ptr(i), now) }
         })
     }
@@ -307,9 +388,9 @@ impl RawStorage {
         skip: Option<&Storage<crate::Ambient>>,
         visit: &mut dyn FnMut(usize) -> bool,
     ) {
-        let _lease = self.lease(false);
+        self.reading();
         for i in self.indices(skip.map(|s| &s.raw)) {
-            // SAFETY: presence and shared lease protect this slot.
+            // SAFETY: presence proves initialization; no exclusive lease is live.
             if unsafe { (self.desc.moving)(self.ptr(i), now) } && !visit(i) {
                 return;
             }
@@ -320,16 +401,16 @@ impl RawStorage {
         now: crate::Now,
         skip: Option<&Storage<crate::Ambient>>,
     ) -> Option<u64> {
-        let _lease = self.lease(false);
+        self.reading();
         let mut at = now.tick;
         for i in self.indices(skip.map(|s| &s.raw)) {
-            // SAFETY: presence proves initialization; the shared lease excludes writers.
+            // SAFETY: presence proves initialization; no exclusive lease is live.
             at = at.max(unsafe { (self.desc.settle)(self.ptr(i), now) }?);
         }
         Some(at)
     }
     pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        let _lease = self.lease(false);
+        self.reading();
         w.begin_seq(self.len);
         for index in self.indices(None) {
             w.item();
@@ -337,7 +418,7 @@ impl RawStorage {
             w.item();
             entity(index).write(w);
             w.item();
-            // SAFETY: the bit proves initialization and the shared lease excludes writers.
+            // SAFETY: the bit proves initialization; no exclusive lease is live.
             unsafe { (self.desc.write)(self.ptr(index), w) };
             w.end_seq();
         }
@@ -573,5 +654,121 @@ mod tests {
         assert!(catch_unwind(AssertUnwindSafe(|| w.despawn(e))).is_err());
         assert!(w.get::<Bomb>(e).is_none());
         assert!(w.despawn(e));
+    }
+
+    // Row leases move and drop nothing: only replacing a value through a guard
+    // drops, and each owner drops exactly once. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+    #[test]
+    fn row_leases_on_zero_sized_owners_neither_move_nor_drop() {
+        thread_local! { static DROPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+        #[derive(Default, Component)]
+        struct Guard;
+        impl Drop for Guard {
+            fn drop(&mut self) {
+                DROPS.set(DROPS.get() + 1);
+            }
+        }
+        DROPS.set(0);
+        let mut w = World::new(60, 0);
+        let [a, b, c] = [(); 3].map(|_| w.spawn(Guard));
+        {
+            let mut first = w.get_mut::<Guard>(a).unwrap();
+            let second = w.get_mut::<Guard>(b).unwrap();
+            let third = w.get::<Guard>(c).unwrap();
+            assert!(catch_unwind(AssertUnwindSafe(|| w.get::<Guard>(b))).is_err());
+            *first = Guard;
+            assert_eq!(
+                DROPS.get(),
+                1,
+                "assignment through a guard drops the old owner"
+            );
+            drop((second, third));
+        }
+        assert_eq!(DROPS.get(), 1);
+        let rows: Vec<_> = w.query::<&mut Guard>().into_iter().collect();
+        assert_eq!(rows.len(), 3);
+        assert!(catch_unwind(AssertUnwindSafe(|| w.get::<Guard>(a))).is_err());
+        drop(rows);
+        assert_eq!(DROPS.get(), 1, "escaped rows release leases, not values");
+        assert!(w.get_mut::<Guard>(a).is_some());
+        drop(w);
+        assert_eq!(DROPS.get(), 4);
+    }
+
+    #[test]
+    fn over_aligned_rows_lease_apart_inside_a_filtered_query() {
+        #[repr(align(128))]
+        #[derive(Default, Component)]
+        struct Aligned {
+            text: String,
+            n: u32,
+        }
+        #[derive(Default, Component)]
+        struct Marked;
+        let mut w = World::new(60, 0);
+        let entities: Vec<_> = (0..(crate::PAGE + 6) as u32)
+            .map(|n| {
+                let e = w.spawn(Aligned {
+                    text: "owned".into(),
+                    n,
+                });
+                if n % 2 == 1 {
+                    w.insert(e, Marked);
+                }
+                e
+            })
+            .collect();
+        // An unmarked row on the second page, borrowed beside each marked row.
+        let far_row = entities[crate::PAGE];
+        for (_, value) in w.query::<&mut Aligned>().with::<Marked>().iter() {
+            let other = w.get::<Aligned>(entities[0]).unwrap();
+            let mut far = w.get_mut::<Aligned>(far_row).unwrap();
+            for row in [&*value as *const Aligned, &*other, &*far] {
+                assert_eq!(row as usize % 128, 0);
+            }
+            value.n += other.n + 1;
+            far.text.push('+');
+        }
+        assert_eq!(w.get::<Aligned>(entities[1]).unwrap().n, 2);
+        let marked = (crate::PAGE + 6) / 2;
+        assert_eq!(w.get::<Aligned>(far_row).unwrap().text.len(), 5 + marked);
+        let saved = w.save();
+        w.load(&saved).unwrap();
+        assert_eq!(w.save(), saved);
+    }
+
+    #[test]
+    fn a_panicking_destructor_under_a_row_lease_releases_it() {
+        #[derive(Default, Component)]
+        struct Bomb {
+            explode: bool,
+            text: String,
+        }
+        impl Drop for Bomb {
+            fn drop(&mut self) {
+                assert!(!self.explode, "drop bomb");
+            }
+        }
+        let mut w = World::new(60, 0);
+        let armed = w.spawn(Bomb {
+            explode: true,
+            text: "old".into(),
+        });
+        let other = w.spawn(Bomb::default());
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            let _neighbour = w.get_mut::<Bomb>(other).unwrap();
+            let mut row = w.get_mut::<Bomb>(armed).unwrap();
+            *row = Bomb {
+                explode: false,
+                text: "replacement".into(),
+            };
+        }))
+        .is_err());
+        // Assignment completes on unwind; both guards released their rows.
+        assert_eq!(w.get_mut::<Bomb>(armed).unwrap().text, "replacement");
+        assert!(w.get_mut::<Bomb>(other).is_some());
+        for (_, bomb) in w.query::<&mut Bomb>().iter() {
+            bomb.text.clear();
+        }
     }
 }

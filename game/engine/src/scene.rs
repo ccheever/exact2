@@ -495,13 +495,17 @@ impl World {
     }
     /// World pose: a root reads its local Transform directly, without propagation.
     /// Parented poses reflect the last propagate call.
+    #[track_caller]
     pub fn global(&self, e: Entity) -> Option<Affine3A> {
         // Socket-derived gameplay poses are tick-boundary reads, not stored hierarchy nodes.
         if self.attachments.is_some() {
             return self.current_global(e);
         }
         if !self.has::<Parent>(e) {
-            return self.get::<Transform>(e).map(|local| local.affine());
+            let at = std::panic::Location::caller();
+            return self
+                .copied_at::<Transform>(e, at)
+                .map(|local| local.affine());
         }
         self.hierarchy
             .nodes
@@ -510,10 +514,24 @@ impl World {
             .map(|n| n.global)
     }
     /// Resolve the current local poses through the parent chain, before propagation.
+    #[track_caller]
     pub fn current_global(&self, e: Entity) -> Option<Affine3A> {
-        self.current_global_depth(e, self.len() + 1)
+        self.current_global_at(e, std::panic::Location::caller())
     }
+    pub(crate) fn current_global_at(&self, e: Entity, at: crate::storage::At) -> Option<Affine3A> {
+        self.current_global_depth_at(e, self.len() + 1, at)
+    }
+    #[track_caller]
     pub(crate) fn current_global_depth(&self, e: Entity, remaining: usize) -> Option<Affine3A> {
+        self.current_global_depth_at(e, remaining, std::panic::Location::caller())
+    }
+    // Each link leases one row at a time, reported at the author's call.
+    fn current_global_depth_at(
+        &self,
+        e: Entity,
+        remaining: usize,
+        caller: crate::storage::At,
+    ) -> Option<Affine3A> {
         if remaining == 0 {
             return None;
         }
@@ -523,11 +541,11 @@ impl World {
         {
             return Some(pose);
         }
-        let mut pose = self.get::<Transform>(e)?.affine();
+        let mut pose = self.copied_at::<Transform>(e, caller)?.affine();
         let mut at = e;
         for _ in 0..self.len() {
             let Some(parent) = self
-                .get::<Parent>(at)
+                .copied_at::<Parent>(at, caller)
                 .map(|p| p.0)
                 .filter(|p| self.contains(*p))
             else {
@@ -540,7 +558,7 @@ impl World {
                 return Some(parent_pose * pose);
             }
             pose = self
-                .get::<Transform>(parent)
+                .copied_at::<Transform>(parent, caller)
                 .map_or(Affine3A::IDENTITY, |t| t.affine())
                 * pose;
             at = parent;
@@ -588,6 +606,14 @@ impl Hierarchy {
         let stamp = self.stamp;
         self.entities.clear();
         self.broken.clear();
+        // Resolution runs under `&mut World`: one whole-column hold replaces a row
+        // lease per node. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+        let poses = w.pages::<Transform>();
+        let local = |e: Entity| {
+            poses
+                .row(e.index() as usize)
+                .map_or(Affine3A::IDENTITY, |t| t.affine())
+        };
         for (e, p) in w.query::<&Parent>().iter() {
             let i = e.index() as usize;
             if i >= self.nodes.len() {
@@ -607,16 +633,12 @@ impl Hierarchy {
             self.path.clear();
             let mut e = start;
             let mut base = loop {
-                let local = || {
-                    w.get::<Transform>(e)
-                        .map_or(Affine3A::IDENTITY, |t| t.affine())
-                };
                 let Some(n) = self
                     .nodes
                     .get_mut(e.index() as usize)
                     .filter(|n| n.present == stamp)
                 else {
-                    break local();
+                    break local(e);
                 };
                 if n.done == stamp {
                     break n.global;
@@ -647,9 +669,7 @@ impl Hierarchy {
                 }
             };
             while let Some(e) = self.path.pop() {
-                base *= w
-                    .get::<Transform>(e)
-                    .map_or(Affine3A::IDENTITY, |t| t.affine());
+                base *= local(e);
                 let n = &mut self.nodes[e.index() as usize];
                 n.global = base;
                 n.done = stamp;
@@ -811,6 +831,7 @@ impl Follow {
 /// The automatic scene step will not step them twice in the same tick.
 /// Step followers in entity order. The look direction follows the eased position,
 /// so both translation and rotation stop exactly. Missing targets leave the pose alone.
+#[track_caller]
 pub fn follow(world: &World) {
     if world.in_tick && world.followed.replace(true) {
         return;
@@ -820,6 +841,7 @@ pub fn follow(world: &World) {
 pub(crate) fn place_followers(world: &World) {
     follow_inner(world, true);
 }
+#[track_caller]
 fn follow_inner(world: &World, placement_only: bool) {
     for (e, follow) in world.query::<&mut Follow>().iter() {
         let target = follow.target.resolve(world);
@@ -877,9 +899,10 @@ fn follow_inner(world: &World, placement_only: bool) {
             };
             pose = pose.looking_at(aim, up);
         }
+        let caller = std::panic::Location::caller();
         if let Some(parent) = world
             .get::<Parent>(e)
-            .and_then(|p| world.current_global(p.0))
+            .and_then(|p| world.current_global_at(p.0, caller))
         {
             let (scale, rotation, position) =
                 (parent.inverse() * pose.affine()).to_scale_rotation_translation();

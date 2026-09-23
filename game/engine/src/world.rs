@@ -1,4 +1,4 @@
-use crate::storage::{self, Erased, Storage};
+use crate::storage::{self, At, Conflict, Erased, Leases, Storage};
 use crate::{
     bin, hash, Data, DataError, Now, Pages, Parent, Query, QueryBorrow, Reader, Ref, RefMut, Rng,
     Value, Writer,
@@ -6,6 +6,7 @@ use crate::{
 use std::any::TypeId;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::panic::Location;
 
 /// A slot and its incarnation; a recycled index never revives a stale entity.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Data)]
@@ -210,6 +211,8 @@ pub struct World {
     registry: BTreeMap<&'static str, Registration>,
     components: BTreeMap<&'static str, Box<dyn Erased>>,
     resources: BTreeMap<&'static str, Box<dyn Erased>>,
+    // Registered queries over `components`; never saved, replaced with them on load.
+    pub(crate) leases: Leases,
     // Animation-owned derived data, populated only when animation is linked and used; never saved.
     pub(crate) animation_runtime: RefCell<Option<Box<dyn std::any::Any>>>,
     journal: RefCell<VecDeque<Event>>,
@@ -259,6 +262,7 @@ impl World {
             registry: BTreeMap::new(),
             components: BTreeMap::new(),
             resources: BTreeMap::new(),
+            leases: Leases::default(),
             animation_runtime: RefCell::new(None),
             journal: RefCell::new(VecDeque::new()),
             journal_next: std::cell::Cell::new(0),
@@ -362,6 +366,7 @@ impl World {
             .generation
             .checked_add(1)
             .expect("entity generation exhausted");
+        self.leases.restructure();
         for s in self.components.values_mut() {
             s.remove(e.index as usize);
         }
@@ -432,6 +437,7 @@ impl World {
         }
     }
     /// Count living components matching a predicate, without changing the world.
+    #[track_caller]
     pub fn count<T: Component>(&self, mut predicate: impl FnMut(&T) -> bool) -> u32 {
         self.query::<&T>()
             .iter()
@@ -512,6 +518,9 @@ impl World {
             self.mark_fresh(e);
         }
         self.register::<C>();
+        // Retire leaked query shapes before `&mut` storage access.
+        // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+        self.leases.restructure();
         self.components
             .entry(C::NAME)
             .or_insert_with(|| storage::make::<C>(C::NAME, self.epoch.clone()))
@@ -541,6 +550,7 @@ impl World {
         if !self.contains(e) {
             return None;
         }
+        self.leases.restructure();
         self.components
             .get_mut(C::NAME)?
             .any_mut()
@@ -551,28 +561,80 @@ impl World {
     pub fn has<C: Component>(&self, e: Entity) -> bool {
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
-    /// Borrow one component immutably; conflicts panic with its name.
+    /// Borrow one component row immutably. Other rows of C stay free; a conflict
+    /// on this row panics naming C, the entity and both callers.
+    #[track_caller]
     pub fn get<C: Component>(&self, target: impl Target) -> Option<Ref<'_, C>> {
-        let e = target.entity(self)?;
-        if !self.contains(e) {
-            return None;
-        }
-        self.storage::<C>()?.get(e.index as usize)
+        self.get_at(target, Location::caller())
     }
-    /// Borrow one component exclusively, locking the whole column.
-    /// A nested get::<C> of another entity also panics; use a query for multiple rows.
+    /// Borrow one component row exclusively. Other rows of C stay free to borrow;
+    /// this row refuses every other borrow until the guard drops.
+    #[track_caller]
     pub fn get_mut<C: Component>(&self, target: impl Target) -> Option<RefMut<'_, C>> {
+        self.get_mut_at(target, Location::caller())
+    }
+    pub(crate) fn get_at<C: Component>(&self, target: impl Target, at: At) -> Option<Ref<'_, C>> {
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
         }
-        self.storage::<C>()?.get_mut(e.index as usize)
+        let (s, i) = (self.storage::<C>()?, e.index as usize);
+        s.get(i, &self.leases, at)
+            .unwrap_or_else(|_| self.refuse(s.row_conflict(i, false, &self.leases, at)))
+    }
+    pub(crate) fn get_mut_at<C: Component>(
+        &self,
+        target: impl Target,
+        at: At,
+    ) -> Option<RefMut<'_, C>> {
+        let e = target.entity(self)?;
+        if !self.contains(e) {
+            return None;
+        }
+        let (s, i) = (self.storage::<C>()?, e.index as usize);
+        s.get_mut(i, &self.leases, at)
+            .unwrap_or_else(|_| self.refuse(s.row_conflict(i, true, &self.leases, at)))
+    }
+    /// Copy one row out, refusing only a live exclusive lease on it.
+    pub(crate) fn copied_at<C: Component + Copy>(&self, e: Entity, at: At) -> Option<C> {
+        if !self.contains(e) {
+            return None;
+        }
+        let (s, i) = (self.storage::<C>()?, e.index as usize);
+        s.copied(i, &self.leases)
+            .unwrap_or_else(|_| self.refuse(s.row_conflict(i, false, &self.leases, at)))
+    }
+    /// Panic with a refused lease, naming the entity whose row both sides want.
+    #[cold]
+    pub(crate) fn refuse(&self, conflict: Conflict) -> ! {
+        let entity = conflict
+            .row
+            .map(|i| i as usize)
+            .filter(|&i| self.state.slots.get(i).is_some_and(|s| s.alive))
+            .map(|i| {
+                let e = self.entity_at(i);
+                match self.name(e) {
+                    Some(name) => format!("`{name}` (#{}, generation {})", e.index, e.generation),
+                    None => format!("#{} (generation {})", e.index, e.generation),
+                }
+            });
+        panic!("{}", conflict.message(entity))
+    }
+    // Engine reads of every row (hash, save, inspection) refuse live exclusive leases.
+    pub(crate) fn check_reads(&self, at: At) {
+        for s in self.components.values().chain(self.resources.values()) {
+            if let Some(conflict) = s.read_conflict(&self.leases, at) {
+                self.refuse(conflict);
+            }
+        }
     }
     /// Require a component, reporting both the target and component on failure.
+    #[track_caller]
     pub fn require<C: Component>(&self, target: impl Target) -> Ref<'_, C> {
+        let at = Location::caller();
         target
             .entity(self)
-            .and_then(|e| self.get::<C>(e))
+            .and_then(|e| self.get_at::<C>(e, at))
             .unwrap_or_else(|| {
                 panic!(
                     "entity `{}` requires component `{}`",
@@ -581,11 +643,13 @@ impl World {
                 )
             })
     }
-    /// Mutably require a component; the guard locks its component column.
+    /// Mutably require a component row; other rows of C stay free to borrow.
+    #[track_caller]
     pub fn require_mut<C: Component>(&self, target: impl Target) -> RefMut<'_, C> {
+        let at = Location::caller();
         target
             .entity(self)
-            .and_then(|e| self.get_mut::<C>(e))
+            .and_then(|e| self.get_mut_at::<C>(e, at))
             .unwrap_or_else(|| {
                 panic!(
                     "entity `{}` requires component `{}`",
@@ -594,40 +658,55 @@ impl World {
                 )
             })
     }
-    /// Construct an entity-ordered join and acquire its storage borrows now.
+    /// Construct an entity-ordered join. Its first iteration leases the rows it
+    /// matches, after filters, until the query and its escaped row guards drop.
+    #[track_caller]
     pub fn query<Q: Query>(&self) -> QueryBorrow<'_, Q> {
-        QueryBorrow::new(self)
+        QueryBorrow::new(self, Location::caller())
     }
     /// Current local position, without ancestor transforms; None if missing.
+    #[track_caller]
     pub fn local_position(&self, target: impl Target) -> Option<crate::Vec3> {
-        self.get::<crate::Transform>(target).map(|t| t.position)
+        let e = target.entity(self)?;
+        self.copied_at::<crate::Transform>(e, Location::caller())
+            .map(|t| t.position)
     }
     /// Current global position, including parents.
+    #[track_caller]
     pub fn global_position(&self, target: impl Target) -> Option<crate::Vec3> {
         self.current_global(target.entity(self)?)
             .map(|pose| pose.translation.into())
     }
     /// Closest other entity of C, including every component value. Ties use entity index.
+    #[track_caller]
     pub fn nearest_xz<C: Component>(&self, origin: impl Target, radius: f32) -> Option<Entity> {
         self.nearest_xz_where::<C>(origin, radius, |_| true)
     }
     /// Closest other entity carrying C in an inclusive XZ radius. Equal distances
     /// choose the lowest entity index. The predicate runs before distance selection.
+    #[track_caller]
     pub fn nearest_xz_where<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
         mut predicate: impl FnMut(&C) -> bool,
     ) -> Option<Entity> {
-        let candidates = self.within::<C>(origin, radius, true);
-        let storage = self.storage::<C>()?;
+        let at = Location::caller();
+        let candidates = self.within::<C>(origin, radius, true, at);
+        let s = self.storage::<C>()?;
         candidates
-            .filter(|(e, _, _)| storage.get(e.index as usize).is_some_and(|c| predicate(&c)))
+            .filter(|(e, _, _)| {
+                let i = e.index as usize;
+                s.get(i, &self.leases, at)
+                    .unwrap_or_else(|_| self.refuse(s.row_conflict(i, false, &self.leases, at)))
+                    .is_some_and(|c| predicate(&c))
+            })
             .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
             .map(|(entity, _, _)| entity)
     }
     /// Mutably borrow the closest matching component in an inclusive XZ radius.
     /// Selection uses nearest_xz_where's global positions and entity-index ties.
+    #[track_caller]
     pub fn nearest_xz_mut<C: Component>(
         &self,
         origin: impl Target,
@@ -640,29 +719,32 @@ impl World {
     /// Other entities carrying C within an inclusive radius, in entity order.
     /// Distances and returned poses use global transforms; missing origins yield no rows.
     /// Poses are copied, so neither component storage stays borrowed.
+    #[track_caller]
     pub fn near<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
     ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.near_in::<C>(origin, radius, false)
+        self.near_in::<C>(origin, radius, false, Location::caller())
     }
     /// Like near, ignoring Y. Rows contain the entity handle and its pose;
     /// both C and Transform remain free to borrow mutably inside the loop.
+    #[track_caller]
     pub fn near_xz<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
     ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.near_in::<C>(origin, radius, true)
+        self.near_in::<C>(origin, radius, true, Location::caller())
     }
     fn near_in<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
         planar: bool,
+        at: At,
     ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.within::<C>(origin, radius, planar)
+        self.within::<C>(origin, radius, planar, at)
             .map(|(entity, pose, _)| {
                 let (scale, rotation, position) = pose.to_scale_rotation_translation();
                 (
@@ -680,10 +762,13 @@ impl World {
         origin: impl Target,
         radius: f32,
         planar: bool,
+        at: At,
     ) -> impl Iterator<Item = (Entity, crate::Affine3A, f32)> + '_ {
         assert!(radius.is_finite() && radius >= 0.0);
         let origin_entity = origin.entity(self);
-        let origin = origin_entity.and_then(|e| self.global_position(e));
+        let origin = origin_entity
+            .and_then(|e| self.current_global_at(e, at))
+            .map(|pose| crate::Vec3::from(pose.translation));
         let candidates = origin.and(self.storage::<C>());
         candidates
             .into_iter()
@@ -693,7 +778,7 @@ impl World {
                 if Some(entity) == origin_entity {
                     return None;
                 }
-                let pose = self.current_global(entity)?;
+                let pose = self.current_global_at(entity, at)?;
                 let mut delta = crate::Vec3::from(pose.translation) - origin?;
                 if planar {
                     delta.y = 0.0;
@@ -705,8 +790,11 @@ impl World {
     /// Allocated component pages in entity-index order, under a shared lease.
     /// Each view supplies its first index, presence words, and a raw pointer valid
     /// for PAGE slots. Absent slots must not be read as C; only Plain has bytes().
+    /// Exclusive borrows of any row of C are refused while the pages are held.
+    #[track_caller]
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
-        Pages::new(self.storage::<C>())
+        Pages::new(self.storage::<C>(), &self.leases, Location::caller())
+            .unwrap_or_else(|conflict| self.refuse(conflict))
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
@@ -722,6 +810,7 @@ impl World {
     }
     /// Scan for direct children in entity order, for tools;
     /// a tick that needs children keeps them in a component.
+    #[track_caller]
     pub fn children(&self, e: Entity) -> Vec<Entity> {
         if !self.contains(e) {
             return vec![];
@@ -750,20 +839,25 @@ impl World {
             .unwrap_or_else(|| panic!("resource {} is absent", R::NAME))
     }
     /// Borrow optional singleton data without requiring its installation.
+    #[track_caller]
     pub fn try_resource<R: Resource>(&self) -> Option<Ref<'_, R>> {
         self.resources
             .get(R::NAME)?
             .any()
             .downcast_ref::<storage::Singleton<R>>()?
-            .get()
+            .get(Location::caller())
     }
     /// Borrow a resource; absence panics with its name.
+    #[track_caller]
     pub fn resource<R: Resource>(&self) -> Ref<'_, R> {
-        self.resource_storage::<R>().get().unwrap()
+        let at = Location::caller();
+        self.resource_storage::<R>().get(at).unwrap()
     }
     /// Borrow a resource exclusively; absence panics with its name.
+    #[track_caller]
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
-        self.resource_storage::<R>().get_mut().unwrap()
+        let at = Location::caller();
+        self.resource_storage::<R>().get_mut(at).unwrap()
     }
     /// Current fixed-step tick.
     pub fn tick(&self) -> u64 {
@@ -789,18 +883,22 @@ impl World {
         self.tick() as f64 / self.hz() as f64
     }
     /// The world's only source of simulation randomness.
+    #[track_caller]
     pub fn rng(&self) -> RefMut<'_, Rng> {
-        self.rng.get_mut().unwrap()
+        self.rng.get_mut(Location::caller()).unwrap()
     }
     /// Draw one value and release the random column before returning.
+    #[track_caller]
     pub fn rand<T: crate::RangeValue>(&self, range: std::ops::Range<T>) -> T {
         self.rng().range(range)
     }
     /// One Bernoulli trial, with probability in [0, 1].
+    #[track_caller]
     pub fn chance(&self, p: f32) -> bool {
         self.rng().chance(p)
     }
     /// Choose a slice element, releasing the random column before returning.
+    #[track_caller]
     pub fn pick<'a, T>(&self, items: &'a [T]) -> Option<&'a T> {
         self.rng().pick(items)
     }
@@ -881,12 +979,13 @@ impl World {
             .expect("world clock exhausted");
     }
 
-    fn write(&self, w: &mut dyn Writer, delivery: bool) {
+    fn write(&self, w: &mut dyn Writer, delivery: bool, at: At) {
+        self.check_reads(at);
         w.begin_struct();
         w.field("state");
         self.state.write(w);
         w.field("rng");
-        self.rng.get().unwrap().write(w);
+        self.rng.get(at).unwrap().write(w);
         for (kind, storages) in [
             ("components", &self.components),
             ("resources", &self.resources),
@@ -915,7 +1014,9 @@ impl World {
         w.end_struct();
     }
     /// Hash simulation state in type-name order, excluding saved delivery queues.
+    #[track_caller]
     pub fn hash(&self) -> u64 {
+        let at = Location::caller();
         if let Some((epoch, hash)) = self.hash_cache.get() {
             if epoch == self.mutation_epoch() {
                 return hash;
@@ -928,6 +1029,7 @@ impl World {
             None
         };
         let hash = if let Some(w) = &mut w {
+            self.check_reads(at);
             w.field("resources");
             w.begin_struct();
             for (name, s) in &self.resources {
@@ -939,16 +1041,17 @@ impl World {
             w.finish()
         } else {
             let mut w = hash::Hasher::default();
-            self.write(&mut w, false);
+            self.write(&mut w, false, at);
             w.finish()
         };
         self.hash_cache.set(Some((self.mutation_epoch(), hash)));
         hash
     }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
+    #[track_caller]
     pub fn save(&self) -> Vec<u8> {
         let mut w = bin::Encoder::prefixed(MAGIC);
-        self.write(&mut w, true);
+        self.write(&mut w, true, Location::caller());
         w.finish()
     }
     /// Atomically replace simulation state. Registered types survive the replacement;
@@ -1178,8 +1281,11 @@ mod nearest_xz_mut_tests {
             beacon.lit = true;
             assert_eq!(w.named("player").unwrap().index(), 0);
             assert_eq!(w.get::<Transform>(entity).unwrap().position.x, 1.5);
+            // Other rows of Beacon stay free; the leased row refuses a second borrow.
+            assert!(!w.get::<Beacon>(second).unwrap().lit);
+            w.get_mut::<Beacon>(second).unwrap().lit = false;
             assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let _same_column = w.get::<Beacon>(second);
+                let _same_row = w.get::<Beacon>(first);
             }))
             .is_err());
         }

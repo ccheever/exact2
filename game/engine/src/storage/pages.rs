@@ -1,4 +1,4 @@
-use super::{Lease, Storage, PAGE, WORDS};
+use super::{At, Conflict, Lease, Leases, Storage, PAGE, WORDS};
 use crate::{Component, Material, Transform};
 use std::marker::PhantomData;
 
@@ -15,7 +15,8 @@ unsafe impl Plain for Transform {}
 // SAFETY: repr(C) Material contains ten contiguous f32s, including grid spacing.
 unsafe impl Plain for Material {}
 
-/// Shared lease over a storage's allocated pages. Page views borrow this lease.
+/// Shared lease over every row of a storage's allocated pages. Page views borrow
+/// this lease; exclusive borrows of any row of the component are refused meanwhile.
 ///
 /// ```compile_fail
 /// use exact_game::{World, Transform};
@@ -31,11 +32,22 @@ pub struct Pages<'w, C> {
     _lease: Option<Lease<'w>>,
 }
 impl<'w, C: Component> Pages<'w, C> {
-    pub(crate) fn new(storage: Option<&'w Storage<C>>) -> Self {
-        Self {
+    pub(crate) fn new(
+        storage: Option<&'w Storage<C>>,
+        leases: &Leases,
+        at: At,
+    ) -> Result<Self, Conflict> {
+        Ok(Self {
             storage,
-            _lease: storage.map(|s| s.lease(false)),
-        }
+            _lease: storage.map(|s| s.lease_column(leases, at)).transpose()?,
+        })
+    }
+    /// One present row, read under this whole-column lease without a row lease.
+    pub(crate) fn row(&self, index: usize) -> Option<&C> {
+        let s = self.storage?;
+        // SAFETY: presence proves initialization, and the whole-column shared lease
+        // refuses every exclusive lease of this component while `self` lives.
+        s.has(index).then(|| unsafe { &*s.ptr(index) })
     }
     /// Allocated pages in ascending entity-index order, skipping freed pages.
     pub fn iter(&self) -> impl Iterator<Item = Page<'_, C>> {

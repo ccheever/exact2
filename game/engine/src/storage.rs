@@ -1,5 +1,5 @@
-//! The only unsafe boundary. Presence bits own initialized slots, and storage
-//! leases exclude aliasing. Structural edits require an exclusive world borrow.
+//! The only unsafe boundary. Presence bits own initialized slots, and row leases
+//! exclude aliasing (`lease.rs`). Structural edits require an exclusive world borrow.
 use crate::{Data, DataError, Entity, Reader, Writer};
 use std::any::Any;
 use std::cell::Cell;
@@ -9,10 +9,13 @@ use std::ops::{Deref, DerefMut};
 
 mod cell;
 pub(crate) use cell::{make_cell, Singleton};
-mod raw;
+mod lease;
+pub(crate) use lease::{At, Conflict, Leases};
+use lease::{Holds, Party, Registration, Via, EVERY};
 use raw::RawStorage;
 mod pages;
 mod query;
+mod raw;
 pub use pages::{Page, Pages, Plain};
 pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 
@@ -20,46 +23,29 @@ pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 pub const PAGE: usize = 512;
 const WORDS: usize = PAGE / 64;
 
-struct Lease<'a> {
-    count: &'a Cell<isize>,
-    mutable: bool,
-}
-impl<'a> Lease<'a> {
-    fn new(name: &str, count: &'a Cell<isize>, mutable: bool) -> Self {
-        let n = count.get();
-        assert!(n >= 0, "{} is already borrowed mutably", name);
-        assert!(!mutable || n == 0, "{} is already borrowed immutably", name);
-        count.set(if mutable {
-            -1
-        } else {
-            n.checked_add(1).expect("too many borrows")
-        });
-        Self { count, mutable }
-    }
-    // Split only for disjoint slots yielded once by an owning query iterator.
-    fn split(&self) -> Self {
-        self.count.set(if self.mutable {
-            self.count.get().checked_sub(1).expect("too many borrows")
-        } else {
-            self.count.get().checked_add(1).expect("too many borrows")
-        });
-        Self {
-            count: self.count,
-            mutable: self.mutable,
-        }
-    }
+/// What a guard releases when it drops: its own hold on one row (or a whole
+/// column), or one reference to the registered query it was yielded from.
+enum Lease<'a> {
+    Hold {
+        holds: &'a Holds,
+        slot: u32,
+    },
+    Query {
+        leases: &'a Leases,
+        query: Registration<'a>,
+    },
 }
 impl Drop for Lease<'_> {
     fn drop(&mut self) {
-        self.count.set(if self.mutable {
-            self.count.get() + 1
-        } else {
-            self.count.get() - 1
-        });
+        match *self {
+            Self::Hold { holds, slot } => holds.release(slot),
+            Self::Query { leases, query } => leases.release(query),
+        }
     }
 }
 
-/// A shared component/resource borrow. Keeping it alive keeps its storage locked.
+/// A shared component/resource borrow. Keeping it alive keeps its row leased:
+/// other rows of the component stay free, and this one refuses exclusive borrows.
 pub struct Ref<'a, C> {
     ptr: *const C,
     _lease: Lease<'a>,
@@ -68,12 +54,12 @@ pub struct Ref<'a, C> {
 impl<C> Deref for Ref<'_, C> {
     type Target = C;
     fn deref(&self) -> &C {
-        // SAFETY: the lease excludes writers and the world borrow keeps the slot alive.
+        // SAFETY: the row lease excludes writers and the world borrow keeps the slot alive.
         unsafe { &*self.ptr }
     }
 }
-/// An exclusive component/resource borrow locking the whole column.
-/// Nested get::<C> calls for other entities also conflict; use a query instead.
+/// An exclusive component/resource borrow of one row. Other rows of the component
+/// stay free to borrow; this row refuses every other borrow until the guard drops.
 pub struct RefMut<'a, C> {
     ptr: *mut C,
     _lease: Lease<'a>,
@@ -82,13 +68,14 @@ pub struct RefMut<'a, C> {
 impl<C> Deref for RefMut<'_, C> {
     type Target = C;
     fn deref(&self) -> &C {
-        // SAFETY: this guard owns the storage's exclusive lease.
+        // SAFETY: this guard owns the row's exclusive lease.
         unsafe { &*self.ptr }
     }
 }
 impl<C> DerefMut for RefMut<'_, C> {
     fn deref_mut(&mut self) -> &mut C {
-        // SAFETY: this noncloneable guard is the only mutable reference to this slot.
+        // SAFETY: this noncloneable guard owns the row's exclusive lease, so it is
+        // the only reference to this slot.
         unsafe { &mut *self.ptr }
     }
 }
@@ -132,29 +119,72 @@ impl<C: Data> Storage<C> {
                 .then(|| value.assume_init())
         }
     }
-    pub(crate) fn get(&self, index: usize) -> Option<Ref<'_, C>> {
-        self.has(index).then(|| Ref {
-            ptr: self.ptr(index),
-            _lease: self.lease(false),
-            _life: PhantomData,
-        })
-    }
-    pub(crate) fn get_mut(&self, index: usize) -> Option<RefMut<'_, C>> {
+    /// `Err` means a live lease refused this row; `row_conflict` explains it.
+    #[inline]
+    pub(crate) fn get(
+        &self,
+        index: usize,
+        leases: &Leases,
+        at: At,
+    ) -> Result<Option<Ref<'_, C>>, Refused> {
         if !self.has(index) {
-            return None;
+            return Ok(None);
         }
-        let lease = self.lease(true);
-        self.mark_page(index / PAGE);
-        Some(RefMut {
+        let lease = self
+            .raw
+            .lease_row(index, false, leases, at)
+            .ok_or(Refused)?;
+        Ok(Some(Ref {
             ptr: self.ptr(index),
             _lease: lease,
             _life: PhantomData,
-        })
+        }))
+    }
+    #[inline]
+    pub(crate) fn get_mut(
+        &self,
+        index: usize,
+        leases: &Leases,
+        at: At,
+    ) -> Result<Option<RefMut<'_, C>>, Refused> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        let lease = self.raw.lease_row(index, true, leases, at).ok_or(Refused)?;
+        self.edited();
+        self.mark_page(index / PAGE);
+        Ok(Some(RefMut {
+            ptr: self.ptr(index),
+            _lease: lease,
+            _life: PhantomData,
+        }))
+    }
+}
+/// A refused row lease; the storage re-derives who holds the row when asked.
+pub(crate) struct Refused;
+
+impl<C: Data + Copy> Storage<C> {
+    /// Copy one present row out without registering a lease: no author code runs
+    /// while it is read, so it only has to find no exclusive lease on the row.
+    /// @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
+    #[inline]
+    pub(crate) fn copied(&self, index: usize, leases: &Leases) -> Result<Option<C>, Refused> {
+        if !self.has(index) {
+            return Ok(None);
+        }
+        if !self.holds.unwritten() && !self.raw.readable(index, leases) {
+            return Err(Refused);
+        }
+        // SAFETY: presence proves initialization and no exclusive lease holds this
+        // row; the copy completes before any other code runs.
+        Ok(Some(unsafe { self.ptr(index).read() }))
     }
 }
 
 pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
+    /// The exclusive lease an engine read of every row would alias, if any.
+    fn read_conflict(&self, leases: &Leases, at: At) -> Option<Conflict>;
     fn snapshot(
         &self,
         skip: Option<&Storage<crate::Ambient>>,
@@ -188,6 +218,9 @@ pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -
 impl<C: Data> Erased for Storage<C> {
     fn has(&self, index: usize) -> bool {
         self.raw.has(index)
+    }
+    fn read_conflict(&self, leases: &Leases, at: At) -> Option<Conflict> {
+        self.raw.read_conflict(leases, Via::Read, at)
     }
     fn any(&self) -> &dyn Any {
         self

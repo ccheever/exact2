@@ -149,20 +149,22 @@ fn borrows_name_conflicts_and_survive_iterator_drop() {
     let mut w = World::new(60, 0);
     let e = w.spawn((A(1), B(2)));
     let a = w.get_mut::<A>(e).unwrap();
+    // A query leases at its first iteration, after its filters are known.
+    let unleased = w.query::<&A>();
     assert!(panic_text(|| {
-        w.query::<&A>();
+        w.query::<&A>().iter().count();
     })
-    .contains("A is already borrowed mutably"));
+    .contains("borrow conflict on A of #0"));
     assert!(panic_text(|| {
         w.get_mut::<A>(e);
     })
-    .contains("A"));
-    drop(a);
+    .contains("held by:   exclusive borrow of one row"));
+    drop((a, unleased));
     let a = w.get::<A>(e).unwrap();
     assert!(panic_text(|| {
-        w.query::<&mut A>();
+        w.query::<&mut A>().iter().count();
     })
-    .contains("A is already borrowed immutably"));
+    .contains("held by:   shared borrow of one row"));
     drop(a);
     assert!(panic_text(|| {
         w.query::<(&A, &A)>();
