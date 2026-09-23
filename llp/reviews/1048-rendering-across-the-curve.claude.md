@@ -193,3 +193,14 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 - The Interview lane continues behind its switch, which stays off by default.
 
 No further review round is needed to settle the direction. Status stays Draft; Charlie decides.
+
+**Update, 2026-09-23: after Charlie's rulings (r3).** Each item marked ★ is now resolved:
+- **Public content:** "questions, answers, posts, profiles — but all at the preference of the user". Each author chooses, and the choice is off by default (LLP 1048 §9.5).
+- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's NOT-DOING records public reading at the author's choice, and still keeps production hosting out.
+- **The server's shape:** Charlie wasn't sure and asked the author to decide. It renders on request from a serve mode of the Linux host, on loopback, with headers ready for a cache (§9.7).
+- **Pages for signed-in readers:** Charlie asked "why not server render the personal stuff?" They are now rendered on the server in a simple form: the whole page for that reader, `private, no-store`, never shared (§9.8, LLP 1048.002).
+  - This reverses the disposition's "anonymous forever".
+  - The reviews' objection still holds and that form stays out: personal parts mixed into cached pages, guarded by labels and read tracking.
+- **The robots policy for AI crawlers** waits for real hosting.
+
+r3 is in `llp/1048-rendering-across-the-curve.rfc.md` and its sub-LLPs. LLP 1048.001 became an RFC, and it and 1048.002 left the working set until their kickoffs.
