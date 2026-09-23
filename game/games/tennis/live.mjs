@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
-// Opt-in: play real points against real Jev, in real time, on the Linux host.
-// Runs only when AI_GATEWAY_API_KEY is in the environment (the native data
-// source reads it at request time). The world clock is paced to the wall clock,
-// so "late" means what it means in play. Reports latency and the late rate.
+// Opt-in: play real points against real Jev, in real time. Runs only when
+// AI_GATEWAY_API_KEY is in the environment. On Linux (default) the native data
+// source reads it at request time; on the web (`bun live.mjs web`) this script
+// starts jev-proxy.mjs, which holds it, and stops that PID afterwards. The world
+// clock is paced to the wall clock, so "late" means what it means in play.
+import {spawn} from 'node:child_process';
 import {readdirSync, readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import { proof } from '../../proof.mjs';
@@ -17,7 +19,14 @@ const seconds = Number(process.env.TENNIS_LIVE_SECONDS ?? 90);
 const quantile = (xs, q) => xs.length ? [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor(q * xs.length))] : NaN;
 
 await proof(import.meta, async ({open, check, out, host}) => {
-  check('the live check runs on the Linux host', host === 'linux');
+  check('the live check runs on Linux or the web', host === 'linux' || host === 'web');
+  let proxy;
+  if (host === 'web') {
+    proxy = spawn(process.execPath, [resolve(import.meta.dir, 'jev-proxy.mjs')], {stdio: ['ignore', 'pipe', 'inherit']});
+    await new Promise(ready => proxy.stdout.once('data', ready));
+    console.log(`LIVE proxy pid ${proxy.pid}`);
+  }
+  try {
   const s = await open();
   await s.tap('play');
   const raw = s.world('world');
@@ -61,6 +70,7 @@ await proof(import.meta, async ({open, check, out, host}) => {
   check('most plans beat their deadline', onTime.length > committedLate, {onTime: onTime.length, committedLate});
   check('Jev’s intents drove the far player', executed > 0);
   await s.close();
+  } finally { if (proxy) { proxy.kill(); await new Promise(done => proxy.once('exit', done)); } }
   // The key must not reach any artifact this run wrote.
   const leaked = readdirSync(out).filter(f => readFileSync(resolve(out, f)).includes(key));
   check('no artifact contains the key', leaked.length === 0, leaked);
