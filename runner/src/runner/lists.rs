@@ -149,12 +149,15 @@ impl<D: DataSource> Runner<D> {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             u.full = self.full;
             u.rows = rows;
-            update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces))
+            update(&mut tree, &mut u).map(|_| (u.ops, u.surfaces, u.notes))
         };
         self.ids = ids;
         self.tree = Some(tree);
         let (ops, surfaces) = match result {
-            Ok(x) => x,
+            Ok((ops, surfaces, notes)) => {
+                self.notes = notes;
+                (ops, surfaces)
+            }
             Err(e) => {
                 self.poison();
                 return Err(e.into());

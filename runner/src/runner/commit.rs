@@ -420,6 +420,7 @@ impl<D: DataSource> Runner<D> {
 
     pub(super) fn poison(&mut self) {
         self.poisoned = true;
+        self.notes.clear();
         self.commands.clear();
         self.requests.clear();
         self.pending.clear();

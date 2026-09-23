@@ -424,20 +424,43 @@ fn every_app_plan_updates_incrementally_exactly_as_it_does_in_full() {
     names.sort();
     assert!(names.len() > 10, "{names:?}");
     names.insert(0, "deck (synthetic)".into());
-    let mut total = 0;
-    for app in &names {
-        let plan = if app.starts_with("deck") {
-            contract::compile(DECK).unwrap_or_else(|e| panic!("{app}: {e}"))
-        } else {
-            contract::compile_path(&apps.join(app).join("app.contract"))
-                .unwrap_or_else(|e| panic!("{app}: {e}"))
-        };
-        for seed in 1..=4u64 {
-            let commits = lockstep(app, &plan, seed.wrapping_mul(0x9e37_79b9_7f4a_7c15), 60);
-            eprintln!("{app} seed {seed}: {commits} commits");
-            total += commits;
-        }
-    }
+    // One thread per app and seed: each builds its own runners.
+    let total: usize = std::thread::scope(|scope| {
+        let apps = &apps;
+        let runs: Vec<_> = names
+            .iter()
+            .map(|app| {
+                scope.spawn(move || {
+                    let plan = if app.starts_with("deck") {
+                        contract::compile(DECK).unwrap_or_else(|e| panic!("{app}: {e}"))
+                    } else {
+                        contract::compile_path(&apps.join(app).join("app.contract"))
+                            .unwrap_or_else(|e| panic!("{app}: {e}"))
+                    };
+                    let plan = &plan;
+                    // And one per seed.
+                    std::thread::scope(|seeds| {
+                        let runs: Vec<_> = (1..=4u64)
+                            .map(|seed| {
+                                seeds.spawn(move || {
+                                    let seed = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                                    let commits = lockstep(app, plan, seed, 60);
+                                    eprintln!("{app} seed {seed}: {commits} commits");
+                                    commits
+                                })
+                            })
+                            .collect();
+                        runs.into_iter()
+                            .map(|run| run.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+                            .sum::<usize>()
+                    })
+                })
+            })
+            .collect();
+        runs.into_iter()
+            .map(|run| run.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .sum()
+    });
     assert!(
         total > 100,
         "only {total} commits across {} apps",

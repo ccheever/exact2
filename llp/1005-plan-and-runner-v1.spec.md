@@ -302,9 +302,16 @@ on its way (a deferred resource's staleness, store provenance, requested
 refreshes) — and a refusal puts all of it back, leaving the kernel untouched. A failure after the
 instance tree has begun to change poisons the runner
 (`RunnerError::Poisoned`; `is_poisoned()`) and clears any queued commands:
-the host restarts it (LLP 1004 D5 — a reload is a restart). With values
-conforming at every boundary, the remaining way there is a duplicate `each`
-key from a data source.
+the host restarts it (LLP 1004 D5 — a reload is a restart). A bad bound
+value is not a reason to restart (Charlie, 2026-09-22). A binding is a
+declaration whose value is computed from state, as a `var()` reference is,
+so a value its prop or style row refuses (a colour that is not one,
+`aria-level=1.5`) is invalid at computed-value time (CSS Custom Properties
+§3.1): the row is unset — `ClearProp`/`ClearStyle`, so inherited or initial
+— and one journal line names it. It is not CSSOM's `setProperty`, which
+keeps the earlier declaration: the view would then depend on history rather
+than state. With values conforming at every boundary, the remaining way
+there is a duplicate `each` key from a data source.
 
 **The clock.** `advance(now_ms)` fires every due timer in order (earliest
 first, plan index on ties), each at its own due time, then moves the clock.

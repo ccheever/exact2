@@ -286,6 +286,9 @@ pub struct Update<'a> {
     dirty_frames: u64,
     /// Whether the scopes walked so far enclose every written row.
     on_path: bool,
+    /// Journal lines for what the data got wrong and the tree absorbed.
+    /// Written with the commit.
+    pub notes: Vec<String>,
 }
 
 impl<'a> Update<'a> {
@@ -303,6 +306,7 @@ impl<'a> Update<'a> {
             changed: None,
             dirty_frames: 0,
             on_path: true,
+            notes: Vec::new(),
         }
     }
 
@@ -599,20 +603,49 @@ impl NodeInst {
             {
                 continue;
             }
+            // A binding is a declaration whose value is computed from state,
+            // as a `var()` reference is. A value its row's grammar refuses is
+            // invalid at computed-value time (CSS Custom Properties §3.1): the
+            // row is unset — inherited or initial — and a journal line says
+            // so. Not CSSOM's `setProperty`, which keeps the earlier value:
+            // the view would then depend on history, not state. Unknown rows
+            // are plan defects.
             match binding.kind {
-                BindingKind::Prop => {
-                    let (prop, pv) =
-                        bridge::prop_value(binding.id, &value).map_err(InstanceError::Bridge)?;
-                    u.ops.push(Op::SetProp {
+                BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
+                    Ok((prop, pv)) => u.ops.push(Op::SetProp {
                         id: self.view,
                         prop,
                         value: pv,
-                    });
-                }
+                    }),
+                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
+                        u.ops.push(Op::ClearProp {
+                            id: self.view,
+                            prop,
+                        });
+                        u.notes.push(invalid(self.view, prop.name(), &value));
+                    }
+                    Err(e) => return Err(InstanceError::Bridge(e)),
+                },
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    bridge::set_style(p, binding.id, &value, plan.stacks.len())
-                        .map_err(InstanceError::Bridge)?;
+                    match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                        Ok(_) => {}
+                        Err(
+                            bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
+                        ) => {
+                            let style = exact_kernel::StyleId::from_bit(binding.id as u32)
+                                .expect("known to the bridge");
+                            let mut mask = exact_kernel::StyleMask::default();
+                            mask.set(style);
+                            u.ops.push(Op::ClearStyle {
+                                id: self.view,
+                                mask,
+                            });
+                            let name = style.name().replace('_', "-");
+                            u.notes.push(invalid(self.view, &name, &value));
+                        }
+                        Err(e) => return Err(InstanceError::Bridge(e)),
+                    }
                 }
             }
             self.last[i] = Some(value);
@@ -1007,6 +1040,13 @@ impl RegionInst {
             }
         }
     }
+}
+
+/// The journal line for a value a row refused.
+fn invalid(view: ViewId, row: &str, value: &Value) -> String {
+    let mut shown = String::new();
+    crate::agent::untyped_json(value, &mut shown);
+    format!("view {view}: invalid {row} value {shown}; unset")
 }
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the

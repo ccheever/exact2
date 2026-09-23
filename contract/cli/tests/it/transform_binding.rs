@@ -140,21 +140,21 @@ fn pixel_translate_literals_and_dynamic_template_reach_kernel_rows() {
         r.kernel().node_by_key(dynamic).unwrap().style.translate,
         exact_kernel::Vec2 { x: 27.25, y: -40.0 }
     );
-    let epoch = r.kernel().epoch();
-    let rows = r.kernel().rows(None).unwrap();
-    assert!(r
-        .act("move", vec![Value::Number(1e40), Value::Number(0.0)])
-        .is_err());
-    assert_eq!(r.kernel().epoch(), epoch);
-    assert_eq!(r.kernel().rows(None).unwrap(), rows);
-    // Binding conversion errors follow Runner's existing fail-stop update
-    // policy, not action-slot rollback. The kernel patch remains atomic.
-    assert!(r
-        .act("move", vec![Value::Number(0.0), Value::Number(0.0)])
-        .is_err());
+    // A value the row refuses is unset, as CSS does an invalid value at
+    // computed-value time, and journaled; the runner goes on.
+    r.act("move", vec![Value::Number(1e40), Value::Number(0.0)])
+        .unwrap();
+    assert!(!r.is_poisoned());
     assert_eq!(
-        r.kernel().node_by_key(dynamic).unwrap().style.translate.x,
-        27.25
+        r.kernel().node_by_key(dynamic).unwrap().style.translate,
+        exact_kernel::Vec2 { x: 0.0, y: 0.0 }
+    );
+    assert!(r.journal().any(|l| l.contains("invalid translate value")));
+    r.act("move", vec![Value::Number(1.0), Value::Number(2.0)])
+        .unwrap();
+    assert_eq!(
+        r.kernel().node_by_key(dynamic).unwrap().style.translate,
+        exact_kernel::Vec2 { x: 1.0, y: 2.0 }
     );
     for bad in [
         "1 2",

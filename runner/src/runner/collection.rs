@@ -64,12 +64,15 @@ impl<D: DataSource> Runner<D> {
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             tree.update_collection(&mut update, feedback)
-                .map(|changed| (changed, update.ops, update.surfaces))
+                .map(|changed| (changed, update.ops, update.surfaces, update.notes))
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok(result) => result,
+            Ok((changed, ops, surfaces, notes)) => {
+                self.notes = notes;
+                (changed, ops, surfaces)
+            }
             Err(error) => {
                 // This category is emitted only by pre-mutation geometry
                 // validation. A bad host report must leave the runner usable.

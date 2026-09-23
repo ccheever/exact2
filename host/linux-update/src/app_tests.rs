@@ -406,9 +406,12 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
 fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair() {
     let source = "component App\n  state divisor = 1\n  action breakIt writes divisor\n    divisor = 0\n  action repair writes divisor\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
     let baked = contract::compile(source).unwrap().encode();
+    // A derive must be a finite number: carried `divisor = 0` refuses the
+    // candidate's boot (a bound style value would only be unset).
     let candidate = contract::compile(
         &source
-            .replace("width=100", "width=(100 / divisor)")
+            .replace("  view\n", "  derive width = 100 / divisor\n  view\n")
+            .replace("width=100", "width=width")
             .replace("running", "candidate"),
     )
     .unwrap()

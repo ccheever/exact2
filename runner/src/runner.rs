@@ -253,6 +253,8 @@ pub struct Runner<D: DataSource> {
     full: bool,
     /// Row slots actions wrote, for the next update.
     row_writes: crate::instance::RowWrites,
+    /// Journal lines an update produced, written once its batch applies.
+    notes: Vec<String>,
     /// The inputs the published derives were computed against.
     settled: Option<settlement::Settled>,
     /// Per derive: its value depends on the durable store (bake provenance).
@@ -522,6 +524,7 @@ impl<D: DataSource> Runner<D> {
             poisoned: false,
             full: false,
             row_writes: Default::default(),
+            notes: Vec::new(),
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
@@ -602,11 +605,12 @@ impl<D: DataSource> Runner<D> {
             .collect();
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops, surfaces) = {
+        let (tree, ops, surfaces, notes) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             let tree = Tree::create(&mut u)?;
-            (tree, u.ops, u.surfaces)
+            (tree, u.ops, u.surfaces, u.notes)
         };
+        runner.notes = notes;
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
@@ -895,7 +899,16 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let mut receipt = self.kernel.apply(0, self.batch, &ops)?;
+        let mut receipt = match self.kernel.apply(0, self.batch, &ops) {
+            Ok(receipt) => receipt,
+            Err(e) => {
+                self.notes.clear();
+                return Err(e.into());
+            }
+        };
+        for note in std::mem::take(&mut self.notes) {
+            self.log(note);
+        }
         // Forget destroyed views once they outnumber the live ones.
         if self.ids.remembered() > 2 * self.kernel.live_count() + 256 {
             let kernel = &self.kernel;

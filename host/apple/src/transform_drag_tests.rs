@@ -87,8 +87,48 @@ fn quoted(json: &str, field: &str) -> u64 {
         .unwrap()
 }
 fn boot_source(source: &str) -> (Host<NoData>, Packet, String) {
+    boot_plan(&contract::compile(source).unwrap().encode())
+}
+/// `source` compiled, with the handle's constant `testId` rewritten to trap
+/// once `x` passes 1e39: a failure while the tree changes, after an action
+/// wrote `x`. (Since 2026-09-22 a bound value its row refuses, such as a
+/// `translate` past f32, is unset rather than failing the commit.)
+fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
+    use exact_plan::{asm::Asm, builder::PlanBuilder, Opcode, SlotsId, StrId};
+    let plan = contract::compile(source).unwrap();
+    let x = plan.slots.iter().position(|s| plan.str(s.name) == "x").unwrap();
+    let handle = plan
+        .bindings
+        .iter()
+        .position(|b| {
+            let code = plan.code(b.expr);
+            code.len() == 6
+                && code[0] == Opcode::Str as u8
+                && plan.str(StrId(u32::from_le_bytes(code[1..5].try_into().unwrap()))) == "handle"
+        })
+        .expect("the handle's testId");
+    let mut b = PlanBuilder::from_plan(plan);
+    let name = b.str("handle");
+    let mut guard = Asm::new();
+    let fits = guard.label();
+    guard
+        .load_slot(SlotsId(x as u32))
+        .number(1e39)
+        .simple(Opcode::Gt)
+        .jump_if_false(fits)
+        .simple(Opcode::Unit)
+        .simple(Opcode::Unwrap)
+        .place(fits)
+        .str(name);
+    let guard = b.code(guard);
+    let mut plan = b.finish().unwrap();
+    plan.bindings[handle].expr = guard;
+    plan.validate().unwrap();
+    boot_plan(&plan.encode())
+}
+fn boot_plan(plan: &[u8]) -> (Host<NoData>, Packet, String) {
     let (host, batch) = Host::boot(
-        &contract::compile(source).unwrap().encode(),
+        plan,
         NoData,
         Box::new(MonospaceMeasurer::default()),
         400.,
@@ -485,7 +525,7 @@ fn action_refusal_reports_failed_kernel_commit_without_claiming_runner_slot_roll
         "    x = px\n",
         "    x = 10000000000000000000000000000000000000000\n",
     );
-    let (mut host, mut p, _) = boot_source(&source);
+    let (mut host, mut p, _) = boot_trapping(&source);
     accepted(&p.send(&mut host));
     p.op = 11;
     p.now = 100.0;
@@ -723,7 +763,7 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
             "    bw = w\n",
             "    bw = w\n    if w > 400\n      x = 10000000000000000000000000000000000000000\n",
         );
-    let (mut host, mut p, _) = boot_source(&source);
+    let (mut host, mut p, _) = boot_trapping(&source);
     accepted(&p.send(&mut host));
     p.op = 11;
     p.now = 100.0;
