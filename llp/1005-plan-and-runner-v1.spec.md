@@ -403,12 +403,23 @@ and a parent rebuilds its child list only when a region's roots changed. An
 re-keyed; a windowed list with unchanged items only refreshes its mounted rows.
 Settlement keeps a derive's value, and a resource its arguments, when every
 input has settled to the value it had when they were last computed — dynamic
-`Pending` retries and cycle refusals are unchanged. Equal results keep their
-previous objects, so identity survives downstream. `set_full_evaluation`
-makes everything stale: `runner/tests/incremental.rs` runs every app plan and a
-synthetic one both ways in lockstep through seeded random events, clock seeks
-and late replies, and requires identical receipts, kernel trees, carried
-state, effects and journals. Measured on the review's harness (release): that
+`Pending` retries and cycle refusals are unchanged; a derive whose value is the
+same but whose store provenance changed still counts as changed. Equal results
+keep their previous objects, so identity survives downstream.
+
+`set_full_evaluation` makes every site stale (evaluation only: what a host
+sees of a virtualized list — ending a reorder preview, re-measuring rows, the
+revision — follows inputs that actually changed, in both modes).
+`runner/tests/incremental.rs` runs every app plan and a synthetic one both ways
+in lockstep through seeded random events, clock seeks, late replies, store
+reads and writes, deferred activation, collection feedback (stale reports
+included) and reorder gestures; every run must boot, commit and never poison,
+and receipts, kernel trees, carried state, effects, journals and collection
+snapshots must be identical after every step. A commit's checkpoint copies the
+old values of what it writes, not the store. `last_instance_work()` counts
+nodes visited, bindings and derives evaluated, rows keyed and rows scanned
+(including the rows compared to find the event's view) and store bytes copied.
+Measured on the review's harness (release): that
 keystroke visits 3 nodes and allocates 39 times (was 50,004 and 402,531); a
 Messages composer keystroke visits 8 nodes and evaluates 5 bindings (was
 2,237 and 21,049), 0.006 ms at 50, 500 or 2,000 messages per list. A change
