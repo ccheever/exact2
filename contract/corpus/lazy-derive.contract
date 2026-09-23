@@ -1,0 +1,38 @@
+// A value a child reads more than once is computed once, and only where it
+// was read: `path("detail", ".")` refuses at runtime, and every reader here
+// skips it, so the app boots and shows each fallback.
+routes nav
+  tab home "/"
+    detail "/post/:id"
+  notfound
+fn twice(ready: bool, x: string): string = ready ? path("detail", x) + path("detail", x) : "fn fallback"
+component App
+  state ready = false
+  state x = "."
+  state o = none
+  action arrive writes ready, o, x
+    ready = true
+    o = some(1)
+    x = "7"
+  view
+    main
+      button "Arrive" press=arrive testId="arrive"
+      Child(ready=ready, x=x, o=o)
+component Child
+  props
+    ready: bool
+    x: string
+    o: option<number>
+  derive a = path("detail", x)
+  derive twin = a + a
+  derive branch = ready ? a + a : "fallback"
+  derive through = ready ? twin : "through fallback"
+  derive short = ready and length(a) + length(a) > 0
+  derive arm = match o { case some(n) => a + a, case none => "arm fallback" }
+  view
+    column
+      text branch testId="branch"
+      text through testId="through"
+      text `${short}` testId="short"
+      text arm testId="arm"
+      text twice(ready, x) testId="fn"

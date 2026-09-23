@@ -151,3 +151,145 @@ fn substitution_never_captures_a_replacements_free_name() {
     // The generator does produce captures for the renaming to avoid.
     assert!(renamed > 1_000, "{renamed} renamed binders");
 }
+
+/// A derive DAG in source form: each derive reads props, earlier derives,
+/// branches, `and`, `match`, and `fail()` (which traps where evaluated).
+fn derive_source(rng: &mut Rng, derives: usize) -> String {
+    fn expr(rng: &mut Rng, depth: u32, earlier: usize) -> String {
+        let pick = if depth == 0 {
+            rng.below(4)
+        } else {
+            rng.below(10)
+        };
+        let sub = |rng: &mut Rng| expr(rng, depth.saturating_sub(1), earlier);
+        match pick {
+            0 => rng.below(3).to_string(),
+            1 => "p".into(),
+            2 if earlier > 0 => format!("d{}", rng.below(earlier as u64)),
+            2 | 3 => "fail()".into(),
+            4 | 5 => format!("({} + {})", sub(rng), sub(rng)),
+            6 => format!(
+                "({} == {} ? {} : {})",
+                sub(rng),
+                sub(rng),
+                sub(rng),
+                sub(rng)
+            ),
+            7 => format!("({} == {} and {} == 0)", sub(rng), sub(rng), sub(rng)),
+            8 => format!(
+                "match o {{ case some(v) => (v + {}), case none => {} }}",
+                sub(rng),
+                sub(rng)
+            ),
+            _ => format!(
+                "(d{} + d{})",
+                rng.below(earlier.max(1) as u64),
+                rng.below(earlier.max(1) as u64)
+            )
+            .replace("d0", if earlier == 0 { "p" } else { "d0" }),
+        }
+    }
+    let mut src = String::from("component C\n  props\n    p: number\n    o: option<number>\n");
+    for i in 0..derives {
+        src.push_str(&format!("  derive d{i} = {}\n", expr(rng, 3, i)));
+    }
+    let reads: Vec<String> = (0..derives).map(|i| format!("${{d{i}}}")).collect();
+    src + &format!("  view\n    text `{}`\n", reads.join(" "))
+}
+
+/// Evaluate with a trap for `fail()` and for any operand a trap produced,
+/// reading a derive by evaluating its authored body where it is read (the
+/// meaning resolution must keep), or by what a `let` bound.
+fn run(e: &Expr, env: &BTreeMap<String, V>, bodies: &BTreeMap<String, Expr>) -> Result<V, ()> {
+    let num = |v: V| match v {
+        V::Num(n) => Ok(n),
+        _ => Err(()),
+    };
+    Ok(match e {
+        Expr::Number(n, _) => V::Num(*n),
+        Expr::Ident(n, _) => match env.get(n) {
+            Some(v) => v.clone(),
+            None => run(bodies.get(n).ok_or(())?, env, bodies)?,
+        },
+        Expr::Call(..) => return Err(()),
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            V::Num(num(run(a, env, bodies)?)? + num(run(b, env, bodies)?)?)
+        }
+        Expr::Binary(BinOp::Eq, a, b, _) => {
+            V::Num((run(a, env, bodies)? == run(b, env, bodies)?) as u8 as f64)
+        }
+        Expr::Binary(BinOp::And, a, b, _) => match run(a, env, bodies)? {
+            V::Num(n) if n != 0.0 => run(b, env, bodies)?,
+            other => other,
+        },
+        Expr::Ternary(c, a, b, _) => match run(c, env, bodies)? {
+            V::Num(n) if n != 0.0 => run(a, env, bodies)?,
+            _ => run(b, env, bodies)?,
+        },
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            ..
+        } => match run(subject, env, bodies)? {
+            V::Opt(Some(v)) => {
+                let mut inner = env.clone();
+                inner.insert(var.clone(), *v);
+                run(some, &inner, bodies)?
+            }
+            _ => run(none, env, bodies)?,
+        },
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let mut inner = env.clone();
+            inner.insert(name.clone(), run(value, env, bodies)?);
+            run(body, &inner, bodies)?
+        }
+        other => unreachable!("not generated: {other:?}"),
+    })
+}
+
+#[test]
+fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
+    let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+    let (mut shared, mut traps) = (0, 0);
+    for _ in 0..3_000 {
+        let derives = 1 + rng.below(5) as usize;
+        let src = derive_source(&mut rng, derives);
+        let file = crate::parse(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
+        let c = &file.components[0];
+        let resolved = super::resolved_derives(c).unwrap();
+        let authored: BTreeMap<String, Expr> = c
+            .derives
+            .iter()
+            .map(|d| (d.name.clone(), d.expr.clone()))
+            .collect();
+        for p in [0.0, 1.0, 2.0] {
+            for o in [V::Opt(None), V::Opt(Some(Box::new(V::Num(1.0))))] {
+                let env = BTreeMap::from([("p".to_owned(), V::Num(p)), ("o".to_owned(), o)]);
+                for (derive, expr) in &resolved {
+                    let lazily = run(&derive.expr, &env, &authored);
+                    // Every derive a resolved form reads is bound by a `let`.
+                    let now = run(expr, &env, &BTreeMap::new());
+                    assert_eq!(
+                        now, lazily,
+                        "\n{src}\n`{}` resolved to {expr:?}",
+                        derive.name
+                    );
+                    traps += lazily.is_err() as u32;
+                }
+            }
+        }
+        shared += resolved
+            .iter()
+            .filter(|(_, e)| format!("{e:?}").contains("Let {"))
+            .count() as u32;
+    }
+    // The generator does share values, and does skip traps.
+    assert!(
+        shared > 500 && traps > 500,
+        "{shared} shared, {traps} traps"
+    );
+}

@@ -931,3 +931,34 @@ fn deep_expressions_are_refused_by_name_on_a_small_stack() {
         .join()
         .unwrap();
 }
+
+#[test]
+fn a_shared_child_value_is_computed_only_where_its_readers_computed_it() {
+    let plan = contract::compile(&corpus("lazy-derive.contract")).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .expect("no reader evaluates the refused path");
+    for (id, shown) in [
+        ("branch", "fallback"),
+        ("through", "through fallback"),
+        ("short", "false"),
+        ("arm", "arm fallback"),
+        ("fn", "fn fallback"),
+    ] {
+        assert_eq!(text_of(&r, id).as_deref(), Some(shown), "{id}");
+    }
+    // Once the path is valid and every reader takes its branch, each reads
+    // the value twice, computed once.
+    let key = r.kernel().find_by_test_id("arrive")[0];
+    let arrive = r.kernel().node_by_key(key).unwrap().id;
+    r.dispatch(arrive, Event::Press).unwrap();
+    for id in ["branch", "through", "arm", "fn"] {
+        assert_eq!(text_of(&r, id).as_deref(), Some("/post/7/post/7"), "{id}");
+    }
+    assert_eq!(text_of(&r, "short").as_deref(), Some("true"));
+}
