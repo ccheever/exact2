@@ -338,6 +338,12 @@ runner tells the source what is still in flight (`forgotten`, after any
 restore), and each of those executors drops the calls it parked for
 anything else: the prelude's record and fetches too, a realm's queued turns,
 and a Mixed set's reservation for a turn whose reply the runner will drop.
+Each in-flight request names the continuation token its source handed out
+(`InFlight`), which is what tells a `refresh`'s call from the one it replaced
+when their arguments are equal; `Storage`, `Mixed` and `Placed` hand their
+child its own tokens. A Mixed set lets its reserved turn go when the turn's
+key is gone or its request is a newer call recorded there, and a key whose
+request is such a call keeps only that call's stage.
 
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
 

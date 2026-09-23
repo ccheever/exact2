@@ -7,8 +7,8 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Request, Store, Target,
-    Work,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Request,
+    Store, Target, Work,
 };
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
@@ -76,9 +76,17 @@ fn recorded_key(recorded: &Recorded) -> Key {
 struct Set {
     busy: bool,
     held: VecDeque<u64>,
-    /// The call whose turn `busy` reserves: a reply the runner drops (its
-    /// request let go) would otherwise leave the set waiting forever.
-    running: Option<Key>,
+    /// The turn `busy` reserves: a reply the runner drops (its request let
+    /// go) would otherwise leave the set waiting forever.
+    running: Option<Running>,
+}
+
+/// A set's reserved turn: the token this composer handed out for it, its
+/// call's key, and the child's own token once the child hands one out.
+struct Running {
+    token: u64,
+    key: Key,
+    child: Option<u64>,
 }
 
 /// Two data executors with disjoint, declared source names and one app identity.
@@ -309,7 +317,11 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             Recorded::Answer { rust, .. } | Recorded::Resume { rust, .. } => *rust,
         };
         self.sets[set].busy = true;
-        self.sets[set].running = Some(recorded_key(&recorded));
+        self.sets[set].running = Some(Running {
+            token,
+            key: recorded_key(&recorded),
+            child: None,
+        });
         let grants = self.child_grants(rust);
         if self.child_placement(rust) == Placement::Worker {
             let mut scratch = Store::new(&grants, []);
@@ -331,6 +343,9 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
             return match answer {
                 Ok(Answer::Later(request)) if request.continuation.is_some() => {
                     let child = request.continuation.expect("checked");
+                    if let Some(running) = self.sets[set].running.as_mut() {
+                        running.child = Some(child);
+                    }
                     let dispatch = if rust {
                         self.rust.dispatch(child, store)
                     } else {
@@ -619,37 +634,88 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         released
     }
 
-    /// Stages, recorded calls and held turns for requests the runner let go
-    /// are dropped, and a set whose reserved turn was one of them is free: the
-    /// runner drops that turn's reply, so nothing else would end it (LLP 1016
-    /// D5). Each child hears the same.
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
-        let keep: HashSet<Key> = in_flight
+    /// What the runner still has in flight, after a commit that let
+    /// requests go (LLP 1016 D5). A recorded call, held turn or routed
+    /// continuation whose token isn't in flight was replaced or let go, and
+    /// is dropped. A key no longer in flight loses its stages; one whose
+    /// in-flight request is a newer call recorded here keeps that call's
+    /// stage alone. A set whose reserved turn was let go — its key gone, or
+    /// its request replaced by a newer call (a refresh with equal arguments)
+    /// — is free: the runner drops that turn's reply, so nothing else would
+    /// end it. The running turn is judged by key and by the calls recorded
+    /// here, never by its own token, which a forwarder above can't translate
+    /// once dispatched. Each child hears what is in flight in its own tokens.
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+        let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
+        self.recorded.retain(|token, _| tokens.contains(token));
+        self.continuations.retain(|token, _| tokens.contains(token));
+        let recorded: HashSet<u64> = self.recorded.keys().copied().collect();
+        let live: HashMap<Key, Option<u64>> = in_flight
             .iter()
-            .filter_map(|(target, source, args)| {
-                Some(key(self.owner(source).ok()?, Some(*target), source, args))
+            .filter_map(|f| {
+                let rust = self.owner(f.source).ok()?;
+                Some((key(rust, Some(f.target), f.source, f.args), f.continuation))
             })
             .collect();
-        let gone = |k: &Key| k.1.is_some() && !keep.contains(k);
-        self.stages.retain(|k, _| !gone(k));
-        let dead: Vec<u64> = self
-            .recorded
-            .iter()
-            .filter(|(_, (_, recorded))| gone(&recorded_key(recorded)))
-            .map(|(token, _)| *token)
-            .collect();
-        for token in &dead {
-            self.recorded.remove(token);
+        let newer = |k: &Key| matches!(live.get(k), Some(Some(t)) if recorded.contains(t));
+        self.stages
+            .retain(|k, _| k.1.is_none() || live.contains_key(k));
+        for (k, stages) in self.stages.iter_mut() {
+            if k.1.is_some() && newer(k) {
+                stages.clear();
+                stages.push_back(Stage::Turn);
+            }
         }
         for set in &mut self.sets {
-            set.held.retain(|token| !dead.contains(token));
-            if set.running.as_ref().is_some_and(gone) {
+            set.held.retain(|token| tokens.contains(token));
+            let let_go = set.running.as_ref().is_some_and(|running| {
+                running.key.1.is_some()
+                    && match live.get(&running.key) {
+                        None => true,
+                        Some(Some(t)) => *t != running.token && recorded.contains(t),
+                        Some(None) => false,
+                    }
+            });
+            if let_go {
                 set.busy = false;
                 set.running = None;
             }
         }
-        self.javascript.forgotten(in_flight);
-        self.rust.forgotten(in_flight);
+        let running: HashMap<u64, Option<u64>> = self
+            .sets
+            .iter()
+            .filter_map(|set| set.running.as_ref())
+            .map(|running| (running.token, running.child))
+            .collect();
+        for rust in [false, true] {
+            let view: Vec<InFlight<'_>> = in_flight
+                .iter()
+                .filter(|f| self.owner(f.source).ok() == Some(rust))
+                .filter_map(|f| {
+                    let continuation = match f.continuation {
+                        None => None,
+                        Some(t) => match (
+                            self.continuations.get(&t),
+                            self.recorded.get(&t),
+                            running.get(&t),
+                        ) {
+                            (Some((owner, child)), _, _) => (*owner == rust).then_some(*child),
+                            // A call recorded here that the child hasn't seen:
+                            // what the child still holds for its key is stale.
+                            (_, Some((_, Recorded::Answer { .. })), _) => return None,
+                            (_, _, Some(child)) => *child,
+                            _ => None,
+                        },
+                    };
+                    Some(InFlight { continuation, ..*f })
+                })
+                .collect();
+            if rust {
+                self.rust.forgotten(&view);
+            } else {
+                self.javascript.forgotten(&view);
+            }
+        }
     }
 
     fn discard(&mut self, token: u64) {

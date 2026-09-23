@@ -22,6 +22,21 @@ impl Interrupt {
     }
 }
 
+/// A request still in flight, as [`DataSource::forgotten`] names it.
+#[derive(Debug, Clone, Copy)]
+pub struct InFlight<'a> {
+    /// What it answers.
+    pub target: Target,
+    /// The source it asks.
+    pub source: &'a str,
+    /// The arguments it asks with.
+    pub args: &'a [Value],
+    /// The continuation token the source handed out for it, when it is one
+    /// (`None` for a fetch or storage request, or where a forwarder can no
+    /// longer tell): what tells two calls with equal arguments apart.
+    pub continuation: Option<u64>,
+}
+
 /// What a request answers: a resource or a mutation, by its index in the
 /// plan. The runner keeps at most one request in flight per target (LLP
 /// 1016 D5), so an executor that parks a call until its reply comes keys
@@ -232,16 +247,18 @@ pub trait DataSource {
         let _ = plan;
     }
 
-    /// After a commit that let requests go, the ones still in flight: their
-    /// targets, sources and arguments. A request is let go when newer
-    /// arguments replace it (LLP 1016 D5), when its target is answered now
-    /// or assigned, when the runner is poisoned, or when a refused commit
-    /// puts back what it had and drops what it asked. Its reply is never
+    /// After a commit that let requests go, the ones still in flight. A
+    /// request is let go when newer arguments replace it (LLP 1016 D5), when
+    /// its target is answered now or assigned, when the runner is poisoned,
+    /// or when a refused commit puts back what it had and drops what it
+    /// asked; so is one a re-ask with equal arguments replaced (a `refresh`),
+    /// which only its continuation token tells apart. Its reply is never
     /// parsed, so a source that parks calls until replies come drops every
-    /// call it parked for a target that isn't in flight with those
-    /// arguments. A call parked without a target (`answer`) is its own to
-    /// keep. A source that forwards `answer_for` forwards this too.
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    /// call it parked for anything no longer in flight. A call parked without
+    /// a target (`answer`) is its own to keep. A source that forwards
+    /// `answer_for` forwards this too, translating any continuation token it
+    /// remapped back to the one its child handed out.
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         let _ = in_flight;
     }
 

@@ -337,6 +337,19 @@ impl<D: DataSource> crate::Host<D> {
                 return Ok((host, batch));
             }
         };
+        // A page served at another path (a static host's 404.html, or its
+        // fallback to `/`) isn't this location's document: render fresh.
+        let Some(launch) = page_launch(launch, &checkpoint.location) else {
+            let (mut host, batch) = crate::Host::boot_delivered(
+                plan_bytes, data, None, snapshot, compat, viewport, launch,
+            )?;
+            host.log(&format!(
+                "document: rendered at {}, not {launch}; rendering fresh",
+                checkpoint.location
+            ));
+            return Ok((host, batch));
+        };
+        let launch = launch.as_str();
         let plan = Plan::decode(plan_bytes).map_err(crate::HostError::Plan)?;
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
@@ -352,9 +365,8 @@ impl<D: DataSource> crate::Host<D> {
             launch,
         )
         .map_err(crate::HostError::Runner)?;
-        // The renderer's location, not this launch: the runtime's only input
-        // of its own is its first tree, so a query the app doesn't read, or a
-        // 404 page served at any path, still adopts the same document.
+        // The renderer's location: the runtime's only input of its own is its
+        // first tree, so a query the app doesn't read adopts the same document.
         let adopted = super::project(&runner).is_ok_and(|doc| {
             digest(runner.plan(), &checkpoint.location, page, &doc.root) == page_digest
         });
@@ -414,6 +426,46 @@ pub fn digest(plan: &Plan, location: &str, checkpoint: &str, document: &str) -> 
             let _ = write!(hex, "{byte:02x}");
             hex
         })
+}
+
+/// One URL per page (LLP 1048.000 D11): the router's canonical location
+/// (dot segments resolved, one percent-encoding spelling for the path and
+/// the query), with repeated slashes collapsed and no trailing slash but
+/// `/`'s. The server redirects any other spelling here; the runtime compares
+/// its URL with a page's location in this form.
+pub fn canonical_location(location: &str) -> String {
+    let routed = exact_route::canonical(location);
+    let (path, query) = match routed.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (routed.as_str(), None),
+    };
+    let mut out = String::with_capacity(routed.len());
+    for part in path.split('/').filter(|p| !p.is_empty()) {
+        out.push('/');
+        out.push_str(part);
+    }
+    if out.is_empty() {
+        out.push('/');
+    }
+    if let Some(query) = query {
+        out.push('?');
+        out.push_str(query);
+    }
+    out
+}
+
+/// Where a runtime at `launch` boots from a page rendered at `location`
+/// (LLP 1048.000 D6): the page's path with the browser's query, when the two
+/// are one page once canonical — the route table reads no query, so the
+/// query can't make them two — else `None`, and the runtime renders fresh.
+fn page_launch(launch: &str, location: &str) -> Option<String> {
+    let (browser, rendered) = (canonical_location(launch), canonical_location(location));
+    let path = |l: &str| l.split_once('?').map_or(l, |(path, _)| path).to_owned();
+    let page = path(&rendered);
+    (path(&browser) == page).then(|| match browser.split_once('?') {
+        Some((_, query)) => format!("{page}?{query}"),
+        None => page,
+    })
 }
 
 fn route_table(plan: &Plan) -> exact_route::Table {

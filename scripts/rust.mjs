@@ -231,6 +231,16 @@ export class RustBaker {
   close() { this.closed=true;this.stop(); }
 }
 
+/** The SHA-1 of the one valid certificate codesign would pick for `identity`
+ * (forty hex digits, else a name it contains), or null: then just sign. */
+function signingCertificate(identity, env) {
+  if (identity === '-') return null;
+  const listed = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], { env, encoding: 'utf8' });
+  const found = [...(listed.stdout ?? '').matchAll(/^\s*\d+\) ([0-9A-F]{40}) "(.*)"$/gm)]
+    .filter(([, sha, name]) => /^[0-9a-f]{40}$/i.test(identity) ? sha === identity.toUpperCase() : name.includes(identity));
+  return new Set(found.map(([, sha]) => sha)).size === 1 ? found[0][1] : null;
+}
+
 /** The last modules each app compiled in this process, with their inputs' key. */
 const compiledModules = new Map();
 function compileModules(app, env, profile, nativeTarget) {
@@ -242,12 +252,24 @@ function compileModules(app, env, profile, nativeTarget) {
       const identity = env.EXACT_RUST_SIGN_IDENTITY ?? (env.EXACT_UPDATE_TRUST === 'production' ? null : '-');
       if (!identity) throw new Error('macOS production Rust modules require EXACT_RUST_SIGN_IDENTITY matching the host team; select rust.prod="wasm" to use interpreted updates');
       const directory=resolve(app.target,'rust-sign');mkdirSync(directory,{recursive:true});
-      const stage=mkdtempSync(resolve(directory,'candidate-')),copy=resolve(stage,'module.dylib');
-      try {
-        writeFileSync(copy,readFileSync(nativePath));
-        run(app, 'codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--timestamp', '--options', 'runtime']), copy], env);
-        native=readFileSync(copy);
-      } finally {rmSync(stage,{recursive:true,force:true});}
+      // A signature carries its signing time: signing unchanged code again
+      // made new bytes, and so a new bundle, on every deploy. Keep the last
+      // signature per valid certificate and reuse it for identical code.
+      const unsigned=readFileSync(nativePath), certificate=signingCertificate(identity, env);
+      const kept=certificate && resolve(directory,`${certificate}-${hash(unsigned)}.dylib`);
+      if (kept && existsSync(kept)) native=readFileSync(kept);
+      else {
+        const stage=mkdtempSync(resolve(directory,'candidate-')),copy=resolve(stage,'module.dylib');
+        try {
+          writeFileSync(copy,unsigned);
+          run(app, 'codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--timestamp', '--options', 'runtime']), copy], env);
+          native=readFileSync(copy);
+          if (kept) {
+            for (const name of readdirSync(directory)) if (name.startsWith(`${certificate}-`)) rmSync(resolve(directory,name),{force:true});
+            renameSync(copy,kept);
+          }
+        } finally {rmSync(stage,{recursive:true,force:true});}
+      }
     }
     native ??= readFileSync(nativePath);
   }

@@ -93,7 +93,7 @@ function flowBatch(batch) {
   });
   flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
-let resolveModuleReady, headGlue = null, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: [] } : null; // a built document (LLP 1048.000 D6), held until the runtime settles
+let resolveModuleReady, headGlue = null, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: globalThis.exact?.taps?.() ?? [] } : null; // a built document (LLP 1048.000 D6), held until the runtime settles; the presses its capture script took before now come first
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor});
 const focusAutofocus = focus.autofocus;

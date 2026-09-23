@@ -57,7 +57,9 @@ pub use paired::Paired;
 
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Request, Store, Target};
+use exact_runner::{
+    Answer, DataError, DataSource, InFlight, Interrupt, Outcome, Request, Store, Target,
+};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -937,10 +939,10 @@ impl DataSource for Module {
 
     /// Calls whose requests the runner let go are dropped, here and in the
     /// prelude with the fetches they wait on (LLP 1016 D5).
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         let keep: HashSet<Key> = in_flight
             .iter()
-            .map(|(target, source, args)| Module::key(Some(*target), source, args))
+            .map(|f| Module::key(Some(f.target), f.source, f.args))
             .collect();
         let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
             .into_iter()

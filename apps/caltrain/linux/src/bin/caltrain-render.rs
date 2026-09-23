@@ -8,5 +8,5 @@
 const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
 
 fn main() -> std::process::ExitCode {
-    exact_render::main::<caltrain_data::Caltrain>(PLAN)
+    exact_render::main(PLAN, caltrain_data::Caltrain::default)
 }

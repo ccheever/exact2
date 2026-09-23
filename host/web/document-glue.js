@@ -10,6 +10,26 @@
 
 const IDLE_FALLBACK_MS = 200;
 
+// The runtime's first loads after it boots, fetched as it starts, beside its
+// wasm: each would otherwise wait for the one before it, a round trip apiece
+// (0.45 s of RealWorld's first press on a slow phone). A checkpoint whose
+// logic answered names a data module: its realm's glue and prelude, and the
+// reader of its fetches' bodies. Nothing loads before activation.
+function preloadRuntime(checkpoint) {
+  const logic = /"logic":(null|"(?:[^"\\]|\\.)*")/.exec(checkpoint?.textContent ?? "")?.[1];
+  const files = ["./input-glue.js"];
+  if (!new URL(location.href).searchParams.has("agent")) files.push("./timer-glue.js");
+  if (logic && logic !== "null") files.push("./module-glue.js", "./http-body.js", "./module-prelude.js");
+  for (const file of files) {
+    const link = document.createElement("link");
+    link.href = new URL(file, import.meta.url).href;
+    // module-glue reads the prelude with `fetch`; the rest are imported.
+    if (file === "./module-prelude.js") { link.rel = "preload"; link.as = "fetch"; link.crossOrigin = ""; }
+    else link.rel = "modulepreload";
+    document.head.append(link);
+  }
+}
+
 function documentBoot(options) {
   const root = options.root;
   let { views, dispatch, log = console.warn } = options;
@@ -78,6 +98,8 @@ function documentBoot(options) {
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
+    // After the glue's own wasm fetch, which it makes as this resolves.
+    started.then(() => setTimeout(() => preloadRuntime(script), 0));
     const go = () => { removeEventListener("pointerdown", go, true); removeEventListener("keydown", go, true); start(); };
     addEventListener("pointerdown", go, true); addEventListener("keydown", go, true);
     const idle = () => (globalThis.requestIdleCallback ?? (f => setTimeout(f, IDLE_FALLBACK_MS)))(go);
@@ -199,7 +221,8 @@ globalThis.exact.documentHead = documentHead;
 const checkpoint = document.querySelector('script[type="application/vnd.exact.checkpoint"]');
 if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.documentPage) {
   const root = document.getElementById("exact-root");
-  const page = globalThis.exact.documentPage = documentBoot({ root });
+  // The presses the page's capture script took before this ran come first.
+  const page = globalThis.exact.documentPage = documentBoot({ root, early: globalThis.exact.taps?.() });
   page.started.then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
     // The same parallel downloads as a client page, started only by intent.
     for (const [file, rel] of [["./app.wasm", "preload"], ["./navigation.js", "modulepreload"]]) {
@@ -207,6 +230,7 @@ if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.document
       if (rel === "preload") { link.as = "fetch"; link.crossOrigin = ""; }
       document.head.append(link);
     }
+    preloadRuntime(checkpoint);
     const script = document.createElement("script");
     script.type = "module"; script.src = new URL("./glue.js", import.meta.url).href;
     script.onerror = () => { root.dataset.error = "The runtime could not load. Reload to retry; page links still work."; };

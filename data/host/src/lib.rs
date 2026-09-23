@@ -2,9 +2,12 @@
 //! @ref LLP 1027.001 D2 — requests travel as values; native work stays on workers.
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Store, Target,
 };
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+};
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -224,8 +227,26 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn interrupt(&self) -> Option<Interrupt> {
         self.source.interrupt()
     }
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
-        self.source.forgotten(in_flight)
+    /// Continuation tokens are this source's own: each goes back to its
+    /// child's where the child handed one out (a storage request's never
+    /// did, and one already dispatched can't be told any more), and an entry
+    /// the runner no longer has in flight is let go.
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+        let view: Vec<InFlight<'_>> = in_flight
+            .iter()
+            .map(|f| InFlight {
+                continuation: f
+                    .continuation
+                    .and_then(|outer| match self.pending.get(&outer) {
+                        Some(Pending::Child(child)) => Some(*child),
+                        _ => None,
+                    }),
+                ..*f
+            })
+            .collect();
+        let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
+        self.pending.retain(|outer, _| tokens.contains(outer));
+        self.source.forgotten(&view);
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {

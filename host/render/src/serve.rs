@@ -13,15 +13,17 @@
 //! Successful `cached` pages are also kept at the origin for their public
 //! lifetime, bounded to 64 locations and 32 MiB. Other routes render fresh.
 
+use crate::encode::{self, Accepts, Variants};
 use crate::{page, render, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
-use exact_web::document::{route_at, Site};
+use exact_web::document::{canonical_location, route_at, Site};
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -58,6 +60,19 @@ pub struct Serve {
 pub struct Server {
     listener: TcpListener,
     shared: Shared,
+    stop: Arc<AtomicBool>,
+}
+
+/// Drains a running server (D10): it stops accepting, answers what it has
+/// taken — the renders in flight included — and [`Server::run`] returns.
+#[derive(Clone)]
+pub struct Stopper(Arc<AtomicBool>);
+
+impl Stopper {
+    /// Start draining.
+    pub fn stop(&self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 struct Shared {
@@ -66,6 +81,7 @@ struct Shared {
     shell: String,
     csp: String,
     pages: Mutex<VecDeque<CachedPage>>,
+    variants: Variants,
 }
 
 struct CachedPage {
@@ -87,14 +103,18 @@ impl Server {
         // The transport's first start in a process is slow (Apple's takes
         // seconds); pay it here, not in the first request.
         drop(crate::Executor::start(grants));
+        let variants = Variants::default();
+        variants.warm(encode::files(&serve.dist));
         Ok(Server {
             listener,
+            stop: Arc::new(AtomicBool::new(false)),
             shared: Shared {
                 serve,
                 plan,
                 shell,
                 csp,
                 pages: Mutex::new(VecDeque::new()),
+                variants,
             },
         })
     }
@@ -104,8 +124,13 @@ impl Server {
         self.listener.local_addr().expect("a bound listener")
     }
 
-    /// Serve until the process ends. `D::default()` is each render's source.
-    pub fn run<D: DataSource + Default + 'static>(self) -> std::io::Result<()> {
+    /// What drains it.
+    pub fn stopper(&self) -> Stopper {
+        Stopper(self.stop.clone())
+    }
+
+    /// Serve until drained ([`Stopper`]). `data` makes each render's source.
+    pub fn run<D: DataSource + 'static>(self, data: fn() -> D) -> std::io::Result<()> {
         let shared = Arc::new(self.shared);
         // The connections waiting, and how many workers are free to take one.
         let waiting = Arc::new((
@@ -133,12 +158,23 @@ impl Server {
                             state = ready.wait(state).unwrap();
                         }
                     };
-                    answered = Some(handle::<D>(stream, &shared));
+                    answered = Some(handle(stream, &shared, data));
                 }
             });
         }
-        for stream in self.listener.incoming() {
-            let Ok(mut stream) = stream else { continue };
+        // Accepting polls, so a drain is noticed within a tick.
+        self.listener.set_nonblocking(true)?;
+        while !self.stop.load(Ordering::SeqCst) {
+            let mut stream = match self.listener.accept() {
+                Ok((stream, _)) => stream,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                    continue;
+                }
+                Err(_) => continue,
+            };
+            // An accepted socket inherits the listener's mode on macOS.
+            let _ = stream.set_nonblocking(false);
             let (state, ready) = &*waiting;
             let mut state = state.lock().unwrap();
             if state.0.len() >= state.1 + shared.serve.queue {
@@ -158,6 +194,21 @@ impl Server {
             state.0.push_back(stream);
             ready.notify_one();
         }
+        // Draining: no new connection is taken, and what was taken is
+        // answered — within a render's deadline, twice over, and a margin.
+        drop(self.listener);
+        let renders = shared.serve.renders.max(1);
+        let until = Instant::now() + shared.serve.deadline * 2 + Duration::from_secs(10);
+        while Instant::now() < until {
+            let state = waiting.0.lock().unwrap();
+            if state.0.is_empty() && state.1 == renders {
+                break;
+            }
+            drop(state);
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // A worker is free while it closes its last connection.
+        std::thread::sleep(Duration::from_millis(250));
         Ok(())
     }
 }
@@ -169,6 +220,7 @@ struct Request {
     if_none_match: Option<String>,
     revalidate: bool,
     no_store: bool,
+    accepts: Accepts,
 }
 
 #[derive(Clone)]
@@ -206,6 +258,20 @@ impl Response {
             _ => "",
         };
         let mut out = format!("HTTP/1.1 {} {reason}\r\n", self.status);
+        // A 304 carries what updates the copy the client holds (RFC 9110
+        // §15.4.5), nothing of the representation's own: its CSP, surrogate
+        // keys and length are the stored response's already.
+        if self.status == 304 {
+            for (name, value) in &self.headers {
+                if matches!(*name, "ETag" | "Cache-Control" | "Vary" | "Expires" | "Age") {
+                    let _ = write!(out, "{name}: {value}\r\n");
+                }
+            }
+            out.push_str("Connection: close\r\n\r\n");
+            let _ = stream.write_all(out.as_bytes());
+            let _ = stream.flush();
+            return;
+        }
         for (name, value) in &self.headers {
             let _ = write!(out, "{name}: {value}\r\n");
         }
@@ -225,7 +291,7 @@ impl Response {
             self.body.len()
         );
         let _ = stream.write_all(out.as_bytes());
-        if !head && self.status != 304 {
+        if !head {
             let _ = stream.write_all(&self.body);
         }
         let _ = stream.flush();
@@ -248,7 +314,7 @@ fn close(mut stream: TcpStream) {
 }
 
 /// Answer one connection; the worker closes it.
-fn handle<D: DataSource + Default>(mut stream: TcpStream, shared: &Shared) -> TcpStream {
+fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D) -> TcpStream {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let Ok(request) = read_request(&mut stream) else {
@@ -259,10 +325,101 @@ fn handle<D: DataSource + Default>(mut stream: TcpStream, shared: &Shared) -> Tc
     let response = if request.method != "GET" && !head {
         Response::text(405, "GET or HEAD\n").header("Allow", "GET, HEAD")
     } else {
-        respond::<D>(&request, shared)
+        finish(respond(&request, shared, data), &request)
     };
     response.write(&mut stream, head, &shared.csp);
     stream
+}
+
+/// A response as the client accepts it (D11): a page, the sitemap or any
+/// other body made for this request, compressed now — brotli, else gzip —
+/// with the encoding in its ETag, and a 304 when the client holds that
+/// representation. A dist file carries its own `Vary` and made variant.
+fn finish(mut response: Response, request: &Request) -> Response {
+    let kind = response
+        .headers
+        .iter()
+        .find(|(name, _)| *name == "Content-Type")
+        .map_or("", |(_, value)| value.as_str());
+    let made = response.headers.iter().any(|(name, _)| *name == "Vary");
+    if response.status == 304 || made || !encode::compressible(kind) {
+        return response;
+    }
+    response.headers.push(("Vary", "Accept-Encoding".into()));
+    if let Some((encoding, body)) = encode::now(&response.body, request.accepts) {
+        response.body = body;
+        response
+            .headers
+            .push(("Content-Encoding", encoding.name().into()));
+        for (name, value) in &mut response.headers {
+            if *name == "ETag" {
+                *value = format!("{}-{}\"", value.trim_end_matches('"'), encoding.name());
+            }
+        }
+    }
+    if response.status == 200
+        && response.headers.iter().any(|(name, value)| {
+            *name == "ETag" && encode::none_match(request.if_none_match.as_deref(), value)
+        })
+    {
+        response.status = 304;
+    }
+    response
+}
+
+/// Of `locations`, the ones a crawler may index, as the build's sitemap
+/// keeps them: each is answered as a request is (a cached page from the
+/// origin's cache), and a page that is gone, failed, or says `noindex` is
+/// left out. A page at its deadline stays: it exists, and asks to be read
+/// again. Renders run `--renders` at a time.
+fn indexed<D: DataSource>(shared: &Shared, data: fn() -> D, locations: Vec<String>) -> Vec<String> {
+    let keep = |location: &String| {
+        let request = Request {
+            method: "GET".into(),
+            target: location.clone(),
+            if_none_match: None,
+            revalidate: false,
+            no_store: false,
+            accepts: Accepts::default(),
+        };
+        let response = respond(&request, shared, data);
+        let noindex = response.headers.iter().any(|(name, value)| {
+            *name == "X-Robots-Tag" && value.to_ascii_lowercase().contains("noindex")
+        });
+        matches!(response.status, 200 | 503) && !noindex
+    };
+    let mut kept = Vec::with_capacity(locations.len());
+    for batch in locations.chunks(shared.serve.renders.max(1)) {
+        let verdicts: Vec<bool> = std::thread::scope(|scope| {
+            let running: Vec<_> = batch
+                .iter()
+                .map(|location| scope.spawn(move || keep(location)))
+                .collect();
+            running
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or(false))
+                .collect()
+        });
+        kept.extend(
+            batch
+                .iter()
+                .zip(verdicts)
+                .filter(|(_, keep)| *keep)
+                .map(|(location, _)| location.clone()),
+        );
+    }
+    kept
+}
+
+/// Whether a path names a file (its last segment has an extension the
+/// server knows as a type) rather than a page.
+fn asset_shaped(path: &str) -> bool {
+    let last = path.rsplit('/').next().unwrap_or("");
+    last.rsplit_once('.').is_some_and(|(stem, extension)| {
+        !stem.is_empty()
+            && extension != "html"
+            && content_type(&extension.to_ascii_lowercase()) != "application/octet-stream"
+    })
 }
 
 fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
@@ -309,25 +466,30 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
                 .split(',')
                 .any(|part| part.trim().eq_ignore_ascii_case("no-store"))
     });
+    let accepts = headers
+        .iter()
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("accept-encoding"))
+        .map_or_else(Accepts::default, |(_, value)| Accepts::parse(value));
     Ok(Request {
         method: method.to_string(),
         target: target.to_string(),
         if_none_match,
         revalidate,
         no_store,
+        accepts,
     })
 }
 
-fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Response {
-    let (path, query) = match request.target.split_once('?') {
-        Some((path, query)) => (path, Some(query)),
-        None => (request.target.as_str(), None),
-    };
+fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -> Response {
+    let path = request
+        .target
+        .split_once('?')
+        .map_or(request.target.as_str(), |(path, _)| path);
     if path == "/.exact/health" {
         return Response::text(200, "ok\n").header("Cache-Control", "no-store");
     }
     if path == "/sitemap.xml" {
-        return sitemap::<D>(shared);
+        return sitemap(shared, data);
     }
     if path == "/robots.txt" {
         // Neutral until hosting decides a crawler policy (LLP 1048 §9.9).
@@ -345,31 +507,44 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         );
     }
     if let Some((file, kind)) = static_file(&shared.serve.dist, path) {
-        return match std::fs::read(&file) {
-            Ok(body) => Response {
-                status: 200,
-                headers: vec![
-                    ("Content-Type", kind.into()),
-                    // Not content-addressed yet (D10): revalidate.
-                    ("Cache-Control", "no-cache".into()),
-                ],
-                body,
-            },
-            Err(_) => Response::text(404, "not found\n"),
+        let compressible = encode::compressible(kind);
+        let Some(served) = shared.variants.serve(&file, request.accepts, compressible) else {
+            return Response::text(404, "not found\n");
+        };
+        let mut headers = vec![
+            ("Content-Type", kind.into()),
+            // Not content-addressed yet (D10): revalidated, by its ETag.
+            ("Cache-Control", "no-cache".into()),
+            ("ETag", served.etag.clone()),
+        ];
+        if compressible {
+            headers.push(("Vary", "Accept-Encoding".into()));
+        }
+        if let Some(encoding) = served.encoding {
+            headers.push(("Content-Encoding", encoding.name().into()));
+        }
+        let fresh = encode::none_match(request.if_none_match.as_deref(), &served.etag);
+        return Response {
+            status: if fresh { 304 } else { 200 },
+            headers,
+            body: served.body.to_vec(),
         };
     }
-    // One URL per page: repeated slashes collapse, no trailing slash but `/`.
-    let canonical = canonical_path(path);
-    if canonical != path {
-        let location = match query {
-            Some(query) => format!("{canonical}?{query}"),
-            None => canonical,
-        };
-        return Response::text(301, "moved\n").header("Location", location);
+    // One URL per page: any other spelling redirects to the canonical one.
+    let canonical = canonical_location(&request.target);
+    if canonical != request.target {
+        return Response::text(301, "moved\n").header("Location", canonical);
     }
     let route = route_at(&shared.plan, &request.target);
     let policy = route.map(|r| r.render);
     let notfound = route.is_some_and(|r| r.notfound);
+    // A file the dist doesn't have (a browser's `/favicon.ico`, an old
+    // script) is a plain 404: the not-found document is for readers, and
+    // rendering it cost 22 ms and 36 KB a visit (Interview's measurement).
+    if notfound && asset_shaped(path) {
+        return Response::text(404, "not found\n")
+            .header("Cache-Control", "public, max-age=0, s-maxage=60");
+    }
     if !notfound && matches!(policy, None | Some(RenderPolicy::Client)) {
         return Response {
             status: 200,
@@ -381,7 +556,7 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         };
     }
     if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
-        return document::<D>(request, policy, notfound, shared);
+        return document(request, policy, notfound, shared, data);
     }
     {
         let mut pages = shared.pages.lock().unwrap();
@@ -409,8 +584,9 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         if_none_match: None,
         revalidate: true,
         no_store: false,
+        accepts: request.accepts,
     };
-    let mut response = document::<D>(&unconditional, policy, notfound, shared);
+    let mut response = document(&unconditional, policy, notfound, shared, data);
     if response.status == 200 && response.body.len() <= MAX_CACHE_BYTES {
         let mut pages = shared.pages.lock().unwrap();
         pages.retain(|page| page.target != request.target);
@@ -441,11 +617,12 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
     response
 }
 
-fn document<D: DataSource + Default>(
+fn document<D: DataSource>(
     request: &Request,
     policy: Option<RenderPolicy>,
     notfound: bool,
     shared: &Shared,
+    data: fn() -> D,
 ) -> Response {
     let serve = &shared.serve;
     let started = Instant::now();
@@ -457,7 +634,7 @@ fn document<D: DataSource + Default>(
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         render(
             &shared.plan,
-            D::default,
+            data,
             serve.viewport,
             location,
             &site,
@@ -542,7 +719,7 @@ fn document<D: DataSource + Default>(
 /// parameterized one's as its `pages=` source lists them now, a route
 /// without one left out — absolute against the configured origin. Without
 /// an origin there is none.
-fn sitemap<D: DataSource + Default>(shared: &Shared) -> Response {
+fn sitemap<D: DataSource>(shared: &Shared, data: fn() -> D) -> Response {
     let Some(origin) = shared.serve.origin.as_deref() else {
         return Response::text(404, "no origin, no sitemap\n");
     };
@@ -559,7 +736,7 @@ fn sitemap<D: DataSource + Default>(shared: &Shared) -> Response {
             continue;
         }
         let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::pages(plan, D::default(), row, shared.serve.deadline)
+            crate::pages(plan, data(), row, shared.serve.deadline)
         }))
         .unwrap_or_else(|_| Err("the pages source panicked".into()));
         match listed {
@@ -572,6 +749,7 @@ fn sitemap<D: DataSource + Default>(shared: &Shared) -> Response {
             }
         }
     }
+    let locations = indexed(shared, data, locations);
     let xml = |t: &str| {
         t.replace('&', "&amp;")
             .replace('<', "&lt;")
@@ -629,19 +807,6 @@ fn hex(bytes: &[u8]) -> String {
         })
 }
 
-/// Collapse repeated slashes; no trailing slash except the root's.
-fn canonical_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for part in path.split('/').filter(|p| !p.is_empty()) {
-        out.push('/');
-        out.push_str(part);
-    }
-    if out.is_empty() {
-        out.push('/');
-    }
-    out
-}
-
 /// A file `dist` serves as it is: anything under `/.exact/`, and any other
 /// file but a page (`.html`), which is rendered. Never outside `dist`.
 fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
@@ -687,7 +852,7 @@ fn percent_decode(path: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-fn content_type(extension: &str) -> &'static str {
+pub(crate) fn content_type(extension: &str) -> &'static str {
     match extension {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
@@ -734,12 +899,16 @@ fn csp(grants: &str, dist: &Path) -> String {
     }
     // The admitted TypeScript module and its host prelude run in a private
     // same-origin realm. Admit their exact baked bytes, never arbitrary inline JS.
-    let mut scripts = String::from("'self' 'wasm-unsafe-eval'");
+    // A document's one inline script, the host's capture script, likewise.
+    use sha2::{Digest, Sha256};
+    let hash = |bytes: &[u8]| exact_data::envelope::base64(&Sha256::digest(bytes));
+    let mut scripts = format!(
+        "'self' 'wasm-unsafe-eval' 'sha256-{}'",
+        hash(crate::page::capture().as_bytes())
+    );
     for file in ["module-prelude.js", "app.js"] {
         if let Ok(bytes) = std::fs::read(dist.join(file)) {
-            use sha2::{Digest, Sha256};
-            let hash = exact_data::envelope::base64(&Sha256::digest(bytes));
-            let _ = write!(scripts, " 'sha256-{hash}'");
+            let _ = write!(scripts, " 'sha256-{}'", hash(&bytes));
         }
     }
     format!(

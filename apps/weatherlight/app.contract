@@ -1,4 +1,11 @@
 // Weatherlight: one Contract UI, network data below the seam, an optional GPU sky.
+
+// @ref LLP 1048.003 D5 — the one page renders at build into dist/: revision 0
+// answers the empty forecast, so the document is the page before its data
+// arrives, rendered with no network. The view doesn't branch on the route.
+routes nav
+  tab home "/" render=build
+
 shape Hour
   id: string
   time: string

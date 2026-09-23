@@ -6,7 +6,7 @@
 //! storage and never replaces the logic it booted with.
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Store, Target,
 };
 
 /// The app's data source in a render's environment.
@@ -102,7 +102,7 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn interrupt(&self) -> Option<Interrupt> {
         self.inner.interrupt()
     }
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         self.inner.forgotten(in_flight);
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {

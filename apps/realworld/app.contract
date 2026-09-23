@@ -1,18 +1,18 @@
 // RealWorld ("Conduit", docs.realworld.show): the Medium clone every frontend
 // framework implements, against the hosted API. The templates' markup and
 // Conduit Minimal CSS v4 are transcribed into rows and styles below. The data
-// is app.ts. Public routes arrive as anonymous HTML; their runtime loads for
-// an action or a kept sign-in. Client routes show placeholders while loading.
+// is app.ts. Public routes arrive as anonymous HTML; their runtime loads when
+// the page is idle. Client routes show placeholders while loading.
 routes nav
-  tab home "/" render=cached activate=interaction
+  tab home "/" render=cached
     login "/login"
     register "/register"
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
-    article "/article/:slug" render=cached activate=interaction
-    profile "/profile/:username" render=cached activate=interaction
-    favorites "/profile/:username/favorites" render=cached activate=interaction
+    article "/article/:slug" render=cached
+    profile "/profile/:username" render=cached
+    favorites "/profile/:username/favorites" render=cached
   notfound
 
 shape User

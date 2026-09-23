@@ -18,6 +18,7 @@
 
 #![deny(missing_docs)]
 
+mod encode;
 mod executor;
 mod page;
 mod pages;
@@ -25,9 +26,9 @@ mod serve;
 mod source;
 
 pub use executor::Executor;
-pub use page::page;
+pub use page::{capture, page};
 pub use pages::pages;
-pub use serve::{Serve, Server};
+pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;
 
 use exact_kernel::Kernel;
@@ -388,16 +389,21 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
 /// `status` (503 when the deadline passed with requests in flight),
 /// `settled`, `robots`, `root` (what `#exact-root` holds), `head` (what
 /// `<head>` holds after the shell's charset and base), `checkpoint`,
-/// `digest`, and with `--shell` the whole `page` ([`page`]), or `error`. `--build` renders every location the plan declares
-/// `render=build` (`exact_web::document::build_locations`). `baked` is the
-/// app's own plan; the web build passes the one it extracted from the
-/// shipped wasm instead.
+/// `digest`, and with `--shell` the whole `page` ([`page`]), or `error`.
+/// `--build` renders every location the plan declares `render=build`
+/// (`exact_web::document::build_locations`) and every page a build route's
+/// `pages=` source lists. `baked` is the app's own plan; the web build
+/// passes the one it extracted from the shipped wasm instead. `data` makes
+/// the app's source: a fresh one for each render (two per render, D6), for
+/// each enumeration, and for the server's grants — so an entry is one call,
+/// `exact_render::main(PLAN, || …)`, with no wrapper to forward the source's
+/// methods.
 ///
 /// `--serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime
 /// <s>]` is the server instead ([`Server`]): the built web app on
 /// loopback, its plan the dist's own `app.plan` unless `--plan` names one.
 /// It prints `serving http://127.0.0.1:<port>/`, then a line per render.
-pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::ExitCode {
+pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::process::ExitCode {
     use std::process::ExitCode;
     let mut args = std::env::args().skip(1);
     let mut plan = baked.to_vec();
@@ -493,7 +499,7 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
         }
     };
     if let Some(dist) = serve {
-        let grants = D::default().grants().to_string();
+        let grants = data().grants().to_string();
         let config = Serve {
             dist,
             port,
@@ -514,8 +520,12 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
         };
         println!("serving http://{}/", server.addr());
         let _ = std::io::Write::flush(&mut std::io::stdout());
-        return match server.run::<D>() {
-            Ok(()) => ExitCode::SUCCESS,
+        drain_on_signal(server.stopper());
+        return match server.run(data) {
+            Ok(()) => {
+                println!("drained");
+                ExitCode::SUCCESS
+            }
             Err(e) => {
                 eprintln!("render: serve: {e}");
                 ExitCode::FAILURE
@@ -536,7 +546,7 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
             .iter()
             .filter(|r| r.render == RenderPolicy::Build)
         {
-            match pages(&decoded, D::default(), row, deadline) {
+            match pages(&decoded, data(), row, deadline) {
                 Ok(found) => locations.extend(found.into_iter().map(|l| (l, false))),
                 Err(e) => {
                     eprintln!("render: {e}");
@@ -556,15 +566,14 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
         // The not-found document, or any location the router sends there.
         let notfound = *listed || route_at(&decoded, location).is_some_and(|r| r.notfound);
         let mut line = format!("{{\"location\":{}", json(location));
-        let rendered = render(&decoded, D::default, viewport, location, &site, deadline).and_then(
-            |rendered| {
+        let rendered =
+            render(&decoded, data, viewport, location, &site, deadline).and_then(|rendered| {
                 let page = shell
                     .as_deref()
                     .map(|shell| page(shell, &rendered))
                     .transpose()?;
                 Ok((rendered, page))
-            },
-        );
+            });
         match rendered {
             Ok((rendered, page)) => {
                 let settled = rendered.settled == Settled::Complete;
@@ -604,6 +613,31 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// SIGTERM or SIGINT drains the server (D10): a restart loses no render
+/// in flight.
+fn drain_on_signal(stopper: Stopper) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SIGNALLED: AtomicBool = AtomicBool::new(false);
+    extern "C" fn signalled(_: libc::c_int) {
+        SIGNALLED.store(true, Ordering::SeqCst);
+    }
+    // SAFETY: the handler only stores to an atomic, which is signal-safe.
+    unsafe {
+        libc::signal(libc::SIGTERM, signalled as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, signalled as *const () as libc::sighandler_t);
+    }
+    let _ = std::thread::Builder::new()
+        .name("exact-render-drain".into())
+        .spawn(move || {
+            while !SIGNALLED.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            println!("draining");
+            let _ = std::io::Write::flush(&mut std::io::stdout());
+            stopper.stop();
+        });
 }
 
 fn json(text: &str) -> String {

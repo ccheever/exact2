@@ -6,7 +6,7 @@
 //
 //   bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>]
 //       [--only bundle|origin] [--platform <p>]… [--snapshot <sha>] [--dirty]
-//       [--release <id>] [--keys <dir>] [--json] [--yes] [--slow-ms <n>]
+//       [--release <id>] [--keys <dir>] [--json] [--yes]
 //   bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]
 //
 // In order, as D3 states it: **snapshot** — the app's tree must be committed
@@ -44,9 +44,6 @@
 // object-store adapter (an https origin is read-only here); the binary
 // lanes (1030.000 §6). Dev imports the same artifact comparison; a
 // platform with no completed receipt is reported as unbuilt.
-//
-// Flags: `--slow-ms <n>` holds a stream's lock for n ms between reading the
-// head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
@@ -57,6 +54,7 @@ import { buildRust, rustBundle, rustPackage } from './rust.mjs';
 import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
+import { filesystemLock } from './filesystem.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -68,13 +66,12 @@ const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--chann
 /** A refusal: printed as one line, exit 1. Anything else is a bug and keeps its stack. */
 class Refusal extends Error {}
 const refuse = (message) => { throw new Refusal(message); };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ------------------------------------------------------------------ arguments
 
 function parseArgs(argv) {
   const opts = { platform: [], _: [] };
-  const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys', '--slow-ms']);
+  const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
@@ -92,7 +89,6 @@ function parseArgs(argv) {
   for (const p of opts.platform) if (!PLATFORMS.includes(p)) refuse(`--platform ${p}: one of ${PLATFORMS.join(', ')}`);
   if (opts.only && opts.only !== 'bundle' && opts.only !== 'origin') refuse(`--only ${opts.only}: bundle or origin`);
   if (opts.release && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.release)) refuse(`--release ${opts.release}: start with a letter or digit, then use letters, digits, . _ - only (it names a directory and a file)`);
-  if (opts.slowMs !== undefined && !(Number(opts.slowMs) >= 0)) refuse(`--slow-ms ${opts.slowMs}: a number of milliseconds`);
   opts.keys = resolve(opts.keys ?? process.env.EXACT_SIGNING_KEY_DIR ?? resolve(homedir(), '.config/exact/keys'));
   return opts;
 }
@@ -465,7 +461,8 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   // Keep even the pre-run capture outside every live repository. Cargo walks
   // ancestor directories for configuration, so a stage beneath `target/`
   // would still let a mutable checkout influence the supposedly frozen bake.
-  const captureRoot = opts.captureRoot ? stableCaptureRoot(sourceList, opts.captureRoot) : privateCaptureRoot(sourceList);
+  const stable = typeof opts.captureRoot === 'function' ? opts.captureRoot(sourceList) : opts.captureRoot;
+  const captureRoot = stable ? stableCaptureRoot(sourceList, stable) : privateCaptureRoot(sourceList);
   const stagedSourceRoot = resolve(captureRoot, 'source');
   mkdirSync(stagedSourceRoot);
   try {
@@ -473,7 +470,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
       stagedSourceRoot, common, app, exactRoot));
     // At a stable path, staged files keep their live mtimes: Cargo's mtime
     // checks (rerun-if-changed) then see only real edits between runs.
-    if (opts.captureRoot) for (const source of sourceList) keepLiveMtimes(source.repo, resolve(stagedSourceRoot, relative(common, source.repo)));
+    if (stable) for (const source of sourceList) keepLiveMtimes(source.repo, resolve(stagedSourceRoot, relative(common, source.repo)));
     const changes = captured.flatMap((source) => source.changes.map((change) => `${source.roles.join('+')} ${change}`));
     if (changes.length && !opts.dirty) refuse(`the source repository${captured.length === 1 ? '' : 'ies'} this bake reads ${captured.length === 1 ? 'has' : 'have'} uncommitted or ignored source files:\n  ${changes.join('\n  ')}\ncommit them, or pass --dirty to publish those captured bytes (the table says so loudly)`);
     const id = captured.length === 1 && changes.length === 0 ? captured[0].commit
@@ -530,16 +527,19 @@ function stableCaptureRoot(sources, at) {
   return root;
 }
 
+/** Directories too, each after its entries: Cargo's scan of a watched
+ * directory (`rerun-if-changed=shaders`) reads the directories' own mtimes. */
 function keepLiveMtimes(repo, staged) {
   if (!existsSync(staged)) return;
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() && !entry.isFile()) continue;
       const path = resolve(dir, entry.name);
       if (entry.isDirectory()) walk(path);
-      else if (entry.isFile()) {
-        try { const live = statSync(resolve(repo, relative(staged, path))); if (live.isFile()) utimesSync(path, live.atime, live.mtime); }
-        catch { /* staged only */ }
-      }
+      try {
+        const live = statSync(resolve(repo, relative(staged, path)));
+        if (entry.isDirectory() ? live.isDirectory() : live.isFile()) utimesSync(path, live.atime, live.mtime);
+      } catch { /* staged only */ }
     }
   };
   walk(staged);
@@ -586,8 +586,9 @@ function assertMaterializedCargoClosure(workspaces, sourceRoot, target, app) {
 }
 
 /** Bind the already-materialized capture to this run. Source stays in its
- * private temporary root so Cargo cannot discover live ancestor config. */
-export function materializeSnapshot(snapshot, run, app) {
+ * private temporary root so Cargo cannot discover live ancestor config.
+ * `cache` is the Cargo target a deploy into an explicit target builds in. */
+export function materializeSnapshot(snapshot, run, app, cache = null) {
   const capture = snapshotCaptures.get(snapshot);
   if (!capture) refuse('the source snapshot was not captured by this deploy process and cannot be materialized');
   const sourceRoot = capture.stagedSourceRoot;
@@ -609,10 +610,10 @@ export function materializeSnapshot(snapshot, run, app) {
   const workspace = stagedPath(capture.appWorkspace);
   const exactRoot = stagedPath(capture.exactRoot);
   // An explicitly supplied Cargo target is already the caller's chosen
-  // isolation boundary (the deploy smoke uses one private cache for all of
-  // its runs). Otherwise keep absolute source paths out of the live target by
+  // isolation boundary (a diagnostic's throwaway checkout builds in its
+  // own). Otherwise keep absolute source paths out of the live target by
   // giving this materialized generation its own cache.
-  const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target');
+  const target = cache ?? (process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : resolve(run, 'cargo-target'));
   const manifest = readManifest(dir, app.name);
   // A game without its own Cargo.lock resolves against the captured SDK lock
   // (game/app/shells.lock), still locked and offline.
@@ -690,11 +691,15 @@ function readBundle(web, app) {
 function buildFor(app, platform, sourceRoot, run) {
   const target = bakeTarget(platform);
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
-  if (platform === 'ios' || platform === 'macos') {
-    const sdk = spawnSync('xcrun', ['--sdk', platform === 'ios' ? 'iphoneos' : 'macosx', '--show-sdk-path'], {encoding:'utf8'});
-    if (sdk.status !== 0) refuse(`the ${platform} SDK is unavailable: ${sdk.stderr}`);
+  // By target, not platform: on a Mac the Linux host builds for this Mac's
+  // own triple, and with another deployment target it and the macOS bake
+  // rebuilt each other's crates (objc2 records MACOSX_DEPLOYMENT_TARGET).
+  const apple = platform === 'ios' ? 'ios' : target.includes('-apple-darwin') ? 'macos' : null;
+  if (apple) {
+    const sdk = spawnSync('xcrun', ['--sdk', apple === 'ios' ? 'iphoneos' : 'macosx', '--show-sdk-path'], {encoding:'utf8'});
+    if (sdk.status !== 0) refuse(`the ${apple} SDK is unavailable: ${sdk.stderr}`);
     env.SDKROOT = sdk.stdout.trim();
-    env[platform === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = platform === 'ios' ? '17.0' : '14.0';
+    env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
   }
   return buildBake(app, platform, target, {env, analysis:true});
 }
@@ -1103,7 +1108,6 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
     if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
     const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
-    if (opts.slowMs) await sleep(Number(opts.slowMs));
     let written = 0;
     for (const file of files) {
       if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
@@ -1350,17 +1354,46 @@ async function deployCaptured(opts, capsule) {
   return failed.length ? 1 : 0;
 }
 
+/** An explicitly supplied `CARGO_TARGET_DIR` outside the live repositories
+ * is one cache for every deploy its caller runs (the deploy smoke's calls).
+ * Cargo keys path crates by path and mtime, so a capture at a fresh private
+ * path rebuilt every crate on every call. These deploys take turns, capture
+ * at one path inside that target with the live mtimes, and build in a Cargo
+ * cache beside it that no other build shares — one of each per set of
+ * captured repositories, which fixes every absolute path a build records.
+ * What is captured, and how it is frozen, is unchanged. */
+async function deploy(opts) {
+  const locatedApp = resolveApp(opts._[0]);
+  const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : null;
+  if (!target || [locatedApp.dir, ROOT].some((dir) => inside(repoTop(dir), target))) return launch(locatedApp, opts);
+  const cache = resolve(target, 'deploy');
+  const layout = (sources) => sha256(sources.map((source) => source.repo).sort().join('\0')).slice(0, 16);
+  mkdirSync(cache, { recursive: true });
+  let entered = false;
+  try {
+    return await filesystemLock(cache, 'held/.lock', () => {
+      entered = true;
+      return launch(locatedApp, opts, {
+        captureRoot: (sources) => resolve(cache, `exact-source-capture-${layout(sources)}`),
+        target: (sources) => resolve(cache, `cargo-${layout(sources)}`),
+      });
+    });
+  } catch (error) {
+    if (!entered && error.message.includes('locked by another')) refuse(`another deploy is using the Cargo target ${target}; wait for it, or give this one its own CARGO_TARGET_DIR`);
+    throw error;
+  }
+}
+
 /** The live module graph is only a launcher: freeze and relocate all source,
  * then execute the publisher itself from that captured Exact tree. This keeps
  * app resolution, bake, classification, signing, and publication on one
  * immutable implementation even when the checkout changes during the run. */
-async function deploy(opts) {
-  const locatedApp = resolveApp(opts._[0]);
-  const snapshot = snapshotOf(locatedApp, opts);
+function launch(locatedApp, opts, cache = {}) {
+  const snapshot = snapshotOf(locatedApp, { ...opts, captureRoot: cache.captureRoot });
   try {
     const release = opts.release ?? defaultRelease(snapshot.id);
     const run = deployRun(locatedApp.target, release);
-    const materialized = materializeSnapshot(snapshot, run, locatedApp);
+    const materialized = materializeSnapshot(snapshot, run, locatedApp, cache.target?.(snapshot.sources));
     const capsule = {
       version: 1, snapshot, release, run, sourceRoot: materialized.sourceRoot,
       exactRoot: materialized.exactRoot,

@@ -65,9 +65,13 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
-  the repo). `bun scripts/smoke.mjs deploy` drives it. A native host opens its update
-  store at launch and checks after first pixel (`EXACT_UPDATE_ORIGIN=<url>` points a dev
-  build at a directory `serve.mjs` serves; `state.delivery` shows what it did).
+  the repo). `bun scripts/smoke.mjs deploy` drives it; on a Mac it signs production
+  macOS Rust modules, so set `EXACT_RUST_SIGN_IDENTITY` to an identity listed by
+  `security find-identity -v -p codesigning` (an Apple Development one does). Its first
+  deploy builds every release bundle cold; the rest reuse that cache. A native host
+  opens its update store at launch and checks after first pixel
+  (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
+  `state.delivery` shows what it did).
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another

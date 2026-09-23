@@ -524,3 +524,63 @@ fn independent_storage_is_refused_before_conversion_or_disk_touch() {
         "no directory or file may be created on refusal"
     );
 }
+
+/// A child that hands out continuation tokens of its own, and keeps what
+/// `forgotten` told it.
+struct Continuing {
+    heard: std::rc::Rc<std::cell::RefCell<Vec<Option<u64>>>>,
+}
+
+impl DataSource for Continuing {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        Ok(Value::Unit)
+    }
+    fn answer(&mut self, _: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        Ok(Answer::Later(Request::continuation(7)))
+    }
+    fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
+        exact_runner::Dispatch::Host(7)
+    }
+    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+        self.heard
+            .borrow_mut()
+            .extend(in_flight.iter().map(|f| f.continuation));
+    }
+}
+
+#[test]
+fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
+    let heard = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let mut host = Storage::new(Continuing {
+        heard: heard.clone(),
+    });
+    let target = exact_runner::Target::Resource(0);
+    let mut store = Store::default();
+    let token = |answer: Result<Answer, DataError>| match answer {
+        Ok(Answer::Later(request)) => request.continuation.expect("a continuation"),
+        other => panic!("{other:?}"),
+    };
+    let first = token(host.answer_for(target, &mut store, "wait", &[]));
+    let second = token(host.answer_for(target, &mut store, "wait", &[]));
+    assert_ne!(first, 7, "the host's token is its own");
+    let in_flight = |continuation| exact_runner::InFlight {
+        target,
+        source: "wait",
+        args: &[],
+        continuation: Some(continuation),
+    };
+    // The second replaced the first: the child hears its own token back.
+    host.forgotten(&[in_flight(second)]);
+    assert_eq!(heard.borrow().as_slice(), [Some(7)]);
+    assert!(matches!(
+        host.dispatch(first, &store),
+        exact_runner::Dispatch::Missing
+    ));
+    // Once dispatched, a token can't be told any more.
+    assert!(matches!(
+        host.dispatch(second, &store),
+        exact_runner::Dispatch::Host(7)
+    ));
+    host.forgotten(&[in_flight(second)]);
+    assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
+}

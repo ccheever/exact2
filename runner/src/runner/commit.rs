@@ -72,10 +72,15 @@ impl<D: DataSource> Runner<D> {
         }
         // After any restore: the source hears what is really in flight.
         if std::mem::take(&mut self.forgot) {
-            let in_flight: Vec<(Target, &str, &[Value])> = self
+            let in_flight: Vec<InFlight<'_>> = self
                 .pending
                 .iter()
-                .map(|p| (p.target, p.source.as_str(), p.args.as_slice()))
+                .map(|p| InFlight {
+                    target: p.target,
+                    source: &p.source,
+                    args: &p.args,
+                    continuation: p.continuation,
+                })
                 .collect();
             self.data.forgotten(&in_flight);
         }
@@ -502,6 +507,7 @@ impl<D: DataSource> Runner<D> {
             target,
             source,
             args,
+            continuation: request.continuation,
         });
         self.requests.push(RequestOut {
             ticket,

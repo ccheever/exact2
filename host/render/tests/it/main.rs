@@ -313,6 +313,19 @@ fn a_page_is_the_shell_around_the_document() {
         r.digest, r.activate.name(), r.checkpoint
     )));
     assert!(html.contains(&r.head));
+    // Its one script that runs is the host's capture script, in the head,
+    // so it hears a press from first parse; the rest load or are data.
+    let capture = format!("<script>{}</script>", exact_render::capture());
+    let scripts: Vec<&str> = html
+        .match_indices("<script")
+        .map(|(at, _)| &html[at..])
+        .collect();
+    assert_eq!(scripts.len(), 3, "{html}");
+    assert!(scripts[0].starts_with(&capture));
+    assert!(html.find(&capture) < html.find("<body").or(html.find("<div id=\"exact-root\"")));
+    assert!(scripts[1].starts_with("<script type=\"application/vnd.exact.checkpoint\""));
+    assert!(scripts[2].starts_with("<script type=\"module\" src=\"./glue.js\">"));
+    assert!(exact_render::capture().len() <= 1024);
     assert_eq!(html.matches("<meta name=\"viewport\"").count(), 1);
     assert!(!html.contains("preload\" href=\"./app.wasm\""));
     assert!(!html.contains("<title>Exact</title>"));

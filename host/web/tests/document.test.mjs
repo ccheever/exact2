@@ -103,7 +103,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -112,6 +112,7 @@ async function withDocument(location, drive, { wasmAfter = null, tamper = (page)
       if (files[req.url]) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(files[req.url]); return; }
       // A slow network, where a test needs the runtime to still be loading.
       if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
+      if (glueAfter && req.url.startsWith('/glue.js')) await glueAfter;
       serveStatic(dist, req, res);
     });
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -225,10 +226,40 @@ check(`a press on the document before the runtime starts is replayed once${unava
   }, { wasmAfter });
 }, 180000);
 
-/** Caltrain's render server (LLP 1048.000 D10) over dist/, on loopback;
- * `stop` ends the one process it started. */
-async function renderServer() {
-  const child = spawn('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--', '--serve', dist, '--name', 'Caltrain'],
+check(`a press before the glue runs is captured, replays once, and a later one isn't doubled${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  // LLP 1048.000 D6, 1048.001 D5: the page's inline capture script hears a
+  // press from first parse; here the glue is held back until after it.
+  let release;
+  const glueAfter = new Promise((resolve) => { release = resolve; });
+  await withDocument('/?agent=1', async (tab) => {
+    const live = await tab(true);
+    await live.until("!!document.querySelector('[data-testid=scheme-dark]') && typeof globalThis.exact?.taps === 'function'", 'the served document');
+    const press = async (testId) => {
+      const at = await live(`(() => { const r = document.querySelector('[data-testid=${testId}]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      for (const type of ['mousePressed', 'mouseReleased']) await live.call('Input.dispatchMouseEvent', { type, x: at[0], y: at[1], button: 'left', clickCount: 1 });
+    };
+    await press('scheme-dark');
+    expect(await live('typeof globalThis.exact.agent')).toBe('undefined');
+    expect(await live("document.documentElement.style.colorScheme")).toBe('');
+    release();
+    await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+    await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
+    await live(settled);
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    expect(await presses()).toBe(1);
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+    // After adoption a press is the runtime's own: once.
+    await press('scheme-light');
+    await live.until("document.documentElement.style.colorScheme === 'light'", 'the live press');
+    await live(settled);
+    expect(await presses()).toBe(2);
+  }, { glueAfter });
+}, 180000);
+
+/** An app's render server (LLP 1048.000 D10) over its dist, on loopback —
+ * Caltrain's over dist/ unless told; `stop` ends the one process it started. */
+async function renderServer({ app = 'caltrain', dir = dist, name = 'Caltrain' } = {}) {
+  const child = spawn('cargo', ['run', '-q', '-p', `${app}-linux`, '--bin', `${app}-render`, '--', '--serve', dir, '--name', name],
     { cwd: ROOT, env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const lines = [];
   const origin = await new Promise((ok, fail) => {
@@ -239,7 +270,7 @@ async function renderServer() {
         if (at) ok(at[1]);
       }
     });
-    child.on('exit', (code) => fail(new Error(`caltrain-render --serve exited ${code}`)));
+    child.on('exit', (code) => fail(new Error(`${app}-render --serve exited ${code}`)));
   });
   return { origin, lines, stop: () => { try { child.kill('SIGKILL'); } catch {} } };
 }
@@ -268,6 +299,48 @@ check(`the render server's page is the document, and the runtime adopts it${unav
   }
 }, 240000);
 
+
+// A TypeScript app through the server (LLP 1048.000 D6, D11): Weatherlight's
+// first frame answers offline (revision 0 is the empty forecast), so its
+// document renders at build and per request with no network. The runtime
+// adopts it, and the module's realm runs under the server's CSP: its two
+// inline scripts are admitted by hash, nothing else is.
+test('a TypeScript app\'s served document is adopted, with its module running under the CSP', async () => {
+  const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
+  try {
+    const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
+      env: { ...process.env, EXACT_WEB_DIST: out, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
+    if (build.status !== 0) throw new Error(`weatherlight build: ${build.stderr}${build.stdout}`);
+    const server = await renderServer({ app: 'weatherlight', dir: out, name: 'Weatherlight' });
+    try {
+      const response = await fetch(`${server.origin}/?agent=1`);
+      expect(response.status).toBe(200);
+      const scripts = /script-src ([^;]*)/.exec(response.headers.get('content-security-policy'))?.[1] ?? '';
+      expect(scripts).toStartWith("'self' 'wasm-unsafe-eval' 'sha256-");
+      expect(scripts).not.toContain('unsafe-inline');
+      await withDocument('/?agent=1', async (tab) => {
+        const live = await tab(true, WATCH);
+        await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+        await live(settled);
+        const state = await live("exact.agent({op:'state'})");
+        expect(state.adopted).toBe(true);
+        // The module ran in its realm: the logic is ready, and no error was shown.
+        expect(state.logic.ready).toBe(true);
+        expect(await live("document.getElementById('exact-root').dataset.error ?? null")).toBe(null);
+        const { views, served } = await live(SERVED_VIEWS);
+        expect(views).toBeGreaterThan(0);
+        expect(served).toBe(views);
+        const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
+        expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 0 });
+      }, { origin: server.origin });
+      expect(server.lines.some((l) => /^render \/\?agent=1 200 /.test(l))).toBe(true);
+    } finally {
+      server.stop();
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}, 900000);
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.

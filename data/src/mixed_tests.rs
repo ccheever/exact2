@@ -1194,3 +1194,131 @@ fn a_forgotten_running_turn_frees_its_mixed_set() {
     assert!(!r.has_pending());
     assert_eq!(r.data().staged_keys(), 0);
 }
+
+// A refresh asks again with equal arguments while the call it replaces is
+// still out: only the continuation token tells the old call from the new.
+
+fn refreshed<D: DataSource>(data: D) -> Runner<D> {
+    use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind};
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let text = b.primitive(TypeKind::String);
+    let found = b.resource("found", "yield", &[], text, Some(&Value::str("baked")));
+    let mut body = Asm::new();
+    body.refresh(found);
+    let body = b.code(body);
+    b.action("again", &[], &[], body);
+    b.node(
+        exact_kernel::NodeType::View as u8,
+        None,
+        None,
+        0,
+        &[],
+        &[],
+        None,
+    );
+    Runner::boot(
+        b.finish().unwrap(),
+        data,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+/// The rest of a `yield` call after its first turn: that turn's envelope,
+/// the storage request it yields, the storage reply, and the resumed turn.
+fn finish<D: DataSource>(r: &mut Runner<D>, asked: &RequestOut, turn: Outcome, stored: &[u8]) {
+    r.fulfill(asked.ticket, turn)
+        .expect("the turn's own envelope");
+    let storage = r.take_requests();
+    assert_eq!(names(&storage), ["found"]);
+    r.fulfill(storage[0].ticket, Outcome::Storage(stored.to_vec()))
+        .expect("the storage reply resumes the live call");
+    let resumed = r.take_requests();
+    assert_eq!(names(&resumed), ["found"]);
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome)
+        .expect("the resumed turn's envelope");
+}
+
+#[test]
+fn a_refresh_with_equal_arguments_frees_a_set_whose_turn_it_replaced() {
+    let mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Threaded {
+            calls: Default::default(),
+        },
+        &["js"],
+        &["yield"],
+    )
+    .unwrap();
+    let mut r = refreshed(mixed);
+    r.act("again", vec![]).unwrap();
+    let first = r.take_requests();
+    let envelope = run(r.dispatch_work(turn_token(&first[0])));
+    r.act("again", vec![]).unwrap();
+    let second = r.take_requests();
+    let dispatch = r.dispatch_work(turn_token(&second[0]));
+    assert!(
+        matches!(dispatch, Dispatch::Run(_)),
+        "the set still waits for the turn the refresh replaced"
+    );
+    assert!(r.fulfill(first[0].ticket, envelope).unwrap().is_none());
+    finish(&mut r, &second[0], run(dispatch), b"again");
+    assert_eq!(resource(&r, "found"), "again");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn a_refresh_with_equal_arguments_replaces_a_placed_source_s_stage() {
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut r = refreshed(placed);
+    r.act("again", vec![]).unwrap();
+    let first = r.take_requests();
+    let envelope = run(r.dispatch_work(turn_token(&first[0])));
+    r.act("again", vec![]).unwrap();
+    let second = r.take_requests();
+    let turn = run(r.dispatch_work(turn_token(&second[0])));
+    assert!(r.fulfill(first[0].ticket, envelope).unwrap().is_none());
+    finish(&mut r, &second[0], turn, b"again");
+    assert_eq!(resource(&r, "found"), "again");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn a_refresh_with_equal_arguments_reaches_a_placed_member_of_a_set() {
+    // Fieldnotes' shape: the worker-placed member of an ordered set.
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mixed = Mixed::new(placed, Source::new("rust"), &["yield"], &["rust"]).unwrap();
+    let mut r = refreshed(mixed);
+    r.act("again", vec![]).unwrap();
+    let first = r.take_requests();
+    let envelope = run(r.dispatch_work(turn_token(&first[0])));
+    r.act("again", vec![]).unwrap();
+    let second = r.take_requests();
+    let dispatch = r.dispatch_work(turn_token(&second[0]));
+    assert!(
+        matches!(dispatch, Dispatch::Run(_)),
+        "the set still waits for the turn the refresh replaced"
+    );
+    assert!(r.fulfill(first[0].ticket, envelope).unwrap().is_none());
+    finish(&mut r, &second[0], run(dispatch), b"again");
+    assert_eq!(resource(&r, "found"), "again");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}

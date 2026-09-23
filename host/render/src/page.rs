@@ -2,10 +2,21 @@
 //! page is composed, for the build's `dist/` and the server alike.
 use crate::Rendered;
 
-/// The built shell with the renderer's `<head>` in place of its title and
-/// viewport meta, the shell's wasm and `navigation.js` preloads removed (a
-/// document's page preloads nothing, D3), the document in `#exact-root`,
-/// and its checkpoint, with the document's digest, before the glue.
+/// The capture script (LLP 1048.000 D6, 1048.001 D5): host code, inline in
+/// every document's head, that records presses — a click, or Enter or Space
+/// on an element that hears `press` and isn't a native control — against
+/// their elements from first parse, until the boot glue takes them over and
+/// replays them once after adoption. It holds no app logic. The server's CSP
+/// admits it by hash; `scripts/boot.mjs` pins that hash and its size.
+pub fn capture() -> &'static str {
+    include_str!("../../web/capture.js").trim_end()
+}
+
+/// The built shell with the renderer's `<head>` and the capture script in
+/// place of its title and viewport meta, the shell's wasm and
+/// `navigation.js` preloads removed (a document's page preloads nothing,
+/// D3), the document in `#exact-root`, and its checkpoint, with the
+/// document's digest, before the glue.
 /// Refuses a shell that no longer has those places.
 pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let mut html = shell.to_string();
@@ -23,7 +34,7 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         &mut html,
         "<title>",
         "</title>\n",
-        &format!("{}\n", rendered.head),
+        &format!("{}\n<script>{}</script>\n", rendered.head, capture()),
     )?;
     cut(&mut html, "<!-- Fetched in parallel", "-->\n", "")?;
     let navigation = "<link rel=\"modulepreload\" href=\"./navigation.js\">\n";
