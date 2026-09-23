@@ -165,8 +165,14 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
 // served, and what the render server composes documents over.
 const renderBin = crate.replace(/-web$/, '-render');
 const renderCrate = app.crate('linux');
-let documentNote = 'no render entry';
-if (existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`))) {
+// Pay for what you use: an app that renders nothing at build builds and runs
+// no render entry (the wasm says which locations it renders, from its plan).
+const locationsLen = typeof exports.exact_build_locations === 'function' ? exports.exact_build_locations() : null;
+const buildLocations = locationsLen === null ? [] : JSON.parse(Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), locationsLen)).toString('utf8'));
+if (buildLocations.error) throw new Error(`the plan's render=build routes: ${buildLocations.error}`);
+const renderEntry = existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`));
+let documentNote = buildLocations.length ? `${buildLocations.length} declared, but no ${renderBin} entry in ${renderCrate}` : 'none declared';
+if (buildLocations.length && renderEntry) {
   const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
   delete renderEnv.EXACT_BAKE_OUTPUT;
   const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,

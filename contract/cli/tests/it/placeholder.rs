@@ -255,7 +255,10 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     assert_eq!(text_of(&r, "title"), "");
     assert_eq!(text_of(&r, "state"), "loading");
     assert_eq!(text_of(&r, "comments"), "0 comments");
-    assert!(r.take_requests().is_empty(), "nothing asks a module that isn't loaded");
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks a module that isn't loaded"
+    );
     loaded.set(false);
     r.data_ready().unwrap();
     let requests = r.take_requests();

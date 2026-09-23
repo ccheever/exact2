@@ -1219,13 +1219,15 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        // A not-found view's HTTP status, known at compile time (LLP
-        // 1048.003 D1, LLP 1048.000 D11).
-        if a.name == "status" && !matches!(a.value, Expr::Number(n, _) if n == 404.0 || n == 410.0)
+        // The page's HTTP status, known at compile time: a not-found view's
+        // 404 or 410, or a view of failed data's 503 (LLP 1048.003 D1, LLP
+        // 1048.000 D11).
+        if a.name == "status"
+            && !matches!(a.value, Expr::Number(n, _) if n == 404.0 || n == 410.0 || n == 503.0)
         {
             return err(
                 "lower-attr-value",
-                "`status` is 404 or 410, as a literal: the page answers with it",
+                "`status` is 404, 410 or 503, as a literal: the page answers with it",
                 a.span,
             );
         }

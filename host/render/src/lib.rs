@@ -28,7 +28,7 @@ pub use source::Anonymous;
 use exact_kernel::Kernel;
 use exact_plan::Plan;
 use exact_runner::{DataSource, Dispatch, FailureKind, Outcome, RequestOut, Runner, RunnerError};
-use exact_web::document::{build_locations, checkpoint, digest, project, Document, Site};
+use exact_web::document::{build_locations, checkpoint, digest, project, route_at, Document, Site};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -329,7 +329,9 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
         origin: origin.as_deref(),
     };
     let mut failed = false;
-    for (location, notfound) in &locations {
+    for (location, listed) in &locations {
+        // The not-found document, or any location the router sends there.
+        let notfound = *listed || route_at(&decoded, location).is_some_and(|r| r.notfound);
         let mut line = format!("{{\"location\":{}", json(location));
         let rendered = render(&decoded, D::default(), viewport, location, &site, deadline)
             .and_then(|rendered| {
@@ -345,7 +347,7 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                 let status = match rendered.document.head.status {
                     _ if !settled => 503,
                     Some(status) => status,
-                    None if *notfound => 404,
+                    None if notfound => 404,
                     None => 200,
                 };
                 let _ = write!(

@@ -26,8 +26,9 @@ pub struct Head {
     pub canonical: Option<String>,
     /// Directions to crawlers (`noindex`, `nofollow`, …).
     pub robots: Option<String>,
-    /// The HTTP status a not-found view declares: 404 or 410 (LLP 1048.000
-    /// D11). Native hosts ignore it.
+    /// The HTTP status the view declares (LLP 1048.000 D11): 404 or 410 for
+    /// a not-found view, 503 for a view of failed data. Native hosts ignore
+    /// it.
     pub status: Option<u16>,
 }
 

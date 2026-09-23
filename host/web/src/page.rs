@@ -416,12 +416,8 @@ pub fn digest(plan: &Plan, location: &str, checkpoint: &str, document: &str) -> 
         })
 }
 
-/// The locations a build renders: every route declared `render=build`
-/// (their patterns have no parameters; the compiler refuses one that does),
-/// and the not-found document when that route is declared so. The
-/// not-found document renders at `/404.html`, which no pattern may match.
-pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
-    let table = exact_route::Table {
+fn route_table(plan: &Plan) -> exact_route::Table {
+    exact_route::Table {
         routes: plan
             .routes
             .iter()
@@ -433,7 +429,23 @@ pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
                 notfound: r.notfound,
             })
             .collect(),
-    };
+    }
+}
+
+/// The route `location` resolves to (LLP 1038 D2): a declared pattern's,
+/// else the not-found route's. `None` for a plan without routes, or one
+/// with no not-found route when nothing matches.
+pub fn route_at<'p>(plan: &'p Plan, location: &str) -> Option<&'p exact_plan::RoutesRow> {
+    let hit = route_table(plan).matches(location)?;
+    plan.routes.iter().find(|r| plan.str(r.name) == hit.name)
+}
+
+/// The locations a build renders: every route declared `render=build`
+/// (their patterns have no parameters; the compiler refuses one that does),
+/// and the not-found document when that route is declared so. The
+/// not-found document renders at `/404.html`, which no pattern may match.
+pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
+    let table = route_table(plan);
     let mut out = Vec::new();
     for row in plan
         .routes

@@ -2,7 +2,7 @@
 //! checkpoint, and the locations a build renders.
 
 use exact_runner::{DataError, DataSource, Value};
-use exact_web::document::{build_locations, checkpoint, digest, read_checkpoint, Site};
+use exact_web::document::{build_locations, checkpoint, digest, read_checkpoint, route_at, Site};
 use exact_web::Host;
 
 #[derive(Clone, Default)]
@@ -251,4 +251,18 @@ fn the_plans_fonts_are_declared_for_a_reader_without_javascript() {
         "{}",
         doc.root
     );
+}
+
+#[test]
+fn a_location_resolves_to_its_route_or_the_not_found_route() {
+    let plan = contract::compile(
+        "routes nav\n  tab home \"/\" render=build\n    post \"/post/:post\" render=cached\n  notfound\ncomponent A\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let name = |at: &str| route_at(&plan, at).map(|r| plan.str(r.name).to_string());
+    assert_eq!(name("/").as_deref(), Some("home"));
+    assert_eq!(name("/post/7?x=1").as_deref(), Some("post"));
+    assert!(route_at(&plan, "/nowhere").unwrap().notfound);
+    let plain = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
+    assert!(route_at(&plain, "/").is_none());
 }

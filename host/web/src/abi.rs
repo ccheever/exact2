@@ -291,6 +291,30 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// The locations `plan` renders at build (LLP 1048.000 D7), as a JSON
+    /// array: the web build runs no render step when there are none.
+    pub fn build_locations(&mut self, plan: &[u8]) -> u32 {
+        let found = exact_plan::Plan::decode(plan)
+            .map_err(|e| format!("{e:?}"))
+            .and_then(|plan| crate::document::build_locations(&plan));
+        let out = match found {
+            Ok(found) => {
+                let mut json = String::from("[");
+                for (i, (location, _)) in found.iter().enumerate() {
+                    if i > 0 {
+                        json.push(',');
+                    }
+                    json.push('"');
+                    json.push_str(&escape(location));
+                    json.push('"');
+                }
+                json + "]"
+            }
+            Err(error) => format!("{{\"error\":\"{}\"}}", escape(&error)),
+        };
+        self.emit(out)
+    }
+
     /// Inspect candidate fonts while the live host continues to run.
     pub fn plan_fonts(&mut self, len: usize) -> u32 {
         let bytes = &self.input[..len.min(self.input.len())];
@@ -797,6 +821,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_checkpoint(len: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().checkpoint(len as usize))
+        }
+
+        /// The locations the baked plan renders at build (LLP 1048.000 D7),
+        /// as a JSON array, for the web build.
+        #[no_mangle]
+        pub extern "C" fn exact_build_locations() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().build_locations($plan))
         }
 
         /// Boot; returns the first batch's length.

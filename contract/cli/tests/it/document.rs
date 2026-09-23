@@ -77,6 +77,21 @@ fn the_innermost_active_head_wins_field_by_field() {
     assert_eq!(missing.status, Some(404));
     assert_eq!(missing.title, some("Not found"));
     assert_eq!(missing.robots, some("noindex"));
+    // A view of failed data declares 503 (LLP 1048.003 D1).
+    let failed = contract::compile(
+        "component A\n  view\n    column\n      head status=503\n      text \"Unavailable\"\n",
+    )
+    .unwrap();
+    let failed = Runner::boot(
+        failed,
+        Posts,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+    .head();
+    assert_eq!(failed.status, Some(503));
 }
 
 #[test]
@@ -162,7 +177,7 @@ fn head_fields_belong_to_head_and_head_takes_only_them() {
         (
             "component A\n  view\n    column\n      head status=200\n",
             "lower-attr-value",
-            "`status` is 404 or 410",
+            "`status` is 404, 410 or 503",
         ),
         (
             "component A\n  state gone = true\n  view\n    column\n      head status=(gone ? 410 : 404)\n",
