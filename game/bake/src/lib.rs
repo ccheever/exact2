@@ -5,6 +5,8 @@ mod files;
 mod geometry;
 use files::write_changed;
 pub use files::{bake_game_level, check_size};
+mod sound;
+pub use sound::sound;
 mod textures;
 
 /// Import a model into plain Data, refusing unsupported features by name.
@@ -370,7 +372,8 @@ pub fn sprite(path: impl AsRef<Path>) -> Result<TextureData, String> {
 }
 
 /// A generated GPU shell's build.rs calls this before host scripts copy assets/.
-/// glTF/GLB inputs become models; standalone PNG inputs become sprite textures.
+/// glTF/GLB inputs become models; standalone PNG inputs become sprite textures;
+/// WAV and Ogg Vorbis inputs become `.sound` records.
 pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     let app = app.as_ref();
     let art = app.join("art");
@@ -382,7 +385,7 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
                 visit(&path, files)?;
             } else if matches!(
                 path.extension().and_then(|v| v.to_str()),
-                Some("glb" | "gltf" | "png")
+                Some("glb" | "gltf" | "png" | "wav" | "ogg")
             ) {
                 files.push(path);
             }
@@ -410,6 +413,22 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
     }
     let mut outputs = std::collections::BTreeMap::new();
     for path in files {
+        if matches!(
+            path.extension().and_then(|v| v.to_str()),
+            Some("wav" | "ogg")
+        ) {
+            let name = format!("{}.sound", art_stem(&path)?);
+            if !asset_name(&name) {
+                return Err(format!("invalid sound asset name `{name}`"));
+            }
+            if outputs
+                .insert(name.clone(), encode(&name, &sound(&path)?)?)
+                .is_some()
+            {
+                return Err(format!("duplicate art stem {name}"));
+            }
+            continue;
+        }
         if path.extension().and_then(|v| v.to_str()) == Some("png") {
             let name = format!("{}.tex", art_stem(&path)?);
             if !asset_name(&name) {

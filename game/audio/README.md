@@ -15,11 +15,39 @@ world.resource_mut::<Audio>().master = 0.5;
 audio::stop(&mut world, voice);
 ```
 
+A definition is a `Synth` or a `Sample`. Square and saw oscillators are band-limited
+(PolyBLEP). A sample names a baked `.sound` asset: put `boom.wav` or `music.ogg` in
+`art/` ([the baker](../bake/README.md) writes `assets/boom.sound`), declare the name
+in `Game::ASSETS` so setup waits for it, and register it in setup:
+
+```rust,ignore
+const ASSETS: &'static [&'static str] = &["boom.sound", "music.sound"];
+// in setup:
+world.sounds([
+    ("boom", Sample::new("boom.sound")),
+    ("music", Sample::new("music.sound").looped().gain(0.6)),
+]);
+```
+
+`sounds` reads the delivered asset's frames, rate and channels into the saved
+definition, so voice lengths never need the PCM; an undelivered name panics naming
+its declaration. One `sounds` call takes one definition type; call it twice to mix.
+The PCM stays in the world's asset store, shared with the outputs, and never enters
+a save or the hash: a save records the asset's content identity, and restoring
+into a world whose `.sound` differs refuses by name. Samples need only
+`game.audio: true`, not the model-capable module.
+
 A `#[must_use]` play builder commits only at `.start()` (returning a `VoiceId`).
-Dropping it creates no voice or playback journal event. Pitch is playback rate, bounded to 0.01..16. The saved
-voice holds its definition, rate, lifetime and last known world position. Edits to
-a definition affect later plays; an attached one-shot survives despawning its
-entity. `at_point(Vec3)` is stationary; `ui()` bypasses spatialization. Games can
+Dropping it creates no voice or playback journal event. Pitch is playback rate,
+bounded to 0.01..16. `pan(p)` is a balance from -1 (left only) through 0 to 1 (right
+only), applied after spatial gains. `offset(seconds)` starts part-way in (wrapping
+for loops); `fade_in(seconds)` ramps the gain up from zero. A voice of a looping
+definition plays until `audio::stop` or `audio::fade(world, id, seconds)`, which
+ramps it to silence and then removes it; loops have no 60-second limit. The saved
+voice holds its definition, rate, offset, pan, fade, lifetime and last known world
+position; saving and restoring mid-sound resumes at the same world-time offset.
+Edits to a definition affect later plays; an attached one-shot survives despawning
+its entity. `at_point(Vec3)` is stationary; `ui()` bypasses spatialization. Games can
 declare `#[live] volume: f64` in the game's Args struct and set `Audio.master`
 from `args.volume` in tick.
 
@@ -30,9 +58,12 @@ explicit. Pruning uses that same completed-boundary convention.
 Call `audio::step` after game logic. It prunes finished voices, records source
 changes and removes extra listeners in entity order. The saved `Audio` resource
 holds the last reported source states, so restoring does not repeat loop events.
-Journal examples: `sfx chime at lantern-3 gain 0.80`, `loop wind on gain 0.30`,
-`loop wind off`. `state.world.audio.sources` lists sound, entity, gain and playing.
-Finite voices are ambient and do not block `clock settle`; neither do loops.
+Journal examples: `sfx chime at lantern-3 gain 0.80`, `sfx music at ui gain 1.00
+offset 0.50 fade-in 1.00 loop`, `sfx music fade 0.50`, `sfx blip stop`, `loop wind on
+gain 0.30`, `loop wind off`. `state.world.audio.voices` lists sound, place, gain,
+began and ends (`null` while looping), plus offset, pan and the current fade gain
+when set; `state.world.audio.sources` lists sound, entity, gain and playing.
+Voices are ambient and do not block `clock settle`; neither do sources.
 Invalid source gains clamp to 0..4 (non-finite becomes zero), with at most one
 refusal per offending source identity. Play and master gains use the same bound.
 
@@ -63,7 +94,8 @@ this shared boundary. Missing ears silence spatial sounds. Distance gain is
 equal-power. UI gains apply equally to both channels on both executors.
 
 Definitions are immutable shared values with a content revision computed at
-registration or restore. Finite voices retain their frozen definition; sources
+registration or restore. A synth-only world saves and hashes exactly as it did
+before samples existed. Voices retain their frozen definition; sources
 resolve their name in the current registry and require a looping definition. A
 non-looping `AudioSource` is refused by sound name at presentation; use `World::play`
 for finite sounds, which records a deterministic activation tick. This avoids adding
@@ -72,12 +104,18 @@ activation state to attached sources or measuring their offset from world tick z
 `sounds([..])` in setup, `world.play("chime").at(entity)` needs only `&World`,
 so it can run while an unrelated component is borrowed.
 
-Player reserves a **32 MiB PCM budget before synthesis** (`samples × 4`), counting
+Two budgets bound PCM. **Sampled sounds: 32 MiB of 16-bit samples resident per
+world** (`asset::SOUND_BYTE_BUDGET`). The bake refuses a larger file, and a delivery
+that would take the world's resident total past it is refused by name
+(`sound … exceeds the 32.0 MiB sound residency budget`), leaving that declared
+asset Failed in `state.world.assets` and setup waiting, never half-loaded.
+**Synthesis: the Player reserves 32 MiB before rendering** (`samples × 4`), counting
 a shared allocation once. It keeps active allocations and allocations still owned
 by an output; acknowledgement releases the latter. Registry membership alone does
-not retain PCM. Registration validates definitions; the 60-second duration limit
-already keeps every valid definition below 32 MiB at 48 kHz. The Player checks the
-aggregate budget at its actual output rate before rendering.
+not retain PCM. Registration validates definitions; the 60-second synth duration
+limit already keeps every valid synth below 32 MiB at 48 kHz. The Player checks the
+aggregate budget at its actual output rate before rendering. Samples add nothing to
+it: their allocation is the world's.
 Web buffers follow active source references; a failed start leaves no cached PCM.
 Apple retains PCM while commands or voices can reference its raw pointer. A Stop
 command's sequence is acknowledged through the return SPSC ring; only the main
@@ -95,9 +133,15 @@ The probe uses this production path and observes readiness. There is no second a
 unlock API. A late resume completion suspends again if the surface became hidden.
 
 `Output::start(id, pcm, rate, looping, offset, pitch) -> bool` is the single start
-operation. WebAudio failures return refusal for retry instead of trapping the module.
-Each voice connects buffer source → gain → stereo panner → destination. Playback
-rate implements pitch; gain and pan use `setTargetAtTime` with a 10 ms time constant.
+operation. `Pcm` is the Player's rendered mono `f32` or a sound asset's interleaved
+16-bit frames (mono or stereo); `rate` is the source's own rate and `offset` is in
+its frames. Outputs resample to the device. `set(id, left, right)` gains feed both
+channels from mono PCM and each channel from its own stereo channel, on both
+executors. WebAudio failures return refusal for retry instead of trapping the module.
+Each web voice connects buffer source → (channel splitter, for stereo) → left and
+right gains → channel merger → destination; the `AudioBuffer` is created at the
+source's rate and cached per allocation. Playback rate implements pitch; gains use
+`setTargetAtTime` with a 10 ms time constant.
 
 Apple has 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
@@ -105,7 +149,8 @@ identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
 retain their order and PCM until acknowledged. Published starts occupy at most 32
 slots, including stopped voices awaiting acknowledgement. Up to 32 newer selected
 starts stay in the coalescible producer queue. Across both windows, retained PCM
-has a **32 MiB total byte budget**, counting each shared allocation once. `Pending::start`
+has a **64 MiB total byte budget** (the synthesis and sound budgets together),
+counting each shared allocation once at its own sample width. `Pending::start`
 refuses before adding ownership or a command when the next unique allocation does
 not fit. A refusal leaves the Player voice inactive for retry, without changing
 transport. Stops release bytes only after acknowledgement (or immediately when
@@ -116,7 +161,8 @@ Stops can pass unpublished starts to release capacity; sequence watermarks are
 assigned at publication. A full mixer leaves a start unconsumed and unacknowledged.
 Finite voices retire on the exact terminal sample step, including silent callbacks.
 The callback allocates nothing, locks nothing, and performs no reference counting.
-It linearly resamples, ramps stereo gains over 10 ms, maps non-finite samples to
+It reads `f32` or 16-bit samples (divided by 32768), linearly resamples each channel
+from the source rate, ramps stereo gains over 10 ms, maps non-finite samples to
 zero, sums linearly and clamps only outside [-1,1]. Quiet/full-scale authored gains
 therefore agree with WebAudio instead of being compressed by `x/(1+abs(x))`.
 
@@ -173,10 +219,12 @@ through GameAudio in `game/render/src/lib.rs`; these forwarders are wired.
 
 ## Proof
 
-The [audio tests](tests) exercise synthesis, output ownership, seek/restore, and
-sample-rate changes. [Greybox](../games/greybox/logic/src/lib.rs) is the authored
-consumer; its [proof](../games/greybox/proof.mjs) checks silent seekable execution
-and the live browser gesture path. Synthetic lifecycle events are not a physical
+The [audio tests](tests) exercise synthesis, output ownership, seek/restore,
+sample-rate changes and sampled voices; the aliasing measurement is
+`cargo test -p exact-game-audio alias -- --nocapture`. [Greybox](../games/greybox/logic/src/lib.rs)
+is the synthesized consumer and [the audio fixture](../games/audio-fixture/logic/src/lib.rs)
+the sampled one; their proofs check silent seekable execution, and with
+`EXACT_AUDIO_PROBE=1` on the web, the live gesture path and non-zero analyser RMS. Synthetic lifecycle events are not a physical
 phone interruption test. Simulation/save pins live in the game's `pins.json`.
 
 For commands and executor selection see [the game map](../README.md); dated

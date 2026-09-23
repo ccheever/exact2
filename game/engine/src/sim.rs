@@ -371,6 +371,7 @@ impl<G: Game> Sim<G> {
         self.world.assets.states.iter().all(|(n, s)| {
             *s != crate::asset::AssetState::Loaded
                 || n.ends_with(".level.json")
+                || n.ends_with(".sound")
                 || self.world.assets.prepared.contains(n)
         })
     }
@@ -450,11 +451,12 @@ impl<G: Game> Sim<G> {
         self.world.assets.redelivery.remove(name);
         let result = result.and_then(|content| match content {
             Content::Level(text) => self.deliver_level(name, text).map(|()| None),
+            Content::Sound(sound) => self.deliver_sound(name, sound).map(|()| None),
             other => Ok(Some(other)),
         });
         match result {
             Ok(None) => {}
-            Ok(Some(Content::Level(_))) => unreachable!(),
+            Ok(Some(Content::Level(_) | Content::Sound(_))) => unreachable!(),
             Ok(Some(Content::Texture(texture))) => {
                 self.world
                     .assets

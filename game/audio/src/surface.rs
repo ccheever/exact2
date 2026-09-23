@@ -167,7 +167,7 @@ use test_device::Device;
 #[cfg(test)]
 mod test_device {
     use crate::Output;
-    use std::{cell::Cell, sync::Arc};
+    use std::cell::Cell;
     std::thread_local! {
         pub static ATTEMPTS: Cell<usize> = const { Cell::new(0) };
         pub static FAIL: Cell<bool> = const { Cell::new(false) };
@@ -215,7 +215,7 @@ mod test_device {
         fn unlock(&mut self) {
             UNLOCKS.set(UNLOCKS.get() + 1);
         }
-        fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+        fn start(&mut self, _: u64, _: &crate::Pcm, _: u32, _: bool, _: usize, _: f32) -> bool {
             true
         }
         fn set(&mut self, _: u64, _: f32, _: f32) {}

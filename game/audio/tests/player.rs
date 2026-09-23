@@ -33,6 +33,7 @@ fn save_mid_chime_restores_offset_and_ends() {
         Call::Start {
             id: 0,
             samples: 48000,
+            channels: 1,
             rate: 48000,
             looping: false,
             offset: 12000,
@@ -465,7 +466,7 @@ fn null_output_discards_every_call() {
     use exact_game_audio::{NullOutput, Output};
     let mut output = NullOutput;
     assert_eq!(std::mem::size_of_val(&output), 0);
-    let pcm = vec![0.0; 10].into();
+    let pcm = exact_game_audio::Pcm::F32(vec![0.0; 10].into());
     for id in 0..100_000 {
         assert!(!output.start(id, &pcm, 48000, false, 0, 1.0));
         output.set(id, 1.0, 1.0);
@@ -606,15 +607,14 @@ fn capacity_and_silence_are_selected_before_pcm_materialization() {
 
 #[test]
 fn refused_start_is_retried_without_a_transport_bump() {
-    use exact_game_audio::Output;
-    use std::sync::Arc;
+    use exact_game_audio::{Output, Pcm};
     #[derive(Default)]
     struct Busy {
         attempts: usize,
         accepted: bool,
     }
     impl Output for Busy {
-        fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+        fn start(&mut self, _: u64, _: &Pcm, _: u32, _: bool, _: usize, _: f32) -> bool {
             self.attempts += 1;
             self.accepted = self.attempts > 1;
             self.accepted

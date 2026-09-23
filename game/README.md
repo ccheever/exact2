@@ -326,16 +326,19 @@ digest. Generated profiles disable floating-point contraction; `gpu-dev` disable
 debug assertions and overflow checks as release does. These profiles come from `game/Cargo.toml`, not authored per-game host code.
 
 `game.assets: true` selects the model-capable module; `game.audio: true` links the
-audio executor. Optional capabilities are separate artifacts/executors, never
+audio executor, which plays synthesized and sampled sounds. Sampled sounds need only
+`game.audio: true`. Optional capabilities are separate artifacts/executors, never
 Cargo features on a core crate. The engine's own workspace is outside Exact2's
 five core checks.
 
 ### Assets, animation and placed UI
 
-Put models and sprite PNGs under `art/`; [the baker](bake/README.md) produces
-validated `.model` and `.tex` assets. Declare simulation dependencies in
-`Game::ASSETS`; setup waits for them. Models and sprites need the asset-capable
-module. Untextured emitters remain available to primitive games.
+Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
+[the baker](bake/README.md) produces validated `.model`, `.tex` and `.sound` assets.
+Declare simulation dependencies in `Game::ASSETS`; setup waits for them. Models and
+sprites need the asset-capable module; sounds and untextured emitters do not. See
+[the audio executor](audio/README.md) and [the audio fixture](games/audio-fixture/logic/src/lib.rs)
+for sampled sounds.
 
 For a data-authored level, derive `Data` for its record and declare `Game::LEVEL`.
 JSON levels work in the primitive module and need no `game.assets` setting or art importer.

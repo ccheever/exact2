@@ -139,11 +139,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
                 "asset `{name}`: this module has no model support; declare game.assets"
             ))
         };
-        if let Some(name) = G::ASSETS
-            .iter()
-            .copied()
-            .find(|name| Some(*name) != G::LEVEL.map(|level| level.name))
-        {
+        if let Some(name) = G::ASSETS.iter().copied().find(|name| {
+            Some(*name) != G::LEVEL.map(|level| level.name) && !name.ends_with(".sound")
+        }) {
             return Err(missing(name));
         }
         for (_, mesh) in world.query::<&exact_game::Mesh>().iter() {
@@ -293,7 +291,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
             if self.error.is_none() {
                 self.error = self.check_primitive_assets().err();
             }
-            if self.error.is_some() || G::LEVEL.is_none() {
+            if self.error.is_some() || !exact_game::asset::delivers_without_models::<G>() {
                 return exact_gpu::AssetChanges::default();
             }
         }
@@ -323,7 +321,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
         exact_gpu::AssetChanges { requests, retired }
     }
     fn asset(&mut self, name: &str, bytes: Result<&[u8], AssetError>) {
-        if ASSETS || G::LEVEL.is_some() {
+        if ASSETS || exact_game::asset::delivers_without_models::<G>() {
             if let Some(sim) = &mut self.sim {
                 match bytes {
                     Ok(bytes) => {

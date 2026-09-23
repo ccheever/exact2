@@ -8,5 +8,7 @@ license.workspace = true
 exact-game.workspace = true
 gltf = { version = "1.4.1", features = ["import", "KHR_materials_emissive_strength", "KHR_texture_transform", "extensions", "extras"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# Ogg Vorbis is decoded at bake time only; no game module links a decoder.
+lewton = "0.10.2"
 serde_json = "1"
 sha2 = "0.10"

@@ -2,12 +2,26 @@ fn main() {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
     if args.len() != 2 {
         eprintln!(
-            "usage: exact-game-bake --art APP_DIR | INPUT.glb OUTPUT.model | INPUT.png OUTPUT.tex"
+            "usage: exact-game-bake --art APP_DIR | INPUT.glb OUTPUT.model | INPUT.png OUTPUT.tex | INPUT.wav|.ogg OUTPUT.sound"
         );
         std::process::exit(2);
     }
     if args[0] == "--art" {
         if let Err(error) = exact_game_bake::bake_art(&args[1]) {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if std::path::Path::new(&args[0])
+        .extension()
+        .is_some_and(|v| v == "wav" || v == "ogg")
+    {
+        let result = exact_game_bake::sound(&args[0]).and_then(|sound| {
+            let bytes = exact_game_bake::encode(&args[1].to_string_lossy(), &sound)?;
+            std::fs::write(&args[1], bytes).map_err(|e| e.to_string())
+        });
+        if let Err(error) = result {
             eprintln!("{error}");
             std::process::exit(1);
         }

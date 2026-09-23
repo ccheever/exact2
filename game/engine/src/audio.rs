@@ -2,6 +2,8 @@
 use crate::data::text::{Fixed, Float};
 use crate::{math, Component, Data, Entity, Resource, Vec3, World};
 use std::collections::BTreeMap;
+mod sound;
+pub use sound::{Fade, Sample, Sound};
 
 /// Oscillator shape. Noise uses a fixed local integer stream, never the world's RNG.
 #[derive(Data, Default, Clone, Copy, Debug)]
@@ -22,7 +24,7 @@ pub enum Wave {
 /// A mono subtractive voice. All numeric parameters must be finite.
 /// Seconds includes release; layers start together.
 /// ADSR releases from the current envelope level at `seconds - release`.
-#[derive(Data, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Synth {
     /// Oscillator.
     pub wave: Wave,
@@ -153,7 +155,7 @@ impl Synth {
         let result = self.validate_data();
         assert!(result.is_ok(), "invalid synth: {result:?}");
     }
-    fn validate_data(&self) -> Result<(), crate::DataError> {
+    pub(crate) fn validate_data(&self) -> Result<(), crate::DataError> {
         for (name, n) in [
             ("hz", self.hz),
             ("slide", self.slide),
@@ -205,16 +207,18 @@ impl Synth {
 /// The content identity is computed once at registration/restore, never per frame.
 #[derive(Clone, Debug)]
 pub struct Definition {
-    synth: std::sync::Arc<Synth>,
+    sound: std::sync::Arc<Sound>,
     revision: u64,
 }
 impl Definition {
-    /// Freeze an authored definition.
-    pub fn new(synth: Synth) -> Self {
-        synth.validate();
-        let revision = crate::hash::of(&synth);
+    /// Freeze an authored definition. Samples must already be resolved (`World::sounds`).
+    pub fn new(sound: impl Into<Sound>) -> Self {
+        let sound = sound.into();
+        let result = sound.validate_data();
+        assert!(result.is_ok(), "invalid sound: {result:?}");
+        let revision = crate::hash::of(&sound);
         Self {
-            synth: std::sync::Arc::new(synth),
+            sound: std::sync::Arc::new(sound),
             revision,
         }
     }
@@ -229,28 +233,29 @@ impl Default for Definition {
     }
 }
 impl std::ops::Deref for Definition {
-    type Target = Synth;
-    fn deref(&self) -> &Synth {
-        &self.synth
+    type Target = Sound;
+    fn deref(&self) -> &Sound {
+        &self.sound
     }
 }
 impl Data for Definition {
     fn write(&self, w: &mut dyn crate::Writer) {
-        self.synth.write(w);
+        self.sound.write(w);
     }
     fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
-        let mut synth = Synth::default();
-        synth.read(r)?;
-        synth.validate_data()?;
-        let revision = crate::hash::of(&synth);
+        let mut sound = Sound::default();
+        sound.read(r)?;
+        sound.validate_data()?;
+        let revision = crate::hash::of(&sound);
         *self = Self {
-            synth: std::sync::Arc::new(synth),
+            sound: std::sync::Arc::new(sound),
             revision,
         };
         Ok(())
     }
 }
-/// Retained mono PCM budget for presentation executors.
+/// Budget for PCM a presentation executor synthesizes (samples × 4 bytes). Sampled
+/// sounds are resident in the world instead, under `asset::SOUND_BYTE_BUDGET`.
 pub const PCM_BYTE_BUDGET: usize = 32 * 1024 * 1024;
 /// Surface synthesis rate; executors with other rates also reserve before rendering.
 pub const SAMPLE_RATE: u32 = 48000;
@@ -259,11 +264,9 @@ pub const SAMPLE_RATE: u32 = 48000;
 #[derive(Resource, Default, Clone)]
 pub struct Sounds(pub BTreeMap<String, Definition>);
 impl Sounds {
-    /// Define or replace a named sound.
-    pub fn add(&mut self, name: impl Into<String>, synth: Synth) -> &mut Self {
-        let name = name.into();
-        synth.validate();
-        self.0.insert(name, Definition::new(synth));
+    /// Define or replace a named sound. Samples must already be resolved.
+    pub fn add(&mut self, name: impl Into<String>, sound: impl Into<Sound>) -> &mut Self {
+        self.0.insert(name.into(), Definition::new(sound));
         self
     }
 }
@@ -291,8 +294,8 @@ impl At {
         }
     }
 }
-/// One finite sound in simulation state.
-#[derive(Data, Default, Clone, Debug)]
+/// One played sound in simulation state; a looping definition plays until stopped.
+#[derive(Default, Clone, Debug)]
 pub struct Voice {
     /// Stable identity, allowing multiple identical sounds in one tick.
     pub id: u64,
@@ -306,12 +309,28 @@ pub struct Voice {
     pub pitch: f32,
     /// Last observed world position, retained after despawn.
     pub position: Option<Vec3>,
-    /// Definition at play time; edits affect subsequent plays.
-    pub synth: Definition,
+    /// Definition at play time; edits affect subsequent plays. Saved as `synth`.
+    pub definition: Definition,
     /// Inclusive starting tick.
     pub began: u64,
-    /// Exclusive ending tick, rounded up to a whole tick.
+    /// Exclusive ending tick, rounded up to a whole tick; `u64::MAX` while looping.
     pub ends: u64,
+    /// Seconds into the sound at `began`.
+    pub offset: f32,
+    /// Balance, -1 (left) to 1 (right), applied after spatial gains.
+    pub pan: f32,
+    /// Gain ramp, for fading in or out.
+    pub fade: Option<Fade>,
+}
+impl Voice {
+    /// Whether this voice repeats its definition.
+    pub fn looping(&self) -> bool {
+        self.definition.looping()
+    }
+    /// Gain multiplier from its fade at a world tick.
+    pub fn fade_at(&self, tick: u64) -> f32 {
+        self.fade.map_or(1.0, |f| f.at(tick))
+    }
 }
 /// Finite voices and their saved identity allocator.
 #[derive(Default, Clone)]
@@ -447,10 +466,41 @@ pub fn gain(value: f32) -> f32 {
         0.0
     }
 }
-/// Stop a saved finite voice.
+/// Stop a saved voice now.
 pub fn stop(world: &mut World, id: VoiceId) {
     if world.has_audio() {
-        world.resource_mut::<Voices>().voices.retain(|v| v.id != id);
+        let mut voices = world.resource_mut::<Voices>();
+        if let Some(i) = voices.voices.iter().position(|v| v.id == id) {
+            world.log(format_args!("sfx {} stop", voices.voices[i].sound));
+            voices.voices.remove(i);
+        }
+    }
+}
+/// Ramp a saved voice's gain to zero over `seconds` of world time, then stop it.
+/// A nonpositive or non-finite duration stops it now.
+pub fn fade(world: &mut World, id: VoiceId, seconds: f32) {
+    if !world.has_audio() {
+        return;
+    }
+    if !(seconds.is_finite() && seconds > 0.0) {
+        return stop(world, id);
+    }
+    let now = world.audio_boundary();
+    let to = now.saturating_add((math::ceil(seconds * world.hz() as f32) as u64).max(1));
+    let mut voices = world.resource_mut::<Voices>();
+    if let Some(voice) = voices.voices.iter_mut().find(|v| v.id == id) {
+        voice.fade = Some(Fade {
+            from: now,
+            to,
+            start: voice.fade_at(now),
+            end: 0.0,
+        });
+        voice.ends = voice.ends.min(to);
+        world.log(format_args!(
+            "sfx {} fade {}",
+            voice.sound,
+            Fixed(seconds, 2)
+        ));
     }
 }
 /// The ears. `step` refuses extra listeners, keeping the lowest entity index.
@@ -461,17 +511,32 @@ impl World {
     fn audio_boundary(&self) -> u64 {
         self.tick().saturating_add(u64::from(self.in_tick))
     }
-    /// Install saved audio types and sound definitions together.
+    /// Install saved audio types and sound definitions together. A `Sample` names a
+    /// `.sound` asset declared in `Game::ASSETS`; its frames, rate and channels are
+    /// read from the delivered asset here and saved with the definition.
     /// ```compile_fail
     /// exact_game::World::new(60, 0).register_audio();
     /// ```
-    pub fn sounds<S: AsRef<str>>(
+    pub fn sounds<S: AsRef<str>, D: Into<Sound>>(
         &mut self,
-        definitions: impl IntoIterator<Item = (S, Synth)>,
+        definitions: impl IntoIterator<Item = (S, D)>,
     ) -> &mut Self {
         self.register_audio();
-        for (name, synth) in definitions {
-            self.resource_mut::<Sounds>().add(name.as_ref(), synth);
+        for (name, sound) in definitions {
+            let mut sound = sound.into();
+            if let Sound::Sample(sample) = &mut sound {
+                let asset = self.sound_asset(&sample.asset).unwrap_or_else(|| {
+                    panic!(
+                        "sound `{}`: asset `{}` has not arrived; declare it in Game::ASSETS",
+                        name.as_ref(),
+                        sample.asset
+                    )
+                });
+                sample.frames = u64::from(asset.frames);
+                sample.rate = asset.rate;
+                sample.channels = asset.channels;
+            }
+            self.resource_mut::<Sounds>().add(name.as_ref(), sound);
         }
         self
     }
@@ -500,13 +565,10 @@ impl World {
     }
     /// Build a play event; call `start()` to commit it.
     pub fn play(&self, sound: &str) -> Play<'_> {
-        let synth = self
+        let definition = self
             .try_resource::<Sounds>()
             .and_then(|sounds| sounds.0.get(sound).cloned())
             .unwrap_or_else(|| panic!("unknown sound `{sound}`"));
-        let duration = synth.duration();
-        let began = self.audio_boundary();
-        let ends = began.saturating_add(math::ceil(duration * self.hz() as f32) as u64);
         Play {
             world: self,
             voice: Voice {
@@ -515,10 +577,13 @@ impl World {
                 gain: 1.0,
                 pitch: 1.0,
                 position: None,
-                synth,
-                began,
-                ends,
+                definition,
+                began: self.audio_boundary(),
+                ends: 0,
                 id: 0,
+                offset: 0.0,
+                pan: 0.0,
+                fade: None,
             },
         }
     }
@@ -560,30 +625,83 @@ impl Play<'_> {
     }
     /// Playback rate (1 is authored pitch), bounded to 0.01..16.
     pub fn pitch(mut self, rate: f32) -> Self {
-        let rate = if rate.is_finite() {
+        self.voice.pitch = if rate.is_finite() {
             rate.clamp(0.01, 16.0)
         } else {
             1.0
         };
-        let voice = &mut self.voice;
-        voice.pitch = rate;
-        voice.ends = voice.began.saturating_add(math::ceil(
-            voice.synth.duration() / rate * self.world.hz() as f32,
-        ) as u64);
+        self
+    }
+    /// Balance from -1 (left only) through 0 (unchanged) to 1 (right only).
+    pub fn pan(mut self, pan: f32) -> Self {
+        if !pan.is_finite() {
+            self.world.log("refusal: invalid play pan");
+        }
+        self.voice.pan = if pan.is_finite() {
+            pan.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        self
+    }
+    /// Begin this many seconds into the sound, wrapping for loops.
+    pub fn offset(mut self, seconds: f32) -> Self {
+        let duration = self.voice.definition.duration();
+        self.voice.offset = if !seconds.is_finite() || seconds <= 0.0 || duration <= 0.0 {
+            0.0
+        } else if self.voice.definition.looping() {
+            seconds % duration
+        } else {
+            seconds.min(duration)
+        };
+        self
+    }
+    /// Ramp the gain up from zero over this many seconds of world time.
+    pub fn fade_in(mut self, seconds: f32) -> Self {
+        if seconds.is_finite() && seconds > 0.0 {
+            let ticks = (math::ceil(seconds * self.world.hz() as f32) as u64).max(1);
+            self.voice.fade = Some(Fade {
+                from: self.voice.began,
+                to: self.voice.began.saturating_add(ticks),
+                start: 0.0,
+                end: 1.0,
+            });
+        }
         self
     }
     /// Commit now and return the voice handle.
     pub fn start(self) -> VoiceId {
         let mut voice = self.voice;
+        voice.ends = if voice.looping() {
+            u64::MAX
+        } else {
+            let remaining = voice.definition.duration() - voice.offset;
+            voice
+                .began
+                .saturating_add(math::ceil(remaining / voice.pitch * self.world.hz() as f32) as u64)
+        };
         let mut voices = self.world.resource_mut::<Voices>();
         voice.id = voices.next_id;
         voices.next_id = voices.next_id.checked_add(1).expect("voice ids exhausted");
-        self.world.log(format_args!(
+        let mut line = format!(
             "sfx {} at {} gain {}",
             voice.sound,
             voice.at.label(self.world),
             Fixed(voice.gain, 2)
-        ));
+        );
+        for (name, value) in [("pan", voice.pan), ("offset", voice.offset)] {
+            if value != 0.0 {
+                line += &format!(" {name} {}", Fixed(value, 2));
+            }
+        }
+        if let Some(fade) = voice.fade {
+            let seconds = (fade.to - fade.from) as f32 / self.world.hz() as f32;
+            line += &format!(" fade-in {}", Fixed(seconds, 2));
+        }
+        if voice.looping() {
+            line += " loop";
+        }
+        self.world.log(line);
         let id = voice.id;
         voices.voices.push(voice);
         id
@@ -707,13 +825,27 @@ pub fn state(world: &World) -> String {
             .voices
             .iter()
             .map(|v| {
+                let mut extra = String::new();
+                for (name, value) in [
+                    ("offset", v.offset),
+                    ("pan", v.pan),
+                    ("fade", v.fade_at(world.tick())),
+                ] {
+                    if value != if name == "fade" { 1.0 } else { 0.0 } {
+                        extra += &format!(",\"{name}\":{}", Float(value));
+                    }
+                }
                 format!(
-                    "{{\"sound\":{},\"at\":{},\"gain\":{},\"began\":{},\"ends\":{}}}",
+                    "{{\"sound\":{},\"at\":{},\"gain\":{},\"began\":{},\"ends\":{}{extra}}}",
                     crate::values::quote(&v.sound),
                     crate::values::quote(&v.at.label(world)),
                     Float(v.gain),
                     v.began,
-                    v.ends
+                    if v.looping() {
+                        "null".to_owned()
+                    } else {
+                        v.ends.to_string()
+                    }
                 )
             })
             .collect::<Vec<_>>()
@@ -814,11 +946,11 @@ mod decode_regression {
                 malformed.register_audio();
                 malformed.load(&before).unwrap();
                 let bad = Definition {
-                    synth: std::sync::Arc::new(synth.clone()),
+                    sound: std::sync::Arc::new(Sound::Synth(synth.clone())),
                     revision: 0,
                 };
                 if voice {
-                    malformed.resource_mut::<Voices>().voices[0].synth = bad;
+                    malformed.resource_mut::<Voices>().voices[0].definition = bad;
                 } else {
                     malformed
                         .resource_mut::<Sounds>()
@@ -869,8 +1001,8 @@ mod carry_regression {
         assert!(fresh.world().resource::<Sounds>().0.contains_key("runtime"));
         fresh.world_mut().play("tone").start();
         let voices = &fresh.world().resource::<Voices>().voices;
-        assert_eq!(voices[0].synth.hz, 220.);
-        assert_eq!(voices[1].synth.hz, 220.);
+        assert_eq!(voices[0].definition.synth().unwrap().hz, 220.);
+        assert_eq!(voices[1].definition.synth().unwrap().hz, 220.);
     }
 }
 

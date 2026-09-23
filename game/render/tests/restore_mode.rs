@@ -33,11 +33,12 @@ fn carry_overlays_fresh_definitions_open_preserves_saved_and_runtime_names() {
         surface.restore(&bytes, mode).unwrap();
         let world = surface.sim().unwrap().world();
         assert_eq!(
-            world.resource::<Sounds>().0["tone"].hz,
+            world.resource::<Sounds>().0["tone"].synth().unwrap().hz,
             if mode == Restore::Carry { 880. } else { 220. }
         );
-        assert_eq!(world.resource::<Sounds>().0["runtime"].hz, 330.);
-        assert_eq!(world.resource::<Voices>().voices[0].synth.hz, 220.);
+        let hz = |d: &exact_game::audio::Definition| d.synth().unwrap().hz;
+        assert_eq!(hz(&world.resource::<Sounds>().0["runtime"]), 330.);
+        assert_eq!(hz(&world.resource::<Voices>().voices[0].definition), 220.);
     }
 }
 

@@ -29,8 +29,14 @@ fn waves_match_closed_forms() {
             ],
         ),
         // Band-limited edges: the sample on a discontinuity takes its midpoint.
-        (Wave::Square, vec![0.0, 1.0, 1.0, 1.0, 0.0, -1.0, -1.0, -1.0]),
-        (Wave::Saw, vec![0.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75]),
+        (
+            Wave::Square,
+            vec![0.0, 1.0, 1.0, 1.0, 0.0, -1.0, -1.0, -1.0],
+        ),
+        (
+            Wave::Saw,
+            vec![0.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75],
+        ),
         (
             Wave::Triangle,
             vec![-1.0, -0.5, 0.0, 0.5, 1.0, 0.5, 0.0, -0.5],
@@ -100,10 +106,13 @@ fn signal_to_alias_db(wave: Wave, hz: f32) -> f64 {
     let harmonic: f64 = (0..=n / 2)
         .step_by(cycles)
         .map(|bin| {
-            let (re, im) = window.iter().enumerate().fold((0.0, 0.0), |(re, im), (i, x)| {
-                let angle = std::f64::consts::TAU * (bin * i) as f64 / n as f64;
-                (re + *x as f64 * angle.cos(), im - *x as f64 * angle.sin())
-            });
+            let (re, im) = window
+                .iter()
+                .enumerate()
+                .fold((0.0, 0.0), |(re, im), (i, x)| {
+                    let angle = std::f64::consts::TAU * (bin * i) as f64 / n as f64;
+                    (re + *x as f64 * angle.cos(), im - *x as f64 * angle.sin())
+                });
             let scale = if bin == 0 || bin * 2 == n { 1.0 } else { 2.0 };
             scale * (re * re + im * im) / n as f64
         })
