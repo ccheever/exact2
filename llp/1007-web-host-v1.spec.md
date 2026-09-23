@@ -55,7 +55,13 @@ inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 `Pressable`→`button`, `Image`→`img`, `Toggle`→`input[type=checkbox]`), refined
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
-`h1`–`h6` (deeper: a `div` with `role="heading"`); `index.html` resets the
+`h1`–`h6` (deeper: a `div` with `role="heading"`); a `Pressable` is a
+`button` (an `a` with an `href`), and a block `button` taller than its
+content centers that content vertically where the kernel's node starts it
+at the top — Chrome 153 puts a 20 px child at 40 in a 100 px button whatever
+`all: unset`, `display: flow-root` or `align-content` say; only a flex or
+grid button starts it at 0. A known deviation, not yet lowered away
+(2026-09-23, QUEUE); `index.html` resets the
 UA heading margins, size and weight, so its box is a div's — Caltrain's 277
 and the Markdown reader's 120 boxes are unchanged, and Chrome's
 accessibility tree now lists 1 and 6 headings where it listed none
