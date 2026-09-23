@@ -154,6 +154,51 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
     '<script type="module" src="./glue.js"></script>',
     `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
   ));
+// Documents (LLP 1048.000 D3, D7): every route the plan declares
+// `render=build`, rendered by the app's native render entry
+// (`<app>-render`, exact_web::document::main) from the plan the wasm carries.
+// Each is the shell with the renderer's <head>, its document in #exact-root
+// and its checkpoint; nothing preloads the glue or the wasm. Then 404.html,
+// sitemap.xml (absolute, against the manifest's origin) and robots.txt.
+const renderBin = crate.replace(/-web$/, '-render');
+let documentNote = 'no render entry';
+if (existsSync(resolve(app.dir, 'web/src/bin', `${renderBin}.rs`))) {
+  const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
+  delete renderEnv.EXACT_BAKE_OUTPUT;
+  const rendered = spawnSync('cargo', ['run', '-q', '-p', crate, '--bin', renderBin, '--', '--plan', planOut,
+    '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--build'],
+  { cwd: app.dir, env: renderEnv, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (rendered.status !== 0) throw new Error(`${renderBin}: ${rendered.stderr}${rendered.stdout}`);
+  const shell = readFileSync(resolve(stage, 'index.html'), 'utf8');
+  const pages = rendered.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  const listed = [];
+  for (const doc of pages) {
+    if (doc.error) throw new Error(`${renderBin} ${doc.location}: ${doc.error}`);
+    const html = shell
+      .replace(/<title>[^<]*<\/title>\n/, () => `${doc.head}\n`)
+      .replace(/<meta name="viewport"[^>]*>\n/, '')
+      .replace(/<!-- Fetched in parallel[^]*?-->\n/, '')
+      .replace('<link rel="modulepreload" href="./navigation.js">\n', '')
+      .replace('<link rel="preload" href="./app.wasm" as="fetch" crossorigin>\n', '')
+      .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${doc.root}</div>`)
+      .replace('<script type="module" src="./glue.js"></script>', () => `<script type="application/vnd.exact.checkpoint">${doc.checkpoint}</script>\n<script type="module" src="./glue.js"></script>`);
+    if (!html.includes(doc.head) || !html.includes(doc.checkpoint) || /rel="(?:module)?preload" href="\.\/(?:app\.wasm|navigation\.js|glue\.js)"/.test(html) || (html.match(/<meta name="viewport"/g) ?? []).length !== 1) {
+      throw new Error(`the shell no longer has the places a document goes (${doc.location}); update build.mjs's document step`);
+    }
+    const file = doc.notfound ? '404.html' : `${decodeURIComponent(doc.location).replace(/^\/|\/$/g, '')}/index.html`.replace(/^\//, '');
+    if (!resolve(stage, file).startsWith(stage + '/')) throw new Error(`${renderBin}: location ${doc.location} leaves dist`);
+    mkdirSync(resolve(stage, file, '..'), { recursive: true });
+    writeFileSync(resolve(stage, file), html);
+    if (!doc.notfound && !/noindex/i.test(doc.robots ?? '')) listed.push(doc.location);
+  }
+  if (pages.length) {
+    const xml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const origin = app.origin?.replace(/\/+$/, '');
+    if (origin) writeFileSync(resolve(stage, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${listed.map((location) => `  <url><loc>${xml(origin + location)}</loc></url>\n`).join('')}</urlset>\n`);
+    writeFileSync(resolve(stage, 'robots.txt'), `User-agent: *\nAllow: /\n${origin ? `Sitemap: ${origin}/sitemap.xml\n` : ''}`);
+  }
+  documentNote = `${pages.length} document${pages.length === 1 ? '' : 's'}${pages.length && !app.origin ? ' (no origin: no sitemap)' : ''}`;
+}
 // The deep-link association file (LLP 1030 D1; 1030.000 D2): generated from
 // the manifest when the iOS host claims the domain and names its team; a
 // static origin file Apple's CDN fetches, never a dev-server claim.
@@ -199,4 +244,4 @@ try {
 }
 rmSync(previous, { recursive: true, force: true });
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand`);
+console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand`);

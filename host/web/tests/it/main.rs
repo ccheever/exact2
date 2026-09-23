@@ -11,6 +11,7 @@ mod holds;
 mod host;
 mod lists;
 mod navigation;
+mod page;
 mod parity;
 mod request;
 mod request_refusal;

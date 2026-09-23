@@ -24,10 +24,16 @@
 //! host builds, or it is no page.
 
 use super::{font_names, host_css, props_for, tag_for, Host};
+
+#[path = "page.rs"]
+mod page;
 use crate::css;
 use exact_kernel::{NodeRef, PropId, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, Runner};
+#[cfg(not(target_arch = "wasm32"))]
+pub use page::main;
+pub use page::{build_locations, checkpoint, Site};
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -100,94 +106,6 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
         interactive_widget: prop(PropId::InteractiveWidget),
         head: runner.head(),
     })
-}
-
-/// An app's pages as documents, for the web build and the parity check:
-/// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] <location>…`
-/// boots a fresh host per location at the page viewport (the bake's 390 ×
-/// 844 unless told) and prints one JSON line each —
-/// `{"location":…,"root":…,"viewportFit":…,"interactiveWidget":…,"title":…,
-/// …}` (the head's fields beside the viewport's), or
-/// `{"location":…,"error":…}`. `baked` is the app's own plan; the web
-/// build passes the one it extracted from the shipped wasm instead.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
-    let mut args = std::env::args().skip(1);
-    let mut plan = baked.to_vec();
-    let mut viewport = exact_runner::Viewport::default();
-    let mut locations = Vec::new();
-    let usage = || {
-        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] <location>…");
-        std::process::ExitCode::from(2)
-    };
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--plan" => match args.next().map(std::fs::read) {
-                Some(Ok(bytes)) => plan = bytes,
-                Some(Err(e)) => {
-                    eprintln!("render: --plan: {e}");
-                    return std::process::ExitCode::FAILURE;
-                }
-                None => return usage(),
-            },
-            "--viewport" => {
-                let size = args.next().and_then(|v| {
-                    let (w, h) = v.split_once('x')?;
-                    Some((w.parse().ok()?, h.parse().ok()?))
-                });
-                let Some((width, height)) = size else {
-                    return usage();
-                };
-                viewport = exact_runner::Viewport { width, height };
-            }
-            _ if arg.starts_with('/') => locations.push(arg),
-            _ => return usage(),
-        }
-    }
-    if locations.is_empty() {
-        return usage();
-    }
-    let mut failed = false;
-    for location in &locations {
-        let mut line = String::from("{\"location\":");
-        crate::batch::quote(location, &mut line);
-        let rendered = Host::boot(&plan, D::default(), viewport, location)
-            .map_err(|e| e.to_string())
-            .and_then(|(host, _)| host.document().map_err(|e| e.to_string()));
-        match rendered {
-            Ok(doc) => {
-                line.push_str(",\"root\":");
-                crate::batch::quote(&doc.root, &mut line);
-                let fields = [
-                    ("viewportFit", doc.viewport_fit.as_deref()),
-                    ("interactiveWidget", doc.interactive_widget.as_deref()),
-                ];
-                for (name, value) in fields.into_iter().chain(doc.head.fields()) {
-                    line.push_str(&format!(",\"{name}\":"));
-                    match value {
-                        Some(v) => crate::batch::quote(v, &mut line),
-                        None => line.push_str("null"),
-                    }
-                }
-                match doc.head.status {
-                    Some(code) => line.push_str(&format!(",\"status\":{code}")),
-                    None => line.push_str(",\"status\":null"),
-                }
-            }
-            Err(error) => {
-                failed = true;
-                line.push_str(",\"error\":");
-                crate::batch::quote(&error, &mut line);
-            }
-        }
-        line.push('}');
-        println!("{line}");
-    }
-    if failed {
-        std::process::ExitCode::FAILURE
-    } else {
-        std::process::ExitCode::SUCCESS
-    }
 }
 
 /// What the router's projection (`navigation.project`) sets on a route.
