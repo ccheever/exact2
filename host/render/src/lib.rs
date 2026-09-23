@@ -19,10 +19,12 @@
 
 mod executor;
 mod page;
+mod serve;
 mod source;
 
 pub use executor::Executor;
 pub use page::page;
+pub use serve::{Serve, Server};
 pub use source::Anonymous;
 
 use exact_kernel::Kernel;
@@ -59,6 +61,8 @@ pub struct Rendered {
     /// The document's digest (LLP 1048.000 D6), which the page carries
     /// beside the checkpoint for the runtime to match.
     pub digest: String,
+    /// What the document read: its answers and what was still pending.
+    pub state: exact_runner::Checkpoint,
     /// How the render ended.
     pub settled: Settled,
 }
@@ -98,11 +102,13 @@ pub fn render<D: DataSource>(
         .map_err(|e| e.to_string())?;
     let checkpoint = checkpoint(&runner, location);
     let digest = digest(plan, location, &checkpoint, &document.root);
+    let state = runner.document_checkpoint(location);
     Ok(Rendered {
         document,
         head,
         checkpoint,
         digest,
+        state,
         settled,
     })
 }
@@ -247,7 +253,12 @@ fn run(
 /// `render=build` (`exact_web::document::build_locations`). `baked` is the
 /// app's own plan; the web build passes the one it extracted from the
 /// shipped wasm instead.
-pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
+///
+/// `--serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime
+/// <s>]` is the server instead ([`Server`]): the built web app on
+/// loopback, its plan the dist's own `app.plan` unless `--plan` names one.
+/// It prints `serving http://127.0.0.1:<port>/`, then a line per render.
+pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::ExitCode {
     use std::process::ExitCode;
     let mut args = std::env::args().skip(1);
     let mut plan = baked.to_vec();
@@ -257,14 +268,19 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
     let mut build = false;
     let mut deadline = DEADLINE;
     let mut shell = None::<String>;
+    let (mut serve, mut planned) = (None::<std::path::PathBuf>, false);
+    let (mut port, mut renders, mut queue, mut lifetime) = (0u16, 4usize, 32usize, 60u64);
     let usage = || {
-        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] [--shell <index.html>] (--build | <location>…)");
+        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] ([--shell <index.html>] (--build | <location>…) | --serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime <s>])");
         ExitCode::from(2)
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--plan" => match args.next().map(std::fs::read) {
-                Some(Ok(bytes)) => plan = bytes,
+                Some(Ok(bytes)) => {
+                    plan = bytes;
+                    planned = true;
+                }
                 Some(Err(e)) => {
                     eprintln!("render: --plan: {e}");
                     return ExitCode::FAILURE;
@@ -302,8 +318,32 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                 None => return usage(),
             },
             "--build" => build = true,
+            "--serve" => match args.next() {
+                Some(dist) => serve = Some(dist.into()),
+                None => return usage(),
+            },
+            "--port" | "--renders" | "--queue" | "--lifetime" => {
+                let Some(n) = args.next().and_then(|n| n.parse::<u64>().ok()) else {
+                    return usage();
+                };
+                match arg.as_str() {
+                    "--port" => port = n.try_into().unwrap_or(0),
+                    "--renders" => renders = n as usize,
+                    "--queue" => queue = n as usize,
+                    _ => lifetime = n,
+                }
+            }
             _ if arg.starts_with('/') => locations.push((arg, false)),
             _ => return usage(),
+        }
+    }
+    if let (Some(dist), false) = (&serve, planned) {
+        match std::fs::read(dist.join("app.plan")) {
+            Ok(bytes) => plan = bytes,
+            Err(e) => {
+                eprintln!("render: {}/app.plan: {e}", dist.display());
+                return ExitCode::FAILURE;
+            }
         }
     }
     let decoded = match Plan::decode(&plan) {
@@ -313,6 +353,36 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Some(dist) = serve {
+        let grants = D::default().grants().to_string();
+        let config = Serve {
+            dist,
+            port,
+            name,
+            origin,
+            deadline,
+            renders,
+            queue,
+            viewport,
+            lifetime: Duration::from_secs(lifetime),
+        };
+        let server = match Server::bind(config, decoded, &grants) {
+            Ok(server) => server,
+            Err(e) => {
+                eprintln!("render: serve: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        println!("serving http://{}/", server.addr());
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        return match server.run::<D>() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("render: serve: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if build {
         match build_locations(&decoded) {
             Ok(found) => locations.extend(found),

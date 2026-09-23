@@ -103,16 +103,19 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page } = {}) {
-  const page = tamper(renderedPage(location));
-  const server = createServer(async (req, res) => {
-    if (req.url === location || req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page); return; }
-    // A slow network, where a test needs the runtime to still be loading.
-    if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
-    serveStatic(dist, req, res);
-  });
-  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const url = `http://127.0.0.1:${server.address().port}${location}`;
+async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page, origin = null } = {}) {
+  let server = null, url = `${origin}${location}`;
+  if (!origin) {
+    const page = tamper(renderedPage(location));
+    server = createServer(async (req, res) => {
+      if (req.url === location || req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page); return; }
+      // A slow network, where a test needs the runtime to still be loading.
+      if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
+      serveStatic(dist, req, res);
+    });
+    await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+    url = `http://127.0.0.1:${server.address().port}${location}`;
+  }
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
   const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
@@ -152,7 +155,7 @@ async function withDocument(location, drive, { wasmAfter = null, tamper = (page)
   } finally {
     try { process.kill(-child.pid, 'SIGKILL'); } catch {}
     await Promise.race([exited, Bun.sleep(2000)]);
-    server.close();
+    server?.close();
     rmSync(profile, { recursive: true, force: true });
   }
 }
@@ -220,3 +223,46 @@ check(`a press on the document before the runtime starts is replayed once${unava
     expect(await live("document.documentElement.style.colorScheme")).toBe('dark');
   }, { wasmAfter });
 }, 180000);
+
+/** Caltrain's render server (LLP 1048.000 D10) over dist/, on loopback;
+ * `stop` ends the one process it started. */
+async function renderServer() {
+  const child = spawn('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--', '--serve', dist, '--name', 'Caltrain'],
+    { cwd: ROOT, env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const lines = [];
+  const origin = await new Promise((ok, fail) => {
+    child.stdout.on('data', (d) => {
+      for (const line of String(d).split('\n')) {
+        lines.push(line);
+        const at = /^serving (http:\/\/127\.0\.0\.1:\d+)\//.exec(line);
+        if (at) ok(at[1]);
+      }
+    });
+    child.on('exit', (code) => fail(new Error(`caltrain-render --serve exited ${code}`)));
+  });
+  return { origin, lines, stop: () => { try { child.kill('SIGKILL'); } catch {} } };
+}
+
+check(`the render server's page is the document, and the runtime adopts it${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  const server = await renderServer();
+  try {
+    const response = await fetch(`${server.origin}/?agent=1`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-security-policy')).toContain("script-src 'self' 'wasm-unsafe-eval'");
+    expect(response.headers.get('cache-control')).toStartWith('public, max-age=0, s-maxage=');
+    expect((await fetch(`${server.origin}/nowhere`)).status).toBe(404);
+    await withDocument('/?agent=1', async (tab) => {
+      const live = await tab(true, WATCH);
+      await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+      await live(settled);
+      expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+      const { views, served } = await live(SERVED_VIEWS);
+      expect(served).toBe(views);
+      const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
+      expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 0 });
+    }, { origin: server.origin });
+    expect(server.lines.some((l) => /^render \/\?agent=1 200 /.test(l))).toBe(true);
+  } finally {
+    server.stop();
+  }
+}, 240000);

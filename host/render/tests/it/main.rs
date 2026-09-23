@@ -10,6 +10,8 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+mod serve;
+
 /// How the fixture's `post` source answers later.
 #[derive(Clone, Copy, Default)]
 enum Post {
