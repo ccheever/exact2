@@ -46,8 +46,10 @@ let stage = realpathSync(mkdtempSync(resolve(stages, `${app.name.replace(/[^a-zA
 process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
 const out = resolve(stage, 'app.wasm');
 
-// Post-link optimization. The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
+// Keep small single-caller functions inline, but bound large expansions: -Oz's
+// unlimited default shrinks raw bytes while increasing both Brotli and gzip.
+// The feature flags match what rustc's wasm32 target emits.
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '50', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);

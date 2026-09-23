@@ -509,8 +509,11 @@ as the fixed Caltrain runner workload, independent of app selection.
 `bun host/web/build.mjs` — `cargo build --lib --profile web --target
 wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
 `opt-level = "z"` and fat LTO: the runner's work is sub-millisecond, so every
-byte is fetch, parse, and compile), then `wasm-opt -Oz` when binaryen is on
-PATH (the build says so when it is not, and ships unoptimized), then
+byte is fetch, parse, and compile), then `wasm-opt -Oz` with
+`--one-caller-inline-max-function-size 50` when binaryen is on PATH.
+This keeps small helpers inline while avoiding large expansions that make
+the compressed download larger despite shrinking the raw wasm. The build
+says when binaryen is absent and ships unoptimized. The output is
 `host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
 The production build minifies the host JavaScript with the pinned Rolldown.
 For TypeScript apps it also bundles the module loader's stateless storage
