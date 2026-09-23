@@ -221,6 +221,37 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     assert_eq!(label.props.str(PropId::Text), Some("Post"));
 }
 
+/// A `button` is a pressable `column` (Charlie, 2026-09-23: "One native
+/// button, flex column"; LLP 1006 §3): its two rows are fixed, and an
+/// author's own row wins, as on any tag.
+#[test]
+fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
+    let src = "component App\n  state n = 0\n  action bump writes n\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump testId=\"save\"\n      button press=bump flex-direction=\"row\" testId=\"row\"\n        text \"Row\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        r.kernel().node_by_key(key).unwrap()
+    };
+    let save = node("save");
+    assert_eq!(save.node_type, NodeType::Pressable);
+    assert_eq!(save.style.display, exact_kernel::Display::Flex);
+    assert_eq!(
+        save.style.flex_direction,
+        exact_kernel::FlexDirection::Column
+    );
+    let row = node("row");
+    assert_eq!(row.style.display, exact_kernel::Display::Flex);
+    assert_eq!(row.style.flex_direction, exact_kernel::FlexDirection::Row);
+}
+
 #[test]
 fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
     let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value) writes textValue\n    textValue = value\n  action boolPayload(value) writes boolValue\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";

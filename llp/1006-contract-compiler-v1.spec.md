@@ -451,7 +451,10 @@ Evidence: `/tmp/exact-writes-choices-06971c8e`.
 `derives`, `resources`, `actions`, `timers` in source order; the inlined view
 to `nodes`/`regions`/`arms`/`bindings`/`handlers` through the tag/attribute
 table (`tags.rs`: `column`/`row`/`main`/`scroll`/`text`/`button`/`link`/
-`input`/`image` onto kernel node types plus fixed rows; attributes onto style
+`input`/`image` onto kernel node types plus fixed rows — `button` is a
+pressable `column`, role button with `display: flex; flex-direction: column`
+(Charlie, 2026-09-23: "One native button, flex column"), so the web's
+`<button>` lays out as the kernel does (LLP 1007 §1); attributes onto style
 rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
 `background-color`, `border-radius`→four rows, `gap`→`row_gap`+`column_gap`,
 `padding`→four rows, `flex=n`→CSS `flex: n` = grow n, shrink 1, basis 0%;

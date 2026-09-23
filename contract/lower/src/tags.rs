@@ -100,9 +100,16 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
+        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
+        // column"): a block <button> would centre its content in an anonymous
+        // box, which a flex one does not, so the web lays it out as the
+        // kernel does (LLP 1006 §3, LLP 1007 §1).
         "button" => Tag {
             node_type: NodeType::Pressable,
-            fixed_styles: &[],
+            fixed_styles: &[
+                (StyleId::Display, "flex"),
+                (StyleId::FlexDirection, "column"),
+            ],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
             positional: None,
         },
