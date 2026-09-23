@@ -669,7 +669,7 @@ public final class ExactSession {
     }
 
     private func drainSurfaceWork() {
-        guard canvases.module != nil || canvases.failed != nil || canvases.entries.isEmpty,
+        guard canvases.ready || canvases.failed != nil || canvases.entries.isEmpty,
               !pendingSurfaceWork.isEmpty else { return }
         let work = pendingSurfaceWork
         pendingSurfaceWork = []

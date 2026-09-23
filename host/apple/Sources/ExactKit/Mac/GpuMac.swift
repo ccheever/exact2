@@ -76,21 +76,32 @@ final class Canvases {
         /// or this much wall time has passed, so one lost second is not
         /// every frame lost.
         var starvedUntil: Double = 0
+        /// The artifact whose surface this canvas is (LLP 1009 D6), once created.
+        var module: GpuModule?
         init(view: NodeView, name: String, values: Any) { self.view = view; self.name = name; self.values = values }
     }
     var entries: [UInt32: Entry] = [:]
     var publishers: [String: Entry] = [:]
-    var module: GpuModule?
+    /// The loaded artifacts by name, "" the primary (LLP 1009 D6); each is
+    /// asked for once, the first time one of its canvases exists.
+    var modules: [String: GpuModule] = [:]
+    var attempted: Set<String> = []
+    /// Module loads scheduled for the turn after their canvas mounted.
+    var deferred: Set<String> = []
+    private lazy var compat = GpuModule.bakedCompatibility
+    func artifact(_ surface: String) -> String { GpuModule.artifact(for: surface, compat: compat) }
+    /// Every canvas's artifact loaded or refused: what an agent read waits for.
+    var ready: Bool { deferred.isEmpty && entries.values.allSatisfy { attempted.contains(artifact($0.name)) } }
     var displayPeriod = DisplayPeriod()
     func period(_ ms: Double) {
-        guard let m = module else { return }
-        displayPeriod.publish(ms, maximum: Double(session?.presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 120)) { m.period?($0) }
+        guard !modules.isEmpty else { return }
+        let loaded = Array(modules.values)
+        displayPeriod.publish(ms, maximum: Double(session?.presenter.viewport.window?.screen?.maximumFramesPerSecond ?? 120)) { ms in for m in loaded { m.period?(ms) } }
     }
     var worldInput = WorldCarrier.read(ExactEnv.agentMode ? ProcessInfo.processInfo.environment["EXACT_WORLD"] : nil)
     var terminalRestoreReported = false
     var restoreJournal: [[String: Any]] = []
     var failed: String?
-    var loadRequested = false
     var loadedMs: Double?
     var rendered = 0
     /// Captures since launch (LLP 1014 D3).
@@ -102,14 +113,16 @@ final class Canvases {
     /// The smoke's line: loaded (with the load time and counts) or why not.
     var status: String {
         if let failed { return "failed: \(failed)" }
-        if module != nil { return "module loaded in \(String(format: "%.1f", loadedMs ?? 0)) ms; \(entries.count) canvases; \(rendered) renders" }
+        if !modules.isEmpty { return "module loaded in \(String(format: "%.1f", loadedMs ?? 0)) ms; \(entries.count) canvases; \(rendered) renders" }
         return "not loaded: \(failed ?? (entries.isEmpty ? "no canvas" : "not requested"))"
     }
 
-    /// Where the module lives: EXACT_GPU_DYLIB, or beside the executable.
-    static func modulePath() -> String {
+    /// Where an artifact lives: beside the executable; the primary's may be
+    /// EXACT_GPU_DYLIB in a development build.
+    static func modulePath(_ artifact: String = "") -> String {
         let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
-        return GpuModule.modulePath(defaultPath:exe.deletingLastPathComponent().appendingPathComponent("libexact_gpu.dylib").path, compat:GpuModule.bakedCompatibility, environment:ProcessInfo.processInfo.environment)
+        let path = exe.deletingLastPathComponent().appendingPathComponent(GpuModule.loadName(artifact: artifact)).path
+        return artifact.isEmpty ? GpuModule.modulePath(defaultPath:path, compat:GpuModule.bakedCompatibility, environment:ProcessInfo.processInfo.environment) : path
     }
 
     /// A shader's text changed (the asset row, LLP 1030 D10): the module
@@ -117,7 +130,7 @@ final class Canvases {
     /// renders again through the new pipeline — or refuses it by name and
     /// keeps the old one; a module not loaded yet reads the file when it is.
     func shaderChanged(_ name: String, text: Data) {
-        guard let m = module else { return }
+        guard let m = modules[""] else { return }
         if m.register(shader: name, text: text) {
             print("exact gpu: shader \(name) swapped in")
         } else {
@@ -130,19 +143,19 @@ final class Canvases {
         if let e = entries[view.id], e.view !== view || e.name != name { destroy(view: view.id) }
         if let e = entries[view.id] {
             e.values = values
-            if e.id != 0, let m = module { bindNow(m, e) }
+            if e.id != 0, let m = e.module { bindNow(m, e) }
         } else {
             let e = Entry(view: view, name: name, values: values)
             entries[view.id] = e
             claimPublisher(e)
-            if let m = module { create(m, e) }
+            if let m = modules[artifact(name)] { create(m, e) }
         }
     }
 
     func destroy(view: UInt32) {
         if let e = entries.removeValue(forKey: view) {
             e.view.canvasInput = nil
-            if e.id != 0 { module?.destroy(e.id) }
+            if e.id != 0 { e.module?.destroy(e.id) }
             releasePublisher(e)
         }
     }
@@ -153,22 +166,37 @@ final class Canvases {
     /// Load the module — once, after the first painted frame, only when a
     /// canvas exists. Returns whether a frame source is now wanted.
     func loadIfNeeded() {
-        guard !loadRequested, !entries.isEmpty, session?.firstDrawMs != nil else { return }
-        loadRequested = true
+        guard !entries.isEmpty, session?.firstDrawMs != nil else { return }
+        // Each artifact the first time one of its canvases exists (LLP 1009
+        // D6). A declared module loads on the next turn, after the frame that
+        // mounted its canvas (D4); the primary as it always has.
+        for key in Set(entries.values.map { artifact($0.name) }).sorted() where !attempted.contains(key) {
+            attempted.insert(key)
+            if key.isEmpty { load(key); continue }
+            deferred.insert(key)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, deferred.remove(key) != nil else { return }
+                load(key)
+                session?.frames.requestCanvas()
+            }
+        }
+    }
+
+    private func load(_ key: String) {
         let t = CACurrentMediaTime()
-        switch GpuModule.loadShared(path: Canvases.modulePath()) {
+        switch GpuModule.loadShared(path: Canvases.modulePath(key), artifact: key) {
         case .failure(let e):
             failed = e.message
             FileHandle.standardError.write(Data("exact gpu: \(e.message)\n".utf8))
         case .success(let m):
-            module = m
+            modules[key] = m
             m.canvases.add(self)
-            loadedMs = (CACurrentMediaTime() - t) * 1000
+            loadedMs = loadedMs ?? (CACurrentMediaTime() - t) * 1000
             // The shaders as files (LLP 1030 D8), from the app's asset root
             // (LLP 1031 D1): the app's directory in dev, the bundle in a
-            // release.
-            if let resolver = session?.app.resolver { m.registerShaders(resolver: resolver) }
-            for e in Array(entries.values) where entries[e.view.id] === e { create(m, e) }
+            // release. They are the primary's (LLP 1009 D6).
+            if key.isEmpty, let resolver = session?.app.resolver { m.registerShaders(resolver: resolver) }
+            for e in Array(entries.values) where entries[e.view.id] === e && e.module == nil && artifact(e.name) == key { create(m, e) }
         }
     }
 
@@ -183,7 +211,8 @@ final class Canvases {
         e.id = bytes.withUnsafeBufferPointer { m.create($0.baseAddress, bytes.count, ptr, w, h) }
         e.presentable = e.id != 0
         if e.id == 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
-        lifecycle.deliver(e.id)
+        e.module = m
+        lifecycle.deliver(e.id, module: m)
         bindNow(m, e)
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
@@ -251,8 +280,9 @@ final class Canvases {
     /// the end of every batch, and once per run-loop turn for changes that
     /// arrive outside one (D4 b, c).
     func captureIfNeeded() {
-        guard let m = module else { return }
-        for e in Array(entries.values) where live(e.view.id) === e && e.presentable && e.through && e.view.needsCapture { capture(m, e) }
+        for e in Array(entries.values) where live(e.view.id) === e && e.presentable && e.through && e.view.needsCapture {
+            if let m = e.module { capture(m, e) }
+        }
     }
 
     /// A capture on this run-loop turn, coalesced.
@@ -336,7 +366,7 @@ final class Canvases {
     /// what a canvas nested under a canvas painted through its surface paints
     /// into its ancestor's capture, since its Metal layer is not seen there.
     func readback(view: NodeView) -> NSBitmapImageRep? {
-        guard let m = module, let e = live(view.id), e.presentable, e.view === view, let metal = view.metal else { return nil }
+        guard let e = live(view.id), let m = e.module, e.presentable, e.view === view, let metal = view.metal else { return nil }
         let scale = CGFloat(metal.layer?.contentsScale ?? 2)
         let w = Int((metal.bounds.width * scale).rounded()), h = Int((metal.bounds.height * scale).rounded())
         guard w > 0, h > 0,
@@ -374,9 +404,9 @@ final class Canvases {
     /// Whether any surface has something to render — or an edit is under a
     /// canvas painted through its surface, which captures every frame (D4 d).
     var wantsFrames: Bool {
-        guard let m = module, visible else { return false }
+        guard !modules.isEmpty, visible else { return false }
         return entries.values.contains { e in
-            e.needsFrame(dirty:m.dirty(e.id) != 0, editing:e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true)
+            e.needsFrame(dirty:(e.module?.dirty(e.id) ?? 0) != 0, editing:e.through && e.view.overlay.map { Canvases.editing(under: $0) } == true)
         }
     }
 
@@ -387,7 +417,7 @@ final class Canvases {
     /// to. Bounded: a nested canvas that wants a frame asks its ancestor to
     /// capture again, once more here, then the display link has it.
     func settle(now: Double) {
-        guard module != nil, !settling, session?.clock != nil else { return }
+        guard !modules.isEmpty, !settling, session?.clock != nil else { return }
         settling = true
         let previous = frameNow
         frameNow = now
@@ -409,12 +439,13 @@ final class Canvases {
 
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
-        guard let m = module, visible else { return false }
+        guard !modules.isEmpty, visible else { return false }
         let previous = frameNow
         frameNow = now
         defer { frameNow = previous }
         var more = false
         for e in Array(entries.values) where live(e.view.id) === e && e.presentable {
+            guard let m = e.module else { continue }
             refreshChildren(m, e)
             if e.through && e.view.needsCapture { capture(m, e) }
             // Nested under a canvas painted through its surface (LLP 1014):

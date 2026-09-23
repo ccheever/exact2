@@ -64,8 +64,9 @@ extension NodeView {
         presenter?.session?.canvases.entries.values.contains { $0.controls.values.contains { $0.node == id } } == true
     }
     func cancelSurfaceControls() {
-        guard let c = presenter?.session?.canvases, let m = c.module else { return }
+        guard let c = presenter?.session?.canvases else { return }
         for e in c.entries.values {
+            guard let m = e.module else { continue }
             for (contact, owner) in e.controls where owner.node == id {
                 e.controls.removeValue(forKey: contact)
                 _ = c.input(e, m, ["t":"control", "name":owner.name, "phase":"cancel", "id":contact, "x":owner.position.x, "y":owner.position.y])
@@ -84,7 +85,7 @@ extension NodeView {
     }
     @discardableResult
     func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
-        guard let c = presenter?.session?.canvases, let m = c.module else { return false }
+        guard let c = presenter?.session?.canvases, !c.modules.isEmpty else { return false }
         let entry: Canvases.Entry?
         if phase == "down" {
             guard let name = props["action"], !disabled, !inert, let canvas = inputCanvas, let e = c.live(canvas.id) else { return false }
@@ -100,7 +101,7 @@ extension NodeView {
                 ?? inputCanvas.flatMap { canvas in owners.first { $0.view === canvas } }
                 ?? (owners.count == 1 ? owners[0] : nil)
         }
-        guard let e = entry, var owner = e.controls[contact] else { return false }
+        guard let e = entry, let m = e.module, var owner = e.controls[contact] else { return false }
         let p = convert(point, to:e.view)
         owner.position = CGPoint(x:p.x-owner.offset.x, y:p.y-owner.offset.y)
         if ["up", "cancel"].contains(phase) { e.controls.removeValue(forKey:contact) }
@@ -165,7 +166,7 @@ extension Canvases {
         let matches = entries.values.filter { $0.name == name && live($0.view.id) === $0 }
         guard matches.count == 1 else { fail(2, "surface \(name): expected one live surface, found \(matches.count)"); return }
         let e = matches[0]
-        guard let m = module, e.id != 0 else { fail(3, "surface \(name): unavailable"); return }
+        guard let m = e.module, e.id != 0 else { fail(3, "surface \(name): unavailable"); return }
         messages(e)
         guard owner == s.generation, s.runtime.requestActive(ticket) else { return }
         guard live(e.view.id) === e else {
@@ -194,15 +195,15 @@ extension Canvases {
     }
 
     func cancelControls(_ e: Entry) {
-        guard let m = module else { e.controls.removeAll(); return }
+        guard let m = e.module else { e.controls.removeAll(); return }
         let owners=e.controls; e.controls.removeAll()
         for (contact,owner) in owners {
             _ = input(e,m,["t":"control","name":owner.name,"phase":"cancel","id":contact,"x":owner.position.x,"y":owner.position.y])
         }
     }
     func cancelMovedControls() {
-        guard let m=module else {return}
         for e in entries.values {
+            guard let m = e.module else { continue }
             for (contact,owner) in e.controls {
                 let retained: Bool
                 if owner.node == e.view.id {
@@ -216,18 +217,18 @@ extension Canvases {
     }
     @discardableResult
     func pressedControlKey(_ code: String, down: Bool, canvas: UInt32? = nil, timestamp: Double? = nil) -> Bool {
-        guard ["Space","Enter","NumpadEnter"].contains(code), let m=module else {return false}
+        guard ["Space","Enter","NumpadEnter"].contains(code), !modules.isEmpty else {return false}
         cancelMovedControls()
         let contact=code == "Space" ? 4294967294 : 4294967293
         let candidates=entries.values.filter {canvas == nil || $0.view.id == canvas}.sorted {$0.view.id < $1.view.id}
-        if let e=candidates.first(where: {$0.controls[contact] != nil}), let owner=e.controls[contact] {
+        if let e=candidates.first(where: {$0.controls[contact] != nil}), let owner=e.controls[contact], let m=e.module {
             if down {return true}
             e.controls.removeValue(forKey:contact)
             return input(e,m,["t":"control","name":owner.name,"phase":"up","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
         }
         guard down else {return false}
         for e in candidates {
-            if let id=e.controls.keys.filter({$0 < 4294967293}).sorted().first, let owner=e.controls[id] {
+            if let id=e.controls.keys.filter({$0 < 4294967293}).sorted().first, let owner=e.controls[id], let m=e.module {
                 e.controls[contact]=owner
                 return input(e,m,["t":"control","name":owner.name,"phase":"down","id":contact,"x":owner.position.x,"y":owner.position.y],timestamp:timestamp)
             }
@@ -237,8 +238,8 @@ extension Canvases {
 
     func releaseContact(_ request: [String: Any]) -> [String: Any]? {
         guard let id = request["contact"] as? Int else { return nil }
-        guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase), let m = module,
-              let rawCanvas = request["id"] as? Int, let canvas = UInt32(exactly: rawCanvas), let e = entries[canvas], let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
+        guard let phase = request["phase"] as? String, ["up","cancel"].contains(phase),
+              let rawCanvas = request["id"] as? Int, let canvas = UInt32(exactly: rawCanvas), let e = entries[canvas], let m = e.module, let owner = e.controls.removeValue(forKey:id) else { return ["error":"no restored contact to release"] }
         let ok = input(e,m,["t":"control","name":owner.name,"id":id,"phase":phase,"x":owner.position.x,"y":owner.position.y])
         return ok ? ["phase":phase,"delivery":"recognized"] : ["error":"control release refused"]
     }
@@ -255,7 +256,7 @@ extension Canvases {
         session?.frames.requestCanvas()
     }
     func rendered(_ entry: Entry, _ result: UInt32) {
-        if result == 3 { module?.recoverDevice() }
+        if result == 3 { entry.module?.recoverDevice() }
         else { entry.rendered(result) }
     }
 
@@ -326,7 +327,7 @@ extension Canvases {
     }
 
     func save(_ e: Entry) -> [String: Any] {
-        guard let m = module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
+        guard let m = e.module, let carry = m.carry else { return ["error": "world save unavailable on this host yet"] }
         let length = carry(e.id)
         if length == UInt32.max - 1 { return ["error": m.error()] }
         guard length != UInt32.max else { return ["error": "surface carries no state"] }
@@ -341,9 +342,9 @@ extension Canvases {
     /// Creation waits for first pixel. An agent read must wait for that same work.
     func waitUntilReady() -> Bool {
         let deadline = Date(timeIntervalSinceNow: 20)
-        while !entries.isEmpty && !loadRequested {
+        while !entries.isEmpty && !ready {
             loadIfNeeded()
-            if loadRequested { break }
+            if ready { break }
             if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
         }
@@ -367,7 +368,7 @@ extension Canvases {
     }
 
     func messages(_ e: Entry) {
-        if live(e.view.id) === e, let m = module, let take = m.assets, let deliver = m.asset {
+        if live(e.view.id) === e, let m = e.module, let take = m.assets, let deliver = m.asset {
             var delivered = false
             for _ in 0..<16 {
                 guard let data = m.output(take(e.id)), let changes = try? JSONSerialization.jsonObject(with: data) as? [String: [String]], let names = changes["requests"], !names.isEmpty else { break }
@@ -401,14 +402,14 @@ extension Canvases {
                 data.withUnsafeBytes { _ = ask(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
             }
         }
-        if let m = module { finishRestore(m, e) }
-        if live(e.view.id) === e, publishers[e.name] === e, let m = module, let take = m.published {
+        if let m = e.module { finishRestore(m, e) }
+        if live(e.view.id) === e, publishers[e.name] === e, let m = e.module, let take = m.published {
             let length = take(e.id)
             if length != UInt32.max, let data = length == 0 ? Data() : m.output(length) {
                 surfaceRecord(e.name, String(decoding: data, as: UTF8.self))
             }
         }
-        guard live(e.view.id) === e, let m = module, let take = m.messages else { return }
+        guard live(e.view.id) === e, let m = e.module, let take = m.messages else { return }
         let length = take(e.id)
         guard length != UInt32.max, let data = m.output(length) else { return }
         guard let texts = try? JSONSerialization.jsonObject(with: data) as? [String] else {
@@ -427,7 +428,7 @@ extension Canvases {
     func input(_ view: NodeView, _ event: [String: Any], timestamp: Double? = nil) -> Bool {
         guard let e = live(view.id), e.view === view, e.wantsInput,
               event["t"] as? String == "blur" || (!view.disabled && !view.inert),
-              let m = module else { return false }
+              let m = e.module else { return false }
         return input(e, m, event, timestamp: timestamp)
     }
 
@@ -450,7 +451,7 @@ extension Canvases {
     }
 
     func agent(_ view: UInt32, _ request: [String: Any]) -> [String: Any]? {
-        guard let e = live(view), let s = session, let m = module, let ask = m.agent else { return nil }
+        guard let e = live(view), let s = session, let m = e.module, let ask = m.agent else { return nil }
         var request = request
         let size = s.agentInstance.box(e.view)
         request["width"] = max(1, size.width)
@@ -580,7 +581,7 @@ extension Agent {
         let phase = request["phase"] as? String
         guard phase == nil || phase == "down" || phase == "up" else { return ["error": "key: not a phase: \(phase!)"] }
         guard view.focusCanvas() else { return ["error": "view \(view.id) could not take focus"] }
-        if phase == "down", let token = request["releaseKey"] as? String, let module = session.canvases.module {
+        if phase == "down", let token = request["releaseKey"] as? String, let module = e.module {
             let surface = e.id
             keyReleases[token] = { [weak self, weak e] in
                 let reply: [String: Any] = ["typed": view.id, "key": key, "phase": "up", "delivery": "recognized"]
@@ -676,17 +677,18 @@ final class CanvasLifecycle: NSObject {
     private func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
-    func deliver(_ id: UInt32) {
+    func deliver(_ id: UInt32, module: GpuModule) {
         precondition(Thread.isMainThread)
         // Replay the same aggregate that notifications and rendering use.
         refresh(excluding: id)
-        owner?.module?.lifecycle?(id, hidden ? 0 : 1)
-        if interrupted { owner?.module?.lifecycle?(id, 2) }
+        module.lifecycle?(id, hidden ? 0 : 1)
+        if interrupted { module.lifecycle?(id, 2) }
     }
     private func send(_ code: UInt32, excluding id: UInt32? = nil) {
         precondition(Thread.isMainThread)
-        guard let owner, let module = owner.module else { return }
-        for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { module.lifecycle?(entry.id, code) }
+        guard let owner, !owner.modules.isEmpty else { return }
+        // Each canvas's own artifact (LLP 1009 D6).
+        for entry in Array(owner.entries.values) where entry.id != 0 && entry.id != id { entry.module?.lifecycle?(entry.id, code) }
         if code == 1 || code == 3 { owner.session?.frames.requestCanvas() }
     }
     var needsRetry: Bool {

@@ -85,11 +85,12 @@ final class CanvasClockAudioTests: XCTestCase {
     private func session(_ module: GpuModule) -> ExactSession {
         _ = NSApplication.shared
         let s = ExactApp.shared.makeSession(label: "clock-audio")
-        s.canvases.module = module
-        s.canvases.loadRequested = true
+        s.canvases.modules[""] = module
+        s.canvases.attempted = [""]
         let view = NodeView(id: 100, kind: "canvas", presenter: s.presenter)
         let entry = Canvases.Entry(view: view, name: "fixture", values: [])
         entry.id = 1
+        entry.module = module
         s.canvases.entries[100] = entry
         return s
     }
@@ -122,7 +123,7 @@ final class CanvasClockAudioTests: XCTestCase {
     }
     func testAlternatingSessionsPublishBeforeEveryRenderIncludingTheFirst() {
         let m = module(), a = session(module()), b = session(module())
-        a.canvases.module = m; b.canvases.module = m
+        for s in [a, b] { s.canvases.modules[""] = m; for e in s.canvases.entries.values { e.module = m } }
         defer { a.destroy(); b.destroy() }
         periods = []
         for frame in 0..<6 {

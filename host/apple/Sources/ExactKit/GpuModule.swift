@@ -1,7 +1,10 @@
 // The GPU module's C ABI, loaded (LLP 1009 D2): the app's `<app>-gpu`
 // dylib, `dlopen`ed by a presenter the first time a canvas is on screen —
 // after the first painted frame. Shared by the AppKit and UIKit presenters;
-// what each does with a surface (its `Canvases`) is its own.
+// what each does with a surface (its `Canvases`) is its own. An app that
+// declares GPU modules has one more dylib per module (LLP 1009 D6), each an
+// instance of this class, loaded the first time a canvas of one of its
+// surfaces is; a canvas keeps the instance that created it.
 import Foundation
 import CryptoKit
 import CExact
@@ -16,14 +19,26 @@ struct GpuLoadError: Error { let message: String }
 /// D12): `gpu_load` creates the device and the module's instance table, and
 /// a second load would replace them under the first session's surfaces.
 final class GpuModule {
-    nonisolated(unsafe) private static var shared: Result<GpuModule, GpuLoadError>?
+    /// Each artifact's one load: "" is the primary, else a declared module's name.
+    nonisolated(unsafe) private static var shared: [String: Result<GpuModule, GpuLoadError>] = [:]
 
-    /// The process's one module: loaded on the first ask, the same answer after.
-    static func loadShared(path: String) -> Result<GpuModule, GpuLoadError> {
-        if let shared { return shared }
-        let r = load(path: path)
-        shared = r
+    /// The process's module for `artifact`: loaded on the first ask, the same answer after.
+    static func loadShared(path: String, artifact: String = "") -> Result<GpuModule, GpuLoadError> {
+        if let loaded = shared[artifact] { return loaded }
+        let r = load(path: path, artifact: artifact)
+        shared[artifact] = r
         return r
+    }
+
+    /// The artifact that owns `surface` (LLP 1009 D6): the declared module
+    /// that lists it (`compat.inputs.gpuModules`), else the primary, "".
+    static func artifact(for surface: String, compat: [String: Any]) -> String {
+        let modules = (compat["inputs"] as? [String: Any])?["gpuModules"] as? [String: [String]] ?? [:]
+        return modules.first { $0.value.contains(surface) }?.key ?? ""
+    }
+    /// A module's dylib beside the primary's, under a name no app can collide with.
+    static func loadName(artifact: String) -> String {
+        artifact.isEmpty ? "libexact_gpu.dylib" : "libexact_gpu_\(artifact.replacingOccurrences(of: "-", with: "_")).dylib"
     }
 
     static var bakedCompatibility: [String: Any] {
@@ -37,9 +52,12 @@ final class GpuModule {
         let gpu = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any]
         return gpu?["trust"] as? String == "development" ? environment["EXACT_GPU_DYLIB"] ?? defaultPath : defaultPath
     }
-    static func verify(path: String, compat: [String: Any]) -> GpuLoadError? {
+    static func verify(path: String, compat: [String: Any], artifact: String = "") -> GpuLoadError? {
         func refusal(_ reason: String) -> GpuLoadError { GpuLoadError(message:"GPU module \(path): \(reason)") }
-        guard let card = (compat["embedded"] as? [String: Any])?["gpu"] as? [String: Any] else {
+        let embedded = compat["embedded"] as? [String: Any]
+        // A module's card is its own (LLP 1009 D6): one signed digest per artifact.
+        let found = artifact.isEmpty ? embedded?["gpu"] : (embedded?["gpuModules"] as? [String: Any])?[artifact]
+        guard let card = found as? [String: Any] else {
             return refusal("missing baked identity")
         }
         guard let app = (compat["inputs"] as? [String: Any])?["app"] as? String, card["app"] as? String == app else {
@@ -126,7 +144,8 @@ final class GpuModule {
         guard !recovering, deviceLost?() == true else { return }
         recovering = true
         let generation = lossGeneration
-        let recoveryEntries = canvases.allObjects.flatMap { Array($0.entries.values) }
+        // Another artifact's canvases keep their device (LLP 1009 D6).
+        let recoveryEntries = canvases.allObjects.flatMap { $0.entries.values.filter { $0.module == nil || $0.module === self } }
         let delay = failures == 0 ? 0 : min(5.0, 0.1 * pow(2.0, Double(failures - 1)))
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
@@ -207,8 +226,8 @@ final class GpuModule {
 
     /// dlopen the module and create its device; nil (with a reason) when
     /// the library is missing, incomplete, or has no device.
-    static func load(path: String) -> Result<GpuModule, GpuLoadError> {
-        if let error = verify(path:path, compat:bakedCompatibility) { return .failure(error) }
+    static func load(path: String, artifact: String = "") -> Result<GpuModule, GpuLoadError> {
+        if let error = verify(path:path, compat:bakedCompatibility, artifact:artifact) { return .failure(error) }
         guard let handle = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             return .failure(GpuLoadError(message: "dlopen \(path): \(String(cString: dlerror()))"))
         }
@@ -248,7 +267,9 @@ final class GpuModule {
     }
 
     /// A loaded module validates candidate shaders without changing its registry.
-    static var loaded: GpuModule? { if case .success(let module)? = shared { return module }; return nil }
+    /// Runtime shader assets (LLP 1030 D8) are the primary's; a declared
+    /// module compiles the WGSL it carries (LLP 1009 D6).
+    static var loaded: GpuModule? { if case .success(let module)? = shared[""] { return module }; return nil }
     func accepts(_ sources: [String: Data]) -> Bool {
         guard let validateShader, clearShaders != nil else { return false }
         for (name, text) in sources {
