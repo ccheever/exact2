@@ -214,6 +214,10 @@ fn synth_definitions_and_voices_keep_their_encoding() {
         ("world", w.hash()),
     ] {
         let pin = &pins[&format!("synth-only-{name}")];
-        assert_eq!(&format!("0x{got:016x}"), pin, "synth-only {name} encoding changed");
+        assert_eq!(
+            &format!("0x{got:016x}"),
+            pin,
+            "synth-only {name} encoding changed"
+        );
     }
 }

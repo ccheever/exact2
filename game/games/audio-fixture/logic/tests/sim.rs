@@ -27,7 +27,11 @@ fn baked_samples_reach_the_outputs_at_their_own_rates_and_channels() {
             sim.tap("Space");
         }
         sim.run(1000.0 / 60.0);
-        player.sync(sim.world(), Listener::from_world(sim.world()), Default::default());
+        player.sync(
+            sim.world(),
+            Listener::from_world(sim.world()),
+            Default::default(),
+        );
     }
     let started: BTreeSet<_> = player
         .output
@@ -81,7 +85,12 @@ fn restoring_mid_sound_continues_to_the_same_save() {
     assert_eq!(restored.world().hash(), continuous.world().hash());
     assert_eq!(restored.save().unwrap(), continuous.save().unwrap());
     assert!(
-        !restored.world().resource::<Voices>().voices.iter().any(|v| v.sound == "drone"),
+        !restored
+            .world()
+            .resource::<Voices>()
+            .voices
+            .iter()
+            .any(|v| v.sound == "drone"),
         "the faded loop has ended"
     );
 }
