@@ -241,6 +241,21 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
+        (
+            app("  state n = 0\n", "text n"),
+            "lower-attr-type",
+            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `toString(…)`",
+        ),
+        (
+            app("", "when draft = \"x\"\n        text \"a\""),
+            "syntax-expected-newline",
+            "expected end of line, found `=`; `==` compares, and only a statement assigns",
+        ),
+        (
+            app("", "button press={add}"),
+            "syntax-expected-expression",
+            "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
+        ),
     ] {
         let e = contract::compile(&src).unwrap_err();
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");

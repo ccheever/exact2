@@ -202,11 +202,19 @@ impl Parser {
                     }
                 }
             },
-            other => Err(SyntaxError {
-                id: "syntax-expected-expression",
-                message: format!("expected an expression, found {}", describe(&other)),
-                span,
-            }),
+            other => {
+                // `press={() => add()}`: a JSX handler.
+                let hint = if matches!(other, TokenKind::Punct("{")) {
+                    "; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)"
+                } else {
+                    ""
+                };
+                Err(SyntaxError {
+                    id: "syntax-expected-expression",
+                    message: format!("expected an expression, found {}{hint}", describe(&other)),
+                    span,
+                })
+            }
         }
     }
 

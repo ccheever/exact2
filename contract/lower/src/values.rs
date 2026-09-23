@@ -269,7 +269,7 @@ pub(crate) fn check_prop_value(
         return err(
             "lower-attr-type",
             format!(
-                "`{}` takes {}; this expression is `{}`",
+                "`{}` takes {}; this expression is `{}`{}",
                 name,
                 match want {
                     tags::PropTy::Str => "a string",
@@ -277,7 +277,13 @@ pub(crate) fn check_prop_value(
                     tags::PropTy::Int => "a whole number",
                     tags::PropTy::Float => "a number",
                 },
-                ty
+                ty,
+                // A number or bool shown as text is interpolated.
+                if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
+                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                } else {
+                    ""
+                }
             ),
             span,
         );

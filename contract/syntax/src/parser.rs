@@ -224,10 +224,18 @@ impl Parser {
                 Ok(())
             }
             TokenKind::Eof => Ok(()),
-            other => self.err(
-                "syntax-expected-newline",
-                format!("expected end of line, found {}", describe(other)),
-            ),
+            other => {
+                // `when filter = "all"`: a comparison was meant.
+                let hint = if matches!(other, TokenKind::Punct("=")) {
+                    "; `==` compares, and only a statement assigns"
+                } else {
+                    ""
+                };
+                self.err(
+                    "syntax-expected-newline",
+                    format!("expected end of line, found {}{hint}", describe(other)),
+                )
+            }
         }
     }
 
