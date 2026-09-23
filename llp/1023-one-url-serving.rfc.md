@@ -369,7 +369,9 @@ page carrying the token that builds a paired phone. Either way it answers only
 to the addresses it printed (plus `localhost`), refusing any other `Host` with
 421 against DNS rebinding; the installer's token reaches only a page loaded
 over loopback, and the phone's app URL is a printed address, never a request
-header. `serve.mjs` keeps D8 as ruled.
+header. `serve.mjs` keeps D8 as ruled. Confirmed by Charlie, 2026-09-23: "ok i
+guess that's ok as long as there is an option to run on lan". `--lan` is that
+option.
 
 **D8 — LAN by default, `--loopback` to turn it off.** (Ruled: Charlie,
 2026-08-30.) `dev.mjs` (and `serve.mjs`) bind `0.0.0.0`; `--loopback`

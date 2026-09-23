@@ -488,6 +488,13 @@ answers them after it takes over.
    - **Personal pages come in phase 2.** They need a web session cookie in
      Interview. Meanwhile, signed-in readers with a synced replica already see
      their own content from the device right after the runtime starts.
+9. **Links and previews** (Charlie, 2026-09-23: "yes, yes").
+   - Each answer's author links to their profile (Interview).
+   - A preview image per page comes later: a card drawn by the headless Linux
+     host from a Contract view.
+   - The hosting provider and the `robots.txt` policy for AI crawlers are
+     decided when hosting is (Charlie: "yes"). Until then, `robots.txt` is the
+     neutral default.
 
 ## 10. The consumer: Interview
 
