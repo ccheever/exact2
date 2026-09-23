@@ -19,7 +19,7 @@ component MessageBubble
   view
     when message.outgoing
       ReactionBadges(message=message, prefix=reactionPrefix, hidden=hidden, open=showReactions)
-    button retainFocus=true
+    box retainFocus=true
       swiperight=openReplies
       touch-action="pan-right pan-y"
       transition="translate 180ms ease-out"

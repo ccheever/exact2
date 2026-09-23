@@ -533,7 +533,7 @@ component App
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"
           each m in rows key=m.rowKey
             column width="100%" padding=5.3 disabled=disabled display=(showing ? "flex" : "none")
-              button testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+              box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
                 MessageBubble(message=m)
               button press=replyTo(m.id) testId=`reply-${{m.id}}` padding=4 border-width=0 background-color="#00000000" align-self="flex-end"
                 text "Reply" font-size=11 color="#2668d8"
