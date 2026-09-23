@@ -116,28 +116,26 @@ pub(crate) fn check_component(
         ct.actions.push(params);
     }
     // Derives: iterate to a fixpoint so order does not matter and `?` fills.
+    // Each is inferred after the derives it reads, and its type enters the
+    // scope at once, so a set without a cycle settles in one round (and one
+    // to confirm) rather than one round per link of a chain.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
     // Every declaration now has a type entry before constructing a full scope.
+    let first_derive = c.props.len() + c.injects.len() + c.states.len();
+    let mut scope = types.component_scope(c, &ct);
+    let order = derive_order(c);
     for _round in 0..(c.derives.len() + 2) {
-        let scope = types.component_scope(c, &ct);
         let mut changed = false;
-        for (i, d) in c.derives.iter().enumerate() {
-            match infer(&d.expr, &scope, shapes) {
-                Ok(t) => {
-                    if t != ct.derives[i] {
-                        ct.derives[i] = t;
-                        changed = true;
-                    }
+        for &i in &order {
+            // An expression over a derive not yet typed (`current.ok` while
+            // `current` is still `?`) waits for a later round; the strict
+            // pass below reports what never types.
+            if let Ok(t) = infer(&c.derives[i].expr, &scope, shapes) {
+                if t != ct.derives[i] {
+                    scope.retype(first_derive + i, t.clone());
+                    ct.derives[i] = t;
+                    changed = true;
                 }
-                Err(e)
-                    if e.id == "type-unknown-name"
-                        && c.derives
-                            .iter()
-                            .any(|x| e.message.contains(&format!("`{}`", x.name))) => {}
-                // An expression over a derive this round has not typed yet
-                // (`current.ok` while `current` is still `?`): the next round
-                // has it, and the strict pass below reports what never types.
-                Err(_) => {}
             }
         }
         if !changed {
@@ -258,6 +256,11 @@ impl Scope {
         Arc::make_mut(self.frames.last_mut().expect("initializer scope frame"))
             .names
             .push(name);
+    }
+
+    /// Change the type of the bottom frame's `index`th name in place.
+    pub(crate) fn retype(&mut self, index: usize, ty: Ty) {
+        Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
 
     pub(crate) fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
@@ -403,4 +406,81 @@ fn refine_params_from_view(
         }
     }
     Ok(())
+}
+
+/// Derive indices, each after the derives its expression names (a cycle is
+/// left in declaration order; the fixpoint refuses it).
+fn derive_order(c: &Component) -> Vec<usize> {
+    fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
+        use contract_syntax::TemplatePart;
+        match e {
+            Expr::Ident(n, _) => out.push(n),
+            Expr::Call(n, args, _) => {
+                out.push(n);
+                args.iter().for_each(|a| names(a, out));
+            }
+            Expr::Some(x, _)
+            | Expr::Unary(_, x, _)
+            | Expr::Member(x, _, _)
+            | Expr::NamedArg(_, x, _) => names(x, out),
+            Expr::Binary(_, a, b, _) => {
+                names(a, out);
+                names(b, out);
+            }
+            Expr::Ternary(a, b, x, _) => {
+                names(a, out);
+                names(b, out);
+                names(x, out);
+            }
+            Expr::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => {
+                names(subject, out);
+                names(some, out);
+                names(none, out);
+            }
+            Expr::Let { value, body, .. } => {
+                names(value, out);
+                names(body, out);
+            }
+            Expr::Template(parts, _) => parts.iter().for_each(|p| {
+                if let TemplatePart::Expr(x) = p {
+                    names(x, out)
+                }
+            }),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        }
+    }
+    fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
+        if std::mem::replace(&mut seen[i], true) {
+            return;
+        }
+        for &d in &reads[i] {
+            visit(d, reads, seen, order);
+        }
+        order.push(i);
+    }
+    let index: BTreeMap<&str, usize> = c
+        .derives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.name.as_str(), i))
+        .collect();
+    let reads: Vec<Vec<usize>> = c
+        .derives
+        .iter()
+        .map(|d| {
+            let mut out = Vec::new();
+            names(&d.expr, &mut out);
+            out.iter().filter_map(|n| index.get(n).copied()).collect()
+        })
+        .collect();
+    let (mut seen, mut order) = (vec![false; c.derives.len()], Vec::new());
+    for i in 0..c.derives.len() {
+        visit(i, &reads, &mut seen, &mut order);
+    }
+    order
 }
