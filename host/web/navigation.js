@@ -1469,25 +1469,16 @@ export function focusController({ready, elements, inert}) {
       el.setAttribute('autofocus', ''); el.focus(); return;
     }
   };
-  // A restart with carried state (a dev reload, a delivered update) replaces
-  // every element. Focus follows the focused node's place in the runner's
-  // tree — its index among its siblings at each level, and its type — and the
-  // restarted tree autofocuses nothing; a node mounted later still may.
-  const keep = (tree, id) => {
-    const nodes = new Map(tree.nodes?.map(n => [n.id, n])), path = [], type = nodes.get(id)?.type;
+  // A carried restart (dev reload, delivered update) keeps focus at its place in the runner's tree — index among siblings at each level, and type — and autofocuses nothing it rebuilt.
+  const keep = (tree, id) => { const nodes = new Map(tree.nodes?.map(n => [n.id, n])), path = [];
     for (let n = nodes.get(id); n; n = nodes.get(n.parent)) path.unshift((n.parent == null ? tree.roots : nodes.get(n.parent)?.children ?? []).indexOf(n.id));
-    return type && !path.includes(-1) ? {path, type} : null;
-  };
+    return nodes.has(id) && !path.includes(-1) ? {path, type: nodes.get(id).type} : null; };
   const restart = (kept, apply, tree, view) => {
-    if (kept === undefined) return apply(); // a fresh boot autofocuses
-    restarting = true;
-    try { apply(); } finally { restarting = false; }
-    for (const el of elements()) if (el.exactAutofocus) processed.add(el);
-    if (!kept) return;
-    const t = tree(), nodes = new Map(t.nodes?.map(n => [n.id, n]));
-    let id = null, ids = t.roots;
-    for (const i of kept.path) { id = ids?.[i]; ids = nodes.get(id)?.children; }
-    const el = nodes.get(id)?.type === kept.type ? view(id) : null;
+    if (kept === undefined) return apply(); // a fresh boot autofocuses (LLP 1035.000 D9)
+    try { restarting = true; apply(); } finally { restarting = false; for (const el of elements()) if (el.exactAutofocus) processed.add(el); }
+    const t = kept && tree(), nodes = new Map(t?.nodes?.map(n => [n.id, n]));
+    const [, id] = kept?.path.reduce(([ids], i) => [nodes.get(ids?.[i])?.children, ids?.[i]], [t.roots]) ?? [];
+    const el = id != null && nodes.get(id)?.type === kept.type ? view(id) : null;
     if (el?.isConnected && el.getClientRects().length && !inert(el) && !el.matches(':disabled')) el.focus({preventScroll: true});
   };
   return {autofocus, keep, restart, press(event, el, dispatch) {
