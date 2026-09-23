@@ -342,10 +342,38 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func resignFirstResponder() -> Bool {
         let ok = super.resignFirstResponder()
+        if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok { inputCanvas?.canvasInput?.blur() }
         if ok, handlers.contains("blur") { presenter?.blur(id) }
         return ok
+    }
+    /// A hardware keyboard's Tab and Shift-Tab move the focus through the
+    /// sequential order, as macOS's key-view loop does (`Presenter.moveFocus`);
+    /// Enter and Space then press (`pressesBegan`). UIKit gives text inputs a
+    /// Tab of their own, so these take priority; the web's Tab leaves a
+    /// textarea too. A field's or textarea's chain reaches its node's.
+    override var keyCommands: [UIKeyCommand]? { (super.keyCommands ?? []) + NodeView.tabCommands }
+    static let tabCommands: [UIKeyCommand] = [(UIKeyModifierFlags(), #selector(NodeView.focusNextNode)), (.shift, #selector(NodeView.focusPreviousNode))].map {
+        let command = UIKeyCommand(input: "\t", modifierFlags: $0.0, action: $0.1)
+        command.wantsPriorityOverSystemBehavior = true
+        return command
+    }
+    @objc func focusNextNode() { presenter?.moveFocus(backward: false) }
+    @objc func focusPreviousNode() { presenter?.moveFocus(backward: true) }
+    /// The ring a keyboard-focused control shows, as the web's `:focus-visible`
+    /// and AppKit's focus ring do: drawn when Tab moved the focus here, never
+    /// for a touch, and inside the box so no clip hides it.
+    private(set) var focusRing: CAShapeLayer?
+    func showFocusRing(_ shown: Bool) {
+        guard shown else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
+        let ring = focusRing ?? CAShapeLayer()
+        ring.path = roundedPath(in: bounds.insetBy(dx: 1.5, dy: 1.5), inset: 1.5).cgPath
+        ring.fillColor = nil
+        ring.strokeColor = tintColor.cgColor
+        ring.lineWidth = 3
+        if ring.superlayer !== layer { layer.addSublayer(ring) }
+        focusRing = ring
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let presses=pressedControls(presses,down:true)
@@ -1137,6 +1165,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
 
     override func layoutSubviews() {
+        if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
         if kind == "image" { presenter?.session?.rasters.resized(self) }

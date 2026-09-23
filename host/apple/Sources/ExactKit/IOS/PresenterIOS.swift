@@ -317,6 +317,40 @@ final class Presenter {
         deliveringFocus = false
     }
 
+    /// Sequential focus for a hardware keyboard, the order macOS's key-view
+    /// loop has (`PresenterMac.syncKeyViewLoop`): inputs, pressables and nodes
+    /// with focus, blur or key handlers, never plain text; tree order, with a
+    /// positive `tabIndex` first; nothing hidden, inert, disabled or unmounted.
+    /// UIKit hosts routes in its own controllers, so the order is the window's
+    /// view order. From no focused node, Tab takes the first.
+    func moveFocus(backward: Bool) {
+        guard let window = root.window else { return }
+        var listed: [NodeView] = []
+        func walk(_ view: UIView) {
+            if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
+            if let node = view as? NodeView, views[node.id] === node, Self.tabbable(node) { listed.append(node) }
+            view.subviews.forEach(walk)
+        }
+        walk(window)
+        let order = listed.enumerated().sorted { a, b in
+            let ia = Int(a.element.props["tabIndex"] ?? "0") ?? 0, ib = Int(b.element.props["tabIndex"] ?? "0") ?? 0
+            let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
+            return pa != pb ? pa < pb : a.offset < b.offset
+        }.map(\.element)
+        guard !order.isEmpty else { return }
+        let focused = order.firstIndex { $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
+        let next = focused.map { (backward ? $0 - 1 + order.count : $0 + 1) % order.count } ?? (backward ? order.count - 1 : 0)
+        let target = order[next]
+        let responder: UIView = target.textArea ?? target.field ?? target
+        if responder.becomeFirstResponder(), responder === target { target.showFocusRing(true) }
+    }
+    private static func tabbable(_ v: NodeView) -> Bool {
+        if v.disabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        let index = Int(v.props["tabIndex"] ?? "0") ?? 0
+        if index < 0 { return false }
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder || index > 0
+    }
+
     /// The action's focus(html-id), delivered only after the batch is mounted.
     /// A focus that cannot be delivered is refused with its reason in the
     /// runner's journal (LLP 1035.001 D3/D6, `NavigationRules.focusRefusal`),

@@ -832,7 +832,13 @@ inside a text field `textFieldShouldReturn` → `Enter` and
 the nearest authored key handler before UIKit performs its normal deletion;
 the iOS agent calls that same editor method. Typed characters are `change`
 (§5's deviation). Enter is also a `submit` handler's event and
-sets the return key to *Go*. `type="password"` is `isSecureTextEntry` (with
+sets the return key to *Go*. A hardware keyboard's Tab and Shift-Tab move the
+focus through macOS's sequential order — inputs, pressables and nodes with
+focus, blur or key handlers, never plain text, positive `tabIndex` first —
+as `UIKeyCommand`s on each node that outrank a text input's own Tab; the
+standalone app's delegate takes the first Tab when no node is focused; a
+pressable Tab reached shows a ring, and Enter or Space presses it
+(2026-09-23, `KeyboardFocusIOSTests` on a simulator). `type="password"` is `isSecureTextEntry` (with
 the password content type); `inputMode` (`email`, `numeric`, `decimal`,
 `tel`, `url`, `search`) picks the keyboard, and `type` alone does the same
 for `email`/`url`/`tel`. The agent's `tap … hover` and `type … key`

@@ -188,15 +188,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         return c
     }
     /// The dev menu's keyboard (`DevMenu.swift`): the app delegate is the
-    /// responder every chain ends at, so these fire whatever has focus.
+    /// responder every chain ends at, so these fire whatever has focus. Tab
+    /// reaches it only when no node holds the focus (a node's own command
+    /// comes first): it starts the session's sequential focus.
     override var keyCommands: [UIKeyCommand]? {
-        guard DevMenu.enabled else { return nil }
-        return [
+        let tab = [UIKeyCommand(input: "\t", modifierFlags: [], action: #selector(focusFirst)),
+                   UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(focusLast))]
+        tab.forEach { $0.wantsPriorityOverSystemBehavior = true }
+        guard DevMenu.enabled else { return tab }
+        return tab + [
             UIKeyCommand(title: "Exact Menu", action: #selector(devMenu), input: "d", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: [.command, .shift]),
         ]
     }
+    @objc func focusFirst() { session.moveFocus(backward: false) }
+    @objc func focusLast() { session.moveFocus(backward: true) }
     @objc func devMenu() { DevMenu.toggle() }
     @objc func devReload() { DevMenu.reload() }
 }

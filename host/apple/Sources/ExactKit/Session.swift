@@ -800,6 +800,12 @@ public final class ExactSession {
     }
     /// The scene became active (iOS): the canvases follow.
     public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
+    #if os(iOS)
+    /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
+    /// holds the focus: an app's last responder forwards it here, as macOS's
+    /// window starts its key-view loop at the view.
+    public func moveFocus(backward: Bool) { presenter.moveFocus(backward: backward) }
+    #endif
     #if canImport(UIKit)
     /// EXACT_FPS (iOS): the measure's report line, once a second.
     public var onFrameReport: ((String) -> Void)? {

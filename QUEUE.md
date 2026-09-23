@@ -286,11 +286,6 @@ sits on that list carries the trade it would take.
   six assertions want `Answer::Now(...)` around a `Value` — and the file carries another
   session's uncommitted edits; whoever owns them wraps them.
 
-- **Tab on iOS with a hardware keyboard** (Weird Castle login): macOS now
-  wires the key-view loop after each batch (fields and buttons, tree order,
-  Space/Enter on a focused pressable). iOS still has no sequential-focus
-  path for an external keyboard.
-
 ## From the 2026-09-01 review (LLP 1025)
 
 LLP 1025 is the dated review snapshot, not a live defect list. The 2026-09-01
