@@ -40,8 +40,10 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 // A Bun older than package.json's pin is refused before anything builds.
 // Node, which runs these scripts for apps outside the repo, is not checked.
-const PINNED_BUN = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace(/^bun@/, '');
-if (process.versions.bun) {
+// Partial fixture copies of these scripts carry no package.json and no pin.
+const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))
+  ? JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager?.replace(/^bun@/, '') : null;
+if (process.versions.bun && PINNED_BUN) {
   const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
   const at = pin.findIndex((part, i) => have[i] !== part);
   if (at >= 0 && have[at] < pin[at]) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins; run \`bun upgrade\``);
