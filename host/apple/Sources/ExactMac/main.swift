@@ -260,7 +260,11 @@ func finishLaunching() {
     // EXACT_PLAN=<file> boots that plan instead of the one baked into the
     // library — any compiled contract, no rebuild (smokes, fixtures).
     let bootError: String? = {
-        let size = session.viewportSize
+        // The view is not in the window yet, so its presenter has no size:
+        // boot at the window's content layout size, which it reports once
+        // attached. A zero viewport is refused (Runner(InvalidViewport)).
+        let presented = session.viewportSize
+        let size = presented.width > 0 && presented.height > 0 ? presented : window.contentLayoutRect.size
         let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
         if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
             DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
