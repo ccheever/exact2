@@ -16,7 +16,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource, Interrupt, Target};
+pub use source::{DataError, DataSource, InFlight, Interrupt, Target};
 mod delivery;
 mod kept;
 mod lists;
@@ -200,6 +200,8 @@ struct PendingReq {
     target: Target,
     source: String,
     args: Vec<Value>,
+    /// The source's continuation token, when the request is one.
+    continuation: Option<u64>,
 }
 
 struct Timer {

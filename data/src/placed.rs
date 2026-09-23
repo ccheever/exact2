@@ -10,8 +10,8 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Reply, Request, Store,
-    Target, Work,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Reply,
+    Request, Store, Target, Work,
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{channel, Sender};
@@ -327,18 +327,24 @@ impl<D: DataSource + 'static> Placed<D> {
     }
 }
 
-/// Tell the instance on its owner what is still in flight; an argument that
-/// doesn't cross leaves its request out, which only lets its call go too.
+/// Tell the instance on its owner what is still in flight, without tokens:
+/// the proxy's mean nothing there. An argument that doesn't cross leaves its
+/// request out, which only lets its call go too.
 fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u8>>)]) {
     let decoded: Vec<(Target, &str, Vec<Value>)> = in_flight
         .iter()
         .filter_map(|(target, name, args)| Some((*target, name.as_str(), decode_args(args).ok()?)))
         .collect();
-    let borrowed: Vec<(Target, &str, &[Value])> = decoded
+    let view: Vec<InFlight<'_>> = decoded
         .iter()
-        .map(|(target, name, args)| (*target, *name, args.as_slice()))
+        .map(|(target, source, args)| InFlight {
+            target: *target,
+            source,
+            args,
+            continuation: None,
+        })
         .collect();
-    source.forgotten(&borrowed);
+    source.forgotten(&view);
 }
 
 /// One turn (LLP 1027.002 D3, change 3): begin or resume; stay on the owner
@@ -511,24 +517,43 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.parse_with(Some(target), store, source, args, outcome)
     }
 
-    /// Stages and recorded calls for requests the runner let go are dropped,
-    /// and the source hears the same, on its owner in turn order (LLP 1016
-    /// D5). A turn already running there ends; the runner drops its reply.
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
-        let keep: HashSet<Key> = in_flight
+    /// What the runner still has in flight, in this proxy's tokens (LLP 1016
+    /// D5). A recorded call whose token isn't in flight was replaced or let
+    /// go, and is dropped. A key no longer in flight loses its stages; one
+    /// whose in-flight request is a newer recorded call (a refresh with
+    /// equal arguments) keeps that call's stage alone. A turn already running
+    /// on the owner ends there; the runner drops its reply. The source hears
+    /// the same, in turn order on its owner, where it has no call yet for a
+    /// key whose recorded call hasn't been dispatched.
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+        let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
+        self.recorded.retain(|token, _| tokens.contains(token));
+        let live: HashMap<Key, Option<u64>> = in_flight
             .iter()
-            .map(|(target, source, args)| key(Some(*target), source, args))
+            .map(|f| (key(Some(f.target), f.source, f.args), f.continuation))
             .collect();
-        let gone = |k: &Key| k.0.is_some() && !keep.contains(k);
-        self.stages.retain(|k, _| !gone(k));
-        self.recorded
-            .retain(|_, recorded| !gone(&recorded_key(recorded)));
+        let recorded = &self.recorded;
+        let newer = |k: &Key| matches!(live.get(k), Some(Some(t)) if recorded.contains_key(t));
+        self.stages
+            .retain(|k, _| k.0.is_none() || live.contains_key(k));
+        for (k, stages) in self.stages.iter_mut() {
+            if k.0.is_some() && newer(k) {
+                stages.clear();
+                stages.push_back(Stage::Turn);
+            }
+        }
         if let Some(owner) = &self.owner {
-            let in_flight = in_flight
+            let view = in_flight
                 .iter()
-                .map(|(target, source, args)| (*target, source.to_string(), encode_args(args)))
+                .filter(|f| {
+                    !matches!(
+                        f.continuation.and_then(|t| self.recorded.get(&t)),
+                        Some(Recorded::Answer { .. })
+                    )
+                })
+                .map(|f| (f.target, f.source.to_string(), encode_args(f.args)))
                 .collect();
-            let _ = owner.send(Job::Forgotten(in_flight));
+            let _ = owner.send(Job::Forgotten(view));
         } else if let Some(inner) = self.inner.as_mut() {
             inner.forgotten(in_flight);
         }
@@ -592,20 +617,8 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
 
     fn discard(&mut self, token: u64) {
         match self.recorded.remove(&token) {
-            Some(
-                Recorded::Answer {
-                    target,
-                    source,
-                    args,
-                }
-                | Recorded::Resume {
-                    target,
-                    source,
-                    args,
-                    ..
-                },
-            ) => {
-                let k = key(target, &source, &args);
+            Some(recorded) => {
+                let k = recorded_key(&recorded);
                 if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
                     if stages.is_empty() {

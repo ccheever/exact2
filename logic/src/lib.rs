@@ -254,7 +254,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
         self.embedded.as_ref().and_then(DataSource::interrupt)
     }
     /// A replaced Rust module parks nothing.
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
         if let Some(embedded) = &mut self.embedded {
             embedded.forgotten(in_flight);
         }

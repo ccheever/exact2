@@ -4,7 +4,9 @@
 use exact_js_value::{reply_from_json_slice, to_json, Shape};
 use exact_plan::{Plan, Value};
 pub use exact_runner::Placement;
-use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Store, Target};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, InFlight, Outcome, Request, Store, Target,
+};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -326,10 +328,16 @@ impl DataSource for Module {
     }
     /// Calls whose requests the runner let go are dropped here, and the
     /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         let mut keep = HashSet::new();
         let mut requests = Vec::new();
-        for (target, source, args) in in_flight {
+        for InFlight {
+            target,
+            source,
+            args,
+            ..
+        } in in_flight
+        {
             let Some((params, _)) = self.signatures.get(*source) else {
                 continue;
             };
@@ -482,7 +490,12 @@ mod tests {
                 .is_ok());
         }
         // Newer arguments replaced "a": only "ab" is in flight for the target.
-        module.forgotten(&[(Target::Mutation(0), "source", &[Value::str("ab")])]);
+        module.forgotten(&[InFlight {
+            target: Target::Mutation(0),
+            source: "source",
+            args: &[Value::str("ab")],
+            continuation: Some(1),
+        }]);
         assert_eq!(module.waiting.len(), 2);
         let reply = |text: &str| {
             Outcome::Response(exact_runner::Response {

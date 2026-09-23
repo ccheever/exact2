@@ -1,6 +1,6 @@
 //! Messages on the shared Linux host, with the native Snapback device.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Store, Target};
+use exact_runner::{Answer, DataError, DataSource, InFlight, Interrupt, Outcome, Store, Target};
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 #[path = "../../native.rs"]
 mod native;
@@ -92,7 +92,7 @@ impl DataSource for Messages {
     fn interrupt(&self) -> Option<Interrupt> {
         self.0.interrupt()
     }
-    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         self.0.forgotten(in_flight);
     }
 }
