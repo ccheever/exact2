@@ -5,5 +5,6 @@
   "theme_color": "#33aa44", "background_color": "#ffffff",
   "app": { "id": "com.exact.realworld", "name": "Conduit" },
   "host": { "web": {} },
+  "rust": false,
   "deploy": { "store": { "web": "0" } }
 }
