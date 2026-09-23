@@ -1,6 +1,6 @@
 // BENCH_N is baked by run.mjs; Contract has no string-to-number stdlib call.
 component Cubes
   state n = 100000
-  state field = false
+  state scene = 0
   view
-    canvas surface=world(n, field) testId="world" width="100%" height="100%"
+    canvas surface=world(n, scene) testId="world" width="100%" height="100%"

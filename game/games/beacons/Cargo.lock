@@ -248,12 +248,9 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
- "exact-filesystem",
- "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
- "exact-update",
  "serde_json",
  "sha2",
 ]
@@ -564,6 +561,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-bake"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-filesystem",
+ "exact-gpu-reflect",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "exact-update",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-data"
 version = "0.1.0"
 dependencies = [
@@ -599,6 +611,7 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
 ]
 
 [[package]]
@@ -740,12 +753,15 @@ name = "exact-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-kernel",
  "exact-markdown",
  "exact-motion",
  "exact-plan",
+ "exact-route",
  "exact-runner",
  "exact-textflow",
+ "sha2",
 ]
 
 [[package]]
