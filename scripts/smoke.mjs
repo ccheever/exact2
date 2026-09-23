@@ -1153,7 +1153,7 @@ if (existsSync(appTests)) {
 
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.
 if (host === 'web' && !argv.includes('--app-only')) {
-  const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'navigation', '--', '--ignored', '--nocapture'], {
+  const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'it', 'navigation::', '--', '--ignored', '--nocapture'], {
     cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_ROUTER_DIST: selectedWebDist },
   });
   check(sweep.status === 0, 'router browser sweep failed');
