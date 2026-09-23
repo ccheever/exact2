@@ -236,6 +236,25 @@ try {
     if((await ask('profile')).request.url!=='https://api.castle.xyz/me')throw new Error('first fetch');
     if((await ask('profile',[],response('{"username":"ada"}'))).request.url!=='https://api.castle.xyz/profile/ada')throw new Error('second fetch');
     if((await ask('profile',[],response('hello'))).value.error!=='hello')throw new Error('sequential response');
+    // Two targets ask one source with equal arguments: each call keeps its
+    // own continuation, whatever order the replies come in.
+    const twins=async (realm,invokeTwin)=>{
+      const starts=[await invokeTwin('Mutation(0)'),await invokeTwin('Mutation(1)')];
+      if(starts.some(r=>r.request?.url!=='https://api.castle.xyz/me'))throw new Error(`twin starts: ${JSON.stringify(starts)}`);
+      const second=await invokeTwin('Mutation(1)',response('{"username":"bob"}'));
+      const first=await invokeTwin('Mutation(0)',response('{"username":"ada"}'));
+      if(first.request?.url!=='https://api.castle.xyz/profile/ada'||second.request?.url!=='https://api.castle.xyz/profile/bob')throw new Error(`${realm}: twin calls crossed: ${JSON.stringify([first,second])}`);
+      const done=[await invokeTwin('Mutation(0)',response('ada-profile')),await invokeTwin('Mutation(1)',response('bob-profile'))];
+      if(done[0].value?.username!=='ada'||done[0].value.error!=='ada-profile'||done[1].value?.username!=='bob'||done[1].value.error!=='bob-profile')throw new Error(`${realm}: twin answers crossed: ${JSON.stringify(done)}`);
+    };
+    await twins('iframe',(target,outcome)=>checkpoint(call({id:castle.id,op:outcome?'resume':'answer',target,source:'profile',args:[],store,grants,outcome})));
+    const castleWorker=await prepare(await payload(fixtures.castle,castleIdentity),{...castleIdentity,placement:'worker'});
+    await twins('worker',async (target,outcome)=>{
+      const started=call({id:castleWorker.id,op:outcome?'resume':'answer',target,source:'profile',args:[],store,grants,outcome});
+      call({op:'dispatch',id:castleWorker.id,token:started.continuation,store,grants});
+      return await checkpoint(await run(started.continuation));
+    });
+    castleWorker.dispose();
     for(const kind of ['Refused','Unsupported','Network','Aborted']){
       await ask('login',loginArgs);
       const result=await ask('login',loginArgs,{failed:{kind,message:'test'}});

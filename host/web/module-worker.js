@@ -12,7 +12,9 @@ const checkpoint = () => new Promise(resolve => {
 });
 let context = null, storage = null, admitted = null, tail = Promise.resolve();
 const pending = new Map();
-const key = r => JSON.stringify([r.source, r.args]);
+// The runner's target first: two targets asking one source with equal
+// arguments are two calls (LLP 1027 D1a).
+const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
 
 self.__exact_host = (op, name, value) => {
   if (!context) throw new Error('host call outside an answer');

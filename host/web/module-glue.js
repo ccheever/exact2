@@ -81,7 +81,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     }
     if (win.exact?.abi !== 1 || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
     const pending = new Map();
-    const key = r => JSON.stringify([r.source,r.args]);
+    // The runner's target first: two targets asking one source with equal
+    // arguments are two calls (LLP 1027 D1a).
+    const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
       if (answer.tag === 1) {

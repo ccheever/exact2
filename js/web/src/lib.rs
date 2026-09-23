@@ -4,13 +4,20 @@
 use exact_js_value::{reply_from_json_slice, to_json, Shape};
 use exact_plan::{Plan, Value};
 pub use exact_runner::Placement;
-use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Store};
+use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Store, Target};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
+}
+
+/// The runner's target as the realm keys it: opaque, and `null` when the
+/// caller named none. Two targets asking one source with equal arguments
+/// are two calls, here and in the realm.
+fn target_json(target: Option<Target>) -> Json {
+    target.map_or(Json::Null, |target| Json::String(format!("{target:?}")))
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -75,6 +82,7 @@ impl Module {
     fn invoke(
         &mut self,
         store: &mut Store,
+        target: Option<Target>,
         source: &str,
         args: &[Value],
         outcome: Option<Outcome>,
@@ -106,8 +114,9 @@ impl Module {
             .into_iter()
             .filter(|(name, _)| !name.starts_with(Store::KEPT))
             .collect();
-        let key = json!([source, args]).to_string();
-        let mut input = json!({"op":"answer", "id":self.id, "source":source, "args":args, "store":snapshot, "grants":store.granted()});
+        let target = target_json(target);
+        let key = json!([target, source, args]).to_string();
+        let mut input = json!({"op":"answer", "id":self.id, "target":target, "source":source, "args":args, "store":snapshot, "grants":store.granted()});
         let response = match outcome {
             None => call(input)?,
             Some(outcome) => {
@@ -326,6 +335,7 @@ impl DataSource for Module {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match self.invoke(
             &mut Store::new(&self.grants.clone(), []),
+            None,
             source,
             args,
             None,
@@ -340,7 +350,7 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.invoke(store, source, args, None)
+        self.invoke(store, None, source, args, None)
     }
     fn parse(
         &mut self,
@@ -349,13 +359,75 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.invoke(store, source, args, Some(outcome))
+        self.invoke(store, None, source, args, Some(outcome))
+    }
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.invoke(store, Some(target), source, args, None)
+    }
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.invoke(store, Some(target), source, args, Some(outcome))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_targets_asking_one_source_with_equal_arguments_keep_their_own_turns() {
+        let mut module = Module::new("test", "", "revision");
+        module.ready = true;
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::String));
+        let mut store = Store::new("", []);
+        // Each call is a browser turn, parked under its own target.
+        for (token, target) in [(1, Target::Mutation(0)), (2, Target::Mutation(1))] {
+            let key = json!([target_json(Some(target)), "source", []]).to_string();
+            let turn = format!(r#"{{"continuation":{token}}}"#);
+            assert!(matches!(
+                module.step(&mut store, "source", key, turn.as_bytes()),
+                Ok(Answer::Later(_))
+            ));
+        }
+        let reply = |text: &str| {
+            Outcome::Response(exact_runner::Response {
+                status: 200,
+                headers: vec![],
+                body: json!({"tag": 0, "value": text}).to_string().into_bytes(),
+            })
+        };
+        // The replies, the other way round: each settles its own call.
+        for (target, text) in [
+            (Target::Mutation(1), "second"),
+            (Target::Mutation(0), "first"),
+        ] {
+            assert_eq!(
+                module
+                    .parse_for(target, &mut store, "source", &[], reply(text))
+                    .unwrap(),
+                Answer::Now(Value::str(text))
+            );
+        }
+        assert!(module.waiting.is_empty());
+        // A caller that names no target keeps the untargeted key.
+        assert!(module
+            .parse(&mut store, "source", &[], reply("stray"))
+            .is_err());
+    }
 
     #[test]
     fn external_storage_observations_survive_refusal_without_a_secret_read() {
