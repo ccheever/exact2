@@ -230,7 +230,10 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     '--no-default-browser-check', 'about:blank',
   ], { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
     // Bun exposes null stdio on a failed spawn; wait before constructing CDP.
-    await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
+    // A pid is a started child: Bun 1.4.2 can drop the 'spawn' event of the
+    // first child with extra pipes a test process starts, so only a child
+    // without one waits for the event.
+    if (!child.pid) await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
   } catch (error) {
     server.close();
     rmSync(profile, {recursive:true, force:true});

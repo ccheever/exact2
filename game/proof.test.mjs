@@ -355,7 +355,10 @@ test('steady residency skips no-device worlds and asserts only device-backed wor
 
 test('explicit focus in a commit precedes autofocus and its authored side effects', () => {
   const source=readFileSync(resolve(import.meta.dir,'../host/web/glue.js'),'utf8');
-  const code=source.slice(source.indexOf('  // Newly mounted autofocus'),source.indexOf('  positionContexts();\n  return batch.timers;'));
+  // The commit's tail: explicit focus commands, then autofocus (6dbf594b moved autofocus into navigation.js).
+  const start=source.indexOf('  for (const { args, selectText } of focusCommands) {'), end=source.indexOf('  positionContexts();\n  return batch.timers;');
+  expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
+  const code=source.slice(start,end);
   const calls=[], explicit={id:'chosen',isConnected:true,matches:()=>false,getClientRects:()=>[{}],focus:()=>{calls.push('explicit');document.activeElement=explicit;}};
   const document={activeElement:null};
   new Function('focusAutofocus','focusCommands','inputReady','root','inertAncestor','getComputedStyle','log','document',code)(
@@ -666,9 +669,10 @@ test('pin scan includes authored benchmark tests and ordinary digest strings', (
   expect(pinLiterals('game/engine/src/data/text.rs',digest)).toEqual([digest]);
   expect(pinLiterals('game/engine/tests/foo.rs','0'.repeat(64))).toEqual(['0'.repeat(64)]);
 });
-test('game pin literals stay in fixture pins across the tracked tree', () => {
+test('game pin literals stay in fixture pins across the game workspace', () => {
   const root=resolve(import.meta.dir,'..');
-  const tracked=Bun.spawnSync(['git','ls-files','-z'],{cwd:root}); expect(tracked.exitCode).toBe(0);
+  // The game workspace's own files: the core's tests and experiments keep their own digests.
+  const tracked=Bun.spawnSync(['git','ls-files','-z','--','game'],{cwd:root}); expect(tracked.exitCode).toBe(0);
   const violations=[];
   for(const path of tracked.stdout.toString().split('\0').filter(Boolean)) {
     let source;
@@ -793,13 +797,15 @@ test('reused Chrome reads current-page GPU timing and clears storage, history an
       const button = document.getElementById('button');
       for (const event of ['keyup','touchcancel']) addEventListener(event, e => fetch('/released?event='+event+(e.code || '')));
       const database = () => new Promise((resolve,reject) => { const r=indexedDB.open('stage',1); r.onupgradeneeded=()=>r.result.createObjectStore('data'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error); });
-      window.exact={ready:Promise.resolve(), views:new Map([[1,button]]), agent:async request=>{
+      // glue.js's agent-mode surface: the driver asks through agentSettled.
+      const agent=async request=>{
         if(request.op==='layout') return {nodes:[{id:1,x:0,y:0,w:100,h:40}]};
         if(request.op==='timing') { document.getElementById('exact-root').dataset.gpuMs=request.ms; return {}; }
         const db=await database();
         if(request.op==='write') { const tx=db.transaction('data','readwrite'); tx.objectStore('data').put('secret','key'); await new Promise(r=>tx.oncomplete=r); history.pushState({},'', '/one'); history.pushState({},'', '/two'); db.close(); return {}; }
         const tx=db.transaction('data'); const r=tx.objectStore('data').get('key'); const value=await new Promise(ok=>r.onsuccess=()=>ok(r.result??null)); db.close(); return {value,history:history.length};
-      }};
+      };
+      window.exact={ready:Promise.resolve(), views:new Map([[1,button]]), agent, agentSettled:agent};
     </script>`, {headers:{'content-type':'text/html'}});
   }});
   let first, second;
