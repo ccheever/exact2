@@ -145,7 +145,7 @@ final class CanvasClockAudioTests: XCTestCase {
         var attempts = 0
         let second = CanvasLifecycle(s.canvases, activate: { attempts += 1; return true })
         events = []
-        second.deliver(1)
+        second.deliver(1, module: s.canvases.modules[""]!)
         XCTAssertEqual(events.last, 2)
         second.refresh()
         second.requestAudio(userInitiated: false)
