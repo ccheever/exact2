@@ -178,7 +178,7 @@ keys, spelled as the web spells them; `viewportFit`, `safeArea`,
 `keyboardAvoidingView` in the did-you-mean) lowering to the `viewportFit` and
 `interactiveWidget` props, which a host reads from the first root (LLP 1008
 §9, LLP 1007 §4). `contract/corpus/insets.contract`,
-`contract/corpus/keyboard-bar.contract`, `tests/insets.rs`.
+`contract/corpus/keyboard-bar.contract`, `contract/cli/tests/it/insets.rs`.
 **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
 **Tests** (LLP 1017 P7, 2026-08-30): `test "name"` blocks — normally in
 `app.test.contract` beside the app — whose steps are the agent API's
@@ -499,7 +499,7 @@ at `LINT_VIEWPORT` (390×844, a phone) on the monospace measurer, and a
 a pressable with zero area is `bake-zero-size` (one holding an image or a
 canvas is exempt — their size is the host's), each named by the node's
 `testId`; `bake` returns `BakeError` — the runner's refusal or the lint's —
-and every host's `build.rs` fails on either (`contract/cli/tests/lint.rs`).
+and every host's `build.rs` fails on either (`contract/cli/tests/it/lint.rs`).
 The compiler cannot see layout; bake can, and it already had the kernel. The CLI: `contract
 build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `file:line:col [id] message`, exit 1.
@@ -522,12 +522,12 @@ declaration also uses `route-duplicate`; a state that redeclares its slot
 uses the ordinary `type-duplicate-name`.
 
 `routes.contract` is Interview's table with every verb and D6's stack rows.
-`tests/routes.rs` holds declaration order, positional shapes, byte-identical
+`contract/cli/tests/it/routes.rs` holds declaration order, positional shapes, byte-identical
 compilation and encode/decode, `/` and `/prompt/5/write` launch fill, the
 baked-argument rule, encoded string/number paths, query reads, retained tabs,
 entry-id row identity, imported-file refusals and instance lifting. It replays
 all 66 steps from `route/tests/corpus.json` through compiled actions, without
-copying expectations. `tests/typescript.rs` checks the four generated types.
+copying expectations. `contract/cli/tests/it/typescript.rs` checks the four generated types.
 `navigate=action` (LLP 1038 D8/D11) belongs only to the first navigation
 root, carrying both `navigationKey` and `navigationBack`; after inlining, any
 other placement is `lower-navigate-root` (corpus reject). Its action takes one
@@ -589,7 +589,7 @@ not yet expose `transition`). Each is a fixture away, never a speculation.
 
 ## 9. Checks that hold this
 
-`contract/syntax/tests/parse.rs`, `contract/cli/tests/corpus.rs`,
+`contract/syntax/tests/parse.rs`, `contract/cli/tests/it/corpus.rs`,
 `apps/caltrain/tests/app.rs`, and every crate's unit tests, all under
 `cargo test --workspace` (135 tests across the workspace on 2026-08-28);
 clippy `-D warnings`, fmt, and `caps` green.
