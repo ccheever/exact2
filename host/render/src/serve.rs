@@ -367,6 +367,50 @@ fn finish(mut response: Response, request: &Request) -> Response {
     response
 }
 
+/// Of `locations`, the ones a crawler may index, as the build's sitemap
+/// keeps them: each is answered as a request is (a cached page from the
+/// origin's cache), and a page that is gone, failed, or says `noindex` is
+/// left out. A page at its deadline stays: it exists, and asks to be read
+/// again. Renders run `--renders` at a time.
+fn indexed<D: DataSource>(shared: &Shared, data: fn() -> D, locations: Vec<String>) -> Vec<String> {
+    let keep = |location: &String| {
+        let request = Request {
+            method: "GET".into(),
+            target: location.clone(),
+            if_none_match: None,
+            revalidate: false,
+            no_store: false,
+            accepts: Accepts::default(),
+        };
+        let response = respond(&request, shared, data);
+        let noindex = response.headers.iter().any(|(name, value)| {
+            *name == "X-Robots-Tag" && value.to_ascii_lowercase().contains("noindex")
+        });
+        matches!(response.status, 200 | 503) && !noindex
+    };
+    let mut kept = Vec::with_capacity(locations.len());
+    for batch in locations.chunks(shared.serve.renders.max(1)) {
+        let verdicts: Vec<bool> = std::thread::scope(|scope| {
+            let running: Vec<_> = batch
+                .iter()
+                .map(|location| scope.spawn(move || keep(location)))
+                .collect();
+            running
+                .into_iter()
+                .map(|handle| handle.join().unwrap_or(false))
+                .collect()
+        });
+        kept.extend(
+            batch
+                .iter()
+                .zip(verdicts)
+                .filter(|(_, keep)| *keep)
+                .map(|(location, _)| location.clone()),
+        );
+    }
+    kept
+}
+
 /// Whether a path names a file (its last segment has an extension the
 /// server knows as a type) rather than a page.
 fn asset_shaped(path: &str) -> bool {
@@ -716,6 +760,7 @@ fn sitemap<D: DataSource>(shared: &Shared, data: fn() -> D) -> Response {
             }
         }
     }
+    let locations = indexed(shared, data, locations);
     let xml = |t: &str| {
         t.replace('&', "&amp;")
             .replace('<', "&lt;")

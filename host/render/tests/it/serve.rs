@@ -16,6 +16,7 @@ routes nav
   tab home "/" render=build
     post "/post/:post" render=cached pages=posts("public")
     live "/live/:post" render=request
+    draft "/draft/:post" render=cached pages=posts("drafts")
   tab app "/app"
   notfound render=build
 
@@ -34,6 +35,9 @@ component Blog
           when e.name == "post" or e.name == "live"
             head title=post.title
             text post.title testId="title"
+          when e.name == "draft"
+            head title=post.title robots="noindex"
+            text post.title
 "#;
 
 /// A post by its id: `slow` answers long after any deadline, `boom`
@@ -66,6 +70,9 @@ impl DataSource for Posts {
                 Value::str("7"),
                 Value::str("an idea"),
             ]))),
+            ("posts", _) if args == [Value::str("drafts")] => {
+                Ok(Answer::Now(Value::list(vec![Value::str("d1")])))
+            }
             ("post", "slow") => Ok(Answer::Later(Request::continuation(1))),
             ("post", "boom") => Err(DataError::Unavailable("boom".into())),
             ("post", "cache-probe") => Ok(Answer::Now(post(&format!(
@@ -399,8 +406,11 @@ fn the_sitemap_lists_each_rendered_route_and_its_listed_pages() {
     ] {
         assert!(body.contains(&format!("<loc>{url}</loc>")), "{url}\n{body}");
     }
-    // A route without a pages source isn't in it; neither is the shell's.
+    // A route without a pages source isn't in it; neither is the shell's,
+    // nor a page that says `noindex`, as the build's sitemap leaves them.
     assert!(!body.contains("/live/") && !body.contains("/app"), "{body}");
+    assert!(!body.contains("/draft/"), "{body}");
+    assert_eq!(get(addr, "/draft/d1").0, 200);
     let (status, _, body) = get(addr, "/robots.txt");
     assert_eq!(status, 200);
     assert_eq!(
