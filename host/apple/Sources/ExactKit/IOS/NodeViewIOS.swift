@@ -1312,7 +1312,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
             return
         }
-        if canBecomeFirstResponder, !isFirstResponder { _ = becomeFirstResponder() }
+        // A press under `retainFocus` leaves the editor its focus, as macOS's
+        // mouseDown does: every pressable can take the focus now.
+        if canBecomeFirstResponder, !isFirstResponder, presenter?.contextRetainsFocus(self) != true { _ = becomeFirstResponder() }
         guard pressed else { return super.touchesEnded(touches, with: event) }
         pressed = false
         // A pressed node that did not take the focus: the field being edited

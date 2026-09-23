@@ -483,7 +483,11 @@ extension Agent {
         var took = false
         while let cur = f {
             if let node = cur as? NodeView, let field = (node.textArea as UIView?) ?? node.field { if !field.isFirstResponder { _ = field.becomeFirstResponder() }; took = true; break }
-            if cur.canBecomeFirstResponder { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true; break }
+            if cur.canBecomeFirstResponder {
+                // Under `retainFocus` the press takes nothing (`touchesEnded`).
+                if !presenter.contextRetainsFocus(cur) { if !cur.isFirstResponder { _ = cur.becomeFirstResponder() }; took = true }
+                break
+            }
             // A pressed node handles touchesEnded without forwarding it to
             // its parent. An enclosing key handler must not steal the editor.
             if cur === action { break }
