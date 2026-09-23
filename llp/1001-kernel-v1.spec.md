@@ -374,7 +374,9 @@ included (`TooDeep`, 2026-09-23). Layout recurses once per level: release
 Taffy takes up to ~3.5 KiB of stack a level (flex; block 1.9, inline runs
 0.7) and hosts lay out on their main thread, 1 MiB on iOS; a 20,000-deep
 tree overflowed it and aborted the process. The deepest app tree is 9
-(Caltrain). A child listed
+(Caltrain). The bound stays 128, not the 1,024 first asked for. The coordinator
+settled it on Charlie's word, 2026-09-23: "tackle everything still open from
+the core lane". A child listed
 under a new parent is reparented; children dropped from a list become detached
 (live, no parent, in no root's layout) — not destroyed. An old parent is
 pruned once per op, or once per run of consecutive `DestroyView`s, in one pass
