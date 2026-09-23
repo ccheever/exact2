@@ -10,7 +10,10 @@ fn viewport_resize_reanswers_before_native_layout() {
         }
     }
     let plan = contract::bake(
-        contract::compile(include_str!("../../../contract/corpus/viewport.contract")).unwrap(),
+        contract::compile(include_str!(
+            "../../../../contract/corpus/viewport.contract"
+        ))
+        .unwrap(),
         FactsOnly,
     )
     .unwrap();

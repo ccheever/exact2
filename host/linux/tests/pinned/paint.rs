@@ -3,6 +3,7 @@
 //! and a group opacity, a scroll container clips, a screenshot is the
 //! viewport.
 
+use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
 use exact_runner::{DataError, DataSource, Value};
@@ -33,24 +34,6 @@ fn painters() -> Vec<PainterChoice> {
         v.push(PainterChoice::Gpu);
     }
     v
-}
-
-/// The pinned font (LLP 1015 §3): the fixture directory and the family
-/// name the driver sets, so every number in these tests is the same on a
-/// Mac and on a builder. Set once, before the first engine is made; the
-/// environment is process-wide and every test wants the same values.
-fn pin_font() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        std::env::set_var(
-            "EXACT_FONTS",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../scripts/fixtures/fonts/assets"
-            ),
-        );
-        std::env::set_var("EXACT_FONT", "DejaVu Sans");
-    });
 }
 
 fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
@@ -939,7 +922,7 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
 
 #[test]
 fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
-    let source = include_str!("../../../contract/corpus/accessibility.contract");
+    let source = include_str!("../../../../contract/corpus/accessibility.contract");
     let mut p = compiled(source, 1.0, PainterChoice::Cpu);
     let id = |p: &Presenter<NoData>, name: &str| view(p, name);
     let first = id(&p, "first");

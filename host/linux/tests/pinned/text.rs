@@ -4,6 +4,7 @@
 //! weight), measured against the pinned font's own advances so the numbers
 //! are the same on every machine.
 
+use crate::pin_font;
 use exact_kernel::TextAlign;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::text::{Run, Spec};
@@ -115,21 +116,6 @@ fn a_rejected_reload_keeps_the_running_font_catalog() {
             .declared_face_id(8, 400, false),
         Some(before)
     );
-}
-
-/// The pinned font (LLP 1015 §3), set once before the first engine is made.
-fn pin_font() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        std::env::set_var(
-            "EXACT_FONTS",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../scripts/fixtures/fonts/assets"
-            ),
-        );
-        std::env::set_var("EXACT_FONT", "DejaVu Sans");
-    });
 }
 
 /// One string at four weights, each text shrink-wrapped to its advance.

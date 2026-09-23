@@ -5,6 +5,7 @@
 //! values; an image's size lays out; the agent's operations answer on the
 //! wire.
 
+use crate::pin_font;
 use exact_kernel::{Kernel, NodeType, Op, PropId};
 use exact_linux::agent::handle;
 use exact_linux::image::Images;
@@ -16,24 +17,6 @@ use std::time::{Duration, Instant};
 
 fn assets() -> PathBuf {
     PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"))
-}
-
-/// The pinned font (LLP 1015 §3): the fixture directory and the family
-/// name the driver sets, so every number in these tests is the same on a
-/// Mac and on a builder. Set once, before the first engine is made; the
-/// environment is process-wide and every test wants the same values.
-fn pin_font() {
-    static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| {
-        std::env::set_var(
-            "EXACT_FONTS",
-            concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../scripts/fixtures/fonts/assets"
-            ),
-        );
-        std::env::set_var("EXACT_FONT", "DejaVu Sans");
-    });
 }
 
 fn boot() -> Presenter<caltrain_data::Caltrain> {
