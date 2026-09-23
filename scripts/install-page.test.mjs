@@ -6,7 +6,7 @@ import { filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage } from './install-page.mjs';
+import { developmentGate, developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
 import { listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange } from '../host/web/serve.mjs';
 import { publishRoot } from './deploy.mjs';
@@ -262,4 +262,25 @@ test('browser destinations respect listener binding and keep public URLs explici
   assert.match(page,/Tailscale \/ VPN/);assert.match(page,/https:\/\/interview.example\/app/);
   assert.ok(installProblems({...manifest,install:{web:{urls:[{label:'Bad',url:'javascript:alert(1)'}]}}}).length);
   assert.ok(installProblems({...manifest,install:{ios:{methods:[],urls:[]}}}).length);
+});
+
+test('a development server answers only to its printed names; its token and phone URL are its own', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}],en0:[{address:'192.168.1.20',family:'IPv4',internal:false}]};
+  const request=(host,peer)=>({headers:host===undefined?{}:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces}), lan=installBrowserOrigins({host:'0.0.0.0',port:8879,interfaces});
+  const local=developmentGate(loopback,8879), shared=developmentGate(lan,8879);
+  assert.deepEqual(local.check(request('127.0.0.1:8879','127.0.0.1')),{allowed:true,local:true});
+  assert.deepEqual(local.check(request('LOCALHOST:8879','::1')),{allowed:true,local:true});
+  // DNS rebinding: a loopback socket reached under another name.
+  assert.deepEqual(local.check(request('rebound.example:8879','127.0.0.1')),{allowed:false,local:false});
+  assert.deepEqual(local.check(request('192.168.1.20:8879','127.0.0.1')),{allowed:false,local:false});
+  assert.deepEqual(local.check(request(undefined,'127.0.0.1')),{allowed:false,local:false});
+  assert.deepEqual(shared.check(request('192.168.1.20:8879','192.168.1.33')),{allowed:true,local:false});
+  // A peer naming the loopback host is still not local.
+  assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
+  assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
+  assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
+  assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
 });

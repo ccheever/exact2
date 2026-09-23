@@ -361,6 +361,16 @@ the menus arm does — a smoke never browses the office network.
 
 ## 6. The bind, and finding a server
 
+**Amended 2026-09-23 for `dev.mjs` (the 2026-09-22 review):** it binds
+`127.0.0.1` by default and `0.0.0.0` only with `--lan`; `--loopback` and
+`EXACT_LOOPBACK` are gone from it. The LAN server exposed more than plans —
+compile errors with source on `/__dev`, every dev generation, and an install
+page carrying the token that builds a paired phone. Either way it answers only
+to the addresses it printed (plus `localhost`), refusing any other `Host` with
+421 against DNS rebinding; the installer's token reaches only a page loaded
+over loopback, and the phone's app URL is a printed address, never a request
+header. `serve.mjs` keeps D8 as ruled.
+
 **D8 — LAN by default, `--loopback` to turn it off.** (Ruled: Charlie,
 2026-08-30.) `dev.mjs` (and `serve.mjs`) bind `0.0.0.0`; `--loopback`
 (env: `EXACT_LOOPBACK=1`) restores today's `127.0.0.1` **and silences

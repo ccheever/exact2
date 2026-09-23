@@ -412,8 +412,9 @@ available iOS Simulators and reachable paired devices, then **Build and install*
 runs the existing `--ios --sim` or development-signed `--device` build, installs
 the app, and opens it on the same development URL. Simulator builds work from a
 loopback server. A physical phone must be unlocked, paired, in Developer Mode and
-able to reach the server, so start without `--loopback` and use a printed LAN URL
-for that case. The request is same-origin and protected by a random token that
+able to reach the server, so start the dev server with `--lan`; the build opens the
+app on a LAN address the server printed. The action appears only on a page loaded
+over loopback on the Mac itself, and its request is protected by a random token that
 exists only for that server process. Static and hosted pages never expose it.
 
 For additional web destinations, set `install.web.urls` to entries such as

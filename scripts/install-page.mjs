@@ -226,6 +226,34 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
   const rank = label => label.startsWith('Localhost') ? 0 : label.startsWith('LAN') ? 1 : label.startsWith('Tailscale') ? 2 : 3;
   return origins.sort((a,b) => rank(a.label) - rank(b.label) || a.origin.localeCompare(b.origin));
 }
+/** The development server's request gate. It answers only to the names it
+ * printed at startup (`origins`, from installBrowserOrigins) and `localhost`:
+ * a DNS-rebinding page reaches a loopback socket under its own name. A
+ * request is local — it may see the installer's token — only from a loopback
+ * peer naming a loopback host. */
+export function developmentGate(origins, port) {
+  const loopback = [`http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => new URL(origin));
+  const names = new Set([...origins.map(o => new URL(o.origin).host), ...loopback.map(u => u.host)]);
+  const peers = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+  return {
+    loopbackOrigins: loopback.map(u => u.origin),
+    check(req) {
+      const host = String(req.headers.host ?? '').toLowerCase();
+      return { allowed: names.has(host), local: loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
+    },
+  };
+}
+
+/** The app URL a local iOS build opens: one of this server's printed
+ * addresses, never a request header. A Simulator shares this Mac's loopback;
+ * a device needs a network address, so a loopback-only server refuses it. */
+export function localInstallURL(kind, origins, port) {
+  if (kind === 'simulator') return `http://127.0.0.1:${port}/`;
+  const network = origins.find(o => new URL(o.origin).hostname !== '127.0.0.1');
+  if (!network) throw Object.assign(new Error('A physical device cannot reach a loopback-only server. Restart it with --lan and open this page again.'), { status: 400 });
+  return network.origin + '/';
+}
+
 export function installNetworkPage(html, listener) {
   const data = JSON.stringify(installBrowserOrigins(listener)).replaceAll('<', '\\u003c');
   return html.replace('<!-- exact-browser-origins -->', `<script type="application/json" id="exact-browser-origins">${data}</script>`);

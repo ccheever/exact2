@@ -23,7 +23,7 @@ bun host/web/serve.mjs --origin target/messages-stress-dist --loopback 4318
 Open `http://127.0.0.1:4318/`. Use a separate output directory/port for the
 other stress app; the default web output directory is shared across apps.
 For live editing, use `EXACT_WEB_DIST=target/messages-stress-dev bun
-host/web/dev.mjs --app messages-stress --port 8771 --loopback` instead.
+host/web/dev.mjs --app messages-stress --port 8771` instead.
 The ordinary native wrapper is available with
 `bun host/apple/build.mjs messages-stress-apple --run` (or `--ios --run`).
 

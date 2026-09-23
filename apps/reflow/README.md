@@ -52,7 +52,7 @@ exclusion share that height, and the picture moves down if the quote needs room.
 export EXACT_UPDATE_TRUST=development
 
 # Web (open the URL printed by the dev server)
-bun host/web/dev.mjs --app reflow --loopback
+bun host/web/dev.mjs --app reflow
 
 # macOS; append --ios for the simulator
 bun host/apple/build.mjs --app reflow --run

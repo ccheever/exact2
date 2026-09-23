@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
 // The resident dev loop: edit app.contract → the page shows it, no cargo
-// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--loopback]
+// build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan]
 //
-// Binds the LAN by default (LLP 1023 D8) so a phone on the network can boot
-// the plan from this URL; --loopback (or EXACT_LOOPBACK=1) restores
-// 127.0.0.1 only. The agent carrier is not here and never binds the LAN.
+// Binds 127.0.0.1. --lan binds every interface, so a phone on the network can
+// boot the plan from a printed LAN URL — and so can any peer read the plan,
+// the compile errors on /__dev and the dev generations (LLP 1023 D8, amended
+// 2026-09-23). Either way the server answers only to the names it printed, and
+// the local iOS installer's token reaches only a page loaded over loopback.
+// The agent carrier is not here and never binds the LAN.
 //
 // One Rust process (the app's `dev` bin, exact_web::dev) watches the source
 // and writes each baked plan to dist/app.plan; this script serves dist/
@@ -26,9 +29,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { developmentInstallPage, installNetworkPage, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
+import { developmentGate, developmentInstallPage, installBrowserOrigins, installNetworkPage, localInstallURL, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
-import { networkInterfaces } from 'node:os';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -42,12 +44,11 @@ const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? 
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development'};
 let app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
-const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
-const host = loopback ? '127.0.0.1' : '0.0.0.0';
-const privateAddress = address => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address);
-const lanAddresses = Object.values(networkInterfaces()).flat()
-  .filter(address => address && !address.internal && address.family === 'IPv4')
-  .map(address => address.address).sort((a, b) => privateAddress(b) - privateAddress(a));
+const lan = argv.includes('--lan');
+const host = lan ? '0.0.0.0' : '127.0.0.1';
+// The addresses printed at startup are the only names requests may use.
+const origins = installBrowserOrigins({ host, port });
+const gate = developmentGate(origins, port);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
 const source = resolve(app.dir, 'app.contract');
@@ -211,17 +212,13 @@ function localInstallStatus(forceTargets = false) {
 function appendLocalInstallLog(chunk) {
   localInstallState.log = (localInstallState.log + String(chunk)).replace(/\r/g, '').slice(-16000);
 }
-function startLocalInstall(targetId, requestOrigin) {
+function startLocalInstall(targetId) {
   if (localInstallChild) { const error = new Error('A local iOS build is already running.'); error.status = 409; throw error; }
   refreshLocalInstallTargets(true);
   if (localInstallTargetError) { const error = new Error(localInstallTargetError); error.status = 503; throw error; }
   const target = localInstallTargets.find(candidate => candidate.id === targetId);
   if (!target) { const error = new Error('That Simulator or device is no longer available. Refresh the target list.'); error.status = 400; throw error; }
-  let appURL = new URL('/', requestOrigin);
-  if (target.kind === 'device' && ['127.0.0.1', 'localhost', '[::1]'].includes(appURL.hostname)) {
-    if (loopback || !lanAddresses.length) { const error = new Error('A physical device cannot reach this loopback-only server. Start it on the LAN and open the LAN install URL.'); error.status = 400; throw error; }
-    appURL = new URL(`http://${lanAddresses[0]}:${port}/`);
-  }
+  const appURL = new URL(localInstallURL(target.kind, origins, port));
   localInstallState = { state: 'building', message: `Building ${app.displayName} for ${target.name}. This can take a few minutes…`, log: '', target: publicTarget(target), startedAt: new Date().toISOString() };
   const destination = target.kind === 'simulator' ? ['--ios', app.crate('apple'), '--sim', target.value] : ['--device', app.crate('apple'), '--phone', target.value];
   const child = localInstallChild = spawn(process.execPath, [resolve(root, 'host/apple/build.mjs'), ...destination, '--run', '--url', appURL.href], {
@@ -943,6 +940,8 @@ async function produceGpu(files) {
 }
 
 const server = createServer(async (req, res) => {
+  const access = gate.check(req);
+  if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
@@ -961,7 +960,7 @@ const server = createServer(async (req, res) => {
   }
   if (localInstall) {
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body) + '\n'); };
-    if (req.headers['x-exact-install-token'] !== localInstallToken) { json(404, { message: 'Not found.' }); return; }
+    if (!access.local || req.headers['x-exact-install-token'] !== localInstallToken) { json(404, { message: 'Not found.' }); return; }
     if (req.method === 'GET' || req.method === 'HEAD') {
       const body = localInstallStatus(url.searchParams.get('refresh') === '1');
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -969,8 +968,7 @@ const server = createServer(async (req, res) => {
       return;
     }
     try {
-      const origin = new URL(req.headers.origin);
-      if (!['http:', 'https:'].includes(origin.protocol) || origin.host !== req.headers.host) { const error = new Error('The install request must come from this development server.'); error.status = 403; throw error; }
+      if (!gate.loopbackOrigins.includes(req.headers.origin)) { const error = new Error('The install request must come from this development server.'); error.status = 403; throw error; }
       if (!/^application\/json(?:\s*;|$)/i.test(req.headers['content-type'] ?? '')) { const error = new Error('The install request must be JSON.'); error.status = 415; throw error; }
       let size = 0, encoded = '';
       for await (const chunk of req) {
@@ -980,7 +978,7 @@ const server = createServer(async (req, res) => {
       }
       const body = JSON.parse(encoded || '{}');
       if (typeof body.target !== 'string' || body.target.length > 128) { const error = new Error('Choose an available iOS Simulator or paired device.'); error.status = 400; throw error; }
-      json(202, startLocalInstall(body.target, origin));
+      json(202, startLocalInstall(body.target));
     } catch (error) {
       json(error.status ?? 400, { message: error instanceof SyntaxError ? 'The install request must be JSON.' : error.message });
     }
@@ -1061,7 +1059,7 @@ const server = createServer(async (req, res) => {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
     if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
-    if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin'
+    if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin' && access.local
       ? developmentInstallPage(body.toString(), localInstallToken)
       : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
     if (INSTALL_FILES.includes(found.route)) body = installNetworkPage(body.toString(), {host,port});
@@ -1071,16 +1069,13 @@ const server = createServer(async (req, res) => {
 server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 server.listen(port, host, () => {
-  const urls = [`http://127.0.0.1:${port}/`];
-  if (!loopback) {
-    // Every usable IPv4, private-range first, none silently picked (D8):
-    // a utun/VPN address printed alone is a silent failure on the phone.
-    urls.push(...lanAddresses.map((address) => `http://${address}:${port}/`));
-    if (lanAddresses.length === 0) console.log('no LAN interface found; serving loopback only in effect');
-  }
+  // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
+  // address printed alone is a silent failure on the phone.
+  const urls = origins.map(o => `${o.origin}/`);
+  if (lan && urls.length === 1) console.log('no LAN interface found; serving loopback only in effect');
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
-  console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${loopback ? 'loopback only' : 'LAN bind — --loopback to keep it local; macOS may ask to allow node'}; ctrl-c to stop)`);
+  console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);

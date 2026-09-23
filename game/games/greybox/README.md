@@ -21,7 +21,7 @@ following and synthesized sound. `state world:*` reads every component;
 For interactive development from the repository root:
 
 ```sh
-EXACT_APP_DIR="$PWD/game/games/greybox" bun host/web/dev.mjs --loopback
+EXACT_APP_DIR="$PWD/game/games/greybox" bun host/web/dev.mjs
 ```
 
 The nearest-beacon idiom intentionally changed the interaction to light one unlit
