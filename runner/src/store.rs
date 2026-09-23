@@ -30,6 +30,12 @@ pub struct Store {
     /// Device-state observations: secrets and external storage both make
     /// resources device-dependent at bake (LLP 1018 D4 / LLP 1027 D4).
     reads: std::cell::Cell<usize>,
+    /// Each entry's value before its first write since the open checkpoint:
+    /// what a refused transaction puts back. A checkpoint costs what the
+    /// transaction writes, not the store's size. Checkpoints do not nest.
+    undo: Vec<(String, Option<String>)>,
+    /// Bytes copied into `undo` since the store was made.
+    copied: usize,
 }
 
 /// One write for the host to persist, in order: `value` `None` forgets.
@@ -59,7 +65,6 @@ impl From<StoreError> for DataError {
 }
 
 pub(crate) struct StoreCheckpoint {
-    values: std::collections::BTreeMap<String, String>,
     revision: u64,
     /// How many writes stood at the checkpoint: the ones after it are new.
     pub(crate) writes: usize,
@@ -90,6 +95,8 @@ impl Store {
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
+            undo: Vec::new(),
+            copied: 0,
         }
     }
 
@@ -158,6 +165,7 @@ impl Store {
         if self.values.get(name).map(String::as_str) == Some(value) {
             return;
         }
+        self.remember(name);
         self.values.insert(name.to_string(), value.to_string());
         self.writes.push(StoreWrite {
             name: name.to_string(),
@@ -168,6 +176,7 @@ impl Store {
     /// Discard an incompatible runner-owned answer without dirtying app secrets.
     pub(crate) fn forget_kept(&mut self, name: &str) {
         debug_assert!(Store::is_kept(name));
+        self.remember(name);
         if self.values.remove(name).is_some() {
             self.writes.push(StoreWrite {
                 name: name.to_string(),
@@ -195,6 +204,7 @@ impl Store {
         if !self.is_granted(name) {
             return Err(StoreError::Refused(name.to_string()));
         }
+        self.remember(name);
         self.values.insert(name.to_string(), value.to_string());
         self.revision += 1;
         self.writes.push(StoreWrite {
@@ -210,6 +220,7 @@ impl Store {
         if !self.is_granted(name) {
             return Err(StoreError::Refused(name.to_string()));
         }
+        self.remember(name);
         self.values.remove(name);
         self.revision += 1;
         self.writes.push(StoreWrite {
@@ -267,18 +278,37 @@ impl Store {
         self.revision
     }
 
-    pub(crate) fn checkpoint(&self) -> StoreCheckpoint {
+    /// Open a checkpoint (the last one's undo entries are no longer needed).
+    pub(crate) fn checkpoint(&mut self) -> StoreCheckpoint {
+        self.undo.clear();
         StoreCheckpoint {
-            values: self.values.clone(),
             revision: self.revision,
             writes: self.writes.len(),
         }
     }
 
+    /// Put back every entry written since `c`, newest first.
     pub(crate) fn restore(&mut self, c: StoreCheckpoint) {
-        self.values = c.values;
+        while let Some((name, old)) = self.undo.pop() {
+            match old {
+                Some(value) => self.values.insert(name, value),
+                None => self.values.remove(&name),
+            };
+        }
         self.revision = c.revision;
         self.writes.truncate(c.writes);
+    }
+
+    /// Record `name`'s value before a write, for `restore`.
+    fn remember(&mut self, name: &str) {
+        let old = self.values.get(name).cloned();
+        self.copied += name.len() + old.as_ref().map_or(0, String::len);
+        self.undo.push((name.to_string(), old));
+    }
+
+    /// Bytes copied to make transactions refusable, since the store was made.
+    pub fn copied_bytes(&self) -> usize {
+        self.copied
     }
 }
 
@@ -287,5 +317,27 @@ impl Store {
     /// ones once a commit stands).
     pub(crate) fn writes(&self) -> &[StoreWrite] {
         &self.writes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_checkpoint_copies_what_the_transaction_writes_not_the_store() {
+        let kept = format!("{}answer", Store::KEPT);
+        let big = "x".repeat(1 << 20);
+        let mut store = Store::new(
+            "secret.keep token\n",
+            [(kept.clone(), big.clone()), ("token".into(), "old".into())],
+        );
+        let c = store.checkpoint();
+        store.set("token", "new").unwrap();
+        assert!(store.copied_bytes() < 64, "{}", store.copied_bytes());
+        store.restore(c);
+        assert_eq!(store.get("token"), Some("old"));
+        assert_eq!(store.kept(&kept), Some(big.as_str()));
+        assert!(store.take_writes().is_empty());
     }
 }

@@ -27,7 +27,9 @@ pub(super) struct Checkpoint {
 impl<D: DataSource> Runner<D> {
     /// Before a commit. `resources`: the commit edits the settled caches
     /// before settling (a reply does).
-    pub(super) fn checkpoint(&self, resources: bool) -> Checkpoint {
+    pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
+        self.derives_evaluated = 0;
+        self.copied_at_checkpoint = self.store.copied_bytes();
         Checkpoint {
             store: self.store.checkpoint(),
             slots: self.slots.clone(),
