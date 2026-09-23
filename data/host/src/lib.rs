@@ -2,7 +2,7 @@
 //! @ref LLP 1027.001 D2 — requests travel as values; native work stays on workers.
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target, Work,
+    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target,
 };
 use std::{collections::BTreeMap, path::PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
@@ -240,7 +240,7 @@ impl<D: DataSource> DataSource for Storage<D> {
             }
             #[cfg(not(target_arch = "wasm32"))]
             Some(Pending::Storage(..)) => match self.continuation(token) {
-                Some(work) => Dispatch::Run(Work::Now(work)),
+                Some(work) => Dispatch::Run(exact_runner::Work::Now(work)),
                 None => Dispatch::Missing,
             },
             None => Dispatch::Missing,
