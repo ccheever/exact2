@@ -207,6 +207,22 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"head","title":…,"description":…,"image":…,"canonical":…,
+    /// "robots":…}`: the active head's fields, `null` where none is set
+    /// (LLP 1048.003 D1).
+    pub fn head(&mut self, head: &exact_runner::Head) {
+        let mut s = String::from("{\"op\":\"head\"");
+        for (name, value) in head.fields() {
+            let _ = write!(s, ",\"{name}\":");
+            match value {
+                Some(value) => quote(value, &mut s),
+                None => s.push_str("null"),
+            }
+        }
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
     pub fn props(&mut self, id: u32, set: &[(&str, String)], clear: &[&str]) {
         let mut s = String::new();

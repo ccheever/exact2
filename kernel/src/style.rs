@@ -869,6 +869,8 @@ impl StyleProps {
     pub fn to_taffy(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
         let mut s = taffy::style::Style::default();
         s.display = match self.display {
+            // A document's metadata takes no space (LLP 1048.003 D1).
+            _ if node_type.is_metadata() => taffy::style::Display::None,
             Display::Block => taffy::style::Display::Block,
             Display::Flex => taffy::style::Display::Flex,
             Display::None => taffy::style::Display::None,

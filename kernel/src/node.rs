@@ -40,6 +40,14 @@ impl NodeType {
     pub fn scrolls_by_default(self) -> bool {
         matches!(self, NodeType::ScrollView | NodeType::List)
     }
+
+    /// Whether the node describes the document rather than drawing in it
+    /// (`head`, LLP 1048.003 D1): it takes no space, whatever its rows say,
+    /// and holds no children. Hosts write it where the platform keeps a
+    /// page's metadata — the web's `<head>`, a window or scene title.
+    pub fn is_metadata(self) -> bool {
+        matches!(self, NodeType::Head)
+    }
 }
 
 #[cfg(test)]
@@ -71,5 +79,10 @@ mod tests {
         assert!(NodeType::Canvas.can_hold_children());
         assert!(!NodeType::Canvas.is_measured_leaf());
         assert!(!NodeType::WebView.can_hold_children());
+        // A head is metadata: never a container, never measured.
+        assert!(NodeType::Head.is_metadata());
+        assert!(!NodeType::Head.can_hold_children());
+        assert!(!NodeType::Head.is_measured_leaf());
+        assert_eq!(NodeType::ALL.iter().filter(|t| t.is_metadata()).count(), 1);
     }
 }

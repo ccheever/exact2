@@ -507,7 +507,8 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
 
 /// The state: the clock and every slot, derive, and resource by the name the
 /// plan declares, as typed JSON (records carry their field names); the
-/// requests in flight; the names the store holds (LLP 1018).
+/// requests in flight; the names the store holds (LLP 1018); the active
+/// head's fields (LLP 1048.003 D1).
 pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let plan = runner.plan();
     let mut s = String::new();
@@ -579,7 +580,19 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         }
         quote(name, &mut s);
     }
-    s.push_str("],\"delivery\":");
+    s.push_str("],\"head\":{");
+    for (i, (name, value)) in runner.head().fields().into_iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, &mut s);
+        s.push(':');
+        match value {
+            Some(v) => quote(v, &mut s),
+            None => s.push_str("null"),
+        }
+    }
+    s.push_str("},\"delivery\":");
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");
     logic(runner, &mut s);

@@ -22,6 +22,8 @@
 //! - [`runner`] — boot, actions, events, resources, timers, the clock.
 //! - [`agent`] — the agent API's read operations (`tree`, `state`, `logs`),
 //!   answered from the runner and kernel for every host.
+//! - [`head`] — the document's head: the active `head` elements' fields,
+//!   for every host's page, window or scene title (LLP 1048.003 D1).
 //!
 //! Time is a number the host supplies (`Runner::advance`); timers fire from it,
 //! so an agent seeks instead of waiting — the same clock discipline as
@@ -34,6 +36,7 @@ pub mod agent;
 pub mod bridge;
 pub mod compare;
 pub mod delivery;
+pub mod head;
 pub mod instance;
 pub mod request;
 pub mod runner;
@@ -45,6 +48,7 @@ pub mod vm;
 
 pub use delivery::Delivery;
 pub use exact_plan::Value;
+pub use head::Head;
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
     ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,

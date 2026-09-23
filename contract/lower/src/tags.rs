@@ -153,6 +153,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::ImageSource),
         },
+        // @ref LLP 1048.003 D1 — the document's metadata: no space, no children.
+        "head" => Tag {
+            node_type: NodeType::Head,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         _ => return None,
     })
 }
@@ -263,6 +270,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "preventsDisplaySleepDuringVideoPlayback" => {
             AttrTarget::Prop(p("preventsDisplaySleepDuringVideoPlayback"))
         }
+        // `head`'s fields (LLP 1048.003 D1); they belong to `head` alone.
+        "title" => AttrTarget::Prop(p("headTitle")),
+        "description" => AttrTarget::Prop(p("headDescription")),
+        "image" => AttrTarget::Prop(p("headImage")),
+        "canonical" => AttrTarget::Prop(p("headCanonical")),
+        "robots" => AttrTarget::Prop(p("headRobots")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
@@ -607,6 +620,9 @@ pub(crate) fn validate_list(
     Ok(())
 }
 
+/// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
+pub const HEAD_FIELDS: &[&str] = &["title", "description", "image", "canonical", "robots"];
+
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
@@ -630,6 +646,7 @@ pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
         | "h6" => "text is `text`",
         "img" => "an image is `image`",
         "a" => "a link is `link`",
+        "title" | "meta" => "a page's title and description are `head title=… description=…`",
         "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
         _ => return None,
     })

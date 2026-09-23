@@ -278,3 +278,74 @@ component App
         "{post}"
     );
 }
+
+#[test]
+fn a_head_is_the_pages_head_never_an_element() {
+    let src = r#"
+component App
+  state n = 0
+  action bump writes n
+    n = n + 1
+  view
+    column testId="page"
+      head title=`Count ${n}` description="Counting"
+      button press=bump testId="bump" width=10 height=10
+      when n > 0
+        head title="Counted"
+"#;
+    let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
+    let (mut host, first) = Host::boot(&plan.encode(), Says(""), Default::default(), "/").unwrap();
+    assert!(
+        first.contains(r#"{"op":"head","title":"Count 0","description":"Counting","image":null,"canonical":null,"robots":null}"#),
+        "{first}"
+    );
+    let kernel = host.runner().kernel();
+    let page = kernel
+        .node_by_key(kernel.find_by_test_id("page")[0])
+        .unwrap();
+    let head = page.children()[0];
+    assert_eq!(
+        kernel.node(head).unwrap().node_type,
+        exact_kernel::NodeType::Head
+    );
+    // No element, and no place among its parent's children.
+    assert!(
+        !first.contains(&format!("\"op\":\"create\",\"id\":{head},")),
+        "{first}"
+    );
+    let bump = page.children()[1];
+    assert!(
+        first.contains(&format!(
+            "\"op\":\"children\",\"id\":{},\"ids\":[{bump}]",
+            page.id
+        )),
+        "{first}"
+    );
+    let doc = host.document().unwrap();
+    assert!(!doc.root.contains(&format!("data-view=\"{head}\"")));
+    assert_eq!(doc.head, host.runner().head());
+    assert_eq!(doc.head.title.as_deref(), Some("Count 0"));
+    // A deeper head arrives: the page's head follows, field by field.
+    let changed = host.dispatch(bump, exact_runner::Event::Press);
+    assert!(
+        changed.contains(r#"{"op":"head","title":"Counted","description":"Counting","image":null,"canonical":null,"robots":null}"#),
+        "{changed}"
+    );
+    // A commit that moves no head sends none.
+    let plain = host.dispatch(bump, exact_runner::Event::Press);
+    assert!(!plain.contains("\"op\":\"head\""), "{plain}");
+    // A page without a head never sends one.
+    let (_, none) = Host::boot(
+        &contract::bake(
+            contract::compile("component A\n  view\n    text \"a\"\n").unwrap(),
+            Says(""),
+        )
+        .unwrap()
+        .encode(),
+        Says(""),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(!none.contains("\"op\":\"head\""), "{none}");
+}

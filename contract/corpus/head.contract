@@ -1,0 +1,27 @@
+// Accept fixture: the document's `head` (`@ref LLP 1048.003 D1`). The
+// innermost active head wins field by field: the route's title and
+// description over the site's, the site's image where the route sets none,
+// and nothing from a route the navigation root has not selected.
+routes nav
+  tab home "/"
+    post "/post/:post"
+
+shape Post
+  title: string
+  summary: string
+
+component Site
+  resource post = loadPost(params(nav, "post")) as shape Post
+  action back writes nav
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation"
+      head title="Site" description="Every post" image="/assets/site.png" robots="index"
+      each e in stack(nav) key = e.id
+        column navigationKey=`${e.id}` testId=`route-${e.name}`
+          when e.name == "home"
+            head title="Home" canonical="/"
+            text "Home"
+          when e.name == "post"
+            head title=post.title description=post.summary canonical=`/post/${e.params.post}`
+            text post.title

@@ -114,6 +114,11 @@ pub struct Host<D: DataSource> {
     parked: BTreeMap<u64, RequestOut>,
     location: String,
     collections: String,
+    /// Head nodes (LLP 1048.003 D1): the page's `<head>`, never an element.
+    heads: std::collections::BTreeSet<ViewId>,
+    /// The head the page was last told, and whether a commit may move it.
+    head: exact_runner::Head,
+    head_dirty: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -226,6 +231,9 @@ impl<D: DataSource> Host<D> {
             collections: String::new(),
             exclusions: Default::default(),
             textflow: String::new(),
+            heads: Default::default(),
+            head: Default::default(),
+            head_dirty: false,
         };
         let mut batch = Batch::new();
         // Everything live is new to the page.
@@ -247,8 +255,10 @@ impl<D: DataSource> Host<D> {
             host.emit_children(*id, &mut batch);
         }
         host.springs.adopt(host.runner.kernel(), &order);
+        let roots = host.page_roots();
         host.roots = roots.clone();
         batch.roots(&roots);
+        host.emit_head(&mut batch);
         host.reconcile_height_drags(&mut batch);
         host.emit_height_drags(&mut batch);
         host.emit_transform_drags(&mut batch);
@@ -530,6 +540,10 @@ impl<D: DataSource> Host<D> {
             batch.at(t.at_ms);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
+                    if self.heads.remove(&id) {
+                        self.head_dirty = true;
+                        continue;
+                    }
                     self.mirror.remove(&id);
                     self.exclusions.remove(&id);
                     self.height_drags.remove(id);
@@ -580,11 +594,12 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
-        let roots = self.runner.roots();
+        let roots = self.page_roots();
         if roots != self.roots {
             self.roots = roots.clone();
             batch.roots(&roots);
         }
+        self.emit_head(batch);
         if !receipts.is_empty() {
             self.emit_height_drags(batch);
             self.emit_transform_drags(batch);
@@ -895,6 +910,14 @@ impl<D: DataSource> Host<D> {
     }
 
     fn create(&mut self, id: ViewId, batch: &mut Batch, kinds: &[EventKind]) {
+        let node = self.runner.kernel().node(id).expect("live");
+        if node.node_type.is_metadata() {
+            let key = node.key;
+            self.keys.insert(key, id);
+            self.heads.insert(id);
+            self.head_dirty = true;
+            return;
+        }
         self.track_exclusion(id);
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
@@ -938,6 +961,19 @@ impl<D: DataSource> Host<D> {
     }
 
     fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        // A head's fields, or a route selection that may hide one, moved.
+        if self.heads.contains(&id) {
+            self.head_dirty = true;
+            return;
+        }
+        if !self.heads.is_empty() {
+            let props = self.runner.kernel().node(id).expect("live").props;
+            if props.str(PropId::NavigationBack).is_some()
+                || props.str(PropId::NavigationKey).is_some()
+            {
+                self.head_dirty = true;
+            }
+        }
         self.track_exclusion(id);
         let node = self.runner.kernel().node(id).expect("live");
         if node.props.str(PropId::ReorderFor).is_some() {
@@ -969,11 +1005,37 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
-        let children = self.runner.kernel().node(id).expect("live").children();
+        if self.heads.contains(&id) {
+            return;
+        }
+        let mut children = self.runner.kernel().node(id).expect("live").children();
+        children.retain(|child| !self.heads.contains(child));
         let m = self.mirror.entry(id).or_default();
         if children != m.children {
             batch.children(id, &children);
             m.children = children;
+        }
+    }
+}
+
+impl<D: DataSource> Host<D> {
+    /// The roots the page holds: every root but a head.
+    fn page_roots(&self) -> Vec<ViewId> {
+        let mut roots = self.runner.roots();
+        roots.retain(|root| !self.heads.contains(root));
+        roots
+    }
+
+    /// The page's `<head>`, when a commit may have moved it (LLP 1048.003
+    /// D1): the runner's active head, sent only when it changed.
+    fn emit_head(&mut self, batch: &mut Batch) {
+        if !std::mem::take(&mut self.head_dirty) {
+            return;
+        }
+        let head = self.runner.head();
+        if head != self.head {
+            batch.head(&head);
+            self.head = head;
         }
     }
 }
@@ -1133,6 +1195,8 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
         NodeType::Video => "video",
+        // Never created: a head is the page's `<head>` (LLP 1048.003 D1).
+        NodeType::Head => "template",
     }
 }
 

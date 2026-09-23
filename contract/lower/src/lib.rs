@@ -1157,6 +1157,23 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
+        let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
+        if head_field != (tag == "head") {
+            return err(
+                "lower-attr-tag",
+                if head_field {
+                    format!("`{}` belongs to `head`, not `{tag}`", a.name)
+                } else {
+                    format!(
+                        "`head` takes only {}; `{}` is not one",
+                        tags::HEAD_FIELDS.join(", "),
+                        a.name
+                    )
+                },
+                a.span,
+            );
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",

@@ -1142,6 +1142,8 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
         NodeType::Video => "video",
+        // A head takes no space; its title is the window's (LLP 1048.003 D1).
+        NodeType::Head => "view",
     }
 }
 

@@ -53,6 +53,11 @@
     {
       "id": 12,
       "name": "Video"
+    },
+    {
+      "id": 13,
+      "name": "Head",
+      "_comment": "@ref LLP 1048.003 D1: the document's metadata, never laid out or painted; hosts write it into the page's head, window or scene title."
     }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
@@ -625,6 +630,31 @@
     {
       "id": 113,
       "name": "action",
+      "kind": "str"
+    },
+    {
+      "id": 114,
+      "name": "headTitle",
+      "kind": "str"
+    },
+    {
+      "id": 115,
+      "name": "headDescription",
+      "kind": "str"
+    },
+    {
+      "id": 116,
+      "name": "headImage",
+      "kind": "str"
+    },
+    {
+      "id": 117,
+      "name": "headCanonical",
+      "kind": "str"
+    },
+    {
+      "id": 118,
+      "name": "headRobots",
       "kind": "str"
     }
   ],

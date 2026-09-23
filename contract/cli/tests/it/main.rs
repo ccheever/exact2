@@ -15,6 +15,7 @@ mod fmt;
 mod fns;
 mod fonts;
 mod function_graph;
+mod head;
 mod height_binding;
 mod insets;
 mod instance;

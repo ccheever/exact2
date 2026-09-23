@@ -42,6 +42,9 @@ pub struct Document {
     pub viewport_fit: Option<String>,
     /// The first root's `interactive-widget`, likewise.
     pub interactive_widget: Option<String>,
+    /// The active head's fields: the page's `<head>` (LLP 1048.003 D1). A
+    /// head node has no element in the root.
+    pub head: exact_runner::Head,
 }
 
 /// Why a tree has no document.
@@ -95,6 +98,7 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
         root: walk.out,
         viewport_fit: prop(PropId::ViewportFit),
         interactive_widget: prop(PropId::InteractiveWidget),
+        head: runner.head(),
     })
 }
 
@@ -102,7 +106,8 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
 /// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] <location>…`
 /// boots a fresh host per location at the page viewport (the bake's 390 ×
 /// 844 unless told) and prints one JSON line each —
-/// `{"location":…,"root":…,"viewportFit":…,"interactiveWidget":…}`, or
+/// `{"location":…,"root":…,"viewportFit":…,"interactiveWidget":…,"title":…,
+/// …}` (the head's fields beside the viewport's), or
 /// `{"location":…,"error":…}`. `baked` is the app's own plan; the web
 /// build passes the one it extracted from the shipped wasm instead.
 #[cfg(not(target_arch = "wasm32"))]
@@ -153,10 +158,11 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
             Ok(doc) => {
                 line.push_str(",\"root\":");
                 crate::batch::quote(&doc.root, &mut line);
-                for (name, value) in [
-                    ("viewportFit", &doc.viewport_fit),
-                    ("interactiveWidget", &doc.interactive_widget),
-                ] {
+                let fields = [
+                    ("viewportFit", doc.viewport_fit.as_deref()),
+                    ("interactiveWidget", doc.interactive_widget.as_deref()),
+                ];
+                for (name, value) in fields.into_iter().chain(doc.head.fields()) {
                     line.push_str(&format!(",\"{name}\":"));
                     match value {
                         Some(v) => crate::batch::quote(v, &mut line),
@@ -204,6 +210,10 @@ impl<D: DataSource> Walk<'_, D> {
         let runner = self.runner;
         let kernel = runner.kernel();
         let node = kernel.node(id).expect("the runner's tree names live views");
+        if node.node_type.is_metadata() {
+            // The page's `<head>`, never an element (as the live host).
+            return Ok(());
+        }
         let refuse = |reason: &str| DocumentError {
             view: id,
             reason: reason.to_owned(),
