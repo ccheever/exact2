@@ -69,7 +69,7 @@ component NewMessageSheet
             height=44
             border-radius=22
             backgroundMaterial="glass"
-            display="flex"
+            display="flex" flex-direction="row"
             align-items="center"
             justify-content="center"
             image "symbol:close" font-size=22
@@ -102,7 +102,7 @@ component NewMessageSheet
                 border-radius=4
                 max-width="100%"
                 height=32
-                display="flex"
+                display="flex" flex-direction="row"
                 align-items="center"
                 text person.name font-size=17
                   color=(recipientSelection == person.id ? "#ffffff": "light-dark(#007aff, #0a84ff)")
@@ -129,7 +129,7 @@ component NewMessageSheet
             height=28
             border-radius=14
             background-color="light-dark(#e5e5ea, #48484a)"
-            display="flex"
+            display="flex" flex-direction="row"
             align-items="center"
             justify-content="center"
             box width=14 height=14
@@ -163,7 +163,7 @@ component NewMessageSheet
                   testId=`recipient-${person.id}`
                   aria-label=person.name
                   height=64
-                  display="flex"
+                  display="flex" flex-direction="row"
                   align-items="center"
                   gap=12
                   border-bottom-style="solid"
@@ -203,7 +203,7 @@ component NewMessageSheet
               height=40
               border-radius=20
               backgroundMaterial="glass"
-              display="flex"
+              display="flex" flex-direction="row"
               align-items="center"
               justify-content="center"
               image "symbol:add" font-size=22 font-weight=400 tint-color="#b4b4b7"
@@ -254,7 +254,7 @@ component NewMessageSheet
                 padding-left=(newDraft == "" ? 10: 0)
                 border-radius=14
                 background-color=(newDraft == "" ? "#00000000": (contacts.canSend ? "light-dark(#007aff, #0a84ff)": "light-dark(#e9e9eb, #3a3a3c)"))
-                display="flex"
+                display="flex" flex-direction="row"
                 align-items="center"
                 justify-content="center"
                 when newDraft != ""

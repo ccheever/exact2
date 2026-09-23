@@ -187,7 +187,7 @@ component Weatherlight
             column gap=6 flex=1 min-width=0
               text city testId="city-name" font-family="serif" font-size=34 letter-spacing=-1 color="#ffffff"
               text region font-size=12 color="#d5e3e9"
-            button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") width=40 height=40 border-radius=20 display="flex" align-items="center" justify-content="center" background-color="#17374e"
+            button press=toggleMotion testId="pause-sky" aria-label=(animated ? "Pause sky animation" : "Play sky animation") width=40 height=40 border-radius=20 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="#17374e"
               text (animated ? "Ⅱ" : "▷") color="#e2eced" font-size=14
           column gap=3
             text (pending(forecast) ? "UPDATING FORECAST" : outlook.selectedLabel) testId="selected-label" font-size=10 font-weight=600 letter-spacing=2 color="#d5e3e9"
@@ -211,14 +211,14 @@ component Weatherlight
               text "Choose an hour. Watch the sky change." font-size=12 color="#71818a"
             text "NEXT 24 HOURS" font-size=9 font-weight=600 letter-spacing=2 color="#71818a"
           row overflow-x="scroll" overflow-y="hidden" gap=8 padding-bottom=8 testId="hourly-timeline"
-            button press=explore("now") testId="hour-now" disabled=(not outlook.ready) height=150 width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "#183444" : "#ffffff")
+            button press=explore("now") testId="hour-now" disabled=(not outlook.ready) height=150 justify-content="center" width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == "now" ? "#183444" : "#ffffff")
               column gap=13 align-items="center"
                 text "Now" font-size=12 color=(selected == "now" ? "#ffffff" : "#536b78")
                 text "◉" font-size=22 color="#c78c54"
                 text (outlook.ready ? "Live" : "—") font-size=16 font-weight=600 color=(selected == "now" ? "#ffffff" : "#183444")
                 text "Today" font-size=10 color=(selected == "now" ? "#b8cfda" : "#71818a")
             each hour in outlook.hours key=hour.id
-              button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=150 width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "#183444" : "#ffffff")
+              button press=explore(hour.id) disabled=(not outlook.ready) testId=`hour-${hour.id}` aria-label=`${hour.label}, ${hour.temp}, ${hour.chance} chance of precipitation` scale=(selected == hour.id ? 1.025 : 1) transition="scale 180ms ease" height=150 justify-content="center" width=88 flex-shrink=0 padding=14 box-sizing="border-box" border-radius=16 background-color=(selected == hour.id ? "#183444" : "#ffffff")
                 column gap=13 align-items="center"
                   text hour.label font-size=12 color=(selected == hour.id ? "#ffffff" : "#536b78")
                   text hour.icon font-size=22 color="#c78c54"

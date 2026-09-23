@@ -109,7 +109,7 @@ component ReactionBadges
           border-width=1
           border-color="light-dark(#ffffff, #000000)"
           background-color=(entry.own ? "#008cff": "light-dark(#e9e9eb, #262629)")
-          display="flex"
+          display="flex" flex-direction="row"
           align-items="center"
           justify-content="center"
           z-index=(100 - entry.offset)

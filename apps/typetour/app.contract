@@ -73,9 +73,9 @@ component TypeTour
             Notification(id="calendar", glyph="14", title="Type review", body="Today at 2:00 PM · Studio, second floor", time="1h ago", press=unlock)
             Notification(id="expose", glyph="E", title="Expose", body="Software update ready. Expose 1.0 will install tonight while the phone charges.", time="3h ago", press=go("settings"))
           row justify-content="space-between" align-items="center" padding-left=44 padding-right=44 padding-bottom=6
-            button press=unlock testId="lock-flashlight" aria-label="Flashlight" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" align-items="center" justify-content="center"
+            button press=unlock testId="lock-flashlight" aria-label="Flashlight" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" flex-direction="row" align-items="center" justify-content="center"
               box width=10 height=24 border-radius=3 background-color="#ffffff"
-            button press=unlock testId="lock-camera" aria-label="Camera" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" align-items="center" justify-content="center"
+            button press=unlock testId="lock-camera" aria-label="Camera" width=52 height=52 border-radius=26 background-color="#ffffff2e" display="flex" flex-direction="row" align-items="center" justify-content="center"
               column width=24 height=18 border-radius=4 background-color="#ffffff" align-items="center" justify-content="center"
                 box width=9 height=9 border-radius=5 background-color="#0c0c0e"
           button press=unlock testId="lock-unlock" width="100%" display="flex" flex-direction="column" align-items="center" gap=14 padding-top=10 padding-bottom=8
@@ -227,9 +227,9 @@ component TypeTour
                 text "Update ready" font-family="Exciting Lilt" font-weight=700 font-size=22 line-height="26px"
                 text "Expose 1.0 will install tonight while the phone charges. Your apps and messages stay where they are." font-size=(15 * scale) line-height=1.35 color="light-dark(#3a3a3c, #d1d1d6)"
                 row gap=10 margin-top=6
-                  button press=go("settings") testId="specimen-later" flex=1 height=44 border-radius=22 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" align-items="center" justify-content="center"
+                  button press=go("settings") testId="specimen-later" flex=1 height=44 border-radius=22 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "Later" font-size=17 font-weight=600 color="light-dark(#000000, #ffffff)"
-                  button press=go("settings") testId="specimen-install" flex=1 height=44 border-radius=22 background-color="light-dark(#1c1c1e, #e5e5ea)" display="flex" align-items="center" justify-content="center"
+                  button press=go("settings") testId="specimen-install" flex=1 height=44 border-radius=22 background-color="light-dark(#1c1c1e, #e5e5ea)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "Install" font-size=17 font-weight=600 color="light-dark(#ffffff, #000000)"
           HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
 
@@ -238,9 +238,9 @@ component TypeTour
         when thread == ""
           column testId="messages-list" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#ffffff, #000000)"
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
-              button press=go("home") testId="messages-edit" height=44 display="flex" align-items="center"
+              button press=go("home") testId="messages-edit" height=44 display="flex" flex-direction="row" align-items="center"
                 text "Edit" font-size=17 color="light-dark(#000000, #ffffff)"
-              button press=go("home") testId="messages-compose" aria-label="New message" width=36 height=36 border-radius=18 background-color="light-dark(#f2f2f7, #1c1c1e)" display="flex" align-items="center" justify-content="center"
+              button press=go("home") testId="messages-compose" aria-label="New message" width=36 height=36 border-radius=18 background-color="light-dark(#f2f2f7, #1c1c1e)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 text "+" font-family="Exciting Lilt" font-weight=700 font-size=22 color="light-dark(#000000, #ffffff)"
             scroll flex=1 min-height=0
               column padding-bottom=16
@@ -305,12 +305,12 @@ component TypeTour
                   Bubble(body="C", out=true, scale=scale)
                   Bubble(body="Thank you! Your appointment is confirmed.", out=false, scale=scale)
             row align-items="center" gap=10 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 flex-shrink=0 border-top-style="solid" border-top-width=0.5 border-color="light-dark(#d9d9dc, #38383a)"
-              button press=go("messages") testId="composer-add" aria-label="Add attachment" width=34 height=34 border-radius=17 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" align-items="center" justify-content="center" flex-shrink=0
+              button press=go("messages") testId="composer-add" aria-label="Add attachment" width=34 height=34 border-radius=17 background-color="light-dark(#e9e9eb, #2c2c2e)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                 text "+" font-family="Exciting Lilt" font-weight=700 font-size=20 color="light-dark(#000000, #ffffff)"
               row flex=1 min-width=0 height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #48484a)" align-items="center" padding-left=14 padding-right=4 gap=6
                 input id="composer" testId="composer" value=draft change=write submit=sendDraft placeholder="Message" aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#000000, #ffffff)"
                 when draft != ""
-                  button press=sendDraft testId="send" aria-label="Send" width=28 height=28 border-radius=14 background-color="#0a84ff" display="flex" align-items="center" justify-content="center"
+                  button press=sendDraft testId="send" aria-label="Send" width=28 height=28 border-radius=14 background-color="#0a84ff" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "↑" font-size=16 font-weight=700 color="#ffffff"
             HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
 
@@ -357,7 +357,7 @@ component DockIcon
     ink: string
     press: action
   view
-    button press=press testId=`dock-${id}` aria-label=id width=62 height=62 border-radius=15 background-color=tint display="flex" align-items="center" justify-content="center"
+    button press=press testId=`dock-${id}` aria-label=id width=62 height=62 border-radius=15 background-color=tint display="flex" flex-direction="row" align-items="center" justify-content="center"
       text glyph font-family="Exciting Lilt" font-weight=700 font-size=30 color=ink
 
 // The home indicator: tapping it goes home, as the gesture would.
@@ -417,7 +417,7 @@ component ScaleButton
     current: number
     press: action
   view
-    button press=press(value) testId=`scale-${id}` aria-label=`Text size ${id}` width=52 height=48 border-radius=10 display="flex" align-items="flex-end" justify-content="center" padding-bottom=6 box-sizing="border-box" background-color=(current == value ? "light-dark(#e9e9eb, #2c2c2e)" : "#00000000")
+    button press=press(value) testId=`scale-${id}` aria-label=`Text size ${id}` width=52 height=48 border-radius=10 display="flex" flex-direction="row" align-items="flex-end" justify-content="center" padding-bottom=6 box-sizing="border-box" background-color=(current == value ? "light-dark(#e9e9eb, #2c2c2e)" : "#00000000")
       text "A" font-size=size font-weight=(current == value ? 700 : 400) color="light-dark(#000000, #ffffff)"
 
 // An inbox row: initials in Lilt, the name in Semibold, a two-line preview.
