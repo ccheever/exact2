@@ -6,11 +6,12 @@
 const ENVIRONMENT_LODS: f32 = 5.0; // ibl.rs MIPS - 1: lod = roughness × this
 
 // Outgoing radiance per unit albedo of a Lambertian surface facing n.
+// Indexes the uniform directly: a local copy of the array can stay in memory per fragment.
 fn irradiance(n: vec3<f32>) -> vec3<f32> {
-    let c = frame.irradiance;
-    let e = c[0].xyz + c[1].xyz * n.y + c[2].xyz * n.z + c[3].xyz * n.x
-        + c[4].xyz * (n.x * n.y) + c[5].xyz * (n.y * n.z) + c[6].xyz * (3.0 * n.z * n.z - 1.0)
-        + c[7].xyz * (n.x * n.z) + c[8].xyz * (n.x * n.x - n.y * n.y);
+    let e = frame.irradiance[0].xyz + frame.irradiance[1].xyz * n.y + frame.irradiance[2].xyz * n.z
+        + frame.irradiance[3].xyz * n.x + frame.irradiance[4].xyz * (n.x * n.y)
+        + frame.irradiance[5].xyz * (n.y * n.z) + frame.irradiance[6].xyz * (3.0 * n.z * n.z - 1.0)
+        + frame.irradiance[7].xyz * (n.x * n.z) + frame.irradiance[8].xyz * (n.x * n.x - n.y * n.y);
     return max(e, vec3(0.0));
 }
 // Karis's analytic fit of the preintegrated environment BRDF: F0 scale and bias.
