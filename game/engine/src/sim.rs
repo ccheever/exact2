@@ -1158,6 +1158,7 @@ impl<G: Game> Sim<G> {
         self.settle_delay.set(100);
     }
     /// Read a component by entity handle or name.
+    #[track_caller]
     pub fn get<C: crate::Component>(
         &self,
         entity: impl crate::Target,
@@ -1165,10 +1166,12 @@ impl<G: Game> Sim<G> {
         self.world.get::<C>(entity)
     }
     /// Read the entity's local Transform position.
+    #[track_caller]
     pub fn local_position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
         self.world.local_position(entity)
     }
     /// Current global position including parents.
+    #[track_caller]
     pub fn global_position(&self, entity: impl crate::Target) -> Option<crate::Vec3> {
         self.world.global_position(entity)
     }

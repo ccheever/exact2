@@ -93,11 +93,34 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
   names missing targets or components. `w.get::<Transform>("fox")` returns an option.
 - `query().iter()` yields `(Entity, item)` with borrowed references. Consuming
   `query()` yields guarded items. `.one()` returns the sole item and refuses ambiguity.
-  Iteration always follows entity order. A mutable lease locks its whole component
-  column; use a query when borrowing several rows.
+  Iteration always follows entity order.
+- Borrows are per row. A query leases the rows it matches (after `.with`/`.without`);
+  `get`, `require` and the position helpers borrow one entity's row. Reading or writing
+  another entity's component inside a loop just works. One row takes many shared
+  borrows or one exclusive borrow; a conflict panics naming the component, the entity,
+  both borrows and both source lines. See [borrowing](engine/README.md#borrowing).
 - The world owns fixed ticks, time and randomness. `w.dt()` is one fixed step;
   `w.tick_end()` names the endpoint being authored. Rendering interpolates between
   completed ticks and never changes the simulation.
+
+Each enemy reads the player's Transform inside the loop that moves the enemies'
+Transforms. The query holds only the enemies' rows, so the player's row stays free:
+
+```rust
+use exact_game::*;
+#[derive(Default, Component)]
+struct Enemy {
+    speed: f32,
+}
+let mut w = World::new(60, 7);
+w.spawn_named("player", Transform::at(0.0, 0.0, 0.0));
+w.spawn((Transform::at(10.0, 0.0, 0.0), Enemy { speed: 4.0 }));
+for (_, (pose, enemy)) in w.query::<(&mut Transform, &Enemy)>().iter() {
+    let player = w.require::<Transform>("player").position;
+    pose.position += (player - pose.position).normalize() * enemy.speed * w.dt();
+}
+assert!(w.query::<&Transform>().with::<Enemy>().one().unwrap().position.x < 10.0);
+```
 
 For a complete small game, start with [the template](new/logic/src/lib.rs) or
 [Beacons](games/beacons/logic/src/lib.rs). The [engine reference](engine/README.md)

@@ -403,14 +403,16 @@ fn a14_insert_and_remove_are_lenient_for_dead_incarnations() {
     assert_eq!(w.get::<ZLater>(new).unwrap().0, 2);
 }
 #[test]
-fn a15_mutable_guard_locks_the_whole_column_and_options_are_arrays() {
+fn a15_mutable_guard_leases_only_its_row_and_options_are_arrays() {
     let mut w = World::new(60, 0);
     let a = w.spawn(ZLater(1));
     let b = w.spawn(ZLater(2));
-    let guard = w.get_mut::<ZLater>(a).unwrap();
-    assert!(catch_unwind(AssertUnwindSafe(|| w.get::<ZLater>(b))).is_err());
-    drop(guard);
+    let mut guard = w.get_mut::<ZLater>(a).unwrap();
     assert_eq!(w.get::<ZLater>(b).unwrap().0, 2);
+    guard.0 += w.require_mut::<ZLater>(b).0;
+    assert!(catch_unwind(AssertUnwindSafe(|| w.get::<ZLater>(a))).is_err());
+    drop(guard);
+    assert_eq!(w.get::<ZLater>(a).unwrap().0, 3);
     assert_eq!(json::to_string(&None::<u32>).unwrap(), "[]");
     assert_eq!(json::to_string(&Some(7u32)).unwrap(), "[7]");
 }

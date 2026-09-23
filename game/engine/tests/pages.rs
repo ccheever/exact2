@@ -74,7 +74,10 @@ fn page_masks_zero_bytes_leases_and_reallocation() {
         }
     }
     assert!(catch_unwind(AssertUnwindSafe(|| world.get_mut::<Transform>(entities[1]))).is_err());
-    assert!(catch_unwind(AssertUnwindSafe(|| world.query::<&mut Transform>())).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        world.query::<&mut Transform>().iter().count();
+    }))
+    .is_err());
     assert_eq!(world.query::<&Transform>().iter().count(), 5);
     drop(views);
     drop(pages);

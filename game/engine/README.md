@@ -13,9 +13,8 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   named entities. `get::<T>` returns `Option<Ref<T>>`; dereference the borrow guard
   for value comparisons: `*w.get::<Mesh>("player").unwrap()`. Entity handles work too. Duplicate
   names resolve to the lowest living slot, including after recycling or loading.
-- A mutable component lease locks its whole column, including other entities.
-  Use a query to borrow several rows. `query::<Q>().one()` returns an optional row,
-  refuses a second match and retains its leases for the returned row.
+- `query::<Q>().one()` returns an optional row, refuses a second match and keeps
+  its lease for the returned row. [Borrowing](#borrowing) is per row.
 - Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton
   state. Register types that first appear mid-game in `Game::register` so a fresh
   process can restore them.
@@ -31,6 +30,43 @@ written; use it when retargeting motion. `w.now()` names the completed boundary.
 `local_position` and `global_position` are explicit on both `World` and `Sim`.
 Use `rand(range)`, `chance(p)` or `pick(slice)` for individual random draws, or
 hold `rng()` for a batch. These all use the same saved random stream.
+
+## Borrowing
+
+Borrows are checked per row at run time. Each lease covers the rows it can hand out:
+
+| Lease | Rows | Kind |
+|---|---|---|
+| `get`, `require` | one entity's row, while the guard lives | shared |
+| `get_mut`, `require_mut`, `nearest_xz_mut` | one entity's row, while the guard lives | exclusive |
+| `query::<Q>()` | every row it matches, after `with`/`without`, from its first iteration until it and every row guard it yielded drop | per term |
+| `local_position`, `global_position`, `near*` | each row they read, for the read only | shared |
+| `pages::<C>()`, `hash`, `save`, inspection | every row of the component | shared |
+
+Different rows never conflict: read the player inside a loop over the enemies, or
+hold one entity's `RefMut` while changing another's. One row takes any number of
+shared leases or a single exclusive one. Constructing a query takes no lease;
+its first `iter`, `one` or `for` does, so builder filters narrow it. A query over
+every `Transform` includes the player's row: read the player before that loop, or
+exclude it with `.with::<Enemy>()`/`.without::<Player>()`. Two queries may overlap
+only where both are shared.
+
+A conflict panics, and release and web builds abort, with the component, the entity's
+name and handle, both leases and both callers:
+
+```text
+borrow conflict on Transform of `player` (#0, generation 0)
+  requested: shared borrow of one row (get/require/position), at src/lib.rs:42:15
+  held by:   exclusive query (&mut Transform), taken at src/lib.rs:41:29
+```
+
+A live lease records only its kind and its caller's location. Nothing is marked
+per row, so iterating a query costs no more than the join itself. A single-row guard
+pushes and pops one record on its column; position reads copy the row out and only
+check for an exclusive lease. A leaked guard or query (`mem::forget`) keeps its rows
+refused; after the next spawn, despawn, insert or remove, a leaked query holds every
+row of its components, because its matched rows can no longer be known. The design and its
+measurements are in [LLP 1046.003 §Row leases](../../llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23).
 
 ## Arguments and restart
 

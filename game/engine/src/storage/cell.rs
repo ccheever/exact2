@@ -1,6 +1,6 @@
 //! Singleton resources use one initialized value, with the same leases and Data
 //! wire representation as storage's former slot zero. No component page or masks.
-use super::{Erased, Lease, Ref, RefMut, Storage};
+use super::{At, Conflict, Erased, Holds, Lease, Leases, Party, Ref, RefMut, Storage, Via};
 use crate::{Data, DataError, Entity, Reader, Writer};
 use std::{
     any::Any,
@@ -11,7 +11,7 @@ use std::{
 
 pub(crate) struct Singleton<C> {
     value: UnsafeCell<Option<C>>,
-    borrowed: Cell<isize>,
+    holds: Holds,
     pub(super) epoch: Rc<Cell<u64>>,
     name: &'static str,
 }
@@ -19,7 +19,7 @@ impl<C: Data> Singleton<C> {
     pub fn new(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
         Self {
             value: UnsafeCell::new(None),
-            borrowed: Cell::new(0),
+            holds: Holds::default(),
             epoch,
             name,
         }
@@ -28,8 +28,33 @@ impl<C: Data> Singleton<C> {
         self.epoch.set(self.epoch.get().wrapping_add(1));
         *self.value.get_mut() = Some(value);
     }
-    pub fn get(&self) -> Option<Ref<'_, C>> {
-        let lease = Lease::new(self.name, &self.borrowed, false);
+    fn lease(&self, mutable: bool, at: At) -> Lease<'_> {
+        let slot = self.holds.acquire(0, mutable, at).unwrap_or_else(|| {
+            let held = self
+                .holds
+                .conflict(0, mutable)
+                .expect("a refusal has a holder");
+            let requested = Party {
+                mutable,
+                via: Via::Resource,
+                at,
+            };
+            let held = Party {
+                via: Via::Resource,
+                ..held
+            };
+            panic!(
+                "{}",
+                Conflict::row(self.name, 0, held, requested).message(None)
+            )
+        });
+        Lease::Hold {
+            holds: &self.holds,
+            slot,
+        }
+    }
+    pub fn get(&self, at: At) -> Option<Ref<'_, C>> {
+        let lease = self.lease(false, at);
         // SAFETY: the shared lease excludes writers; the world owns the cell.
         let value = unsafe { &*self.value.get() }.as_ref()?;
         Some(Ref {
@@ -38,8 +63,8 @@ impl<C: Data> Singleton<C> {
             _life: PhantomData,
         })
     }
-    pub fn get_mut(&self) -> Option<RefMut<'_, C>> {
-        let lease = Lease::new(self.name, &self.borrowed, true);
+    pub fn get_mut(&self, at: At) -> Option<RefMut<'_, C>> {
+        let lease = self.lease(true, at);
         self.epoch.set(self.epoch.get().wrapping_add(1));
         // SAFETY: the exclusive lease excludes all other references to this cell.
         let value = unsafe { &mut *self.value.get() }.as_mut()?;
@@ -49,13 +74,36 @@ impl<C: Data> Singleton<C> {
             _life: PhantomData,
         })
     }
+    // Engine walks run no author code; they only need the absence of a writer.
+    fn value(&self) -> Option<&C> {
+        assert!(
+            self.holds.unwritten(),
+            "resource {} is borrowed exclusively during an engine read",
+            self.name
+        );
+        // SAFETY: no exclusive lease is live, and this borrow ends before author code runs.
+        unsafe { &*self.value.get() }.as_ref()
+    }
 }
 pub(crate) fn make_cell<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Box<dyn Erased> {
     Box::new(Singleton::<C>::new(name, epoch))
 }
 impl<C: Data> Erased for Singleton<C> {
     fn has(&self, index: usize) -> bool {
-        index == 0 && self.get().is_some()
+        index == 0 && self.value().is_some()
+    }
+    fn read_conflict(&self, _: &Leases, at: At) -> Option<Conflict> {
+        let (_, held) = self.holds.writer()?;
+        let requested = Party {
+            mutable: false,
+            via: Via::Read,
+            at,
+        };
+        let held = Party {
+            via: Via::Resource,
+            ..held
+        };
+        Some(Conflict::row(self.name, 0, held, requested))
     }
     fn any(&self) -> &dyn Any {
         self
@@ -64,7 +112,7 @@ impl<C: Data> Erased for Singleton<C> {
         self
     }
     fn len(&self) -> usize {
-        usize::from(self.get().is_some())
+        usize::from(self.value().is_some())
     }
     fn remove(&mut self, index: usize) {
         if index == 0 {
@@ -74,7 +122,7 @@ impl<C: Data> Erased for Singleton<C> {
     }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         if index == 0 {
-            if let Some(value) = self.get() {
+            if let Some(value) = self.value() {
                 value.write(w);
                 return true;
             }
@@ -82,7 +130,7 @@ impl<C: Data> Erased for Singleton<C> {
         false
     }
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        let value = self.get();
+        let value = self.value();
         w.begin_seq(usize::from(value.is_some()));
         if let Some(value) = value {
             w.item();
@@ -134,7 +182,7 @@ impl<C: Data> Erased for Singleton<C> {
         full: Option<&mut crate::hash::Hasher>,
         entity: &dyn Fn(usize) -> Entity,
     ) {
-        let value = self.get();
+        let value = self.value();
         if let Some(w) = full {
             w.begin_seq(usize::from(value.is_some()));
             if let Some(value) = value {
@@ -143,16 +191,16 @@ impl<C: Data> Erased for Singleton<C> {
                 w.item();
                 entity(0).write(w);
                 w.item();
-                out.push((0, w.with_observation(&*value)));
+                out.push((0, w.with_observation(value)));
                 w.end_seq();
             }
             w.end_seq();
         } else if let Some(value) = value {
-            out.push((0, crate::hash::of(&*value)));
+            out.push((0, crate::hash::of(value)));
         }
     }
     fn moving(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> bool {
-        self.get().is_some_and(|v| v.moving(now))
+        self.value().is_some_and(|v| v.moving(now))
     }
     fn visit_moving(
         &self,
@@ -165,6 +213,6 @@ impl<C: Data> Erased for Singleton<C> {
         }
     }
     fn settle_tick(&self, now: crate::Now, _: Option<&Storage<crate::Ambient>>) -> Option<u64> {
-        self.get().map_or(Some(now.tick), |v| v.settle_tick(now))
+        self.value().map_or(Some(now.tick), |v| v.settle_tick(now))
     }
 }
