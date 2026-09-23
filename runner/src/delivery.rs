@@ -113,7 +113,7 @@ impl Delivery {
 
     /// The binary's id, `store.L`, executor set, and embedded sequence from
     /// its archive's `compat.json`, as
-    /// `contract::Compat::to_json` writes them. Everything the store has to
+    /// `exact_bake::Compat::to_json` writes them. Everything the store has to
     /// say is left as it was; a field the text does not carry is left as it
     /// was too, so a truncated or foreign file degrades to the embedded
     /// answer rather than refusing a boot.
