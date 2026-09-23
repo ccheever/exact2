@@ -43,6 +43,11 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
+# Build scripts and proc macros load as dylibs; Xcode 27's strip leaves them
+# unloadable ("mis-aligned LINKEDIT string pool"). Nothing of theirs ships.
+[profile.release.build-override]
+strip = false
+
 # The wasm shipped to browsers: size over speed (the runner's work is sub-millisecond;
 # every byte is fetch, parse, and compile). `host/web/build.mjs` builds with this and
 # runs `wasm-opt -Oz` on top when binaryen is installed.
