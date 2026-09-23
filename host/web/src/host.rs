@@ -1137,7 +1137,7 @@ fn host_css(node: &NodeRef<'_>, mut css: String) -> String {
         && css
             .split(';')
             .filter_map(|d| d.strip_prefix("display:"))
-            .last()
+            .next_back()
             .is_none_or(|display| display == "block")
     {
         css.push_str("display:flow-root;");
