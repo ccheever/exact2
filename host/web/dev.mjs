@@ -35,7 +35,7 @@ import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
-import { phones, simulators } from '../apple/build.mjs';
+import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
@@ -985,8 +985,11 @@ const server = createServer(async (req, res) => {
     return;
   }
   if (url.pathname === '/__dev/open') {
+    // The page's own address (the gate admitted its Host) and the opening
+    // links this Mac's development clients admit for it (LLP 1030.000 §7).
+    const page = new URL('/' + url.search, `http://${req.headers.host}`).href;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
-    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app));
+    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page), page));
     return;
   }
   if (url.pathname.startsWith('/__dev/generation/')) {

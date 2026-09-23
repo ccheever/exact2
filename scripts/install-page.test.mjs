@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { developmentGate, developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
-import { listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange } from '../host/web/serve.mjs';
+import { developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange } from '../host/web/serve.mjs';
 import { publishRoot } from './deploy.mjs';
 import { DirectoryOrigin, webReleasePath } from './origin.mjs';
 const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
@@ -283,4 +283,17 @@ test('a development server answers only to its printed names; its token and phon
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
+});
+
+test('the dev opening page offers only the admitted, token-bearing links, escaped', () => {
+  const app = {id:'test.one', displayName:'<b>One</b>', crate:()=>'one-apple', manifest:{}};
+  const page = 'http://127.0.0.1:8879/?q="x"', token = 'a'.repeat(64);
+  const html = developmentOpenPage(app, [{destination:'macos', href:`exact2-x://open?url=${encodeURIComponent(page)}&token=${token}`}], page);
+  assert.match(html, new RegExp(`class="native" href="exact2-x://open\\?url=${encodeURIComponent(page).replaceAll('%', '%')}&amp;token=a{64}">Open in the Mac client<`));
+  assert.ok(!html.includes('<b>One') && html.includes('&lt;b&gt;One'));
+  assert.doesNotMatch(html, /No development client/);
+  const none = developmentOpenPage(app, [], page);
+  assert.doesNotMatch(none, /class="native"/);
+  assert.match(none, /No development client built on this Mac admits this server/);
+  assert.match(none, /--bundle --url http:\/\/127\.0\.0\.1:8879\/\?q=&quot;x&quot;/);
 });

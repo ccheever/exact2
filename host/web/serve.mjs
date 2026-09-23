@@ -33,32 +33,28 @@ const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', '
 // stream's `.lock`) stays private.
 const UPDATE_TREE = '/.exact/';
 
-/** Dev-only opening instructions. Never infers installation or publishes a build. */
-export function developmentOpenPage(app) {
+/** Dev-only opening instructions. Never infers installation or publishes a
+ * build. `links` are the token-bearing opening links this Mac's development
+ * clients admit for the page's origin (`developmentLinks`, LLP 1030.000 §7). */
+export function developmentOpenPage(app, links = [], page = '/') {
   const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const name = escape(app.displayName), crate = escape(app.crate('apple'));
+  const name = escape(app.displayName), crate = escape(app.crate('apple')), url = escape(page);
   const scheme = developmentURLScheme(app.id);
+  const labels = { macos: 'Open in the Mac client', 'ios-simulator': 'Open in the Simulator client', ios: 'Open in the iPhone or iPad client' };
+  const native = links.map(link => `<a class="native" href="${escape(link.href)}">${escape(labels[link.destination] ?? 'Open in native client')}</a>`).join('');
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Open ${name}</title>
-<style>body{font:17px/1.5 system-ui;margin:0;background:#f4f5f8;color:#172033}main{max-width:620px;margin:6vh auto;padding:28px}h1{line-height:1.15}a{color:#164bc4}nav{display:flex;flex-wrap:wrap;gap:14px;margin:28px 0}nav a{padding:12px 18px;border:1px solid #164bc4;border-radius:10px;text-decoration:none}nav a:first-child{background:#164bc4;color:white}input{box-sizing:border-box;width:100%;padding:12px;font:14px ui-monospace,monospace}pre{overflow:auto;background:#e7eaf0;padding:12px;border-radius:8px}small{color:#4b566b}</style>
+<style>body{font:17px/1.5 system-ui;margin:0;background:#f4f5f8;color:#172033}main{max-width:620px;margin:6vh auto;padding:28px}h1{line-height:1.15}a{color:#164bc4}nav{display:flex;flex-wrap:wrap;gap:14px;margin:28px 0}nav a{padding:12px 18px;border:1px solid #164bc4;border-radius:10px;text-decoration:none}nav a.native{background:#164bc4;color:white}input{box-sizing:border-box;width:100%;padding:12px;font:14px ui-monospace,monospace}pre{overflow:auto;background:#e7eaf0;padding:12px;border-radius:8px}small{color:#4b566b}</style>
 <main><small>Exact · development</small><h1>Open ${name}</h1>
 <p>One app URL. Use the browser here, or hand it to this app’s installed native development client.</p>
-<nav><a id="native">Open in native client</a><a id="browser" href="/">Continue in browser</a></nav>
-<label for="url">App URL — also works in the native menu’s Open Project</label><input id="url" readonly><p id="status" role="status"></p>
-<details><summary>Need a native client?</summary><p>Build this app’s client from its source workspace. Older clients need a rebuild to register the opening link.</p>
-<h2>macOS</h2><pre>bun host/apple/build.mjs ${crate} --bundle</pre><p>Open the printed <code>.app</code> once, then return here. This is a local development bundle, not a notarized download.</p>
-<h2>iPhone / iPad</h2><pre>bun host/apple/build.mjs --device ${crate}</pre><p>Connect an unlocked, paired device to the signing Mac. Developer Mode and a matching provisioning profile are required. Allow Local Network access and keep the app visible.</p>
+<nav>${native}<a id="browser" href="${url}">Continue in browser</a></nav>
+${native ? '' : '<p id="status" role="status">No development client built on this Mac admits this server yet; build one with <code>--url</code> as below.</p>'}
+<label for="url">App URL — also works in the native menu’s Open Project</label><input id="url" readonly value="${url}">
+<details${native ? '' : ' open'}><summary>Need a native client?</summary><p>Build this app’s client from its source workspace against this server. A client built with <code>--url</code> opens <code>${scheme}://open?url=…&amp;token=…</code> links for that server only, with a token made for that build.</p>
+<h2>macOS</h2><pre>bun host/apple/build.mjs ${crate} --bundle --url ${url}</pre><p>Open the printed <code>.app</code> once, then return here. This is a local development bundle, not a notarized download.</p>
+<h2>iPhone / iPad</h2><pre>bun host/apple/build.mjs --device ${crate} --url ${url}</pre><p>Connect an unlocked, paired device to the signing Mac. Developer Mode and a matching provisioning profile are required. Allow Local Network access and keep the app visible; the dev server needs <code>--lan</code>.</p>
 <p>For an external app, use its existing <code>EXACT_APP_DIR</code> setup. A cloud workspace needs a device-reachable URL and a Mac builder; automatic cloud builds, downloads and Exact2 Go are not available in this flow yet.</p></details>
-<p><small>Open only a development server you trust. This link selects the app; the native loader still checks compatibility and may refuse it. LAN addresses require the same network.</small></p></main>
-<script>
-const locator = new URL(location.href); locator.pathname = '/';
-const page = locator.href;
-document.querySelector('#url').value = page;
-document.querySelector('#browser').href = page;
-const native = document.querySelector('#native');
-native.href = '${scheme}://open?url=' + encodeURIComponent(page);
-native.addEventListener('click', () => { document.querySelector('#status').textContent = 'Opening requested. If nothing opens, install or rebuild the client using the instructions below, or paste the app URL into Open Project. This page cannot detect whether a client is installed.'; });
-</script></html>`;
+<p><small>Open only a development server you trust. This page cannot detect whether a client is installed; it lists the clients built on this Mac. The native loader still checks compatibility and may refuse the app. LAN addresses require the same network.</small></p></main></html>`;
 }
 
 function staticRelative(name) {
