@@ -225,10 +225,10 @@ check(`a press on the document before the runtime starts is replayed once${unava
   }, { wasmAfter });
 }, 180000);
 
-/** Caltrain's render server (LLP 1048.000 D10) over dist/, on loopback;
- * `stop` ends the one process it started. */
-async function renderServer() {
-  const child = spawn('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--', '--serve', dist, '--name', 'Caltrain'],
+/** An app's render server (LLP 1048.000 D10) over its dist, on loopback —
+ * Caltrain's over dist/ unless told; `stop` ends the one process it started. */
+async function renderServer({ app = 'caltrain', dir = dist, name = 'Caltrain' } = {}) {
+  const child = spawn('cargo', ['run', '-q', '-p', `${app}-linux`, '--bin', `${app}-render`, '--', '--serve', dir, '--name', name],
     { cwd: ROOT, env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const lines = [];
   const origin = await new Promise((ok, fail) => {
@@ -239,7 +239,7 @@ async function renderServer() {
         if (at) ok(at[1]);
       }
     });
-    child.on('exit', (code) => fail(new Error(`caltrain-render --serve exited ${code}`)));
+    child.on('exit', (code) => fail(new Error(`${app}-render --serve exited ${code}`)));
   });
   return { origin, lines, stop: () => { try { child.kill('SIGKILL'); } catch {} } };
 }
@@ -268,6 +268,48 @@ check(`the render server's page is the document, and the runtime adopts it${unav
   }
 }, 240000);
 
+
+// A TypeScript app through the server (LLP 1048.000 D6, D11): Weatherlight's
+// first frame answers offline (revision 0 is the empty forecast), so its
+// document renders at build and per request with no network. The runtime
+// adopts it, and the module's realm runs under the server's CSP: its two
+// inline scripts are admitted by hash, nothing else is.
+test('a TypeScript app\'s served document is adopted, with its module running under the CSP', async () => {
+  const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
+  try {
+    const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
+      env: { ...process.env, EXACT_WEB_DIST: out, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
+    if (build.status !== 0) throw new Error(`weatherlight build: ${build.stderr}${build.stdout}`);
+    const server = await renderServer({ app: 'weatherlight', dir: out, name: 'Weatherlight' });
+    try {
+      const response = await fetch(`${server.origin}/?agent=1`);
+      expect(response.status).toBe(200);
+      const scripts = /script-src ([^;]*)/.exec(response.headers.get('content-security-policy'))?.[1] ?? '';
+      expect(scripts).toStartWith("'self' 'wasm-unsafe-eval' 'sha256-");
+      expect(scripts).not.toContain('unsafe-inline');
+      await withDocument('/?agent=1', async (tab) => {
+        const live = await tab(true, WATCH);
+        await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+        await live(settled);
+        const state = await live("exact.agent({op:'state'})");
+        expect(state.adopted).toBe(true);
+        // The module ran in its realm: the logic is ready, and no error was shown.
+        expect(state.logic.ready).toBe(true);
+        expect(await live("document.getElementById('exact-root').dataset.error ?? null")).toBe(null);
+        const { views, served } = await live(SERVED_VIEWS);
+        expect(views).toBeGreaterThan(0);
+        expect(served).toBe(views);
+        const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
+        expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 0 });
+      }, { origin: server.origin });
+      expect(server.lines.some((l) => /^render \/\?agent=1 200 /.test(l))).toBe(true);
+    } finally {
+      server.stop();
+    }
+  } finally {
+    rmSync(out, { recursive: true, force: true });
+  }
+}, 900000);
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.
