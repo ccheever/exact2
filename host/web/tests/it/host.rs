@@ -1266,3 +1266,64 @@ fn heading_levels_are_heading_elements() {
     assert!(batch.contains("\"role\":\"treeitem\""), "{batch}");
     assert_eq!(batch.matches("\"role\":\"heading\"").count(), 1, "{batch}");
 }
+
+/// A block root is a formatting context of its own on the web, as the
+/// kernel's root is: its first child's top margin stays inside it instead of
+/// collapsing through `#exact-root` to the page (LLP 1001 §1). Any other
+/// display, and every block that is not a root, is unchanged.
+#[test]
+fn a_block_root_is_a_formatting_context_of_its_own() {
+    let css_of = |source: &str, test_id: &str| {
+        let plan = contract::compile(source).unwrap();
+        let (host, batch) = Host::boot(
+            &plan.encode(),
+            caltrain_data::Caltrain,
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let id = view_with_test_id_any(&host, test_id);
+        let at = batch
+            .find(&format!("\"op\":\"create\",\"id\":{id},"))
+            .unwrap();
+        let op = &batch[at..];
+        op[..op[1..].find("{\"op\"").map_or(op.len(), |end| end + 1)].to_string()
+    };
+    let block = "component App\n  view\n    view testId=\"root\"\n      view testId=\"child\" margin-top=30 height=10\n";
+    assert!(css_of(block, "root").contains("display:flow-root;"));
+    assert!(!css_of(block, "child").contains("flow-root"));
+    // The kernel's answer, which the page now gives: the margin is inside.
+    let (mut host, _) = Host::boot(
+        &contract::compile(block).unwrap().encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let (root, child) = (
+        view_with_test_id_any(&host, "root"),
+        view_with_test_id_any(&host, "child"),
+    );
+    host.runner_mut()
+        .kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(420.0, 900.0))
+        .unwrap();
+    let frame = |id| host.runner().kernel().node(id).unwrap().frame;
+    assert_eq!(
+        (frame(root).y, frame(root).height, frame(child).y),
+        (0.0, 40.0, 30.0)
+    );
+    let explicit =
+        "component App\n  view\n    view testId=\"root\" display=\"block\"\n      text \"x\"\n";
+    let root = css_of(explicit, "root");
+    assert!(
+        root.contains("display:block;") && root.contains("display:flow-root;"),
+        "{root}"
+    );
+    let flex = "component App\n  view\n    column testId=\"root\"\n      text \"x\"\n";
+    let root = css_of(flex, "root");
+    assert!(
+        root.contains("display:flex;") && !root.contains("flow-root"),
+        "{root}"
+    );
+}

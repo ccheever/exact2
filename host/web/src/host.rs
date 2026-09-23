@@ -1066,6 +1066,20 @@ fn host_css(node: &NodeRef<'_>, mut css: String) -> String {
         }
         css.push_str("isolation:isolate;");
     }
+    // A root is a block formatting context in the kernel, as CSS's root
+    // element is: its first child's top margin stays inside it. On the web a
+    // root is an element inside `#exact-root`, and the margin would collapse
+    // through it to the page, so a block root establishes its own context
+    // (LLP 1001 §1). The last `display` wins, as it does in `cssText`.
+    if node.is_root
+        && css
+            .split(';')
+            .filter_map(|d| d.strip_prefix("display:"))
+            .last()
+            .is_none_or(|display| display == "block")
+    {
+        css.push_str("display:flow-root;");
+    }
     css
 }
 

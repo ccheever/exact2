@@ -43,7 +43,12 @@ node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
 carry CSS names and vocabularies (`object_fit: fill|contain|cover|none|scale-down`,
 `text_overflow: clip|ellipsis`, `line_clamp`). Block layout brings CSS margin
 collapsing with it; flex and grid are opt-in per node. (An earlier draft chose
-React Native's defaults; Charlie reversed that on 2026-08-28.)
+React Native's defaults; Charlie reversed that on 2026-08-28.) A root is a
+block formatting context, as CSS's root element is: a first child's top
+margin stays inside it. On the web a root is an element inside
+`#exact-root`, where that margin would collapse through to the page, so the
+web host lowers a block root to `display: flow-root` (2026-09-23; a root at
+y 0 with its child at 30, where the page had both at 30).
 
 `justify-content`, `align-content`, `align-items` and `justify-items` accept
 and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
