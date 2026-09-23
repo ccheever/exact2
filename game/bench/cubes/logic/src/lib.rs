@@ -20,7 +20,8 @@ impl Game for Cubes {
     const ID: &'static str = "bench-cubes";
     type Args = CubesArgs;
     fn setup(w: &mut World, args: &CubesArgs) {
-        let side = (args.n as f64).cbrt().ceil() as u32;
+        // The smallest cube holding n, in integers: f64::cbrt rounds per host.
+        let side = (0..).find(|s: &u32| u64::from(*s).pow(3) >= u64::from(args.n)).unwrap();
         let half = side.saturating_sub(1) as f32 * 0.5;
         for i in 0..args.n {
             // Twins compute these fractions in double precision, including at 500k.

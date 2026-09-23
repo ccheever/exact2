@@ -1,12 +1,13 @@
+# This fixture adds SDK crates beyond exact-game; they resolve against the SDK lock.
 [package]
-workspace = "../.shells"
 name = "particles-fixture-logic"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+workspace = "../.shells"
 
 [dependencies]
-exact-game = { path = "../../../engine" }
+exact-game.workspace = true
 
 [dev-dependencies]
-exact-game-render = { path = "../../../render" }
+exact-game-render.workspace = true

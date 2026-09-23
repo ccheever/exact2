@@ -33,20 +33,20 @@ of its semi-implicit velocity steps, with a 1 mm float tolerance. Hash pins stil
 check the exact saved simulation. Space and Enter on the focused Pause button
 activate that button without reaching the world.
 
-`app.json` contains authored identity and game keys. The bake resolves host defaults
-into ignored `.shells/app.json` and leaves the authored file byte-for-byte intact.
-Linux proofs use the incremental `gpu-dev` profile; web, Apple and deploy retain
-their production profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks
-Linux against release without changing the game.
+This game is the files you write: `logic/src/lib.rs`, `app.contract` and
+`proof.mjs`, with `logic/tests/` for hostless tests and the tool-written
+`pins.json`. Identity derives from the directory name and `Game::ID`; add an
+`app.json` only for keys you author (a title, `game.audio`, a bundle id). The
+bake generates everything else, ignored, under `.shells/`. Linux proofs use the
+incremental `gpu-dev` profile; web, Apple and deploy retain their production
+profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks Linux against
+release without changing the game.
 
-
-`Cargo.lock` beside `app.json` is captured package state; the first bake creates ignored
-`.shells/` hosts and resolves with `--offline --locked`. Commit that source lock; builds and deployment resolve it locked.
-`logic/Cargo.toml` is author-owned after its initial scaffold and is never normalized
-by a bake. Add dependencies and adjust paths there directly, including after moving
-the game directory.
-After changing dependencies, update it deliberately with
-`bun /path/to/exact2/game/app/shells.mjs . --update-lock`.
-
-If the Cargo cache is empty, run `bun /path/to/exact2/game/app/shells.mjs .`,
-then `cargo fetch --locked --manifest-path .shells/Cargo.toml`.
+Run the Rust tests, from a fresh clone too, with
+`bun /path/to/exact2/game/app/shells.mjs . --test`: it generates `.shells/`,
+resolves against the SDK's lock offline and locked, and checks the SDK's
+determinism lints (exact2's `game/README.md`, "Determinism — the contract").
+To depend on another crate, write `logic/Cargo.toml` (`package.workspace =
+"../.shells"`, SDK crates as `exact-game.workspace = true`), then capture
+this game's own lock with `bun /path/to/exact2/game/app/shells.mjs . --update-lock`
+and commit `Cargo.lock`.

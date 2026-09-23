@@ -1,3 +1,8 @@
 # All game profiles use the same non-contracting floating-point operations.
 [build]
 rustflags = ["-C", "llvm-args=-fp-contract=off"]
+
+# RUSTFLAGS replaces the flags above without a word; exact-game's build script
+# refuses a build under this promise that lacks them (engine/build.rs).
+[env]
+EXACT_GAME_FP_CONTRACT = "off"

@@ -1,12 +1,14 @@
+# This fixture adds SDK crates beyond exact-game; they resolve against the SDK lock.
 [package]
-workspace = "../.shells"
 name = "asset-fixture-logic"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+workspace = "../.shells"
+
 [dependencies]
-exact-game = { path = "../../../engine" }
-exact-game-physics = { path = "../../../physics" }
+exact-game.workspace = true
+exact-game-physics.workspace = true
 
 [dev-dependencies]
-exact-game-bake = { path = "../../../bake" }
+exact-game-bake.workspace = true

@@ -50,17 +50,23 @@ beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows an
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
-Generation writes only inside that game. The first bake creates its ignored hosts
-and workspace under `.shells/`.
+Generation writes only inside that game. A game is the files its author writes; bakes
+generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
 | File | What you own |
 |---|---|
 | `logic/src/lib.rs` | Scene setup, typed arguments and the tick function |
-| `logic/Cargo.toml` | Rust package identity, dependencies and their paths |
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
-| `proof.mjs`, `logic/tests/sim.rs` | Real-host assertions and hostless simulation tests |
-| `app.json` | App identity, game entry point and authored overrides |
-| `Cargo.lock`, `pins.json` | Captured dependencies and verified tick/save baselines |
+| `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
+| `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate |
+| `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
+
+The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
+follows the directory name. Run the Rust tests with
+`bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
+no environment variables. It generates `.shells/`, resolves offline and locked, runs
+the determinism lints and then `cargo test` on the game's crates.
 
 ## The programming model
 
@@ -266,6 +272,19 @@ on every host. Pixels have a tolerance; simulation state is exact.
 4. Keep semantic state in components and resources, without interior mutation
    through shared references. The journal is telemetry, outside hashes and observation.
 
+Clippy holds every game's logic library to rules 1–3 with the SDK's
+[`app/determinism/clippy.toml`](app/determinism/clippy.toml): std float transcendentals
+(`sin` … `powi`, `hypot`, `mul_add`), `HashMap`, `HashSet`, `RandomState`, `Instant`,
+`SystemTime`, `std::thread::spawn` and `rand`'s ambient generators are refused, each
+naming its replacement. `sqrt` is correctly rounded and allowed; glam is built with
+`libm`, so `Vec3::length`, `Quat::slerp` and the other glam methods are portable. The
+lints run in `shells.mjs --test`, before first pins and `--repin`, and in every
+production-profile bake (web, Apple, release Linux, deploy); the gpu-dev edit loop
+leaves them to those. An `#[allow(clippy::disallowed_types)]` on an item is a
+visible exception — a `HashMap` that is only ever looked up, say. Tests may time
+themselves. Setting `RUSTFLAGS` replaces the workspace's `-fp-contract=off`, so a
+game build under it is refused until the flag is appended.
+
 Seekable advances observe the final tick pair. Ambient entities and explicitly
 ambient resources/derived publications stay outside rest observation, but retain
 their save rules. Settle does not pause time or force physics bodies asleep.
@@ -292,7 +311,8 @@ For app operations such as Save/Continue, declare a linked Rust data source in
 }
 ```
 
-Own its code and manifest under `data/`, with `package.workspace = "../.shells"`.
+Own its code and manifest under `data/`, with `package.workspace = "../.shells"`;
+like any added dependency, it resolves against the SDK lock or the game's own.
 The type implements `DataSource + Default`; the generated hosts supply the existing
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
@@ -311,14 +331,20 @@ or restoring when the surrounding UI should hold the game still. Set the canvas
 
 A game owns one generated Cargo workspace and keeps final products and receipts in
 its own `target/`. Intermediate builds reuse the SDK's `game/target/` across apps;
-Cargo's standard `CARGO_BUILD_BUILD_DIR` overrides that location.
-Keep the source `Cargo.lock` in version control: bakes and deploys resolve offline and locked.
-After intentionally changing dependencies, run
-`bun game/app/shells.mjs ./my-game --update-lock` and review that lock.
-An authored `logic/Cargo.toml` uses `package.workspace = "../.shells"`, concrete
-package fields and path dependencies. The first default is scaffolded only when this
-file is missing; after that the author owns every byte and the bake never rewrites it,
-including after a directory move. Edit dependency paths directly, then update the lock.
+Cargo's standard `CARGO_BUILD_BUILD_DIR` overrides that location. Without
+`logic/Cargo.toml`, the workspace's generated member builds `logic/src/lib.rs` and
+`logic/tests`, `examples` and `benches` where the author wrote them.
+
+The SDK owns one lock, [`app/shells.lock`](app/shells.lock): the lock of the union of
+every generated shell's dependencies. A game's workspace starts from it and keeps its
+subset; each version must be the SDK lock's, so bakes, deploys and proofs still resolve
+`--locked --offline` and no local cache chooses a version. A game that adds a
+dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
+`exact-game.workspace = true`) and captures its own `Cargo.lock` with
+`bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK
+crates alone need no lock of the game's own. When the SDK's dependencies change,
+`bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
+`bun app/shells.mjs --test` refuses a stale one.
 
 Linux development uses `gpu-dev` with separate completed host and GPU receipts;
 a logic-only edit can rebuild the GPU alone. Release/production bakes bind its exact
@@ -365,7 +391,7 @@ Layout, accessibility and ordinary controls stay with the app host. See
 | Measurements and history | [bench](bench/README.md), [diaries](diaries/README.md) |
 | Architecture | [as built](../llp/1046.003-game-engine-as-built.explainer.md), [agent contract](../llp/1046.001-agent-interface-to-a-game.rfc.md) |
 
-From `game/`, with `EXACT_UPDATE_TRUST=development` set:
+From `game/` (an unset `EXACT_UPDATE_TRUST` bakes development trust):
 
 ```sh
 cargo build --workspace
@@ -376,8 +402,8 @@ bun test ./proof.test.mjs
 bun app/shells.mjs --test
 ```
 
-The last command tests the app-owned workspaces, including logic crates outside
-the engine workspace. Generated adapters are products, not empty test harnesses.
+The last command checks the SDK lock, then lints and tests every in-tree game's
+crates in its own workspace. Generated adapters are products, not empty test harnesses.
 Pass an app directory to test only that app: `bun app/shells.mjs /path/to/my-game --test`.
 Run the affected game's real-host proof too. Device lifecycle tests are opt-in:
 `cargo test -p exact-game-render surface_lifecycle -- --ignored` on a GPU host.
@@ -390,12 +416,12 @@ For an isolated checkout, links in its private parent may point at existing copi
 Run `bun install --frozen-lockfile` at the Exact2 root before Cargo validation.
 
 If the Cargo cache is empty, first generate the game, then materialize its adapters
-and fetch its captured dependencies from the Exact2 root:
+and fetch the SDK lock's versions from the Exact2 root:
 
 ```sh
 bun game/app/shells.mjs ./my-game
-cargo fetch --locked --manifest-path ./my-game/.shells/Cargo.toml
+cargo fetch --manifest-path ./my-game/.shells/Cargo.toml
 ```
 
-The template's captured lock is the first-bake seed. A generated shell lock without
-a source lock is removed and refused; it cannot choose dependency versions.
+The generated shell starts from the SDK lock, so the fetch downloads its versions; a
+resolution that would take any other version is refused.

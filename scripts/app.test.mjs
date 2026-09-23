@@ -616,10 +616,12 @@ test('R13 capture refuses tracked files under inferred game output roots',()=>fi
 }),30000); // five captures, each spawning cargo and git: more than the default five seconds on a loaded Mac
 
 
-test('R13 stale shell lock without a captured lock refuses and is removed',()=>fixture(({app,dir})=>{
-  app().cargoPackage('gpu');rmSync(resolve(dir,'Cargo.lock'));
-  assert.throws(()=>app().cargoPackage('gpu'),/stale.*Cargo.lock|Cargo.lock.*stale/);
-  assert.equal(existsSync(resolve(dir,'.shells/Cargo.lock')),false);
+test('without its own lock a game resolves only against the SDK lock, never a leftover shell lock',()=>fixture(({app,dir,write})=>{
+  app().cargoPackage('gpu');const captured=readFileSync(resolve(dir,'Cargo.lock'),'utf8');rmSync(resolve(dir,'Cargo.lock'));
+  assert.throws(()=>app().cargoPackage('gpu'),/no captured lock and no SDK lock/);
+  write('game/app/shells.lock',captured);
+  assert.ok(app().cargoPackage('gpu'));
+  assert.equal(existsSync(resolve(dir,'Cargo.lock')),false,'the SDK lock writes no lock into the game');
 }));
 test('R13 ordinary workspace without a lock resolves metadata',()=>fixture(({app,root,pkg,write})=>{
   process.env.EXACT_APP_DIR=resolve(root,'game/ordinary/plain');
