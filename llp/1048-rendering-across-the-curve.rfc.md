@@ -1,7 +1,7 @@
 # LLP 1048: Rendering across the curve — one renderer, from static pages to per-request HTML
 
 **Type:** RFC
-**Status:** Draft — direction approved by Charlie 2026-09-23 ("ok let's do pre-rendering etc. … we might as well have a great solution for almost every point on that curve"); ruled the same day (§9): the Contract surface in LLP 1048.003 is approved, Interview is the website consumer (§10), and the server target is a native Rust binary. The NOT-DOING take (§5) is still open
+**Status:** Draft — direction approved by Charlie 2026-09-23 ("ok let's do pre-rendering etc. … we might as well have a great solution for almost every point on that curve"); ruled the same day (§9): the Contract surface in LLP 1048.003 is approved, Interview is the website consumer (§10), and the server target is a native Rust binary. The NOT-DOING take is Messages as the Snapback4 consumer (§5, recorded in `rules/NOT-DOING.md`)
 **Systems:** Web host (`host/web`: a page serializer beside `Host::create`, adoption in `glue.js`, the page shell); build (`contract::bake`, `host/web/build.mjs`); Runner (carried state as a page payload, provenance, placeholders); Contract (head, semantic elements, media variants, route policies — LLP 1048.003); serving (`host/web/serve.mjs`, a request renderer — LLP 1048.002); Router (route enumeration, navigation payloads); Delivery (web releases carry rendered pages)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** assigned by Charlie per phase (§7)
@@ -192,11 +192,11 @@ with correct caching.
 first pixels are HTML. The adoption and replay glue is host code, counted by
 `boot.mjs` and budgeted in bytes (LLP 1047 D9).
 
-## 5. NOT-DOING (proposed; Charlie rules the take)
+## 5. NOT-DOING (recorded 2026-09-23)
 
 Today `rules/NOT-DOING.md` refuses "Server generation in every form: SSR,
 streaming, static export, progressive forms, hydration, route payloads,
-response caching." Proposed entry:
+response caching." Recorded in `rules/NOT-DOING.md` on 2026-09-23, with Charlie's take:
 
 > **Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."; "let's use
 > Interview as our website"):** web rendering across the curve (LLP 1048), with
@@ -204,8 +204,8 @@ response caching." Proposed entry:
 > renderer, adoption instead of hydration, route payloads, cache policies,
 > inferred partial prerendering and streaming. Unblocks websites that crawlers,
 > link previews and readers without JavaScript can read, and that paint before
-> the runtime loads. Take: *(open — Charlie is working on the game engine, so
-> it stays; the options are in his reply of 2026-09-23)*. Still refused:
+> the runtime loads. Take: Messages as the Snapback4 consumer — Interview,
+> built on Snapback4, is the consumer now. Still refused:
 > progressive forms (server actions without the runtime) and server-driven UI;
 > no Node on the render path.
 
@@ -250,8 +250,9 @@ runtime corrects them on boot. `client` stays the default until phase 1 ships.
 
 ## 9. Rulings (Charlie, 2026-09-23)
 
-1. **The NOT-DOING take (§5): open.** The game engine stays on the doing-list
-   (Charlie is working on it); a different take is needed.
+1. **The NOT-DOING take (§5): Messages as the Snapback4 consumer** comes off
+   the doing-list ("We don't need that on the list"); Interview is the
+   Snapback4 consumer. The game engine stays (Charlie is working on it).
 2. **The Contract surface in LLP 1048.003: approved** — the `head` element,
    semantic elements, media variants, route policy fields and placeholders.
 3. **The website consumer: Interview** (`~/projects/interview`, §10).

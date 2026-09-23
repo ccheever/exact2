@@ -24,12 +24,10 @@ is the storage consumer: notes in SQLite, backups in app-scoped files, and a
 multiline editor on web and Apple. Take: further general-purpose API expansion
 waits behind proving these shipped bindings in the app; Snapback2 stays deferred.
 
-**Expanded (Charlie, 2026-09-12: "Include the Messages conversion"):**
-Messages is the Snapback4 consumer: the separately linked Rust device on
-Apple/Linux, the matching Rust/Wasm device on the web, and the existing host SQLite
-and network capabilities. This unblocks durable conversations and offline
-writes across devices. Take: generalized native-view module loading remains
-behind proving this data-only consumer; Snapback2 stays deferred.
+**Taken off (Charlie, 2026-09-23: "Take off Messages as the Snapback4
+consumer. We don't need that on the list"):** the trade for web rendering
+(LLP 1048, below). Messages is no longer the Snapback4 consumer admitted
+2026-09-12; Interview, built on Snapback4, is. Snapback2 stays deferred.
 
 **Expanded (Charlie, 2026-09-14):** language parity for existing app operations
 (LLP 1027.001): shared standard text/URL helpers, portable storage requests,
@@ -119,6 +117,16 @@ save/restore seams. Take: further standalone showcase work waits behind this
 consumer; no default engine linkage, core feature matrix or extra blocking gate.
 See LLP 1046 §5 and LLP 1046.003.
 
+**Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."; "let's use
+Interview as our website"):** web rendering across the curve (LLP 1048), with
+Interview as its consumer: build-time and per-request pages from a native Rust
+renderer, adoption in place of hydration, route payloads, cache policies,
+inferred partial prerendering and streaming. Unblocks websites that crawlers,
+link previews and readers without JavaScript can read, and that paint before
+the runtime loads. Take: Messages as the Snapback4 consumer (above). Still
+refused: progressive forms (server actions without the runtime) and
+server-driven UI; no Node on the render path.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with
@@ -161,8 +169,11 @@ change can break.
   with a kernel-owned box (like `NativeView`), GPU content never influences layout,
   the host owns the frame, and animatable properties are extensible (CSS
   `@property`). When it is built, it compiles no shaders at runtime (LLP 0559 F8).
-- Server generation in every form: SSR, streaming, static export, progressive forms,
-  hydration, route payloads, response caching.
+- ~~Server generation in every form: SSR, streaming, static export, progressive
+  forms, hydration, route payloads, response caching.~~ Moved 2026-09-23 (Charlie,
+  LLP 1048): static and per-request pages, streaming, adoption in place of
+  hydration, route payloads and cache policies are on the doing-list (the
+  entry above). Still refused: progressive forms and server-driven UI.
 - Aquifer data tier, durable worker tier, capability capsules, durable capability grants.
 - ~~Snapback / update economy.~~ Moved 2026-09-03 (Charlie: "you can pull out snapback
   for now"), in LLP 1026 D11's minimal form only: an installed app fetches a signed
