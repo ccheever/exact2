@@ -1,7 +1,7 @@
 use exact_gpu::wgpu;
 
 /// Number of optional GPU timestamp pairs reserved for a frame.
-pub const GPU_PASS_COUNT: u32 = 24;
+pub const GPU_PASS_COUNT: u32 = 25;
 /// Timestamp slots: inactive passes leave their pair untouched.
 pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "shadow 0",
@@ -28,7 +28,10 @@ pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "hook post",
     "opaque depth resolve",
     "final depth resolve",
+    "cull",
 ];
+/// Timestamp pair of the frustum-culling compute pass.
+pub(crate) const CULL: u32 = 24;
 
 pub(crate) fn writes(
     set: Option<&wgpu::QuerySet>,

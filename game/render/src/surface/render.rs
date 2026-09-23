@@ -79,7 +79,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         }
         sim.viewport(frame.width, frame.height);
         if self.format != Some(format) {
-            self.hook_gpu_timing = None;
+            self.gpu_timing = None;
             self.hook_clock.reset();
             self.hooks.device_lost();
             self.ready_work = None;
@@ -170,13 +170,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
             crate::HookTime::default()
         };
         if !self.perf.armed() {
-            self.hook_gpu_timing = None;
+            self.gpu_timing = None;
         }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
-        if H::ENABLED && self.perf.armed() {
-            if self.hook_gpu_timing.is_none() {
-                self.hook_gpu_timing = crate::hooks::gpu_timing::GpuTiming::new(device, queue);
-                if self.hook_gpu_timing.is_some() {
+        let cascades = input
+            .sun
+            .filter(|s| s.illuminance != 0.)
+            .and_then(|s| s.shadows)
+            .map_or(0, |s| s.cascades.clamp(1, 3));
+        // Armed perf adds asynchronous pass timings and per-view culling counts.
+        if self.perf.armed() {
+            renderer.count_culled(true);
+            if self.gpu_timing.is_none() {
+                self.gpu_timing = crate::hooks::gpu_timing::GpuTiming::new(device, queue);
+                if H::ENABLED && self.gpu_timing.is_some() {
                     renderer
                         .hook_metrics
                         .get_or_insert_with(Default::default)
@@ -184,11 +191,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
                         .buffers += 2;
                 }
             }
-            renderer
-                .hook_metrics
-                .get_or_insert_with(Default::default)
-                .arm(false);
-            if let Some(timing) = &mut self.hook_gpu_timing {
+            if H::ENABLED {
+                renderer
+                    .hook_metrics
+                    .get_or_insert_with(Default::default)
+                    .arm(false);
+            }
+            if let Some(timing) = &mut self.gpu_timing {
                 timing.poll(device, queue);
                 input.timestamps = timing.query();
             }
@@ -241,8 +250,13 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
             );
             trace.times = [0.; 3];
         }
-        if let Some(timing) = &mut self.hook_gpu_timing {
-            timing.submitted(queue, self.hooks.needs(), self.hooks.drawable());
+        if let Some(timing) = &mut self.gpu_timing {
+            let culled = !renderer.cull.groups.is_empty() && !renderer.cull.direct;
+            let passes = (cascades, culled);
+            timing.submitted(queue, self.hooks.needs(), self.hooks.drawable(), passes);
+        }
+        if self.perf.armed() {
+            self.perf.culled = renderer.culled();
         }
         let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;

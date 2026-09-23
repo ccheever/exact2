@@ -1,4 +1,6 @@
+mod culling;
 mod draw;
+mod passes;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
 use crate::{
@@ -20,6 +22,14 @@ pub(crate) struct Mesh {
     pub(crate) asset: bool,
     pub(crate) base_vertex: i32,
     center: Vec3,
+    /// Position box half extents around `center`.
+    half: Vec3,
+    /// Primitive bound: the largest |position| per axis and |capsule offset sign|,
+    /// and whether any vertex takes the capsule (uniform) or per-axis scale.
+    reach: Vec3,
+    cap: f32,
+    capsule: bool,
+    plain: bool,
 }
 
 /// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
@@ -31,7 +41,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) models: crate::models::Models,
     pub(crate) quads: crate::quads::Quads,
     model_batches: Vec<Option<crate::MaterialId>>,
-    slot_list: Vec<u32>,
+    pub(crate) slot_list: Vec<u32>,
     pub(crate) uniform: wgpu::Buffer,
     transforms: [Buffer; 2],
     attachment_matrices: Buffer,
@@ -40,6 +50,10 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     materials: Buffer,
     slots: Buffer,
     scene_binds: [wgpu::BindGroup; 2],
+    /// The same scene group over the culled lists: binding 4 is a dynamic window.
+    culled_binds: [wgpu::BindGroup; 2],
+    culled_key: (wgpu::Buffer, u64),
+    pub(crate) cull: crate::cull::Cull,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -144,13 +158,24 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             wgpu::BufferUsages::STORAGE,
             "game attachment matrices",
         );
-        let scene_binds = scene_binds(
+        let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
             &uniform,
             &transforms,
             &materials,
-            &slots,
+            (&slots.raw, None),
+            &attachment_matrices,
+        );
+        let cull = crate::cull::Cull::new(device);
+        let culled_key = (cull.compacted.raw.clone(), cull.window);
+        let culled_binds = scene_binds(
+            device,
+            &pipelines.scene_layout,
+            &uniform,
+            &transforms,
+            &materials,
+            (&cull.compacted.raw, Some(cull.window)),
             &attachment_matrices,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
@@ -169,7 +194,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             current: 1,
             materials,
             slots,
-            scene_binds,
+            scene_binds: retained_binds,
+            culled_binds,
+            culled_key,
+            cull,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
@@ -270,8 +298,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         Ok(())
     }
 
-    /// Replace the persistent draw list. It may be any visible subset of slots:
-    /// future culling only needs to replace this list, not the transform arenas.
+    /// Replace the persistent draw list. Each frame the GPU culls it per view
+    /// (camera, sun cascades), preserving list order within each drawn range.
     /// Panics on invalid mesh IDs/ranges or slots beyond the written high-water
     /// marks. The caller initializes every referenced slot; sparse holes are not
     /// tracked on the CPU. Capacity refusals return an error before changing the list.
@@ -344,6 +372,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.batches.clear();
         self.batches.extend_from_slice(batches);
         self.counts = counts;
+        self.cull.epoch += 1;
         Ok(())
     }
 
@@ -367,11 +396,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.indices.write(&self.queue, index_start, bytes(indices));
         let mut low = Vec3::splat(f32::INFINITY);
         let mut high = Vec3::splat(f32::NEG_INFINITY);
+        let (mut reach, mut cap, mut capsule, mut plain) = (Vec3::ZERO, 0f32, false, false);
         for vertex in vertices {
             let p = Vec3::from_array(vertex.position);
             assert!(p.is_finite());
             low = low.min(p);
             high = high.max(p);
+            reach = reach.max(p.abs());
+            cap = cap.max(vertex.uv[0].abs());
+            capsule |= vertex.uv[1] == 1.0;
+            plain |= vertex.uv[1] != 1.0;
         }
         let center = (low + high) * 0.5;
         self.mesh_uploads += 1;
@@ -387,7 +421,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
             base_vertex: (vertex_start / size_of::<Vertex>() as u64) as i32,
             center,
+            half: (high - low) * 0.5,
+            reach,
+            cap,
+            capsule,
+            plain,
         };
+        self.cull.epoch += 1;
         if id.0 == self.meshes.len() {
             self.meshes.push(mesh);
         } else {
@@ -485,6 +525,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.queue.submit([encoder.finish()]);
         self.vertices = v;
         self.indices = i;
+        self.cull.epoch += 1;
         if let Some(weights) = weights {
             self.models.skinning.as_mut().unwrap().weights = weights;
             self.models.reallocations += 1;
@@ -513,6 +554,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .min(self.device.limits().max_buffer_size)
             / 64)
             .min(u64::from(u32::MAX)) as u32
+    }
+
+    /// Diagnostic readback of the GPU's per-view culling results. While on, each
+    /// frame copies its indirect draw arguments and maps them asynchronously.
+    pub fn count_culled(&mut self, on: bool) {
+        self.cull.count(&self.device, on);
+    }
+    /// Instances drawn per view in the latest completed readback: camera, then sun
+    /// cascades 0–2 (zero where absent). `None` until one arrives.
+    pub fn culled(&mut self) -> Option<[u64; 4]> {
+        self.cull.culled(&self.device)
     }
 
     fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
@@ -544,7 +596,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.uniform,
             &self.transforms,
             &self.materials,
-            &self.slots,
+            (&self.slots.raw, None),
+            &self.attachment_matrices,
+        );
+        self.rebind_culled();
+    }
+    fn rebind_culled(&mut self) {
+        self.culled_key = (self.cull.compacted.raw.clone(), self.cull.window);
+        self.culled_binds = scene_binds(
+            &self.device,
+            &self.pipelines.scene_layout,
+            &self.uniform,
+            &self.transforms,
+            &self.materials,
+            (&self.cull.compacted.raw, Some(self.cull.window)),
             &self.attachment_matrices,
         );
     }
@@ -555,13 +620,15 @@ fn record_end(first: u32, len: usize, stride: usize) -> u64 {
     u64::from(first) + (len / stride) as u64
 }
 
+// `slots` is the retained list (whole buffer, offset zero) or the culled lists
+// through a fixed window whose dynamic offset selects one view's group region.
 fn scene_binds(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     uniform: &wgpu::Buffer,
     transforms: &[Buffer; 2],
     materials: &Buffer,
-    slots: &Buffer,
+    slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
@@ -570,12 +637,19 @@ fn scene_binds(
             &transforms[1 - current].raw,
             &transforms[current].raw,
             &materials.raw,
-            &slots.raw,
+            slots.0,
             &attachments.raw,
         ];
         let entries: [_; 6] = std::array::from_fn(|i| wgpu::BindGroupEntry {
             binding: i as u32,
-            resource: buffers[i].as_entire_binding(),
+            resource: match (i, slots.1) {
+                (4, Some(size)) => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: slots.0,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(size),
+                }),
+                _ => buffers[i].as_entire_binding(),
+            },
         });
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game scene"),

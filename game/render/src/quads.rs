@@ -411,10 +411,12 @@ impl Quads {
             }));
         }
     }
+    /// Derive this frame's quads; `cull` skips what the camera cannot see.
     pub fn frame<const ASSETS: bool>(
         &mut self,
         f: &FrameInput<'_>,
         textures: &BTreeMap<String, crate::models::Texture>,
+        cull: bool,
     ) {
         self.order.clear();
         self.draws.clear();
@@ -429,6 +431,9 @@ impl Quads {
         let inv = f.view.inverse();
         let right = inv.x_axis.truncate().normalize();
         let up = inv.y_axis.truncate().normalize();
+        // Quads the camera cannot see are neither derived nor uploaded.
+        // @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
+        let camera = crate::cull::planes(f.proj * f.view);
         let mut left = exact_game::emitter::PARTICLE_BUDGET;
         for item in &self.particles {
             let t = f.displayed_matrix(
@@ -436,6 +441,13 @@ impl Quads {
                 crate::world::scene::interpolate(item.poses, f.alpha),
             );
             let e = &item.value;
+            if cull
+                && !crate::cull::sphere_visible(&camera, t.w_axis.truncate(), emitter_reach(e, &t))
+            {
+                // Skipped particles still charge the world budget in entity order.
+                left -= e.live(self.hz, f.alpha).min(left);
+                continue;
+            }
             e.particles(self.hz, f.alpha, |p| {
                 if left == 0 {
                     return;
@@ -478,6 +490,10 @@ impl Quads {
                 let x = right * (s.size.x * t.x_axis.truncate().length());
                 let y = up * (s.size.y * t.y_axis.truncate().length());
                 let center = t.w_axis.truncate() + x * (0.5 - s.anchor.x) + y * (0.5 - s.anchor.y);
+                let radius = 0.5 * (x.length_squared() + y.length_squared()).sqrt();
+                if cull && !crate::cull::sphere_visible(&camera, center, radius) {
+                    continue;
+                }
                 let [fx, fy, fw, fh] = s.frame.map(f32::from);
                 let mut uv = if fw == 0. || fh == 0. {
                     [0., 0., 1., 1.]
@@ -705,6 +721,22 @@ pub(crate) fn feed<T: exact_game::Component + Clone>(
     }
 }
 
+// Every particle centre lies within shape + speed·T + |g|·T²/2 of the emitter's
+// origin for the longest living birth's T (drag only shortens travel and fall);
+// quads extend half a diagonal beyond it.
+fn emitter_reach(e: &Emitter, t: &glam::Mat4) -> f32 {
+    let lifetime = e.state.births.iter().map(|b| b.lifetime).fold(0., f32::max);
+    let shape = match e.shape {
+        exact_game::emitter::Shape::Point => 0.,
+        exact_game::emitter::Shape::Sphere(r) => r.abs(),
+        exact_game::emitter::Shape::Cone(r, h) => (r * r + h * h).sqrt(),
+    };
+    let local = shape + e.speed.abs() * lifetime + e.gravity.length() * lifetime * lifetime * 0.5;
+    let [x, y, z] = [t.x_axis, t.y_axis, t.z_axis].map(|a| a.truncate().length_squared());
+    let size = e.size[0].max(e.size[1]);
+    local * (x + y + z).sqrt() + 0.5 * size * (x + y).sqrt()
+}
+
 fn quad(p: Vec3, x: Vec3, y: Vec3, c: [f32; 4], uv: [f32; 4], mode: f32, cutoff: f32) -> Quad {
     Quad {
         words: [
@@ -823,7 +855,7 @@ mod retained_tests {
         q.children = (0..5000).map(|i| (i, plane)).collect();
         q.prepare(&gpu.device, &gpu.queue);
         let capacity = q.order.capacity();
-        q.frame::<false>(&FrameInput::default(), &BTreeMap::new());
+        q.frame::<false>(&FrameInput::default(), &BTreeMap::new(), true);
         assert_eq!(q.order.len(), 5000);
         assert_eq!(q.order.capacity(), capacity);
     }

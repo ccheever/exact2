@@ -4,6 +4,7 @@ use glam::camera::rh::proj::directx;
 use glam::{Mat4, Vec3};
 
 pub(crate) const RESOLUTION: u32 = 2048;
+pub(crate) const MAX_CASCADES: usize = 3;
 
 pub(crate) struct Cascades {
     pub matrices: [Mat4; 3],

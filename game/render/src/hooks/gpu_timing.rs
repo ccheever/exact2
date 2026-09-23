@@ -1,9 +1,10 @@
-//! Nonblocking timestamp readback, only while a hooked canvas's perf is armed.
+//! Nonblocking timestamp readback, only while a canvas's perf is armed.
 use super::Needs;
 use crate::{perf::Ring, GPU_PASS_COUNT, GPU_PASS_NAMES};
 use exact_gpu::wgpu;
 use std::sync::{Arc, Mutex};
-const PAIRS: [u32; 8] = [3, 17, 18, 19, 20, 21, 22, 23];
+// Forward, hook stages, then the shadow cascades and culling.
+const PAIRS: [u32; 12] = [3, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 24];
 const BYTES: u64 = GPU_PASS_COUNT as u64 * 16;
 type Completion = Arc<Mutex<Option<Result<(), String>>>>;
 pub(crate) struct GpuTiming {
@@ -12,8 +13,8 @@ pub(crate) struct GpuTiming {
     read: wgpu::Buffer,
     done: Completion,
     phase: u8,
-    mask: [bool; 8],
-    rings: [Ring; 8],
+    mask: [bool; 12],
+    rings: [Ring; 12],
     period: f64,
     features: wgpu::Features,
     error: Option<String>,
@@ -37,7 +38,7 @@ impl GpuTiming {
                 mapped_at_creation: false,
             })
         };
-        let mut rings: [Ring; 8] = Default::default();
+        let mut rings: [Ring; 12] = Default::default();
         for r in &mut rings {
             r.arm(false);
         }
@@ -47,7 +48,7 @@ impl GpuTiming {
             read: buffer(wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ),
             done: Default::default(),
             phase: 0,
-            mask: [false; 8],
+            mask: [false; 12],
             rings,
             period: f64::from(queue.get_timestamp_period()) / 1_000_000.,
             features,
@@ -58,7 +59,7 @@ impl GpuTiming {
         for r in &mut self.rings {
             r.arm(true);
         }
-        self.mask = [false; 8];
+        self.mask = [false; 12];
     }
     pub fn poll(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         #[cfg(not(target_arch = "wasm32"))]
@@ -110,7 +111,14 @@ impl GpuTiming {
     pub fn query(&self) -> Option<&wgpu::QuerySet> {
         (self.phase == 0 && self.error.is_none()).then_some(&self.set)
     }
-    pub fn submitted(&mut self, queue: &wgpu::Queue, needs: Needs, drawable: bool) {
+    /// `passes`: shadow cascades drawn and whether the culling pass ran.
+    pub fn submitted(
+        &mut self,
+        queue: &wgpu::Queue,
+        needs: Needs,
+        drawable: bool,
+        (shadows, culled): (u32, bool),
+    ) {
         if self.phase != 0 || self.error.is_some() {
             return;
         }
@@ -129,6 +137,10 @@ impl GpuTiming {
             drawable && enc && needs.contains(Needs::HDR_POST),
             drawable && needs.contains(Needs::SCENE_COPY),
             drawable && needs.contains(Needs::FINAL_DEPTH),
+            shadows > 0,
+            shadows > 1,
+            shadows > 2,
+            culled,
         ];
         let done = self.done.clone();
         queue.on_submitted_work_done(move || *done.lock().unwrap() = Some(Ok(())));

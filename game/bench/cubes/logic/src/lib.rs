@@ -4,6 +4,8 @@ use exact_game::*;
 #[derive(Default, Args)]
 pub struct CubesArgs {
     pub n: u32,
+    /// Eye-level camera inside n pillars with sun shadows: most are off screen.
+    pub field: bool,
 }
 #[derive(Default, Component)]
 pub struct Spin {
@@ -20,6 +22,9 @@ impl Game for Cubes {
     const ID: &'static str = "bench-cubes";
     type Args = CubesArgs;
     fn setup(w: &mut World, args: &CubesArgs) {
+        if args.field {
+            return field(w, args.n);
+        }
         let side = (args.n as f64).cbrt().ceil() as u32;
         let half = side.saturating_sub(1) as f32 * 0.5;
         for i in 0..args.n {
@@ -86,6 +91,10 @@ impl Game for Cubes {
         let seconds = (w.tick() + 1) as f32 / 60.0;
         for (orbit, mut t) in w.query::<(&Orbit, &mut Transform)>() {
             let angle = seconds * std::f32::consts::TAU / orbit.period;
+            if orbit.radius == 0.0 {
+                t.rotation = Quat::from_rotation_y(angle);
+                continue;
+            }
             *t = Transform::at(
                 math::cos(angle) * orbit.radius,
                 orbit.height,
@@ -95,6 +104,59 @@ impl Game for Cubes {
         }
     }
 }
+// The culling scene (game/render/examples/cubes.rs `field`): pillars 1-12 m tall and
+// balls on a 4 m grid, the camera turning at eye level, three sun cascades.
+fn field(w: &mut World, n: u32) {
+    let side = (n as f64).sqrt().ceil() as u32;
+    let half = side.saturating_sub(1) as f32 * 2.0;
+    let extent = side as f32 * 4.0 + 8.0;
+    w.spawn((Transform::default(), Mesh::plane(extent, extent), Material::rgb(0.3, 0.32, 0.3)));
+    for i in 0..n {
+        let height = 1.0 + 11.0 * (i as f64 * 0.61803).fract() as f32;
+        let [r, g, b] = hue((i as f64 * 0.3719).fract() as f32);
+        let mesh = match i % 3 {
+            0 => Mesh::cuboid(Vec3::new(1.0, height, 1.0)),
+            1 => Mesh::cylinder(0.5, height),
+            _ => Mesh::sphere(0.8),
+        };
+        w.spawn((
+            Transform::at(
+                (i % side) as f32 * 4.0 - half + 2.0,
+                if i % 3 == 2 { 0.8 } else { height * 0.5 },
+                (i / side) as f32 * 4.0 - half + 2.0,
+            ),
+            mesh,
+            Material::rgb(r, g, b),
+        ));
+    }
+    w.spawn_named(
+        "camera",
+        (
+            Transform::at(0.0, 1.7, 0.0),
+            Camera {
+                far: 300.0,
+                ..Default::default()
+            },
+            Orbit {
+                radius: 0.0,
+                height: 1.7,
+                period: 20.0,
+            },
+        ),
+    );
+    w.spawn_named(
+        "sun",
+        (
+            Transform::at(-6.0, 4.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ),
+    );
+    w.insert_resource(Environment {
+        bloom: None,
+        ..Default::default()
+    });
+}
+
 // three.js setHSL(h, 0.6, 0.6), in its linear working color space.
 fn hue(h: f32) -> [f32; 3] {
     let channel = |offset: f32| {
