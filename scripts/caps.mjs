@@ -178,7 +178,11 @@ export function runCaps(root = process.cwd()) {
 }
 
 function main() {
-  const root = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim() || process.cwd();
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).stdout.trim();
+  // A captured multi-repository source puts the git top above the checkout
+  // that carries the rules; check that checkout. Neither carrying them fails.
+  const here = process.cwd();
+  const root = top && !existsSync(resolve(top, RULES_PATH)) && existsSync(resolve(here, RULES_PATH)) ? here : top || here;
   const { problems: found, counted: inspected } = runCaps(root);
 
   console.log('caps — budgets declared in ' + RULES_PATH + '\n');
