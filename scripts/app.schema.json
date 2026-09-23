@@ -8,6 +8,31 @@
     "app"
   ],
   "properties": {
+    "gpu": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shaderRoots": {
+          "type": "array",
+          "description": "Additional flat WGSL directories relative to app.json; duplicate stems and symlinks are refused.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "shaderPreludes": {
+          "type": "object",
+          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "game": {
       "type": "object",
       "description": "Generate the game's GPU, web and Apple shells from the logic package and Game type.",

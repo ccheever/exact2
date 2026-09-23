@@ -49,6 +49,11 @@ fn compat_cli_validates_all_options_before_reading_the_manifest() {
     let app = App::new("compat-args");
     let manifest = r#"{"app":{"id":"com.exact.cli-args","name":"CLI args"},"deploy":{"store":{"ios":"0","macos":"0","linux":"0","web":"0"}}}"#;
     app.write("app.json", manifest);
+    std::fs::create_dir_all(app.0.join("gpu/shaders")).unwrap();
+    app.write(
+        "gpu/shaders/fixture.wgsl",
+        "@compute @workgroup_size(1) fn main() {}",
+    );
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_exact-bake"))
             .arg("compat")
@@ -71,6 +76,8 @@ fn compat_cli_validates_all_options_before_reading_the_manifest() {
         let json: Value = serde_json::from_slice(&result.stdout).unwrap();
         assert_eq!(json["inputs"]["platform"], platform);
         assert_eq!(json["target"], target);
+        assert_eq!(json["inputs"]["gpuSurfaces"][0]["name"], "fixture");
+        assert!(json["inputs"]["gpuSurfaces"][0]["interface"].is_string());
         let plain = run(&[".", "--platform", platform, "--target", target]);
         assert!(plain.status.success(), "{plain:?}");
         assert_eq!(
@@ -115,5 +122,5 @@ fn compat_cli_validates_all_options_before_reading_the_manifest() {
         std::fs::read_to_string(app.0.join("app.json")).unwrap(),
         "invalid JSON"
     );
-    assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 2);
 }

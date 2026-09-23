@@ -74,6 +74,23 @@ pub(crate) struct Models {
     normals: Vec<([u32; 16], [u32; 16])>,
 }
 impl Models {
+    pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
+        let mut changed = false;
+        for (i, record) in self.records.iter_mut().enumerate() {
+            let value = data(record.transform);
+            if record.data != value {
+                record.data = value;
+                self.words[i * 36 + 2] = value;
+                changed = true;
+            }
+        }
+        if changed {
+            self.instances
+                .as_mut()
+                .unwrap()
+                .write(queue, 0, bytes(&self.words));
+        }
+    }
     fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) {
         if self.pose_history.len() == entities.len()
             && self
@@ -166,7 +183,7 @@ impl Models {
             words.extend([
                 record.transform,
                 record.material.0 as u32,
-                record.geometry.0 as u32,
+                record.data,
                 palette,
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
@@ -933,6 +950,7 @@ mod arrival_tests {
         let layout = &renderer.pipelines.models.as_ref().unwrap().instance;
         for x in 0..8 {
             let records = [DrawInstance {
+                data: 0,
                 transform: 0,
                 geometry: MeshId(0),
                 material: MaterialId(0),
@@ -1043,6 +1061,7 @@ mod retirement_regressions {
             let upload: Vec<_> = transforms
                 .iter()
                 .map(|&transform| DrawInstance {
+                    data: 0,
                     transform,
                     skin: None,
                     ..records[0]
@@ -1139,6 +1158,7 @@ mod retirement_regressions {
         );
         let node = renderer.models.loaded["generation.model"].nodes[0];
         let mut record = DrawInstance {
+            data: 0,
             transform: missing.index(),
             geometry: node.0,
             material: node.1,

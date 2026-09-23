@@ -407,6 +407,7 @@ pub(crate) mod tests {
             mapped_at_creation: false,
         });
         let records = [DrawInstance {
+            data: 0,
             transform: 1,
             geometry: crate::MeshId(0),
             material: crate::MaterialId(0),
@@ -594,6 +595,7 @@ pub(crate) mod tests {
                 &gpu.queue,
                 &uniform,
                 &[DrawInstance {
+                    data: 0,
                     transform: e.index(),
                     geometry: crate::MeshId(0),
                     material: crate::MaterialId(0),
@@ -722,6 +724,7 @@ pub(crate) mod tests {
             &gpu.queue,
             &uniform,
             &[DrawInstance {
+                data: 0,
                 transform: e.index(),
                 geometry: crate::MeshId(0),
                 material: crate::MaterialId(0),
@@ -859,6 +862,7 @@ pub(crate) mod tests {
         let records: Vec<_> = entities
             .iter()
             .map(|e| DrawInstance {
+                data: 0,
                 transform: e.index(),
                 geometry: crate::MeshId(0),
                 material: crate::MaterialId(0),

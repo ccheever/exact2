@@ -160,3 +160,44 @@ pub fn load_dir(dir: &std::path::Path, registry: &crate::Registry) -> Result<(),
     }
     Ok(())
 }
+
+/// Compose flat, reusable shader inventories at compile time. Duplicate names
+/// are refused even when their digests match. No Registry ABI change is needed.
+/// @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
+#[macro_export]
+macro_rules! shader_packs {
+    ($($pack:expr),* $(,)?) => {{
+        const N: usize = 0 $(+ $pack.len())*;
+        const PACK: [(&str,u64);N] = {
+            let mut out = [("",0);N];
+            let mut at = 0;
+            $(let pack = $pack;
+              let mut i=0;
+              while i<pack.len() { out[at]=pack[i]; at+=1; i+=1; })*
+            let mut i=0;
+            while i<N { let mut j=0; while j<i {
+                assert!(!$crate::shaders::same_name(out[i].0,out[j].0), "duplicate shader in shader_packs!");
+                j+=1;
+            } i+=1; }
+            out
+        };
+        &PACK
+    }};
+}
+/// Const string comparison used by shader_packs!'s duplicate-name check.
+#[doc(hidden)]
+pub const fn same_name(a: &str, b: &str) -> bool {
+    let a = a.as_bytes();
+    let b = b.as_bytes();
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}

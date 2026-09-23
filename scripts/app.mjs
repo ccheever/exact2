@@ -22,13 +22,69 @@
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
+import { filesystem } from './filesystem.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
+
+// @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
+/** Explicit source roots, relative to app.json. Only packaged names reach a host. */
+export function shaderRoots(app) {
+  return [...(app.manifest.game ? [] : ['gpu/shaders']), ...(shaderConfig(app).shaderRoots ?? [])]
+    .map(path => shaderPath(app,path));
+}
+function shaderConfig(app) {
+  const gpu = app.manifest.gpu;
+  if (gpu !== undefined) {
+    const problems = validate(gpu, schema().properties.gpu, 'gpu', schema());
+    if (problems.length) throw new Error(problems.join('\n'));
+  }
+  return gpu ?? {};
+}
+function shaderPath(app,path) {
+  if (isAbsolute(path)) throw new Error('shader paths must be relative to app.json so source snapshots remain relocatable');
+  return resolve(app.dir,path);
+}
+/** Shared WGSL libraries prepended to a named shader, in declared order. */
+export function shaderPreludeFiles(app) {
+  return [...new Set(Object.values(shaderConfig(app).shaderPreludes ?? {}).flat())].map(path => shaderPath(app,path));
+}
+/** Directory watches also cover edits to shared prelude files. */
+export function shaderWatchRoots(app) {
+  return [...new Set([...shaderRoots(app), ...shaderPreludeFiles(app).map(dirname)])];
+}
+/** Merge flat shader packs through the same no-symlink gate as other assets. */
+export function shaderFiles(app) {
+  const files = new Map();
+  for (const root of shaderRoots(app)) {
+    const tree = filesystem({op:'tree', root, optionalRoot: root === resolve(app.dir,'gpu/shaders')});
+    for (const [name, base64] of Object.entries(tree ?? {})) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*\.wgsl$/.test(name)) throw new Error(`shader pack ${root}: expected a flat WGSL filename, got ${name}`);
+      if (files.has(name)) throw new Error(`duplicate shader ${name} across declared roots`);
+      files.set(name, Buffer.from(base64, 'base64'));
+    }
+  }
+  for (const [stem, paths] of Object.entries(shaderConfig(app).shaderPreludes ?? {})) {
+    const name = `${stem}.wgsl`;
+    if (!files.has(name)) throw new Error(`shader prelude names missing shader ${name}`);
+    const parts = paths.map(path => {
+      const full = shaderPath(app,path);
+      return Buffer.from(filesystem({op:'get',root:dirname(full),path:basename(full)}),'base64');
+    });
+    files.set(name, Buffer.concat([...parts.flatMap(bytes => [bytes,Buffer.from('\n')]),files.get(name)]));
+  }
+  return files;
+}
+/** Package the complete validated inventory into a private build stage. */
+export function copyShaders(app, target) {
+  const files = shaderFiles(app);
+  if (files.size) mkdirSync(target, {recursive:true});
+  for (const [name, bytes] of files) writeFileSync(resolve(target,name), bytes);
+}
 
 /** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
@@ -463,7 +519,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
       // artifacts. Its generated entry and typed metadata are binary inputs.
       if (changed && pkg.id !== graph.root.id) {
         const path = resolve(dirname(pkg.manifest_path), changed[1]);
-        if (!(pkg.id === graph.surface?.id && under(resolve(app.dir, 'gpu/shaders'), path))) add(path, true);
+        if (!shaderRoots(app).some(root => under(root, path))) add(path, true);
       }
       const variable = /^cargo::?rerun-if-env-changed=(.*)$/.exec(line)?.[1];
       if (variable && !variable.startsWith('EXACT_') && !['OUT_DIR','CARGO_MANIFEST_DIR'].includes(variable)) environment.push(normalizeEnv([variable,env[variable]??null]));

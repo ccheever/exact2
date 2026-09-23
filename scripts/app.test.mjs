@@ -46,12 +46,13 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
     let before = statSync(bakedPath, { bigint: true }).mtimeNs;
     for (const [directory, prefix] of [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]) {
       mkdirSync(resolve(dir, directory), { recursive: true });
-      writeFileSync(resolve(dir, directory, 'x.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+      const name=prefix==='shaders'?'x.wgsl':'x.png';
+      writeFileSync(resolve(dir,directory,name),prefix==='shaders'?'@compute @workgroup_size(1) fn cs() {}':Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64'));
       bake();
       const changed = statSync(bakedPath, { bigint: true }).mtimeNs;
       assert.notEqual(changed, before, `${directory}: bake did not rerun`);
       const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
-      assert.ok(receipt.embedded.assets.some(a => a.name === `${prefix}/x.png`));
+      assert.ok(receipt.embedded.assets.some(a => a.name === `${prefix}/${name}`));
       bake();
       assert.equal(statSync(bakedPath, { bigint: true }).mtimeNs, changed, `${directory}: unchanged third build reran`);
       before = changed;
@@ -158,7 +159,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
@@ -768,4 +769,35 @@ test('a worktree whose target resolves into another checkout is refused', async 
     mkdirSync(resolve(root, 'private'));
     assertOwnTarget(resolve(root, 'private'), lane);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('declared shader packs merge, reject duplicates and links, and preserve a rejected live candidate', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { shaderFiles, copyShaders } = await import('./app.mjs');
+  const { applyShaderTreeChange } = await import('../host/web/serve.mjs');
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-shader-packs-'));
+  const app={dir,manifest:{gpu:{shaderRoots:['pack']}}}, target=resolve(dir,'dist/shaders');
+  try {
+    mkdirSync(resolve(dir,'gpu/shaders'),{recursive:true}); mkdirSync(resolve(dir,'pack'));
+    writeFileSync(resolve(dir,'gpu/shaders/a.wgsl'),'a'); writeFileSync(resolve(dir,'pack/b.wgsl'),'b');
+    copyShaders(app,target); assert.deepEqual([...shaderFiles(app).keys()].sort(),['a.wgsl','b.wgsl']);
+    writeFileSync(resolve(dir,'shared.wgsl'),'shared');
+    app.manifest.gpu.shaderPreludes={b:['shared.wgsl']};
+    assert.equal(shaderFiles(app).get('b.wgsl').toString(),'shared\nb');
+    writeFileSync(resolve(dir,'shared.wgsl'),'updated');
+    applyShaderTreeChange(app,target);
+    assert.equal(readFileSync(resolve(target,'b.wgsl'),'utf8'),'updated\nb');
+    delete app.manifest.gpu.shaderPreludes;
+    writeFileSync(resolve(dir,'pack/a.wgsl'),'collision');
+    assert.throws(()=>applyShaderTreeChange(app,target),/duplicate shader/);
+    assert.equal(readFileSync(resolve(target,'a.wgsl'),'utf8'),'a');
+    rmSync(resolve(dir,'pack/a.wgsl')); rmSync(resolve(dir,'pack/b.wgsl'));
+    const changed=applyShaderTreeChange(app,target);
+    assert.ok(changed.files.some(f=>f.name==='b.wgsl'&&f.removed));
+    assert.equal(readFileSync(resolve(target,'a.wgsl'),'utf8'),'a');
+    symlinkSync(resolve(dir,'gpu/shaders/a.wgsl'),resolve(dir,'pack/b.wgsl'));
+    assert.throws(()=>shaderFiles(app));
+  } finally { rmSync(dir,{recursive:true,force:true}); }
 });

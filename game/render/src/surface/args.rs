@@ -2,7 +2,7 @@
 use super::{observer, Clock, Game, Perf, Presentation, Sim, SurfaceError, Value, WorldSurface};
 use exact_game::Args;
 
-impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
+impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     pub(super) fn surface_arguments(&self) -> Vec<(&'static str, Value)> {
         G::Args::FIELDS
             .iter()
@@ -33,6 +33,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
                     &mut self.perf,
                     &mut self.trace,
                     &mut self.error,
+                    &mut self.hook_poses,
                     false,
                     0,
                 ),
@@ -40,6 +41,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
             .map_err(SurfaceError)?;
             self.assets_dirty |= models != sim.world().model_revision();
             if generation != sim.generation() {
+                self.hook_clock.reset();
                 if let Some((_, feed)) = &mut self.render {
                     feed.reset();
                 }

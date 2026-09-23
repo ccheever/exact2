@@ -11,7 +11,7 @@ import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
@@ -61,8 +61,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // The GPU crate's shaders (LLP 1030 D8): `shaders/<name>.wgsl` beside the
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
-const shaders = resolve(app.dir, 'gpu', 'shaders');
-if (!app.manifest.game) copyStaticTreeIfPresent(shaders, resolve(stage, 'shaders'));
+copyShaders(app, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 function copyHostFiles(group) {
   for (const [name, source] of Object.entries(webHostFiles(group))) copyFileSync(resolve(root, source), resolve(stage, name));

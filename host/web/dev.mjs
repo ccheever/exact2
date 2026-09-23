@@ -33,11 +33,11 @@ import { developmentGate, developmentInstallPage, installBrowserOrigins, install
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
-import { rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
+import { shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -145,7 +145,7 @@ const gpuOnly = files => files.length > 0 && appInputs.size > 0
   && files.every(path => path.endsWith('.rs') && gpuInputs.has(path) && !appInputs.has(path));
 const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
 
-const assetTrees = [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']].map(([from, to]) => [resolve(app.dir, from), to]);
+const assetTrees = [...[['assets', 'assets'], ['deck', 'deck']].map(([from, to]) => [resolve(app.dir, from), to]), ...shaderWatchRoots(app).map(root => [root, 'shaders'])];
 const skipped = /(^|\/)(target|dist(?:\.previous)?|\.build|node_modules)(\/|$)/;
 const shaderDigests = new Map();
 const toolingEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
@@ -161,11 +161,13 @@ function reflectShaders(tree) {
 // every declared tree before any compiler/server process starts. A truly
 // absent root removes stale output; a dangling root link is a refusal. The
 // complete shader candidate reflects before the old served tree is replaced.
-for (const [from, to] of assetTrees) {
+for (const [from, to] of assetTrees.filter(([,to]) => to !== 'shaders')) {
   let reflected = new Map();
   const present = syncStaticTree(from, resolve(dist, to), to === 'shaders' ? (candidate) => { reflected = reflectShaders(candidate); } : null);
   if (present && to === 'shaders') for (const [name, digest] of reflected) shaderDigests.set(name, digest);
 }
+
+applyShaderTreeChange(app, resolve(dist,'shaders'), candidate => { for (const [name,digest] of reflectShaders(candidate)) shaderDigests.set(name,digest); });
 
 const clients = new Set();
 let seq = 0;
@@ -657,6 +659,7 @@ let assetChanges = new Map(); // dist-relative name -> { root, relative }
 let assetTimer = null;
 try {
   watchStaticTrees(app.dir, assetTrees, (change) => {
+    if (change.targetRoot === 'shaders') change = {...change,tree:true,relative:'',name:'shaders'};
     if (skipped.test(change.relative) || /(^|\/)\./.test(change.relative)) return;
     if (change.tree) {
       for (const name of assetChanges.keys()) if (name === change.targetRoot || name.startsWith(`${change.targetRoot}/`)) assetChanges.delete(name);
@@ -676,8 +679,9 @@ function pushAssets() {
     if (source.tree) {
       let nextDigests = new Map();
       try {
-        const change = applyStaticTreeChange(source.root, target,
-          source.targetRoot === 'shaders' ? (candidate) => { nextDigests = reflectShaders(candidate); } : null);
+        const change = source.targetRoot === 'shaders'
+          ? applyShaderTreeChange(app, target, candidate => { nextDigests = reflectShaders(candidate); })
+          : applyStaticTreeChange(source.root, target);
         for (const file of change.files) {
           const changedName = `${source.targetRoot}/${file.name}`;
           const shader = changedName.startsWith('shaders/') && changedName.endsWith('.wgsl');

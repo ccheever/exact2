@@ -313,7 +313,7 @@ fn compatibility_with_trust(
         // text — so a colour edit does not move the id and a binding edit
         // does. Shaders are assets (1030.000 stage 1); the surface's Rust
         // binds this interface.
-        "gpuSurfaces": gpu_surfaces(app_dir)?,
+        "gpuSurfaces": gpu_surfaces(app_dir, manifest)?,
         "nativeModules": Value::Null,
         "icons": icons,
         "capabilities": {
@@ -454,27 +454,55 @@ fn lockfile(app_dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// The surfaces' shaders under `gpu/shaders`, by stem, each with its
-/// file digest; `null` when the app has no GPU crate.
-fn gpu_surfaces(app_dir: &Path) -> Result<serde_json::Value, String> {
-    let dir = app_dir.join("gpu/shaders");
-    if !dir.is_dir() {
-        return Ok(serde_json::Value::Null);
+/// The declared shader inventory, by stem and interface digest;
+/// `null` when the app has no shaders.
+fn gpu_surfaces(app_dir: &Path, manifest: &Manifest) -> Result<serde_json::Value, String> {
+    // The bake, hosts and dev server share the declared-root inventory.
+    // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
+    let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/app.mjs");
+    let cargo = std::env::var_os("OUT_DIR").is_some();
+    if cargo {
+        println!("cargo:rerun-if-changed={}", gate.display());
+    }
+    let code = r#"
+        import {pathToFileURL} from 'node:url';
+        const {shaderFiles,shaderRoots,shaderPreludeFiles} = await import(pathToFileURL(process.argv[1]));
+        const app={dir:process.argv[2],manifest:JSON.parse(process.argv[3])};
+        process.stdout.write(JSON.stringify({roots:[...shaderRoots(app),...shaderPreludeFiles(app)],files:[...shaderFiles(app)].map(([name,bytes])=>[name,bytes.toString('utf8')])}));
+    "#;
+    let result = std::process::Command::new("bun")
+        .args(["--input-type=module", "-e", code])
+        .arg(gate)
+        .arg(app_dir)
+        .arg(manifest.json.to_string())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !result.status.success() {
+        return Err(format!(
+            "shader inventory: {}",
+            String::from_utf8_lossy(&result.stderr)
+        ));
+    }
+    let inventory: serde_json::Value =
+        serde_json::from_slice(&result.stdout).map_err(|e| e.to_string())?;
+    for root in inventory["roots"].as_array().unwrap() {
+        let path = Path::new(root.as_str().unwrap());
+        if cargo && path.exists() {
+            println!("cargo:rerun-if-changed={}", path.display());
+        }
     }
     let mut shaders = Vec::new();
-    for entry in std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
-        if path.extension().is_some_and(|x| x == "wgsl") {
-            let stem = path
-                .file_stem()
-                .map(|s| s.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let text =
-                std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let digest = exact_gpu_reflect::interface_digest(&text)
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            shaders.push((stem, format!("{digest:016x}")));
-        }
+    for pair in inventory["files"].as_array().unwrap() {
+        let name = pair[0].as_str().unwrap();
+        let digest = exact_gpu_reflect::interface_digest(pair[1].as_str().unwrap())
+            .map_err(|e| format!("shader {name}: {e}"))?;
+        shaders.push((
+            name.trim_end_matches(".wgsl").to_string(),
+            format!("{digest:016x}"),
+        ));
+    }
+    if shaders.is_empty() {
+        return Ok(serde_json::Value::Null);
     }
     shaders.sort();
     Ok(serde_json::json!(shaders

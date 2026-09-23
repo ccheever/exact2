@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT"
 publish = false
 
+[build-dependencies]
+exact-gpu-reflect = { path = "../../gpu/reflect" }
+
 [dependencies]
 exact-game = { path = "../engine" }
 exact-gpu = { path = "../../gpu" }

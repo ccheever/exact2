@@ -15,6 +15,7 @@ extern crate self as exact_game_render;
 mod bloom;
 mod buffers;
 mod frame;
+pub mod hooks;
 mod model_pipeline;
 mod models;
 mod perf;
@@ -36,6 +37,9 @@ pub mod world;
 pub use exact_game;
 /// GPU surface ABI, also used by module! without a direct dependency.
 pub use exact_gpu;
+pub use hooks::{
+    FrameView, HookGpu, HookTime, HookWork, Hooks, Needs, PostInputs, RenderWorld, SceneCopy,
+};
 pub use models::ModelPresentation;
 pub use surface::{Presentation, WorldSurface};
 pub use world::scene::DisplayedAttachment;
@@ -103,6 +107,8 @@ pub struct DrawInstance {
     pub geometry: MeshId,
     /// Baked material in this renderer.
     pub material: MaterialId,
+    /// Presentation-only custom material payload; zero for ordinary drawing.
+    pub data: u32,
     /// Composed model node offset.
     pub local: Mat4,
     /// Renderer-owned skin template; absent for unskinned nodes.
@@ -282,7 +288,8 @@ impl Default for FrameInput<'_> {
 /// Work submitted by a frame, including its fullscreen tonemap triangle.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Stats {
-    /// All submitted draws, including shadows, sky, bloom and tonemapping.
+    /// Engine-issued draws, including shadows, sky, bloom and tonemapping.
+    /// Raw hook draws are outside these counters.
     pub draws: u32,
     /// Forward mesh instances (shadow draws do not count again).
     pub instances: u64,
@@ -313,11 +320,20 @@ mod tests {
 /// Export one game's surface and the native or wasm GPU module ABI.
 #[macro_export]
 macro_rules! module {
+    ($game:ty, hooks = $hooks:ty) => { $crate::module!($game, render_hooks (), false, $hooks, &[]); };
+    ($game:ty, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks (), false, $hooks, $shaders); };
+    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, $shaders); };
+    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, &[]); };
     ($game:ty) => { $crate::module!($game, hook (), false); };
     ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelPresentation, true); };
     ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
     ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
-    ($game:ty, audio_mode $assets:tt) => {
+    ($game:ty, audio, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, audio_mode false, $hooks, $shaders); };
+    ($game:ty, audio, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, audio_mode true, $hooks, $shaders); };
+    ($game:ty, audio, hooks = $hooks:ty) => { $crate::module!($game, audio_mode false, $hooks, &[]); };
+    ($game:ty, audio, assets, hooks = $hooks:ty) => { $crate::module!($game, audio_mode true, $hooks, &[]); };
+    ($game:ty, audio_mode $assets:tt) => { $crate::module!($game, audio_mode $assets, (), &[]); };
+    ($game:ty, audio_mode $assets:tt, $hooks:ty, $shaders:expr) => {
         #[derive(Default)]
         struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
         impl $crate::Presentation for GameAudio {
@@ -341,20 +357,23 @@ macro_rules! module {
             }
             fn unlock(&mut self) { self.0.unlock(); }
         }
-        $crate::module!($game, audio_hook GameAudio, $assets);
+        $crate::module!($game, audio_hook GameAudio, $assets, $hooks, $shaders);
     };
-    ($game:ty, audio_hook $hook:ty, false) => { $crate::module!($game, hook $hook, false); };
-    ($game:ty, audio_hook $hook:ty, true) => { $crate::module!($game, hook $crate::ModelPresentation<$hook>, true); };
+    ($game:ty, audio_hook $hook:ty, false, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $hook, false, $hooks, $shaders); };
+    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation<$hook>, true, $hooks, $shaders); };
     ($game:ty, hook $hook:ty, $assets:literal) => {
+        $crate::module!($game, render_hooks $hook, $assets, (), &[]);
+    };
+    ($game:ty, render_hooks $hook:ty, $assets:literal, $hooks:ty, $shaders:expr) => {
         /// The game's sole surface; shaders are embedded in the renderer.
         pub static REGISTRY: $crate::exact_gpu::Registry = $crate::exact_gpu::Registry {
             surfaces: &[(
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
             )],
-            shaders: &[],
+            shaders: $shaders,
         };
         $crate::exact_gpu::module!(REGISTRY);
     };

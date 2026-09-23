@@ -31,6 +31,7 @@ impl Assets {
             for &(geometry, material, local, skin) in nodes {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
                 self.records.push(DrawInstance {
+                    data: 0,
                     transform: entity.index(),
                     geometry,
                     material,

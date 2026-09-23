@@ -402,7 +402,7 @@ impl Pipelines {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn make_pipeline(
+pub(crate) fn make_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     label: &str,

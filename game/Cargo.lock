@@ -457,6 +457,7 @@ dependencies = [
  "exact-game-audio",
  "exact-game-bake",
  "exact-gpu",
+ "exact-gpu-reflect",
  "glam 0.33.7",
  "wasm-bindgen",
  "wasm-bindgen-futures",

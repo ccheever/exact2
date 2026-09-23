@@ -2,6 +2,23 @@ use std::{env, fs, path::Path};
 
 fn main() {
     let out = env::var_os("OUT_DIR").unwrap();
+    // @ref llp/1046.006.000-render-hooks.rfc.md#d2-the-frame-as-data-frameview
+    let frame = fs::read_to_string("src/shaders/frame.wgsl").unwrap();
+    fs::write(
+        Path::new(&out).join("frame_interface.rs"),
+        exact_gpu_reflect::reflect("frame", &frame).unwrap(),
+    )
+    .unwrap();
+    println!("cargo:rerun-if-changed=src/shaders/depth.wgsl");
+    fs::write(
+        Path::new(&out).join("depth_interface.rs"),
+        exact_gpu_reflect::reflect(
+            "depth",
+            &fs::read_to_string("src/shaders/depth.wgsl").unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     // Skinning is maintained by the concurrent skeleton slice. Its source stays
     // untouched; every shader assembled by pipeline.rs uses this packaging step.
     for name in [

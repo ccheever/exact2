@@ -68,12 +68,20 @@ async function settled() {
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
-      if (exact.now) for (let pass = 0; pass < 3; pass++) {
+      // GPU pipeline validation completes on browser promises, independently of
+      // simulation time. Surface::preparing keeps gpu_dirty true until usable.
+      const deadline = performance.now() + 2500;
+      if (exact.now) for (;;) {
         let drew = false;
         for (const entry of surfaces.values()) if (entry.id && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
         }
         if (!drew) break;
+        if (performance.now() >= deadline) {
+          for (const entry of surfaces.values()) if (entry.id && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
       if (exact.gpu.recovery?.status === "recovered") exact.gpu.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
   }

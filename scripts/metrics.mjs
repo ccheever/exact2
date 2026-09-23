@@ -592,7 +592,7 @@ const macBuiltApp = () => {
 };
 const macRun = () => {
   assertAppleIdentity(app, macBin);
-  return spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_ASSETS: app.dir, EXACT_SMOKE: '1' }, timeout: 20000 });
+  return spawnSync(macBin, [], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_ASSETS: appleArtifacts(app).capture, EXACT_SMOKE: '1' }, timeout: 20000 });
 };
 const macParse = (o) => {
   delete out.macos_note;
