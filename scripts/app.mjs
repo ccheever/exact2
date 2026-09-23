@@ -478,7 +478,7 @@ export function unitDepInfo(message, workspace, metadata) {
   }
   throw new Error(`no matching rustc unit dep-info for ${message.target.name}; rebuild the stale Cargo unit or use a private target directory`);
 }
-function completeBuild(app, platform, target, graph, messages, roots, env) {
+function completeBuild(app, platform, target, graph, messages, roots, env, prepared = new Map()) {
   const scripts = messages.filter((m) => m.reason === 'build-script-executed' && graph.roles.has(m.package_id));
   const targetDirs = [app.target, graph.metadata.build_directory].map(dir => resolve(dir, target));
   const roleOf = (path) => targetDirs.some(dir => under(dir, path)) ? target : 'host';
@@ -588,7 +588,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null]))};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
-  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
+  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
   return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
@@ -649,7 +649,7 @@ export function buildBake(app, platform, target, options = {}) {
   // Production-profile game bakes (web, Apple, release Linux, deploy) hold the
   // logic to the determinism lints; the gpu-dev edit loop leaves them to --test.
   if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
-  const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={};
+  const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={}, preparedProducts=new Map();
   delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
     const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
@@ -678,8 +678,9 @@ export function buildBake(app, platform, target, options = {}) {
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
       if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
       // A host may prepare (sign) a copy; that copy is the product from here on.
+      // Cargo's messages keep Cargo's file: its rustc dep-info is found beside it.
       const prepared = options.prepareGpu?.(product) ?? product;
-      if (prepared !== product) for (const m of output) if (m.filenames) m.filenames = m.filenames.map((f) => f === product ? prepared : f);
+      if (prepared !== product) preparedProducts.set(product, prepared);
       // Each module's signed digest is bound beside the primary's (LLP 1009 D6).
       const module = gpuModules(app.manifest).find(({name}) => app.crate(`gpu-${name}`) === pkg.name);
       if (module) { moduleProducts[module.name] = prepared; env.EXACT_GPU_MODULES = JSON.stringify(moduleProducts); }
@@ -689,9 +690,9 @@ export function buildBake(app, platform, target, options = {}) {
   if (options.part === 'gpu') {
     // The proof completes the independent input/product receipt. There is no
     // host bake output to classify when only the surface graph was selected.
-    return {products:messages.filter(m=>m.reason==='compiler-artifact' && bakeSelection(graph,'gpu').some(pkg=>pkg.id===m.package_id)).flatMap(m=>m.filenames)};
+    return {products:messages.filter(m=>m.reason==='compiler-artifact' && bakeSelection(graph,'gpu').some(pkg=>pkg.id===m.package_id)).flatMap(m=>m.filenames).map(f=>preparedProducts.get(f)??f)};
   }
-  const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
+  const receipt=completeBuild(app,platform,target,graph,messages,roots,env,preparedProducts);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
   options.capture?.(receipt);
   return receipt;
