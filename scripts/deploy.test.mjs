@@ -12,7 +12,7 @@ import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
-import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
+import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256 } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
 // behavior is tested independently with declared requirements.
@@ -823,5 +823,37 @@ async function rejects(action, matches) {
     JSON.stringify({ refusals, agedHeld, otherHostHeld, replacedRefused, successorHeld, reusable, conditional }));
   rmSync(dir, { recursive: true, force: true });
 }
+// Asset names must stage as distinct files on every client filesystem, APFS
+// included: the publisher refuses what exact-update's check_asset_names
+// refuses, before a head is signed or admitted.
+{
+  const refusals = [
+    [['Logo.png', 'logo.png'], /differ only by case/],
+    [['a', 'a/b.png'], /is a file where/],
+    [['deck/B/x.html', 'deck/b'], /is a file where/],
+    [['caf\u00e9.png'], /not portable/],
+    [['cafe\u0301.png'], /not portable/],
+    [['two words.png'], /not portable/],
+    [['mark.png', 'mark.png'], /twice/],
+  ];
+  const refused = refusals.map(([names, why]) => { try { portableAssetNames(names); return false; } catch (error) { return why.test(error.message); } });
+  let accepted = true;
+  for (const names of [['a/b.png', 'a/c.png', 'A-b_c.1.png'], ['deck/index.html', 'deck/index.html.map']]) {
+    try { portableAssetNames(names); } catch { accepted = false; }
+  }
+  const app = { id: 'com.exact.names', displayName: 'Names', manifest: {} };
+  const stream = { channel: 'prod', compatibilityId: 'a'.repeat(32) };
+  const planBytes = Buffer.from('plan');
+  const card = (name) => ({ name, bytes: Buffer.from(name), sha256: sha256(Buffer.from(name)) });
+  const bundle = { plan: { bytes: planBytes, sha256: sha256(planBytes), formatVersion: 4, kernelSchema: '0'.repeat(16) }, assets: [card('Logo.png'), card('logo.png')] };
+  const signingRefused = await rejects(() => streamHead({ app, bundle, stream, seq: 1, release: 'names' }), (error) => /differ only by case/.test(error.message));
+  const head = streamHead({ app, bundle: { ...bundle, assets: [card('Logo.png')] }, stream, seq: 1, release: 'names' });
+  head.assets.push({ ...head.assets[0], name: 'logo.png' });
+  const bytes = Buffer.from(JSON.stringify(head));
+  const inspected = inspectHead({ bytes, json: head, sha256: sha256(bytes) }, app, stream);
+  result('the publisher refuses asset names a client filesystem folds together', refused.every(Boolean) && accepted
+    && signingRefused && !inspected.usable && /differ only by case/.test(inspected.problem), JSON.stringify({ refused, accepted, signingRefused, inspected: inspected.problem }));
+}
+
 console.log(`\n${total - failed}/${total} passed`);
 process.exit(failed ? 1 : 0);

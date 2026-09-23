@@ -749,6 +749,7 @@ function changesAgainst(bundle, head) {
 /** The unsigned stream head. One producer keeps its identity/name and blob
  * pointers identical across classification fixtures and publication. */
 export function streamHead({ app, bundle, stream, seq, release, sunset = null }) {
+  portableAssetNames(bundle.assets.map((asset) => asset.name));
   const head = {
     exact: 1,
     app: { id: app.id, name: app.displayName },
@@ -777,10 +778,36 @@ function fileCard(object, name) {
   if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) throw new Error(`${name} has no exact nonnegative byte count`);
 }
 
+/** exact-update's `safe_name`: a relative path whose segments use only the
+ * POSIX portable filename characters, so no filesystem can fold or normalize
+ * two names into one file. */
 function safeAssetName(name) {
   if (typeof name !== 'string' || !name) throw new Error('an asset has no nonempty name');
-  if (name.startsWith('/') || name.startsWith('\\') || name.includes('\\') || name.includes(':')
-    || name.split('/').some((part) => !part || part === '.' || part === '..')) throw new Error(`the asset name ${name} is not a relative path`);
+  for (const part of name.split('/')) {
+    if (!part || part === '.' || part === '..') throw new Error(`the asset name ${name} is not a relative path`);
+    if (!/^[A-Za-z0-9._-]+$/.test(part)) throw new Error(`the asset name ${name} is not portable: segments use A-Z, a-z, 0-9, '.', '_' and '-'`);
+  }
+}
+
+/** exact-update's `check_asset_names`: a roster stages as distinct files on a
+ * case-insensitive filesystem (APFS's default), so no two names differ only
+ * by case and none is a file where another needs a directory. The bake and
+ * every client refuse the same rosters. */
+export function portableAssetNames(names) {
+  const files = new Map(), directories = new Map();
+  for (const name of names) {
+    safeAssetName(name);
+    const folded = name.toLowerCase(); // ASCII after safeAssetName
+    const other = files.get(folded);
+    if (other !== undefined) throw new Error(other === name ? `the envelope names the asset ${name} twice` : `the assets ${other} and ${name} differ only by case, one file on a case-insensitive filesystem`);
+    if (directories.has(folded)) throw new Error(`the asset ${name} is a file where ${directories.get(folded)} needs a directory`);
+    for (let end = folded.indexOf('/'); end !== -1; end = folded.indexOf('/', end + 1)) {
+      const directory = folded.slice(0, end);
+      if (files.has(directory)) throw new Error(`the asset ${files.get(directory)} is a file where ${name} needs a directory`);
+      if (!directories.has(directory)) directories.set(directory, name);
+    }
+    files.set(folded, name);
+  }
 }
 
 /** Parse and authenticate one origin head by the same pre-download rules as
@@ -804,14 +831,12 @@ export function inspectHead(found, app, stream) {
     if (typeof head.stream.compatibilityId !== 'string') throw new Error('the stream names no compatibility id');
     if (!Number.isSafeInteger(head.stream.seq) || head.stream.seq < 0) throw new Error('the stream names no exact nonnegative seq');
     if (head.assets !== undefined && !Array.isArray(head.assets)) throw new Error("the envelope's assets are not a list");
-    const names = new Set();
     for (const asset of head.assets ?? []) {
       if (!asset || typeof asset !== 'object' || Array.isArray(asset)) throw new Error('an asset is not an object');
-      safeAssetName(asset.name);
-      if (names.has(asset.name)) throw new Error(`the envelope names the asset ${asset.name} twice`);
-      names.add(asset.name);
+      if (typeof asset.name !== 'string' || !asset.name) throw new Error('an asset has no nonempty name');
       fileCard(asset, asset.name);
     }
+    portableAssetNames((head.assets ?? []).map((asset) => asset.name));
     if (head.sunset !== undefined) {
       if (!head.sunset || typeof head.sunset !== 'object' || Array.isArray(head.sunset)) throw new Error('the sunset card is not an object');
       if (typeof head.sunset.message !== 'string') throw new Error('the sunset card has no message');

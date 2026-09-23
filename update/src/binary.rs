@@ -142,7 +142,6 @@ impl Baked {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .ok_or("embedded asset has no name")?;
-                crate::envelope::safe_name(name)?;
                 let sha = card
                     .get("sha256")
                     .and_then(|v| v.as_str())
@@ -165,6 +164,7 @@ impl Baked {
                     return Err(format!("embedded asset {name} is duplicated"));
                 }
             }
+            crate::envelope::check_asset_names(assets.keys().map(String::as_str))?;
             let digest = metadata
                 .get("entryDigest")
                 .and_then(|v| v.as_str())

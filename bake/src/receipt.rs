@@ -175,8 +175,12 @@ fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let cards =
+    let cards: Vec<Value> =
         serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))?;
+    // Every client must stage these as distinct files, APFS included; the
+    // publisher and every client parse refuse the same names.
+    exact_update::check_asset_names(cards.iter().filter_map(|c| c["name"].as_str()))
+        .map_err(|e| format!("bake asset gate: {e}"))?;
     // The helper has its own target directory. Other known bake destinations
     // may also be beneath an external app: never broaden a watch over them.
     let mut outputs = vec![
@@ -826,6 +830,11 @@ mod tests {
                 json!({"name":"deck/nested/index.html","sha256":hash(b"deck"),"bytes":4}),
             ]
         );
+        std::fs::write(root.join("assets/two words.png"), b"space").unwrap();
+        assert!(asset_cards(&root, &root.join("out"))
+            .unwrap_err()
+            .contains("bake asset gate: the asset name assets/two words.png is not portable"));
+        std::fs::remove_file(root.join("assets/two words.png")).unwrap();
         std::fs::write(root.join("outside"), b"must not be embedded").unwrap();
         std::os::unix::fs::symlink("../outside", root.join("assets/escape")).unwrap();
         assert!(asset_cards(&root, &root.join("out"))

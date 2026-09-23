@@ -55,7 +55,9 @@ pub mod store;
 
 pub use binary::{Activate, Baked};
 pub use client::{Client, Outcome};
-pub use envelope::{canonical_bytes, sha256_hex, Card, Envelope, FileCard, StreamCard};
+pub use envelope::{
+    canonical_bytes, check_asset_names, sha256_hex, Card, Envelope, FileCard, StreamCard,
+};
 pub use store::{
     head_url, AssetSet, Check, Embedded, Generation, PreparedSelection, Selection,
     SelectionRefusal, Staged, Status, Store, Trust,

@@ -306,12 +306,9 @@ impl Envelope {
                     .get("name")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| "an asset has no name".to_string())?;
-                safe_name(name)?;
-                if assets.iter().any(|a: &FileCard| a.name == name) {
-                    return Err(format!("the envelope names the asset {name} twice"));
-                }
                 assets.push(file_card(name, object)?);
             }
+            check_asset_names(assets.iter().map(|a| a.name.as_str()))?;
         }
         let sunset = match root.get("sunset") {
             None => None,
@@ -444,20 +441,64 @@ fn file_card(
 }
 
 /// An asset name is a relative path under the entry's `assets/`: no root, no
-/// `..`, no drive letter, no empty segment, no backslash. A name that could
-/// leave the entry is refused before anything is written.
+/// `..`, no empty segment, and every segment from the POSIX portable filename
+/// set, `A-Z a-z 0-9 . _ -`. A name that could leave the entry is refused
+/// before anything is written, and so is any character a filesystem may fold
+/// or normalize: `café` spelled NFC and NFD would be two names for one APFS
+/// file.
 pub(crate) fn safe_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("an asset name is empty".into());
-    }
-    if name.starts_with('/') || name.starts_with('\\') || name.contains('\\') || name.contains(':')
-    {
-        return Err(format!("the asset name {name} is not a relative path"));
     }
     for segment in name.split('/') {
         if segment.is_empty() || segment == "." || segment == ".." {
             return Err(format!("the asset name {name} is not a relative path"));
         }
+        if !segment
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        {
+            return Err(format!(
+                "the asset name {name} is not portable: segments use A-Z, a-z, 0-9, '.', '_' and '-'"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A roster's names, each [portable](safe_name), must stage as distinct files
+/// on a case-insensitive filesystem (APFS's default): no two may differ only
+/// by ASCII case, and none may be a file where another needs a directory (`a`
+/// beside `a/b`). The bake, the publisher and every parse refuse the same.
+pub fn check_asset_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
+    use std::collections::HashMap;
+    let mut files: HashMap<String, &str> = HashMap::new();
+    let mut directories: HashMap<String, &str> = HashMap::new();
+    for name in names {
+        safe_name(name)?;
+        let folded = name.to_ascii_lowercase();
+        if let Some(other) = files.get(&folded) {
+            return Err(if *other == name {
+                format!("the envelope names the asset {name} twice")
+            } else {
+                format!("the assets {other} and {name} differ only by case, one file on a case-insensitive filesystem")
+            });
+        }
+        if let Some(other) = directories.get(&folded) {
+            return Err(format!(
+                "the asset {name} is a file where {other} needs a directory"
+            ));
+        }
+        for (end, _) in folded.match_indices('/') {
+            let directory = &folded[..end];
+            if let Some(other) = files.get(directory) {
+                return Err(format!(
+                    "the asset {other} is a file where {name} needs a directory"
+                ));
+            }
+            directories.entry(directory.to_string()).or_insert(name);
+        }
+        files.insert(folded, name);
     }
     Ok(())
 }
