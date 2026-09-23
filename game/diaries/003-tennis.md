@@ -55,7 +55,7 @@ earlier and is not in the totals.
   (0 failures; 6 min 19 s, a cold release build), which embeds the product digest
   instead — so only the gpu-dev path is broken.
 - **16:41** The one engine-side change, its own commit (`4e4dd81f`,
-  `bake/src/receipt.rs`, +6 lines). The starter's gpu-dev Linux proof: 1 failure →
+  `bake/src/receipt.rs`, +7 −1 lines). The starter's gpu-dev Linux proof: 1 failure →
   0 failures, 9.2 s.
 - **16:42** `aria-hidden` is not a `text` attribute either (a decorative glyph
   cannot be hidden from assistive technology). Removed.
@@ -97,7 +97,64 @@ earlier and is not in the totals.
   artifact contains the key (checked by the script and by a `grep -rlF` over the
   artifacts afterwards).
 - **17:02** Linux proof: 0 failures, 36 checks, 15.0 s. First baseline started:
-  `bun game/prove.mjs game/games/tennis`.
+  `bun game/prove.mjs game/games/tennis`. The session stalled on a stream
+  watchdog (not the build); the baseline was killed with it and restarted after
+  the game and the docs were committed (`c9a99b41`, `12a64f05`). A scan for the
+  key over the game, the diary, the LLP, `dist/`, `target/`, `artifacts/` and
+  every lane log found nothing.
+- **17:21–17:38** First baseline, second attempt. Linux Off / Save / FreshGame:
+  0 failures in 7.3 / 46.5 / 28.1 s; web Save / FreshGame: 0 failures in 77.3 /
+  115.9 s. Every row agrees: tick 0 `0x8c5dca88afc8d546`, tick 1420 (mid-rally)
+  `0xe43cabcb943cc28d`, continuation save `b894031b…`, on arm64 macOS and in
+  Chrome wasm, restored every tick or not. Web Off lost one Chrome session to the
+  load (friction 9), so the prove refused to write pins.
+- **17:44–17:55** Third attempt, tree unchanged: every row passed, and the Linux
+  release run; **pins written** (10 min 56 s at load 180–290). The recorded
+  command held my lane's absolute path because I passed a path, as the README's
+  `bun game/prove.mjs ./my-game` suggests; respelled by name (`18d25bcd`).
+- **17:56** `bun game/prove.mjs tennis`: **PROOF PASS**, 16.4 s.
+- **17:58** `bun game/prove.mjs tennis --hosts linux,web --compare-saves`:
+  **PROOF PASS** — Linux 13.0 s, web 39.9 s, world hashes equal, save bytes
+  identical; 1 min 51 s with the web build.
+- **18:00–18:10** Checks. Root five: build 2 min 21 s, 63 test binaries green,
+  clippy and `fmt --check` clean, caps within budget, boot 2 modules. Tennis
+  workspace (`bun app/shells.mjs games/tennis --test`): 16 tests green, 4 min 37 s.
+  `bun test ./proof.test.mjs`: 81 pass, 4 fail, none in files this lane touched —
+  a `glue.js` source slice (autofocus), `exact.agentSettled` missing in a reused
+  Chrome, Beacons' stale lock, and the pin-literal scan (it timed out at 5 s under
+  load; with a longer timeout it lists ~2,000 literals under `experiments/` and
+  `apps/`, none under `game/games/tennis`).
+
+**Totals.** Brief to a playable game with all tests green: 16:03 → 16:32 (29 min).
+To the first passing real-host proof: 16:49:46 (**46 min 31 s**, including the
+engine-side diagnosis and fix). To pinned, verified PASS on Linux and web:
+17:58 (1 h 55 min, including a watchdog stall and two baseline reruns lost to
+machine load). Build/run iterations: 5 Linux proof rounds, 4 web proof rounds,
+2 live checks, 3 baseline attempts. Pixel inspections: 5 screenshots (rally,
+Jev-late and match-over, twice, after the camera change).
+
+## Line counts (physical lines, `rustfmt`ed, blanks and comments included)
+
+| file | lines | of which inline tests |
+|---|---:|---:|
+| `logic/src/lib.rs` — the tick, serving, strokes, rules, HUD | 899 | 0 |
+| `logic/src/players.rs` — running, contact, strokes, predictor, swing poses | 608 | 97 |
+| `logic/src/brain.rs` — questions, answers, sampling, fallback, scouting | 491 | 0 |
+| `logic/src/court.rs` — court, net, players' bodies, sounds | 353 | 0 |
+| `logic/src/ball.rs` — flight, bounce, net, launch solver, line calls | 308 | 63 |
+| `logic/src/rules.rs` — scoring | 193 | 34 |
+| **game logic** | **2,852** | 194 |
+| `data/src/lib.rs` — the `jev` resource (HTTP) | 268 | 64 |
+| `app.contract` — title, HUD, touch controls, pause, match over | 129 | |
+| `logic/tests/sim.rs` — hostless matches | 397 | |
+| `proof.mjs` — the real-host proof and key-driven bot | 247 | |
+| `live.mjs` — opt-in live check | 67 | |
+| `jev-proxy.mjs` — dev-only key-holding proxy | 49 | |
+| manifests (`app.json`, two `Cargo.toml`) | 33 | |
+
+Generated shells: 4 Rust entry lines, as for Beacons. Beacons r6 was 135 lines of
+logic and 41 of Contract; this game is 16× the logic because the engine has no
+ball, bounce, net, scoring or opponent — all of it is game code, which is right.
 
 ## Design: Jev plans, the engine executes
 
@@ -187,10 +244,19 @@ earlier and is not in the totals.
 8. **Rust and Contract spell fields differently.** Contract's convention is
    camelCase, Rust's snake_case, and the HUD record's names are the Rust names;
    the shape uses `you_games` rather than fight `non_snake_case`.
-9. **The data source has no clock on wasm** (`std::time::Instant` panics), so
+9. **Web proofs under machine load.** With seven lanes building at once (load
+   average 177) the first-baseline web run lost one fresh Chrome session: `tap
+   play` → `Input.dispatchMouseEvent did not answer within 15000 ms`. The same
+   step passed in every other run; the first baseline needs every mode on both
+   hosts in one invocation, so one CDP timeout costs a whole rerun (~10 min).
+10. **Helper scripts beside a game are bake inputs.** The proof input filter
+    exempts `proof.mjs`, `pins.json`, `*.test.mjs` and Markdown, so editing
+    `live.mjs` or `jev-proxy.mjs` (which no host ever loads) changes the game's
+    input digest, rebuilds it and would split a baseline's rows.
+11. **The data source has no clock on wasm** (`std::time::Instant` panics), so
    latency is measured in world time by the tick that applies the answer. Under
    the live check the world clock is paced to the wall clock (ratio 1.000).
-10. **Machine friction, not the engine's:** Homebrew Bun 1.4.0 below the 1.4.2 pin;
+12. **Machine friction, not the engine's:** Homebrew Bun 1.4.0 below the 1.4.2 pin;
     the key file is `AI Gateway:` then an indented `AI_GATEWAY_API_KEY=…`, not
     shell-sourceable (`sed -n 's/^[[:space:]]*AI_GATEWAY_API_KEY=//p'`); Jev's
     `score` is a label index (0–4), not 0–1.
