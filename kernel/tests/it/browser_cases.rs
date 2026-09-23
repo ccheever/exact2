@@ -392,3 +392,62 @@ fn percentage_padding_resolves_against_the_containing_block_width() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// A `button` is a flex column (LLP 1006 §3; Charlie, 2026-09-23: "One
+/// native button, flex column"). Measured on a real `<button type="button">`
+/// with `index.html`'s reset and `<span>` children: a flex `<button>` is laid
+/// out as any flex container, so its content starts where the kernel puts it.
+/// A block `<button>` would not — the same 20px child sits at 40 in 100px,
+/// centred by the anonymous box HTML's rendering rules give a button (LLP
+/// 1007 §1) — which is why a button is never block.
+#[test]
+fn a_flex_button_lays_out_as_the_kernel_does() {
+    let mut failures = Vec::new();
+    let mut case = |name: &str, root: Rows, nodes, texts: &[(u32, &str)], want: &[_]| {
+        failures.extend(mismatches(name, &lay_out(props(&root), nodes, texts), want));
+    };
+    let column = |height: f64| {
+        vec![
+            (Display, t("flex")),
+            (FlexDirection, t("column")),
+            (Width, n(400.0)),
+            (Height, n(height)),
+        ]
+    };
+    case(
+        "a 100px button's 20px child starts at the top",
+        column(100.0),
+        vec![(2, 1, vec![(Height, n(20.0))])],
+        &[],
+        &[(2, [0.0, 0.0, 400.0, 20.0])],
+    );
+    case(
+        "a 100px button's text starts at the top",
+        column(100.0),
+        empty(1, &[2]),
+        &[(2, "Hello")],
+        &[(2, [0.0, 0.0, 400.0, 18.0])],
+    );
+    case(
+        "a 44px button centres a label and an icon",
+        vec![
+            (Display, t("flex")),
+            (FlexDirection, t("row")),
+            (AlignItems, t("center")),
+            (JustifyContent, t("center")),
+            (ColumnGap, n(8.0)),
+            (Width, n(400.0)),
+            (Height, n(44.0)),
+        ],
+        vec![
+            (2, 1, vec![(Width, n(40.0)), (Height, n(18.0))]),
+            (3, 1, vec![(Width, n(20.0)), (Height, n(20.0))]),
+        ],
+        &[],
+        &[
+            (2, [166.0, 13.0, 40.0, 18.0]),
+            (3, [214.0, 12.0, 20.0, 20.0]),
+        ],
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
