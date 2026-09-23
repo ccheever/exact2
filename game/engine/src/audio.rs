@@ -9,9 +9,9 @@ pub enum Wave {
     /// Sinusoid.
     #[default]
     Sine,
-    /// Positive for the first half of a cycle.
+    /// Positive for the first half of a cycle; band-limited edges (PolyBLEP).
     Square,
-    /// Rising ramp from -1 to 1.
+    /// Rising ramp from -1 to 1; band-limited edge (PolyBLEP).
     Saw,
     /// Triangle starting at -1.
     Triangle,

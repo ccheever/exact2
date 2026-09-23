@@ -59,6 +59,22 @@ pub fn render(s: &Synth, sample_rate: u32) -> Vec<f32> {
     }
     out
 }
+/// Polynomial band-limited step residual for a unit discontinuity at phase 0,
+/// with `step` the phase advance per sample. Square and saw subtract it at each edge.
+/// @ref LLP 1046.003 §AU4 (band-limited oscillators)
+fn blep(phase: f32, step: f32) -> f32 {
+    if step <= 0.0 {
+        0.0
+    } else if phase < step {
+        let t = phase / step;
+        t + t - t * t - 1.0
+    } else if phase > 1.0 - step {
+        let t = (phase - 1.0) / step;
+        t * t + t + t + 1.0
+    } else {
+        0.0
+    }
+}
 fn render_into(s: &Synth, rate: u32, out: &mut [f32]) {
     let tau = std::f32::consts::TAU;
     let dt = 1.0 / rate as f32;
@@ -80,16 +96,17 @@ fn render_into(s: &Synth, rate: u32, out: &mut [f32]) {
         .take(math::ceil(s.seconds * rate as f32) as usize)
     {
         let t = i as f32 * dt;
+        let semitones = s.slide * t + s.vibrato_depth * math::sin(tau * s.vibrato_hz * t);
+        let frequency = (s.hz * math::powf(2.0, semitones / 12.0)).min(rate as f32 * 0.5);
+        let step = frequency * dt;
         let x = match s.wave {
             Wave::Sine => math::sin(tau * phase),
             Wave::Square => {
-                if phase < 0.5 {
-                    1.0
-                } else {
-                    -1.0
-                }
+                let naive = if phase < 0.5 { 1.0 } else { -1.0 };
+                let falling = phase + 0.5;
+                naive + blep(phase, step) - blep(falling - math::floor(falling), step)
             }
-            Wave::Saw => 2.0 * phase - 1.0,
+            Wave::Saw => 2.0 * phase - 1.0 - blep(phase, step),
             Wave::Triangle => 1.0 - 4.0 * (phase - 0.5).abs(),
             Wave::Noise => {
                 noise ^= noise << 13;
@@ -107,9 +124,7 @@ fn render_into(s: &Synth, rate: u32, out: &mut [f32]) {
             low
         };
         *sample += filtered * envelope(s, t) * s.gain;
-        let semitones = s.slide * t + s.vibrato_depth * math::sin(tau * s.vibrato_hz * t);
-        let frequency = (s.hz * math::powf(2.0, semitones / 12.0)).min(rate as f32 * 0.5);
-        phase += frequency * dt;
+        phase += step;
         phase -= math::floor(phase);
     }
     for layer in &s.layers {
