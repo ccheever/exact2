@@ -31,8 +31,6 @@ use crate::css;
 use exact_kernel::{NodeRef, PropId, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, Runner};
-#[cfg(not(target_arch = "wasm32"))]
-pub use page::main;
 pub use page::{build_locations, checkpoint, Site};
 use std::collections::BTreeMap;
 use std::fmt;

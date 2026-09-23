@@ -232,6 +232,7 @@ dependencies = [
  "exact-linux",
  "exact-linux-update",
  "exact-logic",
+ "exact-render",
 ]
 
 [[package]]
@@ -965,6 +966,20 @@ dependencies = [
 [[package]]
 name = "exact-raster"
 version = "0.1.0"
+
+[[package]]
+name = "exact-render"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "exact-web",
+ "ibex2",
+ "serde_json",
+]
 
 [[package]]
 name = "exact-route"

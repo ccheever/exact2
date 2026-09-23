@@ -27,7 +27,7 @@ const [width, height] = [390, 844]; // the page viewport documents render at
 /** The rendered page: the shell with the renderer's head, the document in
  * `#exact-root` and its checkpoint, as the build writes it. */
 function renderedPage(location) {
-  const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-web', '--bin', 'caltrain-render', '--',
+  const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
     '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, location],
   { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
   if (render.status !== 0) throw new Error(`caltrain-render: ${render.stderr}${render.stdout}`);

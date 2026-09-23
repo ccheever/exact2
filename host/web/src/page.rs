@@ -1,5 +1,5 @@
-//! The page around a document: its `<head>`, its checkpoint, and the render
-//! entry the web build runs.
+//! The page around a document: its `<head>`, its checkpoint, and the
+//! locations a build renders. The render host (`exact-render`) composes them.
 //!
 //! @ref LLP 1048.000 D3 (the head), D6 (the checkpoint, 1a's form), D7
 //! (`dist/`)
@@ -12,8 +12,7 @@
 //! the manifest's origin, never a request's. Nothing preloads the glue or the
 //! wasm (D3).
 
-use super::{escape, navigable, project, Document, DocumentError};
-use crate::host::Host;
+use super::{escape, navigable, Document, DocumentError};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::{DataSource, Runner};
 use std::fmt::Write as _;
@@ -261,133 +260,4 @@ pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
         }
     }
     Ok(out)
-}
-
-/// An app's pages as documents, for the web build and the parity check:
-///
-/// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>]
-/// [--origin <url>] (--build | <location>…)`
-///
-/// boots a fresh host per location at the page viewport (the bake's 390 ×
-/// 844 unless told) and prints one JSON line each: `location`, `notfound`,
-/// `status`, `robots`, `root` (what `#exact-root` holds), `head` (what
-/// `<head>` holds after the shell's charset and base) and `checkpoint`, or
-/// `error`. `--build` renders every location the plan declares `render=build`
-/// (see [`build_locations`]). `baked` is the app's own plan; the web build
-/// passes the one it extracted from the shipped wasm instead.
-#[cfg(not(target_arch = "wasm32"))]
-pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
-    use std::process::ExitCode;
-    let mut args = std::env::args().skip(1);
-    let mut plan = baked.to_vec();
-    let mut viewport = exact_runner::Viewport::default();
-    let (mut name, mut origin) = (String::new(), None::<String>);
-    let mut locations: Vec<(String, bool)> = Vec::new();
-    let mut build = false;
-    let usage = || {
-        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] (--build | <location>…)");
-        ExitCode::from(2)
-    };
-    while let Some(arg) = args.next() {
-        match arg.as_str() {
-            "--plan" => match args.next().map(std::fs::read) {
-                Some(Ok(bytes)) => plan = bytes,
-                Some(Err(e)) => {
-                    eprintln!("render: --plan: {e}");
-                    return ExitCode::FAILURE;
-                }
-                None => return usage(),
-            },
-            "--viewport" => {
-                let size = args.next().and_then(|v| {
-                    let (w, h) = v.split_once('x')?;
-                    Some((w.parse().ok()?, h.parse().ok()?))
-                });
-                let Some((width, height)) = size else {
-                    return usage();
-                };
-                viewport = exact_runner::Viewport { width, height };
-            }
-            "--name" => match args.next() {
-                Some(value) => name = value,
-                None => return usage(),
-            },
-            "--origin" => match args.next() {
-                Some(value) => origin = Some(value),
-                None => return usage(),
-            },
-            "--build" => build = true,
-            _ if arg.starts_with('/') => locations.push((arg, false)),
-            _ => return usage(),
-        }
-    }
-    let decoded = match Plan::decode(&plan) {
-        Ok(decoded) => decoded,
-        Err(e) => {
-            eprintln!("render: the plan: {e:?}");
-            return ExitCode::FAILURE;
-        }
-    };
-    if build {
-        match build_locations(&decoded) {
-            Ok(found) => locations.extend(found),
-            Err(e) => {
-                eprintln!("render: {e}");
-                return ExitCode::FAILURE;
-            }
-        }
-    } else if locations.is_empty() {
-        return usage();
-    }
-    let site = Site {
-        name: &name,
-        origin: origin.as_deref(),
-    };
-    let mut failed = false;
-    for (location, notfound) in &locations {
-        let mut line = String::from("{\"location\":");
-        crate::batch::quote(location, &mut line);
-        let rendered = Host::boot(&plan, D::default(), viewport, location)
-            .map_err(|e| e.to_string())
-            .and_then(|(host, _)| {
-                let doc = project(host.runner()).map_err(|e| e.to_string())?;
-                let head = doc
-                    .page_head(&decoded, &site, location)
-                    .map_err(|e| e.to_string())?;
-                Ok((doc, head, checkpoint(host.runner(), location)))
-            });
-        match rendered {
-            Ok((doc, head, checkpoint)) => {
-                let status = doc.head.status.unwrap_or(if *notfound { 404 } else { 200 });
-                let _ = write!(
-                    line,
-                    ",\"notfound\":{notfound},\"status\":{status},\"robots\":"
-                );
-                match &doc.head.robots {
-                    Some(robots) => crate::batch::quote(robots, &mut line),
-                    None => line.push_str("null"),
-                }
-                for (field, value) in [
-                    ("root", &doc.root),
-                    ("head", &head),
-                    ("checkpoint", &checkpoint),
-                ] {
-                    let _ = write!(line, ",\"{field}\":");
-                    crate::batch::quote(value, &mut line);
-                }
-            }
-            Err(error) => {
-                failed = true;
-                line.push_str(",\"error\":");
-                crate::batch::quote(&error, &mut line);
-            }
-        }
-        line.push('}');
-        println!("{line}");
-    }
-    if failed {
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    }
 }

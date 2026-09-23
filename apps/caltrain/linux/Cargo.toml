@@ -14,10 +14,16 @@ build = "build.rs"
 name = "caltrain-linux"
 path = "src/main.rs"
 
+# The pages as documents (LLP 1048.000 D9): the web build's render entry.
+[[bin]]
+name = "caltrain-render"
+path = "src/bin/caltrain-render.rs"
+
 [dependencies]
 exact-logic = { path = "../../../logic" }
 caltrain-data = { path = "../data" }
 exact-linux = { path = "../../../host/linux" }
+exact-render = { path = "../../../host/render" }
 
 exact-linux-update = { path = "../../../host/linux-update" }
 

@@ -1,0 +1,232 @@
+//! The async render host (LLP 1048.000 D9): a render waits for its answers,
+//! stops at its deadline with placeholders, and refuses what its environment
+//! doesn't hold — the source keeps its placeholder for the client.
+
+use exact_plan::{Plan, Value};
+use exact_render::{render, Anonymous, Rendered, Settled};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Response, Store};
+use exact_web::document::Site;
+use std::io::{Read, Write};
+use std::path::Path;
+use std::time::{Duration, Instant};
+
+/// How the fixture's `post` source answers later.
+#[derive(Clone, Copy, Default)]
+enum Post {
+    /// A continuation that answers after a moment.
+    #[default]
+    Soon,
+    /// A continuation that answers long after any deadline.
+    Never,
+    /// Storage: a device capability.
+    Storage,
+    /// A fetch the grants don't cover.
+    Elsewhere,
+    /// A real fetch from a server on this machine.
+    Local(u16),
+}
+
+#[derive(Clone, Default)]
+struct Blog {
+    post: Post,
+    grants: String,
+}
+
+impl Blog {
+    fn new(post: Post) -> Self {
+        let fetch = match post {
+            Post::Local(port) => format!("http://127.0.0.1:{port}/"),
+            _ => "https://blog.test/".into(),
+        };
+        Blog {
+            post,
+            grants: format!("net.fetch {fetch}\nsecret.keep session\nsqlite.open app:/blog.db\n"),
+        }
+    }
+}
+
+fn post(id: &str, title: &str) -> Value {
+    Value::record(vec![Value::str(id), Value::str(title)])
+}
+
+impl DataSource for Blog {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        _: &[Value],
+    ) -> Result<Answer, DataError> {
+        Ok(match (source, self.post) {
+            ("emptyPost", _) => Answer::Now(post("", "")),
+            // A render's store holds nothing, and nothing can be kept in it:
+            // a session would show one comment.
+            ("comments", _) => {
+                let held = store.get("session").is_some();
+                let kept = store.set("session", "x").is_ok();
+                let private = (held || kept).then(|| Value::str("private"));
+                Answer::Now(Value::list(private.into_iter().collect()))
+            }
+            ("post", Post::Soon | Post::Never) => Answer::Later(Request::continuation(1)),
+            ("post", Post::Storage) => Answer::Later(Request::storage(b"get".to_vec())),
+            ("post", Post::Elsewhere) => {
+                Answer::Later(Request::get("https://elsewhere.invalid/post"))
+            }
+            ("post", Post::Local(port)) => {
+                Answer::Later(Request::get(&format!("http://127.0.0.1:{port}/post/7")))
+            }
+            (other, _) => return Err(DataError::UnknownSource(other.into())),
+        })
+    }
+
+    fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        let wait = match self.post {
+            Post::Never => Duration::from_secs(5),
+            _ => Duration::from_millis(20),
+        };
+        Some(Box::new(move || {
+            std::thread::sleep(wait);
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: b"Hello".to_vec(),
+            })
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        Ok(Answer::Now(match outcome {
+            Outcome::Response(r) => post("7", &String::from_utf8_lossy(&r.body)),
+            Outcome::Failed { message, .. } => post("7", &format!("failed: {message}")),
+            _ => post("7", "?"),
+        }))
+    }
+
+    fn grants(&self) -> &str {
+        &self.grants
+    }
+}
+
+fn plan() -> Plan {
+    let src = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/corpus/placeholder.contract"),
+    )
+    .unwrap();
+    contract::compile(&src).unwrap()
+}
+
+const SITE: Site<'static> = Site {
+    name: "Blog",
+    origin: None,
+};
+
+fn at(post: Post, deadline: Duration) -> Rendered {
+    render(
+        &plan(),
+        Blog::new(post),
+        Default::default(),
+        "/post/7",
+        &SITE,
+        deadline,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_render_waits_for_its_answers() {
+    let r = at(Post::Soon, Duration::from_secs(5));
+    assert_eq!(r.settled, Settled::Complete);
+    assert!(r.document.root.contains(">Hello<"), "{}", r.document.root);
+    assert!(r.document.root.contains(">ready<"), "{}", r.document.root);
+    assert!(r.checkpoint.contains("\"pending\":[]"), "{}", r.checkpoint);
+    // The environment holds no secret and keeps none.
+    assert!(
+        r.document.root.contains(">0 comments<"),
+        "{}",
+        r.document.root
+    );
+}
+
+#[test]
+fn at_the_deadline_the_placeholder_stays_and_the_checkpoint_lists_it() {
+    let started = Instant::now();
+    let r = at(Post::Never, Duration::from_millis(100));
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(r.settled, Settled::Deadline);
+    assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
+    assert!(
+        r.checkpoint.contains("\"pending\":[\"post\"]"),
+        "{}",
+        r.checkpoint
+    );
+}
+
+#[test]
+fn what_the_environment_does_not_hold_keeps_its_placeholder() {
+    for post in [Post::Storage, Post::Elsewhere] {
+        let r = at(post, Duration::from_secs(5));
+        assert_eq!(r.settled, Settled::Complete);
+        assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
+        assert!(!r.document.root.contains("failed"), "{}", r.document.root);
+        assert!(
+            r.checkpoint.contains("\"pending\":[\"post\"]"),
+            "{}",
+            r.checkpoint
+        );
+    }
+    // Only the app's fetch grants reach the render.
+    let data = Anonymous::new(Blog::new(Post::Soon));
+    assert_eq!(DataSource::grants(&data), "net.fetch https://blog.test/");
+}
+
+#[test]
+fn a_fetch_runs_through_the_native_executor() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0u8; 4096];
+        let n = stream.read(&mut request).unwrap();
+        let line = String::from_utf8_lossy(&request[..n])
+            .lines()
+            .next()
+            .unwrap_or("")
+            .to_string();
+        let body = "From the server";
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+        line
+    });
+    let r = at(Post::Local(port), Duration::from_secs(10));
+    assert_eq!(server.join().unwrap(), "GET /post/7 HTTP/1.1");
+    assert_eq!(r.settled, Settled::Complete);
+    assert!(
+        r.document.root.contains(">From the server<"),
+        "{}",
+        r.document.root
+    );
+    // Failure is the source's data: a refused connection is shaped by parse.
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let r = at(Post::Local(port), Duration::from_secs(10));
+    assert_eq!(r.settled, Settled::Complete);
+    assert!(r.document.root.contains(">failed: "), "{}", r.document.root);
+}

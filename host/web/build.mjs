@@ -154,18 +154,20 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
     '<script type="module" src="./glue.js"></script>',
     `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
   ));
-// Documents (LLP 1048.000 D3, D7): every route the plan declares
-// `render=build`, rendered by the app's native render entry
-// (`<app>-render`, exact_web::document::main) from the plan the wasm carries.
-// Each is the shell with the renderer's <head>, its document in #exact-root
-// and its checkpoint; nothing preloads the glue or the wasm. Then 404.html,
-// sitemap.xml (absolute, against the manifest's origin) and robots.txt.
+// Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
+// `render=build`, rendered by the app's native render entry (`<app>-render`
+// beside its native data source, in its Linux crate; exact_render::main)
+// from the plan the wasm carries. Each is the shell with the renderer's
+// <head>, its document in #exact-root and its checkpoint; nothing preloads
+// the glue or the wasm. Then 404.html, sitemap.xml (absolute, against the
+// manifest's origin) and robots.txt.
 const renderBin = crate.replace(/-web$/, '-render');
+const renderCrate = app.crate('linux');
 let documentNote = 'no render entry';
-if (existsSync(resolve(app.dir, 'web/src/bin', `${renderBin}.rs`))) {
+if (existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`))) {
   const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
   delete renderEnv.EXACT_BAKE_OUTPUT;
-  const rendered = spawnSync('cargo', ['run', '-q', '-p', crate, '--bin', renderBin, '--', '--plan', planOut,
+  const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,
     '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--build'],
   { cwd: app.dir, env: renderEnv, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (rendered.status !== 0) throw new Error(`${renderBin}: ${rendered.stderr}${rendered.stdout}`);
@@ -187,7 +189,10 @@ if (existsSync(resolve(app.dir, 'web/src/bin', `${renderBin}.rs`))) {
     if (origin) writeFileSync(resolve(stage, 'sitemap.xml'), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${listed.map((location) => `  <url><loc>${xml(origin + location)}</loc></url>\n`).join('')}</urlset>\n`);
     writeFileSync(resolve(stage, 'robots.txt'), `User-agent: *\nAllow: /\n${origin ? `Sitemap: ${origin}/sitemap.xml\n` : ''}`);
   }
-  documentNote = `${pages.length} document${pages.length === 1 ? '' : 's'}${pages.length && !app.origin ? ' (no origin: no sitemap)' : ''}`;
+  // A render that reached its deadline still ships: its placeholders show
+  // until the runtime asks what was pending (LLP 1048.000 D9).
+  const late = pages.filter((doc) => doc.settled === false).map((doc) => doc.location);
+  documentNote = `${pages.length} document${pages.length === 1 ? '' : 's'}${pages.length && !app.origin ? ' (no origin: no sitemap)' : ''}${late.length ? `; at the deadline, with placeholders: ${late.join(', ')}` : ''}`;
 }
 // The deep-link association file (LLP 1030 D1; 1030.000 D2): generated from
 // the manifest when the iOS host claims the domain and names its team; a
