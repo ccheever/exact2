@@ -332,7 +332,12 @@ parked call by target, then source and arguments; a source that forwards to
 another forwards the target too. A caller that names no target (a forwarder
 that overrides only `answer`/`parse`) keeps the old key and behavior. A
 replaced Rust module's byte seam carries no target; a Rust source parks
-nothing between `answer` and `parse`.
+nothing between `answer` and `parse`. After a commit that let a request go
+(newer arguments, an answer now, an assignment, a refused commit), the
+runner tells the source what is still in flight (`forgotten`, after any
+restore), and each of those executors drops the calls it parked for
+anything else: the prelude's record and fetches too, a realm's queued turns,
+and a Mixed set's reservation for a turn whose reply the runner will drop.
 
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
 
